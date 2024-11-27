@@ -1,4 +1,4 @@
-// src/ResourceCard.tsx
+// src/tabs/resources/ResourceCard.tsx
 
 import React from 'react';
 import {
@@ -12,8 +12,9 @@ import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { colours } from '../../app/styles/colours';
 import { Resource } from './Resources';
 import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme
+import '../../app/styles/ResourceCard.css'; // Import the CSS file
 
-// Define button styles similar to EnquiryCard
+// Define button styles similar to LinkCard
 const iconButtonStyles = (iconColor: string): IButtonStyles => ({
   root: {
     marginBottom: '8px',
@@ -49,6 +50,7 @@ interface ResourceCardProps {
   onToggleFavorite: (title: string) => void;
   onGoTo: (url: string) => void;
   onSelect: () => void;
+  animationDelay?: number; // Add this prop
 }
 
 const cardStyle = (isDarkMode: boolean) =>
@@ -62,16 +64,16 @@ const cardStyle = (isDarkMode: boolean) =>
       : '0 2px 8px rgba(0, 0, 0, 0.1)',
     transition: 'box-shadow 0.3s, transform 0.3s, background-color 0.3s',
     cursor: 'pointer',
+    display: 'flex',
+    flexDirection: 'row',
+    alignItems: 'center', // Center vertically
+    height: '100%',
     ':hover': {
       boxShadow: isDarkMode
         ? '0 4px 16px rgba(255, 255, 255, 0.2)'
         : '0 4px 16px rgba(0, 0, 0, 0.2)',
       transform: 'translateY(-5px)',
     },
-    display: 'flex',
-    flexDirection: 'row',
-    alignItems: 'center', // Center vertically
-    height: '100%',
   });
 
 const mainContentStyle = (isDarkMode: boolean) =>
@@ -109,92 +111,95 @@ const separatorStyle = (isDarkMode: boolean) =>
   });
 
 const ResourceCard: React.FC<ResourceCardProps> = React.memo(
-  ({ resource, isFavorite, onCopy, onToggleFavorite, onGoTo, onSelect }) => {
+  ({ resource, isFavorite, onCopy, onToggleFavorite, onGoTo, onSelect, animationDelay = 0 }) => {
     const { isDarkMode } = useTheme(); // Access isDarkMode from Theme Context
 
     return (
-      <div
-        className={cardStyle(isDarkMode)}
-        onClick={onSelect}
-        role="button"
-        tabIndex={0}
-        onKeyPress={(e) => {
-          if (e.key === 'Enter') {
-            onSelect();
-          }
-        }}
-        aria-label={`View details for ${resource.title}`}
-      >
-        {/* Left Side: Icon and Label */}
-        <div className={mainContentStyle(isDarkMode)}>
-          {resource.icon && (
-            <Icon
-              iconName={resource.icon}
-              styles={{ root: { fontSize: 32, color: colours.highlight } }}
-            />
-          )}
-          <Text className={resourceTitleStyle}>{resource.title}</Text>
+      <TooltipHost content={`View details for ${resource.title}`}>
+        <div
+          className={`resourceCard ${cardStyle(isDarkMode)}`}
+          style={{ '--animation-delay': `${animationDelay}s` } as React.CSSProperties}
+          onClick={onSelect}
+          role="button"
+          tabIndex={0}
+          onKeyPress={(e) => {
+            if (e.key === 'Enter') {
+              onSelect();
+            }
+          }}
+          aria-label={`View details for ${resource.title}`}
+        >
+          {/* Left Side: Icon and Label */}
+          <div className={mainContentStyle(isDarkMode)}>
+            {resource.icon && (
+              <Icon
+                iconName={resource.icon}
+                styles={{ root: { fontSize: 32, color: colours.highlight } }}
+              />
+            )}
+            <Text className={resourceTitleStyle}>{resource.title}</Text>
+          </div>
+
+          {/* Separator */}
+          <div className={separatorStyle(isDarkMode)} />
+
+          {/* Right Side: Action Buttons */}
+          <div className={actionsContainerStyle(isDarkMode)}>
+            {/* Copy Button */}
+            <TooltipHost
+              content={`Copy link for ${resource.title}`}
+              id={`tooltip-copy-${resource.title}`}
+            >
+              <IconButton
+                iconProps={{ iconName: 'Copy' }}
+                title="Copy Link"
+                ariaLabel="Copy Link"
+                onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+                  e.stopPropagation();
+                  onCopy(resource.url, resource.title);
+                }}
+                styles={iconButtonStyles(colours.cta)}
+              />
+            </TooltipHost>
+
+            {/* Favorite Button */}
+            <TooltipHost
+              content={isFavorite ? 'Remove from Favorites' : 'Add to Favorites'}
+              id={`tooltip-fav-${resource.title}`}
+            >
+              <IconButton
+                iconProps={{
+                  iconName: isFavorite ? 'FavoriteStarFill' : 'FavoriteStar',
+                }}
+                title="Toggle Favorite"
+                ariaLabel="Toggle Favorite"
+                onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+                  e.stopPropagation();
+                  onToggleFavorite(resource.title);
+                }}
+                styles={iconButtonStyles(colours.cta)}
+              />
+            </TooltipHost>
+
+            {/* Go To Button */}
+            <TooltipHost
+              content={`Go to ${resource.title}`}
+              id={`tooltip-go-${resource.title}`}
+            >
+              <IconButton
+                iconProps={{ iconName: 'ChevronRight' }}
+                title="Go To"
+                ariaLabel="Go To"
+                onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+                  e.stopPropagation();
+                  onGoTo(resource.url);
+                }}
+                styles={iconButtonStyles(colours.cta)}
+              />
+            </TooltipHost>
+          </div>
         </div>
-
-        {/* Separator */}
-        <div className={separatorStyle(isDarkMode)} />
-
-        {/* Right Side: Action Buttons */}
-        <div className={actionsContainerStyle(isDarkMode)}>
-          {/* Copy Button */}
-          <TooltipHost
-            content={`Copy link for ${resource.title}`}
-            id={`tooltip-copy-${resource.title}`}
-          >
-            <IconButton
-              iconProps={{ iconName: 'Copy' }}
-              title="Copy Link"
-              ariaLabel="Copy Link"
-              onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
-                e.stopPropagation();
-                onCopy(resource.url, resource.title);
-              }}
-              styles={iconButtonStyles(colours.cta)}
-            />
-          </TooltipHost>
-
-          {/* Favorite Button */}
-          <TooltipHost
-            content={isFavorite ? 'Remove from Favorites' : 'Add to Favorites'}
-            id={`tooltip-fav-${resource.title}`}
-          >
-            <IconButton
-              iconProps={{
-                iconName: isFavorite ? 'FavoriteStarFill' : 'FavoriteStar',
-              }}
-              title="Toggle Favorite"
-              ariaLabel="Toggle Favorite"
-              onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
-                e.stopPropagation();
-                onToggleFavorite(resource.title);
-              }}
-              styles={iconButtonStyles(colours.cta)}
-            />
-          </TooltipHost>
-
-          {/* Go To Button */}
-          <TooltipHost
-            content={`Go to ${resource.title}`}
-            id={`tooltip-go-${resource.title}`}
-          >
-            <IconButton
-              iconProps={{ iconName: 'ChevronRight' }}
-              title="Go To"
-              ariaLabel="Go To"
-              onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
-                e.stopPropagation();
-                onGoTo(resource.url);
-              }}
-              styles={iconButtonStyles(colours.cta)}
-            />
-          </TooltipHost>
-        </div>
-      </div>
+      </TooltipHost>
     );
   }
 );

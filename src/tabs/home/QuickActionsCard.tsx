@@ -3,6 +3,7 @@
 import React from 'react';
 import { mergeStyles, Icon, IconButton, Text } from '@fluentui/react';
 import { colours } from '../../app/styles/colours';
+import '../../app/styles/QuickActionsCard.css'; // Import the CSS file
 
 interface QuickActionsCardProps {
   title: string;
@@ -64,7 +65,7 @@ const QuickActionsCard: React.FC<QuickActionsCardProps> = ({
 
   return (
     <div
-      className={cardStyle}
+      className={`quickActionCard ${cardStyle}`}
       onClick={onClick}
       role="button"
       tabIndex={0}

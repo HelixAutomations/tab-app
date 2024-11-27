@@ -13,41 +13,51 @@ export const sharedSearchBoxContainerStyle = (isDarkMode: boolean) =>
     alignItems: 'center',
   });
 
+export const sharedControlsContainerStyle = mergeStyles({
+  display: 'flex',
+  alignItems: 'center',
+  gap: '10px',
+  flex: 1, // Ensures items stretch evenly
+  flexWrap: 'nowrap', // Prevent wrapping
+});
+
 // Shared Styles for SearchBox
 export const sharedSearchBoxStyle = (isDarkMode: boolean) => ({
   root: {
-    backgroundColor: isDarkMode ? colours.dark.inputBackground : '#ffffff', // Consistent background
-    border: 'none', // Remove border
-    boxShadow: 'none', // Remove box-shadow
-    borderRadius: '8px', // Rounded corners
+    backgroundColor: isDarkMode ? colours.dark.inputBackground : '#ffffff',
+    border: 'none',
+    boxShadow: 'none',
+    borderRadius: '8px 8px 0 0', // Rounded corners only at the top
     padding: '0',
     width: '100%',
     maxWidth: '300px',
     display: 'flex',
     alignItems: 'center',
-    height: '32px', // Match SearchBox height
+    height: '32px',
+    borderBottom: `2px solid ${isDarkMode ? colours.dark.border : '#dcdcdc'}`, // Default bottom border
+    transition: 'border-color 0.3s', // Smooth transition
+    ':focus-within': {
+      borderBottom: `2px solid ${isDarkMode ? colours.highlight : colours.cta}`, // Highlight colour on focus
+    },
   },
   field: {
     backgroundColor: 'transparent',
     border: 'none',
-    borderRadius: '8px',
+    borderRadius: '8px 8px 0 0',
     padding: '0 12px',
-    height: '100%', // Ensure the input fills the container height
+    height: '100%',
     color: isDarkMode ? colours.dark.text : colours.light.text,
     fontSize: '14px',
+    outline: 'none', // Remove default outline
     '::placeholder': {
       color: isDarkMode ? '#aaaaaa' : '#888888',
       opacity: 1,
     },
-    outline: 'none',
   },
   icon: {
     color: isDarkMode ? colours.dark.iconColor : colours.light.iconColor,
     fontSize: '16px',
     marginLeft: '8px',
-  },
-  clearButton: {
-    color: isDarkMode ? colours.dark.iconColor : colours.light.iconColor,
   },
 });
 
@@ -79,51 +89,41 @@ export const sharedDropdownStyles = (isDarkMode: boolean): Partial<IDropdownStyl
   root: {
     width: '100%',
     maxWidth: '300px',
-    height: '32px', // Match SearchBox height
+    height: '32px',
+    borderBottom: `2px solid ${isDarkMode ? colours.dark.border : '#dcdcdc'}`, // Apply the border to the parent
+    transition: 'border-color 0.3s', // Smooth transition
+    ':focus-within': {
+      borderBottom: `2px solid ${isDarkMode ? colours.highlight : colours.cta}`, // Highlight effect
+    },
   },
   dropdown: {
     backgroundColor: isDarkMode ? colours.dark.inputBackground : '#ffffff',
-    border: 'none', // Remove border
-    boxShadow: 'none', // Remove box-shadow
-    borderRadius: '8px',
+    border: 'none', // Ensure no border on the dropdown itself
+    boxShadow: 'none',
+    borderRadius: '8px 8px 0 0',
     padding: '0',
-    height: '32px', // Match SearchBox height
-    lineHeight: '32px', // Vertically center the text
-  },
-  dropdownItem: {
-    backgroundColor: isDarkMode ? colours.dark.inputBackground : '#ffffff',
-    height: '32px', // Match SearchBox height
-    lineHeight: '32px', // Vertically center the text
-    selectors: {
-      ':hover': {
-        backgroundColor: isDarkMode ? colours.dark.cardHover : '#f3f2f1',
-      },
-      ':focus': {
-        backgroundColor: isDarkMode ? colours.dark.cardHover : '#f3f2f1',
-      },
-    },
-  },
-  title: {
-    backgroundColor: isDarkMode ? colours.dark.inputBackground : '#ffffff',
-    color: isDarkMode ? colours.dark.text : colours.light.text,
-    fontSize: '14px',
-    paddingLeft: '12px',
-    paddingRight: '12px',
-    borderRadius: '8px',
-    height: '32px', // Match SearchBox height
+    height: '32px',
     display: 'flex',
     alignItems: 'center',
-    lineHeight: '32px', // Vertically center the text
+  },
+  title: {
+    backgroundColor: 'transparent', // Ensure title background doesn't interfere
+    color: isDarkMode ? colours.dark.text : colours.light.text,
+    fontSize: '14px',
+    height: '32px',
+    paddingLeft: '12px',
+    paddingRight: '36px',
+    display: 'flex',
+    alignItems: 'center',
+    border: 'none', // Remove any border on the title element
   },
   caretDown: {
     color: isDarkMode ? colours.dark.iconColor : colours.light.iconColor,
     fontSize: '16px',
-    top: '50%', // Vertically center the caret
-    transform: 'translateY(-50%)', // Vertically center the caret
-  },
-  dropdownItemSelected: {
-    backgroundColor: isDarkMode ? colours.dark.sectionBackground : '#eaeaea',
-    color: isDarkMode ? colours.dark.text : colours.light.text,
-    fontWeight: '600',
+    position: 'absolute',
+    right: '12px',
+    top: '50%',
+    transform: 'translateY(-50%)',
+    pointerEvents: 'none',
   },
 });

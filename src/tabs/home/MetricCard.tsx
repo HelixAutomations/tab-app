@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { Text, mergeStyles, TooltipHost, DirectionalHint } from '@fluentui/react';
 import CountUp from 'react-countup';
 import { colours } from '../../app/styles/colours';
+import '../../app/styles/MetricCard.css'; // Import the CSS file
 
 interface MetricCardProps {
   title: string;
@@ -15,9 +16,9 @@ interface MetricCardProps {
   prevMoney?: number;
   isDarkMode: boolean;
   isTimeMoney?: boolean;
+  animationDelay?: number; // Add this prop
 }
 
-// Update `cardStyle` to allow cards to take up the extra space by increasing the flex property.
 const cardStyle = (isDarkMode: boolean, isPositive: boolean | null) =>
   mergeStyles({
     backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
@@ -32,10 +33,10 @@ const cardStyle = (isDarkMode: boolean, isPositive: boolean | null) =>
     flexDirection: 'column',
     justifyContent: 'center',
     alignItems: 'center',
-    height: '150px', // Increased height for better alignment
-    flex: '1 1 30%', // Adjusted to make cards wider by default
-    minWidth: '300px', // Increased minimum width
-    maxWidth: '500px', // Added a maximum width
+    height: '150px',
+    flex: '1 1 30%',
+    minWidth: '300px',
+    maxWidth: '500px',
     cursor: 'pointer',
     border:
       isPositive !== null ? `2px solid ${isPositive ? 'green' : 'red'}` : '2px solid transparent',
@@ -90,34 +91,34 @@ const MetricCard: React.FC<MetricCardProps> = ({
   prevMoney,
   isDarkMode,
   isTimeMoney = false,
+  animationDelay = 0, // Default delay
 }) => {
   const [isHovered, setIsHovered] = useState<boolean>(false);
 
-  // Helper function to calculate change and percentage
   const calculateChange = (current: number, previous: number) => {
     const change = current - previous;
     const percentage = previous !== 0 ? (change / previous) * 100 : 0;
     return { change, percentage };
   };
 
-  // Calculate changes based on props
-  const countChange = count !== undefined && prevCount !== undefined
-    ? calculateChange(count, prevCount)
-    : null;
+  const countChange =
+    count !== undefined && prevCount !== undefined
+      ? calculateChange(count, prevCount)
+      : null;
 
-  const moneyChange = money !== undefined && prevMoney !== undefined
-    ? calculateChange(money, prevMoney)
-    : null;
+  const moneyChange =
+    money !== undefined && prevMoney !== undefined
+      ? calculateChange(money, prevMoney)
+      : null;
 
-  const hoursChange = hours !== undefined && prevHours !== undefined
-    ? calculateChange(hours, prevHours)
-    : null;
+  const hoursChange =
+    hours !== undefined && prevHours !== undefined
+      ? calculateChange(hours, prevHours)
+      : null;
 
-  // Determine if overall change is positive or negative for border color
   let overallChange: boolean | null = null;
   if (isTimeMoney) {
     if (moneyChange && hoursChange) {
-      // If both changes exist, determine based on moneyChange
       overallChange = moneyChange.change >= 0;
     } else if (moneyChange) {
       overallChange = moneyChange.change >= 0;
@@ -128,7 +129,6 @@ const MetricCard: React.FC<MetricCardProps> = ({
     overallChange = countChange.change >= 0;
   }
 
-  // Prepare tooltip content
   const tooltipContent = () => {
     if (isTimeMoney) {
       return (
@@ -136,13 +136,15 @@ const MetricCard: React.FC<MetricCardProps> = ({
           {moneyChange && (
             <div>
               <strong>Money:</strong> £{Math.abs(moneyChange.change).toLocaleString()} (
-              {Math.abs(Number(moneyChange.percentage.toFixed(2)))}% {moneyChange.change >= 0 ? '↑' : '↓'})
+              {Math.abs(Number(moneyChange.percentage.toFixed(2)))}%{' '}
+              {moneyChange.change >= 0 ? '↑' : '↓'})
             </div>
           )}
           {hoursChange && (
             <div>
               <strong>Hours:</strong> {Math.abs(hoursChange.change)} hrs (
-              {Math.abs(Number(hoursChange.percentage.toFixed(2)))}% {hoursChange.change >= 0 ? '↑' : '↓'})
+              {Math.abs(Number(hoursChange.percentage.toFixed(2)))}%{' '}
+              {hoursChange.change >= 0 ? '↑' : '↓'})
             </div>
           )}
         </>
@@ -151,17 +153,19 @@ const MetricCard: React.FC<MetricCardProps> = ({
       return (
         <div>
           <strong>Change:</strong> {Math.abs(countChange.change).toLocaleString()} (
-          {Math.abs(Number(countChange.percentage.toFixed(2)))}% {countChange.change >= 0 ? '↑' : '↓'})
+          {Math.abs(Number(countChange.percentage.toFixed(2)))}%{' '}
+          {countChange.change >= 0 ? '↑' : '↓'})
         </div>
       );
     }
-    return ''; // Ensure this never returns null
+    return '';
   };
 
   return (
     <TooltipHost content={tooltipContent()} directionalHint={DirectionalHint.topCenter}>
       <div
-        className={cardStyle(isDarkMode, isHovered ? overallChange : null)}
+        className={`metricCard ${mergeStyles(cardStyle(isDarkMode, isHovered ? overallChange : null))}`}
+        style={{ '--animation-delay': `${animationDelay}s` } as React.CSSProperties}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         aria-label={`${title} metric card`}
@@ -170,7 +174,8 @@ const MetricCard: React.FC<MetricCardProps> = ({
         {isTimeMoney ? (
           <Text className={mergeStyles({ display: 'flex', alignItems: 'center' })}>
             <span className={moneyStyle}>
-              £<CountUp start={0} end={Number(money) || 0} duration={2.5} separator="," />
+              £
+              <CountUp start={0} end={Number(money) || 0} duration={2.5} separator="," />
             </span>
             <span className={pipeStyle}>|</span>
             <span className={hoursStyle}>
@@ -183,26 +188,31 @@ const MetricCard: React.FC<MetricCardProps> = ({
           </Text>
         )}
 
-        {/* Display change information when hovered */}
         {isHovered && (
           <div>
             {isTimeMoney ? (
               <>
                 {moneyChange && (
                   <Text className={changeStyle(moneyChange.change >= 0)}>
-                    £{Math.abs(moneyChange.change).toLocaleString()} ({Math.abs(Number(moneyChange.percentage.toFixed(2)))}% {moneyChange.change >= 0 ? '↑' : '↓'})
+                    £{Math.abs(moneyChange.change).toLocaleString()} (
+                    {Math.abs(Number(moneyChange.percentage.toFixed(2)))}%{' '}
+                    {moneyChange.change >= 0 ? '↑' : '↓'})
                   </Text>
                 )}
                 {hoursChange && (
                   <Text className={changeStyle(hoursChange.change >= 0)}>
-                    {Math.abs(hoursChange.change)} hrs ({Math.abs(Number(hoursChange.percentage.toFixed(2)))}% {hoursChange.change >= 0 ? '↑' : '↓'})
+                    {Math.abs(hoursChange.change)} hrs (
+                    {Math.abs(Number(hoursChange.percentage.toFixed(2)))}%{' '}
+                    {hoursChange.change >= 0 ? '↑' : '↓'})
                   </Text>
                 )}
               </>
             ) : (
               countChange && (
                 <Text className={changeStyle(countChange.change >= 0)}>
-                  {Math.abs(countChange.change).toLocaleString()} ({Math.abs(Number(countChange.percentage.toFixed(2)))}% {countChange.change >= 0 ? '↑' : '↓'})
+                  {Math.abs(countChange.change).toLocaleString()} (
+                  {Math.abs(Number(countChange.percentage.toFixed(2)))}%{' '}
+                  {countChange.change >= 0 ? '↑' : '↓'})
                 </Text>
               )
             )}

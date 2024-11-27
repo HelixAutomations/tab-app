@@ -1,4 +1,4 @@
-// src/Resources.tsx
+// src/tabs/resources/Resources.tsx
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
@@ -17,8 +17,9 @@ import { colours } from '../../app/styles/colours';
 import { useFeContext } from '../../app/functionality/FeContext';
 import ResourceCard from './ResourceCard';
 import ResourceDetails from './ResourceDetails';
-import { sharedSearchBoxContainerStyle, sharedSearchBoxStyle } from '../../app/styles/sharedStyles';
+import { sharedSearchBoxContainerStyle, sharedSearchBoxStyle } from '../../app/styles/FilterStyles';
 import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme
+import '../../app/styles/ResourceCard.css'; // Ensure CSS is imported
 
 initializeIcons();
 
@@ -138,12 +139,6 @@ const footerStyle = (isDarkMode: boolean) =>
     fontFamily: 'Raleway, sans-serif',
   });
 
-// Shared styles for inputs (Dropdown and SearchBox)
-const commonInputStyle = {
-  height: '40px',
-  lineHeight: '40px',
-};
-
 // Define the props for Resources component
 interface ResourcesProps {
   // isDarkMode: boolean; // Removed
@@ -156,6 +151,9 @@ const Resources: React.FC<ResourcesProps> = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
+
+  // Define number of columns per row for delay calculation
+  const columnsPerRow = 5;
 
   // Initialize resources
   const resourcesSections: ResourcesSections = useMemo(
@@ -229,7 +227,7 @@ const Resources: React.FC<ResourcesProps> = () => {
     [favorites]
   );
 
-  // Extract resources from sqlData if available
+  // Extract resources from sqlData if available (assuming similar structure)
   useEffect(() => {
     if (sqlData && sqlData.length > 0) {
       // Assuming sqlData has the same structure as predefined resources
@@ -330,6 +328,23 @@ const Resources: React.FC<ResourcesProps> = () => {
     };
   }, [favorites, resourcesSections, searchQuery]);
 
+  // Calculate animation delays based on unique index
+  const calculateAnimationDelay = (row: number, col: number) => {
+    const delayPerRow = 0.2; // 0.2 seconds delay between rows
+    const delayPerCol = 0.1; // 0.1 seconds delay between columns
+    return row * delayPerRow + col * delayPerCol;
+  };
+
+  // Flatten the resources into a single list to calculate row and column
+  const flatResources = useMemo(() => {
+    const sections = ['Favorites', 'Internal', 'External'] as SectionName[];
+    let flatList: Resource[] = [];
+    sections.forEach((section) => {
+      flatList = flatList.concat(filteredSections[section]);
+    });
+    return flatList;
+  }, [filteredSections]);
+
   return (
     <div className={containerStyle(isDarkMode)}>
       {/* Header */}
@@ -384,17 +399,35 @@ const Resources: React.FC<ResourcesProps> = () => {
                 </Text>
               ) : (
                 <div className={resourceGridStyle}>
-                  {filteredSections[sectionName].map((resource: Resource) => (
-                    <ResourceCard
-                      key={resource.title}
-                      resource={resource}
-                      isFavorite={favorites.includes(resource.title)}
-                      onCopy={copyToClipboard}
-                      onToggleFavorite={toggleFavorite}
-                      onGoTo={goToResource}
-                      onSelect={() => setSelectedResource(resource)}
-                    />
-                  ))}
+                  {filteredSections[sectionName].map((resource: Resource, index: number) => {
+                    // Calculate the global index based on the flatResources array
+                    const globalIndex = flatResources.findIndex(
+                      (res) => res.title === resource.title
+                    );
+
+                    if (globalIndex === -1) {
+                      console.warn(`Resource titled "${resource.title}" not found in flatResources.`);
+                      return null;
+                    }
+
+                    // Calculate row and column
+                    const row = Math.floor(globalIndex / columnsPerRow);
+                    const col = globalIndex % columnsPerRow;
+
+                    const animationDelay = calculateAnimationDelay(row, col);
+                    return (
+                      <ResourceCard
+                        key={resource.title}
+                        resource={resource}
+                        isFavorite={favorites.includes(resource.title)}
+                        onCopy={copyToClipboard}
+                        onToggleFavorite={toggleFavorite}
+                        onGoTo={goToResource}
+                        onSelect={() => setSelectedResource(resource)}
+                        animationDelay={animationDelay}
+                      />
+                    );
+                  })}
                 </div>
               )}
             </section>

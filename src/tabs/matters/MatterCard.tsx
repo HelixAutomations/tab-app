@@ -6,10 +6,12 @@ import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { Matter } from '../../app/functionality/FeContext';
 import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme
+import '../../app/styles/MatterCard.css'; // Import the CSS file
 
 interface MatterCardProps {
   matter: Matter;
   onSelect: (matter: Matter) => void;
+  animationDelay?: number; // New prop for animation delay
 }
 
 const actionButtonStyle = {
@@ -35,6 +37,7 @@ const separatorStyle = (isDarkMode: boolean) =>
     alignSelf: 'stretch',
   });
 
+// Define the card style with dynamic animation delay
 const cardStyle = (isDarkMode: boolean) =>
   mergeStyles({
     padding: '20px',
@@ -53,8 +56,7 @@ const cardStyle = (isDarkMode: boolean) =>
         : '0 4px 16px rgba(0,0,0,0.2)',
       backgroundColor: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
     },
-    width: '100%',
-    boxSizing: 'border-box',
+    overflow: 'hidden', // Prevent overflow from breaking layout
   });
 
 interface DetailRowProps {
@@ -89,7 +91,7 @@ const DetailRow: React.FC<DetailRowProps> = ({ label, value, isDarkMode }) => (
   </Stack>
 );
 
-const MatterCard: React.FC<MatterCardProps> = ({ matter, onSelect }) => {
+const MatterCard: React.FC<MatterCardProps> = ({ matter, onSelect, animationDelay = 0 }) => {
   const { isDarkMode } = useTheme(); // Access isDarkMode from Theme Context
 
   const handleCardClick = () => {
@@ -104,7 +106,8 @@ const MatterCard: React.FC<MatterCardProps> = ({ matter, onSelect }) => {
 
   return (
     <div
-      className={cardStyle(isDarkMode)}
+      className={`matterCard ${cardStyle(isDarkMode)}`}
+      style={{ '--animation-delay': `${animationDelay}s` } as React.CSSProperties}
       onClick={handleCardClick}
       role="button"
       tabIndex={0}

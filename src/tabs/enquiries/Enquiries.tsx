@@ -33,7 +33,8 @@ import {
   sharedSearchBoxStyle,
   sharedDropdownContainerStyle,
   sharedDropdownStyles,
-} from '../../app/styles/sharedStyles'; // Import shared styles
+  sharedControlsContainerStyle,
+} from '../../app/styles/FilterStyles'; // Import shared styles
 import CustomTabs from '../../app/styles/CustomTabs'; // Import the shared CustomTabs component
 import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme
 import { Pivot, PivotItem } from '@fluentui/react';
@@ -596,6 +597,13 @@ const Enquiries: React.FC = () => {
     [handleBackToList, handleSubTabChange, handleRate, isDarkMode, handleUpdateEnquiry, activeSubTab]
   );
 
+  // Calculate animation delays based on row and column
+  const calculateAnimationDelay = (row: number, col: number) => {
+    const delayPerRow = 0.2; // 0.2 seconds delay between rows
+    const delayPerCol = 0.1; // 0.1 seconds delay between columns
+    return row * delayPerRow + col * delayPerCol;
+  };
+
   return (
     <div className={containerStyle(isDarkMode)}>
       {/* Header: Search and Filter Controls */}
@@ -610,14 +618,8 @@ const Enquiries: React.FC = () => {
           })}
         >
           {/* Search Box and Filters */}
-          <div
-            className={mergeStyles({
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px',
-              flex: 1,
-            })}
-          >
+          <div className={sharedControlsContainerStyle}>
+
             {/* Search Box */}
             <div className={sharedSearchBoxContainerStyle(isDarkMode)}>
               <SearchBox
@@ -737,14 +739,23 @@ const Enquiries: React.FC = () => {
                     },
                   })}
                 >
-                  {currentEnquiries.map((enquiry) => (
-                    <EnquiryCard
-                      key={enquiry.ID}
-                      enquiry={enquiry}
-                      onSelect={handleSelectEnquiry}
-                      onRate={handleRate}
-                    />
-                  ))}
+                  {currentEnquiries.map((enquiry, index) => {
+                    // Calculate row and column based on index
+                    const row = Math.floor(index / 4); // 4 columns per row
+                    const col = index % 4;
+
+                    const animationDelay = calculateAnimationDelay(row, col);
+
+                    return (
+                      <EnquiryCard
+                        key={enquiry.ID}
+                        enquiry={enquiry}
+                        onSelect={handleSelectEnquiry}
+                        onRate={handleRate}
+                        animationDelay={animationDelay}
+                      />
+                    );
+                  })}
                 </div>
 
                 {/* Pagination Controls */}

@@ -20,8 +20,9 @@ import LinkDetails from './LinkDetails'; // Optional
 import {
   sharedSearchBoxContainerStyle,
   sharedSearchBoxStyle,
-} from '../../app/styles/sharedStyles';
+} from '../../app/styles/FilterStyles';
 import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme
+import '../../app/styles/LinkCard.css'; // Ensure CSS is imported
 
 initializeIcons();
 
@@ -150,6 +151,9 @@ const LinkHub: React.FC<LinkHubProps> = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
   const [selectedLink, setSelectedLink] = useState<LinkItem | null>(null);
+
+  // Define number of columns per row for delay calculation
+  const columnsPerRow = 5;
 
   // Initialize links
   const linkHubSections: { [key in SectionName]: LinkItem[] } = useMemo(
@@ -289,6 +293,13 @@ const LinkHub: React.FC<LinkHubProps> = () => {
     };
   }, [favorites, linkHubSections, searchQuery]);
 
+  // Calculate animation delays based on grid position
+  const calculateAnimationDelay = (index: number) => {
+    const row = Math.floor(index / columnsPerRow);
+    const col = index % columnsPerRow;
+    return (row + col) * 0.1;
+  };
+
   return (
     <div className={containerStyle(isDarkMode)}>
       {/* Header */}
@@ -343,17 +354,25 @@ const LinkHub: React.FC<LinkHubProps> = () => {
                 </Text>
               ) : (
                 <div className={resourceGridStyle}>
-                  {filteredSections[sectionName].map((link: LinkItem) => (
-                    <LinkCard
-                      key={link.title}
-                      link={link}
-                      isFavorite={favorites.includes(link.title)}
-                      onCopy={copyToClipboard}
-                      onToggleFavorite={toggleFavorite}
-                      onGoTo={goToLink}
-                      onSelect={() => setSelectedLink(link)}
-                    />
-                  ))}
+                  {filteredSections[sectionName].map((link: LinkItem, index: number) => {
+                    const globalIndex =
+                      linkHubSections.Favorites.length +
+                      linkHubSections.General_Processes.length +
+                      linkHubSections.Operations.length;
+                    const animationDelay = calculateAnimationDelay(index);
+                    return (
+                      <LinkCard
+                        key={link.title}
+                        link={link}
+                        isFavorite={favorites.includes(link.title)}
+                        onCopy={copyToClipboard}
+                        onToggleFavorite={toggleFavorite}
+                        onGoTo={goToLink}
+                        onSelect={() => setSelectedLink(link)}
+                        animationDelay={animationDelay}
+                      />
+                    );
+                  })}
                 </div>
               )}
             </section>

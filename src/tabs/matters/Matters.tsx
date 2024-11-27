@@ -1,4 +1,4 @@
-// src/Matters.tsx
+// src/tabs/matters/Matters.tsx
 
 import React, { useState, useEffect, useContext, useMemo, useCallback } from 'react';
 import {
@@ -19,6 +19,7 @@ import {
   DefaultButton,
   Modal,
   Icon,
+  SearchBox,
 } from '@fluentui/react';
 import { TeamsContext } from '../../app/functionality/TeamsContext'; // Updated import
 import { useFeContext, Matter } from '../../app/functionality/FeContext';
@@ -26,8 +27,13 @@ import { initializeIcons } from '@fluentui/react/lib/Icons';
 import CustomPagination from '../../app/styles/CustomPagination';
 import MatterCard from './MatterCard';
 import { colours } from '../../app/styles/colours';
-import { sharedSearchBoxContainerStyle, sharedSearchBoxStyle, sharedDropdownContainerStyle, sharedDropdownStyles } from '../../app/styles/sharedStyles';
-import { SearchBox } from '@fluentui/react';
+import { 
+  sharedSearchBoxContainerStyle,
+  sharedSearchBoxStyle,
+  sharedDropdownContainerStyle,
+  sharedDropdownStyles,
+  sharedControlsContainerStyle,
+} from '../../app/styles/FilterStyles';
 import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme
 
 initializeIcons();
@@ -54,13 +60,6 @@ const headerStyle = (isDarkMode: boolean) =>
     flexWrap: 'wrap',
     gap: '10px',
   });
-
-const controlsContainerStyle = mergeStyles({
-  display: 'flex',
-  alignItems: 'center',
-  gap: '10px',
-  flexWrap: 'wrap',
-});
 
 const searchBoxStyle = mergeStyles({
   maxWidth: '300px',
@@ -93,12 +92,25 @@ const footerStyle = (isDarkMode: boolean) =>
     fontFamily: 'Raleway, sans-serif',
   });
 
-// Define action button styles
-const actionButtonStyle = {
-  root: {
-    marginRight: '8px',
-  },
-};
+  const actionButtonStyle = {
+    root: {
+      backgroundColor: colours.cta, // Default button background
+      color: '#ffffff', // Default text colour
+      borderRadius: '8px',
+      transition: 'background-color 0.3s, transform 0.3s',
+      selectors: {
+        ':hover': {
+          backgroundColor: colours.red, // Hover background colour
+          transform: 'scale(1.05)', // Slight zoom on hover
+        },
+      },
+    },
+    label: {
+      color: 'white',
+      fontWeight: '600',
+    },
+  };
+  
 
 // Define the Matters Component
 const Matters: React.FC = () => {
@@ -258,60 +270,150 @@ const Matters: React.FC = () => {
         <Stack tokens={{ childrenGap: 8 }}>
           {/* Display Number */}
           <Stack tokens={{ childrenGap: 4 }}>
-            <Text variant="small" styles={{ root: { color: colours.highlight, fontWeight: 'semibold' } }}>
+            <Text
+              variant="small"
+              styles={{
+                root: {
+                  color: colours.highlight,
+                  fontWeight: 'semibold',
+                },
+              }}
+            >
               Display Number
             </Text>
-            <Text variant="small" styles={{ root: { color: isDarkMode ? colours.dark.text : colours.light.text } }}>
+            <Text
+              variant="small"
+              styles={{
+                root: {
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                },
+              }}
+            >
               {matter["Display Number"]}
             </Text>
           </Stack>
 
           {/* Open Date */}
           <Stack tokens={{ childrenGap: 4 }}>
-            <Text variant="small" styles={{ root: { color: colours.highlight, fontWeight: 'semibold' } }}>
+            <Text
+              variant="small"
+              styles={{
+                root: {
+                  color: colours.highlight,
+                  fontWeight: 'semibold',
+                },
+              }}
+            >
               Open Date
             </Text>
-            <Text variant="small" styles={{ root: { color: isDarkMode ? colours.dark.text : colours.light.text } }}>
+            <Text
+              variant="small"
+              styles={{
+                root: {
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                },
+              }}
+            >
               {new Date(matter["Open Date"]).toLocaleDateString()}
             </Text>
           </Stack>
 
           {/* Practice Area */}
           <Stack tokens={{ childrenGap: 4 }}>
-            <Text variant="small" styles={{ root: { color: colours.highlight, fontWeight: 'semibold' } }}>
+            <Text
+              variant="small"
+              styles={{
+                root: {
+                  color: colours.highlight,
+                  fontWeight: 'semibold',
+                },
+              }}
+            >
               Practice Area
             </Text>
-            <Text variant="small" styles={{ root: { color: isDarkMode ? colours.dark.text : colours.light.text } }}>
+            <Text
+              variant="small"
+              styles={{
+                root: {
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                },
+              }}
+            >
               {matter["Practice Area"]}
             </Text>
           </Stack>
 
           {/* Client Name */}
           <Stack tokens={{ childrenGap: 4 }}>
-            <Text variant="small" styles={{ root: { color: colours.highlight, fontWeight: 'semibold' } }}>
+            <Text
+              variant="small"
+              styles={{
+                root: {
+                  color: colours.highlight,
+                  fontWeight: 'semibold',
+                },
+              }}
+            >
               Client Name
             </Text>
-            <Text variant="small" styles={{ root: { color: isDarkMode ? colours.dark.text : colours.light.text } }}>
+            <Text
+              variant="small"
+              styles={{
+                root: {
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                },
+              }}
+            >
               {matter["Client Name"]}
             </Text>
           </Stack>
 
           {/* Description */}
           <Stack tokens={{ childrenGap: 4 }}>
-            <Text variant="small" styles={{ root: { color: colours.highlight, fontWeight: 'semibold' } }}>
+            <Text
+              variant="small"
+              styles={{
+                root: {
+                  color: colours.highlight,
+                  fontWeight: 'semibold',
+                },
+              }}
+            >
               Description
             </Text>
-            <Text variant="small" styles={{ root: { color: isDarkMode ? colours.dark.text : colours.light.text } }}>
+            <Text
+              variant="small"
+              styles={{
+                root: {
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                },
+              }}
+            >
               {matter.Description}
             </Text>
           </Stack>
 
           {/* Approx. Value */}
           <Stack tokens={{ childrenGap: 4 }}>
-            <Text variant="small" styles={{ root: { color: colours.highlight, fontWeight: 'semibold' } }}>
+            <Text
+              variant="small"
+              styles={{
+                root: {
+                  color: colours.highlight,
+                  fontWeight: 'semibold',
+                },
+              }}
+            >
               Approx. Value
             </Text>
-            <Text variant="small" styles={{ root: { color: isDarkMode ? colours.dark.text : colours.light.text } }}>
+            <Text
+              variant="small"
+              styles={{
+                root: {
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                },
+              }}
+            >
               {matter["Approx. Value"]}
             </Text>
           </Stack>
@@ -337,13 +439,33 @@ const Matters: React.FC = () => {
     [handleBackToList, isDarkMode]
   );
 
+  // Calculate animation delays based on unique index
+  const calculateAnimationDelay = (index: number) => {
+    const delayPerCard = 0.1; // 0.1 seconds delay per card
+    return index * delayPerCard;
+  };
+
+  // Generate a flat array of all cards to calculate unique indexes
+  const allCards = useMemo(() => {
+    const sections = ['All'] as string[]; // Assuming a single section, adjust if multiple
+    const cards: { section: string; matter: Matter }[] = [];
+
+    sections.forEach((section) => {
+      filteredMatters.forEach((matter) => {
+        cards.push({ section, matter });
+      });
+    });
+
+    return cards;
+  }, [filteredMatters]);
+
   return (
     <div className={containerStyle(isDarkMode)}>
       {/* Header: Search and Filter Controls */}
       <div className={headerStyle(isDarkMode)}>
         {/* Left Side: Search and Filter */}
-        <div className={controlsContainerStyle}>
-          {/* Search Bar */}
+        <div className={sharedControlsContainerStyle}>
+          {/* Search Box */}
           <div className={sharedSearchBoxContainerStyle(isDarkMode)}>
             <SearchBox
               placeholder="Search matters..."
@@ -360,7 +482,7 @@ const Matters: React.FC = () => {
               placeholder="Filter by Role"
               options={roleOptions}
               selectedKey={filterRole}
-              onChange={(e, option) => setFilterRole(option?.key as string)}
+              onChange={(event, option) => setFilterRole(option?.key as string)}
               styles={sharedDropdownStyles(isDarkMode)}
               ariaLabel="Filter Matters by Role"
             />
@@ -372,7 +494,7 @@ const Matters: React.FC = () => {
               placeholder="Filter by Status"
               options={statusOptions}
               selectedKey={filterStatus}
-              onChange={(e, option) => setFilterStatus(option?.key as string)}
+              onChange={(event, option) => setFilterStatus(option?.key as string)}
               styles={sharedDropdownStyles(isDarkMode)}
               ariaLabel="Filter Matters by Status"
             />
@@ -384,7 +506,7 @@ const Matters: React.FC = () => {
       </div>
 
       {/* Main Content */}
-      <div className={mainContentStyle(isDarkMode)}>
+      <main className={mainContentStyle(isDarkMode)}>
         {isLoading ? (
           <Spinner label="Loading matters..." size={SpinnerSize.medium} ariaLive="assertive" />
         ) : error ? (
@@ -409,24 +531,33 @@ const Matters: React.FC = () => {
                 <div
                   className={mergeStyles({
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(4, 1fr)', // Changed to 4 columns
+                    gridTemplateColumns: 'repeat(4, 1fr)', // 4 cards per row
                     gap: '20px',
                     // Responsive adjustments
                     '@media (max-width: 1200px)': {
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', // Responsive for smaller screens
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', // Adjust for smaller screens
                     },
                     '@media (max-width: 900px)': {
-                      gridTemplateColumns: 'repeat(1, 1fr)', // 1 column for small screens
+                      gridTemplateColumns: 'repeat(1, 1fr)', // 1 card per row on very small screens
                     },
                   })}
                 >
-                  {currentMatters.map((matter) => (
-                    <MatterCard
-                      key={matter["Unique ID"]}
-                      matter={matter}
-                      onSelect={handleSelectMatter}
-                    />
-                  ))}
+                  {currentMatters.map((matter) => {
+                    // Find the global index based on the flat allCards array
+                    const globalIndex = allCards.findIndex(
+                      (card) => card.matter["Unique ID"] === matter["Unique ID"]
+                    );
+
+                    const animationDelay = calculateAnimationDelay(globalIndex);
+                    return (
+                      <MatterCard
+                        key={matter["Unique ID"]}
+                        matter={matter}
+                        onSelect={handleSelectMatter}
+                        animationDelay={animationDelay}
+                      />
+                    );
+                  })}
                 </div>
 
                 {/* Pagination Controls */}
@@ -441,10 +572,10 @@ const Matters: React.FC = () => {
             )}
           </>
         )}
-      </div>
+      </main>
 
       {/* Footer */}
-      <div className={footerStyle(isDarkMode)}>
+      <footer className={footerStyle(isDarkMode)}>
         <Text>
           <Link
             href="https://helix-law.co.uk/"
@@ -456,6 +587,7 @@ const Matters: React.FC = () => {
                 fontFamily: 'Raleway, sans-serif',
               },
             }}
+            aria-label="Helix Law Website"
           >
             https://helix-law.co.uk/
           </Link>
@@ -475,7 +607,7 @@ const Matters: React.FC = () => {
         >
           Second Floor, Britannia House, 21 Station Street, Brighton, BN1 4DE
         </Text>
-      </div>
+      </footer>
 
       {/* Success Message */}
       {isSuccessVisible && (

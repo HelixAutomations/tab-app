@@ -1,4 +1,4 @@
-// src/EnquiryCard.tsx
+// src/tabs/enquiries/EnquiryCard.tsx
 
 import React from 'react';
 import {
@@ -15,6 +15,7 @@ import { colours } from '../../app/styles/colours';
 import RatingIndicator from './RatingIndicator';
 import { cleanNotes } from '../../app/functionality/textUtils';
 import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme
+import '../../app/styles/EnquiryCard.css'; // Import the CSS file
 
 const iconButtonStyles = (iconColor: string): IButtonStyles => ({
   root: {
@@ -111,6 +112,7 @@ interface EnquiryCardProps {
   enquiry: Enquiry;
   onSelect: (enquiry: Enquiry) => void;
   onRate: (enquiryId: string) => void;
+  animationDelay?: number; // Add this prop
 }
 
 const formatCurrency = (value: string): string => {
@@ -129,7 +131,7 @@ const formatCurrency = (value: string): string => {
     .join(" to ");
 };
 
-const EnquiryCard: React.FC<EnquiryCardProps> = ({ enquiry, onSelect, onRate }) => {
+const EnquiryCard: React.FC<EnquiryCardProps> = ({ enquiry, onSelect, onRate, animationDelay = 0 }) => {
   const { isDarkMode } = useTheme(); // Access isDarkMode from Theme Context
 
   const handleCardClick = () => {
@@ -148,7 +150,8 @@ const EnquiryCard: React.FC<EnquiryCardProps> = ({ enquiry, onSelect, onRate }) 
 
   return (
     <div
-      className={cardStyle(isDarkMode, enquiry.Area_of_Work)}
+      className={`enquiryCard ${cardStyle(isDarkMode, enquiry.Area_of_Work)}`}
+      style={{ '--animation-delay': `${animationDelay}s` } as React.CSSProperties}
       onClick={handleCardClick}
       role="button"
       tabIndex={0}
@@ -227,6 +230,7 @@ const EnquiryCard: React.FC<EnquiryCardProps> = ({ enquiry, onSelect, onRate }) 
                           color: isDarkMode ? colours.dark.text : colours.light.text,
                         },
                       }}
+                      className={truncatedTextStyle}
                     >
                       {cleanNotes(item.value)} {/* Use the cleanNotes function here */}
                     </Text>

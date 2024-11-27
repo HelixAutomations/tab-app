@@ -11,6 +11,7 @@ import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { colours } from '../../app/styles/colours';
 import { LinkItem } from '../../app/functionality/types';
 import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme
+import '../../app/styles/LinkCard.css'; // Import the CSS file
 
 const iconButtonStyles = (iconColor: string) => ({
   root: {
@@ -47,6 +48,7 @@ interface LinkCardProps {
   onToggleFavorite: (title: string) => void;
   onGoTo: (url: string) => void;
   onSelect: () => void;
+  animationDelay?: number; // Add this prop
 }
 
 const cardStyle = (isDarkMode: boolean) =>
@@ -60,16 +62,16 @@ const cardStyle = (isDarkMode: boolean) =>
       : '0 2px 8px rgba(0, 0, 0, 0.1)',
     transition: 'box-shadow 0.3s, transform 0.3s, background-color 0.3s',
     cursor: 'pointer',
+    display: 'flex',
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: '100%',
     ':hover': {
       boxShadow: isDarkMode
         ? '0 4px 16px rgba(255, 255, 255, 0.2)'
         : '0 4px 16px rgba(0, 0, 0, 0.2)',
       transform: 'translateY(-5px)',
     },
-    display: 'flex',
-    flexDirection: 'row',
-    alignItems: 'center', // Center vertically
-    height: '100%',
   });
 
 const mainContentStyle = (isDarkMode: boolean) =>
@@ -77,8 +79,8 @@ const mainContentStyle = (isDarkMode: boolean) =>
     display: 'flex',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: '10px', // Space between icon and title
-    flex: 1, // Take up remaining space
+    gap: '10px',
+    flex: 1,
   });
 
 const linkTitleStyle = mergeStyles({
@@ -86,7 +88,7 @@ const linkTitleStyle = mergeStyles({
   fontWeight: '600',
   color: 'inherit',
   cursor: 'pointer',
-  marginTop: '0px', // Remove top margin
+  marginTop: '0px',
 });
 
 const actionsContainerStyle = (isDarkMode: boolean) =>
@@ -101,98 +103,101 @@ const separatorStyle = (isDarkMode: boolean) =>
   mergeStyles({
     width: '1px',
     backgroundColor: isDarkMode ? colours.dark.border : colours.light.border,
-    height: '60%', // Adjust height as needed
-    margin: '0 15px', // Equal spacing on both sides
+    height: '60%',
+    margin: '0 15px',
     alignSelf: 'center',
   });
 
 const LinkCard: React.FC<LinkCardProps> = React.memo(
-  ({ link, isFavorite, onCopy, onToggleFavorite, onGoTo, onSelect }) => {
+  ({ link, isFavorite, onCopy, onToggleFavorite, onGoTo, onSelect, animationDelay = 0 }) => {
     const { isDarkMode } = useTheme(); // Access isDarkMode from Theme Context
 
     return (
-      <div
-        className={cardStyle(isDarkMode)}
-        onClick={onSelect}
-        role="button"
-        tabIndex={0}
-        onKeyPress={(e) => {
-          if (e.key === 'Enter') {
-            onSelect();
-          }
-        }}
-        aria-label={`View details for ${link.title}`}
-      >
-        {/* Left Side: Icon and Label */}
-        <div className={mainContentStyle(isDarkMode)}>
-          {link.icon && (
-            <Icon
-              iconName={link.icon}
-              styles={{ root: { fontSize: 32, color: colours.highlight } }}
-            />
-          )}
-          <Text className={linkTitleStyle}>{link.title}</Text>
+      <TooltipHost content={`View details for ${link.title}`}>
+        <div
+          className={`linkCard ${cardStyle(isDarkMode)}`}
+          style={{ '--animation-delay': `${animationDelay}s` } as React.CSSProperties}
+          onClick={onSelect}
+          role="button"
+          tabIndex={0}
+          onKeyPress={(e) => {
+            if (e.key === 'Enter') {
+              onSelect();
+            }
+          }}
+          aria-label={`View details for ${link.title}`}
+        >
+          {/* Left Side: Icon and Label */}
+          <div className={mainContentStyle(isDarkMode)}>
+            {link.icon && (
+              <Icon
+                iconName={link.icon}
+                styles={{ root: { fontSize: 32, color: colours.highlight } }}
+              />
+            )}
+            <Text className={linkTitleStyle}>{link.title}</Text>
+          </div>
+
+          {/* Separator */}
+          <div className={separatorStyle(isDarkMode)} />
+
+          {/* Right Side: Action Buttons */}
+          <div className={actionsContainerStyle(isDarkMode)}>
+            {/* Copy Button */}
+            <TooltipHost
+              content={`Copy link for ${link.title}`}
+              id={`tooltip-copy-${link.title}`}
+            >
+              <IconButton
+                iconProps={{ iconName: 'Copy' }}
+                title="Copy Link"
+                ariaLabel="Copy Link"
+                onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+                  e.stopPropagation();
+                  onCopy(link.url, link.title);
+                }}
+                styles={iconButtonStyles(colours.cta)}
+              />
+            </TooltipHost>
+
+            {/* Favorite Button */}
+            <TooltipHost
+              content={isFavorite ? 'Remove from Favorites' : 'Add to Favorites'}
+              id={`tooltip-fav-${link.title}`}
+            >
+              <IconButton
+                iconProps={{
+                  iconName: isFavorite ? 'FavoriteStarFill' : 'FavoriteStar',
+                }}
+                title="Toggle Favorite"
+                ariaLabel="Toggle Favorite"
+                onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+                  e.stopPropagation();
+                  onToggleFavorite(link.title);
+                }}
+                styles={iconButtonStyles(colours.cta)}
+              />
+            </TooltipHost>
+
+            {/* Go To Button */}
+            <TooltipHost
+              content={`Go to ${link.title}`}
+              id={`tooltip-go-${link.title}`}
+            >
+              <IconButton
+                iconProps={{ iconName: 'ChevronRight' }}
+                title="Go To"
+                ariaLabel="Go To"
+                onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+                  e.stopPropagation();
+                  onGoTo(link.url);
+                }}
+                styles={iconButtonStyles(colours.cta)}
+              />
+            </TooltipHost>
+          </div>
         </div>
-
-        {/* Separator */}
-        <div className={separatorStyle(isDarkMode)} />
-
-        {/* Right Side: Action Buttons */}
-        <div className={actionsContainerStyle(isDarkMode)}>
-          {/* Copy Button */}
-          <TooltipHost
-            content={`Copy link for ${link.title}`}
-            id={`tooltip-copy-${link.title}`}
-          >
-            <IconButton
-              iconProps={{ iconName: 'Copy' }}
-              title="Copy Link"
-              ariaLabel="Copy Link"
-              onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
-                e.stopPropagation();
-                onCopy(link.url, link.title);
-              }}
-              styles={iconButtonStyles(colours.cta)}
-            />
-          </TooltipHost>
-
-          {/* Favorite Button */}
-          <TooltipHost
-            content={isFavorite ? 'Remove from Favorites' : 'Add to Favorites'}
-            id={`tooltip-fav-${link.title}`}
-          >
-            <IconButton
-              iconProps={{
-                iconName: isFavorite ? 'FavoriteStarFill' : 'FavoriteStar',
-              }}
-              title="Toggle Favorite"
-              ariaLabel="Toggle Favorite"
-              onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
-                e.stopPropagation();
-                onToggleFavorite(link.title);
-              }}
-              styles={iconButtonStyles(colours.cta)}
-            />
-          </TooltipHost>
-
-          {/* Go To Button */}
-          <TooltipHost
-            content={`Go to ${link.title}`}
-            id={`tooltip-go-${link.title}`}
-          >
-            <IconButton
-              iconProps={{ iconName: 'ChevronRight' }}
-              title="Go To"
-              ariaLabel="Go To"
-              onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
-                e.stopPropagation();
-                onGoTo(link.url);
-              }}
-              styles={iconButtonStyles(colours.cta)}
-            />
-          </TooltipHost>
-        </div>
-      </div>
+      </TooltipHost>
     );
   }
 );

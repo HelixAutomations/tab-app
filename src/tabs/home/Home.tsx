@@ -32,6 +32,7 @@ import GreyHelixMark from '../../assets/grey helix mark.png';
 import HelixAvatar from '../../assets/helix avatar.png';
 import * as microsoftTeams from '@microsoft/teams-js';
 import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme
+import '../../app/styles/MetricCard.css'; // Ensure CSS is imported
 
 interface HomeProps {
   context: microsoftTeams.Context | null;
@@ -398,6 +399,10 @@ const Home: React.FC<HomeProps> = ({ context }) => {
     setIsPanelOpen(false);
   };
 
+  // Define number of columns per row for delay calculation
+  const columnsPerRow = 3;
+  let metricCardIndex = 0;
+
   return (
     <div className={containerStyle(isDarkMode)}>
       {/* Header: Greeting */}
@@ -455,18 +460,25 @@ const Home: React.FC<HomeProps> = ({ context }) => {
                       prevData: prevAwaitingPayment,
                       isTimeMoney: true,
                     },
-                  ].map((item) => (
-                    <MetricCard
-                      key={item.title}
-                      title={item.title}
-                      money={item.data.money}
-                      hours={item.data.hours}
-                      prevMoney={item.prevData.money}
-                      prevHours={item.prevData.hours}
-                      isDarkMode={isDarkMode}
-                      isTimeMoney={item.isTimeMoney}
-                    />
-                  ))}
+                  ].map((item) => {
+                    const row = Math.floor(metricCardIndex / columnsPerRow);
+                    const col = metricCardIndex % columnsPerRow;
+                    const delay = (row + col) * 0.1;
+                    metricCardIndex += 1;
+                    return (
+                      <MetricCard
+                        key={item.title}
+                        title={item.title}
+                        money={item.data.money}
+                        hours={item.data.hours}
+                        prevMoney={item.prevData.money}
+                        prevHours={item.prevData.hours}
+                        isDarkMode={isDarkMode}
+                        isTimeMoney={item.isTimeMoney}
+                        animationDelay={delay}
+                      />
+                    );
+                  })}
                 </div>
               </div>
 
@@ -490,15 +502,22 @@ const Home: React.FC<HomeProps> = ({ context }) => {
                       current: enquiriesMonthToDate,
                       previous: prevEnquiriesMonthToDate,
                     },
-                  ].map((item) => (
-                    <MetricCard
-                      key={item.label}
-                      title={item.label}
-                      count={item.current}
-                      prevCount={item.previous}
-                      isDarkMode={isDarkMode}
-                    />
-                  ))}
+                  ].map((item) => {
+                    const row = Math.floor(metricCardIndex / columnsPerRow);
+                    const col = metricCardIndex % columnsPerRow;
+                    const delay = (row + col) * 0.1;
+                    metricCardIndex += 1;
+                    return (
+                      <MetricCard
+                        key={item.label}
+                        title={item.label}
+                        count={item.current}
+                        prevCount={item.previous}
+                        isDarkMode={isDarkMode}
+                        animationDelay={delay}
+                      />
+                    );
+                  })}
                 </div>
               </div>
 
@@ -522,15 +541,22 @@ const Home: React.FC<HomeProps> = ({ context }) => {
                       current: completedThisWeek,
                       previous: prevCompletedThisWeek,
                     },
-                  ].map((item) => (
-                    <MetricCard
-                      key={item.label}
-                      title={item.label}
-                      count={item.current}
-                      prevCount={item.previous}
-                      isDarkMode={isDarkMode}
-                    />
-                  ))}
+                  ].map((item) => {
+                    const row = Math.floor(metricCardIndex / columnsPerRow);
+                    const col = metricCardIndex % columnsPerRow;
+                    const delay = (row + col) * 0.1;
+                    metricCardIndex += 1;
+                    return (
+                      <MetricCard
+                        key={item.label}
+                        title={item.label}
+                        count={item.current}
+                        prevCount={item.previous}
+                        isDarkMode={isDarkMode}
+                        animationDelay={delay}
+                      />
+                    );
+                  })}
                 </div>
               </div>
             </Stack>
@@ -623,7 +649,12 @@ const Home: React.FC<HomeProps> = ({ context }) => {
           />
         </div>
         {isContextsExpanded && (
-          <Stack horizontal wrap tokens={{ childrenGap: 30 }} styles={{ root: { width: '100%', alignItems: 'flex-start', marginTop: '20px' } }}>
+          <Stack
+            horizontal
+            wrap
+            tokens={{ childrenGap: 30 }}
+            styles={{ root: { width: '100%', alignItems: 'flex-start', marginTop: '20px' } }}
+          >
             {/* Teams Context Card */}
             <div
               className={mergeStyles({
@@ -639,7 +670,14 @@ const Home: React.FC<HomeProps> = ({ context }) => {
                 minWidth: '250px',
               })}
             >
-              <div className={mergeStyles({ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '15px' })}>
+              <div
+                className={mergeStyles({
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'flex-start',
+                  marginBottom: '15px',
+                })}
+              >
                 <Text className={cardTitleStyle(isDarkMode)}>Teams Context</Text>
                 <TooltipHost content="View detailed Teams context data">
                   <IconButton iconProps={{ iconName: 'Info' }} ariaLabel="Teams Context Info" />
@@ -690,7 +728,14 @@ const Home: React.FC<HomeProps> = ({ context }) => {
                 minWidth: '250px',
               })}
             >
-              <div className={mergeStyles({ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '15px' })}>
+              <div
+                className={mergeStyles({
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'flex-start',
+                  marginBottom: '15px',
+                })}
+              >
                 <Text className={cardTitleStyle(isDarkMode)}>SQL Context</Text>
                 <TooltipHost content="View detailed SQL context data">
                   <IconButton iconProps={{ iconName: 'Info' }} ariaLabel="SQL Context Info" />
