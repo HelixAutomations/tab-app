@@ -1,0 +1,54 @@
+{
+    "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.15/MicrosoftTeams.schema.json",
+    "manifestVersion": "1.15",
+    "version": "1.0.3",
+    "id": "0fece093-a853-4990-bc18-2ef2a2f83287",
+    "packageName": "com.helixlaw.linkhub003",
+    "developer": {
+        "name": "Helix Law",
+        "websiteUrl": "https://helix-law.co.uk/",
+        "privacyUrl": "https://helix-law.co.uk/privacy-policy/",
+        "termsOfUseUrl": "https://helix-law.co.uk/terms-and-conditions/"
+    },
+    "icons": {
+        "color": "mark192.png",
+        "outline": "mark32.png"
+    },
+    "name": {
+        "short": "Resources",
+        "full": "Resources v1"
+    },
+    "description": {
+        "short": "Helix Resources",
+        "full": "Bespoke resource board for the Helix team."
+    },
+    "accentColor": "#3690CE",
+    "bots": [],
+    "composeExtensions": [],
+    "staticTabs": [
+        {
+            "entityId": "linkhubPersonalTab",
+            "name": "Resources",
+            "contentUrl": "https://link-hub-v1-fehchxeqgxe9bsha.uksouth-01.azurewebsites.net/",
+            "websiteUrl": "https://link-hub-v1-fehchxeqgxe9bsha.uksouth-01.azurewebsites.net/",
+            "scopes": ["personal"]
+        },
+        {
+            "entityId": "resourcesPersonalTab",
+            "name": "Resources",
+            "contentUrl": "https://link-hub-v1-fehchxeqgxe9bsha.uksouth-01.azurewebsites.net/resources",
+            "websiteUrl": "https://link-hub-v1-fehchxeqgxe9bsha.uksouth-01.azurewebsites.net/resources",
+            "scopes": ["personal"]
+        }
+    ],
+    "permissions": [
+        "identity"
+    ],
+    "validDomains": [
+        "link-hub-v1-fehchxeqgxe9bsha.uksouth-01.azurewebsites.net"
+    ],
+    "webApplicationInfo": {
+        "id": "bee758ec-919c-45b2-9cdf-540c6419561f",
+        "resource": "api://bee758ec-919c-45b2-9cdf-540c6419561f"
+    }
+}
