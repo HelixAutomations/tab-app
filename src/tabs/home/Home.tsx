@@ -34,9 +34,14 @@ import * as microsoftTeams from '@microsoft/teams-js';
 import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme
 import '../../app/styles/MetricCard.css'; // Ensure CSS is imported
 
+// Import updated form components
+import Tasking from '../../Forms/Tasking';
+import TelephoneAttendance from '../../Forms/TelephoneAttendance';
+import RetrieveContactForm from '../../Forms/RetrieveContactForm';
+import CreateTimeEntryForm from '../../Forms/CreateTimeEntryForm';
+
 interface HomeProps {
   context: microsoftTeams.Context | null;
-  // isDarkMode: boolean; // Removed
 }
 
 initializeIcons();
@@ -199,22 +204,10 @@ const createColumnsFunction = (isDarkMode: boolean): IColumn[] => [
 ];
 
 const quickActions: QuickLink[] = [
-  {
-    title: 'Create a Task',
-    icon: 'Add',
-  },
-  {
-    title: 'Create a Time Entry',
-    icon: 'Clock',
-  },
-  {
-    title: 'Record an Attendance Note',
-    icon: 'Add',
-  },
-  {
-    title: 'Retrieve a Contact',
-    icon: 'Contact',
-  },
+  { title: 'Create a Task', icon: 'Add' },
+  { title: 'Create a Time Entry', icon: 'Clock' },
+  { title: 'Record an Attendance Note', icon: 'Add' },
+  { title: 'Retrieve a Contact', icon: 'Contact' },
 ];
 
 // Updated dummy names with initials
@@ -785,16 +778,10 @@ const Home: React.FC<HomeProps> = ({ context }) => {
         headerText={selectedAction ? selectedAction.title : ''}
         closeButtonAriaLabel="Close"
       >
-        {selectedAction && (
-          <form>
-            <Stack tokens={{ childrenGap: 15 }}>
-              <TextField label="Sample Input 1" required />
-              <TextField label="Sample Input 2" required />
-              <TextField label="Sample Input 3" multiline rows={3} />
-              <PrimaryButton onClick={handleFormSubmit}>Submit</PrimaryButton>
-            </Stack>
-          </form>
-        )}
+        {selectedAction?.title === 'Create a Task' && <Tasking />}
+        {selectedAction?.title === 'Telephone Attendance' && <TelephoneAttendance />}
+        {selectedAction?.title === 'Retrieve a Contact' && <RetrieveContactForm />}
+        {selectedAction?.title === 'Create a Time Entry' && <CreateTimeEntryForm />}
       </Panel>
     </div>
   );

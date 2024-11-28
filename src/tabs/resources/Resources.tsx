@@ -384,8 +384,7 @@ const Resources: React.FC<ResourcesProps> = () => {
               <Text variant="large" className={sectionHeaderStyleCustom(isDarkMode)}>
                 {sectionName}
               </Text>
-
-              {filteredSections[sectionName].length === 0 ? (
+              {filteredSections[sectionName].length === 0 && sectionName !== 'Favorites' ? (
                 <Text
                   variant="small"
                   styles={{

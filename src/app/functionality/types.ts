@@ -1,4 +1,4 @@
-// src/types.ts
+// src/app/functionality/types.ts
 
 export type SectionName = 'Favorites' | 'General_Processes' | 'Operations';
 
