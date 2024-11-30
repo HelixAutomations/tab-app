@@ -1,4 +1,4 @@
-// src/tabs/links/LinkCard.tsx
+// src/tabs/Forms/FormCard.tsx
 
 import React from 'react';
 import {
@@ -9,9 +9,9 @@ import {
 } from '@fluentui/react';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { colours } from '../../app/styles/colours';
-import { LinkItem } from '../../app/functionality/types';
+import { FormItem } from '../../app/functionality/types';
 import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme
-import '../../app/styles/LinkCard.css'; // Import the CSS file
+import '../../app/styles/FormCard.css'; // Import the CSS file
 
 const iconButtonStyles = (iconColor: string) => ({
   root: {
@@ -41,8 +41,8 @@ const iconButtonStyles = (iconColor: string) => ({
   },
 });
 
-interface LinkCardProps {
-  link: LinkItem;
+interface FormCardProps {
+  link: FormItem;
   isFavorite: boolean;
   onCopy: (url: string, title: string) => void;
   onToggleFavorite: (title: string) => void;
@@ -108,14 +108,14 @@ const separatorStyle = (isDarkMode: boolean) =>
     alignSelf: 'center',
   });
 
-const LinkCard: React.FC<LinkCardProps> = React.memo(
+const FormCard: React.FC<FormCardProps > = React.memo(
   ({ link, isFavorite, onCopy, onToggleFavorite, onGoTo, onSelect, animationDelay = 0 }) => {
     const { isDarkMode } = useTheme(); // Access isDarkMode from Theme Context
 
     return (
       <TooltipHost content={`View details for ${link.title}`}>
         <div
-          className={`linkCard ${cardStyle(isDarkMode)}`}
+          className={`formCard ${cardStyle(isDarkMode)}`}
           style={{ '--animation-delay': `${animationDelay}s` } as React.CSSProperties}
           onClick={onSelect}
           role="button"
@@ -202,4 +202,4 @@ const LinkCard: React.FC<LinkCardProps> = React.memo(
   }
 );
 
-export default LinkCard;
+export default FormCard;

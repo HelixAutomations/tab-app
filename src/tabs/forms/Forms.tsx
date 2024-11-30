@@ -1,4 +1,4 @@
-// src/tabs/links/LinkHub.tsx
+// src/tabs/forms/Forms.tsx
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
@@ -8,33 +8,31 @@ import {
   MessageBar,
   MessageBarType,
   SearchBox,
-  Spinner,
-  SpinnerSize,
   Link,
 } from '@fluentui/react';
 import { initializeIcons } from '@fluentui/react/lib/Icons';
 import { colours } from '../../app/styles/colours';
-import { useFeContext } from '../../app/functionality/FeContext'; // Assuming you have a similar context
-import LinkCard from './LinkCard';
-import LinkDetails from './LinkDetails'; // Optional
+import FormCard from './FormCard';
+import FormDetails from './FormDetails';
 import {
   sharedSearchBoxContainerStyle,
   sharedSearchBoxStyle,
 } from '../../app/styles/FilterStyles';
-import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme
-import '../../app/styles/LinkCard.css'; // Ensure CSS is imported
+import { useTheme } from '../../app/functionality/ThemeContext';
+import '../../app/styles/FormCard.css';
 
 initializeIcons();
 
 // Define types for sections and links
 export type SectionName = 'Favorites' | 'General_Processes' | 'Operations';
 
-export interface LinkItem {
+export interface FormItem {
   title: string;
   url: string;
   icon: string;
   tags?: string[];
   description?: string;
+  embedScript?: { key: string; formId: string };
 }
 
 // Styles
@@ -58,20 +56,6 @@ const headerStyle = (isDarkMode: boolean) =>
     marginBottom: '20px',
     flexWrap: 'wrap',
     gap: '10px',
-  });
-
-const controlsContainerStyle = mergeStyles({
-  display: 'flex',
-  alignItems: 'center',
-  gap: '10px',
-  flexWrap: 'wrap',
-});
-
-const searchBoxContainerStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    position: 'relative',
-    width: '100%',
-    maxWidth: '300px',
   });
 
 const mainContentStyle = (isDarkMode: boolean) =>
@@ -113,11 +97,11 @@ const sectionHeaderStyleCustom = (isDarkMode: boolean) =>
 
 const resourceGridStyle = mergeStyles({
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', // Responsive columns
+  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
   gap: '20px',
   paddingTop: '15px',
   '@media (min-width: 1000px)': {
-    gridTemplateColumns: 'repeat(5, 1fr)', // Max 5 cards per row
+    gridTemplateColumns: 'repeat(5, 1fr)',
   },
 });
 
@@ -134,92 +118,85 @@ const footerStyle = (isDarkMode: boolean) =>
     fontFamily: 'Raleway, sans-serif',
   });
 
-const commonInputStyle = {
-  height: '40px',
-  lineHeight: '40px',
-};
-
-// Shared styles for inputs (Dropdown and SearchBox)
-interface LinkHubProps {
-  // No need for isDarkMode prop anymore
-}
-
-const LinkHub: React.FC<LinkHubProps> = () => {
-  const { isDarkMode } = useTheme(); // Access isDarkMode from Theme Context
-  const { sqlData, isLoading, error } = useFeContext(); // Assuming similar context
+const Forms: React.FC = () => {
+  const { isDarkMode } = useTheme();
   const [favorites, setFavorites] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
-  const [selectedLink, setSelectedLink] = useState<LinkItem | null>(null);
+  const [selectedLink, setSelectedLink] = useState<FormItem | null>(null);
 
   // Define number of columns per row for delay calculation
   const columnsPerRow = 5;
 
-  // Initialize links
-  const linkHubSections: { [key in SectionName]: LinkItem[] } = useMemo(
-    () => ({
-      General_Processes: [
-        {
-          title: 'Tel. Attendance Note',
-          url: 'https://www.cognitoforms.com/Helix1/TelephoneAttendanceNote',
-          icon: 'Phone',
-        },
-        { title: 'Tasks', url: 'https://www.cognitoforms.com/Helix1/V2Tasks', icon: 'BulletedList' },
-        { title: 'Office Attendance', url: 'https://www.cognitoforms.com/Helix1/OfficeAttendance', icon: 'Calendar' },
-        {
-          title: 'Proof of Identity',
-          url: 'https://www.cognitoforms.com/Helix1/WebFormProofOfIdentityV2',
-          icon: 'Contact',
-        },
-        { title: 'Open a Matter', url: 'https://www.cognitoforms.com/Helix1/OpenAMatter', icon: 'FolderOpen' },
-        {
-          title: 'CollabSpace Requests',
-          url: 'https://www.cognitoforms.com/Helix1/CollabSpaceRequests',
-          icon: 'People',
-        },
-      ],
-      Operations: [
-        { title: 'Call Handling', url: 'https://www.cognitoforms.com/Helix1/V2CallHandling', icon: 'Phone' },
-        {
-          title: 'Transaction Intake',
-          url: 'https://www.cognitoforms.com/Helix1/TransactionsIntakeV2',
-          icon: 'Bank',
-        },
-        { title: 'Incoming Post', url: 'https://www.cognitoforms.com/Helix1/IncomingPost', icon: 'Mail' },
-      ],
+  // Build formHubSections using useMemo
+  const formHubSections: { [key in SectionName]: FormItem[] } = useMemo(() => {
+    // Predefined links
+    const generalProcesses: FormItem[] = [
+      {
+        title: 'Tel. Attendance Note',
+        url: 'https://www.cognitoforms.com/Helix1/TelephoneAttendanceNote',
+        icon: 'Phone',
+        embedScript: { key: 'QzaAr_2Q7kesClKq8g229g', formId: '41' },
+      },
+      {
+        title: 'Tasks',
+        url: 'https://www.cognitoforms.com/Helix1/V2Tasks',
+        icon: 'BulletedList',
+        embedScript: { key: 'QzaAr_2Q7kesClKq8g229g', formId: '90' },
+      },
+      {
+        title: 'Office Attendance',
+        url: 'https://www.cognitoforms.com/Helix1/OfficeAttendance',
+        icon: 'Calendar',
+        embedScript: { key: 'QzaAr_2Q7kesClKq8g229g', formId: '109' },
+      },
+      {
+        title: 'Proof of Identity',
+        url: 'https://www.cognitoforms.com/Helix1/WebFormProofOfIdentityV2',
+        icon: 'Contact',
+        embedScript: { key: 'QzaAr_2Q7kesClKq8g229g', formId: '60' },
+      },
+      {
+        title: 'Open a Matter',
+        url: 'https://www.cognitoforms.com/Helix1/OpenAMatter',
+        icon: 'FolderOpen',
+        embedScript: { key: 'QzaAr_2Q7kesClKq8g229g', formId: '9' },
+      },
+      {
+        title: 'CollabSpace Requests',
+        url: 'https://www.cognitoforms.com/Helix1/CollabSpaceRequests',
+        icon: 'People',
+        embedScript: { key: 'QzaAr_2Q7kesClKq8g229g', formId: '44' },
+      },
+    ];
+
+    const operations: FormItem[] = [
+      {
+        title: 'Call Handling',
+        url: 'https://www.cognitoforms.com/Helix1/V2CallHandling',
+        icon: 'Phone',
+        embedScript: { key: 'QzaAr_2Q7kesClKq8g229g', formId: '98' },
+      },
+      {
+        title: 'Transaction Intake',
+        url: 'https://www.cognitoforms.com/Helix1/TransactionsIntakeV2',
+        icon: 'Bank',
+        embedScript: { key: 'QzaAr_2Q7kesClKq8g229g', formId: '58' },
+      },
+      {
+        title: 'Incoming Post',
+        url: 'https://www.cognitoforms.com/Helix1/IncomingPost',
+        icon: 'Mail',
+        embedScript: { key: 'QzaAr_2Q7kesClKq8g229g', formId: '108' },
+      },
+    ];
+
+    return {
       Favorites: [], // Will be populated based on favorites
-    }),
-    [favorites]
-  );
-
-  // Extract links from sqlData if available (assuming similar structure)
-  useEffect(() => {
-    if (sqlData && sqlData.length > 0) {
-      // Assuming sqlData has the same structure as predefined links
-      const generalProcesses = sqlData
-        .filter((item: any) => item.Category === 'General_Processes')
-        .map((item: any) => ({
-          title: item.Title,
-          url: item.URL,
-          icon: item.Icon,
-          tags: item.Tags ? item.Tags.split(',').map((tag: string) => tag.trim()) : [],
-          description: item.Description || '',
-        }));
-
-      const operations = sqlData
-        .filter((item: any) => item.Category === 'Operations')
-        .map((item: any) => ({
-          title: item.Title,
-          url: item.URL,
-          icon: item.Icon,
-          tags: item.Tags ? item.Tags.split(',').map((tag: string) => tag.trim()) : [],
-          description: item.Description || '',
-        }));
-
-      linkHubSections.General_Processes.push(...generalProcesses);
-      linkHubSections.Operations.push(...operations);
-    }
-  }, [sqlData, linkHubSections]);
+      General_Processes: generalProcesses,
+      Operations: operations,
+    };
+  }, []);
 
   // Load stored favorites from localStorage
   useEffect(() => {
@@ -263,23 +240,23 @@ const LinkHub: React.FC<LinkHubProps> = () => {
   }, []);
 
   // Filtered Sections based on search query and excluding favorites from other sections
-  const filteredSections: { [key in SectionName]: LinkItem[] } = useMemo(() => {
-    const filterLinks = (links: LinkItem[]) =>
+  const filteredSections: { [key in SectionName]: FormItem[] } = useMemo(() => {
+    const filterLinks = (links: FormItem[]) =>
       links.filter(
         (link) =>
           link.title.toLowerCase().includes(searchQuery.toLowerCase()) &&
-          !favorites.includes(link.title) // Exclude favorites from other sections
+          !favorites.includes(link.title)
       );
 
-    const sortLinks = (links: LinkItem[]) => {
+    const sortLinks = (links: FormItem[]) => {
       const sorted = [...links];
       // Optional: Implement sorting if needed
       return sorted;
     };
 
     // Prepare Favorites section separately
-    const favoriteLinks = [...linkHubSections.General_Processes, ...linkHubSections.Operations].filter((link) =>
-      favorites.includes(link.title)
+    const favoriteLinks = [...formHubSections.General_Processes, ...formHubSections.Operations].filter(
+      (link) => favorites.includes(link.title)
     );
 
     return {
@@ -288,10 +265,10 @@ const LinkHub: React.FC<LinkHubProps> = () => {
           link.title.toLowerCase().includes(searchQuery.toLowerCase())
         )
       ),
-      General_Processes: sortLinks(filterLinks(linkHubSections.General_Processes)),
-      Operations: sortLinks(filterLinks(linkHubSections.Operations)),
+      General_Processes: sortLinks(filterLinks(formHubSections.General_Processes)),
+      Operations: sortLinks(filterLinks(formHubSections.Operations)),
     };
-  }, [favorites, linkHubSections, searchQuery]);
+  }, [favorites, formHubSections, searchQuery]);
 
   // Calculate animation delays based on grid position
   const calculateAnimationDelay = (index: number) => {
@@ -307,77 +284,69 @@ const LinkHub: React.FC<LinkHubProps> = () => {
         {/* Search Box */}
         <div className={sharedSearchBoxContainerStyle(isDarkMode)}>
           <SearchBox
-            placeholder="Search links..."
+            placeholder="Search forms..."
             value={searchQuery}
             onChange={(_, newValue) => setSearchQuery(newValue || '')}
             styles={sharedSearchBoxStyle(isDarkMode)}
-            aria-label="Search links"
+            aria-label="Search forms"
           />
         </div>
       </header>
 
-      {/* Loading and Error States */}
-      {isLoading ? (
-        <Stack horizontalAlign="center" verticalAlign="center" styles={{ root: { flex: 1 } }}>
-          <Spinner label="Loading links..." size={SpinnerSize.large} />
-        </Stack>
-      ) : error ? (
-        <MessageBar
-          messageBarType={MessageBarType.error}
-          isMultiline={false}
-          onDismiss={() => {}}
-          dismissButtonAriaLabel="Close"
-          styles={{ root: { marginBottom: '20px', borderRadius: '4px' } }}
-        >
-          {error}
-        </MessageBar>
-      ) : (
-        // Main Content
-        <main className={mainContentStyle(isDarkMode)}>
-          {(['Favorites', 'General_Processes', 'Operations'] as SectionName[]).map((sectionName) => (
+      {/* Main Content */}
+      <main className={mainContentStyle(isDarkMode)}>
+        {filteredSections.Favorites.length > 0 && (
+          <section key="Favorites" className={sectionStyle(isDarkMode)}>
+            <Text variant="large" className={sectionHeaderStyleCustom(isDarkMode)}>
+              Favourites
+            </Text>
+            <div className={resourceGridStyle}>
+              {filteredSections.Favorites.map((link: FormItem, index: number) => {
+                const animationDelay = calculateAnimationDelay(index);
+                return (
+                  <FormCard
+                    key={link.title}
+                    link={link}
+                    isFavorite={favorites.includes(link.title)}
+                    onCopy={copyToClipboard}
+                    onToggleFavorite={toggleFavorite}
+                    onGoTo={goToLink}
+                    onSelect={() => setSelectedLink(link)}
+                    animationDelay={animationDelay}
+                  />
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {(['General_Processes', 'Operations'] as SectionName[]).map((sectionName) => (
+          filteredSections[sectionName].length > 0 && (
             <section key={sectionName} className={sectionStyle(isDarkMode)}>
               <Text variant="large" className={sectionHeaderStyleCustom(isDarkMode)}>
                 {sectionName.replace('_', ' ')}
               </Text>
-              {filteredSections[sectionName].length === 0 && sectionName !== 'Favorites' ? (
-                <Text
-                  variant="small"
-                  styles={{
-                    root: {
-                      color: isDarkMode ? '#ccc' : '#666',
-                      marginTop: '15px',
-                    },
-                  }}
-                >
-                  No links found.
-                </Text>
-              ) : (
-                <div className={resourceGridStyle}>
-                  {filteredSections[sectionName].map((link: LinkItem, index: number) => {
-                    const globalIndex =
-                      linkHubSections.Favorites.length +
-                      linkHubSections.General_Processes.length +
-                      linkHubSections.Operations.length;
-                    const animationDelay = calculateAnimationDelay(index);
-                    return (
-                      <LinkCard
-                        key={link.title}
-                        link={link}
-                        isFavorite={favorites.includes(link.title)}
-                        onCopy={copyToClipboard}
-                        onToggleFavorite={toggleFavorite}
-                        onGoTo={goToLink}
-                        onSelect={() => setSelectedLink(link)}
-                        animationDelay={animationDelay}
-                      />
-                    );
-                  })}
-                </div>
-              )}
+              <div className={resourceGridStyle}>
+                {filteredSections[sectionName].map((link: FormItem, index: number) => {
+                  const animationDelay = calculateAnimationDelay(index);
+                  return (
+                    <FormCard
+                      key={link.title}
+                      link={link}
+                      isFavorite={favorites.includes(link.title)}
+                      onCopy={copyToClipboard}
+                      onToggleFavorite={toggleFavorite}
+                      onGoTo={goToLink}
+                      onSelect={() => setSelectedLink(link)}
+                      animationDelay={animationDelay}
+                    />
+                  );
+                })}
+              </div>
             </section>
-          ))}
-        </main>
-      )}
+          )
+        ))}
+      </main>
 
       {/* Footer */}
       <footer className={footerStyle(isDarkMode)}>
@@ -400,7 +369,12 @@ const LinkHub: React.FC<LinkHubProps> = () => {
           {' | '}
           <Text
             variant="small"
-            styles={{ root: { color: isDarkMode ? colours.dark.text : colours.light.text, display: 'inline' } }}
+            styles={{
+              root: {
+                color: isDarkMode ? colours.dark.text : colours.light.text,
+                display: 'inline',
+              },
+            }}
           >
             01273 761990
           </Text>
@@ -440,9 +414,9 @@ const LinkHub: React.FC<LinkHubProps> = () => {
         </MessageBar>
       )}
 
-      {/* Link Details Panel */}
+      {/* Form Details Panel */}
       {selectedLink && (
-        <LinkDetails
+        <FormDetails
           link={selectedLink}
           isDarkMode={isDarkMode}
           onClose={() => setSelectedLink(null)}
@@ -452,4 +426,4 @@ const LinkHub: React.FC<LinkHubProps> = () => {
   );
 };
 
-export default LinkHub;
+export default Forms;

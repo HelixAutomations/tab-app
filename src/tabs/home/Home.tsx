@@ -35,10 +35,10 @@ import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTh
 import '../../app/styles/MetricCard.css'; // Ensure CSS is imported
 
 // Import updated form components
-import Tasking from '../../Forms/Tasking';
-import TelephoneAttendance from '../../Forms/TelephoneAttendance';
-import RetrieveContactForm from '../../Forms/RetrieveContactForm';
-import CreateTimeEntryForm from '../../Forms/CreateTimeEntryForm';
+import Tasking from '../../CustomForms/Tasking';
+import TelephoneAttendance from '../../CustomForms/TelephoneAttendance';
+import RetrieveContactForm from '../../CustomForms/RetrieveContactForm';
+import CreateTimeEntryForm from '../../CustomForms/CreateTimeEntryForm';
 
 interface HomeProps {
   context: microsoftTeams.Context | null;
@@ -150,7 +150,7 @@ const officeLeaveContainerStyle = (isDarkMode: boolean) =>
       ? `0 4px 12px ${colours.dark.border}`
       : `0 4px 12px ${colours.light.border}`,
     transition: 'background-color 0.3s, box-shadow 0.3s',
-    flex: '1',
+    flex: '1 1 50%', // Ensure equal width
     display: 'flex',
     flexDirection: 'column',
   });

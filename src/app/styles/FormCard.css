@@ -1,4 +1,4 @@
-/* src/app/styles/LinkCard.css */
+/* src/app/styles/FormCard.css */
 
 @keyframes dropIn {
     from {
@@ -11,7 +11,7 @@
     }
   }
   
-  .linkCard {
+  .formCard {
     opacity: 0; /* Initially invisible */
     animation: dropIn 0.3s ease forwards;
     animation-delay: var(--animation-delay, 0s);

@@ -1,6 +1,6 @@
-// src/tabs/resources/ResourceDetails.tsx
+// src/tabs/forms/FormDetails.tsx
 
-import React, { useCallback, useState } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Stack,
   Text,
@@ -13,14 +13,15 @@ import {
   Icon,
   MessageBar,
   MessageBarType,
-  mergeStyles,
 } from '@fluentui/react';
 import { colours } from '../../app/styles/colours';
-import { Resource } from './Resources';
-import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme
+import { FormItem } from '../../app/functionality/types';
+import { mergeStyles } from '@fluentui/react';
+import loaderIcon from '../../assets/grey helix mark.png';
 
-interface ResourceDetailsProps {
-  resource: Resource;
+interface FormDetailsProps {
+  link: FormItem;
+  isDarkMode: boolean;
   onClose: () => void;
 }
 
@@ -90,25 +91,100 @@ const panelStyles = {
   },
 };
 
-const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) => {
-  const { isDarkMode } = useTheme(); // Access isDarkMode from Theme Context
+const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose }) => {
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
+  const [isCognitoLoaded, setIsCognitoLoaded] = useState<boolean>(false);
+  const formContainerRef = useRef<HTMLDivElement>(null);
+  const loaderStyle = {
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: '100%',
+  };
+
+  // Function to load the Cognito seamless script
+  const loadCognitoScript = useCallback((): Promise<void> => {
+    return new Promise<void>((resolve, reject) => {
+      // Check if Cognito is already available
+      if ((window as any).Cognito) {
+        resolve();
+        return;
+      }
+
+      // Check if the script is already present
+      const existingScript = document.getElementById('cognito-seamless-script');
+      if (existingScript) {
+        // If the script is already present but Cognito is not ready, wait for it to load
+        existingScript.addEventListener('load', () => {
+          if ((window as any).Cognito) {
+            resolve();
+          } else {
+            reject(new Error('Cognito script loaded but Cognito is not available'));
+          }
+        });
+        existingScript.addEventListener('error', () => reject(new Error('Failed to load Cognito script')));
+      } else {
+        // If the script is not present, create and append it
+        const script = document.createElement('script');
+        script.id = 'cognito-seamless-script';
+        script.src = 'https://www.cognitoforms.com/f/seamless.js';
+        script.async = true;
+        script.onload = () => {
+          if ((window as any).Cognito) {
+            resolve();
+          } else {
+            reject(new Error('Cognito script loaded but Cognito is not available'));
+          }
+        };
+        script.onerror = () => reject(new Error('Failed to load Cognito script'));
+        document.body.appendChild(script);
+      }
+    });
+  }, []);
+
+  // Load the Cognito script when the component mounts
+  useEffect(() => {
+    loadCognitoScript()
+      .then(() => {
+        setIsCognitoLoaded(true);
+      })
+      .catch((err) => {
+        console.error(err);
+      });
+  }, [loadCognitoScript]);
+
+  // Embed the form when the script is loaded
+  useEffect(() => {
+    if (isCognitoLoaded && link.embedScript && formContainerRef.current) {
+      // Clear previous content to avoid duplicate forms
+      formContainerRef.current.innerHTML = '';
+
+      // Create script tag for the form
+      const formScript = document.createElement('script');
+      formScript.src = 'https://www.cognitoforms.com/f/seamless.js';
+      formScript.async = true;
+      formScript.setAttribute('data-key', link.embedScript.key);
+      formScript.setAttribute('data-form', link.embedScript.formId);
+
+      formContainerRef.current.appendChild(formScript);
+    }
+  }, [isCognitoLoaded, link.embedScript]);
 
   const copyToClipboard = useCallback(() => {
     navigator.clipboard
-      .writeText(resource.url)
+      .writeText(link.url)
       .then(() => {
-        setCopySuccess(`Copied '${resource.title}' URL to clipboard!`);
+        setCopySuccess(`Copied '${link.title}' URL to clipboard!`);
         setTimeout(() => setCopySuccess(null), 3000);
       })
       .catch((err) => {
         console.error('Failed to copy: ', err);
       });
-  }, [resource.url, resource.title]);
+  }, [link.url, link.title]);
 
   const goToLink = useCallback(() => {
-    window.open(resource.url, '_blank', 'noopener,noreferrer');
-  }, [resource.url]);
+    window.open(link.url, '_blank', 'noopener,noreferrer');
+  }, [link.url]);
 
   return (
     <Panel
@@ -119,9 +195,9 @@ const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) 
       styles={panelStyles}
       onRenderHeader={() => (
         <div className={headerContainerStyle(isDarkMode)}>
-          {resource.icon && (
+          {link.icon && (
             <Icon
-              iconName={resource.icon}
+              iconName={link.icon}
               styles={{
                 root: {
                   fontSize: 24,
@@ -133,70 +209,43 @@ const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) 
             />
           )}
           <Text variant="medium" className={titleStyle(isDarkMode)}>
-            {resource.title}
+            {link.title}
           </Text>
         </div>
       )}
     >
       {/* Main content area */}
       <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
-        {/* Blank Main Area */}
-        <div style={{ marginTop: '20px', padding: '0 24px', flexGrow: 1 }}>
-          <Text>Content area is currently blank.</Text>
-        </div>
+        {/* Embed Form */}
+        {link.embedScript ? (
+          <div
+            ref={formContainerRef}
+            style={{ marginTop: '20px', padding: '0 24px', flexGrow: 1 }}
+          >
+            {!isCognitoLoaded && (
+              <div style={loaderStyle}>
+                <img src={loaderIcon} alt="Loading..." style={{ width: '100px', height: 'auto' }} />
+              </div>
+            )}
+            {/* The form will be injected here */}
+          </div>
+        ) : (
+          <div style={{ marginTop: '20px', padding: '0 24px', flexGrow: 1 }}>
+            <Text>No form available for this item.</Text>
+          </div>
+        )}
 
-        {/* Bottom Section */}
+        {/* Content aligned to the bottom */}
         <div className={detailsContainerStyle(isDarkMode)}>
           {/* URL Section */}
           <Stack tokens={{ childrenGap: 6 }}>
             <Text variant="mediumPlus" styles={{ root: { fontWeight: 600 } }}>
               URL:
             </Text>
-            <Link href={resource.url} target="_blank" rel="noopener noreferrer">
-              {resource.url}
+            <Link href={link.url} target="_blank" rel="noopener noreferrer">
+              {link.url}
             </Link>
           </Stack>
-
-          {/* Tags */}
-          {resource.tags && resource.tags.length > 0 && (
-            <Stack tokens={{ childrenGap: 6 }} styles={{ root: { marginTop: '20px' } }}>
-              <Text variant="mediumPlus" styles={{ root: { fontWeight: 600 } }}>
-                Tags:
-              </Text>
-              <Stack horizontal tokens={{ childrenGap: 10 }} wrap>
-                {resource.tags.map((tag) => (
-                  <TooltipHost content={tag} key={tag}>
-                    <span
-                      className={mergeStyles({
-                        backgroundColor: isDarkMode
-                          ? colours.dark.sectionBackground
-                          : colours.light.sectionBackground,
-                        color: isDarkMode ? colours.dark.text : colours.light.text,
-                        borderRadius: '4px',
-                        padding: '4px 8px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                      })}
-                    >
-                      <Icon iconName="Tag" />
-                      <Text variant="small">{tag}</Text>
-                    </span>
-                  </TooltipHost>
-                ))}
-              </Stack>
-            </Stack>
-          )}
-
-          {/* Description */}
-          {resource.description && (
-            <Stack tokens={{ childrenGap: 6 }} styles={{ root: { marginTop: '20px' } }}>
-              <Text variant="mediumPlus" styles={{ root: { fontWeight: 600 } }}>
-                Description:
-              </Text>
-              <Text>{resource.description}</Text>
-            </Stack>
-          )}
 
           {/* Buttons */}
           <div className={buttonsContainerStyle(isDarkMode)}>
@@ -271,6 +320,47 @@ const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) 
               iconProps={{ iconName: 'Cancel' }}
             />
           </div>
+
+          {/* Tags */}
+          {link.tags && link.tags.length > 0 && (
+            <Stack tokens={{ childrenGap: 6 }} styles={{ root: { marginTop: '20px' } }}>
+              <Text variant="mediumPlus" styles={{ root: { fontWeight: 600 } }}>
+                Tags:
+              </Text>
+              <Stack horizontal tokens={{ childrenGap: 10 }} wrap>
+                {link.tags.map((tag) => (
+                  <TooltipHost content={tag} key={tag}>
+                    <span
+                      className={mergeStyles({
+                        backgroundColor: isDarkMode
+                          ? colours.dark.sectionBackground
+                          : colours.light.sectionBackground,
+                        color: isDarkMode ? colours.dark.text : colours.light.text,
+                        borderRadius: '4px',
+                        padding: '4px 8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                      })}
+                    >
+                      <Icon iconName="Tag" />
+                      <Text variant="small">{tag}</Text>
+                    </span>
+                  </TooltipHost>
+                ))}
+              </Stack>
+            </Stack>
+          )}
+
+          {/* Description */}
+          {link.description && (
+            <Stack tokens={{ childrenGap: 6 }} styles={{ root: { marginTop: '20px' } }}>
+              <Text variant="mediumPlus" styles={{ root: { fontWeight: 600 } }}>
+                Description:
+              </Text>
+              <Text>{link.description}</Text>
+            </Stack>
+          )}
         </div>
       </div>
 
@@ -299,4 +389,4 @@ const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) 
   );
 };
 
-export default ResourceDetails;
+export default FormDetails;

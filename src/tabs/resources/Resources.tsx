@@ -379,27 +379,52 @@ const Resources: React.FC<ResourcesProps> = () => {
       ) : (
         // Main Content
         <main className={mainContentStyle(isDarkMode)}>
-          {(['Favorites', 'Internal', 'External'] as SectionName[]).map((sectionName) => (
-            <section key={sectionName} className={sectionStyle(isDarkMode)}>
+          {/* Render Favourites Section Only if There are Favourites */}
+          {filteredSections.Favorites.length > 0 && (
+            <section key="Favorites" className={sectionStyle(isDarkMode)}>
               <Text variant="large" className={sectionHeaderStyleCustom(isDarkMode)}>
-                {sectionName}
+                Favourites
               </Text>
-              {filteredSections[sectionName].length === 0 && sectionName !== 'Favorites' ? (
-                <Text
-                  variant="small"
-                  styles={{
-                    root: {
-                      color: isDarkMode ? '#ccc' : '#666',
-                      marginTop: '15px',
-                    },
-                  }}
-                >
-                  No resources found.
+              <div className={resourceGridStyle}>
+                {filteredSections.Favorites.map((resource: Resource, index: number) => {
+                  const globalIndex = flatResources.findIndex(
+                    (res) => res.title === resource.title
+                  );
+
+                  if (globalIndex === -1) {
+                    console.warn(`Resource titled "${resource.title}" not found in flatResources.`);
+                    return null;
+                  }
+
+                  const row = Math.floor(globalIndex / columnsPerRow);
+                  const col = globalIndex % columnsPerRow;
+                  const animationDelay = calculateAnimationDelay(row, col);
+                  return (
+                    <ResourceCard
+                      key={resource.title}
+                      resource={resource}
+                      isFavorite={favorites.includes(resource.title)}
+                      onCopy={copyToClipboard}
+                      onToggleFavorite={toggleFavorite}
+                      onGoTo={goToResource}
+                      onSelect={() => setSelectedResource(resource)}
+                      animationDelay={animationDelay}
+                    />
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
+          {/* Render Other Sections */}
+          {(['Internal', 'External'] as SectionName[]).map((sectionName) =>
+            filteredSections[sectionName].length > 0 && (
+              <section key={sectionName} className={sectionStyle(isDarkMode)}>
+                <Text variant="large" className={sectionHeaderStyleCustom(isDarkMode)}>
+                  {sectionName}
                 </Text>
-              ) : (
                 <div className={resourceGridStyle}>
                   {filteredSections[sectionName].map((resource: Resource, index: number) => {
-                    // Calculate the global index based on the flatResources array
                     const globalIndex = flatResources.findIndex(
                       (res) => res.title === resource.title
                     );
@@ -409,10 +434,8 @@ const Resources: React.FC<ResourcesProps> = () => {
                       return null;
                     }
 
-                    // Calculate row and column
                     const row = Math.floor(globalIndex / columnsPerRow);
                     const col = globalIndex % columnsPerRow;
-
                     const animationDelay = calculateAnimationDelay(row, col);
                     return (
                       <ResourceCard
@@ -428,9 +451,10 @@ const Resources: React.FC<ResourcesProps> = () => {
                     );
                   })}
                 </div>
-              )}
-            </section>
-          ))}
+              </section>
+            )
+          )}
+
         </main>
       )}
 

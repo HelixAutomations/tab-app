@@ -6,10 +6,12 @@ import { FeProvider } from '../app/functionality/FeContext';
 import { TeamsProvider } from '../app/functionality/TeamsContext';
 import { colours } from '../app/styles/colours';
 import * as microsoftTeams from '@microsoft/teams-js';
-import { ThemeProvider } from '../app/functionality/ThemeContext'; // Import ThemeProvider
+import { ThemeProvider } from '../app/functionality/ThemeContext';
+import Loading from './styles/Loading'; // Import the Loading component
 
 const Home = lazy(() => import('../tabs/home/Home'));
-const LinkHub = lazy(() => import('../tabs/links/LinkHub'));
+const Forms = lazy(() => import('../tabs/forms/Forms'));
+const Workspace = lazy(() => import('../tabs/workspace/Workspace'));
 const Resources = lazy(() => import('../tabs/resources/Resources'));
 const Enquiries = lazy(() => import('../tabs/enquiries/Enquiries'));
 const Matters = lazy(() => import('../tabs/matters/Matters'));
@@ -19,8 +21,8 @@ const App: React.FC = () => {
   const [context, setContext] = useState<microsoftTeams.Context | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
 
-  // Fetch Teams context
   useEffect(() => {
+    // Initialise Microsoft Teams
     microsoftTeams.initialize();
     microsoftTeams.getContext((ctx) => {
       setContext(ctx);
@@ -30,7 +32,8 @@ const App: React.FC = () => {
 
   const tabs = [
     { key: 'home', text: 'Home' },
-    { key: 'linkhub', text: 'LinkHub' },
+    { key: 'forms', text: 'Forms' },
+    { key: 'workspace', text: 'Workspace' },
     { key: 'resources', text: 'Resources' },
     { key: 'enquiries', text: 'Enquiries' },
     { key: 'matters', text: 'Matters' },
@@ -40,8 +43,10 @@ const App: React.FC = () => {
     switch (activeTab) {
       case 'home':
         return <Home context={context} />;
-      case 'linkhub':
-        return <LinkHub />;
+      case 'forms':
+        return <Forms />;
+      case 'workspace':
+        return <Workspace />;
       case 'resources':
         return <Resources />;
       case 'enquiries':
@@ -56,7 +61,6 @@ const App: React.FC = () => {
   return (
     <TeamsProvider>
       <FeProvider>
-        {/* Wrap with ThemeProvider and pass isDarkMode */}
         <ThemeProvider isDarkMode={isDarkMode}>
           <div
             style={{
@@ -65,7 +69,7 @@ const App: React.FC = () => {
               transition: 'background-color 0.3s',
             }}
           >
-            {/* Render CustomTabs */}
+            {/* Navigation Tabs */}
             <CustomTabs
               selectedKey={activeTab}
               onLinkClick={(item) => setActiveTab(item?.props.itemKey || 'home')}
@@ -73,9 +77,9 @@ const App: React.FC = () => {
               ariaLabel="Main Navigation Tabs"
             />
 
-            {/* Suspense fallback for loading content */}
-            <Suspense fallback={<div>Loading...</div>}>
-              <div>{renderContent()}</div>
+            {/* Main Content */}
+            <Suspense fallback={<Loading />}>
+              {renderContent()}
             </Suspense>
           </div>
         </ThemeProvider>
