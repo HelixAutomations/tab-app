@@ -1,5 +1,3 @@
-// src/tabs/forms/FormDetails.tsx
-
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Stack,
@@ -23,6 +21,7 @@ interface FormDetailsProps {
   link: FormItem;
   isDarkMode: boolean;
   onClose: () => void;
+  isOpen: boolean; // Add this prop
 }
 
 const detailsContainerStyle = (isDarkMode: boolean) =>
@@ -91,7 +90,7 @@ const panelStyles = {
   },
 };
 
-const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose }) => {
+const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose, isOpen }) => {
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
   const [isCognitoLoaded, setIsCognitoLoaded] = useState<boolean>(false);
   const formContainerRef = useRef<HTMLDivElement>(null);
@@ -144,14 +143,16 @@ const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose }) 
 
   // Load the Cognito script when the component mounts
   useEffect(() => {
-    loadCognitoScript()
-      .then(() => {
-        setIsCognitoLoaded(true);
-      })
-      .catch((err) => {
-        console.error(err);
-      });
-  }, [loadCognitoScript]);
+    if (isOpen) {
+      loadCognitoScript()
+        .then(() => {
+          setIsCognitoLoaded(true);
+        })
+        .catch((err) => {
+          console.error(err);
+        });
+    }
+  }, [loadCognitoScript, isOpen]);
 
   // Embed the form when the script is loaded
   useEffect(() => {
@@ -188,7 +189,7 @@ const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose }) 
 
   return (
     <Panel
-      isOpen={true}
+      isOpen={isOpen}
       onDismiss={onClose}
       type={PanelType.custom}
       customWidth="100%"

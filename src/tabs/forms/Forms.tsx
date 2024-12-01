@@ -1,5 +1,3 @@
-// src/tabs/forms/Forms.tsx
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Stack,
@@ -120,11 +118,26 @@ const footerStyle = (isDarkMode: boolean) =>
 
 const Forms: React.FC = () => {
   const { isDarkMode } = useTheme();
-  const [favorites, setFavorites] = useState<string[]>([]);
+  const [favorites, setFavorites] = useState<FormItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
   const [selectedLink, setSelectedLink] = useState<FormItem | null>(null);
 
+  // Handle storage changes for syncing favourites
+  useEffect(() => {
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === 'formsFavorites' && event.newValue) {
+        setFavorites(JSON.parse(event.newValue));
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, []);
+  
   // Define number of columns per row for delay calculation
   const columnsPerRow = 5;
 
@@ -200,7 +213,7 @@ const Forms: React.FC = () => {
 
   // Load stored favorites from localStorage
   useEffect(() => {
-    const storedFavorites = localStorage.getItem('favorites');
+    const storedFavorites = localStorage.getItem('formsFavorites');
     if (storedFavorites) {
       setFavorites(JSON.parse(storedFavorites));
     }
@@ -208,7 +221,7 @@ const Forms: React.FC = () => {
 
   // Update localStorage whenever favorites change
   useEffect(() => {
-    localStorage.setItem('favorites', JSON.stringify(favorites));
+    localStorage.setItem('formsFavorites', JSON.stringify(favorites));
   }, [favorites]);
 
   // Handle Copy to Clipboard
@@ -228,10 +241,19 @@ const Forms: React.FC = () => {
   );
 
   // Handle Toggle Favorite
-  const toggleFavorite = useCallback((title: string) => {
-    setFavorites((prev) =>
-      prev.includes(title) ? prev.filter((fav) => fav !== title) : [...prev, title]
-    );
+  const toggleFavorite = useCallback((link: FormItem) => {
+    setFavorites((prev) => {
+      const isAlreadyFavorite = prev.some(fav => fav.title === link.title);
+      let updatedFavorites: FormItem[];
+      if (isAlreadyFavorite) {
+        updatedFavorites = prev.filter(fav => fav.title !== link.title);
+      } else {
+        updatedFavorites = [...prev, link];
+      }
+
+      localStorage.setItem('formsFavorites', JSON.stringify(updatedFavorites));
+      return updatedFavorites;
+    });
   }, []);
 
   // Handle Go To Link
@@ -245,7 +267,7 @@ const Forms: React.FC = () => {
       links.filter(
         (link) =>
           link.title.toLowerCase().includes(searchQuery.toLowerCase()) &&
-          !favorites.includes(link.title)
+          !favorites.some(fav => fav.title === link.title)
       );
 
     const sortLinks = (links: FormItem[]) => {
@@ -255,8 +277,8 @@ const Forms: React.FC = () => {
     };
 
     // Prepare Favorites section separately
-    const favoriteLinks = [...formHubSections.General_Processes, ...formHubSections.Operations].filter(
-      (link) => favorites.includes(link.title)
+    const favoriteLinks = formHubSections.General_Processes.concat(formHubSections.Operations).filter(
+      (link) => favorites.some(fav => fav.title === link.title)
     );
 
     return {
@@ -274,7 +296,7 @@ const Forms: React.FC = () => {
   const calculateAnimationDelay = (index: number) => {
     const row = Math.floor(index / columnsPerRow);
     const col = index % columnsPerRow;
-    return (row + col) * 0.1;
+    return row * 0.2 + col * 0.1; // Adjust delays as needed
   };
 
   return (
@@ -307,10 +329,10 @@ const Forms: React.FC = () => {
                   <FormCard
                     key={link.title}
                     link={link}
-                    isFavorite={favorites.includes(link.title)}
+                    isFavorite={favorites.some(fav => fav.title === link.title)}
                     onCopy={copyToClipboard}
-                    onToggleFavorite={toggleFavorite}
-                    onGoTo={goToLink}
+                    onToggleFavorite={() => toggleFavorite(link)}
+                    onGoTo={() => goToLink(link.url)}
                     onSelect={() => setSelectedLink(link)}
                     animationDelay={animationDelay}
                   />
@@ -333,10 +355,10 @@ const Forms: React.FC = () => {
                     <FormCard
                       key={link.title}
                       link={link}
-                      isFavorite={favorites.includes(link.title)}
+                      isFavorite={favorites.some(fav => fav.title === link.title)}
                       onCopy={copyToClipboard}
-                      onToggleFavorite={toggleFavorite}
-                      onGoTo={goToLink}
+                      onToggleFavorite={() => toggleFavorite(link)}
+                      onGoTo={() => goToLink(link.url)}
                       onSelect={() => setSelectedLink(link)}
                       animationDelay={animationDelay}
                     />
@@ -417,9 +439,10 @@ const Forms: React.FC = () => {
       {/* Form Details Panel */}
       {selectedLink && (
         <FormDetails
+          isOpen={true} // Add this prop
+          onClose={() => setSelectedLink(null)}
           link={selectedLink}
           isDarkMode={isDarkMode}
-          onClose={() => setSelectedLink(null)}
         />
       )}
     </div>

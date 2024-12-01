@@ -1,5 +1,3 @@
-// src/tabs/home/Home.tsx
-
 import React, { useState, useEffect, useContext, useMemo } from 'react';
 import {
   mergeStyles,
@@ -16,8 +14,6 @@ import {
   DetailsListLayoutMode,
   Panel,
   PanelType,
-  PrimaryButton,
-  TextField,
   Persona,
   PersonaSize,
   PersonaPresence,
@@ -39,6 +35,18 @@ import Tasking from '../../CustomForms/Tasking';
 import TelephoneAttendance from '../../CustomForms/TelephoneAttendance';
 import RetrieveContactForm from '../../CustomForms/RetrieveContactForm';
 import CreateTimeEntryForm from '../../CustomForms/CreateTimeEntryForm';
+
+// Import FormCard and ResourceCard
+import FormCard from '../forms/FormCard'; // Adjust path as needed
+import ResourceCard from '../resources/ResourceCard'; // Adjust path as needed
+
+// Import FormItem and Resource types
+import { FormItem } from '../forms/Forms'; // Ensure FormItem is exported from Forms.tsx
+import { Resource } from '../resources/Resources'; // Ensure Resource is exported from Resources.tsx
+
+// Import Detail Components
+import FormDetails from '../forms/FormDetails'; // Ensure this component exists
+import ResourceDetails from '../resources/ResourceDetails'; // Ensure this component exists
 
 interface HomeProps {
   context: microsoftTeams.Context | null;
@@ -84,7 +92,6 @@ const greetingStyle = (isDarkMode: boolean) =>
 const mainContentStyle = mergeStyles({
   display: 'flex',
   flexDirection: 'column',
-  gap: '40px', // Increased gap for better spacing
 });
 
 const sectionRowStyle = mergeStyles({
@@ -97,13 +104,8 @@ const sectionRowStyle = mergeStyles({
 
 const sectionLabelStyle = (isDarkMode: boolean) =>
   mergeStyles({
-    fontWeight: '400',
-    fontSize: '24px',
-    flexShrink: 0,
-    minWidth: '200px',
-    marginRight: '20px',
-    marginTop: '4px',
-    whiteSpace: 'nowrap',
+    fontWeight: '600',
+    fontSize: '20px',
     color: isDarkMode ? colours.dark.text : colours.light.text,
   });
 
@@ -156,12 +158,18 @@ const officeLeaveContainerStyle = (isDarkMode: boolean) =>
   });
 
 const cardsContainerStyle = mergeStyles({
-  display: 'flex',
-  flexWrap: 'nowrap',
-  alignItems: 'stretch',
-  justifyContent: 'space-between',
-  gap: '20px',
-  width: '100%',
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+  gap: '20px', // Spacing between cards
+  paddingTop: '15px', // Add spacing above the cards
+  '@media (min-width: 1000px)': {
+    gridTemplateColumns: 'repeat(5, 1fr)', // Force 5 cards per row on larger screens
+  },
+});
+
+const subSectionContainerStyle = mergeStyles({
+  marginTop: '0', // Adds spacing above the sub-section
+  marginBottom: '0', // Adds spacing below the sub-section
 });
 
 const cardTitleStyle = (isDarkMode: boolean) =>
@@ -176,6 +184,22 @@ const versionStyle = mergeStyles({
   fontSize: '14px',
   color: '#888',
   marginTop: '40px', // Increased margin top for spacing
+});
+
+const subLabelStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    fontWeight: '600',
+    fontSize: '20px',
+    color: isDarkMode ? colours.dark.text : colours.light.text,
+  });
+
+const favouritesGridStyle = mergeStyles({
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', // Increased minWidth to 300px
+  gap: '20px', // Space between cards
+  '@media (min-width: 1000px)': {
+    gridTemplateColumns: 'repeat(5, 1fr)', // Consistent with other grids
+  },
 });
 
 const createColumnsFunction = (isDarkMode: boolean): IColumn[] => [
@@ -274,6 +298,50 @@ const Home: React.FC<HomeProps> = ({ context }) => {
 
   const [isPanelOpen, setIsPanelOpen] = useState<boolean>(false);
   const [selectedAction, setSelectedAction] = useState<QuickLink | null>(null);
+
+  // New states for favourites
+  const [formsFavorites, setFormsFavorites] = useState<FormItem[]>([]);
+  const [resourcesFavorites, setResourcesFavorites] = useState<Resource[]>([]);
+
+  // States for selected favourites (for details panels)
+  const [selectedForm, setSelectedForm] = useState<FormItem | null>(null);
+  const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
+
+  // Fetch favourites from localStorage on mount
+  useEffect(() => {
+    const storedFormsFavorites = localStorage.getItem('formsFavorites');
+    const storedResourcesFavorites = localStorage.getItem('resourcesFavorites');
+
+    if (storedFormsFavorites) {
+      const parsedForms = JSON.parse(storedFormsFavorites);
+      console.log('Forms Favourites:', parsedForms); // Debugging
+      setFormsFavorites(parsedForms);
+    }
+
+    if (storedResourcesFavorites) {
+      const parsedResources = JSON.parse(storedResourcesFavorites);
+      console.log('Resources Favourites:', parsedResources); // Debugging
+      setResourcesFavorites(parsedResources);
+    }
+  }, []);
+
+  // Listen for changes in localStorage to update favourites in real-time
+  useEffect(() => {
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === 'formsFavorites' && event.newValue) {
+        setFormsFavorites(JSON.parse(event.newValue));
+      }
+      if (event.key === 'resourcesFavorites' && event.newValue) {
+        setResourcesFavorites(JSON.parse(event.newValue));
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, []);
 
   useEffect(() => {
     console.log('Teams Context:', teamsContext);
@@ -393,8 +461,21 @@ const Home: React.FC<HomeProps> = ({ context }) => {
   };
 
   // Define number of columns per row for delay calculation
-  const columnsPerRow = 3;
+  const columnsPerRow = 5;
   let metricCardIndex = 0;
+
+  // Existing copyToClipboard function
+  const copyToClipboard = (url: string, title: string) => {
+    navigator.clipboard
+      .writeText(url)
+      .then(() => {
+        // You can set a state here if you want to show a success message
+        console.log(`Copied '${title}' to clipboard.`);
+      })
+      .catch((err) => {
+        console.error('Failed to copy: ', err);
+      });
+  };
 
   return (
     <div className={containerStyle(isDarkMode)}>
@@ -403,7 +484,7 @@ const Home: React.FC<HomeProps> = ({ context }) => {
         <Text className={greetingStyle(isDarkMode)}>{greeting}</Text>
       </Stack>
 
-      {/* Main Content: Quick Actions, Metrics, In Office, On Leave */}
+      {/* Main Content: Quick Actions, Metrics, Favourites, In Office, On Leave */}
       <Stack className={mainContentStyle} tokens={{ childrenGap: 40 }}>
         {/* Row 1: Quick Actions and Metrics */}
         <div className={sectionRowStyle}>
@@ -431,8 +512,10 @@ const Home: React.FC<HomeProps> = ({ context }) => {
           <div className={metricsContainerStyle(isDarkMode)}>
             <Stack tokens={{ childrenGap: 30 }} styles={{ root: { height: '100%' } }}>
               {/* WIP Section */}
-              <div className={sectionRowStyle}>
-                <Text className={sectionLabelStyle(isDarkMode)}>WIP</Text>
+              <div className={subSectionContainerStyle}>
+                <div style={{ marginBottom: '15px' }}>
+                  <Text className={subLabelStyle(isDarkMode)}>WIP</Text>
+                </div>
                 <div className={cardsContainerStyle}>
                   {[
                     {
@@ -476,8 +559,10 @@ const Home: React.FC<HomeProps> = ({ context }) => {
               </div>
 
               {/* Enquiries Section */}
-              <div className={sectionRowStyle}>
-                <Text className={sectionLabelStyle(isDarkMode)}>Enquiries</Text>
+              <div className={subSectionContainerStyle}>
+                <div style={{ marginBottom: '15px' }}>
+                  <Text className={subLabelStyle(isDarkMode)}>Enquiries</Text>
+                </div>
                 <div className={cardsContainerStyle}>
                   {[
                     {
@@ -515,8 +600,10 @@ const Home: React.FC<HomeProps> = ({ context }) => {
               </div>
 
               {/* Tasks Section */}
-              <div className={sectionRowStyle}>
-                <Text className={sectionLabelStyle(isDarkMode)}>Tasks</Text>
+              <div className={subSectionContainerStyle}>
+                <div style={{ marginBottom: '15px' }}>
+                  <Text className={subLabelStyle(isDarkMode)}>Tasks</Text>
+                </div>
                 <div className={cardsContainerStyle}>
                   {[
                     {
@@ -554,6 +641,90 @@ const Home: React.FC<HomeProps> = ({ context }) => {
               </div>
             </Stack>
           </div>
+        </div>
+
+        {/* New Favourites Section */}
+        <div
+          className={mergeStyles({
+            backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+            padding: '20px',
+            borderRadius: '12px',
+            boxShadow: isDarkMode
+              ? `0 4px 12px ${colours.dark.border}`
+              : `0 4px 12px ${colours.light.border}`,
+            transition: 'background-color 0.3s, box-shadow 0.3s',
+            width: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '20px',
+          })}
+        >
+          <Text
+            className={mergeStyles({
+              fontWeight: '700',
+              fontSize: '24px',
+              color: isDarkMode ? colours.dark.text : colours.light.text,
+            })}
+          >
+            Favourites
+          </Text>
+
+          {/* Sub-section: Forms Favourites */}
+          {formsFavorites.length > 0 && (
+            <div className={subSectionContainerStyle}>
+              {/* Add inline marginBottom directly to the Text container */}
+              <div style={{ marginBottom: '15px' }}>
+                <Text className={subLabelStyle(isDarkMode)}>Forms</Text>
+              </div>
+              <div className={favouritesGridStyle}>
+                {formsFavorites.map((form: FormItem) => (
+                  <FormCard
+                    key={form.title}
+                    link={form}
+                    isFavorite={true}
+                    onCopy={(url, title) => copyToClipboard(url, title)}
+                    onSelect={() => setSelectedForm(form)}
+                    onToggleFavorite={() => {
+                      const updatedFavorites = formsFavorites.filter(fav => fav.title !== form.title);
+                      setFormsFavorites(updatedFavorites);
+                      localStorage.setItem('formsFavorites', JSON.stringify(updatedFavorites));
+                    }}
+                    onGoTo={() => {
+                      window.open(form.url, '_blank');
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Sub-section: Resources Favourites */}
+          {resourcesFavorites.length > 0 && (
+            <div className={subSectionContainerStyle}>
+              {/* Add inline marginBottom directly to the Text container */}
+              <div style={{ marginBottom: '15px' }}>
+                <Text className={subLabelStyle(isDarkMode)}>Resources</Text>
+              </div>
+              <div className={favouritesGridStyle}>
+                {resourcesFavorites.map((resource: Resource) => (
+                  <ResourceCard
+                    key={resource.title}
+                    resource={resource}
+                    isFavorite={true}
+                    onCopy={(url, title) => copyToClipboard(url, title)}
+                    onToggleFavorite={() => {
+                      const updatedFavorites = resourcesFavorites.filter(fav => fav.title !== resource.title);
+                      setResourcesFavorites(updatedFavorites);
+                      localStorage.setItem('resourcesFavorites', JSON.stringify(updatedFavorites));
+                    }}
+                    onGoTo={() => window.open(resource.url, '_blank')}
+                    onSelect={() => setSelectedResource(resource)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
         </div>
 
         {/* Row 2: In the Office Today and On Annual Leave Today */}
@@ -779,10 +950,28 @@ const Home: React.FC<HomeProps> = ({ context }) => {
         closeButtonAriaLabel="Close"
       >
         {selectedAction?.title === 'Create a Task' && <Tasking />}
-        {selectedAction?.title === 'Telephone Attendance' && <TelephoneAttendance />}
-        {selectedAction?.title === 'Retrieve a Contact' && <RetrieveContactForm />}
         {selectedAction?.title === 'Create a Time Entry' && <CreateTimeEntryForm />}
+        {selectedAction?.title === 'Record an Attendance Note' && <TelephoneAttendance />}
+        {selectedAction?.title === 'Retrieve a Contact' && <RetrieveContactForm />}
       </Panel>
+
+      {/* Form Details Panel */}
+      {selectedForm && (
+        <FormDetails
+          isOpen={true}
+          onClose={() => setSelectedForm(null)} // Corrected prop
+          link={selectedForm} // Adjusted from "form"
+          isDarkMode={isDarkMode}
+        />
+      )}
+
+      {/* Resource Details Panel */}
+      {selectedResource && (
+        <ResourceDetails
+          resource={selectedResource}
+          onClose={() => setSelectedResource(null)}
+        />
+      )}
     </div>
   );
 };

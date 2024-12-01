@@ -11,8 +11,8 @@ import {
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { colours } from '../../app/styles/colours';
 import { Resource } from './Resources';
-import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme
-import '../../app/styles/ResourceCard.css'; // Import the CSS file
+import { useTheme } from '../../app/functionality/ThemeContext';
+import '../../app/styles/ResourceCard.css';
 
 // Define button styles similar to LinkCard
 const iconButtonStyles = (iconColor: string): IButtonStyles => ({
@@ -47,10 +47,10 @@ interface ResourceCardProps {
   resource: Resource;
   isFavorite: boolean;
   onCopy: (url: string, title: string) => void;
-  onToggleFavorite: (title: string) => void;
+  onToggleFavorite: (resource: Resource) => void;
   onGoTo: (url: string) => void;
   onSelect: () => void;
-  animationDelay?: number; // Add this prop
+  animationDelay?: number;
 }
 
 const cardStyle = (isDarkMode: boolean) =>
@@ -66,7 +66,7 @@ const cardStyle = (isDarkMode: boolean) =>
     cursor: 'pointer',
     display: 'flex',
     flexDirection: 'row',
-    alignItems: 'center', // Center vertically
+    alignItems: 'center',
     height: '100%',
     ':hover': {
       boxShadow: isDarkMode
@@ -81,8 +81,8 @@ const mainContentStyle = (isDarkMode: boolean) =>
     display: 'flex',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: '10px', // Space between icon and title
-    flex: 1, // Take up remaining space
+    gap: '10px',
+    flex: 1,
   });
 
 const resourceTitleStyle = mergeStyles({
@@ -90,7 +90,7 @@ const resourceTitleStyle = mergeStyles({
   fontWeight: '600',
   color: 'inherit',
   cursor: 'pointer',
-  marginTop: '0px', // Remove top margin
+  marginTop: '0px',
 });
 
 const actionsContainerStyle = (isDarkMode: boolean) =>
@@ -105,14 +105,14 @@ const separatorStyle = (isDarkMode: boolean) =>
   mergeStyles({
     width: '1px',
     backgroundColor: isDarkMode ? colours.dark.border : colours.light.border,
-    height: '60%', // Adjust height as needed
-    margin: '0 15px', // Equal spacing on both sides
+    height: '60%',
+    margin: '0 15px',
     alignSelf: 'center',
   });
 
 const ResourceCard: React.FC<ResourceCardProps> = React.memo(
   ({ resource, isFavorite, onCopy, onToggleFavorite, onGoTo, onSelect, animationDelay = 0 }) => {
-    const { isDarkMode } = useTheme(); // Access isDarkMode from Theme Context
+    const { isDarkMode } = useTheme();
 
     return (
       <TooltipHost content={`View details for ${resource.title}`}>
@@ -175,7 +175,7 @@ const ResourceCard: React.FC<ResourceCardProps> = React.memo(
                 ariaLabel="Toggle Favorite"
                 onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
                   e.stopPropagation();
-                  onToggleFavorite(resource.title);
+                  onToggleFavorite(resource);
                 }}
                 styles={iconButtonStyles(colours.cta)}
               />

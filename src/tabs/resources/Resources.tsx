@@ -18,8 +18,8 @@ import { useFeContext } from '../../app/functionality/FeContext';
 import ResourceCard from './ResourceCard';
 import ResourceDetails from './ResourceDetails';
 import { sharedSearchBoxContainerStyle, sharedSearchBoxStyle } from '../../app/styles/FilterStyles';
-import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme
-import '../../app/styles/ResourceCard.css'; // Ensure CSS is imported
+import { useTheme } from '../../app/functionality/ThemeContext';
+import '../../app/styles/ResourceCard.css';
 
 initializeIcons();
 
@@ -57,7 +57,7 @@ const headerStyle = (isDarkMode: boolean) =>
   mergeStyles({
     display: 'flex',
     justifyContent: 'space-between',
-    alignItems: 'center', // Ensures vertical centering
+    alignItems: 'center',
     marginBottom: '20px',
     flexWrap: 'wrap',
     gap: '10px',
@@ -65,7 +65,7 @@ const headerStyle = (isDarkMode: boolean) =>
 
 const controlsContainerStyle = mergeStyles({
   display: 'flex',
-  alignItems: 'center', // Ensures vertical centering
+  alignItems: 'center',
   gap: '10px',
   flexWrap: 'wrap',
 });
@@ -73,9 +73,9 @@ const controlsContainerStyle = mergeStyles({
 // Updated searchBoxStyle with reduced border radius and no border
 const searchBoxContainerStyle = (isDarkMode: boolean) =>
   mergeStyles({
-    position: 'relative', // To position the icon correctly
-    width: '100%', // Make it responsive
-    maxWidth: '300px', // Limit the max width
+    position: 'relative',
+    width: '100%',
+    maxWidth: '300px',
   });
 
 const mainContentStyle = (isDarkMode: boolean) =>
@@ -98,11 +98,11 @@ const sectionStyle = (isDarkMode: boolean) =>
       ? '0 4px 12px rgba(255, 255, 255, 0.1)'
       : '0 4px 12px rgba(0, 0, 0, 0.1)',
     transition: 'background-color 0.3s, border 0.3s, box-shadow 0.3s',
-    marginBottom: '40px', // Increased from 20px to 40px
+    marginBottom: '40px',
 
     selectors: {
       '&:last-child': {
-        marginBottom: '0px', // Remove margin from last section
+        marginBottom: '0px',
       },
     },
   });
@@ -112,24 +112,24 @@ const sectionHeaderStyleCustom = (isDarkMode: boolean) =>
     fontSize: '20px',
     fontWeight: '700',
     color: isDarkMode ? colours.dark.text : colours.light.text,
-    marginBottom: '30px', // Increased from 20px to 30px
-    marginTop: '0px', // Remove top margin if unnecessary
+    marginBottom: '30px',
+    marginTop: '0px',
   });
 
 const resourceGridStyle = mergeStyles({
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', // Responsive layout for smaller screens
+  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
   gap: '20px',
   paddingTop: '15px',
   '@media (min-width: 1000px)': {
-    gridTemplateColumns: 'repeat(5, 1fr)', // Maximum of 5 columns per row for larger screens
+    gridTemplateColumns: 'repeat(5, 1fr)',
   },
 });
 
 const footerStyle = (isDarkMode: boolean) =>
   mergeStyles({
     padding: '20px',
-    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.border,
+    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
     borderRadius: '8px',
     marginTop: 'auto',
     display: 'flex',
@@ -140,24 +140,37 @@ const footerStyle = (isDarkMode: boolean) =>
   });
 
 // Define the props for Resources component
-interface ResourcesProps {
-  // isDarkMode: boolean; // Removed
-}
+interface ResourcesProps {}
 
 const Resources: React.FC<ResourcesProps> = () => {
-  const { isDarkMode } = useTheme(); // Access isDarkMode from Theme Context
+  const { isDarkMode } = useTheme();
   const { sqlData, isLoading, error } = useFeContext();
-  const [favorites, setFavorites] = useState<string[]>([]);
+  const [favorites, setFavorites] = useState<Resource[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
 
+  // Handle storage changes for syncing favourites
+  useEffect(() => {
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === 'resourcesFavorites' && event.newValue) {
+        setFavorites(JSON.parse(event.newValue));
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, []);
+
   // Define number of columns per row for delay calculation
   const columnsPerRow = 5;
 
-  // Initialize resources
-  const resourcesSections: ResourcesSections = useMemo(
-    () => ({
+  // Initialize resources without mutating useMemo return
+  const resourcesSections: ResourcesSections = useMemo(() => {
+    const initialSections: ResourcesSections = {
       Internal: [
         {
           title: 'Asana',
@@ -223,14 +236,10 @@ const Resources: React.FC<ResourcesProps> = () => {
         },
       ],
       Favorites: [], // Will be populated based on favorites
-    }),
-    [favorites]
-  );
+    };
 
-  // Extract resources from sqlData if available (assuming similar structure)
-  useEffect(() => {
+    // If sqlData is present, append internal and external resources
     if (sqlData && sqlData.length > 0) {
-      // Assuming sqlData has the same structure as predefined resources
       const internalResources = sqlData
         .filter((item: any) => item.Category === 'Internal')
         .map((item: any) => ({
@@ -251,14 +260,20 @@ const Resources: React.FC<ResourcesProps> = () => {
           description: item.Description || '',
         }));
 
-      resourcesSections.Internal.push(...internalResources);
-      resourcesSections.External.push(...externalResources);
+      // Combine with predefined resources
+      return {
+        Internal: [...initialSections.Internal, ...internalResources],
+        External: [...initialSections.External, ...externalResources],
+        Favorites: [], // Will be handled separately
+      };
     }
-  }, [sqlData, resourcesSections]);
+
+    return initialSections;
+  }, [sqlData]);
 
   // Load stored favorites from localStorage
   useEffect(() => {
-    const storedFavorites = localStorage.getItem('favorites');
+    const storedFavorites = localStorage.getItem('resourcesFavorites');
     if (storedFavorites) {
       setFavorites(JSON.parse(storedFavorites));
     }
@@ -266,7 +281,7 @@ const Resources: React.FC<ResourcesProps> = () => {
 
   // Update localStorage whenever favorites change
   useEffect(() => {
-    localStorage.setItem('favorites', JSON.stringify(favorites));
+    localStorage.setItem('resourcesFavorites', JSON.stringify(favorites));
   }, [favorites]);
 
   // Handle Copy to Clipboard
@@ -286,10 +301,20 @@ const Resources: React.FC<ResourcesProps> = () => {
   );
 
   // Handle Toggle Favorite
-  const toggleFavorite = useCallback((title: string) => {
-    setFavorites((prev) =>
-      prev.includes(title) ? prev.filter((fav) => fav !== title) : [...prev, title]
-    );
+  const toggleFavorite = useCallback((resource: Resource) => {
+    setFavorites((prev) => {
+      const isFavorite = prev.some((fav) => fav.title === resource.title);
+      let updatedFavorites: Resource[];
+
+      if (isFavorite) {
+        updatedFavorites = prev.filter((fav) => fav.title !== resource.title);
+      } else {
+        updatedFavorites = [...prev, resource];
+      }
+
+      localStorage.setItem('resourcesFavorites', JSON.stringify(updatedFavorites));
+      return updatedFavorites;
+    });
   }, []);
 
   // Handle Go To Resource
@@ -303,7 +328,7 @@ const Resources: React.FC<ResourcesProps> = () => {
       resources.filter(
         (resource) =>
           resource.title.toLowerCase().includes(searchQuery.toLowerCase()) &&
-          !favorites.includes(resource.title) // Exclude favorites from Internal and External
+          !favorites.some((fav) => fav.title === resource.title)
       );
 
     const sortResources = (resources: Resource[]) => {
@@ -313,16 +338,12 @@ const Resources: React.FC<ResourcesProps> = () => {
     };
 
     // Prepare Favorites section separately
-    const favoriteResources = resourcesSections.Internal.concat(resourcesSections.External).filter((resource) =>
-      favorites.includes(resource.title)
+    const favoriteResources = favorites.filter((resource) =>
+      resource.title.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
     return {
-      Favorites: sortResources(
-        favoriteResources.filter((resource) =>
-          resource.title.toLowerCase().includes(searchQuery.toLowerCase())
-        )
-      ),
+      Favorites: sortResources(favoriteResources),
       Internal: sortResources(filterResources(resourcesSections.Internal)),
       External: sortResources(filterResources(resourcesSections.External)),
     };
@@ -403,7 +424,7 @@ const Resources: React.FC<ResourcesProps> = () => {
                     <ResourceCard
                       key={resource.title}
                       resource={resource}
-                      isFavorite={favorites.includes(resource.title)}
+                      isFavorite={favorites.some((fav) => fav.title === resource.title)}
                       onCopy={copyToClipboard}
                       onToggleFavorite={toggleFavorite}
                       onGoTo={goToResource}
@@ -441,7 +462,7 @@ const Resources: React.FC<ResourcesProps> = () => {
                       <ResourceCard
                         key={resource.title}
                         resource={resource}
-                        isFavorite={favorites.includes(resource.title)}
+                        isFavorite={favorites.some((fav) => fav.title === resource.title)}
                         onCopy={copyToClipboard}
                         onToggleFavorite={toggleFavorite}
                         onGoTo={goToResource}

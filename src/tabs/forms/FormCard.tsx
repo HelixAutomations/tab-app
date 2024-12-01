@@ -1,5 +1,3 @@
-// src/tabs/Forms/FormCard.tsx
-
 import React from 'react';
 import {
   Text,
@@ -45,8 +43,8 @@ interface FormCardProps {
   link: FormItem;
   isFavorite: boolean;
   onCopy: (url: string, title: string) => void;
-  onToggleFavorite: (title: string) => void;
-  onGoTo: (url: string) => void;
+  onToggleFavorite: () => void;
+  onGoTo: () => void;
   onSelect: () => void;
   animationDelay?: number; // Add this prop
 }
@@ -108,7 +106,7 @@ const separatorStyle = (isDarkMode: boolean) =>
     alignSelf: 'center',
   });
 
-const FormCard: React.FC<FormCardProps > = React.memo(
+const FormCard: React.FC<FormCardProps> = React.memo(
   ({ link, isFavorite, onCopy, onToggleFavorite, onGoTo, onSelect, animationDelay = 0 }) => {
     const { isDarkMode } = useTheme(); // Access isDarkMode from Theme Context
 
@@ -173,7 +171,7 @@ const FormCard: React.FC<FormCardProps > = React.memo(
                 ariaLabel="Toggle Favorite"
                 onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
                   e.stopPropagation();
-                  onToggleFavorite(link.title);
+                  onToggleFavorite();
                 }}
                 styles={iconButtonStyles(colours.cta)}
               />
@@ -190,7 +188,7 @@ const FormCard: React.FC<FormCardProps > = React.memo(
                 ariaLabel="Go To"
                 onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
                   e.stopPropagation();
-                  onGoTo(link.url);
+                  onGoTo();
                 }}
                 styles={iconButtonStyles(colours.cta)}
               />
