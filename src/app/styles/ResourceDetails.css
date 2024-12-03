@@ -1,0 +1,45 @@
+/* src/app/styles/ResourceDetails.css */
+
+.action-item {
+    width: 100%;
+    position: relative;
+  }
+  
+  .intake-form-enter {
+    opacity: 0;
+    max-height: 0;
+    transform: translateY(-10px);
+  }
+  
+  .intake-form-enter-active {
+    opacity: 1;
+    max-height: 500px;
+    transform: translateY(0);
+    transition: opacity 300ms ease-in-out, max-height 300ms ease-in-out, transform 300ms ease-in-out;
+  }
+  
+  .intake-form-exit {
+    opacity: 1;
+    max-height: 500px;
+    transform: translateY(0);
+  }
+  
+  .intake-form-exit-active {
+    opacity: 0;
+    max-height: 0;
+    transform: translateY(-10px);
+    transition: opacity 300ms ease-in-out, max-height 300ms ease-in-out, transform 300ms ease-in-out;
+  }
+  
+  .intake-form-enter-done {
+    opacity: 1;
+    max-height: 500px;
+    transform: translateY(0);
+  }
+  
+  .intake-form-exit-done {
+    opacity: 0;
+    max-height: 0;
+    transform: translateY(-10px);
+  }
+  

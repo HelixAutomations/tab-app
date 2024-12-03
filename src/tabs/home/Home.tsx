@@ -123,8 +123,13 @@ const quickLinksStyle = (isDarkMode: boolean) =>
     flexDirection: 'column',
   });
 
+// Updated Metrics Container Style to include grid layout
 const metricsContainerStyle = (isDarkMode: boolean) =>
   mergeStyles({
+    display: 'grid',
+    gridTemplateColumns: '60px 1fr 1fr 1fr', // Side label + 3 metric columns
+    gridTemplateRows: 'auto repeat(3, 1fr)', // Top labels + 3 metric rows
+    gap: '20px', // Consistent gap
     backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
     backgroundImage: `url(${GreyHelixMark})`,
     backgroundPosition: 'top right',
@@ -137,40 +142,46 @@ const metricsContainerStyle = (isDarkMode: boolean) =>
       : `0 4px 12px ${colours.light.border}`,
     transition: 'background-color 0.3s, box-shadow 0.3s',
     flex: '1',
-    display: 'flex',
-    flexDirection: 'column',
-    justifyContent: 'space-between',
-    position: 'relative',
+    position: 'relative', // Ensure positioning context
+    overflow: 'visible', // Allow elements to overflow if needed
   });
 
-const officeLeaveContainerStyle = (isDarkMode: boolean) =>
+// New Top Labels Style
+const metricsTopLabelsStyle = (isDarkMode: boolean) =>
   mergeStyles({
-    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-    padding: '20px',
-    borderRadius: '12px',
-    boxShadow: isDarkMode
-      ? `0 4px 12px ${colours.dark.border}`
-      : `0 4px 12px ${colours.light.border}`,
-    transition: 'background-color 0.3s, box-shadow 0.3s',
-    flex: '1 1 50%', // Ensure equal width
+    gridColumn: '2 / span 3',
     display: 'flex',
-    flexDirection: 'column',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '10px',
   });
 
-const cardsContainerStyle = mergeStyles({
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
-  gap: '20px', // Spacing between cards
-  paddingTop: '15px', // Add spacing above the cards
-  '@media (min-width: 1000px)': {
-    gridTemplateColumns: 'repeat(5, 1fr)', // Force 5 cards per row on larger screens
-  },
-});
-
-const subSectionContainerStyle = mergeStyles({
-  marginTop: '0', // Adds spacing above the sub-section
-  marginBottom: '0', // Adds spacing below the sub-section
-});
+// New Sidebar Labels Style
+const metricsSidebarLabelStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    // Base styles
+    fontWeight: '600',
+    fontSize: '16px',
+    color: isDarkMode ? colours.dark.text : colours.light.text,
+    textAlign: 'center',
+    // Tab styles
+    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+    padding: '10px 20px',
+    borderTopRightRadius: '12px',
+    borderBottomRightRadius: '12px',
+    position: 'relative',
+    zIndex: 1, // Lower z-index so it appears beneath metric cards
+    // Adjust rotation and alignment
+    writingMode: 'vertical-rl',
+    textOrientation: 'mixed',
+    transform: 'rotate(180deg)', // Keep text readable
+    // Optional box shadow or border
+    boxShadow: isDarkMode
+      ? `2px 0 4px ${colours.dark.border}`
+      : `2px 0 4px ${colours.light.border}`,
+      marginRight: '-20px', // Adjust to move label under the metric cards
+      paddingRight: '30px', // Increase padding to compensate
+  });
 
 const cardTitleStyle = (isDarkMode: boolean) =>
   mergeStyles({
@@ -227,6 +238,7 @@ const createColumnsFunction = (isDarkMode: boolean): IColumn[] => [
   },
 ];
 
+// Define 'quickActions' array
 const quickActions: QuickLink[] = [
   { title: 'Create a Task', icon: 'Add' },
   { title: 'Create a Time Entry', icon: 'Clock' },
@@ -234,7 +246,7 @@ const quickActions: QuickLink[] = [
   { title: 'Retrieve a Contact', icon: 'Contact' },
 ];
 
-// Updated dummy names with initials
+// Define 'inOfficePeople' array
 const inOfficePeople: Person[] = [
   { name: 'Alex Cook', initials: 'AC', presence: PersonaPresence.online },
   { name: 'Jonathan Waters', initials: 'JW', presence: PersonaPresence.away },
@@ -242,12 +254,35 @@ const inOfficePeople: Person[] = [
   { name: 'Laura Albon', initials: 'LA', presence: PersonaPresence.online },
 ];
 
+// Define 'onLeavePeople' array
 const onLeavePeople: Person[] = [
   { name: 'Sam Packwood', initials: 'SP', presence: PersonaPresence.away },
   { name: 'Richard Chapman', initials: 'RC', presence: PersonaPresence.offline },
   { name: 'Kanchel White', initials: 'KW', presence: PersonaPresence.away },
 ];
 
+// Define 'subSectionContainerStyle' style
+const subSectionContainerStyle = mergeStyles({
+  marginTop: '0', // Adds spacing above the sub-section
+  marginBottom: '0', // Adds spacing below the sub-section
+});
+
+// Define 'officeLeaveContainerStyle' style
+const officeLeaveContainerStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+    padding: '20px',
+    borderRadius: '12px',
+    boxShadow: isDarkMode
+      ? `0 4px 12px ${colours.dark.border}`
+      : `0 4px 12px ${colours.light.border}`,
+    transition: 'background-color 0.3s, box-shadow 0.3s',
+    flex: '1 1 50%', // Ensure equal width
+    display: 'flex',
+    flexDirection: 'column',
+  });
+
+// Define 'transformContext' function
 const transformContext = (contextObj: any): { key: string; value: string }[] => {
   if (!contextObj || typeof contextObj !== 'object') {
     console.warn('Invalid context object:', contextObj);
@@ -274,8 +309,6 @@ const Home: React.FC<HomeProps> = ({ context }) => {
   const [completedThisWeek, setCompletedThisWeek] = useState<number>(15);
 
   const [recordedTime, setRecordedTime] = useState<{ hours: number; money: number }>({ hours: 120, money: 1000 });
-  const [collectedTime, setCollectedTime] = useState<{ hours: number; money: number }>({ hours: 80, money: 800 });
-  const [awaitingPayment, setAwaitingPayment] = useState<{ hours: number; money: number }>({ hours: 40, money: 400 });
 
   // Previous period state variables (dummy data)
   const [prevEnquiriesToday, setPrevEnquiriesToday] = useState<number>(8);
@@ -287,8 +320,6 @@ const Home: React.FC<HomeProps> = ({ context }) => {
   const [prevCompletedThisWeek, setPrevCompletedThisWeek] = useState<number>(17);
 
   const [prevRecordedTime, setPrevRecordedTime] = useState<{ hours: number; money: number }>({ hours: 110, money: 900 });
-  const [prevCollectedTime, setPrevCollectedTime] = useState<{ hours: number; money: number }>({ hours: 85, money: 750 });
-  const [prevAwaitingPayment, setPrevAwaitingPayment] = useState<{ hours: number; money: number }>({ hours: 35, money: 350 });
 
   const [isValidatingUser, setIsValidatingUser] = useState<boolean>(true);
   const [isExtractingData, setIsExtractingData] = useState<boolean>(true);
@@ -460,10 +491,6 @@ const Home: React.FC<HomeProps> = ({ context }) => {
     setIsPanelOpen(false);
   };
 
-  // Define number of columns per row for delay calculation
-  const columnsPerRow = 5;
-  let metricCardIndex = 0;
-
   // Existing copyToClipboard function
   const copyToClipboard = (url: string, title: string) => {
     navigator.clipboard
@@ -476,6 +503,31 @@ const Home: React.FC<HomeProps> = ({ context }) => {
         console.error('Failed to copy: ', err);
       });
   };
+
+  // Define metrics data for grid layout
+  const metricsData = [
+    {
+      title: 'WIP',
+      today: { money: recordedTime.money, hours: recordedTime.hours, prevMoney: prevRecordedTime.money, prevHours: prevRecordedTime.hours },
+      weekToDate: { money: recordedTime.money, hours: recordedTime.hours, prevMoney: prevRecordedTime.money, prevHours: prevRecordedTime.hours },
+      monthToDate: { money: recordedTime.money, hours: recordedTime.hours, prevMoney: prevRecordedTime.money, prevHours: prevRecordedTime.hours },
+      isTimeMoney: true,
+    },
+    {
+      title: 'Enquiries',
+      today: { count: enquiriesToday, prevCount: prevEnquiriesToday },
+      weekToDate: { count: enquiriesWeekToDate, prevCount: prevEnquiriesWeekToDate },
+      monthToDate: { count: enquiriesMonthToDate, prevCount: prevEnquiriesMonthToDate },
+      isTimeMoney: false,
+    },
+    {
+      title: 'Tasks',
+      today: { count: todaysTasks, prevCount: prevTodaysTasks },
+      weekToDate: { count: tasksDueThisWeek, prevCount: prevTasksDueThisWeek },
+      monthToDate: { count: completedThisWeek, prevCount: prevCompletedThisWeek },
+      isTimeMoney: false,
+    },
+  ];
 
   return (
     <div className={containerStyle(isDarkMode)}>
@@ -494,7 +546,7 @@ const Home: React.FC<HomeProps> = ({ context }) => {
               {/* Quick Actions Header */}
               <Text className={sectionLabelStyle(isDarkMode)}>Quick Actions</Text>
               <Stack tokens={{ childrenGap: 10 }}>
-                {quickActions.map((action) => (
+                {quickActions.map((action: QuickLink) => (
                   <QuickActionsCard
                     key={action.title}
                     title={action.title}
@@ -508,139 +560,88 @@ const Home: React.FC<HomeProps> = ({ context }) => {
             </Stack>
           </div>
 
-          {/* Metrics Section */}
+          {/* Updated Metrics Section with Grid Layout */}
           <div className={metricsContainerStyle(isDarkMode)}>
-            <Stack tokens={{ childrenGap: 30 }} styles={{ root: { height: '100%' } }}>
-              {/* WIP Section */}
-              <div className={subSectionContainerStyle}>
-                <div style={{ marginBottom: '15px' }}>
-                  <Text className={subLabelStyle(isDarkMode)}>WIP</Text>
-                </div>
-                <div className={cardsContainerStyle}>
-                  {[
-                    {
-                      title: 'Recorded Time',
-                      data: recordedTime,
-                      prevData: prevRecordedTime,
-                      isTimeMoney: true,
-                    },
-                    {
-                      title: 'Collected Time',
-                      data: collectedTime,
-                      prevData: prevCollectedTime,
-                      isTimeMoney: true,
-                    },
-                    {
-                      title: 'Awaiting Payment',
-                      data: awaitingPayment,
-                      prevData: prevAwaitingPayment,
-                      isTimeMoney: true,
-                    },
-                  ].map((item) => {
-                    const row = Math.floor(metricCardIndex / columnsPerRow);
-                    const col = metricCardIndex % columnsPerRow;
-                    const delay = (row + col) * 0.1;
-                    metricCardIndex += 1;
-                    return (
-                      <MetricCard
-                        key={item.title}
-                        title={item.title}
-                        money={item.data.money}
-                        hours={item.data.hours}
-                        prevMoney={item.prevData.money}
-                        prevHours={item.prevData.hours}
-                        isDarkMode={isDarkMode}
-                        isTimeMoney={item.isTimeMoney}
-                        animationDelay={delay}
-                      />
-                    );
-                  })}
-                </div>
-              </div>
+            {/* Empty cell in the top-left corner */}
+            <div style={{ gridColumn: '1', gridRow: '1' }}></div>
 
-              {/* Enquiries Section */}
-              <div className={subSectionContainerStyle}>
-                <div style={{ marginBottom: '15px' }}>
-                  <Text className={subLabelStyle(isDarkMode)}>Enquiries</Text>
-                </div>
-                <div className={cardsContainerStyle}>
-                  {[
-                    {
-                      label: 'Daily',
-                      current: enquiriesToday,
-                      previous: prevEnquiriesToday,
-                    },
-                    {
-                      label: 'Weekly',
-                      current: enquiriesWeekToDate,
-                      previous: prevEnquiriesWeekToDate,
-                    },
-                    {
-                      label: 'Monthly',
-                      current: enquiriesMonthToDate,
-                      previous: prevEnquiriesMonthToDate,
-                    },
-                  ].map((item) => {
-                    const row = Math.floor(metricCardIndex / columnsPerRow);
-                    const col = metricCardIndex % columnsPerRow;
-                    const delay = (row + col) * 0.1;
-                    metricCardIndex += 1;
-                    return (
-                      <MetricCard
-                        key={item.label}
-                        title={item.label}
-                        count={item.current}
-                        prevCount={item.previous}
-                        isDarkMode={isDarkMode}
-                        animationDelay={delay}
-                      />
-                    );
-                  })}
-                </div>
-              </div>
+            {/* Top Labels */}
+            <Text
+              style={{ gridColumn: '2', gridRow: '1', textAlign: 'center' }}
+              className={mergeStyles({
+                fontWeight: '600',
+                fontSize: '16px',
+                color: isDarkMode ? colours.dark.text : colours.light.text,
+              })}
+            >
+              Today
+            </Text>
+            <Text
+              style={{ gridColumn: '3', gridRow: '1', textAlign: 'center' }}
+              className={mergeStyles({
+                fontWeight: '600',
+                fontSize: '16px',
+                color: isDarkMode ? colours.dark.text : colours.light.text,
+              })}
+            >
+              Week to Date
+            </Text>
+            <Text
+              style={{ gridColumn: '4', gridRow: '1', textAlign: 'center' }}
+              className={mergeStyles({
+                fontWeight: '600',
+                fontSize: '16px',
+                color: isDarkMode ? colours.dark.text : colours.light.text,
+              })}
+            >
+              Month to Date
+            </Text>
 
-              {/* Tasks Section */}
-              <div className={subSectionContainerStyle}>
-                <div style={{ marginBottom: '15px' }}>
-                  <Text className={subLabelStyle(isDarkMode)}>Tasks</Text>
-                </div>
-                <div className={cardsContainerStyle}>
-                  {[
-                    {
-                      label: 'Daily',
-                      current: todaysTasks,
-                      previous: prevTodaysTasks,
-                    },
-                    {
-                      label: 'Weekly',
-                      current: tasksDueThisWeek,
-                      previous: prevTasksDueThisWeek,
-                    },
-                    {
-                      label: 'Monthly',
-                      current: completedThisWeek,
-                      previous: prevCompletedThisWeek,
-                    },
-                  ].map((item) => {
-                    const row = Math.floor(metricCardIndex / columnsPerRow);
-                    const col = metricCardIndex % columnsPerRow;
-                    const delay = (row + col) * 0.1;
-                    metricCardIndex += 1;
-                    return (
-                      <MetricCard
-                        key={item.label}
-                        title={item.label}
-                        count={item.current}
-                        prevCount={item.previous}
-                        isDarkMode={isDarkMode}
-                        animationDelay={delay}
-                      />
-                    );
-                  })}
-                </div>
-              </div>
-            </Stack>
+            {/* Side Labels and Metric Cards */}
+            {metricsData.map((metric: any, rowIndex: number) => (
+              <React.Fragment key={metric.title}>
+                {/* Side Label */}
+                <Text
+                  style={{ gridColumn: '1', gridRow: `${rowIndex + 2}` }}
+                  className={metricsSidebarLabelStyle(isDarkMode)}
+                >
+                  {metric.title}
+                </Text>
+
+                {/* Metric Cards */}
+                {['today', 'weekToDate', 'monthToDate'].map((period: string, colIndex: number) => (
+                  <div
+                    key={`${metric.title}-${period}`}
+                    style={{
+                      gridColumn: `${colIndex + 2}`,
+                      gridRow: `${rowIndex + 2}`,
+                      position: 'relative',
+                      zIndex: 2,
+                      marginLeft: '-10px', // Fine-tune overlap
+                    }}
+                  >
+                    <MetricCard
+                      title=""
+                      {...(metric.isTimeMoney
+                        ? {
+                            money: metric[period].money,
+                            hours: metric[period].hours,
+                            prevMoney: metric[period].prevMoney,
+                            prevHours: metric[period].prevHours,
+                            isTimeMoney: metric.isTimeMoney,
+                          }
+                        : {
+                            count: metric[period].count,
+                            prevCount: metric[period].prevCount,
+                          })}
+                      isDarkMode={isDarkMode}
+                    />
+                  </div>
+                ))}
+              </React.Fragment>
+            ))}
           </div>
+
         </div>
 
         {/* New Favourites Section */}
@@ -672,17 +673,13 @@ const Home: React.FC<HomeProps> = ({ context }) => {
           {/* Sub-section: Forms Favourites */}
           {formsFavorites.length > 0 && (
             <div className={subSectionContainerStyle}>
-              {/* Add inline marginBottom directly to the Text container */}
-              <div style={{ marginBottom: '15px' }}>
-                <Text className={subLabelStyle(isDarkMode)}>Forms</Text>
-              </div>
               <div className={favouritesGridStyle}>
                 {formsFavorites.map((form: FormItem) => (
                   <FormCard
                     key={form.title}
                     link={form}
                     isFavorite={true}
-                    onCopy={(url, title) => copyToClipboard(url, title)}
+                    onCopy={(url: string, title: string) => copyToClipboard(url, title)}
                     onSelect={() => setSelectedForm(form)}
                     onToggleFavorite={() => {
                       const updatedFavorites = formsFavorites.filter(fav => fav.title !== form.title);
@@ -701,7 +698,6 @@ const Home: React.FC<HomeProps> = ({ context }) => {
           {/* Sub-section: Resources Favourites */}
           {resourcesFavorites.length > 0 && (
             <div className={subSectionContainerStyle}>
-              {/* Add inline marginBottom directly to the Text container */}
               <div style={{ marginBottom: '15px' }}>
                 <Text className={subLabelStyle(isDarkMode)}>Resources</Text>
               </div>
@@ -711,7 +707,7 @@ const Home: React.FC<HomeProps> = ({ context }) => {
                     key={resource.title}
                     resource={resource}
                     isFavorite={true}
-                    onCopy={(url, title) => copyToClipboard(url, title)}
+                    onCopy={(url: string, title: string) => copyToClipboard(url, title)}
                     onToggleFavorite={() => {
                       const updatedFavorites = resourcesFavorites.filter(fav => fav.title !== resource.title);
                       setResourcesFavorites(updatedFavorites);
@@ -724,7 +720,6 @@ const Home: React.FC<HomeProps> = ({ context }) => {
               </div>
             </div>
           )}
-
         </div>
 
         {/* Row 2: In the Office Today and On Annual Leave Today */}
@@ -734,7 +729,7 @@ const Home: React.FC<HomeProps> = ({ context }) => {
             <Stack tokens={{ childrenGap: 20 }}>
               <Text className={sectionLabelStyle(isDarkMode)}>In the Office Today</Text>
               <Stack horizontal wrap tokens={{ childrenGap: 10 }}>
-                {inOfficePeople.map((person, index) => (
+                {inOfficePeople.map((person: Person, index: number) => (
                   <Persona
                     key={index}
                     text={person.initials}
@@ -756,7 +751,7 @@ const Home: React.FC<HomeProps> = ({ context }) => {
             <Stack tokens={{ childrenGap: 20 }}>
               <Text className={sectionLabelStyle(isDarkMode)}>On Annual Leave Today</Text>
               <Stack horizontal wrap tokens={{ childrenGap: 10 }}>
-                {onLeavePeople.map((person, index) => (
+                {onLeavePeople.map((person: Person, index: number) => (
                   <Persona
                     key={index}
                     text={person.initials}

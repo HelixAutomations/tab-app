@@ -1,4 +1,4 @@
-/* src/app/styles/colours.ts */
+// src/app/styles/colours.ts
 
 export const colours = {
   websiteBlue: '#000319',
@@ -10,6 +10,10 @@ export const colours = {
   grey: '#F4F4F6', // Grey color
   greyText: '#6B6B6B', // Grey text color
   sectionBackground: '#FFFFFF', // Background for sections
+
+  // **Highlight colors**
+  highlightYellow: '#ffefc1', // Yellow highlight for inserted text
+  highlightBlue: '#d6e8ff',   // Light blue highlight for placeholders
 
   dark: {
     background: '#1e1e1e',

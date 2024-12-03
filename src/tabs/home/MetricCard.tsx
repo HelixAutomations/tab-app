@@ -189,41 +189,41 @@ const MetricCard: React.FC<MetricCardProps> = ({
         )}
 
         {isHovered && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+          <div style={{ display: 'flex', flexDirection: 'row', gap: '10px', justifyContent: 'space-between' }}>
             {isTimeMoney ? (
               <>
                 {moneyChange && (
-                  <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', flexDirection: 'row', gap: '5px', alignItems: 'center' }}>
                     <Text className={changeStyle(moneyChange.change >= 0)}>
                       £{Math.abs(moneyChange.change).toLocaleString()}
                     </Text>
                     <Text className={changeStyle(moneyChange.change >= 0)}>
                       ({Math.abs(Number(moneyChange.percentage.toFixed(2)))}%{' '}
-                      {moneyChange.change >= 0 ? '↑' : '↓'})
+                      {moneyChange.change >= 0 ? '↑' : '↓'} )
                     </Text>
                   </div>
                 )}
                 {hoursChange && (
-                  <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', flexDirection: 'row', gap: '5px', alignItems: 'center' }}>
                     <Text className={changeStyle(hoursChange.change >= 0)}>
                       {Math.abs(hoursChange.change)} hrs
                     </Text>
                     <Text className={changeStyle(hoursChange.change >= 0)}>
                       ({Math.abs(Number(hoursChange.percentage.toFixed(2)))}%{' '}
-                      {hoursChange.change >= 0 ? '↑' : '↓'})
+                      {hoursChange.change >= 0 ? '↑' : '↓'} )
                     </Text>
                   </div>
                 )}
               </>
             ) : (
               countChange && (
-                <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
+                <div style={{ display: 'flex', flexDirection: 'row', gap: '5px', alignItems: 'center' }}>
                   <Text className={changeStyle(countChange.change >= 0)}>
                     {Math.abs(countChange.change).toLocaleString()}
                   </Text>
                   <Text className={changeStyle(countChange.change >= 0)}>
                     ({Math.abs(Number(countChange.percentage.toFixed(2)))}%{' '}
-                    {countChange.change >= 0 ? '↑' : '↓'})
+                    {countChange.change >= 0 ? '↑' : '↓'} )
                   </Text>
                 </div>
               )

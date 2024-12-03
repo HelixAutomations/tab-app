@@ -1,6 +1,22 @@
-// D:\helix projects\workspace\tab apps\helix hub v1\src\app\customisation\PracticeAreaPitch.tsx
+export interface Template {
+  subject: string;
+  body: string;
+}
 
-const PracticeAreaPitch = {
+export interface PracticeAreaCategory {
+  [templateName: string]: Template;
+}
+
+export interface PracticeAreaPitchType {
+  Commercial: PracticeAreaCategory;
+  Construction: PracticeAreaCategory;
+  Property: PracticeAreaCategory;
+  Employment: PracticeAreaCategory;
+  // Add other practice areas as needed
+}
+
+const PracticeAreaPitch: PracticeAreaPitchType = {
+
   Commercial: {
     "Director Rights & Dispute Advice": {
       subject: "Director Rights & Dispute Advice",

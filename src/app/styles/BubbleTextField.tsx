@@ -1,6 +1,4 @@
-// src/BubbleTextField.tsx
-
-import React from 'react';
+import React, { CSSProperties } from 'react';
 import { TextField, ITextFieldStyles } from '@fluentui/react';
 import { colours } from './colours';
 
@@ -13,7 +11,8 @@ interface BubbleTextFieldProps {
   ariaLabel: string;
   isDarkMode: boolean;
   minHeight?: string;
-  type?: string; // Added 'type' as an optional prop
+  type?: string;
+  style?: CSSProperties; // Add this optional style prop
 }
 
 const BubbleTextField: React.FC<BubbleTextFieldProps> = ({
@@ -25,26 +24,27 @@ const BubbleTextField: React.FC<BubbleTextFieldProps> = ({
   ariaLabel,
   isDarkMode,
   minHeight = 'auto',
-  type = 'text', // Default type is 'text'
+  type = 'text',
+  style, // Accept style prop
 }) => {
   const styles: Partial<ITextFieldStyles> = {
     fieldGroup: {
       border: 'none',
       borderRadius: '8px',
-      padding: multiline ? '8px 20px' : '0 20px', // Add vertical padding for multiline
-      height: multiline ? 'auto' : '40px', // Auto height for multiline, fixed for single-line
-      minHeight: multiline ? minHeight : undefined, // Respect minHeight for multiline
+      padding: multiline ? '8px 7px' : '0 7px',
+      height: multiline ? 'auto' : '40px',
+      minHeight: multiline ? minHeight : undefined,
       backgroundColor: isDarkMode ? colours.dark.sectionBackground : '#ffffff',
       boxShadow: isDarkMode
         ? '0 2px 5px rgba(255, 255, 255, 0.1)'
         : '0 2px 5px rgba(0, 0, 0, 0.1)',
       display: 'flex',
-      alignItems: multiline ? 'start' : 'center', // Align to top for multiline
-      boxSizing: 'border-box', // Ensure padding doesn't affect height
+      alignItems: multiline ? 'start' : 'center',
+      boxSizing: 'border-box',
     },
     field: {
       color: isDarkMode ? colours.dark.text : colours.light.text,
-      lineHeight: multiline ? 'normal' : '40px', // Adjust line height for multiline
+      lineHeight: multiline ? 'normal' : '40px',
     },
     root: {
       width: '100%',
@@ -52,17 +52,19 @@ const BubbleTextField: React.FC<BubbleTextFieldProps> = ({
   };
 
   return (
-    <TextField
-      value={value}
-      onChange={onChange}
-      placeholder={placeholder}
-      multiline={multiline}
-      autoAdjustHeight={autoAdjustHeight}
-      styles={styles}
-      ariaLabel={ariaLabel}
-      resizable={false} // Prevent resizing for multiline
-      type={type} // Pass the 'type' prop to TextField
-    />
+    <div style={style}> {/* Wrapper to apply the custom style */}
+      <TextField
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        multiline={multiline}
+        autoAdjustHeight={autoAdjustHeight}
+        styles={styles}
+        ariaLabel={ariaLabel}
+        resizable={false}
+        type={type}
+      />
+    </div>
   );
 };
 

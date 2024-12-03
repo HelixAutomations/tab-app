@@ -15,54 +15,20 @@ import {
   MessageBarType,
   mergeStyles,
 } from '@fluentui/react';
+import { CSSTransition, TransitionGroup } from 'react-transition-group';
 import { colours } from '../../app/styles/colours';
 import { Resource } from './Resources';
-import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme
+import { useTheme } from '../../app/functionality/ThemeContext';
+import StyledTextField from '../../app/styles/StyledTextField';
+import { ResourceAction, resourceActions } from '../../app/customisation/ResourceActions';
+import '../../app/styles/ResourceDetails.css'; // Ensure this path is correct
 
 interface ResourceDetailsProps {
   resource: Resource;
   onClose: () => void;
 }
 
-const detailsContainerStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    padding: '20px',
-    color: isDarkMode ? colours.dark.text : colours.light.text,
-    fontFamily: 'Raleway, sans-serif',
-  });
-
-const headerContainerStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    display: 'flex',
-    alignItems: 'flex-start',
-    padding: '16px 24px',
-    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-    borderBottom: 'none',
-  });
-
-const titleStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    marginLeft: '10px',
-    color: isDarkMode ? colours.dark.text : colours.light.text,
-    fontSize: '20px',
-    fontWeight: 700,
-    alignSelf: 'flex-start',
-  });
-
-const buttonsContainerStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    marginTop: '20px',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  });
-
-const leftButtonsStyle = () =>
-  mergeStyles({
-    display: 'flex',
-    gap: '10px',
-  });
-
+// Define all necessary style constants
 const panelStyles = {
   main: {
     height: '100vh',
@@ -90,9 +56,92 @@ const panelStyles = {
   },
 };
 
+const headerContainerStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    display: 'flex',
+    alignItems: 'flex-start',
+    padding: '16px 24px',
+    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+    borderBottom: 'none',
+  });
+
+const titleStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    marginLeft: '10px',
+    color: isDarkMode ? colours.dark.text : colours.light.text,
+    fontSize: '20px',
+    fontWeight: 700,
+    alignSelf: 'flex-start',
+  });
+
+const detailsContainerStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    padding: '20px',
+    color: isDarkMode ? colours.dark.text : colours.light.text,
+    fontFamily: 'Raleway, sans-serif',
+  });
+
+const buttonsContainerStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    marginTop: '20px',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  });
+
+const leftButtonsStyle = () =>
+  mergeStyles({
+    display: 'flex',
+    gap: '20px', // Increased spacing between buttons
+  });
+
+// Styles for the input form container
+const formContainerStyle = mergeStyles({
+  marginTop: '10px', // Reduced margin to align closely under the button
+  padding: '20px',
+  backgroundColor: colours.grey, // Subtle grey background
+  borderRadius: '12px',
+  // No shadow as per requirement
+});
+
+// Define a style for action buttons similar to ResourceCard
+const actionButtonStyle = (isDarkMode: boolean, isSelected: boolean) =>
+  mergeStyles({
+    padding: '20px',
+    backgroundColor: isSelected
+      ? (isDarkMode ? colours.dark.buttonBackground : colours.light.buttonBackground)
+      : (isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground),
+    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+    borderRadius: '8px',
+    color: isSelected
+      ? (isDarkMode ? colours.dark.buttonText : colours.light.buttonText)
+      : (isDarkMode ? colours.dark.text : colours.light.text),
+    transition: 'background-color 0.3s ease, color 0.3s ease',
+    cursor: 'pointer',
+    display: 'flex',
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    height: '70px', // Increased height for taller buttons
+    ':hover': {
+      backgroundColor: isSelected
+        ? (isDarkMode ? colours.dark.hoverBackground : colours.light.hoverBackground)
+        : (isDarkMode ? colours.dark.cardHover : colours.light.cardHover),
+    },
+  });
+
 const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) => {
-  const { isDarkMode } = useTheme(); // Access isDarkMode from Theme Context
+  const { isDarkMode } = useTheme();
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
+  const [selectedAction, setSelectedAction] = useState<ResourceAction | null>(null);
+  const [actionInputs, setActionInputs] = useState<{ [key: string]: string }>({});
+
+  // Normalize the resource title to match the keys in resourceActions
+  const normalizedTitle = resource.title.toLowerCase().replace(/\s+/g, '');
+  const actions: ResourceAction[] = resourceActions[normalizedTitle] || [];
+
+  // Optional: Log the actions for debugging
+  console.log(`Actions for "${resource.title}" (normalized: "${normalizedTitle}"):`, actions);
 
   const copyToClipboard = useCallback(() => {
     navigator.clipboard
@@ -109,6 +158,26 @@ const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) 
   const goToLink = useCallback(() => {
     window.open(resource.url, '_blank', 'noopener,noreferrer');
   }, [resource.url]);
+
+  // Handle input changes for action forms
+  const handleInputChange = (
+    e: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>,
+    field: string
+  ): void => {
+    const value = e.currentTarget.value;
+    setActionInputs((prev) => ({ ...prev, [field]: value }));
+  };
+
+  // Handle action form submission
+  const handleActionSubmit = (action: ResourceAction) => {
+    const inputs = actionInputs;
+    // Replace the alert with actual API calls using the input values
+    console.log(`Executing action: ${action.label}`, inputs);
+    alert(`Executing action: ${action.label}\nInputs: ${JSON.stringify(inputs)}`);
+    // Reset the form after submission
+    setSelectedAction(null);
+    setActionInputs({});
+  };
 
   return (
     <Panel
@@ -140,16 +209,122 @@ const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) 
     >
       {/* Main content area */}
       <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
-        {/* Blank Main Area */}
+        {/* Action Buttons with Transition */}
         <div style={{ marginTop: '20px', padding: '0 24px', flexGrow: 1 }}>
-          <Text>Content area is currently blank.</Text>
+          {actions.length > 0 ? (
+            <Stack tokens={{ childrenGap: 20 }} className={mergeStyles({ width: '100%' })}>
+              {actions.map((action) => (
+                <div key={action.label} className="action-item">
+                  <PrimaryButton
+                    text={action.label}
+                    onClick={() =>
+                      setSelectedAction(selectedAction === action ? null : action)
+                    }
+                    styles={{
+                      root: actionButtonStyle(isDarkMode, selectedAction === action),
+                      label: {
+                        color: isDarkMode
+                          ? (selectedAction === action ? colours.dark.buttonText : colours.dark.text)
+                          : (selectedAction === action ? colours.light.buttonText : colours.light.text),
+                        fontWeight: '600',
+                      },
+                    }}
+                    ariaLabel={`Select action: ${action.label}`}
+                  />
+                  <CSSTransition
+                    in={selectedAction === action}
+                    timeout={300}
+                    classNames="intake-form"
+                    unmountOnExit
+                  >
+                    <div className={formContainerStyle}>
+                      <Stack tokens={{ childrenGap: 20 }}>
+                        {action.requiredFields.map((field) => (
+                          <StyledTextField
+                            key={field}
+                            label={field.charAt(0).toUpperCase() + field.slice(1)}
+                            required
+                            value={actionInputs[field] || ''}
+                            onChange={(e, newValue) => handleInputChange(e, field)}
+                            placeholder={`Enter ${field}`}
+                            ariaLabel={`${field.charAt(0).toUpperCase() + field.slice(1)} Input`}
+                            isDarkMode={isDarkMode}
+                          />
+                        ))}
+                        <Stack
+                          horizontal
+                          tokens={{ childrenGap: 15 }}
+                          styles={{ root: { marginTop: '10px' } }}
+                        >
+                          <PrimaryButton
+                            text="Submit"
+                            onClick={() => handleActionSubmit(action)}
+                            disabled={action.requiredFields.some(
+                              (field) => !actionInputs[field]
+                            )}
+                            styles={{
+                              root: {
+                                height: '50px',
+                                borderRadius: '8px',
+                                backgroundColor: colours.cta,
+                                border: 'none',
+                                selectors: {
+                                  ':hover': {
+                                    backgroundColor: colours.highlight,
+                                  },
+                                  ':disabled': {
+                                    backgroundColor: colours.grey,
+                                  },
+                                },
+                              },
+                              label: {
+                                color: 'white',
+                                fontWeight: '600',
+                              },
+                            }}
+                            ariaLabel="Submit Action"
+                            iconProps={{ iconName: 'CheckMark' }}
+                          />
+                          <DefaultButton
+                            text="Cancel"
+                            onClick={() => {
+                              setSelectedAction(null);
+                              setActionInputs({});
+                            }}
+                            styles={{
+                              root: {
+                                height: '50px',
+                                borderRadius: '8px',
+                                backgroundColor: isDarkMode
+                                  ? colours.dark.cardHover
+                                  : colours.light.cardHover,
+                              },
+                              label: {
+                                color: isDarkMode ? colours.dark.text : colours.light.text,
+                                fontWeight: '600',
+                              },
+                            }}
+                            ariaLabel="Cancel Action"
+                            iconProps={{ iconName: 'Cancel' }}
+                          />
+                        </Stack>
+                      </Stack>
+                    </div>
+                  </CSSTransition>
+                </div>
+              ))}
+            </Stack>
+          ) : (
+            <Text>No actions available for this resource.</Text>
+          )}
         </div>
+
 
         {/* Bottom Section */}
         <div className={detailsContainerStyle(isDarkMode)}>
           {/* URL Section */}
           <Stack tokens={{ childrenGap: 6 }}>
-            <Text variant="mediumPlus" styles={{ root: { fontWeight: 600 } }}>
+            <Text variant="mediumPlus" styles={{ root: { fontWeight: '600' } }}>
               URL:
             </Text>
             <Link href={resource.url} target="_blank" rel="noopener noreferrer">
@@ -160,7 +335,7 @@ const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) 
           {/* Tags */}
           {resource.tags && resource.tags.length > 0 && (
             <Stack tokens={{ childrenGap: 6 }} styles={{ root: { marginTop: '20px' } }}>
-              <Text variant="mediumPlus" styles={{ root: { fontWeight: 600 } }}>
+              <Text variant="mediumPlus" styles={{ root: { fontWeight: '600' } }}>
                 Tags:
               </Text>
               <Stack horizontal tokens={{ childrenGap: 10 }} wrap>
@@ -172,11 +347,11 @@ const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) 
                           ? colours.dark.sectionBackground
                           : colours.light.sectionBackground,
                         color: isDarkMode ? colours.dark.text : colours.light.text,
-                        borderRadius: '4px',
-                        padding: '4px 8px',
+                        borderRadius: '12px',
+                        padding: '6px 12px',
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '4px',
+                        gap: '6px',
                       })}
                     >
                       <Icon iconName="Tag" />
@@ -191,7 +366,7 @@ const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) 
           {/* Description */}
           {resource.description && (
             <Stack tokens={{ childrenGap: 6 }} styles={{ root: { marginTop: '20px' } }}>
-              <Text variant="mediumPlus" styles={{ root: { fontWeight: 600 } }}>
+              <Text variant="mediumPlus" styles={{ root: { fontWeight: '600' } }}>
                 Description:
               </Text>
               <Text>{resource.description}</Text>
@@ -206,8 +381,8 @@ const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) 
                 onClick={copyToClipboard}
                 styles={{
                   root: {
-                    padding: '6px 12px',
-                    borderRadius: '4px',
+                    padding: '10px 20px',
+                    borderRadius: '8px',
                     backgroundColor: colours.cta,
                     border: 'none',
                     selectors: {
@@ -229,8 +404,8 @@ const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) 
                 onClick={goToLink}
                 styles={{
                   root: {
-                    padding: '6px 12px',
-                    borderRadius: '4px',
+                    padding: '10px 20px',
+                    borderRadius: '8px',
                     backgroundColor: colours.cta,
                     border: 'none',
                     selectors: {
@@ -253,6 +428,7 @@ const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) 
               onClick={onClose}
               styles={{
                 root: {
+                  padding: '10px 20px',
                   borderRadius: '8px',
                   border: 'none',
                   backgroundColor: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
@@ -288,7 +464,9 @@ const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) 
               right: 20,
               maxWidth: '300px',
               zIndex: 1000,
-              borderRadius: '4px',
+              borderRadius: '8px',
+              backgroundColor: colours.green,
+              color: 'white',
             },
           }}
         >

@@ -1,4 +1,4 @@
-// src/PitchBuilder.tsx
+// src/tabs/enquiries/PitchBuilder.tsx
 
 import React, { useState, useEffect } from 'react';
 import {
@@ -20,78 +20,64 @@ import { Enquiry } from '../../app/functionality/FeContext';
 import { colours } from '../../app/styles/colours';
 import BubbleTextField from '../../app/styles/BubbleTextField'; // Ensure this path is correct
 import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme
-
-interface TemplateOption {
-  label: string;
-  previewText: string;
-}
-
-interface TemplateBlock {
-  title: string;
-  description: string;
-  options: TemplateOption[];
-}
+import PracticeAreaPitch, { PracticeAreaPitchType } from '../../app/customisation/PracticeAreaPitch'; // Import the Practice Area Templates and types
+import { templateBlocks, TemplateBlock, TemplateOption } from '../../app/customisation/TemplateBlocks'; // Corrected import path
+import { availableAttachments, AttachmentOption } from '../../app/customisation/Attachments'; // Import attachments
 
 interface PitchBuilderProps {
   enquiry: Enquiry;
 }
 
-const availableAttachments = [
-  { key: 'brochure', text: 'Service Brochure' },
-  { key: 'case-study', text: 'Case Study' },
-  { key: 'pricing-guide', text: 'Pricing Guide' },
-];
-
-// Define follow-up options
-const followUpOptions = [
-  { key: '1_day', text: '1 day' },
-  { key: '2_days', text: '2 days' },
-  { key: '3_days', text: '3 days' },
-  { key: '7_days', text: '7 days' },
-  { key: '14_days', text: '14 days' },
-  { key: '30_days', text: '30 days' },
-];
-
-// Define a common input style for consistent height
+// Common input style
 const commonInputStyle = {
   height: '40px',
   lineHeight: '40px',
 };
 
-// Define styles for attachment tags
+const standardPadding = '10px'; // Define consistent padding
+
+const buttonHoverStyle = {
+  boxShadow: '0 4px 8px rgba(0, 0, 0, 0.2)', // Enhanced shadow
+  transform: 'translateY(-2px)', // Lift effect
+};
+
+// Styles for attachment tags
 const attachmentTagStyle = (isSelected: boolean, isDarkMode: boolean) =>
   mergeStyles({
     backgroundColor: isSelected
-      ? colours.cta // Use 'cta' from colors
+      ? colours.cta
       : isDarkMode
       ? colours.dark.sectionBackground
       : colours.light.sectionBackground,
     color: isSelected
-      ? '#ffffff' // White text for selected state
+      ? '#ffffff'
       : isDarkMode
       ? colours.dark.text
       : colours.light.text,
     border: `1px solid ${
       isDarkMode ? colours.dark.cardHover : colours.light.cardHover
     }`,
-    borderRadius: '12px', // More rounded tags
+    borderRadius: '12px',
     padding: '6px 12px',
     cursor: 'pointer',
     userSelect: 'none',
     minWidth: '100px',
     textAlign: 'center',
     ':hover': {
+      boxShadow: '0 4px 8px rgba(0, 0, 0, 0.2)', // Enhanced shadow
+      transform: 'translateY(-2px)', // Lift effect
+      border: '1px solid red', // Thin red border
       backgroundColor: isSelected
-        ? colours.cta // Keep 'cta' as background for selected on hover
+        ? colours.cta
         : isDarkMode
         ? colours.dark.cardHover
         : colours.light.cardHover,
       color: '#ffffff',
     },
-    transition: 'background-color 0.2s, color 0.2s',
+    transition: 'all 0.2s',
   });
 
-// Define styles for follow-up tags
+// Styles for follow-up tags
 const followUpTagStyle = (isSelected: boolean, isDarkMode: boolean) =>
   mergeStyles({
     backgroundColor: isSelected
@@ -107,13 +93,16 @@ const followUpTagStyle = (isSelected: boolean, isDarkMode: boolean) =>
     border: `1px solid ${
       isDarkMode ? colours.dark.cardHover : colours.light.cardHover
     }`,
-    borderRadius: '12px', // More rounded tags
+    borderRadius: '12px',
     padding: '6px 12px',
     cursor: 'pointer',
     userSelect: 'none',
     minWidth: '80px',
     textAlign: 'center',
     ':hover': {
+      boxShadow: '0 4px 8px rgba(0, 0, 0, 0.2)', // Enhanced shadow
+      transform: 'translateY(-2px)', // Lift effect
+      border: '1px solid red', // Thin red border
       backgroundColor: isSelected
         ? colours.cta
         : isDarkMode
@@ -121,45 +110,125 @@ const followUpTagStyle = (isSelected: boolean, isDarkMode: boolean) =>
         : colours.light.cardHover,
       color: '#ffffff',
     },
-    transition: 'background-color 0.2s, color 0.2s',
+    transition: 'all 0.2s',
   });
 
-// Define styles for template blocks
+// Styles for template blocks
 const templateBlockStyle = (isDarkMode: boolean) =>
   mergeStyles({
     padding: '15px',
-    borderRadius: '8px', // Match desired border radius
+    borderRadius: '8px',
     boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
-    cursor: 'pointer', // Indicate clickable card
+    cursor: 'pointer',
     transition: 'background-color 0.2s, box-shadow 0.2s',
     backgroundColor: isDarkMode
       ? colours.dark.cardBackground
       : colours.light.cardBackground,
     ':hover': {
-      boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)',
     },
   });
 
-// Define styles for preview text
+// Styles for preview text within template blocks
 const templatePreviewStyle = (isDarkMode: boolean) =>
   mergeStyles({
     padding: '10px',
     borderRadius: '4px',
     overflow: 'hidden',
     color: isDarkMode ? colours.dark.text : colours.light.text,
-    backgroundColor: isDarkMode ? colours.dark.previewBackground : colours.light.previewBackground,
+    backgroundColor: isDarkMode
+      ? colours.dark.previewBackground
+      : colours.light.previewBackground,
     textAlign: 'left',
     marginTop: '10px',
     fontSize: '14px',
   });
 
+// Function to replace placeholders in the email body
+const replacePlaceholders = (template: string, enquiry: Enquiry): string => {
+  return template
+    .replace(
+      /\[Enquiry.First_Name\]/g,
+      `<span style="background-color: ${colours.highlightYellow}; padding: 0 3px;">${
+        enquiry.First_Name || 'there'
+      }</span>`
+    )
+    .replace(
+      /\[Enquiry.Point_of_Contact\]/g,
+      `<span style="background-color: ${colours.highlightYellow}; padding: 0 3px;">${
+        enquiry.Point_of_Contact || 'Our Team'
+      }</span>`
+    )
+    .replace(
+      /\[practice_area\]/g,
+      `<span style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[practice_area]</span>` // Highlighted in blue
+    )
+    .replace(
+      /\[Scope Placeholder\]/g,
+      `<span style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[Scope Placeholder]</span>` // Highlighted in blue
+    )
+    .replace(
+      /\[Fee Option Placeholder\]/g,
+      `<span style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[Fee Option Placeholder]</span>` // Highlighted in blue
+    )
+    .replace(
+      /\[Required Documents Placeholder\]/g,
+      `<span style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[Required Documents Placeholder]</span>` // Highlighted in blue
+    )
+    .replace(
+      /\[Meeting Link Placeholder\]/g,
+      `<span style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[Meeting Link Placeholder]</span>` // Highlighted in blue
+    )
+    .replace(
+      /\[Google Review Placeholder\]/g,
+      `<span style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[Google Review Placeholder]</span>` // Highlighted in blue
+    )
+    .replace(
+      /\[Payment Link Placeholder\]/g,
+      `<span style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[Payment Link Placeholder]</span>` // Highlighted in blue
+    );
+};
+
+// Type Guard Function to check if a value is a string array
+const isStringArray = (value: string | string[]): value is string[] => {
+  return Array.isArray(value);
+};
+
 const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
   const { isDarkMode } = useTheme(); // Access isDarkMode from Theme Context
   const [template, setTemplate] = useState<string | undefined>(undefined);
-  const [subject, setSubject] = useState<string>('Personalized Contract Review Offer');
-  const [body, setBody] = useState<string>(
-    `Dear ${enquiry.First_Name},\n\nWe are pleased to assist with your enquiry regarding ${enquiry.Area_of_Work}.\n\nBest regards,\n[Your Company Name]`
-  );
+  const [subject, setSubject] = useState<string>('Your Enquiry');
+  const normalizeBody = (text: string) =>
+    text
+      .split('\n') // Split the text into lines
+      .map((line) => line.trim()) // Remove leading/trailing spaces from each line
+      .join('\n'); // Rejoin the lines with proper line breaks
+  
+const [body, setBody] = useState<string>(
+  normalizeBody(
+    replacePlaceholders(
+      `Dear [Enquiry.First_Name],
+      
+Thank you for reaching out regarding [practice_area]. We're well-placed to assist you.
+
+[Scope Placeholder]
+
+[Fee Option Placeholder]
+
+[Required Documents Placeholder]
+
+[Meeting Link Placeholder]
+
+[Google Review Placeholder]
+
+[Payment Link Placeholder]
+
+Kind regards,
+[Enquiry.Point_of_Contact]`,
+      enquiry
+    )
+  )
+);
   const [attachments, setAttachments] = useState<string[]>([]);
   const [followUp, setFollowUp] = useState<string | undefined>(undefined); // State for follow-up
   const [isPreviewOpen, setIsPreviewOpen] = useState<boolean>(false);
@@ -167,27 +236,121 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
   const [isErrorVisible, setIsErrorVisible] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
 
-  // State to track selected options for each Template Block
-  const [selectedTemplateOptions, setSelectedTemplateOptions] = useState<{ [key: string]: string }>({});
+  // State to track selected options and their previews for each Template Block
+  const [selectedTemplateOptions, setSelectedTemplateOptions] = useState<{
+    [key: string]: string | string[];
+  }>({});
 
-  const templateOptions: IDropdownOption[] = [
-    { key: 'Commercial', text: 'Commercial Contract Review' },
-    { key: 'Employment', text: 'Employment Contract Review' },
-    { key: 'Construction', text: 'Construction Contract Review' },
-    { key: 'Custom', text: 'Custom Template' },
-  ];
+  // Function to normalize strings (e.g., capitalize each word)
+  const normalizeString = (str: string): string => {
+    return str
+      .toLowerCase()
+      .split(' ')
+      .map(
+        (word) => word.charAt(0).toUpperCase() + word.slice(1)
+      )
+      .join(' ');
+  };
 
-  const handleTemplateChange = (_: React.FormEvent<HTMLDivElement>, option?: IDropdownOption) => {
-    if (option && option.key !== 'Custom') {
+  // Function to extract matching practice areas based on area_of_work
+  const getMatchingPracticeAreas = (area: string): string[] => {
+    const normalizedArea = normalizeString(area);
+    const practiceAreas = Object.keys(
+      PracticeAreaPitch
+    ) as Array<keyof PracticeAreaPitchType>;
+
+    // Find practice areas that match the normalizedArea
+    const matchingPracticeAreas = practiceAreas.filter((pa) => {
+      return pa.toLowerCase() === normalizedArea.toLowerCase();
+    });
+
+    // If no direct match, default to 'Miscellaneous (None of the above)'
+    return matchingPracticeAreas.length > 0
+      ? matchingPracticeAreas
+      : ['Miscellaneous (None of the above)'];
+  };
+
+  // Helper to get the selected practice area based on Area_of_Work
+  const getSelectedPracticeArea = (): keyof PracticeAreaPitchType => {
+    const normalizedArea = normalizeString(enquiry.Area_of_Work.trim());
+    const matchingPracticeAreas = getMatchingPracticeAreas(normalizedArea);
+    // Ensure the first matching practice area is a valid key or default to 'Miscellaneous (None of the above)'
+    return (
+      (matchingPracticeAreas[0] as keyof PracticeAreaPitchType) ||
+      'Miscellaneous (None of the above)'
+    );
+  };
+
+  // Generate Template Options based on Area_of_Work
+  const templateOptions: IDropdownOption[] = (() => {
+    const selectedPracticeArea = getSelectedPracticeArea();
+
+    // Get templates for the selected practice area
+    const templates = PracticeAreaPitch[selectedPracticeArea];
+
+    // Handle case where no templates are found for the practice area
+    if (!templates) {
+      return [];
+    }
+
+    return Object.keys(templates).map((tpl) => ({
+      key: tpl,
+      text: tpl,
+    }));
+  })();
+
+  // Function to replace placeholders and insert template blocks
+  const insertTemplateBlock = (
+    block: TemplateBlock,
+    selectedOption: string | string[]
+  ) => {
+    let replacementText = '';
+  
+    if (block.isMultiSelect && isStringArray(selectedOption)) {
+      // Insert as a bullet list
+      replacementText = `<ul>${selectedOption
+        .map((item) => `<li>${item}</li>`)
+        .join('')}</ul>`;
+    } else if (!block.isMultiSelect && typeof selectedOption === 'string') {
+      // Find the corresponding previewText
+      const option = block.options.find((o) => o.label === selectedOption);
+      replacementText = option ? option.previewText : '';
+    }
+  
+    // Replace only the specific placeholder text in the body
+    setBody((prevBody) =>
+      prevBody.replace(
+        new RegExp(
+          `<span style="[^"]*">${block.placeholder}.*?<\\/span>`, // Match the placeholder and its existing content
+          'g'
+        ),
+        `<span style="background-color: #ffefc1; padding: 0 3px;">${replacementText}</span>`
+      )
+    );
+  };
+
+  // Handle template change by replacing placeholders in the body
+  const handleTemplateChange = (
+    _: React.FormEvent<HTMLDivElement>,
+    option?: IDropdownOption
+  ) => {
+    if (option) {
       setTemplate(option.key as string);
-      setSubject(`${option.text} Services`);
-      setBody(
-        `Dear ${enquiry.First_Name},\n\nThank you for reaching out regarding ${option.text}. We are excited to assist you with your needs.\n\nBest regards,\n[Your Company Name]`
-      );
-    } else if (option && option.key === 'Custom') {
-      setTemplate(option.key as string);
-      setSubject('');
-      setBody('');
+      const selectedPracticeArea = getSelectedPracticeArea();
+      const selectedTemplate =
+        PracticeAreaPitch[selectedPracticeArea][option.key as string];
+      if (selectedTemplate) {
+        setSubject(`Your Enquiry`);
+  
+        // Replace placeholders, including updating [practice_area]
+        const updatedBody = replacePlaceholders(
+          selectedTemplate.body.replace('[practice_area]', selectedPracticeArea),
+          enquiry
+        );
+  
+        // Trim unintended leading newlines or whitespace
+        setBody((prevBody) => updatedBody.trimStart());
+      }
     }
   };
 
@@ -200,15 +363,45 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
     );
   };
 
+  // Function to toggle preview panel
   const togglePreview = () => {
     setIsPreviewOpen(!isPreviewOpen);
   };
 
+  const getPlainTextBody = (htmlBody: string): string => {
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = htmlBody;
+    return tempDiv.textContent || tempDiv.innerText || '';
+  };
+
+  // Function to reset the form
   const resetForm = () => {
     setTemplate(undefined);
-    setSubject('Personalized Contract Review Offer');
+    setSubject('Your Practice Area Enquiry');
     setBody(
-      `Dear ${enquiry.First_Name},\n\nWe are pleased to assist with your enquiry regarding ${enquiry.Area_of_Work}.\n\nBest regards,\n[Your Company Name]`
+      normalizeBody(
+        replacePlaceholders(
+          `Dear [Enquiry.First_Name],
+          
+  Thank you for reaching out regarding [practice_area]. We're well-placed to assist you.
+  
+  [Scope Placeholder]
+  
+  [Fee Option Placeholder]
+  
+  [Required Documents Placeholder]
+  
+  [Meeting Link Placeholder]
+  
+  [Google Review Placeholder]
+  
+  [Payment Link Placeholder]
+  
+  Kind regards,
+  [Enquiry.Point_of_Contact]`,
+          enquiry
+        )
+      )
     );
     setAttachments([]);
     setFollowUp(undefined); // Reset follow-up
@@ -218,6 +411,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
     setSelectedTemplateOptions({}); // Reset selected options
   };
 
+  // Function to validate the form
   const validateForm = (): boolean => {
     if (!subject.trim()) {
       setErrorMessage('Subject cannot be empty.');
@@ -234,15 +428,23 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
     return true;
   };
 
+  // Function to send email
   const sendEmail = () => {
     if (validateForm()) {
       // Prepare follow up text
       const followUpText = followUp
-        ? `\n\nFollow Up: ${followUpOptions.find((opt) => opt.key === followUp)?.text}`
+        ? `\n\nFollow Up: ${followUpOptions.find(
+            (opt) => opt.key === followUp
+          )?.text}`
         : '';
-      
+
       // Placeholder for actual email sending logic
-      console.log('Email Sent:', { subject, body: body + followUpText, attachments, followUp });
+      console.log('Email Sent:', {
+        subject,
+        body: body + followUpText,
+        attachments,
+        followUp,
+      });
       setIsSuccessVisible(true);
       resetForm();
     }
@@ -264,115 +466,44 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
     }
   }, [isErrorVisible]);
 
-  // Define template blocks with options
-  const templateBlocks: TemplateBlock[] = [
-    {
-      title: 'Scope',
-      description: 'Outline the scope of services offered.',
-      options: [
-        {
-          label: 'Commercial',
-          previewText:
-            'Attached is the detailed scope of our commercial services for your consideration. We are committed to providing top-notch service.',
-        },
-        {
-          label: 'Employment',
-          previewText:
-            'Attached is the detailed scope of our employment services for your consideration. We are committed to providing top-notch service.',
-        },
-        {
-          label: 'Construction',
-          previewText:
-            'Attached is the detailed scope of our construction services for your consideration. We are committed to providing top-notch service.',
-        },
-      ],
-    },
-    {
-      title: 'Pricing',
-      description: 'Provide detailed pricing information.',
-      options: [
-        {
-          label: 'Commercial',
-          previewText:
-            'Please find attached our pricing guide for commercial services. Let us know if you have any questions!',
-        },
-        {
-          label: 'Employment',
-          previewText:
-            'Please find attached our pricing guide for employment services. Let us know if you have any questions!',
-        },
-        {
-          label: 'Construction',
-          previewText:
-            'Please find attached our pricing guide for construction services. Let us know if you have any questions!',
-        },
-      ],
-    },
-    {
-      title: 'Case Studies',
-      description: 'Provide relevant case studies.',
-      options: [
-        {
-          label: 'Commercial',
-          previewText:
-            'Please find attached a case study that demonstrates how we successfully assisted a commercial client with similar needs.',
-        },
-        {
-          label: 'Employment',
-          previewText:
-            'Please find attached a case study that demonstrates how we successfully assisted an employment client with similar needs.',
-        },
-        {
-          label: 'Construction',
-          previewText:
-            'Please find attached a case study that demonstrates how we successfully assisted a construction client with similar needs.',
-        },
-      ],
-    },
-    {
-      title: 'Testimonials',
-      description: 'Share client testimonials to build trust.',
-      options: [
-        {
-          label: 'General',
-          previewText:
-            'Here are some testimonials from our satisfied clients. We pride ourselves on delivering excellent service:',
-        },
-      ],
-    },
-    {
-      title: 'Meeting Link (Calendly)',
-      description: 'Schedule a meeting using Calendly.',
-      options: [
-        {
-          label: 'Schedule Meeting',
-          previewText:
-            'I would like to schedule a meeting to discuss your needs further. Please choose a convenient time using my Calendly link below:',
-        },
-      ],
-    },
-    {
-      title: 'Google Review',
-      description: 'Encourage clients to leave a Google review.',
-      options: [
-        {
-          label: 'Request Review',
-          previewText:
-            'We would greatly appreciate it if you could take a moment to leave us a Google review. Your feedback helps us improve our services!',
-        },
-      ],
-    },
+  // Define follow-up options
+  const followUpOptions: IDropdownOption[] = [
+    { key: '1_day', text: '1 day' },
+    { key: '2_days', text: '2 days' },
+    { key: '3_days', text: '3 days' },
+    { key: '7_days', text: '7 days' },
+    { key: '14_days', text: '14 days' },
+    { key: '30_days', text: '30 days' },
   ];
 
-  // Function to insert template block into the email body
-  const insertTemplateBlock = (previewText: string) => {
-    setBody((prevBody) => `${prevBody}\n\n${previewText}`);
+  // Function to handle selecting options in multi-select blocks
+  const handleMultiSelectChange = (
+    blockTitle: string,
+    selectedOptions: string[]
+  ) => {
+    setSelectedTemplateOptions((prev) => ({
+      ...prev,
+      [blockTitle]: selectedOptions,
+    }));
+  };
+
+  // Function to handle selecting options in single-select blocks
+  const handleSingleSelectChange = (
+    blockTitle: string,
+    selectedOption: string
+  ) => {
+    setSelectedTemplateOptions((prev) => ({
+      ...prev,
+      [blockTitle]: selectedOption,
+    }));
   };
 
   // Styles
   const containerStyle = mergeStyles({
     padding: '30px',
-    backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
+    backgroundColor: isDarkMode
+      ? colours.dark.background
+      : colours.light.background,
     borderRadius: '12px',
     boxShadow: isDarkMode
       ? '0 4px 12px rgba(255, 255, 255, 0.1)'
@@ -444,29 +575,21 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
     color: isDarkMode ? colours.dark.text : colours.light.text,
   });
 
-  // Function to format value as British £ with comma separators
-  const formatValue = (value?: string): string => {
-    if (!value) return 'N/A';
-    const number = parseFloat(value.replace(/[^0-9.-]+/g, ""));
-    if (isNaN(number)) return value;
-    return new Intl.NumberFormat('en-UK', {
-      style: 'currency',
-      currency: 'GBP',
-    }).format(number);
-  };
-
   return (
     <Stack className={containerStyle}>
       {/* Left Section: Pitch Builder Form */}
       <Stack className={formContainerStyle} tokens={{ childrenGap: 20 }}>
         {/* Form Header */}
-        <Text variant="xLarge" styles={{ root: { fontWeight: '700', color: colours.highlight } }}>
+        <Text
+          variant="xLarge"
+          styles={{ root: { fontWeight: '700', color: colours.highlight } }}
+        >
           Pitch Builder
         </Text>
 
         {/* Template Selection */}
         <Stack tokens={{ childrenGap: 6 }}>
-          <Label className={labelStyle}>Select Email Template</Label>
+          <Label className={labelStyle}>Select Template</Label>
           <Dropdown
             placeholder="Choose a template"
             options={templateOptions}
@@ -474,24 +597,28 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
             selectedKey={template}
             styles={{
               dropdown: { width: '100%' },
-              title: { 
+              title: {
                 ...commonInputStyle,
-                color: isDarkMode ? colours.dark.text : colours.light.text,
-                padding: '0 20px', // Adjust padding to fit height
+                padding: `0 15px`, // Set left padding to match BubbleTextField
                 borderRadius: '8px',
-                border: 'none', // Remove border from title
+                border: 'none',
                 display: 'flex',
-                alignItems: 'center', // Vertically center the text
+                alignItems: 'center',
+                color: isDarkMode ? colours.dark.text : colours.light.text,
                 selectors: {
                   ':hover': {
-                    backgroundColor: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
+                    backgroundColor: isDarkMode
+                      ? colours.dark.cardHover
+                      : colours.light.cardHover,
                   },
                 },
               },
               dropdownItem: {
                 selectors: {
                   ':hover': {
-                    backgroundColor: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
+                    backgroundColor: isDarkMode
+                      ? colours.dark.cardHover
+                      : colours.light.cardHover,
                   },
                 },
               },
@@ -502,16 +629,18 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
               },
               root: {
                 border: 'none',
-                borderRadius: '8px', // Match desired border radius
-                padding: '0px', // Remove internal padding as it's handled by 'title'
-                backgroundColor: isDarkMode ? colours.dark.sectionBackground : '#ffffff',
+                borderRadius: '8px',
+                backgroundColor: isDarkMode
+                  ? colours.dark.sectionBackground
+                  : '#ffffff',
                 boxShadow: isDarkMode
                   ? '0 2px 5px rgba(255, 255, 255, 0.1)'
                   : '0 2px 5px rgba(0, 0, 0, 0.1)',
               },
             }}
-            ariaLabel="Select Email Template"
+            ariaLabel="Select Template"
           />
+
         </Stack>
 
         {/* Subject Input */}
@@ -519,25 +648,45 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
           <Label className={labelStyle}>Email Subject</Label>
           <BubbleTextField
             value={subject}
-            onChange={(_: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>, newValue?: string) => setSubject(newValue || '')}
+            onChange={(
+              _: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>,
+              newValue?: string
+            ) => setSubject(newValue || '')}
             placeholder="Enter email subject"
             ariaLabel="Email Subject"
             isDarkMode={isDarkMode}
           />
+
         </Stack>
 
         {/* Body Input */}
         <Stack tokens={{ childrenGap: 6 }}>
           <Label className={labelStyle}>Email Body</Label>
-          <BubbleTextField
-            value={body}
-            onChange={(_: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>, newValue?: string) => setBody(newValue || '')}
-            placeholder="Compose your email here..."
-            multiline
-            autoAdjustHeight
-            ariaLabel="Email Body"
-            isDarkMode={isDarkMode}
-            minHeight="150px" // For multi-line input
+          <div
+            contentEditable
+            style={{
+              minHeight: '150px',
+              padding: '20px 20px', // Match padding with BubbleTextField
+              borderRadius: '8px',
+              border: `1px solid ${
+                isDarkMode ? colours.dark.cardHover : colours.light.cardHover
+              }`,
+              backgroundColor: isDarkMode
+                ? colours.dark.sectionBackground
+                : '#ffffff',
+              color: isDarkMode ? colours.dark.text : colours.light.text,
+              overflowY: 'auto',
+              whiteSpace: 'pre-wrap',
+            }}
+            dangerouslySetInnerHTML={{
+              __html: body.replace(/\n/g, '<br>'),
+            }}
+            onInput={(e) =>
+              setBody(
+                (e.target as HTMLDivElement).innerHTML.replace(/<br>/g, '\n')
+              )
+            }
+            aria-label="Email Body Editor"
           />
         </Stack>
 
@@ -545,16 +694,49 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
         <Stack tokens={{ childrenGap: 6 }}>
           <Label className={labelStyle}>Select Attachments</Label>
           <Stack horizontal tokens={{ childrenGap: 8 }} wrap>
-            {availableAttachments.map((attachment) => {
+            {availableAttachments.map((attachment: AttachmentOption) => {
               const isSelected = attachments.includes(attachment.key);
               return (
                 <span
                   key={attachment.key}
-                  className={attachmentTagStyle(isSelected, isDarkMode)}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '12px',
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                    minWidth: '100px',
+                    textAlign: 'center',
+                    backgroundColor: isSelected
+                      ? colours.cta
+                      : isDarkMode
+                      ? colours.dark.sectionBackground
+                      : colours.light.sectionBackground,
+                    color: isSelected
+                      ? '#ffffff'
+                      : isDarkMode
+                      ? colours.dark.text
+                      : colours.light.text,
+                    border: `1px solid ${
+                      isDarkMode ? colours.dark.cardHover : colours.light.cardHover
+                    }`,
+                    transition: 'background-color 0.2s, color 0.2s',
+                  }}
                   onClick={() => toggleAttachment(attachment.key)}
+                  onMouseEnter={(e) =>
+                    (e.currentTarget.style.backgroundColor = isDarkMode
+                      ? colours.dark.cardHover
+                      : colours.light.cardHover)
+                  }
+                  onMouseLeave={(e) =>
+                    (e.currentTarget.style.backgroundColor = isSelected
+                      ? colours.cta
+                      : isDarkMode
+                      ? colours.dark.sectionBackground
+                      : colours.light.sectionBackground)
+                  }
                   role="button"
                   tabIndex={0}
-                  onKeyPress={(e) => {
+                  onKeyPress={(e: React.KeyboardEvent<HTMLSpanElement>) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       toggleAttachment(attachment.key);
                     }
@@ -567,24 +749,60 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
               );
             })}
           </Stack>
+
         </Stack>
 
         {/* Follow Up Selection */}
         <Stack tokens={{ childrenGap: 6 }}>
           <Label className={labelStyle}>Follow Up</Label>
           <Stack horizontal tokens={{ childrenGap: 8 }} wrap>
-            {followUpOptions.map((option) => {
+            {followUpOptions.map((option: IDropdownOption) => {
               const isSelected = followUp === option.key;
               return (
                 <span
                   key={option.key}
-                  className={followUpTagStyle(isSelected, isDarkMode)}
-                  onClick={() => setFollowUp(isSelected ? undefined : option.key)}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '12px',
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                    minWidth: '80px',
+                    textAlign: 'center',
+                    backgroundColor: isSelected
+                      ? colours.cta
+                      : isDarkMode
+                      ? colours.dark.sectionBackground
+                      : colours.light.sectionBackground,
+                    color: isSelected
+                      ? '#ffffff'
+                      : isDarkMode
+                      ? colours.dark.text
+                      : colours.light.text,
+                    border: `1px solid ${
+                      isDarkMode ? colours.dark.cardHover : colours.light.cardHover
+                    }`,
+                    transition: 'background-color 0.2s, color 0.2s',
+                  }}
+                  onClick={() =>
+                    setFollowUp(isSelected ? undefined : (option.key as string))
+                  }
+                  onMouseEnter={(e) =>
+                    (e.currentTarget.style.backgroundColor = isDarkMode
+                      ? colours.dark.cardHover
+                      : colours.light.cardHover)
+                  }
+                  onMouseLeave={(e) =>
+                    (e.currentTarget.style.backgroundColor = isSelected
+                      ? colours.cta
+                      : isDarkMode
+                      ? colours.dark.sectionBackground
+                      : colours.light.sectionBackground)
+                  }
                   role="button"
                   tabIndex={0}
-                  onKeyPress={(e) => {
+                  onKeyPress={(e: React.KeyboardEvent<HTMLSpanElement>) => {
                     if (e.key === 'Enter' || e.key === ' ') {
-                      setFollowUp(isSelected ? undefined : option.key);
+                      setFollowUp(isSelected ? undefined : (option.key as string));
                     }
                   }}
                   aria-pressed={isSelected}
@@ -595,6 +813,8 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
               );
             })}
           </Stack>
+
+
         </Stack>
 
         {/* Error Message */}
@@ -613,7 +833,11 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
         <Separator />
 
         {/* Button Group: Preview and Send on the left, Reset on the right */}
-        <Stack horizontal horizontalAlign="space-between" className={buttonGroupStyle}>
+        <Stack
+          horizontal
+          horizontalAlign="space-between"
+          className={buttonGroupStyle}
+        >
           <Stack horizontal tokens={{ childrenGap: 15 }}>
             <PrimaryButton
               text="Preview Email"
@@ -631,7 +855,8 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
                     ':focus': {
                       outline: 'none',
                       border: 'none',
-                      boxShadow: '0 0 0 2px rgba(255, 255, 255, 0.5)',
+                      boxShadow:
+                        '0 0 0 2px rgba(255, 255, 255, 0.5)',
                     },
                     ':active': {
                       backgroundColor: colours.red,
@@ -647,7 +872,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
               ariaLabel="Preview Email"
               iconProps={{ iconName: 'Preview' }}
             />
-            
+
             <PrimaryButton
               text="Send Email"
               onClick={sendEmail}
@@ -664,7 +889,8 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
                     ':focus': {
                       outline: 'none',
                       border: 'none',
-                      boxShadow: '0 0 0 2px rgba(255, 255, 255, 0.5)',
+                      boxShadow:
+                        '0 0 0 2px rgba(255, 255, 255, 0.5)',
                     },
                     ':active': {
                       backgroundColor: colours.red,
@@ -681,33 +907,29 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
               iconProps={{ iconName: 'Mail' }}
             />
           </Stack>
-          
+
           <DefaultButton
             text="Reset"
             onClick={resetForm}
             styles={{
               root: {
+                padding: '10px',
                 borderRadius: '8px',
                 border: 'none',
                 width: '160px',
-                selectors: {
-                  ':hover': {
-                    backgroundColor: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
-                  },
-                  ':focus': {
-                    outline: 'none',
-                    border: 'none',
-                    boxShadow: '0 0 0 2px rgba(255, 255, 255, 0.5)',
-                  },
-                  ':active': {
-                    backgroundColor: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
-                    border: 'none',
-                  },
-                },
-              },
-              label: {
+                cursor: 'pointer',
+                backgroundColor: isDarkMode
+                  ? colours.dark.sectionBackground
+                  : colours.light.sectionBackground,
                 color: colours.greyText,
                 fontWeight: '600',
+                transition: 'all 0.2s',
+              },
+              rootHovered: {
+                ...buttonHoverStyle, // Apply hover styles
+                backgroundColor: isDarkMode
+                  ? colours.dark.cardHover
+                  : colours.light.cardHover,
               },
             }}
             ariaLabel="Reset Form"
@@ -752,33 +974,56 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
         >
           <Stack tokens={{ childrenGap: 15 }}>
             <Stack tokens={{ childrenGap: 6 }}>
-              <Text variant="large" styles={{ root: { fontWeight: '600', color: colours.highlight } }}>
+              <Text
+                variant="large"
+                styles={{
+                  root: { fontWeight: '600', color: colours.highlight },
+                }}
+              >
                 Subject:
               </Text>
-              <Text variant="medium" styles={{ root: { whiteSpace: 'pre-wrap' } }}>
+              <Text
+                variant="medium"
+                styles={{ root: { whiteSpace: 'pre-wrap' } }}
+              >
                 {subject || 'N/A'}
               </Text>
             </Stack>
             <Separator />
             <Stack tokens={{ childrenGap: 6 }}>
-              <Text variant="large" styles={{ root: { fontWeight: '600', color: colours.highlight } }}>
+              <Text
+                variant="large"
+                styles={{
+                  root: { fontWeight: '600', color: colours.highlight },
+                }}
+              >
                 Body:
               </Text>
-              <Text variant="medium" styles={{ root: { whiteSpace: 'pre-wrap' } }}>
-                {body || 'N/A'}
-              </Text>
+              <div style={{ whiteSpace: 'pre-wrap' }}>
+                {getPlainTextBody(body) || 'N/A'}
+              </div>
             </Stack>
             {attachments.length > 0 && (
               <>
                 <Separator />
                 <Stack tokens={{ childrenGap: 6 }}>
-                  <Text variant="large" styles={{ root: { fontWeight: '600', color: colours.highlight } }}>
+                  <Text
+                    variant="large"
+                    styles={{
+                      root: { fontWeight: '600', color: colours.highlight },
+                    }}
+                  >
                     Attachments:
                   </Text>
                   <Stack tokens={{ childrenGap: 5 }}>
-                    {attachments.map((att) => (
+                    {attachments.map((att: string) => (
                       <Text key={att} variant="medium">
-                        - {availableAttachments.find((option) => option.key === att)?.text}
+                        -{' '}
+                        {
+                          availableAttachments.find(
+                            (option) => option.key === att
+                          )?.text
+                        }
                       </Text>
                     ))}
                   </Stack>
@@ -789,7 +1034,12 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
               <>
                 <Separator />
                 <Stack tokens={{ childrenGap: 6 }}>
-                  <Text variant="large" styles={{ root: { fontWeight: '600', color: colours.highlight } }}>
+                  <Text
+                    variant="large"
+                    styles={{
+                      root: { fontWeight: '600', color: colours.highlight },
+                    }}
+                  >
                     Follow Up:
                   </Text>
                   <Text variant="medium">
@@ -805,89 +1055,121 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
       {/* Right Section: Template Blocks */}
       <Stack className={templatesContainerStyle}>
         {/* Template Blocks Label */}
-        <Text variant="xLarge" styles={{ root: { fontWeight: '700', color: colours.highlight } }}>
+        <Text
+          variant="xLarge"
+          styles={{
+            root: { fontWeight: '700', color: colours.highlight },
+          }}
+        >
           Template Blocks
         </Text>
         {/* Grid Container for Template Blocks */}
         <Stack className={templatesGridStyle}>
           {/* Display template blocks without category labels */}
-          {templateBlocks.map((block) => (
+          {templateBlocks.map((block: TemplateBlock) => (
             <Stack
               key={block.title}
               className={templateBlockStyle(isDarkMode)}
-              onClick={() => {
-                if (block.options.length === 1) {
-                  // Single option: Insert the preview text
-                  insertTemplateBlock(block.options[0].previewText);
-                } else {
-                  // Multi-option: Insert the selected option's preview text
-                  const selectedLabel = selectedTemplateOptions[block.title];
-                  const selectedOption = block.options.find((opt) => opt.label === selectedLabel);
-                  if (selectedOption) {
-                    insertTemplateBlock(selectedOption.previewText);
-                  }
-                }
-              }}
               role="button"
               tabIndex={0}
-              onKeyPress={(e) => {
+              onClick={() => {
+                const selectedOption = selectedTemplateOptions[block.title];
+                if (selectedOption) {
+                  insertTemplateBlock(block, selectedOption);
+                }
+              }}
+              onKeyPress={(e: React.KeyboardEvent<HTMLDivElement>) => {
                 if (e.key === 'Enter' || e.key === ' ') {
-                  if (block.options.length === 1) {
-                    insertTemplateBlock(block.options[0].previewText);
-                  } else {
-                    const selectedLabel = selectedTemplateOptions[block.title];
-                    const selectedOption = block.options.find((opt) => opt.label === selectedLabel);
-                    if (selectedOption) {
-                      insertTemplateBlock(selectedOption.previewText);
-                    }
+                  const selectedOption = selectedTemplateOptions[block.title];
+                  if (selectedOption) {
+                    insertTemplateBlock(block, selectedOption);
                   }
                 }
               }}
               aria-label={`Insert template block ${block.title}`}
             >
               <Stack tokens={{ childrenGap: 10 }}>
-                <Text variant="mediumPlus" styles={{ root: { fontWeight: '600', color: colours.highlight } }}>
+                <Text
+                  variant="mediumPlus"
+                  styles={{
+                    root: { fontWeight: '600', color: colours.highlight },
+                  }}
+                >
                   {block.title}
                 </Text>
-                <Text variant="small" styles={{ root: { color: isDarkMode ? colours.dark.text : colours.light.text } }}>
+                <Text
+                  variant="small"
+                  styles={{
+                    root: {
+                      color: isDarkMode ? colours.dark.text : colours.light.text,
+                    },
+                  }}
+                >
                   {block.description}
                 </Text>
                 {/* Selection and Preview */}
-                {block.options.length > 1 ? (
+                {block.isMultiSelect ? (
                   <>
                     <Dropdown
-                      placeholder="Select an option"
-                      options={block.options.map((option) => ({ key: option.label, text: option.label }))}
-                      onChange={(_, option) => {
-                        const selectedOption = block.options.find((o) => o.label === option?.text);
-                        if (selectedOption) {
-                          setSelectedTemplateOptions((prev) => ({
-                            ...prev,
-                            [block.title]: selectedOption.label,
-                          }));
+                      placeholder="Select documents"
+                      multiSelect
+                      options={block.options.map((option: TemplateOption) => ({
+                        key: option.label,
+                        text: option.label,
+                      }))}
+                      onChange={(
+                        _: React.FormEvent<HTMLDivElement>,
+                        option?: IDropdownOption
+                      ) => {
+                        if (option) {
+                          const selectedOptions =
+                            (selectedTemplateOptions[block.title] as string[]) || [];
+                          if (option.selected) {
+                            handleMultiSelectChange(block.title, [
+                              ...selectedOptions,
+                              option.key as string,
+                            ]);
+                          } else {
+                            handleMultiSelectChange(
+                              block.title,
+                              selectedOptions.filter(
+                                (key) => key !== option.key
+                              )
+                            );
+                          }
                         }
                       }}
-                      selectedKey={selectedTemplateOptions[block.title] || undefined}
+                      selectedKeys={
+                        Array.isArray(selectedTemplateOptions[block.title])
+                          ? (selectedTemplateOptions[block.title] as string[])
+                          : undefined
+                      }
                       styles={{
                         dropdown: { width: '100%' },
-                        title: { 
+                        title: {
                           ...commonInputStyle,
-                          color: isDarkMode ? colours.dark.text : colours.light.text,
-                          padding: '0 20px',
+                          color: isDarkMode
+                            ? colours.dark.text
+                            : colours.light.text,
+                          padding: '0 20px', // Adjust padding to fit height
                           borderRadius: '8px',
-                          border: 'none',
+                          border: 'none', // Remove border from title
                           display: 'flex',
-                          alignItems: 'center',
+                          alignItems: 'center', // Vertically center the text
                           selectors: {
                             ':hover': {
-                              backgroundColor: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
+                              backgroundColor: isDarkMode
+                                ? colours.dark.cardHover
+                                : colours.light.cardHover,
                             },
                           },
                         },
                         dropdownItem: {
                           selectors: {
                             ':hover': {
-                              backgroundColor: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
+                              backgroundColor: isDarkMode
+                                ? colours.dark.cardHover
+                                : colours.light.cardHover,
                             },
                           },
                         },
@@ -898,9 +1180,117 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
                         },
                         root: {
                           border: 'none',
+                          borderRadius: '8px', // Match desired border radius
+                          padding: '0px', // Remove internal padding as it's handled by 'title'
+                          backgroundColor: isDarkMode
+                            ? colours.dark.sectionBackground
+                            : '#ffffff',
+                          boxShadow: isDarkMode
+                            ? '0 2px 5px rgba(255, 255, 255, 0.1)'
+                            : '0 2px 5px rgba(0, 0, 0, 0.1)',
+                        },
+                      }}
+                      ariaLabel={`Select documents for ${block.title}`}
+                      // Prevent Dropdown click from triggering the card's onClick
+                      onClick={(e: React.MouseEvent<HTMLDivElement>) =>
+                        e.stopPropagation()
+                      }
+                      onFocus={(e: React.FocusEvent<HTMLDivElement>) =>
+                        e.stopPropagation()
+                      }
+                    />
+                    {/* Preview Text */}
+                    {Array.isArray(selectedTemplateOptions[block.title]) &&
+                      selectedTemplateOptions[block.title].length > 0 && (
+                        <Text
+                          className={templatePreviewStyle(isDarkMode)}
+                          dangerouslySetInnerHTML={{
+                            __html: `
+                              <ul>
+                                ${(selectedTemplateOptions[block.title] as string[])
+                                  .map(
+                                    (doc: string) =>
+                                      `<li style="background-color: #ffefc1; padding: 0 3px;">${doc}</li>`
+                                  )
+                                  .join('')}
+                              </ul>
+                            `,
+                          }}
+                        />
+                      )}
+                  </>
+                ) : (
+                  // Single-select blocks
+                  <>
+                    <Dropdown
+                      placeholder="Select an option"
+                      options={block.options.map((option: TemplateOption) => ({
+                        key: option.label,
+                        text: option.label,
+                      }))}
+                      onChange={(
+                        _: React.FormEvent<HTMLDivElement>,
+                        option?: IDropdownOption
+                      ) => {
+                        if (option) {
+                          const selectedOption = block.options.find(
+                            (o) => o.label === option.text
+                          );
+                          if (selectedOption) {
+                            handleSingleSelectChange(
+                              block.title,
+                              selectedOption.label
+                            );
+                          }
+                        }
+                      }}
+                      selectedKey={
+                        typeof selectedTemplateOptions[block.title] ===
+                        'string'
+                          ? (selectedTemplateOptions[block.title] as string)
+                          : undefined
+                      }
+                      styles={{
+                        dropdown: { width: '100%' },
+                        title: {
+                          ...commonInputStyle,
+                          color: isDarkMode
+                            ? colours.dark.text
+                            : colours.light.text,
+                          padding: '0 20px', // Adjust padding to fit height
                           borderRadius: '8px',
-                          padding: '0px',
-                          backgroundColor: isDarkMode ? colours.dark.sectionBackground : '#ffffff',
+                          border: 'none', // Remove border from title
+                          display: 'flex',
+                          alignItems: 'center', // Vertically center the text
+                          selectors: {
+                            ':hover': {
+                              backgroundColor: isDarkMode
+                                ? colours.dark.cardHover
+                                : colours.light.cardHover,
+                            },
+                          },
+                        },
+                        dropdownItem: {
+                          selectors: {
+                            ':hover': {
+                              backgroundColor: isDarkMode
+                                ? colours.dark.cardHover
+                                : colours.light.cardHover,
+                            },
+                          },
+                        },
+                        callout: {
+                          boxShadow: isDarkMode
+                            ? '0 2px 5px rgba(255, 255, 255, 0.1)'
+                            : '0 2px 5px rgba(0, 0, 0, 0.1)',
+                        },
+                        root: {
+                          border: 'none',
+                          borderRadius: '8px', // Match desired border radius
+                          padding: '0px', // Remove internal padding as it's handled by 'title'
+                          backgroundColor: isDarkMode
+                            ? colours.dark.sectionBackground
+                            : '#ffffff',
                           boxShadow: isDarkMode
                             ? '0 2px 5px rgba(255, 255, 255, 0.1)'
                             : '0 2px 5px rgba(0, 0, 0, 0.1)',
@@ -908,24 +1298,30 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
                       }}
                       ariaLabel={`Select option for ${block.title}`}
                       // Prevent Dropdown click from triggering the card's onClick
-                      onClick={(e) => e.stopPropagation()}
-                      onFocus={(e) => e.stopPropagation()}
+                      onClick={(e: React.MouseEvent<HTMLDivElement>) =>
+                        e.stopPropagation()
+                      }
+                      onFocus={(e: React.FocusEvent<HTMLDivElement>) =>
+                        e.stopPropagation()
+                      }
                     />
                     {/* Preview Text */}
-                    {selectedTemplateOptions[block.title] && (
-                      <Text className={templatePreviewStyle(isDarkMode)}>
-                        {
-                          block.options.find(
-                            (option) => option.label === selectedTemplateOptions[block.title]
-                          )?.previewText
-                        }
-                      </Text>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    {/* Preview Text for Single Option */}
-                    <Text className={templatePreviewStyle(isDarkMode)}>{block.options[0].previewText}</Text>
+                    {typeof selectedTemplateOptions[block.title] ===
+                      'string' &&
+                      selectedTemplateOptions[block.title] && (
+                        <Text
+                          className={templatePreviewStyle(isDarkMode)}
+                          dangerouslySetInnerHTML={{
+                            __html: `<span style="background-color: #ffefc1; padding: 0 3px;">${
+                              block.options.find(
+                                (option: TemplateOption) =>
+                                  option.label ===
+                                  selectedTemplateOptions[block.title]
+                              )?.previewText || ''
+                            }</span>`,
+                          }}
+                        />
+                      )}
                   </>
                 )}
               </Stack>
