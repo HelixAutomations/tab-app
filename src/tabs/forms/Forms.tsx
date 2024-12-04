@@ -1,3 +1,5 @@
+// src/tabs/forms/Forms.tsx
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Stack,
@@ -19,10 +21,14 @@ import {
 import { useTheme } from '../../app/functionality/ThemeContext';
 import '../../app/styles/FormCard.css';
 
+// Import Financial Forms
+import { financialForms } from './FinancialForms';
+
+// Initialize Fluent UI icons
 initializeIcons();
 
 // Define types for sections and links
-export type SectionName = 'Favorites' | 'General_Processes' | 'Operations';
+export type SectionName = 'Favorites' | 'General_Processes' | 'Operations' | 'Financial';
 
 export interface FormItem {
   title: string;
@@ -62,6 +68,7 @@ const mainContentStyle = (isDarkMode: boolean) =>
     display: 'flex',
     flexDirection: 'column',
     gap: '20px',
+    paddingBottom: '40px', // Added padding to create gap before footer
   });
 
 const sectionStyle = (isDarkMode: boolean) =>
@@ -137,13 +144,12 @@ const Forms: React.FC = () => {
       window.removeEventListener('storage', handleStorageChange);
     };
   }, []);
-  
+
   // Define number of columns per row for delay calculation
   const columnsPerRow = 5;
 
-  // Build formHubSections using useMemo
+  // Define embedded General Processes and Operations forms
   const formHubSections: { [key in SectionName]: FormItem[] } = useMemo(() => {
-    // Predefined links
     const generalProcesses: FormItem[] = [
       {
         title: 'Tel. Attendance Note',
@@ -205,11 +211,12 @@ const Forms: React.FC = () => {
     ];
 
     return {
-      Favorites: [], // Will be populated based on favorites
-      General_Processes: generalProcesses,
-      Operations: operations,
+      Favorites: [], // Dynamically populated
+      General_Processes: generalProcesses, // Embedded forms
+      Operations: operations,              // Embedded forms
+      Financial: financialForms,           // Imported financial forms
     };
-  }, []);
+  }, [financialForms]); // Ensure to include financialForms in dependencies
 
   // Load stored favorites from localStorage
   useEffect(() => {
@@ -277,9 +284,10 @@ const Forms: React.FC = () => {
     };
 
     // Prepare Favorites section separately
-    const favoriteLinks = formHubSections.General_Processes.concat(formHubSections.Operations).filter(
-      (link) => favorites.some(fav => fav.title === link.title)
-    );
+    const allSectionsExceptFavorites = ['General_Processes', 'Operations', 'Financial'] as SectionName[];
+    const favoriteLinks = allSectionsExceptFavorites.reduce<FormItem[]>((acc, section) => {
+      return acc.concat(formHubSections[section].filter(link => favorites.some(fav => fav.title === link.title)));
+    }, []);
 
     return {
       Favorites: sortLinks(
@@ -289,6 +297,7 @@ const Forms: React.FC = () => {
       ),
       General_Processes: sortLinks(filterLinks(formHubSections.General_Processes)),
       Operations: sortLinks(filterLinks(formHubSections.Operations)),
+      Financial: sortLinks(filterLinks(formHubSections.Financial)),
     };
   }, [favorites, formHubSections, searchQuery]);
 
@@ -335,6 +344,7 @@ const Forms: React.FC = () => {
                     onGoTo={() => goToLink(link.url)}
                     onSelect={() => setSelectedLink(link)}
                     animationDelay={animationDelay}
+                    description={link.description} // Pass description if available
                   />
                 );
               })}
@@ -342,7 +352,7 @@ const Forms: React.FC = () => {
           </section>
         )}
 
-        {(['General_Processes', 'Operations'] as SectionName[]).map((sectionName) => (
+        {(['General_Processes', 'Operations', 'Financial'] as SectionName[]).map((sectionName) => (
           filteredSections[sectionName].length > 0 && (
             <section key={sectionName} className={sectionStyle(isDarkMode)}>
               <Text variant="large" className={sectionHeaderStyleCustom(isDarkMode)}>
@@ -361,6 +371,7 @@ const Forms: React.FC = () => {
                       onGoTo={() => goToLink(link.url)}
                       onSelect={() => setSelectedLink(link)}
                       animationDelay={animationDelay}
+                      description={link.description} // Pass description if available
                     />
                   );
                 })}
@@ -439,10 +450,11 @@ const Forms: React.FC = () => {
       {/* Form Details Panel */}
       {selectedLink && (
         <FormDetails
-          isOpen={true} // Add this prop
+          isOpen={true}
           onClose={() => setSelectedLink(null)}
           link={selectedLink}
           isDarkMode={isDarkMode}
+          isFinancial={selectedLink?.tags?.includes('Financial')}
         />
       )}
     </div>

@@ -11,7 +11,6 @@ import Loading from './styles/Loading'; // Import the Loading component
 
 const Home = lazy(() => import('../tabs/home/Home'));
 const Forms = lazy(() => import('../tabs/forms/Forms'));
-const Workspace = lazy(() => import('../tabs/workspace/Workspace'));
 const Resources = lazy(() => import('../tabs/resources/Resources'));
 const Enquiries = lazy(() => import('../tabs/enquiries/Enquiries'));
 const Matters = lazy(() => import('../tabs/matters/Matters'));
@@ -33,7 +32,6 @@ const App: React.FC = () => {
   const tabs = [
     { key: 'home', text: 'Home' },
     { key: 'forms', text: 'Forms' },
-    { key: 'workspace', text: 'Workspace' },
     { key: 'resources', text: 'Resources' },
     { key: 'enquiries', text: 'Enquiries' },
     { key: 'matters', text: 'Matters' },
@@ -45,8 +43,6 @@ const App: React.FC = () => {
         return <Home context={context} />;
       case 'forms':
         return <Forms />;
-      case 'workspace':
-        return <Workspace />;
       case 'resources':
         return <Resources />;
       case 'enquiries':

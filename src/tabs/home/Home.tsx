@@ -1,3 +1,5 @@
+// src/tabs/home/Home.tsx
+
 import React, { useState, useEffect, useContext, useMemo } from 'react';
 import {
   mergeStyles,
@@ -27,7 +29,10 @@ import MetricCard from './MetricCard';
 import GreyHelixMark from '../../assets/grey helix mark.png';
 import HelixAvatar from '../../assets/helix avatar.png';
 import * as microsoftTeams from '@microsoft/teams-js';
-import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme
+import '../../app/styles/VerticalLabelPanel.css';
+
+import { useTheme } from '../../app/functionality/ThemeContext';
+
 import '../../app/styles/MetricCard.css'; // Ensure CSS is imported
 
 // Import updated form components
@@ -123,6 +128,10 @@ const quickLinksStyle = (isDarkMode: boolean) =>
     flexDirection: 'column',
   });
 
+const calculateAnimationDelay = (rowIndex: number, colIndex: number) => {
+  return rowIndex * 0.2 + colIndex * 0.1; // Adjust timing as needed
+};
+
 // Updated Metrics Container Style to include grid layout
 const metricsContainerStyle = (isDarkMode: boolean) =>
   mergeStyles({
@@ -156,31 +165,26 @@ const metricsTopLabelsStyle = (isDarkMode: boolean) =>
     marginBottom: '10px',
   });
 
-// New Sidebar Labels Style
+// Updated Sidebar Labels Style with Animation
 const metricsSidebarLabelStyle = (isDarkMode: boolean) =>
   mergeStyles({
-    // Base styles
     fontWeight: '600',
     fontSize: '16px',
     color: isDarkMode ? colours.dark.text : colours.light.text,
     textAlign: 'center',
-    // Tab styles
     backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
     padding: '10px 20px',
     borderTopRightRadius: '12px',
     borderBottomRightRadius: '12px',
-    position: 'relative',
-    zIndex: 1, // Lower z-index so it appears beneath metric cards
-    // Adjust rotation and alignment
     writingMode: 'vertical-rl',
     textOrientation: 'mixed',
-    transform: 'rotate(180deg)', // Keep text readable
-    // Optional box shadow or border
+    transform: 'rotate(180deg)',
     boxShadow: isDarkMode
       ? `2px 0 4px ${colours.dark.border}`
       : `2px 0 4px ${colours.light.border}`,
-      marginRight: '-20px', // Adjust to move label under the metric cards
-      paddingRight: '30px', // Increase padding to compensate
+    marginRight: '-20px',
+    paddingRight: '30px',
+    zIndex: 1,
   });
 
 const cardTitleStyle = (isDarkMode: boolean) =>
@@ -300,6 +304,7 @@ const Home: React.FC<HomeProps> = ({ context }) => {
   const { context: teamsContext } = useContext(TeamsContext);
   const { sqlData, isLoading: isSqlLoading, error, fetchEnquiries, enquiries } = useFeContext();
   const [greeting, setGreeting] = useState<string>('');
+  const [typedGreeting, setTypedGreeting] = useState<string>(''); // New state for typed greeting
   const [enquiriesToday, setEnquiriesToday] = useState<number>(0);
   const [enquiriesWeekToDate, setEnquiriesWeekToDate] = useState<number>(0);
   const [enquiriesMonthToDate, setEnquiriesMonthToDate] = useState<number>(0);
@@ -529,11 +534,29 @@ const Home: React.FC<HomeProps> = ({ context }) => {
     },
   ];
 
+  // Implementing the custom typing effect for greeting
+  useEffect(() => {
+    let currentIndex = 0;
+    setTypedGreeting(''); // Reset typed greeting when greeting changes
+
+    const typingInterval = setInterval(() => {
+      if (currentIndex < greeting.length) {
+        setTypedGreeting((prev) => prev + greeting[currentIndex]);
+        currentIndex++;
+      } else {
+        clearInterval(typingInterval); // Stop typing when full text is displayed
+      }
+    }, 25); // Adjust typing speed here (50ms per character)
+
+    return () => clearInterval(typingInterval); // Clean up interval on unmount or when greeting changes
+  }, [greeting]);
+
   return (
     <div className={containerStyle(isDarkMode)}>
       {/* Header: Greeting */}
       <Stack horizontal horizontalAlign="space-between" verticalAlign="center" className={headerStyle}>
-        <Text className={greetingStyle(isDarkMode)}>{greeting}</Text>
+        {/* Removed <Typed> component and using custom typing effect */}
+        <Text className={greetingStyle(isDarkMode)}>{typedGreeting}</Text>
       </Stack>
 
       {/* Main Content: Quick Actions, Metrics, Favourites, In Office, On Leave */}
@@ -600,7 +623,6 @@ const Home: React.FC<HomeProps> = ({ context }) => {
             {/* Side Labels and Metric Cards */}
             {metricsData.map((metric: any, rowIndex: number) => (
               <React.Fragment key={metric.title}>
-                {/* Side Label */}
                 <Text
                   style={{ gridColumn: '1', gridRow: `${rowIndex + 2}` }}
                   className={metricsSidebarLabelStyle(isDarkMode)}
@@ -608,20 +630,16 @@ const Home: React.FC<HomeProps> = ({ context }) => {
                   {metric.title}
                 </Text>
 
-                {/* Metric Cards */}
                 {['today', 'weekToDate', 'monthToDate'].map((period: string, colIndex: number) => (
                   <div
                     key={`${metric.title}-${period}`}
                     style={{
                       gridColumn: `${colIndex + 2}`,
                       gridRow: `${rowIndex + 2}`,
-                      position: 'relative',
-                      zIndex: 2,
-                      marginLeft: '-10px', // Fine-tune overlap
                     }}
                   >
                     <MetricCard
-                      title=""
+                      title={metric.title}
                       {...(metric.isTimeMoney
                         ? {
                             money: metric[period].money,
@@ -635,13 +653,13 @@ const Home: React.FC<HomeProps> = ({ context }) => {
                             prevCount: metric[period].prevCount,
                           })}
                       isDarkMode={isDarkMode}
+                      animationDelay={calculateAnimationDelay(rowIndex, colIndex)} // Pass animation delay
                     />
                   </div>
                 ))}
               </React.Fragment>
             ))}
           </div>
-
         </div>
 
         {/* New Favourites Section */}
@@ -674,7 +692,7 @@ const Home: React.FC<HomeProps> = ({ context }) => {
           {formsFavorites.length > 0 && (
             <div className={subSectionContainerStyle}>
               <div className={favouritesGridStyle}>
-                {formsFavorites.map((form: FormItem) => (
+                {formsFavorites.map((form: FormItem, index: number) => (
                   <FormCard
                     key={form.title}
                     link={form}
@@ -689,6 +707,24 @@ const Home: React.FC<HomeProps> = ({ context }) => {
                     onGoTo={() => {
                       window.open(form.url, '_blank');
                     }}
+                    animationDelay={index * 0.1} // Calculate delay based on index
+                  />
+                ))}
+
+                {resourcesFavorites.map((resource: Resource, index: number) => (
+                  <ResourceCard
+                    key={resource.title}
+                    resource={resource}
+                    isFavorite={true}
+                    onCopy={(url: string, title: string) => copyToClipboard(url, title)}
+                    onToggleFavorite={(res) => {
+                      const updatedFavorites = resourcesFavorites.filter(fav => fav.title !== res.title);
+                      setResourcesFavorites(updatedFavorites);
+                      localStorage.setItem('resourcesFavorites', JSON.stringify(updatedFavorites));
+                    }}
+                    onGoTo={(url) => window.open(url, '_blank')}
+                    onSelect={() => setSelectedResource(resource)}
+                    animationDelay={index * 0.1} // Calculate delay based on index
                   />
                 ))}
               </div>
@@ -715,6 +751,7 @@ const Home: React.FC<HomeProps> = ({ context }) => {
                     }}
                     onGoTo={() => window.open(resource.url, '_blank')}
                     onSelect={() => setSelectedResource(resource)}
+                    // Removed animationDelay here to avoid duplicate cards animation
                   />
                 ))}
               </div>

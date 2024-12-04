@@ -22,6 +22,7 @@ import { useTheme } from '../../app/functionality/ThemeContext';
 import StyledTextField from '../../app/styles/StyledTextField';
 import { ResourceAction, resourceActions } from '../../app/customisation/ResourceActions';
 import '../../app/styles/ResourceDetails.css'; // Ensure this path is correct
+import { BespokeForm } from '../../app/styles/BespokeForms';
 
 interface ResourceDetailsProps {
   resource: Resource;
@@ -238,77 +239,22 @@ const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) 
                     unmountOnExit
                   >
                     <div className={formContainerStyle}>
-                      <Stack tokens={{ childrenGap: 20 }}>
-                        {action.requiredFields.map((field) => (
-                          <StyledTextField
-                            key={field}
-                            label={field.charAt(0).toUpperCase() + field.slice(1)}
-                            required
-                            value={actionInputs[field] || ''}
-                            onChange={(e, newValue) => handleInputChange(e, field)}
-                            placeholder={`Enter ${field}`}
-                            ariaLabel={`${field.charAt(0).toUpperCase() + field.slice(1)} Input`}
-                            isDarkMode={isDarkMode}
-                          />
-                        ))}
-                        <Stack
-                          horizontal
-                          tokens={{ childrenGap: 15 }}
-                          styles={{ root: { marginTop: '10px' } }}
-                        >
-                          <PrimaryButton
-                            text="Submit"
-                            onClick={() => handleActionSubmit(action)}
-                            disabled={action.requiredFields.some(
-                              (field) => !actionInputs[field]
-                            )}
-                            styles={{
-                              root: {
-                                height: '50px',
-                                borderRadius: '8px',
-                                backgroundColor: colours.cta,
-                                border: 'none',
-                                selectors: {
-                                  ':hover': {
-                                    backgroundColor: colours.highlight,
-                                  },
-                                  ':disabled': {
-                                    backgroundColor: colours.grey,
-                                  },
-                                },
-                              },
-                              label: {
-                                color: 'white',
-                                fontWeight: '600',
-                              },
-                            }}
-                            ariaLabel="Submit Action"
-                            iconProps={{ iconName: 'CheckMark' }}
-                          />
-                          <DefaultButton
-                            text="Cancel"
-                            onClick={() => {
-                              setSelectedAction(null);
-                              setActionInputs({});
-                            }}
-                            styles={{
-                              root: {
-                                height: '50px',
-                                borderRadius: '8px',
-                                backgroundColor: isDarkMode
-                                  ? colours.dark.cardHover
-                                  : colours.light.cardHover,
-                              },
-                              label: {
-                                color: isDarkMode ? colours.dark.text : colours.light.text,
-                                fontWeight: '600',
-                              },
-                            }}
-                            ariaLabel="Cancel Action"
-                            iconProps={{ iconName: 'Cancel' }}
-                          />
-                        </Stack>
-                      </Stack>
+                      <BespokeForm
+                        fields={action.requiredFields.map((field) => ({
+                          label: field.charAt(0).toUpperCase() + field.slice(1),
+                          type: 'text', // Adjust type if required
+                          placeholder: `Enter ${field}`,
+                          required: true,
+                        }))}
+                        onSubmit={(values) => {
+                          console.log(`Action Submitted: ${action.label}`, values);
+                          handleActionSubmit(action);
+                        }}
+                        onCancel={() => {
+                          setSelectedAction(null);
+                          setActionInputs({});
+                        }}
+                      />
                     </div>
                   </CSSTransition>
                 </div>

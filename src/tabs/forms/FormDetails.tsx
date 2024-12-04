@@ -16,12 +16,14 @@ import { colours } from '../../app/styles/colours';
 import { FormItem } from '../../app/functionality/types';
 import { mergeStyles } from '@fluentui/react';
 import loaderIcon from '../../assets/grey helix mark.png';
+import { BespokeForm } from '../../app/styles/BespokeForms';
 
 interface FormDetailsProps {
   link: FormItem;
   isDarkMode: boolean;
   onClose: () => void;
-  isOpen: boolean; // Add this prop
+  isOpen: boolean;
+  isFinancial?: boolean; // New prop
 }
 
 const detailsContainerStyle = (isDarkMode: boolean) =>
@@ -228,13 +230,22 @@ const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose, is
                 <img src={loaderIcon} alt="Loading..." style={{ width: '100px', height: 'auto' }} />
               </div>
             )}
-            {/* The form will be injected here */}
+            {/* Cognito form will be injected here */}
+          </div>
+        ) : link.fields ? (
+          <div style={{ marginTop: '20px', padding: '0 24px', flexGrow: 1 }}>
+            <BespokeForm
+              fields={link.fields}
+              onSubmit={(values) => console.log('Submitted Financial Form:', values)}
+              onCancel={() => console.log('Form cancelled')}
+            />
           </div>
         ) : (
           <div style={{ marginTop: '20px', padding: '0 24px', flexGrow: 1 }}>
             <Text>No form available for this item.</Text>
           </div>
         )}
+
 
         {/* Content aligned to the bottom */}
         <div className={detailsContainerStyle(isDarkMode)}>
@@ -321,47 +332,6 @@ const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose, is
               iconProps={{ iconName: 'Cancel' }}
             />
           </div>
-
-          {/* Tags */}
-          {link.tags && link.tags.length > 0 && (
-            <Stack tokens={{ childrenGap: 6 }} styles={{ root: { marginTop: '20px' } }}>
-              <Text variant="mediumPlus" styles={{ root: { fontWeight: 600 } }}>
-                Tags:
-              </Text>
-              <Stack horizontal tokens={{ childrenGap: 10 }} wrap>
-                {link.tags.map((tag) => (
-                  <TooltipHost content={tag} key={tag}>
-                    <span
-                      className={mergeStyles({
-                        backgroundColor: isDarkMode
-                          ? colours.dark.sectionBackground
-                          : colours.light.sectionBackground,
-                        color: isDarkMode ? colours.dark.text : colours.light.text,
-                        borderRadius: '4px',
-                        padding: '4px 8px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                      })}
-                    >
-                      <Icon iconName="Tag" />
-                      <Text variant="small">{tag}</Text>
-                    </span>
-                  </TooltipHost>
-                ))}
-              </Stack>
-            </Stack>
-          )}
-
-          {/* Description */}
-          {link.description && (
-            <Stack tokens={{ childrenGap: 6 }} styles={{ root: { marginTop: '20px' } }}>
-              <Text variant="mediumPlus" styles={{ root: { fontWeight: 600 } }}>
-                Description:
-              </Text>
-              <Text>{link.description}</Text>
-            </Stack>
-          )}
         </div>
       </div>
 

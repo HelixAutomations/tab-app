@@ -136,17 +136,21 @@ const templatePreviewStyle = (isDarkMode: boolean) =>
     borderRadius: '4px',
     overflow: 'hidden',
     color: isDarkMode ? colours.dark.text : colours.light.text,
-    backgroundColor: isDarkMode
-      ? colours.dark.previewBackground
-      : colours.light.previewBackground,
+    backgroundColor: '#f0f0f0',
     textAlign: 'left',
     marginTop: '10px',
     fontSize: '14px',
   });
 
+// Function to escape regex special characters
+function escapeRegExp(string: string): string {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 // Function to replace placeholders in the email body
 const replacePlaceholders = (template: string, enquiry: Enquiry): string => {
   return template
+    // Replace dynamic variables like [Enquiry.First_Name]
     .replace(
       /\[Enquiry.First_Name\]/g,
       `<span style="background-color: ${colours.highlightYellow}; padding: 0 3px;">${
@@ -161,31 +165,15 @@ const replacePlaceholders = (template: string, enquiry: Enquiry): string => {
     )
     .replace(
       /\[practice_area\]/g,
-      `<span style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[practice_area]</span>` // Highlighted in blue
+      `<span style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${
+        enquiry.Area_of_Work || '[practice_area]'
+      }</span>`
     )
+    // Wrap other placeholders with data-placeholder for reliable targeting
     .replace(
-      /\[Scope Placeholder\]/g,
-      `<span style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[Scope Placeholder]</span>` // Highlighted in blue
-    )
-    .replace(
-      /\[Fee Option Placeholder\]/g,
-      `<span style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[Fee Option Placeholder]</span>` // Highlighted in blue
-    )
-    .replace(
-      /\[Required Documents Placeholder\]/g,
-      `<span style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[Required Documents Placeholder]</span>` // Highlighted in blue
-    )
-    .replace(
-      /\[Meeting Link Placeholder\]/g,
-      `<span style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[Meeting Link Placeholder]</span>` // Highlighted in blue
-    )
-    .replace(
-      /\[Google Review Placeholder\]/g,
-      `<span style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[Google Review Placeholder]</span>` // Highlighted in blue
-    )
-    .replace(
-      /\[Payment Link Placeholder\]/g,
-      `<span style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[Payment Link Placeholder]</span>` // Highlighted in blue
+      /\[(Scope Placeholder|Fee Option Placeholder|Required Documents Placeholder|Meeting Link Placeholder|Google Review Placeholder|Payment Link Placeholder)\]/g,
+      (match) =>
+        `<span data-placeholder="${match}" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${match}</span>`
     );
 };
 
@@ -197,18 +185,29 @@ const isStringArray = (value: string | string[]): value is string[] => {
 const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
   const { isDarkMode } = useTheme(); // Access isDarkMode from Theme Context
   const [template, setTemplate] = useState<string | undefined>(undefined);
-  const [subject, setSubject] = useState<string>('Your Enquiry');
+  const capitalizeWords = (str: string): string =>
+    str
+      .toLowerCase()
+      .split(' ')
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  
+  const [subject, setSubject] = useState<string>(
+    enquiry.Area_of_Work
+      ? `Your ${capitalizeWords(enquiry.Area_of_Work)} Enquiry`
+      : 'Your Enquiry'
+  );
   const normalizeBody = (text: string) =>
     text
       .split('\n') // Split the text into lines
       .map((line) => line.trim()) // Remove leading/trailing spaces from each line
       .join('\n'); // Rejoin the lines with proper line breaks
-  
-const [body, setBody] = useState<string>(
-  normalizeBody(
-    replacePlaceholders(
-      `Dear [Enquiry.First_Name],
-      
+
+  const [body, setBody] = useState<string>(
+    normalizeBody(
+      replacePlaceholders(
+        `Dear [Enquiry.First_Name],
+
 Thank you for reaching out regarding [practice_area]. We're well-placed to assist you.
 
 [Scope Placeholder]
@@ -225,10 +224,10 @@ Thank you for reaching out regarding [practice_area]. We're well-placed to assis
 
 Kind regards,
 [Enquiry.Point_of_Contact]`,
-      enquiry
+        enquiry
+      )
     )
-  )
-);
+  );
   const [attachments, setAttachments] = useState<string[]>([]);
   const [followUp, setFollowUp] = useState<string | undefined>(undefined); // State for follow-up
   const [isPreviewOpen, setIsPreviewOpen] = useState<boolean>(false);
@@ -317,14 +316,19 @@ Kind regards,
       replacementText = option ? option.previewText : '';
     }
   
-    // Replace only the specific placeholder text in the body
+    // Wrap inserted content in a yellow-highlighted span
+    const highlightedReplacement = `<span style="background-color: ${colours.highlightYellow}; padding: 0 3px;">${replacementText}</span>`;
+  
+    // Replace the content inside the span with the matching data-placeholder
     setBody((prevBody) =>
       prevBody.replace(
         new RegExp(
-          `<span style="[^"]*">${block.placeholder}.*?<\\/span>`, // Match the placeholder and its existing content
+          `(<span[^>]*data-placeholder="${escapeRegExp(
+            block.placeholder
+          )}"[^>]*>)(.*?)(</span>)`,
           'g'
         ),
-        `<span style="background-color: #ffefc1; padding: 0 3px;">${replacementText}</span>`
+        `$1${highlightedReplacement}$3`
       )
     );
   };
@@ -340,7 +344,9 @@ Kind regards,
       const selectedTemplate =
         PracticeAreaPitch[selectedPracticeArea][option.key as string];
       if (selectedTemplate) {
-        setSubject(`Your Enquiry`);
+        // Dynamically include Area_of_Work in the subject
+        const areaOfWork = enquiry.Area_of_Work.trim() || 'Practice Area';
+        setSubject(`Your ${areaOfWork} Enquiry`);
   
         // Replace placeholders, including updating [practice_area]
         const updatedBody = replacePlaceholders(
@@ -349,7 +355,7 @@ Kind regards,
         );
   
         // Trim unintended leading newlines or whitespace
-        setBody((prevBody) => updatedBody.trimStart());
+        setBody(updatedBody.trimStart());
       }
     }
   };
@@ -360,6 +366,14 @@ Kind regards,
       prev.includes(attachmentKey)
         ? prev.filter((key) => key !== attachmentKey)
         : [...prev, attachmentKey]
+    );
+  };
+
+  const getFilteredAttachments = (): AttachmentOption[] => {
+    const selectedPracticeArea = getSelectedPracticeArea(); // Get the matching practice area dynamically
+    return availableAttachments.filter(
+      (attachment) =>
+        !attachment.applicableTo || attachment.applicableTo.includes(selectedPracticeArea) // Show all universal and relevant ones
     );
   };
 
@@ -382,23 +396,23 @@ Kind regards,
       normalizeBody(
         replacePlaceholders(
           `Dear [Enquiry.First_Name],
-          
-  Thank you for reaching out regarding [practice_area]. We're well-placed to assist you.
-  
-  [Scope Placeholder]
-  
-  [Fee Option Placeholder]
-  
-  [Required Documents Placeholder]
-  
-  [Meeting Link Placeholder]
-  
-  [Google Review Placeholder]
-  
-  [Payment Link Placeholder]
-  
-  Kind regards,
-  [Enquiry.Point_of_Contact]`,
+
+Thank you for reaching out regarding [practice_area]. We're well-placed to assist you.
+
+[Scope Placeholder]
+
+[Fee Option Placeholder]
+
+[Required Documents Placeholder]
+
+[Meeting Link Placeholder]
+
+[Google Review Placeholder]
+
+[Payment Link Placeholder]
+
+Kind regards,
+[Enquiry.Point_of_Contact]`,
           enquiry
         )
       )
@@ -532,10 +546,10 @@ Kind regards,
 
   const templatesGridStyle = mergeStyles({
     display: 'grid',
-    gridTemplateColumns: 'repeat(3, 1fr)', // Three columns
+    gridTemplateColumns: 'repeat(2, 1fr)', // Two columns
     gap: '20px',
     '@media (max-width: 1200px)': {
-      gridTemplateColumns: 'repeat(2, 1fr)', // Two columns on medium screens
+      gridTemplateColumns: 'repeat(1, 1fr)', // Single column on medium screens
     },
     '@media (max-width: 800px)': {
       gridTemplateColumns: '1fr', // Single column on small screens
@@ -564,8 +578,8 @@ Kind regards,
     backgroundPosition: 'top left',
     backgroundRepeat: 'no-repeat',
     backgroundColor: isDarkMode
-      ? `rgba(30, 30, 30, 0.9)`
-      : `rgba(240, 242, 245, 0.9)`,
+      ? 'rgba(30, 30, 30, 0.9)'
+      : 'rgba(240, 242, 245, 0.9)',
     color: isDarkMode ? colours.dark.text : colours.light.text,
     borderRadius: '8px',
   });
@@ -599,12 +613,16 @@ Kind regards,
               dropdown: { width: '100%' },
               title: {
                 ...commonInputStyle,
-                padding: `0 15px`, // Set left padding to match BubbleTextField
+                padding: '0 15px', // Set left padding to match BubbleTextField
                 borderRadius: '8px',
                 border: 'none',
                 display: 'flex',
                 alignItems: 'center',
                 color: isDarkMode ? colours.dark.text : colours.light.text,
+                maxWidth: '200px', // Set max width to prevent overflow
+                overflow: 'hidden', // Hide overflow text
+                textOverflow: 'ellipsis', // Show ellipsis for overflowing text
+                whiteSpace: 'nowrap', // Prevent text from wrapping
                 selectors: {
                   ':hover': {
                     backgroundColor: isDarkMode
@@ -640,7 +658,6 @@ Kind regards,
             }}
             ariaLabel="Select Template"
           />
-
         </Stack>
 
         {/* Subject Input */}
@@ -656,7 +673,6 @@ Kind regards,
             ariaLabel="Email Subject"
             isDarkMode={isDarkMode}
           />
-
         </Stack>
 
         {/* Body Input */}
@@ -694,7 +710,7 @@ Kind regards,
         <Stack tokens={{ childrenGap: 6 }}>
           <Label className={labelStyle}>Select Attachments</Label>
           <Stack horizontal tokens={{ childrenGap: 8 }} wrap>
-            {availableAttachments.map((attachment: AttachmentOption) => {
+            {getFilteredAttachments().map((attachment: AttachmentOption) => {
               const isSelected = attachments.includes(attachment.key);
               return (
                 <span
@@ -722,35 +738,14 @@ Kind regards,
                     transition: 'background-color 0.2s, color 0.2s',
                   }}
                   onClick={() => toggleAttachment(attachment.key)}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.backgroundColor = isDarkMode
-                      ? colours.dark.cardHover
-                      : colours.light.cardHover)
-                  }
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.backgroundColor = isSelected
-                      ? colours.cta
-                      : isDarkMode
-                      ? colours.dark.sectionBackground
-                      : colours.light.sectionBackground)
-                  }
-                  role="button"
-                  tabIndex={0}
-                  onKeyPress={(e: React.KeyboardEvent<HTMLSpanElement>) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      toggleAttachment(attachment.key);
-                    }
-                  }}
-                  aria-pressed={isSelected}
-                  aria-label={`Select attachment ${attachment.text}`}
                 >
                   {attachment.text}
                 </span>
               );
             })}
           </Stack>
-
         </Stack>
+
 
         {/* Follow Up Selection */}
         <Stack tokens={{ childrenGap: 6 }}>
@@ -813,8 +808,6 @@ Kind regards,
               );
             })}
           </Stack>
-
-
         </Stack>
 
         {/* Error Message */}
@@ -965,8 +958,8 @@ Kind regards,
               backgroundPosition: 'top left',
               backgroundRepeat: 'no-repeat',
               backgroundColor: isDarkMode
-                ? `rgba(30, 30, 30, 0.9)`
-                : `rgba(240, 242, 245, 0.9)`,
+                ? 'rgba(30, 30, 30, 0.9)'
+                : 'rgba(240, 242, 245, 0.9)',
               color: isDarkMode ? colours.dark.text : colours.light.text,
               borderRadius: '8px',
             },
@@ -1156,6 +1149,10 @@ Kind regards,
                           border: 'none', // Remove border from title
                           display: 'flex',
                           alignItems: 'center', // Vertically center the text
+                          maxWidth: '200px', // Set max width to prevent overflow
+                          overflow: 'hidden', // Hide overflow text
+                          textOverflow: 'ellipsis', // Show ellipsis for overflowing text
+                          whiteSpace: 'nowrap', // Prevent text from wrapping
                           selectors: {
                             ':hover': {
                               backgroundColor: isDarkMode
@@ -1202,21 +1199,15 @@ Kind regards,
                     {/* Preview Text */}
                     {Array.isArray(selectedTemplateOptions[block.title]) &&
                       selectedTemplateOptions[block.title].length > 0 && (
-                        <Text
-                          className={templatePreviewStyle(isDarkMode)}
-                          dangerouslySetInnerHTML={{
-                            __html: `
-                              <ul>
-                                ${(selectedTemplateOptions[block.title] as string[])
-                                  .map(
-                                    (doc: string) =>
-                                      `<li style="background-color: #ffefc1; padding: 0 3px;">${doc}</li>`
-                                  )
-                                  .join('')}
-                              </ul>
-                            `,
-                          }}
-                        />
+                        <div className={templatePreviewStyle(isDarkMode)}>
+                          <ul>
+                            {(selectedTemplateOptions[block.title] as string[]).map(
+                              (doc: string) => (
+                                <li key={doc}>{doc}</li>
+                              )
+                            )}
+                          </ul>
+                        </div>
                       )}
                   </>
                 ) : (
@@ -1309,18 +1300,17 @@ Kind regards,
                     {typeof selectedTemplateOptions[block.title] ===
                       'string' &&
                       selectedTemplateOptions[block.title] && (
-                        <Text
-                          className={templatePreviewStyle(isDarkMode)}
-                          dangerouslySetInnerHTML={{
-                            __html: `<span style="background-color: #ffefc1; padding: 0 3px;">${
+                        <div className={templatePreviewStyle(isDarkMode)}>
+                          <span>
+                            {
                               block.options.find(
                                 (option: TemplateOption) =>
                                   option.label ===
                                   selectedTemplateOptions[block.title]
                               )?.previewText || ''
-                            }</span>`,
-                          }}
-                        />
+                            }
+                          </span>
+                        </div>
                       )}
                   </>
                 )}

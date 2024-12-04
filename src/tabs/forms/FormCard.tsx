@@ -46,7 +46,8 @@ interface FormCardProps {
   onToggleFavorite: () => void;
   onGoTo: () => void;
   onSelect: () => void;
-  animationDelay?: number; // Add this prop
+  animationDelay?: number; // Existing prop
+  description?: string; // Add this line
 }
 
 const cardStyle = (isDarkMode: boolean) =>
@@ -80,6 +81,26 @@ const mainContentStyle = (isDarkMode: boolean) =>
     gap: '10px',
     flex: 1,
   });
+
+const titleContainerStyle = mergeStyles({
+  display: 'flex',
+  flexDirection: 'column', // Stack title and description
+  gap: '4px', // Adds spacing between title and description
+});
+
+const descriptionStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    fontSize: '14px',
+    color: isDarkMode ? colours.dark.subText : colours.light.subText,
+    marginTop: '8px', // Add spacing above the description
+  });
+
+const textContentStyle = mergeStyles({
+  display: 'flex',
+  flexDirection: 'column', // Title and description stack vertically
+  alignItems: 'flex-start', // Align to the left
+  marginLeft: '10px', // Add spacing between the icon and text
+});
 
 const linkTitleStyle = mergeStyles({
   fontSize: '18px',
@@ -133,7 +154,12 @@ const FormCard: React.FC<FormCardProps> = React.memo(
                 styles={{ root: { fontSize: 32, color: colours.highlight } }}
               />
             )}
-            <Text className={linkTitleStyle}>{link.title}</Text>
+            <div className={textContentStyle}>
+              <Text className={linkTitleStyle}>{link.title}</Text>
+              {link.description && (
+                <Text className={descriptionStyle(isDarkMode)}>{link.description}</Text>
+              )}
+            </div>
           </div>
 
           {/* Separator */}
@@ -199,5 +225,7 @@ const FormCard: React.FC<FormCardProps> = React.memo(
     );
   }
 );
+
+
 
 export default FormCard;

@@ -1,0 +1,35 @@
+/* src/app/styles/VerticalLabelPanel.css */
+
+/* Keyframes for sliding in with a bounce effect */
+@keyframes slideInBounce {
+    0% {
+      transform: translateX(100%); /* Start off-screen right */
+      opacity: 0; /* Invisible initially */
+    }
+    80% {
+      transform: translateX(-10%); /* Overshoot to the left */
+      opacity: 1; /* Fully visible */
+    }
+    100% {
+      transform: translateX(0%); /* Settle in place */
+      opacity: 1;
+    }
+  }
+  
+  /* Base styles for the vertical label panel */
+  .verticalLabelPanel {
+    font-weight: 600;
+    font-size: 16px;
+    text-align: center;
+    background-color: var(--background-color, white); /* Dynamic based on theme */
+    padding: 10px 20px;
+    border-top-right-radius: 12px;
+    border-bottom-right-radius: 12px;
+    writing-mode: vertical-lr; /* Changed to vertical-lr */
+    text-orientation: upright; /* Ensures text remains upright */
+    margin-right: -20px; /* Aligning under metric cards */
+    padding-right: 30px; /* Compensating for the overlap */
+    z-index: 1; /* Keep labels below metric cards */
+    animation: slideInBounce 0.6s ease-out forwards; /* Apply the animation */
+  }
+  
