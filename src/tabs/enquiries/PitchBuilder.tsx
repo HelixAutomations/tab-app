@@ -1,6 +1,6 @@
 // src/tabs/enquiries/PitchBuilder.tsx
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Stack,
   Text,
@@ -15,6 +15,8 @@ import {
   Label,
   MessageBar,
   MessageBarType,
+  IconButton,
+  IIconProps,
 } from '@fluentui/react';
 import { Enquiry } from '../../app/functionality/FeContext';
 import { colours } from '../../app/styles/colours';
@@ -34,8 +36,15 @@ const commonInputStyle = {
   lineHeight: '40px',
 };
 
-const standardPadding = '10px'; // Define consistent padding
+// Define icon properties for toolbar buttons
+const boldIcon: IIconProps = { iconName: 'Bold' };
+const italicIcon: IIconProps = { iconName: 'Italic' };
+const underlineIcon: IIconProps = { iconName: 'Underline' };
+const unorderedListIcon: IIconProps = { iconName: 'BulletedList' };
+const orderedListIcon: IIconProps = { iconName: 'NumberedList' };
+const linkIcon: IIconProps = { iconName: 'Link' };
 
+// Define buttonHoverStyle
 const buttonHoverStyle = {
   boxShadow: '0 4px 8px rgba(0, 0, 0, 0.2)', // Enhanced shadow
   transform: 'translateY(-2px)', // Lift effect
@@ -299,17 +308,12 @@ Kind regards,
   })();
 
   // Function to replace placeholders and insert template blocks
-  const insertTemplateBlock = (
-    block: TemplateBlock,
-    selectedOption: string | string[]
-  ) => {
+  const insertTemplateBlock = (block: TemplateBlock, selectedOption: string | string[]) => {
     let replacementText = '';
   
     if (block.isMultiSelect && isStringArray(selectedOption)) {
       // Insert as a bullet list
-      replacementText = `<ul>${selectedOption
-        .map((item) => `<li>${item}</li>`)
-        .join('')}</ul>`;
+      replacementText = `<ul>${selectedOption.map((item) => `<li>${item}</li>`).join('')}</ul>`;
     } else if (!block.isMultiSelect && typeof selectedOption === 'string') {
       // Find the corresponding previewText
       const option = block.options.find((o) => o.label === selectedOption);
@@ -319,18 +323,18 @@ Kind regards,
     // Wrap inserted content in a yellow-highlighted span
     const highlightedReplacement = `<span style="background-color: ${colours.highlightYellow}; padding: 0 3px;">${replacementText}</span>`;
   
-    // Replace the content inside the span with the matching data-placeholder
-    setBody((prevBody) =>
-      prevBody.replace(
-        new RegExp(
-          `(<span[^>]*data-placeholder="${escapeRegExp(
-            block.placeholder
-          )}"[^>]*>)(.*?)(</span>)`,
-          'g'
-        ),
+    setBody((prevBody) => {
+      const newBody = prevBody.replace(
+        new RegExp(`(<span[^>]*data-placeholder="${escapeRegExp(block.placeholder)}"[^>]*>)(.*?)(</span>)`, 'g'),
         `$1${highlightedReplacement}$3`
-      )
-    );
+      );
+  
+      if (bodyEditorRef.current) {
+        bodyEditorRef.current.innerHTML = newBody; // Manually update the editor's content
+      }
+  
+      return newBody;
+    });
   };
 
   // Handle template change by replacing placeholders in the body
@@ -480,6 +484,14 @@ Kind regards,
     }
   }, [isErrorVisible]);
 
+  // Initial load or after template change
+  useEffect(() => {
+    if (bodyEditorRef.current) {
+      // Set initial content when the template changes, but not on every keystroke
+      bodyEditorRef.current.innerHTML = body;
+    }
+  }, [template]); // Trigger only when template changes
+
   // Define follow-up options
   const followUpOptions: IDropdownOption[] = [
     { key: '1_day', text: '1 day' },
@@ -511,6 +523,16 @@ Kind regards,
       [blockTitle]: selectedOption,
     }));
   };
+
+  // Function to apply formatting
+  const applyFormat = (command: string, value?: string) => {
+    document.execCommand(command, false, value);
+    // Update body state after applying the command
+    const updatedBody = (bodyEditorRef.current?.innerHTML) || '';
+    setBody(updatedBody);
+  };
+
+  const bodyEditorRef = useRef<HTMLDivElement>(null);
 
   // Styles
   const containerStyle = mergeStyles({
@@ -589,6 +611,12 @@ Kind regards,
     color: isDarkMode ? colours.dark.text : colours.light.text,
   });
 
+  const toolbarStyle = mergeStyles({
+    display: 'flex',
+    gap: '10px',
+    marginBottom: '8px',
+  });
+
   return (
     <Stack className={containerStyle}>
       {/* Left Section: Pitch Builder Form */}
@@ -619,7 +647,7 @@ Kind regards,
                 display: 'flex',
                 alignItems: 'center',
                 color: isDarkMode ? colours.dark.text : colours.light.text,
-                maxWidth: '200px', // Set max width to prevent overflow
+                maxWidth: '450px', // Set max width to prevent overflow
                 overflow: 'hidden', // Hide overflow text
                 textOverflow: 'ellipsis', // Show ellipsis for overflowing text
                 whiteSpace: 'nowrap', // Prevent text from wrapping
@@ -678,32 +706,62 @@ Kind regards,
         {/* Body Input */}
         <Stack tokens={{ childrenGap: 6 }}>
           <Label className={labelStyle}>Email Body</Label>
+          {/* Rich Text Toolbar */}
+          <div className={toolbarStyle}>
+            <IconButton
+              iconProps={boldIcon}
+              ariaLabel="Bold"
+              onClick={() => applyFormat('bold')}
+            />
+            <IconButton
+              iconProps={italicIcon}
+              ariaLabel="Italic"
+              onClick={() => applyFormat('italic')}
+            />
+            <IconButton
+              iconProps={underlineIcon}
+              ariaLabel="Underline"
+              onClick={() => applyFormat('underline')}
+            />
+            <IconButton
+              iconProps={unorderedListIcon}
+              ariaLabel="Bulleted List"
+              onClick={() => applyFormat('insertUnorderedList')}
+            />
+            <IconButton
+              iconProps={orderedListIcon}
+              ariaLabel="Numbered List"
+              onClick={() => applyFormat('insertOrderedList')}
+            />
+            <IconButton
+              iconProps={linkIcon}
+              ariaLabel="Insert Link"
+              onClick={() => {
+                const url = prompt('Enter the URL');
+                if (url) {
+                  applyFormat('createLink', url);
+                }
+              }}
+            />
+          </div>
+          {/* Rich Text Editor */}
           <div
             contentEditable
+            ref={bodyEditorRef}
+            onInput={(e) => setBody((e.target as HTMLDivElement).innerHTML)}
             style={{
               minHeight: '150px',
-              padding: '20px 20px', // Match padding with BubbleTextField
+              padding: '20px',
               borderRadius: '8px',
-              border: `1px solid ${
-                isDarkMode ? colours.dark.cardHover : colours.light.cardHover
-              }`,
-              backgroundColor: isDarkMode
-                ? colours.dark.sectionBackground
-                : '#ffffff',
+              border: `1px solid ${isDarkMode ? colours.dark.cardHover : colours.light.cardHover}`,
+              backgroundColor: isDarkMode ? colours.dark.sectionBackground : '#ffffff',
               color: isDarkMode ? colours.dark.text : colours.light.text,
               overflowY: 'auto',
               whiteSpace: 'pre-wrap',
             }}
-            dangerouslySetInnerHTML={{
-              __html: body.replace(/\n/g, '<br>'),
-            }}
-            onInput={(e) =>
-              setBody(
-                (e.target as HTMLDivElement).innerHTML.replace(/<br>/g, '\n')
-              )
-            }
             aria-label="Email Body Editor"
-          />
+          >
+          </div>
         </Stack>
 
         {/* Attachments Selection */}
@@ -1253,6 +1311,10 @@ Kind regards,
                           border: 'none', // Remove border from title
                           display: 'flex',
                           alignItems: 'center', // Vertically center the text
+                          maxWidth: '200px', // Set max width to prevent overflow
+                          overflow: 'hidden', // Hide overflow text
+                          textOverflow: 'ellipsis', // Show ellipsis for overflowing text
+                          whiteSpace: 'nowrap', // Prevent text from wrapping
                           selectors: {
                             ':hover': {
                               backgroundColor: isDarkMode

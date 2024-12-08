@@ -1,0 +1,35 @@
+/* src/tabs/enquiries/PitchBuilder.css */
+
+/* Dark mode styles */
+.dark-mode .ql-toolbar.ql-snow {
+    background-color: #2d2d2d;
+    border: 1px solid #444;
+  }
+  
+  .dark-mode .ql-toolbar.ql-snow .ql-stroke {
+    stroke: #ffffff;
+  }
+  
+  .dark-mode .ql-container.ql-snow {
+    background-color: #1e1e1e;
+    color: #ffffff;
+    border: 1px solid #444;
+  }
+  
+  /* Light mode styles */
+  .ql-toolbar.ql-snow {
+    background-color: #f3f2f1;
+    border: 1px solid #ccc;
+  }
+  
+  .ql-container.ql-snow {
+    background-color: #ffffff;
+    color: #000000;
+    border: 1px solid #ccc;
+  }
+  
+  /* Custom Placeholder Button */
+  .ql-insertPlaceholder::before {
+    content: '📄'; /* You can use an emoji or an icon */
+  }
+  
