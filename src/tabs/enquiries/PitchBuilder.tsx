@@ -200,7 +200,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
       .split(' ')
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ');
-  
+
   const [subject, setSubject] = useState<string>(
     enquiry.Area_of_Work
       ? `Your ${capitalizeWords(enquiry.Area_of_Work)} Enquiry`
@@ -604,11 +604,15 @@ Kind regards,
       : 'rgba(240, 242, 245, 0.9)',
     color: isDarkMode ? colours.dark.text : colours.light.text,
     borderRadius: '8px',
+    display: 'flex',
+    flexDirection: 'column',
+    height: '100%',
   });
 
   const labelStyle = mergeStyles({
     fontWeight: '600',
     color: isDarkMode ? colours.dark.text : colours.light.text,
+    marginBottom: '10px', // Added padding between label and content
   });
 
   const toolbarStyle = mergeStyles({
@@ -883,81 +887,45 @@ Kind regards,
 
         <Separator />
 
-        {/* Button Group: Preview and Send on the left, Reset on the right */}
+        {/* Button Group: Preview on the left, Reset on the right */}
         <Stack
           horizontal
           horizontalAlign="space-between"
           className={buttonGroupStyle}
         >
-          <Stack horizontal tokens={{ childrenGap: 15 }}>
-            <PrimaryButton
-              text="Preview Email"
-              onClick={togglePreview}
-              styles={{
-                root: {
-                  backgroundColor: colours.cta,
-                  borderRadius: '8px',
-                  border: 'none',
-                  width: '240px',
-                  selectors: {
-                    ':hover': {
-                      backgroundColor: colours.red,
-                    },
-                    ':focus': {
-                      outline: 'none',
-                      border: 'none',
-                      boxShadow:
-                        '0 0 0 2px rgba(255, 255, 255, 0.5)',
-                    },
-                    ':active': {
-                      backgroundColor: colours.red,
-                      border: 'none',
-                    },
+          <PrimaryButton
+            text="Preview Email"
+            onClick={togglePreview}
+            styles={{
+              root: {
+                backgroundColor: colours.cta,
+                borderRadius: '8px',
+                border: 'none',
+                width: '240px',
+                selectors: {
+                  ':hover': {
+                    backgroundColor: colours.red,
+                  },
+                  ':focus': {
+                    outline: 'none',
+                    border: 'none',
+                    boxShadow:
+                      '0 0 0 2px rgba(255, 255, 255, 0.5)',
+                  },
+                  ':active': {
+                    backgroundColor: colours.red,
+                    border: 'none',
                   },
                 },
-                label: {
-                  color: 'white',
-                  fontWeight: '600',
-                },
-              }}
-              ariaLabel="Preview Email"
-              iconProps={{ iconName: 'Preview' }}
-            />
-
-            <PrimaryButton
-              text="Send Email"
-              onClick={sendEmail}
-              styles={{
-                root: {
-                  backgroundColor: colours.cta,
-                  borderRadius: '8px',
-                  border: 'none',
-                  width: '240px',
-                  selectors: {
-                    ':hover': {
-                      backgroundColor: colours.red,
-                    },
-                    ':focus': {
-                      outline: 'none',
-                      border: 'none',
-                      boxShadow:
-                        '0 0 0 2px rgba(255, 255, 255, 0.5)',
-                    },
-                    ':active': {
-                      backgroundColor: colours.red,
-                      border: 'none',
-                    },
-                  },
-                },
-                label: {
-                  color: 'white',
-                  fontWeight: '600',
-                },
-              }}
-              ariaLabel="Send Email"
-              iconProps={{ iconName: 'Mail' }}
-            />
-          </Stack>
+              },
+              label: {
+                color: 'white',
+                fontWeight: '600',
+              },
+            }}
+            ariaLabel="Preview Email"
+            iconProps={{ iconName: 'Preview' }}
+          />
 
           <DefaultButton
             text="Reset"
@@ -1020,15 +988,18 @@ Kind regards,
                 : 'rgba(240, 242, 245, 0.9)',
               color: isDarkMode ? colours.dark.text : colours.light.text,
               borderRadius: '8px',
+              display: 'flex',
+              flexDirection: 'column',
+              height: '100%',
             },
           }}
         >
-          <Stack tokens={{ childrenGap: 15 }}>
+          <Stack tokens={{ childrenGap: 15 }} styles={{ root: { flex: 1 } }}>
             <Stack tokens={{ childrenGap: 6 }}>
               <Text
                 variant="large"
                 styles={{
-                  root: { fontWeight: '600', color: colours.highlight },
+                  root: { fontWeight: '600', color: colours.highlight, marginBottom: '5px' },
                 }}
               >
                 Subject:
@@ -1045,7 +1016,7 @@ Kind regards,
               <Text
                 variant="large"
                 styles={{
-                  root: { fontWeight: '600', color: colours.highlight },
+                  root: { fontWeight: '600', color: colours.highlight, marginBottom: '5px' },
                 }}
               >
                 Body:
@@ -1061,7 +1032,7 @@ Kind regards,
                   <Text
                     variant="large"
                     styles={{
-                      root: { fontWeight: '600', color: colours.highlight },
+                      root: { fontWeight: '600', color: colours.highlight, marginBottom: '5px' },
                     }}
                   >
                     Attachments:
@@ -1088,7 +1059,7 @@ Kind regards,
                   <Text
                     variant="large"
                     styles={{
-                      root: { fontWeight: '600', color: colours.highlight },
+                      root: { fontWeight: '600', color: colours.highlight, marginBottom: '5px' },
                     }}
                   >
                     Follow Up:
@@ -1099,6 +1070,81 @@ Kind regards,
                 </Stack>
               </>
             )}
+          </Stack>
+          {/* Buttons at the bottom left */}
+          <Stack
+            styles={{
+              root: {
+                position: 'absolute', // Position it absolutely within the panel
+                bottom: '20px', // Space from the bottom of the panel
+                left: '20px', // Space from the left of the panel
+                width: 'auto', // Prevent the buttons from stretching
+              },
+            }}
+            horizontal
+            tokens={{ childrenGap: 15 }} // Spacing between buttons
+          >
+            <PrimaryButton
+              text="Send Email"
+              onClick={sendEmail}
+              styles={{
+                root: {
+                  backgroundColor: colours.cta,
+                  borderRadius: '8px',
+                  border: 'none',
+                  selectors: {
+                    ':hover': {
+                      backgroundColor: colours.red,
+                    },
+                    ':focus': {
+                      outline: 'none',
+                      border: 'none',
+                      boxShadow:
+                        '0 0 0 2px rgba(255, 255, 255, 0.5)',
+                    },
+                    ':active': {
+                      backgroundColor: colours.red,
+                      border: 'none',
+                    },
+                  },
+                },
+                label: {
+                  color: 'white',
+                  fontWeight: '600',
+                },
+              }}
+              ariaLabel="Send Email"
+              iconProps={{ iconName: 'Mail' }}
+            />
+
+            <DefaultButton
+              text="Draft Email"
+              onClick={() => {
+                // Placeholder for draft email functionality
+                console.log('Draft Email clicked');
+              }}
+              styles={{
+                root: {
+                  padding: '10px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  backgroundColor: isDarkMode
+                    ? colours.dark.sectionBackground
+                    : colours.light.sectionBackground,
+                  color: colours.greyText,
+                  fontWeight: '600',
+                  transition: 'all 0.2s',
+                },
+                rootHovered: {
+                  ...buttonHoverStyle, // Apply hover styles
+                  backgroundColor: isDarkMode
+                    ? colours.dark.cardHover
+                    : colours.light.cardHover,
+                },
+              }}
+              ariaLabel="Draft Email"
+              iconProps={{ iconName: 'Edit' }}
+            />
           </Stack>
         </Panel>
       </Stack>
