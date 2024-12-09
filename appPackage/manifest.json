@@ -3,7 +3,7 @@
     "manifestVersion": "1.15",
     "version": "1.0.3",
     "id": "0fece093-a853-4990-bc18-2ef2a2f83287",
-    "packageName": "com.helixlaw.linkhub003",
+    "packageName": "com.helixlaw.teamhub",
     "developer": {
         "name": "Helix Law",
         "websiteUrl": "https://helix-law.co.uk/",
@@ -11,35 +11,28 @@
         "termsOfUseUrl": "https://helix-law.co.uk/terms-and-conditions/"
     },
     "icons": {
-        "color": "mark192.png",
+        "color": "mark192colour.png",
         "outline": "mark32.png"
     },
     "name": {
-        "short": "Resources",
-        "full": "Resources v1"
+        "short": "Team Hub",
+        "full": "Helix Resource Centre for Team Access"
     },
     "description": {
-        "short": "Helix Resources",
-        "full": "Bespoke resource board for the Helix team."
+        "short": "Team Resource Hub",
+        "full": "A bespoke hub designed to enhance the Helix Law team's access to key resources."
     },
     "accentColor": "#3690CE",
     "bots": [],
     "composeExtensions": [],
     "staticTabs": [
-        {
-            "entityId": "linkhubPersonalTab",
-            "name": "Resources",
-            "contentUrl": "https://link-hub-v1-fehchxeqgxe9bsha.uksouth-01.azurewebsites.net/",
-            "websiteUrl": "https://link-hub-v1-fehchxeqgxe9bsha.uksouth-01.azurewebsites.net/",
-            "scopes": ["personal"]
-        },
-        {
-            "entityId": "resourcesPersonalTab",
-            "name": "Resources",
-            "contentUrl": "https://link-hub-v1-fehchxeqgxe9bsha.uksouth-01.azurewebsites.net/resources",
-            "websiteUrl": "https://link-hub-v1-fehchxeqgxe9bsha.uksouth-01.azurewebsites.net/resources",
-            "scopes": ["personal"]
-        }
+    {
+        "entityId": "hubTab",
+        "name": "Hub",
+        "contentUrl": "https://link-hub-v1-fehchxeqgxe9bsha.uksouth-01.azurewebsites.net/",
+        "websiteUrl": "https://link-hub-v1-fehchxeqgxe9bsha.uksouth-01.azurewebsites.net/",
+        "scopes": ["personal"]
+    }
     ],
     "permissions": [
         "identity"
