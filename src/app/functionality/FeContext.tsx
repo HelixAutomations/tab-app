@@ -1,12 +1,10 @@
-// src/FeContext.tsx
-
 import React, {
   createContext,
   useContext,
   useState,
   useEffect,
-  ReactNode,
   useCallback,
+  ReactNode,
 } from 'react';
 import { TeamsContext } from './TeamsContext'; // Ensure this path is correct
 
@@ -107,6 +105,8 @@ interface FeContextProps {
   fetchEnquiriesError: string | null;
   fetchMatters: (fullName: string) => Promise<Matter[]>;
   fetchMattersError: string | null;
+  fetchUserData: (objectId: string) => Promise<any>; // Added fetchUserData
+  fetchUserDataError: string | null; // Added error for fetchUserData
 }
 
 // Create the context with default values
@@ -119,6 +119,8 @@ const FeContext = createContext<FeContextProps>({
   fetchEnquiriesError: null,
   fetchMatters: async () => [],
   fetchMattersError: null,
+  fetchUserData: async () => ({}), // Default implementation for fetchUserData
+  fetchUserDataError: null, // Default error
 });
 
 // Define the provider's props to include children
@@ -134,6 +136,7 @@ export const FeProvider: React.FC<FeProviderProps> = ({ children }) => {
   const [error, setError] = useState<string | null>(null);
   const [fetchEnquiriesError, setFetchEnquiriesError] = useState<string | null>(null);
   const [fetchMattersError, setFetchMattersError] = useState<string | null>(null);
+  const [fetchUserDataError, setFetchUserDataError] = useState<string | null>(null); // Added error state for fetchUserData
 
   // Environment Variables
   const proxyBaseUrl = process.env.REACT_APP_PROXY_BASE_URL;
@@ -150,38 +153,29 @@ export const FeProvider: React.FC<FeProviderProps> = ({ children }) => {
   const getMattersUrl = `${proxyBaseUrl}/${getMattersPath}?code=${getMattersCode}`;
 
   // Fetch User Data on Context Change
-  useEffect(() => {
-    if (context && context.userObjectId) {
-      console.log('Fetching SQL data for User Object ID:', context.userObjectId);
-      setIsLoading(true);
-      setError(null);
-
-      fetch(getUserDataUrl, {
+  const fetchUserData = useCallback(async (objectId: string): Promise<any> => {
+    try {
+      console.log('Fetching user data for object ID:', objectId);
+      const response = await fetch(getUserDataUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userObjectId: context.userObjectId }),
-      })
-        .then((response) => {
-          console.log('SQL Data Fetch Response Status:', response.status);
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
-          return response.json();
-        })
-        .then((data) => {
-          console.log('SQL Data Retrieved:', data);
-          setSqlData(data);
-          setIsLoading(false);
-        })
-        .catch((err) => {
-          console.error('Error fetching SQL data:', err);
-          setError('Failed to load SQL data.');
-          setIsLoading(false);
-        });
-    } else {
-      console.log('No context or userObjectId available for fetching SQL data.');
+        body: JSON.stringify({ userObjectId: objectId }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch user data: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('User Data:', data);
+      setSqlData(data); // Assuming user data is set here
+      return data;
+    } catch (error) {
+      console.error('Error fetching user data:', error);
+      setFetchUserDataError('Failed to fetch user data.');
+      return {};
     }
-  }, [context, getUserDataUrl]);
+  }, [getUserDataUrl]);
 
   // Function to fetch Enquiries
   const fetchEnquiries = useCallback(
@@ -194,16 +188,11 @@ export const FeProvider: React.FC<FeProviderProps> = ({ children }) => {
           body: JSON.stringify({ email, dateFrom, dateTo }),
         });
 
-        console.log('Fetch Enquiries Response Status:', response.status);
-
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
 
         const data = await response.json();
-        console.log('Fetched Enquiries Data:', data);
-
-        // Assuming the API returns an array directly
         let fetchedEnquiries: Enquiry[] = [];
         if (Array.isArray(data)) {
           fetchedEnquiries = data as Enquiry[];
@@ -213,7 +202,7 @@ export const FeProvider: React.FC<FeProviderProps> = ({ children }) => {
           console.warn('Unexpected data format:', data);
         }
 
-        setEnquiries(fetchedEnquiries); // Update the enquiries state
+        setEnquiries(fetchedEnquiries);
         return fetchedEnquiries;
       } catch (error) {
         console.error('Error fetching enquiries:', error);
@@ -228,23 +217,17 @@ export const FeProvider: React.FC<FeProviderProps> = ({ children }) => {
   const fetchMatters = useCallback(
     async (fullName: string): Promise<Matter[]> => {
       try {
-        console.log('Fetching matters for fullName:', fullName);
         const response = await fetch(getMattersUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ fullName }),
         });
 
-        console.log('Fetch Matters Response Status:', response.status);
-
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
 
         const data = await response.json();
-        console.log('Fetched Matters Data:', data);
-
-        // Assuming the API returns an array directly
         let fetchedMatters: Matter[] = [];
         if (Array.isArray(data)) {
           fetchedMatters = data as Matter[];
@@ -268,13 +251,15 @@ export const FeProvider: React.FC<FeProviderProps> = ({ children }) => {
     <FeContext.Provider
       value={{
         sqlData,
-        enquiries, // Provided enquiries
+        enquiries,
         isLoading,
         error,
         fetchEnquiries,
         fetchEnquiriesError,
         fetchMatters,
         fetchMattersError,
+        fetchUserData, // Provided fetchUserData
+        fetchUserDataError, // Provided error state for fetchUserData
       }}
     >
       {children}

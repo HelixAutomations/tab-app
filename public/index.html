@@ -8,10 +8,63 @@
       href="https://static2.sharepointonline.com/files/fabric/office-ui-fabric-core/11.0.0/css/fabric.min.css"
     />
     <title>Microsoft Teams Tab</title>
+    <style>
+      /* Keyframes for the animation */
+      @keyframes fadeInScaleLoop {
+        0% {
+          opacity: 0;
+          transform: scale(1.5); /* Start at 150% size */
+        }
+        50% {
+          opacity: 1;
+          transform: scale(1); /* End at 100% size */
+        }
+        100% {
+          opacity: 0;
+          transform: scale(1.5); /* Return to 150% size */
+        }
+      }
+      
+      /* Apply animation to the logo */
+      #loading-screen svg {
+        animation: fadeInScaleLoop 2.5s ease-in-out infinite; /* Slow down and loop indefinitely */
+      }
+
+      /* Ensure the loading screen is visible immediately */
+      #loading-screen {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background-color: white; /* Adjust based on theme */
+        z-index: 9999;
+      }
+    </style>
   </head>
 
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
+    
+    <!-- Static Loading Screen -->
+    <div id="loading-screen">
+      <!-- Inline SVG with animation -->
+      <svg id="Layer_2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 57.56 100" style="width: 150px;">
+        <defs>
+          <style>.cls-1{fill:#061733;}</style>
+        </defs>
+        <g id="Layer_3">
+          <path class="cls-1" d="M57.56,13.1c0,7.27-7.6,10.19-11.59,11.64-4,1.46-29.98,11.15-34.78,13.1C6.4,39.77,0,41.23,0,48.5v-13.1C0,28.13,6.4,26.68,11.19,24.74c4.8-1.94,30.78-11.64,34.78-13.1,4-1.45,11.59-4.37,11.59-11.64v13.09h0Z"/>
+          <path class="cls-1" d="M57.56,38.84c0,7.27-7.6,10.19-11.59,11.64s-29.98,11.16-34.78,13.1c-4.8,1.94-11.19,3.4-11.19,10.67v-13.1c0-7.27,6.4-8.73,11.19-10.67,4.8-1.94,30.78-11.64,34.78-13.1,4-1.46,11.59-4.37,11.59-11.64v13.09h0Z"/>
+          <path class="cls-1" d="M57.56,64.59c0,7.27-7.6,10.19-11.59,11.64-4,1.46-29.98,11.15-34.78,13.1-4.8,1.94-11.19,3.39-11.19,10.67v-13.1c0-7.27,6.4-8.73,11.19-10.67,4.8-1.94,30.78-11.64,34.78-13.1,4-1.45,11.59-4.37,11.59-11.64v13.1h0Z"/>
+        </g>
+      </svg>
+    </div>
+
+    <!-- Root Div for React -->
     <div id="root"></div>
   </body>
 </html>

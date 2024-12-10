@@ -1,6 +1,6 @@
 // src/tabs/home/Home.tsx
 
-import React, { useState, useEffect, useContext, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   mergeStyles,
   Text,
@@ -22,47 +22,40 @@ import {
   PrimaryButton,
   DefaultButton,
 } from '@fluentui/react';
-import { TeamsContext } from '../../app/functionality/TeamsContext';
-import { useFeContext } from '../../app/functionality/FeContext';
 import { colours } from '../../app/styles/colours';
 import { initializeIcons } from '@fluentui/react/lib/Icons';
 import QuickActionsCard from './QuickActionsCard';
 import MetricCard from './MetricCard';
 import GreyHelixMark from '../../assets/grey helix mark.png';
 import HelixAvatar from '../../assets/helix avatar.png';
-import * as microsoftTeams from '@microsoft/teams-js';
 import '../../app/styles/VerticalLabelPanel.css';
 import { useTheme } from '../../app/functionality/ThemeContext';
-import '../../app/styles/MetricCard.css'; // Ensure CSS is imported
+import '../../app/styles/MetricCard.css';
 
-// Import updated form components
 import Tasking from '../../CustomForms/Tasking';
 import TelephoneAttendance from '../../CustomForms/TelephoneAttendance';
 import RetrieveContactForm from '../../CustomForms/RetrieveContactForm';
 import CreateTimeEntryForm from '../../CustomForms/CreateTimeEntryForm';
 
-// Import FormCard and ResourceCard
-import FormCard from '../forms/FormCard'; // Adjust path as needed
-import ResourceCard from '../resources/ResourceCard'; // Adjust path as needed
+import FormCard from '../forms/FormCard';
+import ResourceCard from '../resources/ResourceCard';
 
-// Import FormItem and Resource types
-import { FormItem } from '../forms/Forms'; // Ensure FormItem is exported from Forms.tsx
-import { Resource } from '../resources/Resources'; // Ensure Resource is exported from Resources.tsx
+import { FormItem } from '../forms/Forms';
+import { Resource } from '../resources/Resources';
 
-// Import Detail Components
-import FormDetails from '../forms/FormDetails'; // Ensure this component exists
-import ResourceDetails from '../resources/ResourceDetails'; // Ensure this component exists
+import FormDetails from '../forms/FormDetails';
+import ResourceDetails from '../resources/ResourceDetails';
 
-// Import HomePanel and HomeForms
 import HomePanel from './HomePanel';
 import { officeAttendanceForm, annualLeaveForm } from './HomeForms';
 import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from '../../app/styles/ButtonStyles';
 
-// Import Button Styles
-// Since we are defining styles within this file, no separate import is needed
+import { Context as TeamsContextType } from '@microsoft/teams-js'; // Import Context type
 
 interface HomeProps {
-  context: microsoftTeams.Context | null;
+  context: TeamsContextType | null; // Use TeamsContextType
+  userData: any;
+  enquiries: any[] | null;
 }
 
 initializeIcons();
@@ -78,11 +71,10 @@ interface Person {
   presence: PersonaPresence;
 }
 
-// Styles
 const containerStyle = (isDarkMode: boolean) =>
   mergeStyles({
     backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
-    padding: '20px', // General padding
+    padding: '20px',
     minHeight: '100vh',
     boxSizing: 'border-box',
   });
@@ -92,7 +84,7 @@ const headerStyle = mergeStyles({
   justifyContent: 'space-between',
   alignItems: 'center',
   width: '100%',
-  padding: '10px 0px', // Reduced top padding
+  padding: '10px 0px',
 });
 
 const greetingStyle = (isDarkMode: boolean) =>
@@ -100,7 +92,7 @@ const greetingStyle = (isDarkMode: boolean) =>
     fontWeight: '600',
     fontSize: '32px',
     whiteSpace: 'nowrap',
-    color: isDarkMode ? colours.dark.text : colours.light.text, // Responsive text color
+    color: isDarkMode ? colours.dark.text : colours.light.text,
   });
 
 const mainContentStyle = mergeStyles({
@@ -138,16 +130,15 @@ const quickLinksStyle = (isDarkMode: boolean) =>
   });
 
 const calculateAnimationDelay = (rowIndex: number, colIndex: number) => {
-  return rowIndex * 0.2 + colIndex * 0.1; // Adjust timing as needed
+  return rowIndex * 0.2 + colIndex * 0.1;
 };
 
-// Updated Metrics Container Style to include grid layout
 const metricsContainerStyle = (isDarkMode: boolean) =>
   mergeStyles({
     display: 'grid',
-    gridTemplateColumns: '60px 1fr 1fr 1fr', // Side label + 3 metric columns
-    gridTemplateRows: 'auto repeat(3, 1fr)', // Top labels + 3 metric rows
-    gap: '20px', // Consistent gap
+    gridTemplateColumns: '60px 1fr 1fr 1fr',
+    gridTemplateRows: 'auto repeat(3, 1fr)',
+    gap: '20px',
     backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
     backgroundImage: `url(${GreyHelixMark})`,
     backgroundPosition: 'top right',
@@ -160,11 +151,10 @@ const metricsContainerStyle = (isDarkMode: boolean) =>
       : `0 4px 12px ${colours.light.border}`,
     transition: 'background-color 0.3s, box-shadow 0.3s',
     flex: '1',
-    position: 'relative', // Ensure positioning context
-    overflow: 'visible', // Allow elements to overflow if needed
+    position: 'relative',
+    overflow: 'visible',
   });
 
-// Updated Sidebar Labels Style with Animation
 const metricsSidebarLabelStyle = (isDarkMode: boolean) =>
   mergeStyles({
     fontWeight: '600',
@@ -197,7 +187,7 @@ const versionStyle = mergeStyles({
   textAlign: 'center',
   fontSize: '14px',
   color: '#888',
-  marginTop: '40px', // Increased margin top for spacing
+  marginTop: '40px',
 });
 
 const subLabelStyle = (isDarkMode: boolean) =>
@@ -209,14 +199,13 @@ const subLabelStyle = (isDarkMode: boolean) =>
 
 const favouritesGridStyle = mergeStyles({
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', // Increased minWidth to 300px
-  gap: '20px', // Space between cards
+  gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+  gap: '20px',
   '@media (min-width: 1000px)': {
-    gridTemplateColumns: 'repeat(5, 1fr)', // Consistent with other grids
+    gridTemplateColumns: 'repeat(5, 1fr)',
   },
 });
 
-// Define 'quickActions' array
 const quickActions: QuickLink[] = [
   { title: 'Create a Task', icon: 'Add' },
   { title: 'Create a Time Entry', icon: 'Clock' },
@@ -224,7 +213,6 @@ const quickActions: QuickLink[] = [
   { title: 'Retrieve a Contact', icon: 'Contact' },
 ];
 
-// Define 'inOfficePeople' array
 const inOfficePeople: Person[] = [
   { name: 'Alex Cook', initials: 'AC', presence: PersonaPresence.online },
   { name: 'Jonathan Waters', initials: 'JW', presence: PersonaPresence.away },
@@ -232,20 +220,17 @@ const inOfficePeople: Person[] = [
   { name: 'Laura Albon', initials: 'LA', presence: PersonaPresence.online },
 ];
 
-// Define 'onLeavePeople' array
 const onLeavePeople: Person[] = [
   { name: 'Sam Packwood', initials: 'SP', presence: PersonaPresence.away },
   { name: 'Richard Chapman', initials: 'RC', presence: PersonaPresence.offline },
   { name: 'Kanchel White', initials: 'KW', presence: PersonaPresence.away },
 ];
 
-// Define 'subSectionContainerStyle' style
 const subSectionContainerStyle = mergeStyles({
-  marginTop: '0', // Adds spacing above the sub-section
-  marginBottom: '0', // Adds spacing below the sub-section
+  marginTop: '0',
+  marginBottom: '0',
 });
 
-// Define 'officeLeaveContainerStyle' style
 const officeLeaveContainerStyle = (isDarkMode: boolean) =>
   mergeStyles({
     backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
@@ -255,12 +240,11 @@ const officeLeaveContainerStyle = (isDarkMode: boolean) =>
       ? `0 4px 12px ${colours.dark.border}`
       : `0 4px 12px ${colours.light.border}`,
     transition: 'background-color 0.3s, box-shadow 0.3s',
-    flex: '1 1 50%', // Ensure equal width
+    flex: '1 1 50%',
     display: 'flex',
     flexDirection: 'column',
   });
 
-// Define 'transformContext' function
 const transformContext = (contextObj: any): { key: string; value: string }[] => {
   if (!contextObj || typeof contextObj !== 'object') {
     console.warn('Invalid context object:', contextObj);
@@ -273,7 +257,6 @@ const transformContext = (contextObj: any): { key: string; value: string }[] => 
   }));
 };
 
-// Define 'createColumnsFunction'
 const createColumnsFunction = (isDarkMode: boolean): IColumn[] => [
   {
     key: 'key',
@@ -299,51 +282,31 @@ const createColumnsFunction = (isDarkMode: boolean): IColumn[] => [
   },
 ];
 
-const Home: React.FC<HomeProps> = ({ context }) => {
-  const { isDarkMode } = useTheme(); // Access isDarkMode from Theme Context
-  const { context: teamsContext } = useContext(TeamsContext);
-  const { sqlData, isLoading: isSqlLoading, error, fetchEnquiries, enquiries } = useFeContext();
+const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
+  const { isDarkMode } = useTheme();
   const [greeting, setGreeting] = useState<string>('');
-  const [typedGreeting, setTypedGreeting] = useState<string>(''); // New state for typed greeting
+  const [typedGreeting, setTypedGreeting] = useState<string>('');
   const [enquiriesToday, setEnquiriesToday] = useState<number>(0);
   const [enquiriesWeekToDate, setEnquiriesWeekToDate] = useState<number>(0);
   const [enquiriesMonthToDate, setEnquiriesMonthToDate] = useState<number>(0);
-
   const [todaysTasks, setTodaysTasks] = useState<number>(10);
   const [tasksDueThisWeek, setTasksDueThisWeek] = useState<number>(20);
   const [completedThisWeek, setCompletedThisWeek] = useState<number>(15);
-
   const [recordedTime, setRecordedTime] = useState<{ hours: number; money: number }>({ hours: 120, money: 1000 });
-
-  // Previous period state variables (dummy data)
   const [prevEnquiriesToday, setPrevEnquiriesToday] = useState<number>(8);
   const [prevEnquiriesWeekToDate, setPrevEnquiriesWeekToDate] = useState<number>(18);
   const [prevEnquiriesMonthToDate, setPrevEnquiriesMonthToDate] = useState<number>(950);
-
   const [prevTodaysTasks, setPrevTodaysTasks] = useState<number>(12);
   const [prevTasksDueThisWeek, setPrevTasksDueThisWeek] = useState<number>(18);
   const [prevCompletedThisWeek, setPrevCompletedThisWeek] = useState<number>(17);
-
   const [prevRecordedTime, setPrevRecordedTime] = useState<{ hours: number; money: number }>({ hours: 110, money: 900 });
-
-  const [isValidatingUser, setIsValidatingUser] = useState<boolean>(true);
-  const [isExtractingData, setIsExtractingData] = useState<boolean>(true);
-  const [isProcessingEnquiries, setIsProcessingEnquiries] = useState<boolean>(true);
-
   const [isContextsExpanded, setIsContextsExpanded] = useState<boolean>(false);
-
   const [isPanelOpen, setIsPanelOpen] = useState<boolean>(false);
   const [selectedAction, setSelectedAction] = useState<QuickLink | null>(null);
-
-  // New states for favourites
   const [formsFavorites, setFormsFavorites] = useState<FormItem[]>([]);
   const [resourcesFavorites, setResourcesFavorites] = useState<Resource[]>([]);
-
-  // States for selected favourites (for details panels)
   const [selectedForm, setSelectedForm] = useState<FormItem | null>(null);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
-
-  // States for Home Panels
   const [isOfficeAttendancePanelOpen, setIsOfficeAttendancePanelOpen] = useState<boolean>(false);
   const [isAnnualLeavePanelOpen, setIsAnnualLeavePanelOpen] = useState<boolean>(false);
 
@@ -360,32 +323,27 @@ const Home: React.FC<HomeProps> = ({ context }) => {
       }
   }
   `;
-  
-  // Inject the animation into the document head
+
   const styleSheet = document.createElement("style");
   styleSheet.type = "text/css";
   styleSheet.innerText = styles;
   document.head.appendChild(styleSheet);
 
-  // Fetch favourites from localStorage on mount
   useEffect(() => {
     const storedFormsFavorites = localStorage.getItem('formsFavorites');
     const storedResourcesFavorites = localStorage.getItem('resourcesFavorites');
 
     if (storedFormsFavorites) {
       const parsedForms = JSON.parse(storedFormsFavorites);
-      console.log('Forms Favourites:', parsedForms); // Debugging
       setFormsFavorites(parsedForms);
     }
 
     if (storedResourcesFavorites) {
       const parsedResources = JSON.parse(storedResourcesFavorites);
-      console.log('Resources Favourites:', parsedResources); // Debugging
       setResourcesFavorites(parsedResources);
     }
   }, []);
 
-  // Listen for changes in localStorage to update favourites in real-time
   useEffect(() => {
     const handleStorageChange = (event: StorageEvent) => {
       if (event.key === 'formsFavorites' && event.newValue) {
@@ -404,16 +362,10 @@ const Home: React.FC<HomeProps> = ({ context }) => {
   }, []);
 
   useEffect(() => {
-    console.log('Teams Context:', teamsContext);
-    console.log('SQL Data:', sqlData);
-    console.log('Enquiries:', enquiries);
-  }, [teamsContext, sqlData, enquiries]);
-
-  useEffect(() => {
-    const generateGreeting = (firstName: string): string => {
+    if (userData && Array.isArray(userData) && userData.length > 0 && (userData[0].First || userData[0].First_Name)) {
+      const firstName = userData[0].First || userData[0].First_Name || 'User';
       const currentHour = new Date().getHours();
       let timeOfDay = 'Hello';
-
       if (currentHour < 12) {
         timeOfDay = 'Good Morning';
       } else if (currentHour < 18) {
@@ -421,92 +373,56 @@ const Home: React.FC<HomeProps> = ({ context }) => {
       } else {
         timeOfDay = 'Good Evening';
       }
-
-      return `${timeOfDay}, ${firstName}.`;
-    };
-
-    if (
-      sqlData &&
-      Array.isArray(sqlData) &&
-      sqlData.length > 0 &&
-      (sqlData[0].First || sqlData[0].First_Name)
-    ) {
-      const firstName = sqlData[0].First || sqlData[0].First_Name || 'User';
-      setGreeting(generateGreeting(firstName));
+      setGreeting(`${timeOfDay}, ${firstName}.`);
     } else {
       setGreeting('Hello, User.');
     }
-  }, [sqlData]);
+  }, [userData]);
 
   useEffect(() => {
-    if (!teamsContext) {
-      setIsValidatingUser(true);
-    } else {
-      setIsValidatingUser(false);
+    if (enquiries) {
+      const today = new Date();
+      const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+      const startOfWeek = new Date(today);
+      startOfWeek.setDate(today.getDate() - today.getDay());
+
+      const todayCount = enquiries.filter((enquiry: any) => {
+        if (!enquiry.Touchpoint_Date) return false;
+        const enquiryDate = new Date(enquiry.Touchpoint_Date);
+        return enquiryDate.toDateString() === today.toDateString();
+      }).length;
+
+      const weekToDateCount = enquiries.filter((enquiry: any) => {
+        if (!enquiry.Touchpoint_Date) return false;
+        const enquiryDate = new Date(enquiry.Touchpoint_Date);
+        return enquiryDate >= startOfWeek && enquiryDate <= today;
+      }).length;
+
+      const monthToDateCount = enquiries.filter((enquiry: any) => {
+        if (!enquiry.Touchpoint_Date) return false;
+        const enquiryDate = new Date(enquiry.Touchpoint_Date);
+        return enquiryDate >= startOfMonth && enquiryDate <= today;
+      }).length;
+
+      setEnquiriesToday(todayCount);
+      setEnquiriesWeekToDate(weekToDateCount);
+      setEnquiriesMonthToDate(monthToDateCount);
     }
-  }, [teamsContext]);
+  }, [enquiries]);
 
   useEffect(() => {
-    if (isSqlLoading) {
-      setIsExtractingData(true);
-    } else {
-      setIsExtractingData(false);
-    }
-  }, [isSqlLoading]);
-
-  useEffect(() => {
-    const fetchEnquiriesData = async () => {
-      if (!teamsContext || !teamsContext.userPrincipalName) {
-        console.warn('User is not authenticated.');
-        setIsProcessingEnquiries(false);
-        return;
+    let currentIndex = 0;
+    setTypedGreeting('');
+    const typingInterval = setInterval(() => {
+      if (currentIndex < greeting.length) {
+        setTypedGreeting((prev) => prev + greeting[currentIndex]);
+        currentIndex++;
+      } else {
+        clearInterval(typingInterval);
       }
-
-      setIsProcessingEnquiries(true);
-      try {
-        const userEmail = teamsContext.userPrincipalName;
-        const today = new Date();
-        const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-        const startOfWeek = new Date(today);
-        startOfWeek.setDate(today.getDate() - today.getDay());
-
-        const dateFrom = startOfMonth.toISOString().split('T')[0];
-        const dateTo = today.toISOString().split('T')[0];
-
-        const fetchedEnquiries = await fetchEnquiries(userEmail, dateFrom, dateTo);
-        console.log('Fetched Enquiries:', fetchedEnquiries);
-
-        const todayCount = fetchedEnquiries.filter((enquiry: any) => {
-          if (!enquiry.Touchpoint_Date) return false;
-          const enquiryDate = new Date(enquiry.Touchpoint_Date);
-          return enquiryDate.toDateString() === today.toDateString();
-        }).length;
-
-        const weekToDateCount = fetchedEnquiries.filter((enquiry: any) => {
-          if (!enquiry.Touchpoint_Date) return false;
-          const enquiryDate = new Date(enquiry.Touchpoint_Date);
-          return enquiryDate >= startOfWeek && enquiryDate <= today;
-        }).length;
-
-        const monthToDateCount = fetchedEnquiries.filter((enquiry: any) => {
-          if (!enquiry.Touchpoint_Date) return false;
-          const enquiryDate = new Date(enquiry.Touchpoint_Date);
-          return enquiryDate >= startOfMonth && enquiryDate <= today;
-        }).length;
-
-        setEnquiriesToday(todayCount);
-        setEnquiriesWeekToDate(weekToDateCount);
-        setEnquiriesMonthToDate(monthToDateCount);
-
-        setIsProcessingEnquiries(false);
-      } catch (error) {
-        console.error('Error fetching enquiries:', error);
-        setIsProcessingEnquiries(false);
-      }
-    };
-
-    fetchEnquiriesData();
-  }, [fetchEnquiries, teamsContext]);
+    }, 25);
+    return () => clearInterval(typingInterval);
+  }, [greeting]);
 
   const columns = useMemo(() => createColumnsFunction(isDarkMode), [isDarkMode]);
 
@@ -516,44 +432,37 @@ const Home: React.FC<HomeProps> = ({ context }) => {
   };
 
   const handleFormSubmit = () => {
-    console.log('Form submitted for action:', selectedAction?.title);
     setIsPanelOpen(false);
   };
 
-  // Existing copyToClipboard function
   const copyToClipboardHandler = (url: string, title: string) => {
-    navigator.clipboard
-      .writeText(url)
-      .then(() => {
-        // You can set a state here if you want to show a success message
-        console.log(`Copied '${title}' to clipboard.`);
-      })
-      .catch((err) => {
-        console.error('Failed to copy: ', err);
-      });
+    navigator.clipboard.writeText(url).then(() => {
+      console.log(`Copied '${title}' to clipboard.`);
+    }).catch((err) => {
+      console.error('Failed to copy: ', err);
+    });
   };
 
-  // Define metrics data for grid layout
   const metricsData = [
     {
       title: 'WIP',
-      today: { 
-        money: recordedTime.money, 
-        hours: recordedTime.hours, 
-        prevMoney: prevRecordedTime.money, 
-        prevHours: prevRecordedTime.hours // Corrected
+      today: {
+        money: recordedTime.money,
+        hours: recordedTime.hours,
+        prevMoney: prevRecordedTime.money,
+        prevHours: prevRecordedTime.hours
       },
-      weekToDate: { 
-        money: recordedTime.money, 
-        hours: recordedTime.hours, 
-        prevMoney: prevRecordedTime.money, 
-        prevHours: prevRecordedTime.hours // Corrected
+      weekToDate: {
+        money: recordedTime.money,
+        hours: recordedTime.hours,
+        prevMoney: prevRecordedTime.money,
+        prevHours: prevRecordedTime.hours
       },
-      monthToDate: { 
-        money: recordedTime.money, 
-        hours: recordedTime.hours, 
-        prevMoney: prevRecordedTime.money, 
-        prevHours: prevRecordedTime.hours // Corrected
+      monthToDate: {
+        money: recordedTime.money,
+        hours: recordedTime.hours,
+        prevMoney: prevRecordedTime.money,
+        prevHours: prevRecordedTime.hours
       },
       isTimeMoney: true,
     },
@@ -573,38 +482,16 @@ const Home: React.FC<HomeProps> = ({ context }) => {
     },
   ];
 
-  // Implementing the custom typing effect for greeting
-  useEffect(() => {
-    let currentIndex = 0;
-    setTypedGreeting(''); // Reset typed greeting when greeting changes
-
-    const typingInterval = setInterval(() => {
-      if (currentIndex < greeting.length) {
-        setTypedGreeting((prev) => prev + greeting[currentIndex]);
-        currentIndex++;
-      } else {
-        clearInterval(typingInterval); // Stop typing when full text is displayed
-      }
-    }, 25); // Adjust typing speed here (25ms per character)
-
-    return () => clearInterval(typingInterval); // Clean up interval on unmount or when greeting changes
-  }, [greeting]);
-
   return (
     <div className={containerStyle(isDarkMode)}>
-      {/* Header: Greeting */}
       <Stack horizontal horizontalAlign="space-between" verticalAlign="center" className={headerStyle}>
         <Text className={greetingStyle(isDarkMode)}>{typedGreeting}</Text>
       </Stack>
 
-      {/* Main Content: Quick Actions, Metrics, Favourites, In Office, On Leave */}
       <Stack className={mainContentStyle} tokens={{ childrenGap: 40 }}>
-        {/* Row 1: Quick Actions and Metrics */}
         <div className={sectionRowStyle}>
-          {/* Quick Actions Section */}
           <div className={quickLinksStyle(isDarkMode)}>
             <Stack tokens={{ childrenGap: 25 }}>
-              {/* Quick Actions Header */}
               <Text className={sectionLabelStyle(isDarkMode)}>Quick Actions</Text>
               <Stack tokens={{ childrenGap: 10 }}>
                 {quickActions.map((action: QuickLink) => (
@@ -614,19 +501,15 @@ const Home: React.FC<HomeProps> = ({ context }) => {
                     icon={action.icon}
                     isDarkMode={isDarkMode}
                     onClick={() => handleActionClick(action)}
-                    iconColor={colours.highlight} // Set icon color to highlight
+                    iconColor={colours.highlight}
                   />
                 ))}
               </Stack>
             </Stack>
           </div>
 
-          {/* Updated Metrics Section with Grid Layout */}
           <div className={metricsContainerStyle(isDarkMode)}>
-            {/* Empty cell in the top-left corner */}
             <div style={{ gridColumn: '1', gridRow: '1' }}></div>
-
-            {/* Top Labels */}
             <Text
               style={{ gridColumn: '2', gridRow: '1', textAlign: 'center' }}
               className={mergeStyles({
@@ -658,7 +541,6 @@ const Home: React.FC<HomeProps> = ({ context }) => {
               Month to Date
             </Text>
 
-            {/* Side Labels and Metric Cards */}
             {metricsData.map((metric: any, rowIndex: number) => (
               <React.Fragment key={metric.title}>
                 <Text
@@ -683,7 +565,7 @@ const Home: React.FC<HomeProps> = ({ context }) => {
                             money: metric[period].money,
                             hours: metric[period].hours,
                             prevMoney: metric[period].prevMoney,
-                            prevHours: metric[period].prevHours, // Corrected
+                            prevHours: metric[period].prevHours,
                             isTimeMoney: metric.isTimeMoney,
                           }
                         : {
@@ -691,7 +573,7 @@ const Home: React.FC<HomeProps> = ({ context }) => {
                             prevCount: metric[period].prevCount,
                           })}
                       isDarkMode={isDarkMode}
-                      animationDelay={calculateAnimationDelay(rowIndex, colIndex)} // Pass animation delay
+                      animationDelay={calculateAnimationDelay(rowIndex, colIndex)}
                     />
                   </div>
                 ))}
@@ -700,7 +582,6 @@ const Home: React.FC<HomeProps> = ({ context }) => {
           </div>
         </div>
 
-        {/* New Favourites Section */}
         <div
           className={mergeStyles({
             backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
@@ -726,7 +607,6 @@ const Home: React.FC<HomeProps> = ({ context }) => {
             Favourites
           </Text>
 
-          {/* Sub-section: Forms Favourites */}
           {formsFavorites.length > 0 && (
             <div className={subSectionContainerStyle}>
               <div className={favouritesGridStyle}>
@@ -746,7 +626,7 @@ const Home: React.FC<HomeProps> = ({ context }) => {
                       window.open(form.url, '_blank');
                     }}
                     animationDelay={index * 0.1}
-                    description={form.description} // Pass description if available
+                    description={form.description}
                   />
                 ))}
 
@@ -770,7 +650,6 @@ const Home: React.FC<HomeProps> = ({ context }) => {
             </div>
           )}
 
-          {/* Sub-section: Resources Favourites */}
           {resourcesFavorites.length > 0 && (
             <div className={subSectionContainerStyle}>
               <div style={{ marginBottom: '15px' }}>
@@ -798,21 +677,16 @@ const Home: React.FC<HomeProps> = ({ context }) => {
           )}
         </div>
 
-        {/* Row 2: In the Office Today and On Annual Leave Today */}
         <div className={sectionRowStyle}>
-          {/* In the Office Today Section */}
           <div className={officeLeaveContainerStyle(isDarkMode)}>
             <Stack tokens={{ childrenGap: 20 }}>
               <Text className={sectionLabelStyle(isDarkMode)}>In the Office Today</Text>
-
-              {/* Modified Horizontal Stack for Avatars and Button */}
               <Stack
                 horizontal
                 verticalAlign="center"
                 horizontalAlign="space-between"
-                styles={{ root: { width: '100%' } }} // Corrected: Nest 'width' inside 'root'
+                styles={{ root: { width: '100%' } }}
               >
-                {/* Avatars */}
                 <Stack horizontal wrap tokens={{ childrenGap: 10 }}>
                   {inOfficePeople.map((person: Person, index: number) => (
                     <Persona
@@ -828,8 +702,6 @@ const Home: React.FC<HomeProps> = ({ context }) => {
                     />
                   ))}
                 </Stack>
-
-                {/* Confirm Office Attendance Button with Shared Primary Style */}
                 <PrimaryButton
                   text="Confirm Office Attendance"
                   onClick={() => setIsOfficeAttendancePanelOpen(true)}
@@ -860,24 +732,19 @@ const Home: React.FC<HomeProps> = ({ context }) => {
                   }}
                   ariaLabel="Confirm Office Attendance"
                 />
-
               </Stack>
             </Stack>
           </div>
 
-          {/* On Annual Leave Today Section */}
           <div className={officeLeaveContainerStyle(isDarkMode)}>
             <Stack tokens={{ childrenGap: 20 }}>
               <Text className={sectionLabelStyle(isDarkMode)}>On Annual Leave Today</Text>
-
-              {/* Modified Horizontal Stack for Avatars and Button */}
               <Stack
                 horizontal
                 verticalAlign="center"
                 horizontalAlign="space-between"
-                styles={{ root: { width: '100%' } }} // Corrected: Nest 'width' inside 'root'
+                styles={{ root: { width: '100%' } }}
               >
-                {/* Avatars */}
                 <Stack horizontal wrap tokens={{ childrenGap: 10 }}>
                   {onLeavePeople.map((person: Person, index: number) => (
                     <Persona
@@ -893,22 +760,18 @@ const Home: React.FC<HomeProps> = ({ context }) => {
                     />
                   ))}
                 </Stack>
-
-                {/* Request Annual Leave Button with Shared Primary Style */}
                 <DefaultButton
                   text="Request Annual Leave"
                   onClick={() => setIsAnnualLeavePanelOpen(true)}
                   styles={sharedDefaultButtonStyles}
                   ariaLabel="Request Annual Leave"
                 />
-
               </Stack>
             </Stack>
           </div>
         </div>
       </Stack>
 
-      {/* Collapsible Contexts Section */}
       <div
         className={mergeStyles({
           backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
@@ -919,10 +782,9 @@ const Home: React.FC<HomeProps> = ({ context }) => {
             : `0 4px 12px ${colours.light.border}`,
           transition: 'background-color 0.3s, box-shadow 0.3s',
           width: '100%',
-          marginTop: '40px', // Increased margin top for spacing
+          marginTop: '40px',
         })}
       >
-        {/* Header with toggle button */}
         <div
           className={mergeStyles({
             display: 'flex',
@@ -952,7 +814,6 @@ const Home: React.FC<HomeProps> = ({ context }) => {
             tokens={{ childrenGap: 30 }}
             styles={{ root: { width: '100%', alignItems: 'flex-start', marginTop: '20px' } }}
           >
-            {/* Teams Context Card */}
             <div
               className={mergeStyles({
                 backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
@@ -980,37 +841,28 @@ const Home: React.FC<HomeProps> = ({ context }) => {
                   <IconButton iconProps={{ iconName: 'Info' }} ariaLabel="Teams Context Info" />
                 </TooltipHost>
               </div>
-              {isValidatingUser ? (
-                <Spinner label="Validating user..." size={SpinnerSize.medium} />
-              ) : error ? (
-                <MessageBar messageBarType={MessageBarType.error} isMultiline={false}>
-                  {error}
-                </MessageBar>
-              ) : (
-                <DetailsList
-                  items={transformContext(teamsContext)}
-                  columns={columns}
-                  setKey="teamsSet"
-                  layoutMode={DetailsListLayoutMode.justified}
-                  isHeaderVisible={false}
-                  styles={{
-                    root: {
-                      selectors: {
-                        '.ms-DetailsRow': {
-                          padding: '8px 0',
-                          borderBottom: 'none',
-                        },
-                        '.ms-DetailsHeader': {
-                          display: 'none',
-                        },
+              <DetailsList
+                items={transformContext(context)}
+                columns={columns}
+                setKey="teamsSet"
+                layoutMode={DetailsListLayoutMode.justified}
+                isHeaderVisible={false}
+                styles={{
+                  root: {
+                    selectors: {
+                      '.ms-DetailsRow': {
+                        padding: '8px 0',
+                        borderBottom: 'none',
+                      },
+                      '.ms-DetailsHeader': {
+                        display: 'none',
                       },
                     },
-                  }}
-                />
-              )}
+                  },
+                }}
+              />
             </div>
 
-            {/* SQL Context Card */}
             <div
               className={mergeStyles({
                 backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
@@ -1038,43 +890,33 @@ const Home: React.FC<HomeProps> = ({ context }) => {
                   <IconButton iconProps={{ iconName: 'Info' }} ariaLabel="SQL Context Info" />
                 </TooltipHost>
               </div>
-              {isExtractingData ? (
-                <Spinner label="Extracting user data..." size={SpinnerSize.medium} />
-              ) : error ? (
-                <MessageBar messageBarType={MessageBarType.error} isMultiline={false}>
-                  {error}
-                </MessageBar>
-              ) : (
-                <DetailsList
-                  items={transformContext(sqlData)}
-                  columns={columns}
-                  setKey="sqlSet"
-                  layoutMode={DetailsListLayoutMode.justified}
-                  isHeaderVisible={false}
-                  styles={{
-                    root: {
-                      selectors: {
-                        '.ms-DetailsRow': {
-                          padding: '8px 0',
-                          borderBottom: 'none',
-                        },
-                        '.ms-DetailsHeader': {
-                          display: 'none',
-                        },
+              <DetailsList
+                items={transformContext(userData)}
+                columns={columns}
+                setKey="sqlSet"
+                layoutMode={DetailsListLayoutMode.justified}
+                isHeaderVisible={false}
+                styles={{
+                  root: {
+                    selectors: {
+                      '.ms-DetailsRow': {
+                        padding: '8px 0',
+                        borderBottom: 'none',
+                      },
+                      '.ms-DetailsHeader': {
+                        display: 'none',
                       },
                     },
-                  }}
-                />
-              )}
+                  },
+                }}
+              />
             </div>
           </Stack>
         )}
       </div>
 
-      {/* Footer */}
       <div className={versionStyle}>Version 1.1</div>
 
-      {/* Panel for Quick Action Forms */}
       <Panel
         isOpen={isPanelOpen}
         onDismiss={() => setIsPanelOpen(false)}
@@ -1088,7 +930,6 @@ const Home: React.FC<HomeProps> = ({ context }) => {
         {selectedAction?.title === 'Retrieve a Contact' && <RetrieveContactForm />}
       </Panel>
 
-      {/* Form Details Panel */}
       {selectedForm && (
         <FormDetails
           isOpen={true}
@@ -1098,7 +939,6 @@ const Home: React.FC<HomeProps> = ({ context }) => {
         />
       )}
 
-      {/* Resource Details Panel */}
       {selectedResource && (
         <ResourceDetails
           resource={selectedResource}
@@ -1106,23 +946,21 @@ const Home: React.FC<HomeProps> = ({ context }) => {
         />
       )}
 
-      {/* Panel for Confirm Office Attendance */}
       <HomePanel
         isOpen={isOfficeAttendancePanelOpen}
         onClose={() => setIsOfficeAttendancePanelOpen(false)}
         title={officeAttendanceForm.title}
         isDarkMode={isDarkMode}
-        displayUrl={officeAttendanceForm.link} // Passed displayUrl
-        embedScript={{ key: 'QzaAr_2Q7kesClKq8g229g', formId: '109' }} // For Cognito forms
+        displayUrl={officeAttendanceForm.link}
+        embedScript={{ key: 'QzaAr_2Q7kesClKq8g229g', formId: '109' }}
       />
 
-      {/* Panel for Request Annual Leave */}
       <HomePanel
         isOpen={isAnnualLeavePanelOpen}
         onClose={() => setIsAnnualLeavePanelOpen(false)}
         title={annualLeaveForm.title}
         isDarkMode={isDarkMode}
-        bespokeFormFields={annualLeaveForm.fields} // Pass the updated fields
+        bespokeFormFields={annualLeaveForm.fields}
         displayUrl={annualLeaveForm.link}
       />
     </div>

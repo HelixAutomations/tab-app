@@ -1,0 +1,25 @@
+/* src/app/styles/LabelReveal.css */
+
+/* Keyframes for the "peeking" animation */
+@keyframes labelReveal {
+    0% {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    50% {
+      opacity: 0.5;
+      transform: translateY(10px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  /* Shared class for label animations */
+  .label-reveal {
+    animation: labelReveal 0.6s ease-out forwards;
+    animation-delay: 0.5s;
+    display: inline-block;
+  }
+  

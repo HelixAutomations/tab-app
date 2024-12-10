@@ -1,6 +1,6 @@
 // src/tabs/enquiries/Enquiries.tsx
 
-import React, { useState, useEffect, useContext, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   Stack,
   Text,
@@ -19,8 +19,7 @@ import {
   IDropdownOption,
   SearchBox,
 } from '@fluentui/react';
-import { TeamsContext } from '../../app/functionality/TeamsContext';
-import { useFeContext, Enquiry } from '../../app/functionality/FeContext'; // Import FeContext hook
+import { Enquiry } from '../../app/functionality/FeContext'; // Import Enquiry interface
 import { initializeIcons } from '@fluentui/react/lib/Icons';
 import CustomPagination from '../../app/styles/CustomPagination'; // Import Custom Pagination
 import EnquiryCard from './EnquiryCard'; // Import the newly created EnquiryCard
@@ -38,6 +37,7 @@ import {
 import CustomTabs from '../../app/styles/CustomTabs'; // Import the shared CustomTabs component
 import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme
 import { Pivot, PivotItem } from '@fluentui/react';
+import { Context as TeamsContextType } from '@microsoft/teams-js';
 
 initializeIcons();
 
@@ -146,11 +146,9 @@ const RatingIndicator: React.FC<RatingIndicatorProps> = ({ rating, isDarkMode, o
 };
 
 // Define the Enquiries Component
-const Enquiries: React.FC = () => {
+const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry[] | null }> = ({ context, enquiries }) => {
+  const [localEnquiries, setLocalEnquiries] = useState<Enquiry[]>(enquiries || []); // Use the enquiries prop here
   const { isDarkMode } = useTheme(); // Access isDarkMode from Theme Context
-  const { context } = useContext(TeamsContext);
-  const { fetchEnquiries, isLoading, error, fetchEnquiriesError } = useFeContext();
-  const [enquiries, setEnquiries] = useState<Enquiry[]>([]);
   const [selectedEnquiry, setSelectedEnquiry] = useState<Enquiry | null>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [filterMethod, setFilterMethod] = useState<string>('All');
@@ -217,53 +215,6 @@ const Enquiries: React.FC = () => {
     setCurrentPage(1); // Reset to the first page
   }, []);
 
-  // Fetch enquiries on component mount or context change
-  useEffect(() => {
-    const fetchData = async () => {
-      if (context && context.userPrincipalName) {
-        const userEmail = context.userPrincipalName;
-        const currentDate = new Date();
-        const lastMonthDate = new Date(
-          currentDate.getFullYear(),
-          currentDate.getMonth() - 1,
-          currentDate.getDate()
-        );
-
-        const dateFrom = lastMonthDate.toISOString().split('T')[0];
-        const dateTo = currentDate.toISOString().split('T')[0];
-
-        try {
-          const data = await fetchEnquiries('anyone', dateFrom, dateTo);
-
-          // Extract unique areas of work and methods of contact
-          const uniqueAreas = [...new Set(data.map((e) => e.Area_of_Work).filter(Boolean))];
-          const uniqueMethods = [...new Set(data.map((e) => e.Method_of_Contact).filter(Boolean))];
-
-          // Set dropdown options dynamically
-          setAreaOfWorkOptions([
-            { key: 'All', text: 'All Areas' },
-            ...uniqueAreas.map((area) => ({ key: area, text: area })),
-          ]);
-          setContactMethodOptions([
-            { key: 'All', text: 'All Methods' },
-            ...uniqueMethods.map((method) => ({ key: method, text: method })),
-          ]);
-
-          // Remove duplicates in enquiries
-          const uniqueEnquiries = data.filter((enquiry, index, self) =>
-            index === self.findIndex((e) => e.ID === enquiry.ID)
-          );
-
-          setEnquiries(uniqueEnquiries);
-        } catch (err) {
-          console.error('Error fetching enquiries:', err);
-        }
-      }
-    };
-
-    fetchData();
-  }, [context, fetchEnquiries]);
-
   // Handler to select an enquiry and reset sub-tab to "Overview"
   const handleSelectEnquiry = useCallback((enquiry: Enquiry) => {
     setSelectedEnquiry(enquiry);
@@ -301,7 +252,7 @@ const Enquiries: React.FC = () => {
 
         if (response.ok) {
           // Update the enquiry with the new rating in the local state
-          setEnquiries((prevEnquiries) =>
+          setLocalEnquiries((prevEnquiries) =>
             prevEnquiries.map((enquiry) =>
               enquiry.ID === id ? { ...enquiry, Rating: newRating as Enquiry['Rating'] } : enquiry
             )
@@ -337,7 +288,7 @@ const Enquiries: React.FC = () => {
 
   // Search and filter enquiries
   const filteredEnquiries = useMemo(() => {
-    let filtered = enquiries;
+    let filtered = localEnquiries || [];
 
     // Apply main tab-specific filters
     switch (activeMainTab) {
@@ -346,7 +297,7 @@ const Enquiries: React.FC = () => {
         if (!showAll && context && context.userPrincipalName) {
           const userEmail = context.userPrincipalName.toLowerCase();
           filtered = filtered.filter(
-            (enquiry) => enquiry.Point_of_Contact.toLowerCase() === userEmail
+            (enquiry) => enquiry.Point_of_Contact?.toLowerCase() === userEmail
           );
         }
         break;
@@ -361,7 +312,7 @@ const Enquiries: React.FC = () => {
         if (!showAll && context && context.userPrincipalName) {
           const userEmail = context.userPrincipalName.toLowerCase();
           filtered = filtered.filter(
-            (enquiry) => enquiry.Point_of_Contact.toLowerCase() === userEmail
+            (enquiry) => enquiry.Point_of_Contact?.toLowerCase() === userEmail
           );
         }
         break;
@@ -369,14 +320,14 @@ const Enquiries: React.FC = () => {
       case 'Claimable':
         // Filter enquiries where Point_of_Contact is 'team@helix-law.com'
         filtered = filtered.filter(
-          (enquiry) => enquiry.Point_of_Contact.toLowerCase() === 'team@helix-law.com'
+          (enquiry) => enquiry.Point_of_Contact?.toLowerCase() === 'team@helix-law.com'
         );
         break;
 
       case 'Triaged':
         // Similarly, filter based on Point_of_Contact; refine criteria as needed
         filtered = filtered.filter(
-          (enquiry) => enquiry.Point_of_Contact.toLowerCase() === 'team@helix-law.com'
+          (enquiry) => enquiry.Point_of_Contact?.toLowerCase() === 'team@helix-law.com'
           // Add more conditions here as you narrow down the 'Triaged' criteria
         );
         break;
@@ -401,13 +352,13 @@ const Enquiries: React.FC = () => {
       filtered = filtered.filter(
         (enquiry) =>
           `${enquiry.First_Name} ${enquiry.Last_Name}`.toLowerCase().includes(lowerSearchTerm) ||
-          enquiry.Email.toLowerCase().includes(lowerSearchTerm) ||
+          enquiry.Email?.toLowerCase().includes(lowerSearchTerm) ||
           (enquiry.Company && enquiry.Company.toLowerCase().includes(lowerSearchTerm))
       );
     }
 
     return filtered;
-  }, [enquiries, activeMainTab, showAll, context, filterMethod, searchTerm, filterArea]);
+  }, [localEnquiries, activeMainTab, showAll, context, filterMethod, searchTerm, filterArea]);
 
   // Pagination calculations
   const indexOfLastEnquiry = currentPage * enquiriesPerPage;
@@ -497,11 +448,8 @@ const Enquiries: React.FC = () => {
   // Handler to update enquiry details
   const handleUpdateEnquiry = useCallback(
     (updatedEnquiry: Enquiry) => {
-      // Implement the logic to handle the updated enquiry, such as sending it to an API
-      console.log('Updated Enquiry:', updatedEnquiry);
-      // Example: Update the local state
-      setEnquiries((prevEnquiries) =>
-        prevEnquiries.map((enquiry) =>
+      setLocalEnquiries((prevEnquiries: Enquiry[]) =>
+        prevEnquiries.map((enquiry: Enquiry) =>
           enquiry.ID === updatedEnquiry.ID ? updatedEnquiry : enquiry
         )
       );
@@ -707,17 +655,7 @@ const Enquiries: React.FC = () => {
           transition: 'background-color 0.3s',
         })}
       >
-        {isLoading ? (
-          <Spinner label="Loading enquiries..." size={SpinnerSize.large} ariaLive="assertive" />
-        ) : error ? (
-          <MessageBar messageBarType={MessageBarType.error} isMultiline={false}>
-            {error}
-          </MessageBar>
-        ) : fetchEnquiriesError ? (
-          <MessageBar messageBarType={MessageBarType.error} isMultiline={false}>
-            {fetchEnquiriesError}
-          </MessageBar>
-        ) : selectedEnquiry ? (
+        {selectedEnquiry ? (
           renderDetailView(selectedEnquiry)
         ) : (
           <>

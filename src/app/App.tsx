@@ -1,13 +1,9 @@
-// src/App.tsx
-
-import React, { useState, useEffect, Suspense, lazy } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import CustomTabs from '../app/styles/CustomTabs';
-import { FeProvider } from '../app/functionality/FeContext';
-import { TeamsProvider } from '../app/functionality/TeamsContext';
+import { ThemeProvider } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';
 import * as microsoftTeams from '@microsoft/teams-js';
-import { ThemeProvider } from '../app/functionality/ThemeContext';
-import Loading from './styles/Loading'; // Import the Loading component
+import { Context as TeamsContextType } from '@microsoft/teams-js';
 
 const Home = lazy(() => import('../tabs/home/Home'));
 const Forms = lazy(() => import('../tabs/forms/Forms'));
@@ -15,19 +11,31 @@ const Resources = lazy(() => import('../tabs/resources/Resources'));
 const Enquiries = lazy(() => import('../tabs/enquiries/Enquiries'));
 const Matters = lazy(() => import('../tabs/matters/Matters'));
 
-const App: React.FC = () => {
+interface AppProps {
+  teamsContext: TeamsContextType | null;
+  userData: any;
+  enquiries: any[] | null;
+}
+
+const App: React.FC<AppProps> = ({ teamsContext, userData, enquiries }) => {
   const [activeTab, setActiveTab] = useState('home');
-  const [context, setContext] = useState<microsoftTeams.Context | null>(null);
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const isDarkMode = teamsContext?.theme === 'dark';
 
   useEffect(() => {
-    // Initialise Microsoft Teams
-    microsoftTeams.initialize();
-    microsoftTeams.getContext((ctx) => {
-      setContext(ctx);
-      setIsDarkMode(ctx.theme === 'dark');
-    });
-  }, []);
+    const closeLoadingScreen = () => {
+      const loadingScreen = document.getElementById('loading-screen');
+      if (loadingScreen) {
+        loadingScreen.style.transition = 'opacity 0.5s';
+        loadingScreen.style.opacity = '0';
+        setTimeout(() => loadingScreen.remove(), 500);
+      }
+    };
+
+    // Wait until all required props are available
+    if (teamsContext && userData && enquiries) {
+      closeLoadingScreen();
+    }
+  }, [teamsContext, userData, enquiries]);
 
   const tabs = [
     { key: 'home', text: 'Home' },
@@ -40,47 +48,42 @@ const App: React.FC = () => {
   const renderContent = () => {
     switch (activeTab) {
       case 'home':
-        return <Home context={context} />;
+        return <Home context={teamsContext} userData={userData} enquiries={enquiries} />;
       case 'forms':
         return <Forms />;
       case 'resources':
         return <Resources />;
       case 'enquiries':
-        return <Enquiries />;
+        return <Enquiries context={teamsContext} enquiries={enquiries} />;
       case 'matters':
         return <Matters />;
       default:
-        return <Home context={context} />;
+        return <Home context={teamsContext} userData={userData} enquiries={enquiries} />;
     }
   };
 
-  return (
-    <TeamsProvider>
-      <FeProvider>
-        <ThemeProvider isDarkMode={isDarkMode}>
-          <div
-            style={{
-              backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
-              minHeight: '100vh',
-              transition: 'background-color 0.3s',
-            }}
-          >
-            {/* Navigation Tabs */}
-            <CustomTabs
-              selectedKey={activeTab}
-              onLinkClick={(item) => setActiveTab(item?.props.itemKey || 'home')}
-              tabs={tabs}
-              ariaLabel="Main Navigation Tabs"
-            />
+  if (!teamsContext || !userData || !enquiries) {
+    return <div>Loading or Error...</div>; // Add proper loading/error UI here if needed
+  }
 
-            {/* Main Content */}
-            <Suspense fallback={<Loading />}>
-              {renderContent()}
-            </Suspense>
-          </div>
-        </ThemeProvider>
-      </FeProvider>
-    </TeamsProvider>
+  return (
+    <ThemeProvider isDarkMode={isDarkMode || false}>
+      <div
+        style={{
+          backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
+          minHeight: '100vh',
+          transition: 'background-color 0.3s',
+        }}
+      >
+        <CustomTabs
+          selectedKey={activeTab}
+          onLinkClick={(item) => setActiveTab(item?.props.itemKey || 'home')}
+          tabs={tabs}
+          ariaLabel="Main Navigation Tabs"
+        />
+        <Suspense fallback={<div />}>{renderContent()}</Suspense>
+      </div>
+    </ThemeProvider>
   );
 };
 
