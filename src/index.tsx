@@ -26,6 +26,22 @@ const customTheme = createTheme({
   },
 });
 
+// Helper function to calculate the date range
+const getDateRange = () => {
+  const now = new Date();
+
+  // Start of the previous month
+  const startOfPreviousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+
+  // Today's date
+  const today = now;
+
+  return {
+    dateFrom: startOfPreviousMonth.toISOString().split('T')[0], // Start of the previous month
+    dateTo: today.toISOString().split('T')[0], // Today's date
+  };
+};
+
 // Wrapper to provide Teams context and fetch required data
 const AppWithContext: React.FC = () => {
   const [teamsContext, setTeamsContext] = useState<microsoftTeams.Context | null>(null);
@@ -50,11 +66,14 @@ const AppWithContext: React.FC = () => {
           if (email && objectId) {
             try {
               // Fetch user data using FeContext's fetchUserData
-              const userDataResponse = await fetchUserData(objectId); 
+              const userDataResponse = await fetchUserData(objectId);
               setUserData(userDataResponse);
 
-              // Fetch all enquiries by passing 'anyone' to fetchEnquiries
-              const enquiriesResponse = await fetchEnquiries('anyone', '2023-01-01', '2023-12-31'); // Use 'anyone' to fetch all enquiries
+              // Calculate the dynamic date range
+              const { dateFrom, dateTo } = getDateRange();
+
+              // Fetch all enquiries using the calculated date range
+              const enquiriesResponse = await fetchEnquiries('anyone', dateFrom, dateTo);
               setEnquiries(enquiriesResponse);
 
             } catch (fetchError) {

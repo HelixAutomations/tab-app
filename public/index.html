@@ -13,7 +13,7 @@
       @keyframes fadeInScaleLoop {
         0% {
           opacity: 0;
-          transform: scale(1.5); /* Start at 150% size */
+          transform: scale(1.25); /* Start at 125% size */
         }
         50% {
           opacity: 1;
@@ -21,15 +21,15 @@
         }
         100% {
           opacity: 0;
-          transform: scale(1.5); /* Return to 150% size */
+          transform: scale(1.25); /* Return to 125% size */
         }
       }
-      
+    
       /* Apply animation to the logo */
       #loading-screen svg {
-        animation: fadeInScaleLoop 2.5s ease-in-out infinite; /* Slow down and loop indefinitely */
+        animation: fadeInScaleLoop 3.75s ease-in-out infinite; /* Slow down and loop indefinitely */
       }
-
+    
       /* Ensure the loading screen is visible immediately */
       #loading-screen {
         position: fixed;
@@ -44,6 +44,7 @@
         z-index: 9999;
       }
     </style>
+    
   </head>
 
   <body>
