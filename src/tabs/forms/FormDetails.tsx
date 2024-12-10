@@ -17,6 +17,7 @@ import { FormItem } from '../../app/functionality/types';
 import { mergeStyles } from '@fluentui/react';
 import loaderIcon from '../../assets/grey helix mark.png';
 import { BespokeForm } from '../../app/styles/BespokeForms';
+import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from '../../app/styles/ButtonStyles';
 
 interface FormDetailsProps {
   link: FormItem;
@@ -260,78 +261,31 @@ const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose, is
           </Stack>
 
           {/* Buttons */}
-          <div className={buttonsContainerStyle(isDarkMode)}>
-            <div className={leftButtonsStyle()}>
-              <PrimaryButton
-                text="Copy"
-                onClick={copyToClipboard}
-                styles={{
-                  root: {
-                    padding: '6px 12px',
-                    borderRadius: '4px',
-                    backgroundColor: colours.cta,
-                    border: 'none',
-                    selectors: {
-                      ':hover': {
-                        backgroundColor: colours.highlight,
-                      },
-                    },
-                  },
-                  label: {
-                    color: 'white',
-                    fontWeight: '600',
-                  },
-                }}
-                ariaLabel="Copy URL to clipboard"
-                iconProps={{ iconName: 'Copy' }}
-              />
-              <PrimaryButton
-                text="Go To"
-                onClick={goToLink}
-                styles={{
-                  root: {
-                    padding: '6px 12px',
-                    borderRadius: '4px',
-                    backgroundColor: colours.cta,
-                    border: 'none',
-                    selectors: {
-                      ':hover': {
-                        backgroundColor: colours.highlight,
-                      },
-                    },
-                  },
-                  label: {
-                    color: 'white',
-                    fontWeight: '600',
-                  },
-                }}
-                ariaLabel="Go to URL"
-                iconProps={{ iconName: 'NavigateExternalInline' }}
-              />
-            </div>
-            <DefaultButton
-              text="Close"
-              onClick={onClose}
-              styles={{
-                root: {
-                  borderRadius: '8px',
-                  border: 'none',
-                  backgroundColor: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
-                  selectors: {
-                    ':hover': {
-                      backgroundColor: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
-                    },
-                  },
-                },
-                label: {
-                  color: isDarkMode ? colours.dark.text : colours.light.text,
-                  fontWeight: '600',
-                },
-              }}
-              ariaLabel="Close Details"
-              iconProps={{ iconName: 'Cancel' }}
+        <div className={buttonsContainerStyle(isDarkMode)}>
+          <div className={leftButtonsStyle()}>
+            <PrimaryButton
+              text="Copy"
+              onClick={copyToClipboard}
+              styles={sharedPrimaryButtonStyles}
+              ariaLabel="Copy URL to clipboard"
+              iconProps={{ iconName: 'Copy' }}
+            />
+            <PrimaryButton
+              text="Go To"
+              onClick={goToLink}
+              styles={sharedPrimaryButtonStyles}
+              ariaLabel="Go to URL"
+              iconProps={{ iconName: 'NavigateExternalInline' }}
             />
           </div>
+          <DefaultButton
+            text="Close"
+            onClick={onClose}
+            styles={sharedDefaultButtonStyles}
+            ariaLabel="Close Details"
+            iconProps={{ iconName: 'Cancel' }}
+          />
+        </div>
         </div>
       </div>
 

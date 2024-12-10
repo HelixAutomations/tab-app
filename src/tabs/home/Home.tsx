@@ -19,6 +19,8 @@ import {
   Persona,
   PersonaSize,
   PersonaPresence,
+  PrimaryButton,
+  DefaultButton,
 } from '@fluentui/react';
 import { TeamsContext } from '../../app/functionality/TeamsContext';
 import { useFeContext } from '../../app/functionality/FeContext';
@@ -30,9 +32,7 @@ import GreyHelixMark from '../../assets/grey helix mark.png';
 import HelixAvatar from '../../assets/helix avatar.png';
 import * as microsoftTeams from '@microsoft/teams-js';
 import '../../app/styles/VerticalLabelPanel.css';
-
 import { useTheme } from '../../app/functionality/ThemeContext';
-
 import '../../app/styles/MetricCard.css'; // Ensure CSS is imported
 
 // Import updated form components
@@ -53,6 +53,14 @@ import { Resource } from '../resources/Resources'; // Ensure Resource is exporte
 import FormDetails from '../forms/FormDetails'; // Ensure this component exists
 import ResourceDetails from '../resources/ResourceDetails'; // Ensure this component exists
 
+// Import HomePanel and HomeForms
+import HomePanel from './HomePanel';
+import { officeAttendanceForm, annualLeaveForm } from './HomeForms';
+import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from '../../app/styles/ButtonStyles';
+
+// Import Button Styles
+// Since we are defining styles within this file, no separate import is needed
+
 interface HomeProps {
   context: microsoftTeams.Context | null;
 }
@@ -70,6 +78,7 @@ interface Person {
   presence: PersonaPresence;
 }
 
+// Styles
 const containerStyle = (isDarkMode: boolean) =>
   mergeStyles({
     backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
@@ -155,16 +164,6 @@ const metricsContainerStyle = (isDarkMode: boolean) =>
     overflow: 'visible', // Allow elements to overflow if needed
   });
 
-// New Top Labels Style
-const metricsTopLabelsStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    gridColumn: '2 / span 3',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: '10px',
-  });
-
 // Updated Sidebar Labels Style with Animation
 const metricsSidebarLabelStyle = (isDarkMode: boolean) =>
   mergeStyles({
@@ -216,31 +215,6 @@ const favouritesGridStyle = mergeStyles({
     gridTemplateColumns: 'repeat(5, 1fr)', // Consistent with other grids
   },
 });
-
-const createColumnsFunction = (isDarkMode: boolean): IColumn[] => [
-  {
-    key: 'key',
-    name: 'Key',
-    fieldName: 'key',
-    minWidth: 150,
-    maxWidth: 200,
-    isResizable: true,
-    styles: {
-      root: { color: isDarkMode ? colours.dark.text : colours.light.text },
-    },
-  },
-  {
-    key: 'value',
-    name: 'Value',
-    fieldName: 'value',
-    minWidth: 300,
-    maxWidth: 600,
-    isResizable: true,
-    styles: {
-      root: { color: isDarkMode ? colours.dark.text : colours.light.text },
-    },
-  },
-];
 
 // Define 'quickActions' array
 const quickActions: QuickLink[] = [
@@ -299,6 +273,32 @@ const transformContext = (contextObj: any): { key: string; value: string }[] => 
   }));
 };
 
+// Define 'createColumnsFunction'
+const createColumnsFunction = (isDarkMode: boolean): IColumn[] => [
+  {
+    key: 'key',
+    name: 'Key',
+    fieldName: 'key',
+    minWidth: 150,
+    maxWidth: 200,
+    isResizable: true,
+    styles: {
+      root: { color: isDarkMode ? colours.dark.text : colours.light.text },
+    },
+  },
+  {
+    key: 'value',
+    name: 'Value',
+    fieldName: 'value',
+    minWidth: 300,
+    maxWidth: 600,
+    isResizable: true,
+    styles: {
+      root: { color: isDarkMode ? colours.dark.text : colours.light.text },
+    },
+  },
+];
+
 const Home: React.FC<HomeProps> = ({ context }) => {
   const { isDarkMode } = useTheme(); // Access isDarkMode from Theme Context
   const { context: teamsContext } = useContext(TeamsContext);
@@ -342,6 +342,30 @@ const Home: React.FC<HomeProps> = ({ context }) => {
   // States for selected favourites (for details panels)
   const [selectedForm, setSelectedForm] = useState<FormItem | null>(null);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
+
+  // States for Home Panels
+  const [isOfficeAttendancePanelOpen, setIsOfficeAttendancePanelOpen] = useState<boolean>(false);
+  const [isAnnualLeavePanelOpen, setIsAnnualLeavePanelOpen] = useState<boolean>(false);
+
+  const styles = `
+  @keyframes redPulse {
+      0% {
+          box-shadow: 0 0 0 0 rgba(255, 0, 0, 0.4);
+      }
+      70% {
+          box-shadow: 0 0 0 10px rgba(255, 0, 0, 0);
+      }
+      100% {
+          box-shadow: 0 0 0 0 rgba(255, 0, 0, 0);
+      }
+  }
+  `;
+  
+  // Inject the animation into the document head
+  const styleSheet = document.createElement("style");
+  styleSheet.type = "text/css";
+  styleSheet.innerText = styles;
+  document.head.appendChild(styleSheet);
 
   // Fetch favourites from localStorage on mount
   useEffect(() => {
@@ -497,7 +521,7 @@ const Home: React.FC<HomeProps> = ({ context }) => {
   };
 
   // Existing copyToClipboard function
-  const copyToClipboard = (url: string, title: string) => {
+  const copyToClipboardHandler = (url: string, title: string) => {
     navigator.clipboard
       .writeText(url)
       .then(() => {
@@ -513,9 +537,24 @@ const Home: React.FC<HomeProps> = ({ context }) => {
   const metricsData = [
     {
       title: 'WIP',
-      today: { money: recordedTime.money, hours: recordedTime.hours, prevMoney: prevRecordedTime.money, prevHours: prevRecordedTime.hours },
-      weekToDate: { money: recordedTime.money, hours: recordedTime.hours, prevMoney: prevRecordedTime.money, prevHours: prevRecordedTime.hours },
-      monthToDate: { money: recordedTime.money, hours: recordedTime.hours, prevMoney: prevRecordedTime.money, prevHours: prevRecordedTime.hours },
+      today: { 
+        money: recordedTime.money, 
+        hours: recordedTime.hours, 
+        prevMoney: prevRecordedTime.money, 
+        prevHours: prevRecordedTime.hours // Corrected
+      },
+      weekToDate: { 
+        money: recordedTime.money, 
+        hours: recordedTime.hours, 
+        prevMoney: prevRecordedTime.money, 
+        prevHours: prevRecordedTime.hours // Corrected
+      },
+      monthToDate: { 
+        money: recordedTime.money, 
+        hours: recordedTime.hours, 
+        prevMoney: prevRecordedTime.money, 
+        prevHours: prevRecordedTime.hours // Corrected
+      },
       isTimeMoney: true,
     },
     {
@@ -546,7 +585,7 @@ const Home: React.FC<HomeProps> = ({ context }) => {
       } else {
         clearInterval(typingInterval); // Stop typing when full text is displayed
       }
-    }, 25); // Adjust typing speed here (50ms per character)
+    }, 25); // Adjust typing speed here (25ms per character)
 
     return () => clearInterval(typingInterval); // Clean up interval on unmount or when greeting changes
   }, [greeting]);
@@ -555,7 +594,6 @@ const Home: React.FC<HomeProps> = ({ context }) => {
     <div className={containerStyle(isDarkMode)}>
       {/* Header: Greeting */}
       <Stack horizontal horizontalAlign="space-between" verticalAlign="center" className={headerStyle}>
-        {/* Removed <Typed> component and using custom typing effect */}
         <Text className={greetingStyle(isDarkMode)}>{typedGreeting}</Text>
       </Stack>
 
@@ -645,7 +683,7 @@ const Home: React.FC<HomeProps> = ({ context }) => {
                             money: metric[period].money,
                             hours: metric[period].hours,
                             prevMoney: metric[period].prevMoney,
-                            prevHours: metric[period].prevHours,
+                            prevHours: metric[period].prevHours, // Corrected
                             isTimeMoney: metric.isTimeMoney,
                           }
                         : {
@@ -694,10 +732,10 @@ const Home: React.FC<HomeProps> = ({ context }) => {
               <div className={favouritesGridStyle}>
                 {formsFavorites.map((form: FormItem, index: number) => (
                   <FormCard
-                    key={form.title}
+                    key={`form-${form.title}`}
                     link={form}
                     isFavorite={true}
-                    onCopy={(url: string, title: string) => copyToClipboard(url, title)}
+                    onCopy={(url: string, title: string) => copyToClipboardHandler(url, title)}
                     onSelect={() => setSelectedForm(form)}
                     onToggleFavorite={() => {
                       const updatedFavorites = formsFavorites.filter(fav => fav.title !== form.title);
@@ -707,24 +745,25 @@ const Home: React.FC<HomeProps> = ({ context }) => {
                     onGoTo={() => {
                       window.open(form.url, '_blank');
                     }}
-                    animationDelay={index * 0.1} // Calculate delay based on index
+                    animationDelay={index * 0.1}
+                    description={form.description} // Pass description if available
                   />
                 ))}
 
                 {resourcesFavorites.map((resource: Resource, index: number) => (
                   <ResourceCard
-                    key={resource.title}
+                    key={`resource-${resource.title}`}
                     resource={resource}
                     isFavorite={true}
-                    onCopy={(url: string, title: string) => copyToClipboard(url, title)}
-                    onToggleFavorite={(res) => {
-                      const updatedFavorites = resourcesFavorites.filter(fav => fav.title !== res.title);
+                    onCopy={(url: string, title: string) => copyToClipboardHandler(url, title)}
+                    onToggleFavorite={() => {
+                      const updatedFavorites = resourcesFavorites.filter(fav => fav.title !== resource.title);
                       setResourcesFavorites(updatedFavorites);
                       localStorage.setItem('resourcesFavorites', JSON.stringify(updatedFavorites));
                     }}
-                    onGoTo={(url) => window.open(url, '_blank')}
+                    onGoTo={() => window.open(resource.url, '_blank')}
                     onSelect={() => setSelectedResource(resource)}
-                    animationDelay={index * 0.1} // Calculate delay based on index
+                    animationDelay={index * 0.1}
                   />
                 ))}
               </div>
@@ -738,12 +777,12 @@ const Home: React.FC<HomeProps> = ({ context }) => {
                 <Text className={subLabelStyle(isDarkMode)}>Resources</Text>
               </div>
               <div className={favouritesGridStyle}>
-                {resourcesFavorites.map((resource: Resource) => (
+                {resourcesFavorites.map((resource: Resource, index: number) => (
                   <ResourceCard
-                    key={resource.title}
+                    key={`resource-${resource.title}`}
                     resource={resource}
                     isFavorite={true}
-                    onCopy={(url: string, title: string) => copyToClipboard(url, title)}
+                    onCopy={(url: string, title: string) => copyToClipboardHandler(url, title)}
                     onToggleFavorite={() => {
                       const updatedFavorites = resourcesFavorites.filter(fav => fav.title !== resource.title);
                       setResourcesFavorites(updatedFavorites);
@@ -751,7 +790,7 @@ const Home: React.FC<HomeProps> = ({ context }) => {
                     }}
                     onGoTo={() => window.open(resource.url, '_blank')}
                     onSelect={() => setSelectedResource(resource)}
-                    // Removed animationDelay here to avoid duplicate cards animation
+                    animationDelay={index * 0.1}
                   />
                 ))}
               </div>
@@ -765,20 +804,63 @@ const Home: React.FC<HomeProps> = ({ context }) => {
           <div className={officeLeaveContainerStyle(isDarkMode)}>
             <Stack tokens={{ childrenGap: 20 }}>
               <Text className={sectionLabelStyle(isDarkMode)}>In the Office Today</Text>
-              <Stack horizontal wrap tokens={{ childrenGap: 10 }}>
-                {inOfficePeople.map((person: Person, index: number) => (
-                  <Persona
-                    key={index}
-                    text={person.initials}
-                    imageUrl={HelixAvatar}
-                    size={PersonaSize.size40}
-                    presence={person.presence}
-                    styles={{
-                      root: { width: 100 },
-                      primaryText: { fontSize: 14, color: isDarkMode ? colours.dark.text : colours.light.text },
-                    }}
-                  />
-                ))}
+
+              {/* Modified Horizontal Stack for Avatars and Button */}
+              <Stack
+                horizontal
+                verticalAlign="center"
+                horizontalAlign="space-between"
+                styles={{ root: { width: '100%' } }} // Corrected: Nest 'width' inside 'root'
+              >
+                {/* Avatars */}
+                <Stack horizontal wrap tokens={{ childrenGap: 10 }}>
+                  {inOfficePeople.map((person: Person, index: number) => (
+                    <Persona
+                      key={index}
+                      text={person.initials}
+                      imageUrl={HelixAvatar}
+                      size={PersonaSize.size40}
+                      presence={person.presence}
+                      styles={{
+                        root: { width: 100 },
+                        primaryText: { fontSize: 14, color: isDarkMode ? colours.dark.text : colours.light.text },
+                      }}
+                    />
+                  ))}
+                </Stack>
+
+                {/* Confirm Office Attendance Button with Shared Primary Style */}
+                <PrimaryButton
+                  text="Confirm Office Attendance"
+                  onClick={() => setIsOfficeAttendancePanelOpen(true)}
+                  iconProps={{ iconName: 'Warning' }}
+                  styles={{
+                    root: {
+                      backgroundColor: `${colours.cta} !important`,
+                      border: 'none !important',
+                      height: '40px !important',
+                      fontWeight: '600 !important',
+                      borderRadius: '4px !important',
+                      padding: '6px 12px !important',
+                      animation: 'redPulse 2s infinite !important',
+                      transition: 'background 0.3s ease !important',
+                    },
+                    rootHovered: {
+                      background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.15) 100%), ${colours.cta} !important`,
+                    },
+                    rootPressed: {
+                      background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.25) 100%), ${colours.cta} !important`,
+                    },
+                    rootFocused: {
+                      backgroundColor: `${colours.cta} !important`,
+                    },
+                    label: {
+                      color: '#ffffff !important',
+                    },
+                  }}
+                  ariaLabel="Confirm Office Attendance"
+                />
+
               </Stack>
             </Stack>
           </div>
@@ -787,20 +869,39 @@ const Home: React.FC<HomeProps> = ({ context }) => {
           <div className={officeLeaveContainerStyle(isDarkMode)}>
             <Stack tokens={{ childrenGap: 20 }}>
               <Text className={sectionLabelStyle(isDarkMode)}>On Annual Leave Today</Text>
-              <Stack horizontal wrap tokens={{ childrenGap: 10 }}>
-                {onLeavePeople.map((person: Person, index: number) => (
-                  <Persona
-                    key={index}
-                    text={person.initials}
-                    imageUrl={HelixAvatar}
-                    size={PersonaSize.size40}
-                    presence={person.presence}
-                    styles={{
-                      root: { width: 100 },
-                      primaryText: { fontSize: 14, color: isDarkMode ? colours.dark.text : colours.light.text },
-                    }}
-                  />
-                ))}
+
+              {/* Modified Horizontal Stack for Avatars and Button */}
+              <Stack
+                horizontal
+                verticalAlign="center"
+                horizontalAlign="space-between"
+                styles={{ root: { width: '100%' } }} // Corrected: Nest 'width' inside 'root'
+              >
+                {/* Avatars */}
+                <Stack horizontal wrap tokens={{ childrenGap: 10 }}>
+                  {onLeavePeople.map((person: Person, index: number) => (
+                    <Persona
+                      key={index}
+                      text={person.initials}
+                      imageUrl={HelixAvatar}
+                      size={PersonaSize.size40}
+                      presence={person.presence}
+                      styles={{
+                        root: { width: 100 },
+                        primaryText: { fontSize: 14, color: isDarkMode ? colours.dark.text : colours.light.text },
+                      }}
+                    />
+                  ))}
+                </Stack>
+
+                {/* Request Annual Leave Button with Shared Primary Style */}
+                <DefaultButton
+                  text="Request Annual Leave"
+                  onClick={() => setIsAnnualLeavePanelOpen(true)}
+                  styles={sharedDefaultButtonStyles}
+                  ariaLabel="Request Annual Leave"
+                />
+
               </Stack>
             </Stack>
           </div>
@@ -991,8 +1092,8 @@ const Home: React.FC<HomeProps> = ({ context }) => {
       {selectedForm && (
         <FormDetails
           isOpen={true}
-          onClose={() => setSelectedForm(null)} // Corrected prop
-          link={selectedForm} // Adjusted from "form"
+          onClose={() => setSelectedForm(null)}
+          link={selectedForm}
           isDarkMode={isDarkMode}
         />
       )}
@@ -1004,6 +1105,26 @@ const Home: React.FC<HomeProps> = ({ context }) => {
           onClose={() => setSelectedResource(null)}
         />
       )}
+
+      {/* Panel for Confirm Office Attendance */}
+      <HomePanel
+        isOpen={isOfficeAttendancePanelOpen}
+        onClose={() => setIsOfficeAttendancePanelOpen(false)}
+        title={officeAttendanceForm.title}
+        isDarkMode={isDarkMode}
+        displayUrl={officeAttendanceForm.link} // Passed displayUrl
+        embedScript={{ key: 'QzaAr_2Q7kesClKq8g229g', formId: '109' }} // For Cognito forms
+      />
+
+      {/* Panel for Request Annual Leave */}
+      <HomePanel
+        isOpen={isAnnualLeavePanelOpen}
+        onClose={() => setIsAnnualLeavePanelOpen(false)}
+        title={annualLeaveForm.title}
+        isDarkMode={isDarkMode}
+        bespokeFormFields={annualLeaveForm.fields} // Pass the updated fields
+        displayUrl={annualLeaveForm.link}
+      />
     </div>
   );
 };

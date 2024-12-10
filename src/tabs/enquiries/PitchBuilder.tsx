@@ -25,6 +25,7 @@ import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTh
 import PracticeAreaPitch, { PracticeAreaPitchType } from '../../app/customisation/PracticeAreaPitch'; // Import the Practice Area Templates and types
 import { templateBlocks, TemplateBlock, TemplateOption } from '../../app/customisation/TemplateBlocks'; // Corrected import path
 import { availableAttachments, AttachmentOption } from '../../app/customisation/Attachments'; // Import attachments
+import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from '../../app/styles/ButtonStyles';
 
 interface PitchBuilderProps {
   enquiry: Enquiry;
@@ -896,33 +897,7 @@ Kind regards,
           <PrimaryButton
             text="Preview Email"
             onClick={togglePreview}
-            styles={{
-              root: {
-                backgroundColor: colours.cta,
-                borderRadius: '8px',
-                border: 'none',
-                width: '240px',
-                selectors: {
-                  ':hover': {
-                    backgroundColor: colours.red,
-                  },
-                  ':focus': {
-                    outline: 'none',
-                    border: 'none',
-                    boxShadow:
-                      '0 0 0 2px rgba(255, 255, 255, 0.5)',
-                  },
-                  ':active': {
-                    backgroundColor: colours.red,
-                    border: 'none',
-                  },
-                },
-              },
-              label: {
-                color: 'white',
-                fontWeight: '600',
-              },
-            }}
+            styles={sharedPrimaryButtonStyles}
             ariaLabel="Preview Email"
             iconProps={{ iconName: 'Preview' }}
           />
@@ -930,27 +905,7 @@ Kind regards,
           <DefaultButton
             text="Reset"
             onClick={resetForm}
-            styles={{
-              root: {
-                padding: '10px',
-                borderRadius: '8px',
-                border: 'none',
-                width: '160px',
-                cursor: 'pointer',
-                backgroundColor: isDarkMode
-                  ? colours.dark.sectionBackground
-                  : colours.light.sectionBackground,
-                color: colours.greyText,
-                fontWeight: '600',
-                transition: 'all 0.2s',
-              },
-              rootHovered: {
-                ...buttonHoverStyle, // Apply hover styles
-                backgroundColor: isDarkMode
-                  ? colours.dark.cardHover
-                  : colours.light.cardHover,
-              },
-            }}
+            styles={sharedDefaultButtonStyles}
             ariaLabel="Reset Form"
             iconProps={{ iconName: 'Refresh' }}
           />
@@ -1087,32 +1042,7 @@ Kind regards,
             <PrimaryButton
               text="Send Email"
               onClick={sendEmail}
-              styles={{
-                root: {
-                  backgroundColor: colours.cta,
-                  borderRadius: '8px',
-                  border: 'none',
-                  selectors: {
-                    ':hover': {
-                      backgroundColor: colours.red,
-                    },
-                    ':focus': {
-                      outline: 'none',
-                      border: 'none',
-                      boxShadow:
-                        '0 0 0 2px rgba(255, 255, 255, 0.5)',
-                    },
-                    ':active': {
-                      backgroundColor: colours.red,
-                      border: 'none',
-                    },
-                  },
-                },
-                label: {
-                  color: 'white',
-                  fontWeight: '600',
-                },
-              }}
+              styles={sharedPrimaryButtonStyles}
               ariaLabel="Send Email"
               iconProps={{ iconName: 'Mail' }}
             />
@@ -1123,25 +1053,7 @@ Kind regards,
                 // Placeholder for draft email functionality
                 console.log('Draft Email clicked');
               }}
-              styles={{
-                root: {
-                  padding: '10px',
-                  borderRadius: '8px',
-                  border: 'none',
-                  backgroundColor: isDarkMode
-                    ? colours.dark.sectionBackground
-                    : colours.light.sectionBackground,
-                  color: colours.greyText,
-                  fontWeight: '600',
-                  transition: 'all 0.2s',
-                },
-                rootHovered: {
-                  ...buttonHoverStyle, // Apply hover styles
-                  backgroundColor: isDarkMode
-                    ? colours.dark.cardHover
-                    : colours.light.cardHover,
-                },
-              }}
+              styles={sharedDefaultButtonStyles}
               ariaLabel="Draft Email"
               iconProps={{ iconName: 'Edit' }}
             />

@@ -78,4 +78,9 @@ export const colours = {
   yellow: '#ffb900', // Employment
   red: '#D65541', // CTA color used as red
   tagBackground: '#e1dfdd',
+
+  // **Newly Added Properties:**
+  secondaryButtonBackground: '#F4F4F6', // Reusing existing grey color
+  secondaryButtonBorder: '#6B6B6B', // Reusing existing greyText color
+  secondaryButtonHoverBackground: '#D6D6D6', // Added a lighter grey for hover
 };

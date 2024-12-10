@@ -11,6 +11,7 @@ import {
 } from '@fluentui/react';
 import { mergeStyles } from '@fluentui/react';
 import { colours } from './colours';
+import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from './ButtonStyles';
 
 // Type Guard to check if a value is a File
 const isFile = (value: any): value is File => {
@@ -25,7 +26,7 @@ const formContainerStyle = mergeStyles({
   marginTop: '10px',
   padding: '20px',
   backgroundColor: colours.light.sectionBackground,
-  borderRadius: '12px',
+  borderRadius: '4px',
   boxShadow: '0 2px 5px rgba(0, 0, 0, 0.1)', // Subtle shadow
   display: 'flex',
   flexDirection: 'column',
@@ -36,7 +37,7 @@ const formContainerStyle = mergeStyles({
 const inputFieldStyle = mergeStyles({
   height: `${INPUT_HEIGHT}px`,
   padding: '10px',
-  borderRadius: '8px',
+  borderRadius: '4px',
   border: `1px solid ${colours.light.border}`,
   backgroundColor: colours.light.inputBackground,
   boxSizing: 'border-box',
@@ -53,20 +54,41 @@ const inputFieldStyle = mergeStyles({
 // Dropdown styling
 const dropdownStyle = mergeStyles({
   height: `${INPUT_HEIGHT}px`,
-  border: `1px solid ${colours.light.border}`,
-  borderRadius: '8px',
+  borderRadius: '4px',
   backgroundColor: colours.light.inputBackground,
+  display: 'flex',
+  alignItems: 'center',
+  border: 'none', // No border by default
   selectors: {
-    ':hover .ms-Dropdown-title': {
-      borderColor: colours.light.cta,
-      backgroundColor: colours.light.cardHover,
+    ':hover': {
+      border: `1px solid ${colours.light.cta}`, // Show border on hover
     },
-    ':focus .ms-Dropdown-title': {
-      borderColor: colours.light.cta,
-      backgroundColor: colours.light.cardHover,
+    ':focus-within': {
+      border: `1px solid ${colours.light.cta}`, // Show border when focused
+    },
+    '.ms-Dropdown-title': {
+      backgroundColor: 'transparent', // Transparent background for the selected item
+      border: 'none', // No border for the selected item
+      boxShadow: 'none', // Remove any shadow
+      padding: '0 10px', // Add padding to align text
+      height: '100%', // Ensure it fills the height
+      lineHeight: `${INPUT_HEIGHT}px`, // Vertically centre the text
+    },
+    '.ms-Dropdown-item.is-selected': {
+      backgroundColor: 'transparent', // Transparent for the selected item
+      border: 'none', // Remove border or outline
+      outline: 'none',
+    },
+    '.ms-Dropdown-caretDown': {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      height: '100%',
     },
   },
 });
+
+
 
 // Container for amount and prefix
 const amountContainerStyle = mergeStyles({
@@ -85,8 +107,8 @@ const prefixStyle = mergeStyles({
   backgroundColor: colours.light.sectionBackground,
   border: `1px solid ${colours.light.border}`,
   borderRight: 'none',
-  borderTopLeftRadius: '8px',
-  borderBottomLeftRadius: '8px',
+  borderTopLeftRadius: '4px',
+  borderBottomLeftRadius: '4px',
   fontWeight: 'bold',
 });
 
@@ -97,8 +119,8 @@ const amountInputStyle = mergeStyles({
   borderTopLeftRadius: '0',
   borderBottomLeftRadius: '0',
   borderLeft: 'none',
-  borderTopRightRadius: '8px',
-  borderBottomRightRadius: '8px',
+  borderTopRightRadius: '4px',
+  borderBottomRightRadius: '4px',
   padding: '10px',
   border: `1px solid ${colours.light.border}`,
   backgroundColor: colours.light.inputBackground,
@@ -127,7 +149,7 @@ const toggleStyle = mergeStyles({
 const buttonStyle = mergeStyles({
   height: `${INPUT_HEIGHT}px`,
   padding: '0 20px',
-  borderRadius: '8px',
+  borderRadius: '4px',
   fontWeight: '600',
   backgroundColor: colours.cta,
   color: '#ffffff',
@@ -147,7 +169,7 @@ const buttonStyle = mergeStyles({
 const cancelButtonStyle = mergeStyles({
   height: `${INPUT_HEIGHT}px`,
   padding: '0 20px',
-  borderRadius: '8px',
+  borderRadius: '4px',
   fontWeight: '600',
   backgroundColor: colours.light.cardHover,
   color: colours.greyText,
@@ -214,7 +236,7 @@ export const BespokeForm: React.FC<BespokeFormProps> = ({ fields, onSubmit, onCa
                       height: `${INPUT_HEIGHT}px`,
                       lineHeight: `${INPUT_HEIGHT}px`,
                       padding: '0 10px',
-                      borderRadius: '8px',
+                      borderRadius: '4px',
                       backgroundColor: colours.light.inputBackground,
                     },
                     caretDown: {
@@ -250,14 +272,11 @@ export const BespokeForm: React.FC<BespokeFormProps> = ({ fields, onSubmit, onCa
                   value={formValues[field.label]?.toString() || ''}
                   onChange={(_, value) => handleInputChange(field.label, value || '')}
                   styles={{
-                    root: {
-                      width: '100%',
-                    },
                     fieldGroup: {
                       height: '120px',
                       padding: '10px',
+                      borderRadius: '4px', // Updated radius to match the standard
                       border: `1px solid ${colours.light.border}`,
-                      borderRadius: '8px',
                       backgroundColor: colours.light.inputBackground,
                     },
                     field: {
@@ -314,22 +333,7 @@ export const BespokeForm: React.FC<BespokeFormProps> = ({ fields, onSubmit, onCa
                       const fileInput = document.getElementById(`file-input-${index}`);
                       fileInput?.click();
                     }}
-                    styles={{
-                      root: {
-                        borderRadius: '8px',
-                        backgroundColor: colours.cta,
-                        color: '#ffffff',
-                        height: '40px',
-                        width: '150px',
-                        border: 'none', // Remove default border
-                        boxShadow: 'none', // Remove default box shadow
-                        selectors: {
-                          ':hover': {
-                            backgroundColor: colours.red,
-                          },
-                        },
-                      },
-                    }}
+                    styles={sharedPrimaryButtonStyles}
                   />
                   <input
                     id={`file-input-${index}`}
@@ -370,10 +374,20 @@ export const BespokeForm: React.FC<BespokeFormProps> = ({ fields, onSubmit, onCa
           }
         })}
         <Stack horizontal tokens={{ childrenGap: 10 }}>
-          <PrimaryButton text="Submit" onClick={handleSubmit} styles={{ root: buttonStyle }} />
-          <DefaultButton text="Cancel" onClick={onCancel} styles={{ root: cancelButtonStyle }} />
+          <PrimaryButton
+            text="Submit"
+            onClick={handleSubmit}
+            styles={sharedPrimaryButtonStyles}
+          />
+          <DefaultButton
+            text="Cancel"
+            onClick={onCancel}
+            styles={sharedDefaultButtonStyles}
+          />
         </Stack>
       </Stack>
     </div>
   );
 };
+
+export default BespokeForm;

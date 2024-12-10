@@ -1,0 +1,42 @@
+/* General panel styles */
+.panel-header {
+    display: flex;
+    align-items: center;
+    padding: 16px 24px;
+    background-color: var(--panel-header-bg, #f3f3f3);
+    border-bottom: 1px solid var(--panel-border-color, #ddd);
+  }
+  
+  .panel-title {
+    font-size: 20px;
+    font-weight: bold;
+    color: var(--panel-title-color, #333);
+    margin-left: 10px;
+  }
+  
+  .panel-content {
+    padding: 20px;
+    flex-grow: 1;
+    overflow-y: auto;
+  }
+  
+  .panel-footer {
+    display: flex;
+    justify-content: space-between;
+    padding: 16px 24px;
+    border-top: 1px solid var(--panel-border-color, #ddd);
+    background-color: var(--panel-footer-bg, #fafafa);
+  }
+  
+  /* Add responsive design if needed */
+  @media (max-width: 768px) {
+    .panel-content {
+      padding: 16px;
+    }
+  
+    .panel-footer {
+      flex-direction: column;
+      gap: 10px;
+    }
+  }
+  

@@ -23,6 +23,7 @@ import StyledTextField from '../../app/styles/StyledTextField';
 import { ResourceAction, resourceActions } from '../../app/customisation/ResourceActions';
 import '../../app/styles/ResourceDetails.css'; // Ensure this path is correct
 import { BespokeForm } from '../../app/styles/BespokeForms';
+import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from '../../app/styles/ButtonStyles';
 
 interface ResourceDetailsProps {
   resource: Resource;
@@ -325,46 +326,14 @@ const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) 
               <PrimaryButton
                 text="Copy"
                 onClick={copyToClipboard}
-                styles={{
-                  root: {
-                    padding: '10px 20px',
-                    borderRadius: '8px',
-                    backgroundColor: colours.cta,
-                    border: 'none',
-                    selectors: {
-                      ':hover': {
-                        backgroundColor: colours.highlight,
-                      },
-                    },
-                  },
-                  label: {
-                    color: 'white',
-                    fontWeight: '600',
-                  },
-                }}
+                styles={sharedPrimaryButtonStyles}
                 ariaLabel="Copy URL to clipboard"
                 iconProps={{ iconName: 'Copy' }}
               />
               <PrimaryButton
                 text="Go To"
                 onClick={goToLink}
-                styles={{
-                  root: {
-                    padding: '10px 20px',
-                    borderRadius: '8px',
-                    backgroundColor: colours.cta,
-                    border: 'none',
-                    selectors: {
-                      ':hover': {
-                        backgroundColor: colours.highlight,
-                      },
-                    },
-                  },
-                  label: {
-                    color: 'white',
-                    fontWeight: '600',
-                  },
-                }}
+                styles={sharedPrimaryButtonStyles}
                 ariaLabel="Go to URL"
                 iconProps={{ iconName: 'NavigateExternalInline' }}
               />
@@ -372,23 +341,7 @@ const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) 
             <DefaultButton
               text="Close"
               onClick={onClose}
-              styles={{
-                root: {
-                  padding: '10px 20px',
-                  borderRadius: '8px',
-                  border: 'none',
-                  backgroundColor: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
-                  selectors: {
-                    ':hover': {
-                      backgroundColor: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
-                    },
-                  },
-                },
-                label: {
-                  color: isDarkMode ? colours.dark.text : colours.light.text,
-                  fontWeight: '600',
-                },
-              }}
+              styles={sharedDefaultButtonStyles}
               ariaLabel="Close Details"
               iconProps={{ iconName: 'Cancel' }}
             />
