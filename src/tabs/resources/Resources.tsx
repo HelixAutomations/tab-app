@@ -8,19 +8,17 @@ import {
   MessageBar,
   MessageBarType,
   SearchBox,
-  Spinner,
-  SpinnerSize,
   Link,
 } from '@fluentui/react';
 import { initializeIcons } from '@fluentui/react/lib/Icons';
 import { colours } from '../../app/styles/colours';
-import { useFeContext } from '../../app/functionality/FeContext';
 import ResourceCard from './ResourceCard';
 import ResourceDetails from './ResourceDetails';
 import { sharedSearchBoxContainerStyle, sharedSearchBoxStyle } from '../../app/styles/FilterStyles';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import '../../app/styles/ResourceCard.css';
 
+// Initialize Fluent UI Icons
 initializeIcons();
 
 // Define types for sections and resources
@@ -61,21 +59,6 @@ const headerStyle = (isDarkMode: boolean) =>
     marginBottom: '20px',
     flexWrap: 'wrap',
     gap: '10px',
-  });
-
-const controlsContainerStyle = mergeStyles({
-  display: 'flex',
-  alignItems: 'center',
-  gap: '10px',
-  flexWrap: 'wrap',
-});
-
-// Updated searchBoxStyle with reduced border radius and no border
-const searchBoxContainerStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    position: 'relative',
-    width: '100%',
-    maxWidth: '300px',
   });
 
 const mainContentStyle = (isDarkMode: boolean) =>
@@ -140,17 +123,18 @@ const footerStyle = (isDarkMode: boolean) =>
   });
 
 // Define the props for Resources component
-interface ResourcesProps {}
+interface ResourcesProps {
+  // No props needed as data is hard-coded
+}
 
 const Resources: React.FC<ResourcesProps> = () => {
   const { isDarkMode } = useTheme();
-  const { sqlData, isLoading, error } = useFeContext();
   const [favorites, setFavorites] = useState<Resource[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
 
-  // Handle storage changes for syncing favourites
+  // Handle storage changes for syncing favorites
   useEffect(() => {
     const handleStorageChange = (event: StorageEvent) => {
       if (event.key === 'resourcesFavorites' && event.newValue) {
@@ -168,7 +152,7 @@ const Resources: React.FC<ResourcesProps> = () => {
   // Define number of columns per row for delay calculation
   const columnsPerRow = 5;
 
-  // Initialize resources without mutating useMemo return
+  // Initialize resources with hard-coded data
   const resourcesSections: ResourcesSections = useMemo(() => {
     const initialSections: ResourcesSections = {
       Internal: [
@@ -238,38 +222,8 @@ const Resources: React.FC<ResourcesProps> = () => {
       Favorites: [], // Will be populated based on favorites
     };
 
-    // If sqlData is present, append internal and external resources
-    if (sqlData && sqlData.length > 0) {
-      const internalResources = sqlData
-        .filter((item: any) => item.Category === 'Internal')
-        .map((item: any) => ({
-          title: item.Title,
-          url: item.URL,
-          icon: item.Icon,
-          tags: item.Tags ? item.Tags.split(',').map((tag: string) => tag.trim()) : [],
-          description: item.Description || '',
-        }));
-
-      const externalResources = sqlData
-        .filter((item: any) => item.Category === 'External')
-        .map((item: any) => ({
-          title: item.Title,
-          url: item.URL,
-          icon: item.Icon,
-          tags: item.Tags ? item.Tags.split(',').map((tag: string) => tag.trim()) : [],
-          description: item.Description || '',
-        }));
-
-      // Combine with predefined resources
-      return {
-        Internal: [...initialSections.Internal, ...internalResources],
-        External: [...initialSections.External, ...externalResources],
-        Favorites: [], // Will be handled separately
-      };
-    }
-
     return initialSections;
-  }, [sqlData]);
+  }, []);
 
   // Load stored favorites from localStorage
   useEffect(() => {
@@ -349,7 +303,7 @@ const Resources: React.FC<ResourcesProps> = () => {
     };
   }, [favorites, resourcesSections, searchQuery]);
 
-  // Calculate animation delays based on unique index
+  // Calculate animation delays based on row and column
   const calculateAnimationDelay = (row: number, col: number) => {
     const delayPerRow = 0.2; // 0.2 seconds delay between rows
     const delayPerCol = 0.1; // 0.1 seconds delay between columns
@@ -382,63 +336,46 @@ const Resources: React.FC<ResourcesProps> = () => {
         </div>
       </header>
 
-      {/* Loading and Error States */}
-      {isLoading ? (
-        <Stack horizontalAlign="center" verticalAlign="center" styles={{ root: { flex: 1 } }}>
-          <Spinner label="Loading resources..." size={SpinnerSize.large} />
-        </Stack>
-      ) : error ? (
-        <MessageBar
-          messageBarType={MessageBarType.error}
-          isMultiline={false}
-          onDismiss={() => {}}
-          dismissButtonAriaLabel="Close"
-          styles={{ root: { marginBottom: '20px', borderRadius: '4px' } }}
-        >
-          {error}
-        </MessageBar>
-      ) : (
-        // Main Content
-        <main className={mainContentStyle(isDarkMode)}>
-          {/* Render Favourites Section Only if There are Favourites */}
-          {filteredSections.Favorites.length > 0 && (
-            <section key="Favorites" className={sectionStyle(isDarkMode)}>
-              <Text variant="large" className={sectionHeaderStyleCustom(isDarkMode)}>
-                Favourites
-              </Text>
-              <div className={resourceGridStyle}>
-                {filteredSections.Favorites.map((resource: Resource, index: number) => {
-                  const globalIndex = flatResources.findIndex(
-                    (res) => res.title === resource.title
-                  );
+      {/* Main Content */}
+      <main className={mainContentStyle(isDarkMode)}>
+        {/* Render Favorites Section Only if There are Favorites */}
+        {filteredSections.Favorites.length > 0 && (
+          <section key="Favorites" className={sectionStyle(isDarkMode)}>
+            <Text variant="large" className={sectionHeaderStyleCustom(isDarkMode)}>
+              Favorites
+            </Text>
+            <div className={resourceGridStyle}>
+              {filteredSections.Favorites.map((resource: Resource, index: number) => {
+                const globalIndex = flatResources.findIndex((res) => res.title === resource.title);
 
-                  if (globalIndex === -1) {
-                    console.warn(`Resource titled "${resource.title}" not found in flatResources.`);
-                    return null;
-                  }
+                if (globalIndex === -1) {
+                  console.warn(`Resource titled "${resource.title}" not found in flatResources.`);
+                  return null;
+                }
 
-                  const row = Math.floor(globalIndex / columnsPerRow);
-                  const col = globalIndex % columnsPerRow;
-                  const animationDelay = calculateAnimationDelay(row, col);
-                  return (
-                    <ResourceCard
-                      key={resource.title}
-                      resource={resource}
-                      isFavorite={favorites.some((fav) => fav.title === resource.title)}
-                      onCopy={copyToClipboard}
-                      onToggleFavorite={toggleFavorite}
-                      onGoTo={goToResource}
-                      onSelect={() => setSelectedResource(resource)}
-                      animationDelay={animationDelay}
-                    />
-                  );
-                })}
-              </div>
-            </section>
-          )}
+                const row = Math.floor(globalIndex / columnsPerRow);
+                const col = globalIndex % columnsPerRow;
+                const animationDelay = calculateAnimationDelay(row, col);
+                return (
+                  <ResourceCard
+                    key={resource.title}
+                    resource={resource}
+                    isFavorite={favorites.some((fav) => fav.title === resource.title)}
+                    onCopy={copyToClipboard}
+                    onToggleFavorite={toggleFavorite}
+                    onGoTo={goToResource}
+                    onSelect={() => setSelectedResource(resource)}
+                    animationDelay={animationDelay}
+                  />
+                );
+              })}
+            </div>
+          </section>
+        )}
 
-          {/* Render Other Sections */}
-          {(['Internal', 'External'] as SectionName[]).map((sectionName) =>
+        {/* Render Other Sections */}
+        {(['Internal', 'External'] as SectionName[]).map(
+          (sectionName) =>
             filteredSections[sectionName].length > 0 && (
               <section key={sectionName} className={sectionStyle(isDarkMode)}>
                 <Text variant="large" className={sectionHeaderStyleCustom(isDarkMode)}>
@@ -446,9 +383,7 @@ const Resources: React.FC<ResourcesProps> = () => {
                 </Text>
                 <div className={resourceGridStyle}>
                   {filteredSections[sectionName].map((resource: Resource, index: number) => {
-                    const globalIndex = flatResources.findIndex(
-                      (res) => res.title === resource.title
-                    );
+                    const globalIndex = flatResources.findIndex((res) => res.title === resource.title);
 
                     if (globalIndex === -1) {
                       console.warn(`Resource titled "${resource.title}" not found in flatResources.`);
@@ -474,10 +409,8 @@ const Resources: React.FC<ResourcesProps> = () => {
                 </div>
               </section>
             )
-          )}
-
-        </main>
-      )}
+        )}
+      </main>
 
       {/* Footer */}
       <footer className={footerStyle(isDarkMode)}>
@@ -515,7 +448,7 @@ const Resources: React.FC<ResourcesProps> = () => {
             root: {
               fontSize: '12px',
               fontFamily: 'Raleway, sans-serif',
-              color: isDarkMode ? colours.dark.text : colours.light.text,
+              color: isDarkMode ? colours.dark.text : colours.light.subText,
             },
           }}
         >

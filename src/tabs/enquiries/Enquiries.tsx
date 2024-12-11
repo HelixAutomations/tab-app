@@ -19,7 +19,7 @@ import {
   IDropdownOption,
   SearchBox,
 } from '@fluentui/react';
-import { Enquiry } from '../../app/functionality/FeContext'; // Import Enquiry interface
+import { Enquiry, UserData } from '../../app/functionality/types'; // Correct path
 import { initializeIcons } from '@fluentui/react/lib/Icons';
 import CustomPagination from '../../app/styles/CustomPagination'; // Import Custom Pagination
 import EnquiryCard from './EnquiryCard'; // Import the newly created EnquiryCard
@@ -146,7 +146,7 @@ const RatingIndicator: React.FC<RatingIndicatorProps> = ({ rating, isDarkMode, o
 };
 
 // Define the Enquiries Component
-const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry[] | null }> = ({ context, enquiries }) => {
+const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry[] | null; userData: UserData[] | null }> = ({ context, enquiries, userData }) => {
   const [localEnquiries, setLocalEnquiries] = useState<Enquiry[]>(enquiries || []); // Use the enquiries prop here
   const { isDarkMode } = useTheme(); // Access isDarkMode from Theme Context
   const [selectedEnquiry, setSelectedEnquiry] = useState<Enquiry | null>(null);

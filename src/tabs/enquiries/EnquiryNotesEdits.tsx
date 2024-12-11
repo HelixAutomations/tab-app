@@ -10,7 +10,7 @@ import {
   TextField,
   Text as FluentText, // Alias to avoid conflict
 } from '@fluentui/react';
-import { Enquiry } from '../../app/functionality/FeContext';
+import { Enquiry } from '../../app/functionality/types'; // Correct import
 import { colours } from '../../app/styles/colours';
 import EnquiryOverview from './EnquiryOverview';
 import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme

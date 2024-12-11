@@ -25,3 +25,109 @@ export interface FormItem {
     placeholder?: string; // Optional: For additional placeholders
   }>; // Add fields for forms
 }
+
+// Define the structure for UserData
+export interface UserData {
+  CreatedDate?: string;
+  CreatedTime?: string;
+  FullName?: string;
+  Last?: string;
+  First?: string;
+  Nickname?: string;
+  Initials?: string;
+  Email?: string;
+  EntraID?: string; // Maps to [Entra ID]
+  ClioID?: string;
+  Rate?: number;
+  Role?: string;
+  ASANA_ID?: string;
+  ASANAUserID?: string;
+  ASANAPendingID?: number;
+  ASANAInProgressID?: number;
+  ASANATeamID?: number;
+  AOW?: string; // Area of Work
+  ASANAClientID?: string;
+  ASANASecret?: string;
+  ASANARefreshToken?: string;
+}
+
+// Define the structure for Enquiry
+export interface Enquiry {
+  ID: string;
+  Date_Created: string;
+  Touchpoint_Date: string;
+  Email: string;
+  Area_of_Work: string;
+  Type_of_Work: string;
+  Method_of_Contact: string;
+  Point_of_Contact: string;
+  Company?: string;
+  Website?: string;
+  Title?: string;
+  First_Name: string;
+  Last_Name: string;
+  DOB?: string;
+  Phone_Number?: string;
+  Secondary_Phone?: string;
+  Tags?: string;
+  Unit_Building_Name_or_Number?: string;
+  Mailing_Street?: string;
+  Mailing_Street_2?: string;
+  Mailing_Street_3?: string;
+  Postal_Code?: string;
+  City?: string;
+  Mailing_County?: string;
+  Country?: string;
+  Gift_Rank?: number;
+  Matter_Ref?: string;
+  Value?: string;
+  Call_Taker?: string;
+  Ultimate_Source?: string;
+  Contact_Referrer?: string;
+  Referring_Company?: string;
+  Other_Referrals?: string;
+  Referral_URL?: string;
+  Campaign?: string;
+  Ad_Group?: string;
+  Search_Keyword?: string;
+  GCLID?: string;
+  Initial_first_call_notes?: string;
+  Do_not_Market?: string;
+  IP_Address?: string;
+  TDMY?: string;
+  TDN?: string;
+  pocname?: string;
+  Rating?: 'Good' | 'Neutral' | 'Poor';
+  Employment?: string;
+  Divorce_Consultation?: string;
+  Web_Form?: string; // Added Web_Form
+}
+
+// Define the structure for Matter
+export interface Matter {
+  DisplayNumber: string;
+  OpenDate: string;
+  MonthYear: string;
+  YearMonthNumeric: number;
+  ClientID: string;
+  ClientName: string;
+  ClientPhone: string;
+  ClientEmail: string;
+  Status: string;
+  UniqueID: string;
+  Description: string;
+  PracticeArea: string;
+  Source: string;
+  Referrer: string;
+  ResponsibleSolicitor: string;
+  OriginatingSolicitor: string;
+  SupervisingPartner: string;
+  Opponent: string;
+  OpponentSolicitor: string;
+  CloseDate: string;
+  ApproxValue: string;
+  mod_stamp: string;
+  method_of_contact: string;
+  CCL_date: string | null;
+  Rating?: 'Good' | 'Neutral' | 'Poor';
+}

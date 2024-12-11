@@ -1,28 +1,22 @@
 // src/tabs/matters/Matters.tsx
 
-import React, { useState, useEffect, useContext, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   Stack,
   Text,
   mergeStyles,
   MessageBar,
   MessageBarType,
-  TooltipHost,
-  Link,
   IconButton,
   Spinner,
   SpinnerSize,
-  TextField,
   Dropdown,
   IDropdownOption,
   PrimaryButton,
-  DefaultButton,
-  Modal,
-  Icon,
+  Link,
   SearchBox,
 } from '@fluentui/react';
-import { TeamsContext } from '../../app/functionality/TeamsContext'; // Updated import
-import { useFeContext, Matter } from '../../app/functionality/FeContext';
+import { Matter, UserData } from '../../app/functionality/types';
 import { initializeIcons } from '@fluentui/react/lib/Icons';
 import CustomPagination from '../../app/styles/CustomPagination';
 import MatterCard from './MatterCard';
@@ -34,11 +28,11 @@ import {
   sharedDropdownStyles,
   sharedControlsContainerStyle,
 } from '../../app/styles/FilterStyles';
-import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme
+import { useTheme } from '../../app/functionality/ThemeContext';
 
 initializeIcons();
 
-// Styles (unchanged)
+// Styles
 const containerStyle = (isDarkMode: boolean) =>
   mergeStyles({
     padding: '20px',
@@ -53,21 +47,9 @@ const containerStyle = (isDarkMode: boolean) =>
 
 const headerStyle = (isDarkMode: boolean) =>
   mergeStyles({
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: '20px',
-    flexWrap: 'wrap',
-    gap: '10px',
+    paddingTop: '0px',
+    paddingBottom: '20px',
   });
-
-const searchBoxStyle = mergeStyles({
-  maxWidth: '300px',
-});
-
-const dropdownStyle = mergeStyles({
-  width: '200px',
-});
 
 const mainContentStyle = (isDarkMode: boolean) =>
   mergeStyles({
@@ -76,12 +58,14 @@ const mainContentStyle = (isDarkMode: boolean) =>
     flexDirection: 'column',
     gap: '20px',
     paddingBottom: '40px',
+    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.background,
+    transition: 'background-color 0.3s',
   });
 
 const footerStyle = (isDarkMode: boolean) =>
   mergeStyles({
     padding: '20px',
-    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.border,
     borderRadius: '8px',
     marginTop: 'auto',
     display: 'flex',
@@ -92,86 +76,64 @@ const footerStyle = (isDarkMode: boolean) =>
     fontFamily: 'Raleway, sans-serif',
   });
 
-  const actionButtonStyle = {
-    root: {
-      backgroundColor: colours.cta, // Default button background
-      color: '#ffffff', // Default text colour
-      borderRadius: '8px',
-      transition: 'background-color 0.3s, transform 0.3s',
-      selectors: {
-        ':hover': {
-          backgroundColor: colours.red, // Hover background colour
-          transform: 'scale(1.05)', // Slight zoom on hover
-        },
+// Define action button styles
+const actionButtonStyle = {
+  root: {
+    marginRight: '8px',
+    backgroundColor: colours.cta, // CTA red color
+    borderRadius: '8px',
+    transition: 'background-color 0.3s, transform 0.3s',
+    selectors: {
+      ':hover': {
+        backgroundColor: colours.red, // Darker red on hover
+        transform: 'scale(1.05)',
       },
     },
-    label: {
-      color: 'white',
-      fontWeight: '600',
-    },
-  };
-  
+  },
+  label: {
+    color: 'white',
+    fontWeight: '600',
+  },
+};
 
 // Define the Matters Component
-const Matters: React.FC = () => {
-  const { isDarkMode } = useTheme(); // Access isDarkMode from Theme Context
-  const { context } = useContext(TeamsContext); // Updated import
-  const { sqlData, fetchMatters, isLoading, error, fetchMattersError } = useFeContext();
-  const [matters, setMatters] = useState<Matter[]>([]);
+interface MattersProps {
+  matters: Matter[];
+  isLoading: boolean;
+  error: string | null;
+  userData: UserData[] | null;
+  fetchMatters: (fullName: string) => Promise<Matter[]>;
+}
+
+const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, fetchMatters }) => {
+  console.log('Matters Props:', { matters, isLoading, error, userData }); // Debugging
+
+  const { isDarkMode } = useTheme();
   const [selectedMatter, setSelectedMatter] = useState<Matter | null>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
-  const [filterRole, setFilterRole] = useState<string>('All'); // 'All', 'Responsible', 'Originating'
-  const [filterStatus, setFilterStatus] = useState<string>('All'); // 'All', 'Open', 'Closed', 'Pending'
+  const [filterRole, setFilterRole] = useState<string>('All');
+  const [filterStatus, setFilterStatus] = useState<string>('All');
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [mattersPerPage] = useState<number>(16); // Changed to 16 for better spacing
-  const [isSuccessVisible, setIsSuccessVisible] = useState<boolean>(false); // For success messages
-
-  // Fetch matters on component mount or when sqlData changes
-  useEffect(() => {
-    const fetchData = async () => {
-      if (sqlData && sqlData.length > 0 && sqlData[0]["Full Name"]) {
-        const fullName = sqlData[0]["Full Name"].trim();
-        console.log('Attempting to fetch matters for:', fullName); // Logging
-        try {
-          const data = await fetchMatters(fullName);
-          console.log('Fetched Matters Data:', data); // Logging
-          setMatters(data);
-        } catch (err) {
-          console.error('Error fetching matters:', err);
-        }
-      } else {
-        console.warn('SQL data or Full Name is missing.');
-      }
-    };
-
-    fetchData();
-  }, [sqlData, fetchMatters]);
-
-  // Handler to select a matter
-  const handleSelectMatter = useCallback((matter: Matter) => {
-    setSelectedMatter(matter);
-  }, []);
-
-  // Handler to go back to the list
-  const handleBackToList = useCallback(() => {
-    setSelectedMatter(null);
-  }, []);
+  const mattersPerPage = 16;
+  const [isSuccessVisible, setIsSuccessVisible] = useState<boolean>(false);
 
   // Search and filter matters
   const filteredMatters = useMemo(() => {
     let filtered = matters;
 
-    // Filter by role (Responsible, Originating)
+    // Filter by role
     if (filterRole !== 'All') {
       if (filterRole === 'Responsible') {
+        const fullName = userData && `${userData[0].First} ${userData[0].Last}`.toLowerCase();
         filtered = filtered.filter(
           (matter) =>
-            matter["Responsible Solicitor"].toLowerCase() === (sqlData && sqlData[0]["Full Name"]?.toLowerCase())
+            matter.ResponsibleSolicitor?.toLowerCase() === fullName
         );
       } else if (filterRole === 'Originating') {
+        const fullName = userData && `${userData[0].First} ${userData[0].Last}`.toLowerCase();
         filtered = filtered.filter(
           (matter) =>
-            matter["Originating Solicitor"].toLowerCase() === (sqlData && sqlData[0]["Full Name"]?.toLowerCase())
+            matter.OriginatingSolicitor?.toLowerCase() === fullName
         );
       }
     }
@@ -183,16 +145,17 @@ const Matters: React.FC = () => {
 
     // Search filter
     if (searchTerm) {
+      const lowerSearchTerm = searchTerm.toLowerCase();
       filtered = filtered.filter(
         (matter) =>
-          matter["Client Name"].toLowerCase().includes(searchTerm.toLowerCase()) ||
-          matter["Client ID"].toLowerCase().includes(searchTerm.toLowerCase()) ||
-          matter["Practice Area"].toLowerCase().includes(searchTerm.toLowerCase())
+          matter.ClientName?.toLowerCase().includes(lowerSearchTerm) ||
+          matter.ClientID?.toLowerCase().includes(lowerSearchTerm) ||
+          matter.PracticeArea?.toLowerCase().includes(lowerSearchTerm)
       );
     }
 
     return filtered;
-  }, [matters, searchTerm, filterRole, filterStatus, sqlData]);
+  }, [matters, searchTerm, filterRole, filterStatus, userData]);
 
   // Pagination calculations
   const indexOfLastMatter = currentPage * mattersPerPage;
@@ -228,6 +191,16 @@ const Matters: React.FC = () => {
     // Add more statuses as needed
   ];
 
+  // Handler to select a matter
+  const handleSelectMatter = useCallback((matter: Matter) => {
+    setSelectedMatter(matter);
+  }, []);
+
+  // Handler to go back to the list
+  const handleBackToList = useCallback(() => {
+    setSelectedMatter(null);
+  }, []);
+
   // Render Detail View
   const renderDetailView = useCallback(
     (matter: Matter) => (
@@ -239,29 +212,38 @@ const Matters: React.FC = () => {
             borderRadius: '12px',
             boxShadow: `0 4px 16px rgba(0,0,0,0.1)`,
             padding: '20px',
-            position: 'relative', // For positioning the sidebar
+            position: 'relative',
           },
         }}
       >
-        {/* Back Button */}
-        <IconButton
-          iconProps={{ iconName: 'Back' }}
-          title="Back to Matters"
-          ariaLabel="Back to Matters"
-          onClick={handleBackToList}
-          styles={{
-            root: {
-              backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
-              color: isDarkMode ? colours.dark.iconColor : colours.light.iconColor,
-              borderRadius: '50%',
-              width: '40px',
-              height: '40px',
-              ':hover': {
+        {/* Header with Back Button */}
+        <Stack
+          horizontal
+          horizontalAlign="space-between"
+          verticalAlign="center"
+          className={mergeStyles({ marginBottom: '20px' })}
+        >
+          <IconButton
+            iconProps={{ iconName: 'Back' }}
+            title="Back to Matters"
+            ariaLabel="Back to Matters"
+            onClick={handleBackToList}
+            styles={{
+              root: {
                 backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
+                color: isDarkMode ? colours.dark.iconColor : colours.light.iconColor,
+                borderRadius: '50%',
+                width: '40px',
+                height: '40px',
+                ':hover': {
+                  backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
+                },
               },
-            },
-          }}
-        />
+            }}
+          />
+          {/* Placeholder for alignment */}
+          <div style={{ width: '40px' }}></div>
+        </Stack>
 
         {/* Matter Details */}
         <Text variant="xxLarge" styles={{ root: { fontWeight: 'bold' } }}>
@@ -289,7 +271,7 @@ const Matters: React.FC = () => {
                 },
               }}
             >
-              {matter["Display Number"]}
+              {matter.DisplayNumber}
             </Text>
           </Stack>
 
@@ -314,7 +296,7 @@ const Matters: React.FC = () => {
                 },
               }}
             >
-              {new Date(matter["Open Date"]).toLocaleDateString()}
+              {new Date(matter.OpenDate).toLocaleDateString()}
             </Text>
           </Stack>
 
@@ -339,7 +321,7 @@ const Matters: React.FC = () => {
                 },
               }}
             >
-              {matter["Practice Area"]}
+              {matter.PracticeArea}
             </Text>
           </Stack>
 
@@ -364,7 +346,7 @@ const Matters: React.FC = () => {
                 },
               }}
             >
-              {matter["Client Name"]}
+              {matter.ClientName}
             </Text>
           </Stack>
 
@@ -414,7 +396,7 @@ const Matters: React.FC = () => {
                 },
               }}
             >
-              {matter["Approx. Value"]}
+              {matter.ApproxValue}
             </Text>
           </Stack>
         </Stack>
@@ -424,13 +406,13 @@ const Matters: React.FC = () => {
           <PrimaryButton
             text="Call Client"
             iconProps={{ iconName: 'Phone' }}
-            onClick={() => window.location.href = `tel:${matter["Client Phone"]}`}
+            onClick={() => window.location.href = `tel:${matter.ClientPhone}`}
             styles={actionButtonStyle}
           />
           <PrimaryButton
             text="Email Client"
             iconProps={{ iconName: 'Mail' }}
-            onClick={() => window.location.href = `mailto:${matter["Client Email"]}`}
+            onClick={() => window.location.href = `mailto:${matter.ClientEmail}`}
             styles={actionButtonStyle}
           />
         </Stack>
@@ -439,32 +421,18 @@ const Matters: React.FC = () => {
     [handleBackToList, isDarkMode]
   );
 
-  // Calculate animation delays based on unique index
+  // Calculate animation delays based on index
   const calculateAnimationDelay = (index: number) => {
     const delayPerCard = 0.1; // 0.1 seconds delay per card
     return index * delayPerCard;
   };
 
-  // Generate a flat array of all cards to calculate unique indexes
-  const allCards = useMemo(() => {
-    const sections = ['All'] as string[]; // Assuming a single section, adjust if multiple
-    const cards: { section: string; matter: Matter }[] = [];
-
-    sections.forEach((section) => {
-      filteredMatters.forEach((matter) => {
-        cards.push({ section, matter });
-      });
-    });
-
-    return cards;
-  }, [filteredMatters]);
-
   return (
     <div className={containerStyle(isDarkMode)}>
       {/* Header: Search and Filter Controls */}
       <div className={headerStyle(isDarkMode)}>
-        {/* Left Side: Search and Filter */}
         <div className={sharedControlsContainerStyle}>
+
           {/* Search Box */}
           <div className={sharedSearchBoxContainerStyle(isDarkMode)}>
             <SearchBox
@@ -513,10 +481,6 @@ const Matters: React.FC = () => {
           <MessageBar messageBarType={MessageBarType.error} isMultiline={false}>
             {error}
           </MessageBar>
-        ) : fetchMattersError ? (
-          <MessageBar messageBarType={MessageBarType.error} isMultiline={false}>
-            {fetchMattersError}
-          </MessageBar>
         ) : selectedMatter ? (
           renderDetailView(selectedMatter)
         ) : (
@@ -535,23 +499,19 @@ const Matters: React.FC = () => {
                     gap: '20px',
                     // Responsive adjustments
                     '@media (max-width: 1200px)': {
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', // Adjust for smaller screens
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
                     },
                     '@media (max-width: 900px)': {
-                      gridTemplateColumns: 'repeat(1, 1fr)', // 1 card per row on very small screens
+                      gridTemplateColumns: 'repeat(1, 1fr)',
                     },
                   })}
                 >
-                  {currentMatters.map((matter) => {
-                    // Find the global index based on the flat allCards array
-                    const globalIndex = allCards.findIndex(
-                      (card) => card.matter["Unique ID"] === matter["Unique ID"]
-                    );
-
+                  {currentMatters.map((matter, index) => {
+                    const globalIndex = index; // Simplify animation delay
                     const animationDelay = calculateAnimationDelay(globalIndex);
                     return (
                       <MatterCard
-                        key={matter["Unique ID"]}
+                        key={matter.UniqueID}
                         matter={matter}
                         onSelect={handleSelectMatter}
                         animationDelay={animationDelay}

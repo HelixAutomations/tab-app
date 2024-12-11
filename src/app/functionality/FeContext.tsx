@@ -1,3 +1,4 @@
+/*
 import React, {
   createContext,
   useContext,
@@ -268,3 +269,9 @@ export const FeProvider: React.FC<FeProviderProps> = ({ children }) => {
 };
 
 export const useFeContext = () => useContext(FeContext);
+*/
+
+export const useFeContext = () => {
+  console.warn('useFeContext is a placeholder and no longer functional.');
+  return {};
+};

@@ -10,7 +10,7 @@ import {
   TooltipHost,
   IconButton,
 } from '@fluentui/react';
-import { Enquiry } from '../../app/functionality/FeContext';
+import { Enquiry } from '../../app/functionality/types'; // Correct import
 import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme
 

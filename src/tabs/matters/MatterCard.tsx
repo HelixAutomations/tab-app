@@ -1,17 +1,17 @@
-// src/MatterCard.tsx
+// src/tabs/matters/MatterCard.tsx
 
 import React from 'react';
 import { Stack, Text, Icon, IconButton, TooltipHost } from '@fluentui/react';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
-import { Matter } from '../../app/functionality/FeContext';
+import { Matter } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
-import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme
-import '../../app/styles/MatterCard.css'; // Import the CSS file
+import { useTheme } from '../../app/functionality/ThemeContext';
+import '../../app/styles/MatterCard.css';
 
 interface MatterCardProps {
   matter: Matter;
   onSelect: (matter: Matter) => void;
-  animationDelay?: number; // New prop for animation delay
+  animationDelay?: number;
 }
 
 const actionButtonStyle = {
@@ -37,7 +37,6 @@ const separatorStyle = (isDarkMode: boolean) =>
     alignSelf: 'stretch',
   });
 
-// Define the card style with dynamic animation delay
 const cardStyle = (isDarkMode: boolean) =>
   mergeStyles({
     padding: '20px',
@@ -56,7 +55,7 @@ const cardStyle = (isDarkMode: boolean) =>
         : '0 4px 16px rgba(0,0,0,0.2)',
       backgroundColor: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
     },
-    overflow: 'hidden', // Prevent overflow from breaking layout
+    overflow: 'hidden',
   });
 
 interface DetailRowProps {
@@ -92,15 +91,16 @@ const DetailRow: React.FC<DetailRowProps> = ({ label, value, isDarkMode }) => (
 );
 
 const MatterCard: React.FC<MatterCardProps> = ({ matter, onSelect, animationDelay = 0 }) => {
-  const { isDarkMode } = useTheme(); // Access isDarkMode from Theme Context
+  const { isDarkMode } = useTheme();
+  console.log('Rendering MatterCard:', matter); // Debugging
 
   const handleCardClick = () => {
     onSelect(matter);
   };
 
   const matterDetails = [
-    { label: 'Approx. Value', value: matter["Approx. Value"] },
-    { label: 'Practice Area', value: matter["Practice Area"] },
+    { label: 'Approx. Value', value: matter.ApproxValue },
+    { label: 'Practice Area', value: matter.PracticeArea },
     { label: 'Description', value: matter.Description },
   ];
 
@@ -116,7 +116,7 @@ const MatterCard: React.FC<MatterCardProps> = ({ matter, onSelect, animationDela
           handleCardClick();
         }
       }}
-      aria-label={`View details for matter ${matter["Unique ID"]}`}
+      aria-label={`View details for matter ${matter.UniqueID}`}
     >
       {/* Horizontal Stack to separate content and actions */}
       <Stack horizontal tokens={{ childrenGap: 20 }} verticalAlign="stretch">
@@ -143,7 +143,7 @@ const MatterCard: React.FC<MatterCardProps> = ({ matter, onSelect, animationDela
                 },
               }}
             >
-              {matter["Display Number"]}
+              {matter.DisplayNumber}
             </Text>
             <Text
               variant="mediumPlus"
@@ -154,7 +154,7 @@ const MatterCard: React.FC<MatterCardProps> = ({ matter, onSelect, animationDela
                 },
               }}
             >
-              - {matter["Client Name"]}
+              - {matter.ClientName}
             </Text>
           </Stack>
 
@@ -180,7 +180,7 @@ const MatterCard: React.FC<MatterCardProps> = ({ matter, onSelect, animationDela
               },
             }}
           >
-            {new Date(matter["Open Date"]).toLocaleDateString()}
+            {new Date(matter.OpenDate).toLocaleDateString()}
           </Text>
         </Stack>
 
@@ -196,7 +196,7 @@ const MatterCard: React.FC<MatterCardProps> = ({ matter, onSelect, animationDela
               ariaLabel="Call Client"
               onClick={(e) => {
                 e.stopPropagation();
-                window.location.href = matter["Client Phone"] ? `tel:${matter["Client Phone"]}` : '#';
+                window.location.href = matter.ClientPhone ? `tel:${matter.ClientPhone}` : '#';
               }}
               styles={actionButtonStyle}
             />
@@ -208,7 +208,7 @@ const MatterCard: React.FC<MatterCardProps> = ({ matter, onSelect, animationDela
               ariaLabel="Email Client"
               onClick={(e) => {
                 e.stopPropagation();
-                window.location.href = matter["Client Email"] ? `mailto:${matter["Client Email"]}` : '#';
+                window.location.href = matter.ClientEmail ? `mailto:${matter.ClientEmail}` : '#';
               }}
               styles={actionButtonStyle}
             />

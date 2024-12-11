@@ -10,7 +10,7 @@ import {
   IButtonStyles,
 } from '@fluentui/react';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
-import { Enquiry } from '../../app/functionality/FeContext';
+import { Enquiry } from '../../app/functionality/types'; // Correct import
 import { colours } from '../../app/styles/colours';
 import RatingIndicator from './RatingIndicator';
 import { cleanNotes } from '../../app/functionality/textUtils';

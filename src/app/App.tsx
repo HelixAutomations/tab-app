@@ -1,10 +1,14 @@
+// src/app/App.tsx
+
 import React, { useState, useEffect, lazy, Suspense } from 'react';
-import CustomTabs from '../app/styles/CustomTabs';
-import { ThemeProvider } from '../app/functionality/ThemeContext';
-import { colours } from '../app/styles/colours';
+import CustomTabs from './styles/CustomTabs';
+import { ThemeProvider } from './functionality/ThemeContext';
+import { colours } from './styles/colours';
 import * as microsoftTeams from '@microsoft/teams-js';
 import { Context as TeamsContextType } from '@microsoft/teams-js';
+import { Matter, UserData, Enquiry } from './functionality/types';
 
+// Lazy load components
 const Home = lazy(() => import('../tabs/home/Home'));
 const Forms = lazy(() => import('../tabs/forms/Forms'));
 const Resources = lazy(() => import('../tabs/resources/Resources'));
@@ -13,11 +17,23 @@ const Matters = lazy(() => import('../tabs/matters/Matters'));
 
 interface AppProps {
   teamsContext: TeamsContextType | null;
-  userData: any;
-  enquiries: any[] | null;
+  userData: UserData[] | null;
+  enquiries: Enquiry[] | null;
+  matters: Matter[] | null; // Add matters to props
+  fetchMatters: (fullName: string) => Promise<Matter[]>;
+  isLoading: boolean;
+  error: string | null;
 }
 
-const App: React.FC<AppProps> = ({ teamsContext, userData, enquiries }) => {
+const App: React.FC<AppProps> = ({
+  teamsContext,
+  userData,
+  enquiries,
+  matters,
+  fetchMatters,
+  isLoading,
+  error,
+}) => {
   const [activeTab, setActiveTab] = useState('home');
   const isDarkMode = teamsContext?.theme === 'dark';
 
@@ -32,10 +48,10 @@ const App: React.FC<AppProps> = ({ teamsContext, userData, enquiries }) => {
     };
 
     // Wait until all required props are available
-    if (teamsContext && userData && enquiries) {
+    if (teamsContext && userData && enquiries && matters) {
       closeLoadingScreen();
     }
-  }, [teamsContext, userData, enquiries]);
+  }, [teamsContext, userData, enquiries, matters]);
 
   const tabs = [
     { key: 'home', text: 'Home' },
@@ -52,17 +68,32 @@ const App: React.FC<AppProps> = ({ teamsContext, userData, enquiries }) => {
       case 'forms':
         return <Forms />;
       case 'resources':
-        return <Resources />;
+        return <Resources />; // No Props Passed
       case 'enquiries':
-        return <Enquiries context={teamsContext} enquiries={enquiries} />;
+        return (
+          <Enquiries
+            context={teamsContext}
+            userData={userData}
+            enquiries={enquiries}
+            // Add other necessary props
+          />
+        );
       case 'matters':
-        return <Matters />;
+        return (
+          <Matters
+            matters={matters || []} // Pass matters, default to empty array if null
+            fetchMatters={fetchMatters}
+            isLoading={isLoading}
+            error={error}
+            userData={userData}
+          />
+        );
       default:
         return <Home context={teamsContext} userData={userData} enquiries={enquiries} />;
     }
   };
 
-  if (!teamsContext || !userData || !enquiries) {
+  if (!teamsContext || !userData || !enquiries || !matters) {
     return <div>Loading or Error...</div>; // Add proper loading/error UI here if needed
   }
 

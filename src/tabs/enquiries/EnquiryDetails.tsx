@@ -12,7 +12,7 @@ import {
   MessageBar,
   MessageBarType,
 } from '@fluentui/react';
-import { Enquiry } from '../../app/functionality/FeContext';
+import { Enquiry } from '../../app/functionality/types'; // Correct import
 import { colours } from '../../app/styles/colours';
 import BubbleTextField from '../../app/styles/BubbleTextField'; // Ensure this path is correct
 import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme
