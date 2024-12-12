@@ -37,6 +37,18 @@ const commonInputStyle = {
   lineHeight: '40px',
 };
 
+const stripHtmlTags = (html: string): string => {
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = html;
+  return tempDiv.textContent || tempDiv.innerText || '';
+};
+
+const cleanTemplateString = (template: string): string => {
+  return template
+    .replace(/\s*\n\s*/g, ' ') // Replace newlines with single spaces
+    .replace(/>\s+</g, '><'); // Remove spaces between tags
+};
+
 // Define icon properties for toolbar buttons
 const boldIcon: IIconProps = { iconName: 'Bold' };
 const italicIcon: IIconProps = { iconName: 'Italic' };
@@ -158,7 +170,7 @@ function escapeRegExp(string: string): string {
 }
 
 // Function to replace placeholders in the email body
-const replacePlaceholders = (template: string, enquiry: Enquiry): string => {
+const replacePlaceholders = (template: string, intro: string, enquiry: Enquiry): string => {
   return template
     // Replace dynamic variables like [Enquiry.First_Name]
     .replace(
@@ -173,15 +185,14 @@ const replacePlaceholders = (template: string, enquiry: Enquiry): string => {
         enquiry.Point_of_Contact || 'Our Team'
       }</span>`
     )
+    // Replace [INTRO] with the intro text
     .replace(
-      /\[practice_area\]/g,
-      `<span style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${
-        enquiry.Area_of_Work || '[practice_area]'
-      }</span>`
+      /\[INTRO\]/g,
+      `<span style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${intro}</span>`
     )
     // Wrap other placeholders with data-placeholder for reliable targeting
     .replace(
-      /\[(Scope Placeholder|Fee Option Placeholder|Required Documents Placeholder|Meeting Link Placeholder|Google Review Placeholder|Payment Link Placeholder)\]/g,
+      /\[(Scope Placeholder|Hourly Rate and Budget Placeholder|Required Documents Placeholder|Meeting Link Placeholder|Google Review Placeholder|Payment Link Placeholder)\]/g,
       (match) =>
         `<span data-placeholder="${match}" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${match}</span>`
     );
@@ -207,6 +218,26 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
       ? `Your ${capitalizeWords(enquiry.Area_of_Work)} Enquiry`
       : 'Your Enquiry'
   );
+
+  const BASE_TEMPLATE = `Dear [Enquiry.First_Name],
+
+[INTRO]
+
+[Scope Placeholder]
+
+[Hourly Rate and Budget Placeholder]
+
+[Payment Link Placeholder]
+
+[Meeting Link Placeholder]
+
+[Required Documents Placeholder]
+
+[Google Review Placeholder]
+
+Kind regards,
+[Enquiry.Point_of_Contact]`;
+
   const normalizeBody = (text: string) =>
     text
       .split('\n') // Split the text into lines
@@ -216,24 +247,8 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
   const [body, setBody] = useState<string>(
     normalizeBody(
       replacePlaceholders(
-        `Dear [Enquiry.First_Name],
-
-Thank you for reaching out regarding [practice_area]. We're well-placed to assist you.
-
-[Scope Placeholder]
-
-[Fee Option Placeholder]
-
-[Required Documents Placeholder]
-
-[Meeting Link Placeholder]
-
-[Google Review Placeholder]
-
-[Payment Link Placeholder]
-
-Kind regards,
-[Enquiry.Point_of_Contact]`,
+        BASE_TEMPLATE,
+        'Thank you for your enquiry. I am confident we can assist with your matter.',
         enquiry
       )
     )
@@ -322,7 +337,7 @@ Kind regards,
     }
   
     // Wrap inserted content in a yellow-highlighted span
-    const highlightedReplacement = `<span style="background-color: ${colours.highlightYellow}; padding: 0 3px;">${replacementText}</span>`;
+    const highlightedReplacement = `<span style="background-color: ${colours.highlightYellow}; padding: 0 3px;">${cleanTemplateString(replacementText)}</span>`;
   
     setBody((prevBody) => {
       const newBody = prevBody.replace(
@@ -352,13 +367,14 @@ Kind regards,
         // Dynamically include Area_of_Work in the subject
         const areaOfWork = enquiry.Area_of_Work.trim() || 'Practice Area';
         setSubject(`Your ${areaOfWork} Enquiry`);
-  
-        // Replace placeholders, including updating [practice_area]
+
+        // Replace [INTRO] with the selected template's intro
         const updatedBody = replacePlaceholders(
-          selectedTemplate.body.replace('[practice_area]', selectedPracticeArea),
+          BASE_TEMPLATE,
+          selectedTemplate.intro,
           enquiry
         );
-  
+
         // Trim unintended leading newlines or whitespace
         setBody(updatedBody.trimStart());
       }
@@ -400,24 +416,8 @@ Kind regards,
     setBody(
       normalizeBody(
         replacePlaceholders(
-          `Dear [Enquiry.First_Name],
-
-Thank you for reaching out regarding [practice_area]. We're well-placed to assist you.
-
-[Scope Placeholder]
-
-[Fee Option Placeholder]
-
-[Required Documents Placeholder]
-
-[Meeting Link Placeholder]
-
-[Google Review Placeholder]
-
-[Payment Link Placeholder]
-
-Kind regards,
-[Enquiry.Point_of_Contact]`,
+          BASE_TEMPLATE,
+          'Thank you for your enquiry. I am confident we can assist with your matter.',
           enquiry
         )
       )
@@ -468,6 +468,53 @@ Kind regards,
       resetForm();
     }
   };
+
+  // Function to handle drafting email
+  const handleDraftEmail = async () => {
+    const apiUrl = `${process.env.REACT_APP_PROXY_BASE_URL}/sendEmail?code=${process.env.REACT_APP_SEND_EMAIL_CODE}`;
+
+    // Extract the user's email used in the sign-off
+    const userEmail = enquiry.Point_of_Contact; // Assuming this is where the user's email is stored
+
+    // Validate inputs
+    if (!body || !userEmail) {
+        setErrorMessage("Email contents and user email are required.");
+        setIsErrorVisible(true);
+        return;
+    }
+
+    const requestBody = {
+        email_contents: body,    // The email content in HTML
+        user_email: userEmail,   // The user's email for the sign-off
+    };
+
+    try {
+        // Reset any previous error states
+        setErrorMessage("");
+        setIsErrorVisible(false);
+
+        // API call
+        const response = await fetch(apiUrl, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(requestBody),
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || "Failed to draft email.");
+        }
+
+        // Show success
+        setIsSuccessVisible(true);
+    } catch (error: any) {
+        console.error("Error drafting email:", error);
+        setErrorMessage(error.message || "An unknown error occurred.");
+        setIsErrorVisible(true);
+    }
+};
 
   // Automatically hide success message after 3 seconds
   useEffect(() => {
@@ -778,28 +825,7 @@ Kind regards,
               return (
                 <span
                   key={attachment.key}
-                  style={{
-                    padding: '6px 12px',
-                    borderRadius: '12px',
-                    cursor: 'pointer',
-                    userSelect: 'none',
-                    minWidth: '100px',
-                    textAlign: 'center',
-                    backgroundColor: isSelected
-                      ? colours.cta
-                      : isDarkMode
-                      ? colours.dark.sectionBackground
-                      : colours.light.sectionBackground,
-                    color: isSelected
-                      ? '#ffffff'
-                      : isDarkMode
-                      ? colours.dark.text
-                      : colours.light.text,
-                    border: `1px solid ${
-                      isDarkMode ? colours.dark.cardHover : colours.light.cardHover
-                    }`,
-                    transition: 'background-color 0.2s, color 0.2s',
-                  }}
+                  className={attachmentTagStyle(isSelected, isDarkMode)}
                   onClick={() => toggleAttachment(attachment.key)}
                 >
                   {attachment.text}
@@ -819,28 +845,7 @@ Kind regards,
               return (
                 <span
                   key={option.key}
-                  style={{
-                    padding: '6px 12px',
-                    borderRadius: '12px',
-                    cursor: 'pointer',
-                    userSelect: 'none',
-                    minWidth: '80px',
-                    textAlign: 'center',
-                    backgroundColor: isSelected
-                      ? colours.cta
-                      : isDarkMode
-                      ? colours.dark.sectionBackground
-                      : colours.light.sectionBackground,
-                    color: isSelected
-                      ? '#ffffff'
-                      : isDarkMode
-                      ? colours.dark.text
-                      : colours.light.text,
-                    border: `1px solid ${
-                      isDarkMode ? colours.dark.cardHover : colours.light.cardHover
-                    }`,
-                    transition: 'background-color 0.2s, color 0.2s',
-                  }}
+                  className={followUpTagStyle(isSelected, isDarkMode)}
                   onClick={() =>
                     setFollowUp(isSelected ? undefined : (option.key as string))
                   }
@@ -1049,10 +1054,7 @@ Kind regards,
 
             <DefaultButton
               text="Draft Email"
-              onClick={() => {
-                // Placeholder for draft email functionality
-                console.log('Draft Email clicked');
-              }}
+              onClick={handleDraftEmail} // Call the draft email function
               styles={sharedDefaultButtonStyles}
               ariaLabel="Draft Email"
               iconProps={{ iconName: 'Edit' }}
@@ -1317,19 +1319,15 @@ Kind regards,
                       }
                     />
                     {/* Preview Text */}
-                    {typeof selectedTemplateOptions[block.title] ===
-                      'string' &&
+                    {typeof selectedTemplateOptions[block.title] === 'string' &&
                       selectedTemplateOptions[block.title] && (
                         <div className={templatePreviewStyle(isDarkMode)}>
-                          <span>
-                            {
-                              block.options.find(
-                                (option: TemplateOption) =>
-                                  option.label ===
-                                  selectedTemplateOptions[block.title]
-                              )?.previewText || ''
-                            }
-                          </span>
+                          {stripHtmlTags(
+                            block.options.find(
+                              (option: TemplateOption) =>
+                                option.label === selectedTemplateOptions[block.title]
+                            )?.previewText || ''
+                          )}
                         </div>
                       )}
                   </>

@@ -22,44 +22,79 @@ export interface TemplateOption {
       placeholder: '[Scope Placeholder]',
       options: [
         {
-          label: 'Advice - Advising',
-          previewText: 'We offer comprehensive advising services to guide you through every step of your legal needs.',
+          label: 'Initial Outreach - Unavailable by Phone',
+          previewText: `
+            Thank you for your enquiry. I am confident we can assist with your matter.
+    
+            Please let me know a time/date you’re available to speak using the link below and I will call then to discuss your matter in greater detail to see if I/we can assist. The initial call is on a no-cost or obligation basis.
+    
+            https://calendly.com/helixlaw-sam/telephone-call-duplicate
+    
+            I look forward to speaking with you.
+          `,
         },
         {
-          label: 'Advice - Drafting',
-          previewText: 'Our drafting services ensure that all your legal documents are meticulously prepared and tailored to your requirements.',
-        },
-        {
-          label: 'Review',
-          previewText: 'Our review services provide thorough examination of your legal documents to ensure accuracy and compliance.',
+          label: 'Initial Scope - Construction',
+          previewText: `
+            We can:-
+            <ol>
+              <li>Review the quote/contract from the architect;</li>
+              <li>Review the correspondence between you and the architect/builder/engineer in respect of the depth of the foundations;</li>
+              <li>Provide you with a letter of advice detailing:
+                <ol type="a">
+                  <li>The basis and prospects of your claim;</li>
+                  <li>The likely costs to trial;</li>
+                  <li>The evidence that you need to obtain;</li>
+                  <li>The next steps to advance your position.</li>
+                </ol>
+              </li>
+            </ol>
+            Together items 1-3 above are ‘the Initial Scope’.
+          `,
         },
       ],
     },
     {
-      title: 'Pricing',
-      description: 'Provide detailed pricing information.',
-      placeholder: '[Fee Option Placeholder]',
+      title: 'Hourly Rate and Budget',
+      description: 'Provide tailored hourly rate and budget information.',
+      placeholder: '[Hourly Rate and Budget Placeholder]',
       options: [
         {
-          label: 'Fixed Price Service',
-          previewText: 'Our fixed price service offers transparency and predictability, allowing you to budget effectively without unexpected costs.',
+          label: 'Initial Scope Budget - Hourly Rate (Solicitor)',
+          previewText: 'I am a solicitor and my hourly rate is £285 plus VAT. For you to instruct me to complete the Initial Scope you would need to budget approximately [£X] +VAT, which is an estimate and not a fixed fee. Any additional work would incur further cost on a time-recorded basis.',
         },
         {
-          label: 'Agreed Monthly Fee Retainer',
-          previewText: 'With an agreed monthly fee retainer, you receive ongoing support and legal services tailored to your needs on a consistent basis.',
+          label: 'Initial Scope Budget - Hourly Rates',
+          previewText: 'I am a solicitor and my hourly rate is £285 plus VAT. For you to instruct me to complete the Initial Scope you would need to budget approximately [£X] +VAT, which is an estimate and not a fixed fee. Any additional work would incur further cost on a time-recorded basis.',
         },
+      ],
+    },
+    {
+      title: 'Payment Instructions',
+      description: 'Confirm next steps and payment instructions.',
+      placeholder: '[Payment Link Placeholder]',
+      options: [      
         {
-          label: 'No Win No Fee',
-          previewText: 'Our no win no fee option ensures that you only pay for our services if we successfully resolve your case.',
-        },
-        {
-          label: 'Residential Possession Fixed Fees',
-          previewText: 'We provide fixed fees for residential possession cases, offering affordability and clarity throughout the process.',
-        },
-        {
-          label: 'Adjudication Costs',
-          previewText: 'Our adjudication costs are structured to provide you with fair and competitive pricing for dispute resolution services.',
-        },
+          label: 'Request for ID & Payment Instructions',
+          previewText: `
+            If you wish to instruct us, I would be grateful if you could:
+        
+            1. Complete the identity form below for our compliance purposes:  
+               https://helix-law.co.uk/proof-of-identity/
+        
+            2. Pay the amount of £X on account, using our account details below:  
+               Helix Law General Client Account  
+               Barclays Bank  
+               Account Number: 93472434  
+               Sort Code: 20-27-91  
+        
+               Reference: FE [NAME] // [ACID]
+        
+            Please ensure to quote the above reference so that we promptly identify your payment.
+        
+            Once you have confirmed the above, I will be able to open a file for you and we will begin working on your behalf.
+          `,
+        },                
       ],
     },
     {
@@ -68,12 +103,8 @@ export interface TemplateOption {
       placeholder: '[Required Documents Placeholder]',
       isMultiSelect: true,
       options: [
-        { label: 'Lease Agreements', previewText: 'Lease Agreements' },
-        { label: 'Correspondence', previewText: 'Correspondence' },
-        { label: 'Financial Statements', previewText: 'Financial Statements' },
-        { label: 'Legal Filings', previewText: 'Legal Filings' },
-        { label: 'Property Documents', previewText: 'Property Documents' },
-        { label: 'Tenant Information', previewText: 'Tenant Information' },
+        { label: 'The contract', previewText: 'The contract' },
+        { label: 'Any relevant correspondence', previewText: 'Any relevant correspondence' },
       ],
       dropdownStyles: {
         callout: {
@@ -88,84 +119,58 @@ export interface TemplateOption {
       },
     },
     {
-      title: 'Payment Link',
-      description: 'Provide a link for payment or further action.',
-      placeholder: '[Payment Link Placeholder]',
-      options: [
-        {
-          label: 'Pay Now',
-          previewText: 'Click the link below to proceed with your payment and secure our services:',
-        },
-        {
-          label: 'Schedule a Payment',
-          previewText: 'Use the following link to schedule your payment at a convenient time:',
-        },
-      ],
-    },
-    {
-      title: 'Meeting Link (Calendly)',
+      title: 'Calendly Link',
       description: 'Schedule a meeting using Calendly.',
       placeholder: '[Meeting Link Placeholder]',
       options: [
         {
-          label: 'Schedule Meeting',
-          previewText: 'I would like to schedule a meeting to discuss your needs further. Please choose a convenient time using my Calendly link below:\n\nBest regards,\n[Enquiry.Point_of_Contact]',
+          label: '15m Telephone Call',
+          previewText: `
+            You are welcome to schedule a 15-minute telephone call to discuss your needs further. 
+            Please select a convenient time using the link below:
+          `,
         },
+        {
+          label: '30m Telephone Call',
+          previewText: `
+            You are welcome to schedule a 30-minute telephone call to explore your matter in more detail. 
+            Please select a convenient time using the link below:
+          `,
+        },
+        {
+          label: '15m Video Call',
+          previewText: `
+            You are invited to schedule a 15-minute video call to discuss your needs. 
+            Please choose a suitable time using the link below:
+          `,
+        },
+        {
+          label: '30m Video Call',
+          previewText: `
+            You are invited to schedule a 30-minute video call to discuss your requirements in detail. 
+            Please select a convenient time using the link below:
+          `,
+        },        
       ],
     },
     {
       title: 'Google Review',
-      description: 'Encourage clients to leave a Google review.',
+      description: 'Encourage prospects to leave a Google review.',
       placeholder: '[Google Review Placeholder]',
       options: [
         {
-          label: 'Request Review 1',
-          previewText: '"Fantastic service! They handled everything professionally and efficiently." - Client D',
-        },
-        {
-          label: 'Request Review 2',
-          previewText: '"I am extremely satisfied with the outcome. Highly recommend their services!" - Client E',
-        },
-        {
-          label: 'Request Review 3',
-          previewText: '"Their team went above and beyond to ensure my case was a success." - Client F',
-        },
-      ],
-    },
-    {
-      title: 'Case Studies',
-      description: 'Provide relevant case studies.',
-      placeholder: '[Case Studies Placeholder]',
-      options: [
-        {
-          label: 'Commercial Success',
-          previewText: 'Case Study: Successfully navigated a complex commercial dispute, resulting in favorable terms for our client.',
-        },
-        {
-          label: 'Employment Resolution',
-          previewText: 'Case Study: Assisted an employee in resolving a contractual disagreement, ensuring fair compensation.',
-        },
-        {
-          label: 'Construction Project',
-          previewText: 'Case Study: Managed legal aspects of a large-scale construction project, ensuring compliance and timely completion.',
-        },
-      ],
-    },
-    {
-      title: 'Testimonials',
-      description: 'Share client testimonials to build trust.',
-      placeholder: '[Testimonials Placeholder]',
-      options: [
-        {
-          label: 'General',
+          label: '5* Google Review',
           previewText: `
-  <ul>
-    <li>"Their expertise was invaluable in resolving our dispute quickly." - Client A</li>
-    <li>"Professional and dedicated team who truly understand our needs." - Client B</li>
-    <li>"Highly recommended for their clear communication and effective solutions." - Client C</li>
-  </ul>
+            I hope the above is useful and of course come back to me if I can help you further. In the meantime, I’m wondering if you can help me by providing a brief positive Google review of me and Helix Law. We’re a small but specialist team, and this would make a huge difference to us.
+        
+            If you don’t mind, please can you give us a brief 5* positive review at the following link:  
+            http://bit.ly/2gGwyNJ  
+        
+            You will need to be signed into Google.
+        
+            Many thanks in advance.
           `,
-        },
+        },        
       ],
     },
   ];

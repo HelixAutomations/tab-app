@@ -17,7 +17,6 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
-    "@azure/functions": "^4.6.0",
     "@azure/identity": "^4.5.0",
     "@azure/keyvault-secrets": "^4.9.0",
     "@microsoft/microsoft-graph-client": "^3.0.7",
@@ -30,7 +29,8 @@
     "undici": "^6.20.1"
   },
   "devDependencies": {
-    "@types/node": "^18.19.64",
+    "@azure/functions": "^4.6.0",
+    "@types/node": "^18.19.68",
     "@types/tedious": "^4.0.14",
     "copyfiles": "^2.4.1",
     "env-cmd": "^10.1.0",

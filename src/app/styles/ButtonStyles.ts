@@ -51,7 +51,7 @@ export const sharedDefaultButtonStyles = {
     padding: '6px 12px',
     borderRadius: '4px',
     backgroundColor: colours.secondaryButtonBackground,
-    border: `1px solid ${colours.secondaryButtonBorder}`,
+    border: `none`,
     height: '40px',
     fontWeight: '600',
     color: '#000000',

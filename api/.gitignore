@@ -16,3 +16,6 @@ local.settings.json
 
 # Local data
 .localConfigs
+
+# Environment variables
+.env
