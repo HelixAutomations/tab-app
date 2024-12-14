@@ -18,20 +18,19 @@ import {
   IconButton,
   IIconProps,
 } from '@fluentui/react';
-import { Enquiry } from '../../app/functionality/types'; // Correct import
+import { Enquiry } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
-import BubbleTextField from '../../app/styles/BubbleTextField'; // Ensure this path is correct
-import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme
-import PracticeAreaPitch, { PracticeAreaPitchType } from '../../app/customisation/PracticeAreaPitch'; // Import the Practice Area Templates and types
-import { templateBlocks, TemplateBlock, TemplateOption } from '../../app/customisation/TemplateBlocks'; // Corrected import path
-import { availableAttachments, AttachmentOption } from '../../app/customisation/Attachments'; // Import attachments
+import BubbleTextField from '../../app/styles/BubbleTextField';
+import { useTheme } from '../../app/functionality/ThemeContext';
+import PracticeAreaPitch, { PracticeAreaPitchType } from '../../app/customisation/PracticeAreaPitch';
+import { templateBlocks, TemplateBlock, TemplateOption } from '../../app/customisation/TemplateBlocks';
+import { availableAttachments, AttachmentOption } from '../../app/customisation/Attachments';
 import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from '../../app/styles/ButtonStyles';
 
 interface PitchBuilderProps {
   enquiry: Enquiry;
 }
 
-// Common input style
 const commonInputStyle = {
   height: '40px',
   lineHeight: '40px',
@@ -45,11 +44,10 @@ const stripHtmlTags = (html: string): string => {
 
 const cleanTemplateString = (template: string): string => {
   return template
-    .replace(/^\s*\n|\n\s*$/g, '') // Remove leading and trailing newlines
-    .replace(/\n{2,}/g, '\n'); // Replace multiple newlines with a single newline
+    .replace(/^\s*\n|\n\s*$/g, '')
+    .replace(/\n{2,}/g, '\n');
 };
 
-// Define icon properties for toolbar buttons
 const boldIcon: IIconProps = { iconName: 'Bold' };
 const italicIcon: IIconProps = { iconName: 'Italic' };
 const underlineIcon: IIconProps = { iconName: 'Underline' };
@@ -57,7 +55,6 @@ const unorderedListIcon: IIconProps = { iconName: 'BulletedList' };
 const orderedListIcon: IIconProps = { iconName: 'NumberedList' };
 const linkIcon: IIconProps = { iconName: 'Link' };
 
-// Styles for attachment tags
 const attachmentTagStyle = (isSelected: boolean, isDarkMode: boolean) =>
   mergeStyles({
     backgroundColor: isSelected
@@ -80,9 +77,9 @@ const attachmentTagStyle = (isSelected: boolean, isDarkMode: boolean) =>
     minWidth: '100px',
     textAlign: 'center',
     ':hover': {
-      boxShadow: '0 4px 8px rgba(0, 0, 0, 0.2)', // Enhanced shadow
-      transform: 'translateY(-2px)', // Lift effect
-      border: '1px solid red', // Thin red border
+      boxShadow: '0 4px 8px rgba(0, 0, 0, 0.2)',
+      transform: 'translateY(-2px)',
+      border: '1px solid red',
       backgroundColor: isSelected
         ? colours.cta
         : isDarkMode
@@ -93,7 +90,6 @@ const attachmentTagStyle = (isSelected: boolean, isDarkMode: boolean) =>
     transition: 'all 0.2s',
   });
 
-// Styles for follow-up tags
 const followUpTagStyle = (isSelected: boolean, isDarkMode: boolean) =>
   mergeStyles({
     backgroundColor: isSelected
@@ -116,9 +112,9 @@ const followUpTagStyle = (isSelected: boolean, isDarkMode: boolean) =>
     minWidth: '80px',
     textAlign: 'center',
     ':hover': {
-      boxShadow: '0 4px 8px rgba(0, 0, 0, 0.2)', // Enhanced shadow
-      transform: 'translateY(-2px)', // Lift effect
-      border: '1px solid red', // Thin red border
+      boxShadow: '0 4px 8px rgba(0, 0, 0, 0.2)',
+      transform: 'translateY(-2px)',
+      border: '1px solid red',
       backgroundColor: isSelected
         ? colours.cta
         : isDarkMode
@@ -129,7 +125,6 @@ const followUpTagStyle = (isSelected: boolean, isDarkMode: boolean) =>
     transition: 'all 0.2s',
   });
 
-// Styles for template blocks
 const templateBlockStyle = (isDarkMode: boolean) =>
   mergeStyles({
     padding: '15px',
@@ -145,7 +140,6 @@ const templateBlockStyle = (isDarkMode: boolean) =>
     },
   });
 
-// Styles for preview text within template blocks
 const templatePreviewStyle = (isDarkMode: boolean) =>
   mergeStyles({
     padding: '10px',
@@ -158,15 +152,12 @@ const templatePreviewStyle = (isDarkMode: boolean) =>
     fontSize: '14px',
   });
 
-// Function to escape regex special characters
 function escapeRegExp(string: string): string {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// Function to replace placeholders in the email body
 const replacePlaceholders = (template: string, intro: string, enquiry: Enquiry): string => {
   return template
-    // Replace dynamic variables like [Enquiry.First_Name]
     .replace(
       /\[Enquiry.First_Name\]/g,
       `<span style="background-color: ${colours.highlightYellow}; padding: 0 3px;">${
@@ -179,12 +170,14 @@ const replacePlaceholders = (template: string, intro: string, enquiry: Enquiry):
         enquiry.Point_of_Contact || 'Our Team'
       }</span>`
     )
-    // Replace [Introduction Placeholder] with the intro text
     .replace(
       /\[Introduction Placeholder\]/g,
-      `<span style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${intro.trim()}</span>`
+      `<span data-placeholder="[Introduction Placeholder]" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${intro.trim()}</span>`
     )
-    // Wrap other placeholders with data-placeholder for reliable targeting
+    .replace(
+      /\[FE Introduction Placeholder\]/g,
+      `<span data-placeholder="[FE Introduction Placeholder]" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[FE Introduction Placeholder]</span>`
+    )
     .replace(
       /\[(Scope of Work Placeholder|Risk Assessment Placeholder|Costs and Budget Placeholder|Follow-Up Instructions Placeholder|Closing Notes Placeholder|Required Documents Placeholder|Google Review Placeholder)\]/g,
       (match) =>
@@ -192,14 +185,12 @@ const replacePlaceholders = (template: string, intro: string, enquiry: Enquiry):
     );
 };
 
-// Type Guard Function to check if a value is a string array
 const isStringArray = (value: string | string[]): value is string[] => {
   return Array.isArray(value);
 };
 
 const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
-  const { isDarkMode } = useTheme(); // Access isDarkMode from Theme Context
-  const [template, setTemplate] = useState<string | undefined>(undefined);
+  const { isDarkMode } = useTheme();
   const capitalizeWords = (str: string): string =>
     str
       .toLowerCase()
@@ -214,6 +205,8 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
   );
 
   const BASE_TEMPLATE = `Dear [Enquiry.First_Name],
+
+[FE Introduction Placeholder]
 
 [Introduction Placeholder]
 
@@ -236,32 +229,10 @@ Kind regards,
 
   const normalizeBody = (text: string) =>
     text
-      .split('\n') // Split the text into lines
-      .map((line) => line.trim()) // Remove leading/trailing spaces from each line
-      .join('\n'); // Rejoin the lines with proper line breaks
+      .split('\n')
+      .map((line) => line.trim())
+      .join('\n');
 
-  const [body, setBody] = useState<string>(
-    normalizeBody(
-      replacePlaceholders(
-        BASE_TEMPLATE,
-        'Thank you for your enquiry. I am confident we can assist with your matter.',
-        enquiry
-      )
-    )
-  );
-  const [attachments, setAttachments] = useState<string[]>([]);
-  const [followUp, setFollowUp] = useState<string | undefined>(undefined); // State for follow-up
-  const [isPreviewOpen, setIsPreviewOpen] = useState<boolean>(false);
-  const [isSuccessVisible, setIsSuccessVisible] = useState<boolean>(false);
-  const [isErrorVisible, setIsErrorVisible] = useState<boolean>(false);
-  const [errorMessage, setErrorMessage] = useState<string>('');
-
-  // State to track selected options and their previews for each Template Block
-  const [selectedTemplateOptions, setSelectedTemplateOptions] = useState<{
-    [key: string]: string | string[];
-  }>({});
-
-  // Function to normalize strings (e.g., capitalize each word)
   const normalizeString = (str: string): string => {
     return str
       .toLowerCase()
@@ -272,43 +243,56 @@ Kind regards,
       .join(' ');
   };
 
-  // Function to extract matching practice areas based on area_of_work
   const getMatchingPracticeAreas = (area: string): string[] => {
     const normalizedArea = normalizeString(area);
     const practiceAreas = Object.keys(
       PracticeAreaPitch
     ) as Array<keyof PracticeAreaPitchType>;
 
-    // Find practice areas that match the normalizedArea
     const matchingPracticeAreas = practiceAreas.filter((pa) => {
       return pa.toLowerCase() === normalizedArea.toLowerCase();
     });
 
-    // If no direct match, default to 'Miscellaneous (None of the above)'
     return matchingPracticeAreas.length > 0
       ? matchingPracticeAreas
       : ['Miscellaneous (None of the above)'];
   };
 
-  // Helper to get the selected practice area based on Area_of_Work
   const getSelectedPracticeArea = (): keyof PracticeAreaPitchType => {
     const normalizedArea = normalizeString(enquiry.Area_of_Work.trim());
     const matchingPracticeAreas = getMatchingPracticeAreas(normalizedArea);
-    // Ensure the first matching practice area is a valid key or default to 'Miscellaneous (None of the above)'
     return (
       (matchingPracticeAreas[0] as keyof PracticeAreaPitchType) ||
       'Miscellaneous (None of the above)'
     );
   };
 
-  // Generate Template Options based on Area_of_Work
+  const selectedPracticeAreaKey = getSelectedPracticeArea();
+
+  const [body, setBody] = useState<string>(
+    normalizeBody(
+      replacePlaceholders(
+        BASE_TEMPLATE,
+        'Thank you for your enquiry. I am confident we can assist with your matter.',
+        enquiry
+      )
+    )
+  );
+
+  const [attachments, setAttachments] = useState<string[]>([]);
+  const [followUp, setFollowUp] = useState<string | undefined>(undefined);
+  const [isPreviewOpen, setIsPreviewOpen] = useState<boolean>(false);
+  const [isSuccessVisible, setIsSuccessVisible] = useState<boolean>(false);
+  const [isErrorVisible, setIsErrorVisible] = useState<boolean>(false);
+  const [errorMessage, setErrorMessage] = useState<string>('');
+
+  const [selectedTemplateOptions, setSelectedTemplateOptions] = useState<{
+    [key: string]: string | string[];
+  }>({});
+
   const templateOptions: IDropdownOption[] = (() => {
-    const selectedPracticeArea = getSelectedPracticeArea();
+    const templates = PracticeAreaPitch[selectedPracticeAreaKey];
 
-    // Get templates for the selected practice area
-    const templates = PracticeAreaPitch[selectedPracticeArea];
-
-    // Handle case where no templates are found for the practice area
     if (!templates) {
       return [];
     }
@@ -319,29 +303,28 @@ Kind regards,
     }));
   })();
 
-  // Function to replace placeholders and insert template blocks
+  const bodyEditorRef = useRef<HTMLDivElement>(null);
+
   const insertTemplateBlock = (block: TemplateBlock, selectedOption: string | string[]) => {
     let replacementText = '';
 
-    if (block.title === 'Required Documents' && block.isMultiSelect && isStringArray(selectedOption)) {
-      // Insert as a bullet list with previewText for Required Documents
-      replacementText = `<ul>${selectedOption.map((doc: string) => {
-        const option = block.options.find(o => o.label === doc);
-        return `<li>${option ? option.previewText.trim() : doc}</li>`;
-      }).join('')}</ul>`;
-    } else if (block.isMultiSelect && isStringArray(selectedOption)) {
-      // Insert as plain text with multiple selections (no bullets)
-      replacementText = selectedOption.map((item: string) => {
-        const option = block.options.find(o => o.label === item);
-        return option ? `${option.previewText.trim()}` : item;
-      }).join('\n');
+    if (block.isMultiSelect && isStringArray(selectedOption)) {
+      if (block.title === 'Required Documents') {
+        replacementText = `<ul>${selectedOption.map((doc: string) => {
+          const option = block.options.find(o => o.label === doc);
+          return `<li>${option ? option.previewText.trim() : doc}</li>`;
+        }).join('')}</ul>`;
+      } else {
+        replacementText = selectedOption.map((item: string) => {
+          const option = block.options.find(o => o.label === item);
+          return option ? `${option.previewText.trim()}` : item;
+        }).join('\n');
+      }
     } else if (!block.isMultiSelect && typeof selectedOption === 'string') {
-      // Insert as plain text for single-select blocks
       const option = block.options.find((o) => o.label === selectedOption);
       replacementText = option ? option.previewText.trim() : '';
     }
 
-    // Wrap inserted content in a highlighted span without adding extra line breaks
     const highlightedReplacement = `<span style="background-color: ${colours.highlightYellow}; padding: 0 3px;">${cleanTemplateString(replacementText)}</span>`;
 
     setBody((prevBody) => {
@@ -351,42 +334,43 @@ Kind regards,
       );
 
       if (bodyEditorRef.current) {
-        bodyEditorRef.current.innerHTML = newBody; // Manually update the editor's content
+        bodyEditorRef.current.innerHTML = newBody;
       }
 
       return newBody;
     });
   };
 
-  // Handle template change by replacing placeholders in the body
+  const [template, setTemplate] = useState<string | undefined>(undefined);
+
   const handleTemplateChange = (
     _: React.FormEvent<HTMLDivElement>,
     option?: IDropdownOption
   ) => {
     if (option) {
       setTemplate(option.key as string);
-      const selectedPracticeArea = getSelectedPracticeArea();
-      const selectedTemplate =
-        PracticeAreaPitch[selectedPracticeArea][option.key as string];
+      const selectedTemplate = PracticeAreaPitch[selectedPracticeAreaKey][option.key as string];
       if (selectedTemplate) {
-        // Dynamically include Area_of_Work in the subject
         const areaOfWork = enquiry.Area_of_Work.trim() || 'Practice Area';
         setSubject(`Your ${areaOfWork} Enquiry`);
 
-        // Replace [Introduction Placeholder] with the selected template's intro
-        const updatedBody = replacePlaceholders(
-          BASE_TEMPLATE,
-          selectedTemplate.intro,
-          enquiry
-        );
+        // Instead of resetting the entire body, just replace the [Introduction Placeholder]
+        // This way we don't lose what's already inserted in [FE Introduction Placeholder].
+        setBody((prevBody) => {
+          const introRegex = new RegExp(`(<span[^>]*data-placeholder="\\[Introduction Placeholder\\]"[^>]*>)(.*?)(</span>)`, 'g');
+          const newBody = prevBody.replace(introRegex,
+            `$1<span style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${selectedTemplate.intro.trim()}</span>$3`
+          );
 
-        // Trim unintended leading newlines or whitespace
-        setBody(updatedBody.trimStart());
+          if (bodyEditorRef.current) {
+            bodyEditorRef.current.innerHTML = newBody;
+          }
+          return newBody;
+        });
       }
     }
   };
 
-  // Function to toggle attachment selection
   const toggleAttachment = (attachmentKey: string) => {
     setAttachments((prev) =>
       prev.includes(attachmentKey)
@@ -396,14 +380,12 @@ Kind regards,
   };
 
   const getFilteredAttachments = (): AttachmentOption[] => {
-    const selectedPracticeArea = getSelectedPracticeArea(); // Get the matching practice area dynamically
     return availableAttachments.filter(
       (attachment) =>
-        !attachment.applicableTo || attachment.applicableTo.includes(selectedPracticeArea) // Show all universal and relevant ones
+        !attachment.applicableTo || attachment.applicableTo.includes(selectedPracticeAreaKey)
     );
   };
 
-  // Function to toggle preview panel
   const togglePreview = () => {
     setIsPreviewOpen(!isPreviewOpen);
   };
@@ -414,7 +396,6 @@ Kind regards,
     return tempDiv.textContent || tempDiv.innerText || '';
   };
 
-  // Function to reset the form
   const resetForm = () => {
     setTemplate(undefined);
     setSubject('Your Practice Area Enquiry');
@@ -428,14 +409,22 @@ Kind regards,
       )
     );
     setAttachments([]);
-    setFollowUp(undefined); // Reset follow-up
+    setFollowUp(undefined);
     setIsPreviewOpen(false);
     setIsErrorVisible(false);
     setErrorMessage('');
-    setSelectedTemplateOptions({}); // Reset selected options
+    setSelectedTemplateOptions({});
+    if (bodyEditorRef.current) {
+      bodyEditorRef.current.innerHTML = normalizeBody(
+        replacePlaceholders(
+          BASE_TEMPLATE,
+          'Thank you for your enquiry. I am confident we can assist with your matter.',
+          enquiry
+        )
+      );
+    }
   };
 
-  // Function to validate the form
   const validateForm = (): boolean => {
     if (!subject.trim()) {
       setErrorMessage('Subject cannot be empty.');
@@ -452,17 +441,14 @@ Kind regards,
     return true;
   };
 
-  // Function to send email
   const sendEmail = () => {
     if (validateForm()) {
-      // Prepare follow up text
       const followUpText = followUp
         ? `\n\nFollow Up: ${followUpOptions.find(
             (opt) => opt.key === followUp
           )?.text}`
         : '';
 
-      // Placeholder for actual email sending logic
       console.log('Email Sent:', {
         subject,
         body: body + followUpText,
@@ -474,14 +460,10 @@ Kind regards,
     }
   };
 
-  // Function to handle drafting email
   const handleDraftEmail = async () => {
     const apiUrl = `${process.env.REACT_APP_PROXY_BASE_URL}/sendEmail?code=${process.env.REACT_APP_SEND_EMAIL_CODE}`;
+    const userEmail = enquiry.Point_of_Contact;
 
-    // Extract the user's email used in the sign-off
-    const userEmail = enquiry.Point_of_Contact; // Assuming this is where the user's email is stored
-
-    // Validate inputs
     if (!body || !userEmail) {
       setErrorMessage('Email contents and user email are required.');
       setIsErrorVisible(true);
@@ -489,16 +471,14 @@ Kind regards,
     }
 
     const requestBody = {
-      email_contents: body, // The email content in HTML
-      user_email: userEmail, // The user's email for the sign-off
+      email_contents: body,
+      user_email: userEmail,
     };
 
     try {
-      // Reset any previous error states
       setErrorMessage('');
       setIsErrorVisible(false);
 
-      // API call
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
@@ -512,7 +492,6 @@ Kind regards,
         throw new Error(errorText || 'Failed to draft email.');
       }
 
-      // Show success
       setIsSuccessVisible(true);
     } catch (error: any) {
       console.error('Error drafting email:', error);
@@ -521,7 +500,6 @@ Kind regards,
     }
   };
 
-  // Automatically hide success message after 3 seconds
   useEffect(() => {
     if (isSuccessVisible) {
       const timer = setTimeout(() => setIsSuccessVisible(false), 3000);
@@ -529,7 +507,6 @@ Kind regards,
     }
   }, [isSuccessVisible]);
 
-  // Automatically hide error message after 5 seconds
   useEffect(() => {
     if (isErrorVisible) {
       const timer = setTimeout(() => setIsErrorVisible(false), 5000);
@@ -537,15 +514,12 @@ Kind regards,
     }
   }, [isErrorVisible]);
 
-  // Initial load or after body changes
   useEffect(() => {
     if (bodyEditorRef.current) {
-      // Set content when the body state changes
       bodyEditorRef.current.innerHTML = body;
     }
-  }, [body]); // Trigger when body changes
+  }, [body]);
 
-  // Define follow-up options
   const followUpOptions: IDropdownOption[] = [
     { key: '1_day', text: '1 day' },
     { key: '2_days', text: '2 days' },
@@ -555,7 +529,6 @@ Kind regards,
     { key: '30_days', text: '30 days' },
   ];
 
-  // Function to handle selecting options in multi-select blocks
   const handleMultiSelectChange = (
     blockTitle: string,
     selectedOptions: string[]
@@ -566,7 +539,6 @@ Kind regards,
     }));
   };
 
-  // Function to handle selecting options in single-select blocks
   const handleSingleSelectChange = (
     blockTitle: string,
     selectedOption: string
@@ -577,17 +549,12 @@ Kind regards,
     }));
   };
 
-  // Function to apply formatting
   const applyFormat = (command: string, value?: string) => {
     document.execCommand(command, false, value);
-    // Update body state after applying the command
     const updatedBody = (bodyEditorRef.current?.innerHTML) || '';
     setBody(updatedBody);
   };
 
-  const bodyEditorRef = useRef<HTMLDivElement>(null);
-
-  // Styles
   const containerStyle = mergeStyles({
     padding: '30px',
     backgroundColor: isDarkMode
@@ -608,29 +575,29 @@ Kind regards,
   });
 
   const formContainerStyle = mergeStyles({
-    flex: '0 0 48%', // Approximately 50% width
-    minWidth: '300px', // Ensures usability on very small screens
+    flex: '0 0 48%',
+    minWidth: '300px',
   });
 
   const templatesContainerStyle = mergeStyles({
-    flex: '0 0 48%', // Approximately 50% width
+    flex: '0 0 48%',
     display: 'flex',
     flexDirection: 'column',
-    gap: '20px', // Space between label and grid
+    gap: '20px',
   });
 
   const templatesGridStyle = mergeStyles({
     display: 'grid',
-    gridTemplateColumns: 'repeat(2, 1fr)', // Two columns
+    gridTemplateColumns: 'repeat(2, 1fr)',
     gap: '20px',
     '@media (max-width: 1200px)': {
-      gridTemplateColumns: 'repeat(1, 1fr)', // Single column on medium screens
+      gridTemplateColumns: 'repeat(1, 1fr)',
     },
     '@media (max-width: 800px)': {
-      gridTemplateColumns: '1fr', // Single column on small screens
+      gridTemplateColumns: '1fr',
     },
-    maxHeight: '80vh', // Optional: to prevent overflow
-    overflowY: 'auto', // Optional: scroll if content overflows
+    maxHeight: '80vh',
+    overflowY: 'auto',
   });
 
   const sectionHeaderStyle = mergeStyles({
@@ -643,7 +610,7 @@ Kind regards,
   const buttonGroupStyle = mergeStyles({
     gap: '15px',
     marginTop: '20px',
-    width: '100%', // Ensures the button group takes full width for alignment
+    width: '100%',
   });
 
   const panelStyle = mergeStyles({
@@ -665,7 +632,7 @@ Kind regards,
   const labelStyle = mergeStyles({
     fontWeight: '600',
     color: isDarkMode ? colours.dark.text : colours.light.text,
-    marginBottom: '10px', // Added padding between label and content
+    marginBottom: '10px',
   });
 
   const toolbarStyle = mergeStyles({
@@ -674,14 +641,9 @@ Kind regards,
     marginBottom: '8px',
   });
 
-  // Helper function to render the preview based on block type and selected options
   const renderPreview = (block: TemplateBlock) => {
     const selectedOptions = selectedTemplateOptions[block.title];
-
-    // If no options are selected, render nothing
     if (!selectedOptions) return null;
-
-    // Handle 'Required Documents' with bullet points
     if (block.title === 'Required Documents' && Array.isArray(selectedOptions)) {
       return (
         <div className={templatePreviewStyle(isDarkMode)}>
@@ -696,7 +658,6 @@ Kind regards,
       );
     }
 
-    // Handle other multi-select blocks without bullets
     if (block.isMultiSelect && Array.isArray(selectedOptions)) {
       return (
         <div className={templatePreviewStyle(isDarkMode)}>
@@ -710,7 +671,6 @@ Kind regards,
       );
     }
 
-    // Handle single-select blocks
     if (!block.isMultiSelect && typeof selectedOptions === 'string') {
       const option = block.options.find(o => o.label === selectedOptions);
       return (
@@ -720,15 +680,12 @@ Kind regards,
       );
     }
 
-    // Fallback rendering (if any other cases arise)
     return null;
   };
 
   return (
     <Stack className={containerStyle}>
-      {/* Left Section: Pitch Builder Form */}
       <Stack className={formContainerStyle} tokens={{ childrenGap: 20 }}>
-        {/* Form Header */}
         <Text
           variant="xLarge"
           styles={{ root: { fontWeight: '700', color: colours.highlight } }}
@@ -736,7 +693,6 @@ Kind regards,
           Pitch Builder
         </Text>
 
-        {/* Template Selection */}
         <Stack tokens={{ childrenGap: 6 }}>
           <Label className={labelStyle}>Select Template</Label>
           <Dropdown
@@ -748,16 +704,16 @@ Kind regards,
               dropdown: { width: '100%' },
               title: {
                 ...commonInputStyle,
-                padding: '0 15px', // Set left padding to match BubbleTextField
+                padding: '0 15px',
                 borderRadius: '8px',
                 border: 'none',
                 display: 'flex',
                 alignItems: 'center',
                 color: isDarkMode ? colours.dark.text : colours.light.text,
-                maxWidth: '450px', // Set max width to prevent overflow
-                overflow: 'hidden', // Hide overflow text
-                textOverflow: 'ellipsis', // Show ellipsis for overflowing text
-                whiteSpace: 'nowrap', // Prevent text from wrapping
+                maxWidth: '450px',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
                 selectors: {
                   ':hover': {
                     backgroundColor: isDarkMode
@@ -795,7 +751,6 @@ Kind regards,
           />
         </Stack>
 
-        {/* Subject Input */}
         <Stack tokens={{ childrenGap: 6 }}>
           <Label className={labelStyle}>Email Subject</Label>
           <BubbleTextField
@@ -810,10 +765,8 @@ Kind regards,
           />
         </Stack>
 
-        {/* Body Input */}
         <Stack tokens={{ childrenGap: 6 }}>
           <Label className={labelStyle}>Email Body</Label>
-          {/* Rich Text Toolbar */}
           <div className={toolbarStyle}>
             <IconButton
               iconProps={boldIcon}
@@ -851,7 +804,6 @@ Kind regards,
               }}
             />
           </div>
-          {/* Rich Text Editor */}
           <div
             contentEditable
             ref={bodyEditorRef}
@@ -871,7 +823,6 @@ Kind regards,
           </div>
         </Stack>
 
-        {/* Attachments Selection */}
         <Stack tokens={{ childrenGap: 6 }}>
           <Label className={labelStyle}>Select Attachments</Label>
           <Stack horizontal tokens={{ childrenGap: 8 }} wrap>
@@ -890,7 +841,6 @@ Kind regards,
           </Stack>
         </Stack>
 
-        {/* Follow Up Selection */}
         <Stack tokens={{ childrenGap: 6 }}>
           <Label className={labelStyle}>Follow Up</Label>
           <Stack horizontal tokens={{ childrenGap: 8 }} wrap>
@@ -932,7 +882,6 @@ Kind regards,
           </Stack>
         </Stack>
 
-        {/* Error Message */}
         {isErrorVisible && (
           <MessageBar
             messageBarType={MessageBarType.error}
@@ -947,7 +896,6 @@ Kind regards,
 
         <Separator />
 
-        {/* Button Group: Preview on the left, Reset on the right */}
         <Stack
           horizontal
           horizontalAlign="space-between"
@@ -970,7 +918,6 @@ Kind regards,
           />
         </Stack>
 
-        {/* Success Message */}
         {isSuccessVisible && (
           <MessageBar
             messageBarType={MessageBarType.success}
@@ -983,7 +930,6 @@ Kind regards,
           </MessageBar>
         )}
 
-        {/* Email Preview Panel */}
         <Panel
           isOpen={isPreviewOpen}
           onDismiss={togglePreview}
@@ -1085,18 +1031,17 @@ Kind regards,
               </>
             )}
           </Stack>
-          {/* Buttons at the bottom left */}
           <Stack
             styles={{
               root: {
-                position: 'absolute', // Position it absolutely within the panel
-                bottom: '20px', // Space from the bottom of the panel
-                left: '20px', // Space from the left of the panel
-                width: 'auto', // Prevent the buttons from stretching
+                position: 'absolute',
+                bottom: '20px',
+                left: '20px',
+                width: 'auto',
               },
             }}
             horizontal
-            tokens={{ childrenGap: 15 }} // Spacing between buttons
+            tokens={{ childrenGap: 15 }}
           >
             <PrimaryButton
               text="Send Email"
@@ -1108,7 +1053,7 @@ Kind regards,
 
             <DefaultButton
               text="Draft Email"
-              onClick={handleDraftEmail} // Call the draft email function
+              onClick={handleDraftEmail}
               styles={sharedDefaultButtonStyles}
               ariaLabel="Draft Email"
               iconProps={{ iconName: 'Edit' }}
@@ -1117,9 +1062,7 @@ Kind regards,
         </Panel>
       </Stack>
 
-      {/* Right Section: Template Blocks */}
       <Stack className={templatesContainerStyle}>
-        {/* Template Blocks Label */}
         <Text
           variant="xLarge"
           styles={{
@@ -1128,9 +1071,7 @@ Kind regards,
         >
           Template Blocks
         </Text>
-        {/* Grid Container for Template Blocks */}
         <Stack className={templatesGridStyle}>
-          {/* Display template blocks without category labels */}
           {templateBlocks.map((block: TemplateBlock) => (
             <Stack
               key={block.title}
@@ -1172,7 +1113,6 @@ Kind regards,
                 >
                   {block.description}
                 </Text>
-                {/* Selection Dropdown */}
                 <Dropdown
                   placeholder={block.isMultiSelect ? "Select options" : "Select an option"}
                   multiSelect={block.isMultiSelect}
@@ -1214,15 +1154,15 @@ Kind regards,
                       color: isDarkMode
                         ? colours.dark.text
                         : colours.light.text,
-                      padding: '0 20px', // Adjust padding to fit height
+                      padding: '0 20px',
                       borderRadius: '8px',
-                      border: 'none', // Remove border from title
+                      border: 'none',
                       display: 'flex',
-                      alignItems: 'center', // Vertically center the text
-                      maxWidth: '200px', // Set max width to prevent overflow
-                      overflow: 'hidden', // Hide overflow text
-                      textOverflow: 'ellipsis', // Show ellipsis for overflowing text
-                      whiteSpace: 'nowrap', // Prevent text from wrapping
+                      alignItems: 'center',
+                      maxWidth: '200px',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
                       selectors: {
                         ':hover': {
                           backgroundColor: isDarkMode
@@ -1247,8 +1187,8 @@ Kind regards,
                     },
                     root: {
                       border: 'none',
-                      borderRadius: '8px', // Match desired border radius
-                      padding: '0px', // Remove internal padding as it's handled by 'title'
+                      borderRadius: '8px',
+                      padding: '0px',
                       backgroundColor: isDarkMode
                         ? colours.dark.sectionBackground
                         : '#ffffff',
@@ -1258,7 +1198,6 @@ Kind regards,
                     },
                   }}
                   ariaLabel={`Select options for ${block.title}`}
-                  // Prevent Dropdown click from triggering the card's onClick
                   onClick={(e: React.MouseEvent<HTMLDivElement>) =>
                     e.stopPropagation()
                   }
@@ -1266,17 +1205,12 @@ Kind regards,
                     e.stopPropagation()
                   }
                 />
-                {/* Render Preview Using Helper Function */}
                 {renderPreview(block)}
               </Stack>
             </Stack>
           ))}
         </Stack>
       </Stack>
-
-      {/* Right Section: Template Blocks */}
-      {/* Removed duplicate rendering to prevent duplication */}
-      {/* All Template Blocks are already rendered within the above section */}
     </Stack>
   );
 };

@@ -1,3 +1,5 @@
+// src/functions/getAttendance.ts
+
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { DefaultAzureCredential } from "@azure/identity";
 import { SecretClient } from "@azure/keyvault-secrets";
@@ -22,9 +24,29 @@ export async function getAttendanceHandler(req: HttpRequest, context: Invocation
         const passwordSecret = await secretClient.getSecret(passwordSecretName);
         const password = passwordSecret.value;
 
+        context.log("Retrieved SQL password from Key Vault.");
+
         // Build the connection string
-        const connectionString = `Server=${sqlServer};Database=${sqlDatabase};User ID=helix-database-server;Password=${password};`;
+        const connectionString = `Server=${sqlServer};Database=${sqlDatabase};User ID=helix-database-server;Password=${password};Encrypt=true;TrustServerCertificate=false;`;
         const config = parseConnectionString(connectionString, context);
+
+        context.log("Parsed SQL connection configuration.");
+
+        // Log non-sensitive parts of the config
+        context.log("SQL Connection Config:", {
+            server: config.server,
+            options: {
+                database: config.options.database,
+                encrypt: config.options.encrypt,
+                trustServerCertificate: config.options.trustServerCertificate,
+                connectTimeout: config.options.connectTimeout,
+            },
+            authentication: {
+                type: config.authentication.type,
+                userName: config.authentication.options.userName,
+                // Do not log the password
+            },
+        });
 
         // Determine today's day name and adjust if Saturday or Sunday
         const todayDate = new Date();
@@ -133,6 +155,8 @@ async function queryAttendanceForToday(day: string, currentWeekRange: string, pr
                 ORDER BY [First_Name];
             `;
 
+            context.log("SQL Query:", query);
+
             const sqlRequest = new SqlRequest(query, (err, rowCount) => {
                 if (err) {
                     context.error("SQL Query Execution Error:", err);
@@ -164,6 +188,7 @@ async function queryAttendanceForToday(day: string, currentWeekRange: string, pr
 
             sqlRequest.on("requestCompleted", () => {
                 const uniqueAttendees = [...new Set(attendees)].sort(); // Deduplicate and sort alphabetically
+                context.log("Unique Attendees:", uniqueAttendees);
                 resolve(uniqueAttendees);
                 connection.close();
             });
@@ -173,7 +198,12 @@ async function queryAttendanceForToday(day: string, currentWeekRange: string, pr
             sqlRequest.addParameter("CurrentWeek", TYPES.NVarChar, currentWeekRange);
             sqlRequest.addParameter("PreviousWeek", TYPES.NVarChar, previousWeekRange);
 
-            context.log("Executing SQL query.");
+            context.log("Executing SQL query with parameters:", {
+                Day: day,
+                CurrentWeek: currentWeekRange,
+                PreviousWeek: previousWeekRange,
+            });
+
             connection.execSql(sqlRequest);
         });
 
@@ -213,6 +243,15 @@ function parseConnectionString(connectionString: string, context: InvocationCont
                     config.authentication = { type: "default", options: { userName: "", password: "" } };
                 }
                 config.authentication.options.password = value;
+                break;
+            case "Encrypt":
+                config.options = { ...config.options, encrypt: value.toLowerCase() === 'true' };
+                break;
+            case "TrustServerCertificate":
+                config.options = { ...config.options, trustServerCertificate: value.toLowerCase() === 'true' };
+                break;
+            case "Connect Timeout":
+                config.options = { ...config.options, connectTimeout: parseInt(value, 10) };
                 break;
             default:
                 break;

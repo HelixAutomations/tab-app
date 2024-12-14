@@ -19,7 +19,6 @@ import {
   Persona,
   PersonaSize,
   PersonaPresence,
-  PrimaryButton,
   DefaultButton,
 } from '@fluentui/react';
 import { colours } from '../../app/styles/colours';
@@ -48,12 +47,11 @@ import ResourceDetails from '../resources/ResourceDetails';
 
 import HomePanel from './HomePanel';
 import { officeAttendanceForm, annualLeaveForm } from './HomeForms';
-import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from '../../app/styles/ButtonStyles';
 
-import { Context as TeamsContextType } from '@microsoft/teams-js'; // Import Context type
+import { Context as TeamsContextType } from '@microsoft/teams-js';
 
 interface HomeProps {
-  context: TeamsContextType | null; // Use TeamsContextType
+  context: TeamsContextType | null;
   userData: any;
   enquiries: any[] | null;
 }
@@ -70,6 +68,19 @@ interface Person {
   initials: string;
   presence: PersonaPresence;
 }
+
+const quickActions: QuickLink[] = [
+  { title: 'Create a Task', icon: 'Add' },
+  { title: 'Create a Time Entry', icon: 'Clock' },
+  { title: 'Record an Attendance Note', icon: 'Add' },
+  { title: 'Retrieve a Contact', icon: 'Contact' },
+];
+
+const onLeavePeople: Person[] = [
+  { name: 'Sam Packwood', initials: 'SP', presence: PersonaPresence.away },
+  { name: 'Richard Chapman', initials: 'RC', presence: PersonaPresence.offline },
+  { name: 'Kanchel White', initials: 'KW', presence: PersonaPresence.away },
+];
 
 const containerStyle = (isDarkMode: boolean) =>
   mergeStyles({
@@ -106,6 +117,22 @@ const sectionRowStyle = mergeStyles({
   alignItems: 'stretch',
   gap: '20px',
   width: '100%',
+});
+
+const officeSectionRowStyle = mergeStyles({
+  display: 'grid',
+  gridTemplateColumns: '1fr min-content 1fr',
+  alignItems: 'stretch',
+  width: '100%',
+  gap: '20px',
+});
+
+const verticalPipeStyle = mergeStyles({
+  backgroundColor: 'rgba(128,128,128,0.3)',
+  width: '1px',
+  height: '75%',
+  justifySelf: 'center',
+  alignSelf: 'center',
 });
 
 const sectionLabelStyle = (isDarkMode: boolean) =>
@@ -206,29 +233,10 @@ const favouritesGridStyle = mergeStyles({
   },
 });
 
-const quickActions: QuickLink[] = [
-  { title: 'Create a Task', icon: 'Add' },
-  { title: 'Create a Time Entry', icon: 'Clock' },
-  { title: 'Record an Attendance Note', icon: 'Add' },
-  { title: 'Retrieve a Contact', icon: 'Contact' },
-];
-
-const inOfficePeople: Person[] = [
-  { name: 'Alex Cook', initials: 'AC', presence: PersonaPresence.online },
-  { name: 'Jonathan Waters', initials: 'JW', presence: PersonaPresence.away },
-  { name: 'Lukasz Zemanek', initials: 'LZ', presence: PersonaPresence.busy },
-  { name: 'Laura Albon', initials: 'LA', presence: PersonaPresence.online },
-];
-
-const onLeavePeople: Person[] = [
-  { name: 'Sam Packwood', initials: 'SP', presence: PersonaPresence.away },
-  { name: 'Richard Chapman', initials: 'RC', presence: PersonaPresence.offline },
-  { name: 'Kanchel White', initials: 'KW', presence: PersonaPresence.away },
-];
-
-const subSectionContainerStyle = mergeStyles({
-  marginTop: '0',
-  marginBottom: '0',
+const peopleGridStyle = mergeStyles({
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
+  gap: '10px',
 });
 
 const officeLeaveContainerStyle = (isDarkMode: boolean) =>
@@ -240,9 +248,9 @@ const officeLeaveContainerStyle = (isDarkMode: boolean) =>
       ? `0 4px 12px ${colours.dark.border}`
       : `0 4px 12px ${colours.light.border}`,
     transition: 'background-color 0.3s, box-shadow 0.3s',
-    flex: '1 1 50%',
     display: 'flex',
     flexDirection: 'column',
+    width: '100%',
   });
 
 const transformContext = (contextObj: any): { key: string; value: string }[] => {
@@ -282,6 +290,43 @@ const createColumnsFunction = (isDarkMode: boolean): IColumn[] => [
   },
 ];
 
+const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean }> = ({ person, isDarkMode }) => {
+  return (
+    <div className={mergeStyles({ position: 'relative', display: 'flex', alignItems: 'center' })}>
+      <Persona
+        text=""
+        imageUrl={HelixAvatar}
+        size={PersonaSize.size40}
+        presence={person.presence}
+        hidePersonaDetails={true}
+        styles={{
+          root: { zIndex: 2 },
+        }}
+      />
+      <div
+        className={mergeStyles({
+          position: 'absolute',
+          left: 0,
+          top: '50%',
+          transform: 'translateY(-50%)',
+          backgroundColor: colours.grey,
+          borderRadius: '12px',
+          padding: '0 10px 0 50px',
+          height: '34px',
+          display: 'flex',
+          alignItems: 'center',
+          zIndex: 1,
+          whiteSpace: 'nowrap',
+        })}
+      >
+        <Text className={mergeStyles({ color: isDarkMode ? colours.dark.text : colours.light.text })}>
+          {person.name}
+        </Text>
+      </div>
+    </div>
+  );
+};
+
 const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const { isDarkMode } = useTheme();
   const [greeting, setGreeting] = useState<string>('');
@@ -309,25 +354,33 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
   const [isOfficeAttendancePanelOpen, setIsOfficeAttendancePanelOpen] = useState<boolean>(false);
   const [isAnnualLeavePanelOpen, setIsAnnualLeavePanelOpen] = useState<boolean>(false);
+  const [inOfficePeople, setInOfficePeople] = useState<Person[]>([]);
+  const [isLoadingAttendance, setIsLoadingAttendance] = useState<boolean>(true);
+  const [attendanceError, setAttendanceError] = useState<string | null>(null);
+  const [currentUserName, setCurrentUserName] = useState<string>('User');
 
-  const styles = `
-  @keyframes redPulse {
-      0% {
-          box-shadow: 0 0 0 0 rgba(255, 0, 0, 0.4);
-      }
-      70% {
-          box-shadow: 0 0 0 10px rgba(255, 0, 0, 0);
-      }
-      100% {
-          box-shadow: 0 0 0 0 rgba(255, 0, 0, 0);
-      }
-  }
-  `;
-
-  const styleSheet = document.createElement("style");
-  styleSheet.type = "text/css";
-  styleSheet.innerText = styles;
-  document.head.appendChild(styleSheet);
+  useEffect(() => {
+    const styles = `
+    @keyframes redPulse {
+        0% {
+            box-shadow: 0 0 0 0 rgba(255, 0, 0, 0.4);
+        }
+        70% {
+            box-shadow: 0 0 0 10px rgba(255, 0, 0, 0);
+        }
+        100% {
+            box-shadow: 0 0 0 0 rgba(255, 0, 0, 0);
+        }
+    }
+    `;
+    const styleSheet = document.createElement("style");
+    styleSheet.type = "text/css";
+    styleSheet.innerText = styles;
+    document.head.appendChild(styleSheet);
+    return () => {
+      document.head.removeChild(styleSheet);
+    };
+  }, []);
 
   useEffect(() => {
     const storedFormsFavorites = localStorage.getItem('formsFavorites');
@@ -364,6 +417,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   useEffect(() => {
     if (userData && Array.isArray(userData) && userData.length > 0 && (userData[0].First || userData[0].First_Name)) {
       const firstName = userData[0].First || userData[0].First_Name || 'User';
+      setCurrentUserName(firstName);
       const currentHour = new Date().getHours();
       let timeOfDay = 'Hello';
       if (currentHour < 12) {
@@ -424,6 +478,39 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     return () => clearInterval(typingInterval);
   }, [greeting]);
 
+  useEffect(() => {
+    const fetchAttendance = async () => {
+      try {
+        setIsLoadingAttendance(true);
+        const response = await fetch(
+          `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_ATTENDANCE_PATH}?code=${process.env.REACT_APP_GET_ATTENDANCE_CODE}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+        if (!response.ok) throw new Error(`Failed to fetch attendance: ${response.status}`);
+        const attendanceData: string[] = await response.json();
+
+        const fetchedPeople: Person[] = attendanceData.map((name) => ({
+          name,
+          initials: name.split(' ').map((n) => n[0]).join('').toUpperCase(),
+          presence: PersonaPresence.online,
+        }));
+
+        setInOfficePeople(fetchedPeople);
+      } catch (error: any) {
+        console.error('Error fetching attendance:', error);
+        setAttendanceError(error.message || 'Unknown error occurred.');
+        setInOfficePeople([]);
+      } finally {
+        setIsLoadingAttendance(false);
+      }
+    };
+
+    fetchAttendance();
+  }, []);
+
   const columns = useMemo(() => createColumnsFunction(isDarkMode), [isDarkMode]);
 
   const handleActionClick = (action: QuickLink) => {
@@ -441,6 +528,83 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     }).catch((err) => {
       console.error('Failed to copy: ', err);
     });
+  };
+
+  const currentUserInOffice = inOfficePeople.some((person) => person.name === currentUserName);
+
+  const officeAttendanceButtonText = currentUserInOffice ? 'Update Office Attendance' : 'Confirm Office Attendance';
+
+  const officeAttendanceButtonStyles = currentUserInOffice
+    ? {
+        root: {
+          backgroundColor: `${colours.light.border} !important`,
+          border: 'none !important',
+          height: '40px !important',
+          fontWeight: '600 !important',
+          borderRadius: '4px !important',
+          padding: '6px 12px !important',
+          transition: 'background 0.3s ease !important',
+        },
+        rootHovered: {
+          background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.15) 100%), ${colours.light.border} !important`,
+        },
+        rootPressed: {
+          background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.25) 100%), ${colours.light.border} !important`,
+        },
+        rootFocused: {
+          backgroundColor: `${colours.light.border} !important`,
+        },
+        label: {
+          color: isDarkMode ? colours.dark.text : colours.light.text,
+        },
+      }
+    : {
+        root: {
+          backgroundColor: `${colours.cta} !important`,
+          border: 'none !important',
+          height: '40px !important',
+          fontWeight: '600 !important',
+          borderRadius: '4px !important',
+          padding: '6px 12px !important',
+          animation: 'redPulse 2s infinite !important',
+          transition: 'background 0.3s ease !important',
+        },
+        rootHovered: {
+          background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.15) 100%), ${colours.cta} !important`,
+        },
+        rootPressed: {
+          background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.25) 100%), ${colours.cta} !important`,
+        },
+        rootFocused: {
+          backgroundColor: `${colours.cta} !important`,
+        },
+        label: {
+          color: '#ffffff !important',
+        },
+      };
+
+  const requestAnnualLeaveButtonStyles = {
+    root: {
+      backgroundColor: `${colours.light.border} !important`,
+      border: 'none !important',
+      height: '40px !important',
+      fontWeight: '600 !important',
+      borderRadius: '4px !important',
+      padding: '6px 12px !important',
+      transition: 'background 0.3s ease !important',
+    },
+    rootHovered: {
+      background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.15) 100%), ${colours.light.border} !important`,
+    },
+    rootPressed: {
+      background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.25) 100%), ${colours.light.border} !important`,
+    },
+    rootFocused: {
+      backgroundColor: `${colours.light.border} !important`,
+    },
+    label: {
+      color: isDarkMode ? colours.dark.text : colours.light.text,
+    },
   };
 
   const metricsData = [
@@ -481,6 +645,15 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       isTimeMoney: false,
     },
   ];
+
+  const today = new Date();
+  const day = today.getDay();
+  let officeSectionTitle = 'In the Office Today';
+  if (day === 6) {
+    officeSectionTitle = 'In the Office on Monday';
+  } else if (day === 0) {
+    officeSectionTitle = 'In the Office Tomorrow';
+  }
 
   return (
     <div className={containerStyle(isDarkMode)}>
@@ -608,7 +781,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           </Text>
 
           {formsFavorites.length > 0 && (
-            <div className={subSectionContainerStyle}>
+            <div>
               <div className={favouritesGridStyle}>
                 {formsFavorites.map((form: FormItem, index: number) => (
                   <FormCard
@@ -629,29 +802,12 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                     description={form.description}
                   />
                 ))}
-
-                {resourcesFavorites.map((resource: Resource, index: number) => (
-                  <ResourceCard
-                    key={`resource-${resource.title}`}
-                    resource={resource}
-                    isFavorite={true}
-                    onCopy={(url: string, title: string) => copyToClipboardHandler(url, title)}
-                    onToggleFavorite={() => {
-                      const updatedFavorites = resourcesFavorites.filter(fav => fav.title !== resource.title);
-                      setResourcesFavorites(updatedFavorites);
-                      localStorage.setItem('resourcesFavorites', JSON.stringify(updatedFavorites));
-                    }}
-                    onGoTo={() => window.open(resource.url, '_blank')}
-                    onSelect={() => setSelectedResource(resource)}
-                    animationDelay={index * 0.1}
-                  />
-                ))}
               </div>
             </div>
           )}
 
           {resourcesFavorites.length > 0 && (
-            <div className={subSectionContainerStyle}>
+            <div>
               <div style={{ marginBottom: '15px' }}>
                 <Text className={subLabelStyle(isDarkMode)}>Resources</Text>
               </div>
@@ -677,96 +833,52 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           )}
         </div>
 
-        <div className={sectionRowStyle}>
+        <div className={officeSectionRowStyle}>
           <div className={officeLeaveContainerStyle(isDarkMode)}>
             <Stack tokens={{ childrenGap: 20 }}>
-              <Text className={sectionLabelStyle(isDarkMode)}>In the Office Today</Text>
-              <Stack
-                horizontal
-                verticalAlign="center"
-                horizontalAlign="space-between"
-                styles={{ root: { width: '100%' } }}
-              >
-                <Stack horizontal wrap tokens={{ childrenGap: 10 }}>
-                  {inOfficePeople.map((person: Person, index: number) => (
-                    <Persona
-                      key={index}
-                      text={person.initials}
-                      imageUrl={HelixAvatar}
-                      size={PersonaSize.size40}
-                      presence={person.presence}
-                      styles={{
-                        root: { width: 100 },
-                        primaryText: { fontSize: 14, color: isDarkMode ? colours.dark.text : colours.light.text },
-                      }}
-                    />
-                  ))}
-                </Stack>
-                <PrimaryButton
-                  text="Confirm Office Attendance"
+              <Stack horizontal verticalAlign="center" horizontalAlign="space-between" styles={{ root: { width: '100%' } }}>
+                <Text className={sectionLabelStyle(isDarkMode)}>{officeSectionTitle}</Text>
+                <DefaultButton
+                  text={officeAttendanceButtonText}
                   onClick={() => setIsOfficeAttendancePanelOpen(true)}
                   iconProps={{ iconName: 'Warning' }}
-                  styles={{
-                    root: {
-                      backgroundColor: `${colours.cta} !important`,
-                      border: 'none !important',
-                      height: '40px !important',
-                      fontWeight: '600 !important',
-                      borderRadius: '4px !important',
-                      padding: '6px 12px !important',
-                      animation: 'redPulse 2s infinite !important',
-                      transition: 'background 0.3s ease !important',
-                    },
-                    rootHovered: {
-                      background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.15) 100%), ${colours.cta} !important`,
-                    },
-                    rootPressed: {
-                      background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.25) 100%), ${colours.cta} !important`,
-                    },
-                    rootFocused: {
-                      backgroundColor: `${colours.cta} !important`,
-                    },
-                    label: {
-                      color: '#ffffff !important',
-                    },
-                  }}
-                  ariaLabel="Confirm Office Attendance"
+                  styles={officeAttendanceButtonStyles}
+                  ariaLabel={officeAttendanceButtonText}
                 />
               </Stack>
+              {isLoadingAttendance ? (
+                <Spinner label="Loading attendance..." size={SpinnerSize.medium} />
+              ) : attendanceError ? (
+                <MessageBar messageBarType={MessageBarType.error}>{attendanceError}</MessageBar>
+              ) : (
+                <div className={peopleGridStyle}>
+                  {inOfficePeople.map((person: Person, index: number) => (
+                    <PersonBubble key={index} person={person} isDarkMode={isDarkMode} />
+                  ))}
+                </div>
+              )}
             </Stack>
           </div>
 
+          <div className={verticalPipeStyle}></div>
+
           <div className={officeLeaveContainerStyle(isDarkMode)}>
             <Stack tokens={{ childrenGap: 20 }}>
-              <Text className={sectionLabelStyle(isDarkMode)}>On Annual Leave Today</Text>
-              <Stack
-                horizontal
-                verticalAlign="center"
-                horizontalAlign="space-between"
-                styles={{ root: { width: '100%' } }}
-              >
-                <Stack horizontal wrap tokens={{ childrenGap: 10 }}>
-                  {onLeavePeople.map((person: Person, index: number) => (
-                    <Persona
-                      key={index}
-                      text={person.initials}
-                      imageUrl={HelixAvatar}
-                      size={PersonaSize.size40}
-                      presence={person.presence}
-                      styles={{
-                        root: { width: 100 },
-                        primaryText: { fontSize: 14, color: isDarkMode ? colours.dark.text : colours.light.text },
-                      }}
-                    />
-                  ))}
-                </Stack>
+              <Stack horizontal verticalAlign="center" horizontalAlign="space-between" styles={{ root: { width: '100%' } }}>
+                <Text className={sectionLabelStyle(isDarkMode)}>On Annual Leave Today</Text>
                 <DefaultButton
                   text="Request Annual Leave"
                   onClick={() => setIsAnnualLeavePanelOpen(true)}
-                  styles={sharedDefaultButtonStyles}
+                  iconProps={{ iconName: 'Calendar' }}
+                  styles={requestAnnualLeaveButtonStyles}
                   ariaLabel="Request Annual Leave"
                 />
               </Stack>
+              <div className={peopleGridStyle}>
+                {onLeavePeople.map((person: Person, index: number) => (
+                  <PersonBubble key={index} person={person} isDarkMode={isDarkMode} />
+                ))}
+              </div>
             </Stack>
           </div>
         </div>
