@@ -45,8 +45,8 @@ const stripHtmlTags = (html: string): string => {
 
 const cleanTemplateString = (template: string): string => {
   return template
-    .replace(/\s*\n\s*/g, ' ') // Replace newlines with single spaces
-    .replace(/>\s+</g, '><'); // Remove spaces between tags
+    .replace(/^\s*\n|\n\s*$/g, '') // Remove leading and trailing newlines
+    .replace(/\n{2,}/g, '\n'); // Replace multiple newlines with a single newline
 };
 
 // Define icon properties for toolbar buttons
@@ -56,12 +56,6 @@ const underlineIcon: IIconProps = { iconName: 'Underline' };
 const unorderedListIcon: IIconProps = { iconName: 'BulletedList' };
 const orderedListIcon: IIconProps = { iconName: 'NumberedList' };
 const linkIcon: IIconProps = { iconName: 'Link' };
-
-// Define buttonHoverStyle
-const buttonHoverStyle = {
-  boxShadow: '0 4px 8px rgba(0, 0, 0, 0.2)', // Enhanced shadow
-  transform: 'translateY(-2px)', // Lift effect
-};
 
 // Styles for attachment tags
 const attachmentTagStyle = (isSelected: boolean, isDarkMode: boolean) =>
@@ -185,14 +179,14 @@ const replacePlaceholders = (template: string, intro: string, enquiry: Enquiry):
         enquiry.Point_of_Contact || 'Our Team'
       }</span>`
     )
-    // Replace [INTRO] with the intro text
+    // Replace [Introduction Placeholder] with the intro text
     .replace(
-      /\[INTRO\]/g,
-      `<span style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${intro}</span>`
+      /\[Introduction Placeholder\]/g,
+      `<span style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${intro.trim()}</span>`
     )
     // Wrap other placeholders with data-placeholder for reliable targeting
     .replace(
-      /\[(Scope Placeholder|Hourly Rate and Budget Placeholder|Required Documents Placeholder|Meeting Link Placeholder|Google Review Placeholder|Payment Link Placeholder)\]/g,
+      /\[(Scope of Work Placeholder|Risk Assessment Placeholder|Costs and Budget Placeholder|Follow-Up Instructions Placeholder|Closing Notes Placeholder|Required Documents Placeholder|Google Review Placeholder)\]/g,
       (match) =>
         `<span data-placeholder="${match}" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${match}</span>`
     );
@@ -221,17 +215,19 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
 
   const BASE_TEMPLATE = `Dear [Enquiry.First_Name],
 
-[INTRO]
+[Introduction Placeholder]
 
-[Scope Placeholder]
+[Scope of Work Placeholder]
 
-[Hourly Rate and Budget Placeholder]
+[Risk Assessment Placeholder]
 
-[Payment Link Placeholder]
-
-[Meeting Link Placeholder]
+[Costs and Budget Placeholder]
 
 [Required Documents Placeholder]
+
+[Follow-Up Instructions Placeholder]
+
+[Closing Notes Placeholder]
 
 [Google Review Placeholder]
 
@@ -326,29 +322,38 @@ Kind regards,
   // Function to replace placeholders and insert template blocks
   const insertTemplateBlock = (block: TemplateBlock, selectedOption: string | string[]) => {
     let replacementText = '';
-  
-    if (block.isMultiSelect && isStringArray(selectedOption)) {
-      // Insert as a bullet list
-      replacementText = `<ul>${selectedOption.map((item) => `<li>${item}</li>`).join('')}</ul>`;
+
+    if (block.title === 'Required Documents' && block.isMultiSelect && isStringArray(selectedOption)) {
+      // Insert as a bullet list with previewText for Required Documents
+      replacementText = `<ul>${selectedOption.map((doc: string) => {
+        const option = block.options.find(o => o.label === doc);
+        return `<li>${option ? option.previewText.trim() : doc}</li>`;
+      }).join('')}</ul>`;
+    } else if (block.isMultiSelect && isStringArray(selectedOption)) {
+      // Insert as plain text with multiple selections (no bullets)
+      replacementText = selectedOption.map((item: string) => {
+        const option = block.options.find(o => o.label === item);
+        return option ? `${option.previewText.trim()}` : item;
+      }).join('\n');
     } else if (!block.isMultiSelect && typeof selectedOption === 'string') {
-      // Find the corresponding previewText
+      // Insert as plain text for single-select blocks
       const option = block.options.find((o) => o.label === selectedOption);
-      replacementText = option ? option.previewText : '';
+      replacementText = option ? option.previewText.trim() : '';
     }
-  
-    // Wrap inserted content in a yellow-highlighted span
+
+    // Wrap inserted content in a highlighted span without adding extra line breaks
     const highlightedReplacement = `<span style="background-color: ${colours.highlightYellow}; padding: 0 3px;">${cleanTemplateString(replacementText)}</span>`;
-  
+
     setBody((prevBody) => {
       const newBody = prevBody.replace(
         new RegExp(`(<span[^>]*data-placeholder="${escapeRegExp(block.placeholder)}"[^>]*>)(.*?)(</span>)`, 'g'),
         `$1${highlightedReplacement}$3`
       );
-  
+
       if (bodyEditorRef.current) {
         bodyEditorRef.current.innerHTML = newBody; // Manually update the editor's content
       }
-  
+
       return newBody;
     });
   };
@@ -368,7 +373,7 @@ Kind regards,
         const areaOfWork = enquiry.Area_of_Work.trim() || 'Practice Area';
         setSubject(`Your ${areaOfWork} Enquiry`);
 
-        // Replace [INTRO] with the selected template's intro
+        // Replace [Introduction Placeholder] with the selected template's intro
         const updatedBody = replacePlaceholders(
           BASE_TEMPLATE,
           selectedTemplate.intro,
@@ -478,43 +483,43 @@ Kind regards,
 
     // Validate inputs
     if (!body || !userEmail) {
-        setErrorMessage("Email contents and user email are required.");
-        setIsErrorVisible(true);
-        return;
+      setErrorMessage('Email contents and user email are required.');
+      setIsErrorVisible(true);
+      return;
     }
 
     const requestBody = {
-        email_contents: body,    // The email content in HTML
-        user_email: userEmail,   // The user's email for the sign-off
+      email_contents: body, // The email content in HTML
+      user_email: userEmail, // The user's email for the sign-off
     };
 
     try {
-        // Reset any previous error states
-        setErrorMessage("");
-        setIsErrorVisible(false);
+      // Reset any previous error states
+      setErrorMessage('');
+      setIsErrorVisible(false);
 
-        // API call
-        const response = await fetch(apiUrl, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify(requestBody),
-        });
+      // API call
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
 
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(errorText || "Failed to draft email.");
-        }
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || 'Failed to draft email.');
+      }
 
-        // Show success
-        setIsSuccessVisible(true);
+      // Show success
+      setIsSuccessVisible(true);
     } catch (error: any) {
-        console.error("Error drafting email:", error);
-        setErrorMessage(error.message || "An unknown error occurred.");
-        setIsErrorVisible(true);
+      console.error('Error drafting email:', error);
+      setErrorMessage(error.message || 'An unknown error occurred.');
+      setIsErrorVisible(true);
     }
-};
+  };
 
   // Automatically hide success message after 3 seconds
   useEffect(() => {
@@ -532,13 +537,13 @@ Kind regards,
     }
   }, [isErrorVisible]);
 
-  // Initial load or after template change
+  // Initial load or after body changes
   useEffect(() => {
     if (bodyEditorRef.current) {
-      // Set initial content when the template changes, but not on every keystroke
+      // Set content when the body state changes
       bodyEditorRef.current.innerHTML = body;
     }
-  }, [template]); // Trigger only when template changes
+  }, [body]); // Trigger when body changes
 
   // Define follow-up options
   const followUpOptions: IDropdownOption[] = [
@@ -668,6 +673,56 @@ Kind regards,
     gap: '10px',
     marginBottom: '8px',
   });
+
+  // Helper function to render the preview based on block type and selected options
+  const renderPreview = (block: TemplateBlock) => {
+    const selectedOptions = selectedTemplateOptions[block.title];
+
+    // If no options are selected, render nothing
+    if (!selectedOptions) return null;
+
+    // Handle 'Required Documents' with bullet points
+    if (block.title === 'Required Documents' && Array.isArray(selectedOptions)) {
+      return (
+        <div className={templatePreviewStyle(isDarkMode)}>
+          <ul>
+            {selectedOptions.map((doc: string) => (
+              <li key={doc}>
+                {block.options.find(o => o.label === doc)?.previewText.trim() || doc}
+              </li>
+            ))}
+          </ul>
+        </div>
+      );
+    }
+
+    // Handle other multi-select blocks without bullets
+    if (block.isMultiSelect && Array.isArray(selectedOptions)) {
+      return (
+        <div className={templatePreviewStyle(isDarkMode)}>
+          {selectedOptions
+            .map((item: string) => {
+              const option = block.options.find(o => o.label === item);
+              return option ? option.previewText.trim() : item;
+            })
+            .join('\n')}
+        </div>
+      );
+    }
+
+    // Handle single-select blocks
+    if (!block.isMultiSelect && typeof selectedOptions === 'string') {
+      const option = block.options.find(o => o.label === selectedOptions);
+      return (
+        <div className={templatePreviewStyle(isDarkMode)}>
+          {option ? option.previewText.trim() : selectedOptions}
+        </div>
+      );
+    }
+
+    // Fallback rendering (if any other cases arise)
+    return null;
+  };
 
   return (
     <Stack className={containerStyle}>
@@ -834,7 +889,6 @@ Kind regards,
             })}
           </Stack>
         </Stack>
-
 
         {/* Follow Up Selection */}
         <Stack tokens={{ childrenGap: 6 }}>
@@ -1118,225 +1172,111 @@ Kind regards,
                 >
                   {block.description}
                 </Text>
-                {/* Selection and Preview */}
-                {block.isMultiSelect ? (
-                  <>
-                    <Dropdown
-                      placeholder="Select documents"
-                      multiSelect
-                      options={block.options.map((option: TemplateOption) => ({
-                        key: option.label,
-                        text: option.label,
-                      }))}
-                      onChange={(
-                        _: React.FormEvent<HTMLDivElement>,
-                        option?: IDropdownOption
-                      ) => {
-                        if (option) {
-                          const selectedOptions =
-                            (selectedTemplateOptions[block.title] as string[]) || [];
-                          if (option.selected) {
-                            handleMultiSelectChange(block.title, [
-                              ...selectedOptions,
-                              option.key as string,
-                            ]);
-                          } else {
-                            handleMultiSelectChange(
-                              block.title,
-                              selectedOptions.filter(
-                                (key) => key !== option.key
-                              )
-                            );
-                          }
-                        }
-                      }}
-                      selectedKeys={
-                        Array.isArray(selectedTemplateOptions[block.title])
-                          ? (selectedTemplateOptions[block.title] as string[])
-                          : undefined
+                {/* Selection Dropdown */}
+                <Dropdown
+                  placeholder={block.isMultiSelect ? "Select options" : "Select an option"}
+                  multiSelect={block.isMultiSelect}
+                  options={block.options.map((option: TemplateOption) => ({
+                    key: option.label,
+                    text: option.label,
+                  }))}
+                  onChange={(
+                    _: React.FormEvent<HTMLDivElement>,
+                    option?: IDropdownOption
+                  ) => {
+                    if (option) {
+                      if (block.isMultiSelect) {
+                        const currentSelections = Array.isArray(selectedTemplateOptions[block.title])
+                          ? selectedTemplateOptions[block.title] as string[]
+                          : [];
+                        const updatedSelections = option.selected
+                          ? [...currentSelections, option.key as string]
+                          : currentSelections.filter(key => key !== option.key);
+                        handleMultiSelectChange(block.title, updatedSelections);
+                      } else {
+                        handleSingleSelectChange(block.title, option.key as string);
                       }
-                      styles={{
-                        dropdown: { width: '100%' },
-                        title: {
-                          ...commonInputStyle,
-                          color: isDarkMode
-                            ? colours.dark.text
-                            : colours.light.text,
-                          padding: '0 20px', // Adjust padding to fit height
-                          borderRadius: '8px',
-                          border: 'none', // Remove border from title
-                          display: 'flex',
-                          alignItems: 'center', // Vertically center the text
-                          maxWidth: '200px', // Set max width to prevent overflow
-                          overflow: 'hidden', // Hide overflow text
-                          textOverflow: 'ellipsis', // Show ellipsis for overflowing text
-                          whiteSpace: 'nowrap', // Prevent text from wrapping
-                          selectors: {
-                            ':hover': {
-                              backgroundColor: isDarkMode
-                                ? colours.dark.cardHover
-                                : colours.light.cardHover,
-                            },
-                          },
-                        },
-                        dropdownItem: {
-                          selectors: {
-                            ':hover': {
-                              backgroundColor: isDarkMode
-                                ? colours.dark.cardHover
-                                : colours.light.cardHover,
-                            },
-                          },
-                        },
-                        callout: {
-                          boxShadow: isDarkMode
-                            ? '0 2px 5px rgba(255, 255, 255, 0.1)'
-                            : '0 2px 5px rgba(0, 0, 0, 0.1)',
-                        },
-                        root: {
-                          border: 'none',
-                          borderRadius: '8px', // Match desired border radius
-                          padding: '0px', // Remove internal padding as it's handled by 'title'
+                    }
+                  }}
+                  selectedKeys={
+                    block.isMultiSelect
+                      ? Array.isArray(selectedTemplateOptions[block.title])
+                        ? selectedTemplateOptions[block.title] as string[]
+                        : []
+                      : typeof selectedTemplateOptions[block.title] === 'string'
+                        ? [selectedTemplateOptions[block.title] as string]
+                        : []
+                  }
+                  styles={{
+                    dropdown: { width: '100%' },
+                    title: {
+                      ...commonInputStyle,
+                      color: isDarkMode
+                        ? colours.dark.text
+                        : colours.light.text,
+                      padding: '0 20px', // Adjust padding to fit height
+                      borderRadius: '8px',
+                      border: 'none', // Remove border from title
+                      display: 'flex',
+                      alignItems: 'center', // Vertically center the text
+                      maxWidth: '200px', // Set max width to prevent overflow
+                      overflow: 'hidden', // Hide overflow text
+                      textOverflow: 'ellipsis', // Show ellipsis for overflowing text
+                      whiteSpace: 'nowrap', // Prevent text from wrapping
+                      selectors: {
+                        ':hover': {
                           backgroundColor: isDarkMode
-                            ? colours.dark.sectionBackground
-                            : '#ffffff',
-                          boxShadow: isDarkMode
-                            ? '0 2px 5px rgba(255, 255, 255, 0.1)'
-                            : '0 2px 5px rgba(0, 0, 0, 0.1)',
+                            ? colours.dark.cardHover
+                            : colours.light.cardHover,
                         },
-                      }}
-                      ariaLabel={`Select documents for ${block.title}`}
-                      // Prevent Dropdown click from triggering the card's onClick
-                      onClick={(e: React.MouseEvent<HTMLDivElement>) =>
-                        e.stopPropagation()
-                      }
-                      onFocus={(e: React.FocusEvent<HTMLDivElement>) =>
-                        e.stopPropagation()
-                      }
-                    />
-                    {/* Preview Text */}
-                    {Array.isArray(selectedTemplateOptions[block.title]) &&
-                      selectedTemplateOptions[block.title].length > 0 && (
-                        <div className={templatePreviewStyle(isDarkMode)}>
-                          <ul>
-                            {(selectedTemplateOptions[block.title] as string[]).map(
-                              (doc: string) => (
-                                <li key={doc}>{doc}</li>
-                              )
-                            )}
-                          </ul>
-                        </div>
-                      )}
-                  </>
-                ) : (
-                  // Single-select blocks
-                  <>
-                    <Dropdown
-                      placeholder="Select an option"
-                      options={block.options.map((option: TemplateOption) => ({
-                        key: option.label,
-                        text: option.label,
-                      }))}
-                      onChange={(
-                        _: React.FormEvent<HTMLDivElement>,
-                        option?: IDropdownOption
-                      ) => {
-                        if (option) {
-                          const selectedOption = block.options.find(
-                            (o) => o.label === option.text
-                          );
-                          if (selectedOption) {
-                            handleSingleSelectChange(
-                              block.title,
-                              selectedOption.label
-                            );
-                          }
-                        }
-                      }}
-                      selectedKey={
-                        typeof selectedTemplateOptions[block.title] ===
-                        'string'
-                          ? (selectedTemplateOptions[block.title] as string)
-                          : undefined
-                      }
-                      styles={{
-                        dropdown: { width: '100%' },
-                        title: {
-                          ...commonInputStyle,
-                          color: isDarkMode
-                            ? colours.dark.text
-                            : colours.light.text,
-                          padding: '0 20px', // Adjust padding to fit height
-                          borderRadius: '8px',
-                          border: 'none', // Remove border from title
-                          display: 'flex',
-                          alignItems: 'center', // Vertically center the text
-                          maxWidth: '200px', // Set max width to prevent overflow
-                          overflow: 'hidden', // Hide overflow text
-                          textOverflow: 'ellipsis', // Show ellipsis for overflowing text
-                          whiteSpace: 'nowrap', // Prevent text from wrapping
-                          selectors: {
-                            ':hover': {
-                              backgroundColor: isDarkMode
-                                ? colours.dark.cardHover
-                                : colours.light.cardHover,
-                            },
-                          },
-                        },
-                        dropdownItem: {
-                          selectors: {
-                            ':hover': {
-                              backgroundColor: isDarkMode
-                                ? colours.dark.cardHover
-                                : colours.light.cardHover,
-                            },
-                          },
-                        },
-                        callout: {
-                          boxShadow: isDarkMode
-                            ? '0 2px 5px rgba(255, 255, 255, 0.1)'
-                            : '0 2px 5px rgba(0, 0, 0, 0.1)',
-                        },
-                        root: {
-                          border: 'none',
-                          borderRadius: '8px', // Match desired border radius
-                          padding: '0px', // Remove internal padding as it's handled by 'title'
+                      },
+                    },
+                    dropdownItem: {
+                      selectors: {
+                        ':hover': {
                           backgroundColor: isDarkMode
-                            ? colours.dark.sectionBackground
-                            : '#ffffff',
-                          boxShadow: isDarkMode
-                            ? '0 2px 5px rgba(255, 255, 255, 0.1)'
-                            : '0 2px 5px rgba(0, 0, 0, 0.1)',
+                            ? colours.dark.cardHover
+                            : colours.light.cardHover,
                         },
-                      }}
-                      ariaLabel={`Select option for ${block.title}`}
-                      // Prevent Dropdown click from triggering the card's onClick
-                      onClick={(e: React.MouseEvent<HTMLDivElement>) =>
-                        e.stopPropagation()
-                      }
-                      onFocus={(e: React.FocusEvent<HTMLDivElement>) =>
-                        e.stopPropagation()
-                      }
-                    />
-                    {/* Preview Text */}
-                    {typeof selectedTemplateOptions[block.title] === 'string' &&
-                      selectedTemplateOptions[block.title] && (
-                        <div className={templatePreviewStyle(isDarkMode)}>
-                          {stripHtmlTags(
-                            block.options.find(
-                              (option: TemplateOption) =>
-                                option.label === selectedTemplateOptions[block.title]
-                            )?.previewText || ''
-                          )}
-                        </div>
-                      )}
-                  </>
-                )}
+                      },
+                    },
+                    callout: {
+                      boxShadow: isDarkMode
+                        ? '0 2px 5px rgba(255, 255, 255, 0.1)'
+                        : '0 2px 5px rgba(0, 0, 0, 0.1)',
+                    },
+                    root: {
+                      border: 'none',
+                      borderRadius: '8px', // Match desired border radius
+                      padding: '0px', // Remove internal padding as it's handled by 'title'
+                      backgroundColor: isDarkMode
+                        ? colours.dark.sectionBackground
+                        : '#ffffff',
+                      boxShadow: isDarkMode
+                        ? '0 2px 5px rgba(255, 255, 255, 0.1)'
+                        : '0 2px 5px rgba(0, 0, 0, 0.1)',
+                    },
+                  }}
+                  ariaLabel={`Select options for ${block.title}`}
+                  // Prevent Dropdown click from triggering the card's onClick
+                  onClick={(e: React.MouseEvent<HTMLDivElement>) =>
+                    e.stopPropagation()
+                  }
+                  onFocus={(e: React.FocusEvent<HTMLDivElement>) =>
+                    e.stopPropagation()
+                  }
+                />
+                {/* Render Preview Using Helper Function */}
+                {renderPreview(block)}
               </Stack>
             </Stack>
           ))}
         </Stack>
       </Stack>
+
+      {/* Right Section: Template Blocks */}
+      {/* Removed duplicate rendering to prevent duplication */}
+      {/* All Template Blocks are already rendered within the above section */}
     </Stack>
   );
 };
