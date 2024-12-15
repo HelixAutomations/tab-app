@@ -354,7 +354,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
   const [isOfficeAttendancePanelOpen, setIsOfficeAttendancePanelOpen] = useState<boolean>(false);
   const [isAnnualLeavePanelOpen, setIsAnnualLeavePanelOpen] = useState<boolean>(false);
-  const [inOfficePeople, setInOfficePeople] = useState<Person[]>([]);
+  const [attendanceRecords, setAttendanceRecords] = useState<{name:string;confirmed:boolean;attendingToday:boolean}[]>([]);
   const [isLoadingAttendance, setIsLoadingAttendance] = useState<boolean>(true);
   const [attendanceError, setAttendanceError] = useState<string | null>(null);
   const [currentUserName, setCurrentUserName] = useState<string>('User');
@@ -490,19 +490,13 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           }
         );
         if (!response.ok) throw new Error(`Failed to fetch attendance: ${response.status}`);
-        const attendanceData: string[] = await response.json();
+        const attendanceData: {name:string;confirmed:boolean;attendingToday:boolean}[] = await response.json();
 
-        const fetchedPeople: Person[] = attendanceData.map((name) => ({
-          name,
-          initials: name.split(' ').map((n) => n[0]).join('').toUpperCase(),
-          presence: PersonaPresence.online,
-        }));
-
-        setInOfficePeople(fetchedPeople);
+        setAttendanceRecords(attendanceData);
       } catch (error: any) {
         console.error('Error fetching attendance:', error);
         setAttendanceError(error.message || 'Unknown error occurred.');
-        setInOfficePeople([]);
+        setAttendanceRecords([]);
       } finally {
         setIsLoadingAttendance(false);
       }
@@ -530,11 +524,19 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     });
   };
 
-  const currentUserInOffice = inOfficePeople.some((person) => person.name === currentUserName);
+  const currentUserRecord = attendanceRecords.find((r) => r.name === currentUserName);
+  const currentUserConfirmed = currentUserRecord ? currentUserRecord.confirmed : false;
+  const officeAttendanceButtonText = currentUserConfirmed ? 'Update Office Attendance' : 'Confirm Office Attendance';
 
-  const officeAttendanceButtonText = currentUserInOffice ? 'Update Office Attendance' : 'Confirm Office Attendance';
+  const inOfficePeople = attendanceRecords
+    .filter((r) => r.attendingToday)
+    .map((r) => ({
+      name: r.name,
+      initials: r.name.split(' ').map((n) => n[0]).join('').toUpperCase(),
+      presence: PersonaPresence.online,
+    }));
 
-  const officeAttendanceButtonStyles = currentUserInOffice
+  const officeAttendanceButtonStyles = currentUserConfirmed
     ? {
         root: {
           backgroundColor: `${colours.light.border} !important`,
@@ -606,6 +608,10 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       color: isDarkMode ? colours.dark.text : colours.light.text,
     },
   };
+
+const officeAttendanceIconProps = currentUserConfirmed
+  ? { iconName: 'CheckMark', styles: { root: { color: '#00a300' } } }
+  : { iconName: 'Warning', styles: { root: { color: '#ffffff' } } };
 
   const metricsData = [
     {
@@ -841,7 +847,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                 <DefaultButton
                   text={officeAttendanceButtonText}
                   onClick={() => setIsOfficeAttendancePanelOpen(true)}
-                  iconProps={{ iconName: 'Warning' }}
+                  iconProps={officeAttendanceIconProps}
                   styles={officeAttendanceButtonStyles}
                   ariaLabel={officeAttendanceButtonText}
                 />
