@@ -131,3 +131,54 @@ export interface Matter {
   CCL_date: string | null;
   Rating?: 'Good' | 'Neutral' | 'Poor';
 }
+
+// Define the structure for POID data
+export interface POID {
+  poid_id: string; // Primary key
+  type?: string;
+  terms_acceptance?: boolean;
+  submission_url?: string;
+  submission_date?: string; // ISO format for datetime
+  id_docs_folder?: string;
+  acid?: number;
+  card_id?: string;
+  poc?: string; // Point of Contact
+  nationality_iso?: string;
+  nationality?: string;
+  gender?: string;
+  first?: string; // First Name
+  last?: string; // Last Name
+  prefix?: string; // Title (Mr, Mrs, etc.)
+  date_of_birth?: string; // ISO format for date
+  best_number?: string; // Phone Number
+  email?: string;
+  passport_number?: string;
+  drivers_license_number?: string;
+  house_building_number?: string;
+  street?: string;
+  city?: string;
+  county?: string;
+  post_code?: string;
+  country?: string;
+  country_code?: string;
+  company_name?: string;
+  company_number?: string;
+  company_house_building_number?: string;
+  company_street?: string;
+  company_city?: string;
+  company_county?: string;
+  company_post_code?: string;
+  company_country?: string;
+  company_country_code?: string;
+  stage?: string;
+  check_result?: string;
+  check_id?: string;
+  additional_id_submission_id?: string;
+  additional_id_submission_url?: string;
+  additional_id_submission_date?: string;
+  client_id?: string;
+  related_client_id?: string;
+  matter_id?: string;
+  risk_assessor?: string;
+  risk_assessment_date?: string; // ISO format for date
+}

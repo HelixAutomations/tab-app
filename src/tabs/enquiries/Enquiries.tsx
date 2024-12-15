@@ -1,6 +1,6 @@
 // src/tabs/enquiries/Enquiries.tsx
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Stack,
   Text,
@@ -19,29 +19,29 @@ import {
   IDropdownOption,
   SearchBox,
 } from '@fluentui/react';
-import { Enquiry, UserData } from '../../app/functionality/types'; // Correct path
+import { Enquiry, UserData } from '../../app/functionality/types';
 import { initializeIcons } from '@fluentui/react/lib/Icons';
-import CustomPagination from '../../app/styles/CustomPagination'; // Import Custom Pagination
-import EnquiryCard from './EnquiryCard'; // Import the newly created EnquiryCard
-import EnquiryOverview from './EnquiryOverview'; // Import EnquiryOverview
-import PitchBuilder from './PitchBuilder'; // Import PitchBuilder
-import EnquiryDetails from './EnquiryDetails'; // Import EnquiryDetails
-import { colours } from '../../app/styles/colours'; // Import the colours
+import CustomPagination from '../../app/styles/CustomPagination';
+import EnquiryCard from './EnquiryCard';
+import EnquiryOverview from './EnquiryOverview';
+import PitchBuilder from './PitchBuilder';
+import EnquiryDetails from './EnquiryDetails';
+import { colours } from '../../app/styles/colours';
 import {
   sharedSearchBoxContainerStyle,
   sharedSearchBoxStyle,
   sharedDropdownContainerStyle,
   sharedDropdownStyles,
   sharedControlsContainerStyle,
-} from '../../app/styles/FilterStyles'; // Import shared styles
-import CustomTabs from '../../app/styles/CustomTabs'; // Import the shared CustomTabs component
-import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme
+  sharedToggleButtonStyle,
+} from '../../app/styles/FilterStyles';
+import CustomTabs from '../../app/styles/CustomTabs';
+import { useTheme } from '../../app/functionality/ThemeContext';
 import { Pivot, PivotItem } from '@fluentui/react';
 import { Context as TeamsContextType } from '@microsoft/teams-js';
 
 initializeIcons();
 
-// Styles
 const containerStyle = (isDarkMode: boolean) =>
   mergeStyles({
     padding: '20px',
@@ -68,27 +68,6 @@ const footerStyle = (isDarkMode: boolean) =>
     fontFamily: 'Raleway, sans-serif',
   });
 
-// Define action button styles
-const actionButtonStyle = {
-  root: {
-    marginRight: '8px',
-    backgroundColor: colours.cta, // CTA red color
-    borderRadius: '8px',
-    transition: 'background-color 0.3s, transform 0.3s',
-    selectors: {
-      ':hover': {
-        backgroundColor: colours.red, // Darker red on hover
-        transform: 'scale(1.05)',
-      },
-    },
-  },
-  label: {
-    color: 'white',
-    fontWeight: '600',
-  },
-};
-
-// Define Rating Indicator Component
 interface RatingIndicatorProps {
   rating: string;
   isDarkMode: boolean;
@@ -134,9 +113,9 @@ const RatingIndicator: React.FC<RatingIndicatorProps> = ({ rating, isDarkMode, o
         ':hover': {
           transform: 'scale(1.1)',
         },
-        boxShadow: '0 2px 4px rgba(0,0,0,0.2)', // Added subtle shadow
+        boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
       })}
-      onClick={onClick} // Make the rating bubble clickable
+      onClick={onClick}
       title="Edit Rating"
       aria-label="Edit Rating"
     >
@@ -145,25 +124,30 @@ const RatingIndicator: React.FC<RatingIndicatorProps> = ({ rating, isDarkMode, o
   );
 };
 
-// Define the Enquiries Component
-const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry[] | null; userData: UserData[] | null }> = ({ context, enquiries, userData }) => {
-  const [localEnquiries, setLocalEnquiries] = useState<Enquiry[]>(enquiries || []); // Use the enquiries prop here
-  const { isDarkMode } = useTheme(); // Access isDarkMode from Theme Context
+const Enquiries: React.FC<{
+  context: TeamsContextType | null;
+  enquiries: Enquiry[] | null;
+  userData: UserData[] | null;
+  poidData: any[] | null;
+  setPoidData: React.Dispatch<React.SetStateAction<any[] | null>>;
+}> = ({ context, enquiries, userData, poidData, setPoidData }) => {
+  const [localEnquiries, setLocalEnquiries] = useState<Enquiry[]>(enquiries || []);
+  const { isDarkMode } = useTheme();
   const [selectedEnquiry, setSelectedEnquiry] = useState<Enquiry | null>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [filterMethod, setFilterMethod] = useState<string>('All');
-  const [filterArea, setFilterArea] = useState<string>('All'); // New state for Area of Work filter
+  const [filterArea, setFilterArea] = useState<string>('All');
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [enquiriesPerPage] = useState<number>(12); // 12 per page
+  const [enquiriesPerPage] = useState<number>(12);
   const [isRateModalOpen, setIsRateModalOpen] = useState<boolean>(false);
-  const [currentRating, setCurrentRating] = useState<string>(''); // Changed to string
+  const [currentRating, setCurrentRating] = useState<string>('');
   const [ratingEnquiryId, setRatingEnquiryId] = useState<string | null>(null);
-  const [isSuccessVisible, setIsSuccessVisible] = useState<boolean>(false); // For success messages
-  const [showAll, setShowAll] = useState<boolean>(false); // New state for toggling visibility
-  const [activeMainTab, setActiveMainTab] = useState<string>('Claimed'); // State for active main tab
-  const [activeSubTab, setActiveSubTab] = useState<string>('Overview'); // State for active sub-tab
+  const [isSuccessVisible, setIsSuccessVisible] = useState<boolean>(false);
+  const [showAll, setShowAll] = useState<boolean>(false);
+  const [activeMainTab, setActiveMainTab] = useState<string>('Claimed');
+  const [activeSubTab, setActiveSubTab] = useState<string>('Overview');
+  const [convertedEnquiries, setConvertedEnquiries] = useState<Enquiry[]>([]);
 
-  // Define the main tabs
   const mainTabs = [
     { key: 'Claimed', text: 'Claimed' },
     { key: 'Converted', text: 'Converted' },
@@ -171,35 +155,30 @@ const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry
     { key: 'Triaged', text: 'Triaged' },
   ];
 
-  // Define the sub-tabs within the detailed view
   const subTabs = [
     { key: 'Overview', text: 'Overview' },
     { key: 'Pitch', text: 'Pitch' },
     { key: 'Details', text: 'Details' },
   ];
 
-  // Define Area of Work options
   const [areaOfWorkOptions, setAreaOfWorkOptions] = useState<IDropdownOption[]>([
-    { key: 'All', text: 'All Areas' }, // Default option
+    { key: 'All', text: 'All Areas' },
   ]);
 
-  // Define contact method options
   const [contactMethodOptions, setContactMethodOptions] = useState<IDropdownOption[]>([
-    { key: 'All', text: 'All Methods' }, // Default option
+    { key: 'All', text: 'All Methods' },
   ]);
 
-  // Handler for main tab change
   const handleMainTabChange = useCallback(
     (item?: PivotItem, ev?: React.MouseEvent<HTMLElement>) => {
       if (item) {
         setActiveMainTab(item.props.itemKey as string);
-        setCurrentPage(1); // Reset to the first page when main tab changes
+        setCurrentPage(1);
       }
     },
     []
   );
 
-  // Handler for sub-tab change
   const handleSubTabChange = useCallback(
     (item?: PivotItem, ev?: React.MouseEvent<HTMLElement>) => {
       if (item) {
@@ -209,35 +188,29 @@ const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry
     []
   );
 
-  // Toggle "Show All" and reset pagination
   const handleShowAllToggle = useCallback(() => {
-    setShowAll((prev) => !prev); // Toggle the "Show All" state
-    setCurrentPage(1); // Reset to the first page
+    setShowAll((prev) => !prev);
+    setCurrentPage(1);
   }, []);
 
-  // Handler to select an enquiry and reset sub-tab to "Overview"
   const handleSelectEnquiry = useCallback((enquiry: Enquiry) => {
     setSelectedEnquiry(enquiry);
-    setActiveSubTab('Overview'); // Reset sub-tab to "Overview"
+    setActiveSubTab('Overview');
   }, []);
 
-  // Handler to go back to the list
   const handleBackToList = useCallback(() => {
     setSelectedEnquiry(null);
   }, []);
 
-  // Handler for opening the rating modal
   const handleRate = useCallback((id: string) => {
     setRatingEnquiryId(id);
     setCurrentRating('');
     setIsRateModalOpen(true);
   }, []);
 
-  // Handler for editing rating (API call)
   const handleEditRating = useCallback(
     async (id: string, newRating: string): Promise<void> => {
       try {
-        console.log(`Updating rating for Enquiry ID: ${id} to ${newRating}`);
         const response = await fetch(
           `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_UPDATE_RATING_PATH}?code=${process.env.REACT_APP_UPDATE_RATING_CODE}`,
           {
@@ -251,14 +224,12 @@ const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry
         );
 
         if (response.ok) {
-          // Update the enquiry with the new rating in the local state
           setLocalEnquiries((prevEnquiries) =>
             prevEnquiries.map((enquiry) =>
               enquiry.ID === id ? { ...enquiry, Rating: newRating as Enquiry['Rating'] } : enquiry
             )
           );
-          setIsSuccessVisible(true); // Show success message
-          console.log('Rating updated successfully');
+          setIsSuccessVisible(true);
         } else {
           const errorText = await response.text();
           console.error('Failed to update rating:', errorText);
@@ -270,30 +241,33 @@ const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry
     []
   );
 
-  // Close Rate Modal function
   const closeRateModal = useCallback(() => {
     setIsRateModalOpen(false);
     setRatingEnquiryId(null);
     setCurrentRating('');
   }, []);
 
-  // Submit Rating Function
   const submitRating = useCallback(async () => {
     if (ratingEnquiryId && currentRating) {
       await handleEditRating(ratingEnquiryId, currentRating);
-      setIsSuccessVisible(true); // Show success message
+      setIsSuccessVisible(true);
       closeRateModal();
     }
   }, [ratingEnquiryId, currentRating, handleEditRating, closeRateModal]);
 
-  // Search and filter enquiries
+  const triagedPointOfContactEmails = useMemo(() => [
+    'automations@helix-law.com',
+    'commercial@helix-law.com',
+    'construction@helix-law.com',
+    'employment@helix-law.com',
+    'property@helix-law.com',
+  ].map(email => email.toLowerCase()), []);
+
   const filteredEnquiries = useMemo(() => {
     let filtered = localEnquiries || [];
 
-    // Apply main tab-specific filters
     switch (activeMainTab) {
       case 'Claimed':
-        // If 'Show All' is not enabled, filter enquiries to show only those of the logged-in user
         if (!showAll && context && context.userPrincipalName) {
           const userEmail = context.userPrincipalName.toLowerCase();
           filtered = filtered.filter(
@@ -303,12 +277,10 @@ const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry
         break;
 
       case 'Converted':
-        // Filter enquiries that have 'PoID' or 'Client' tags
         filtered = filtered.filter(
           (enquiry) =>
             enquiry.Tags?.includes('PoID') || enquiry.Tags?.includes('Client')
         );
-        // 'Show All' applies here as well
         if (!showAll && context && context.userPrincipalName) {
           const userEmail = context.userPrincipalName.toLowerCase();
           filtered = filtered.filter(
@@ -318,17 +290,14 @@ const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry
         break;
 
       case 'Claimable':
-        // Filter enquiries where Point_of_Contact is 'team@helix-law.com'
         filtered = filtered.filter(
           (enquiry) => enquiry.Point_of_Contact?.toLowerCase() === 'team@helix-law.com'
         );
         break;
 
       case 'Triaged':
-        // Similarly, filter based on Point_of_Contact; refine criteria as needed
         filtered = filtered.filter(
-          (enquiry) => enquiry.Point_of_Contact?.toLowerCase() === 'team@helix-law.com'
-          // Add more conditions here as you narrow down the 'Triaged' criteria
+          (enquiry) => enquiry.Point_of_Contact && triagedPointOfContactEmails.includes(enquiry.Point_of_Contact.toLowerCase())
         );
         break;
 
@@ -336,17 +305,14 @@ const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry
         break;
     }
 
-    // Further filter by contact method
     if (filterMethod !== 'All') {
       filtered = filtered.filter((enquiry) => enquiry.Method_of_Contact === filterMethod);
     }
 
-    // Further filter by area of work
     if (filterArea !== 'All') {
       filtered = filtered.filter((enquiry) => enquiry.Area_of_Work === filterArea);
     }
 
-    // Search filter
     if (searchTerm) {
       const lowerSearchTerm = searchTerm.toLowerCase();
       filtered = filtered.filter(
@@ -358,9 +324,8 @@ const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry
     }
 
     return filtered;
-  }, [localEnquiries, activeMainTab, showAll, context, filterMethod, searchTerm, filterArea]);
+  }, [localEnquiries, activeMainTab, showAll, context, filterMethod, searchTerm, filterArea, triagedPointOfContactEmails]);
 
-  // Pagination calculations
   const indexOfLastEnquiry = currentPage * enquiriesPerPage;
   const indexOfFirstEnquiry = indexOfLastEnquiry - enquiriesPerPage;
   const currentEnquiries = useMemo(() => {
@@ -369,7 +334,6 @@ const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry
 
   const totalPages = Math.ceil(filteredEnquiries.length / enquiriesPerPage);
 
-  // Handler for page change
   const handlePageChange = useCallback(
     (page: number) => {
       setCurrentPage(page);
@@ -378,7 +342,6 @@ const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry
     []
   );
 
-  // Define rating options with descriptions
   const ratingOptions = [
     {
       key: 'Good',
@@ -400,7 +363,6 @@ const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry
     },
   ];
 
-  // Render Rating Modal with Custom Radio Buttons
   const renderRatingOptions = useCallback(() => {
     return (
       <Stack tokens={{ childrenGap: 15 }}>
@@ -445,7 +407,6 @@ const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry
     );
   }, [currentRating, isDarkMode, ratingOptions]);
 
-  // Handler to update enquiry details
   const handleUpdateEnquiry = useCallback(
     (updatedEnquiry: Enquiry) => {
       setLocalEnquiries((prevEnquiries: Enquiry[]) =>
@@ -457,7 +418,6 @@ const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry
     []
   );
 
-  // Render Detail View with Enhanced Design and Sub-Tabs
   const renderDetailView = useCallback(
     (enquiry: Enquiry) => (
       <Stack
@@ -468,11 +428,10 @@ const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry
             borderRadius: '12px',
             boxShadow: `0 4px 16px rgba(0,0,0,0.1)`,
             padding: '20px',
-            position: 'relative', // For positioning the sidebar
+            position: 'relative',
           },
         }}
       >
-        {/* Header with Back Button */}
         <Stack
           horizontal
           horizontalAlign="space-between"
@@ -497,18 +456,16 @@ const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry
               },
             }}
           />
-          {/* Placeholder for alignment */}
           <div style={{ width: '40px' }}></div>
         </Stack>
 
-        {/* Sub-tabs for "Overview," "Pitch," and "Details" */}
         <Pivot
           selectedKey={activeSubTab}
           onLinkClick={handleSubTabChange}
           styles={{
             root: {
               marginBottom: '20px',
-              borderBottom: 'none', // Remove the bottom border
+              borderBottom: 'none',
             },
             link: {
               fontSize: '16px',
@@ -518,7 +475,7 @@ const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry
               color: isDarkMode ? colours.dark.text : colours.light.text,
             },
             linkIsSelected: {
-              borderBottom: 'none', // Remove the underline from the selected tab
+              borderBottom: 'none',
             },
           }}
           aria-label="Enquiry Detail Sub-Tabs"
@@ -527,7 +484,7 @@ const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry
             <EnquiryOverview
               enquiry={enquiry}
               onEditRating={handleRate}
-              onEditNotes={() => { /* Implement as needed */ }}
+              onEditNotes={() => {}}
             />
           </PivotItem>
           <PivotItem headerText="Pitch" itemKey="Pitch">
@@ -545,16 +502,47 @@ const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry
     [handleBackToList, handleSubTabChange, handleRate, isDarkMode, handleUpdateEnquiry, activeSubTab]
   );
 
-  // Calculate animation delays based on row and column
   const calculateAnimationDelay = (row: number, col: number) => {
-    const delayPerRow = 0.2; // 0.2 seconds delay between rows
-    const delayPerCol = 0.1; // 0.1 seconds delay between columns
+    const delayPerRow = 0.2;
+    const delayPerCol = 0.1;
     return row * delayPerRow + col * delayPerCol;
   };
 
+  useEffect(() => {
+    (async () => {
+      if (!poidData) {
+        try {
+          const response = await fetch(
+            `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_POID_PATH}?code=${process.env.REACT_APP_GET_POID_CODE}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                dateFrom: '2024-11-01',
+                dateTo: '2024-12-15'
+              })
+            }
+          );
+          if (response.ok) {
+            const data = await response.json();
+            setPoidData(data);
+          }
+        } catch (error) {}
+      }
+    })();
+  }, [poidData, setPoidData]);
+
+  useEffect(() => {
+    if (poidData && enquiries) {
+      const matchingEnquiries = enquiries.filter((enquiry) =>
+        poidData.some((poid) => poid.acid && poid.acid.toString() === enquiry.ID)
+      );
+      setConvertedEnquiries(matchingEnquiries);
+    }
+  }, [poidData, enquiries]);
+
   return (
     <div className={containerStyle(isDarkMode)}>
-      {/* Header: Search and Filter Controls */}
       <div className={mergeStyles({ paddingTop: '0px', paddingBottom: '20px' })}>
         <div
           className={mergeStyles({
@@ -565,10 +553,7 @@ const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry
             flexWrap: 'wrap',
           })}
         >
-          {/* Search Box and Filters */}
           <div className={sharedControlsContainerStyle}>
-
-            {/* Search Box */}
             <div className={sharedSearchBoxContainerStyle(isDarkMode)}>
               <SearchBox
                 placeholder="Search enquiries..."
@@ -579,58 +564,41 @@ const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry
               />
             </div>
 
-            {/* Area of Work Dropdown */}
             <div className={sharedDropdownContainerStyle(isDarkMode)}>
               <Dropdown
                 placeholder="Select Area of Work"
                 selectedKey={filterArea}
                 onChange={(event, option) => setFilterArea(option?.key as string)}
-                options={areaOfWorkOptions} // Uses dynamic state
+                options={areaOfWorkOptions}
                 styles={sharedDropdownStyles(isDarkMode)}
                 ariaLabel="Filter by Area of Work"
               />
             </div>
 
-            {/* Contact Method Dropdown */}
             <div className={sharedDropdownContainerStyle(isDarkMode)}>
               <Dropdown
                 placeholder="Select Contact Method"
                 selectedKey={filterMethod}
                 onChange={(event, option) => setFilterMethod(option?.key as string)}
-                options={contactMethodOptions} // Uses dynamic state
+                options={contactMethodOptions}
                 styles={sharedDropdownStyles(isDarkMode)}
                 ariaLabel="Filter by Contact Method"
               />
             </div>
 
-            {/* Conditionally render Show All Toggle */}
             {(activeMainTab === 'Claimed' || activeMainTab === 'Converted') && (
+
               <DefaultButton
-                text={showAll ? 'Show My Enquiries' : 'Show All Enquiries'}
+                text={showAll ? 'Display Mine' : 'Display All'}
                 onClick={handleShowAllToggle}
-                styles={{
-                  root: {
-                    backgroundColor: isDarkMode ? colours.dark.buttonBackground : colours.light.buttonBackground,
-                    color: isDarkMode ? colours.dark.buttonText : colours.light.buttonText,
-                    borderRadius: '8px',
-                    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                    selectors: {
-                      ':hover': {
-                        backgroundColor: isDarkMode ? colours.dark.hoverBackground : colours.light.hoverBackground,
-                      },
-                    },
-                  },
-                }}
+                styles={sharedToggleButtonStyle(isDarkMode)}
                 aria-label="Toggle Display Enquiries"
               />
+
             )}
           </div>
-
-          {/* Dark Mode Toggle */}
-          {/* Removed the local dark mode toggle */}
         </div>
 
-        {/* Main Inner Tabs for Enquiry Categories */}
         {!selectedEnquiry && (
           <div className={mergeStyles({ marginTop: '30px' })}>
             <CustomTabs
@@ -643,7 +611,6 @@ const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry
         )}
       </div>
 
-      {/* Main Content */}
       <div
         className={mergeStyles({
           flex: 1,
@@ -659,31 +626,22 @@ const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry
           renderDetailView(selectedEnquiry)
         ) : (
           <>
-            {/* Enquiries Grid */}
-            {filteredEnquiries.length === 0 ? (
-              <Text variant="medium" styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.light.subText } }}>
-                No enquiries found matching your criteria.
-              </Text>
-            ) : (
-              <>
+            {activeMainTab === 'Converted' ? (
+              convertedEnquiries.length > 0 ? (
                 <div
                   className={mergeStyles({
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(4, 1fr)', // Enforce 4 columns by default
+                    gridTemplateColumns: 'repeat(4, 1fr)',
                     gap: '20px',
-                    // Responsive adjustments
                     '@media (max-width: 1200px)': {
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', // Responsive for smaller screens
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
                     },
                   })}
                 >
-                  {currentEnquiries.map((enquiry, index) => {
-                    // Calculate row and column based on index
-                    const row = Math.floor(index / 4); // 4 columns per row
+                  {convertedEnquiries.map((enquiry, index) => {
+                    const row = Math.floor(index / 4);
                     const col = index % 4;
-
                     const animationDelay = calculateAnimationDelay(row, col);
-
                     return (
                       <EnquiryCard
                         key={enquiry.ID}
@@ -695,14 +653,52 @@ const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry
                     );
                   })}
                 </div>
-
-                {/* Pagination Controls */}
-                {totalPages > 1 && (
-                  <CustomPagination
-                    currentPage={currentPage}
-                    totalPages={totalPages}
-                    onPageChange={handlePageChange}
-                  />
+              ) : (
+                <Text variant="medium" styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.light.subText } }}>
+                  No enquiries found matching your criteria.
+                </Text>
+              )
+            ) : (
+              <>
+                {filteredEnquiries.length === 0 ? (
+                  <Text variant="medium" styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.light.subText } }}>
+                    No enquiries found matching your criteria.
+                  </Text>
+                ) : (
+                  <>
+                    <div
+                      className={mergeStyles({
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(4, 1fr)',
+                        gap: '20px',
+                        '@media (max-width: 1200px)': {
+                          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                        },
+                      })}
+                    >
+                      {currentEnquiries.map((enquiry, index) => {
+                        const row = Math.floor(index / 4);
+                        const col = index % 4;
+                        const animationDelay = calculateAnimationDelay(row, col);
+                        return (
+                          <EnquiryCard
+                            key={enquiry.ID}
+                            enquiry={enquiry}
+                            onSelect={handleSelectEnquiry}
+                            onRate={handleRate}
+                            animationDelay={animationDelay}
+                          />
+                        );
+                      })}
+                    </div>
+                    {totalPages > 1 && (
+                      <CustomPagination
+                        currentPage={currentPage}
+                        totalPages={totalPages}
+                        onPageChange={handlePageChange}
+                      />
+                    )}
+                  </>
                 )}
               </>
             )}
@@ -710,7 +706,6 @@ const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry
         )}
       </div>
 
-      {/* Footer */}
       <div className={footerStyle(isDarkMode)}>
         <Text>
           <Link
@@ -729,7 +724,7 @@ const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry
             https://helix-law.co.uk/
           </Link>
           {' | '}
-          <Text variant="small" styles={{ root: { color: isDarkMode ? colours.dark.text : colours.light.text, display: 'inline' } }}>
+          <Text variant="small" styles={{ root: { color: isDarkMode ? colours.dark.text : colours.light.subText, display: 'inline' } }}>
             01273 761990
           </Text>
         </Text>
@@ -746,7 +741,6 @@ const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry
         </Text>
       </div>
 
-      {/* Success Message */}
       {isSuccessVisible && (
         <MessageBar
           messageBarType={MessageBarType.success}
@@ -768,7 +762,6 @@ const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry
         </MessageBar>
       )}
 
-      {/* Rating Modal */}
       <Modal
         isOpen={isRateModalOpen}
         onDismiss={closeRateModal}
@@ -795,7 +788,6 @@ const Enquiries: React.FC<{ context: TeamsContextType | null; enquiries: Enquiry
           <Text variant="medium" styles={{ root: { color: isDarkMode ? colours.dark.text : colours.light.text } }}>
             Please select a rating for this enquiry:
           </Text>
-          {/* Custom Radio Buttons */}
           {renderRatingOptions()}
           <Stack horizontal tokens={{ childrenGap: 15 }} horizontalAlign="end">
             <PrimaryButton text="Submit" onClick={submitRating} disabled={!currentRating} />

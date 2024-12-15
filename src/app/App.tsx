@@ -8,7 +8,6 @@ import * as microsoftTeams from '@microsoft/teams-js';
 import { Context as TeamsContextType } from '@microsoft/teams-js';
 import { Matter, UserData, Enquiry } from './functionality/types';
 
-// Lazy load components
 const Home = lazy(() => import('../tabs/home/Home'));
 const Forms = lazy(() => import('../tabs/forms/Forms'));
 const Resources = lazy(() => import('../tabs/resources/Resources'));
@@ -19,7 +18,7 @@ interface AppProps {
   teamsContext: TeamsContextType | null;
   userData: UserData[] | null;
   enquiries: Enquiry[] | null;
-  matters: Matter[] | null; // Add matters to props
+  matters: Matter[] | null;
   fetchMatters: (fullName: string) => Promise<Matter[]>;
   isLoading: boolean;
   error: string | null;
@@ -36,6 +35,7 @@ const App: React.FC<AppProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState('home');
   const isDarkMode = teamsContext?.theme === 'dark';
+  const [poidData, setPoidData] = useState<any[] | null>(null);
 
   useEffect(() => {
     const closeLoadingScreen = () => {
@@ -47,7 +47,6 @@ const App: React.FC<AppProps> = ({
       }
     };
 
-    // Wait until all required props are available
     if (teamsContext && userData && enquiries && matters) {
       closeLoadingScreen();
     }
@@ -68,20 +67,21 @@ const App: React.FC<AppProps> = ({
       case 'forms':
         return <Forms />;
       case 'resources':
-        return <Resources />; // No Props Passed
+        return <Resources />;
       case 'enquiries':
         return (
           <Enquiries
             context={teamsContext}
             userData={userData}
             enquiries={enquiries}
-            // Add other necessary props
+            poidData={poidData}
+            setPoidData={setPoidData}
           />
         );
       case 'matters':
         return (
           <Matters
-            matters={matters || []} // Pass matters, default to empty array if null
+            matters={matters || []}
             fetchMatters={fetchMatters}
             isLoading={isLoading}
             error={error}
@@ -94,7 +94,7 @@ const App: React.FC<AppProps> = ({
   };
 
   if (!teamsContext || !userData || !enquiries || !matters) {
-    return <div>Loading or Error...</div>; // Add proper loading/error UI here if needed
+    return <div>Loading or Error...</div>;
   }
 
   return (
