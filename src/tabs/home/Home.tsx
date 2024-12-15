@@ -20,6 +20,7 @@ import {
   PersonaSize,
   PersonaPresence,
   DefaultButton,
+  Icon,
 } from '@fluentui/react';
 import { colours } from '../../app/styles/colours';
 import { initializeIcons } from '@fluentui/react/lib/Icons';
@@ -67,6 +68,7 @@ interface Person {
   name: string;
   initials: string;
   presence: PersonaPresence;
+  nickname?: string;
 }
 
 const quickActions: QuickLink[] = [
@@ -74,12 +76,6 @@ const quickActions: QuickLink[] = [
   { title: 'Create a Time Entry', icon: 'Clock' },
   { title: 'Record an Attendance Note', icon: 'Add' },
   { title: 'Retrieve a Contact', icon: 'Contact' },
-];
-
-const onLeavePeople: Person[] = [
-  { name: 'Sam Packwood', initials: 'SP', presence: PersonaPresence.away },
-  { name: 'Richard Chapman', initials: 'RC', presence: PersonaPresence.offline },
-  { name: 'Kanchel White', initials: 'KW', presence: PersonaPresence.away },
 ];
 
 const containerStyle = (isDarkMode: boolean) =>
@@ -156,8 +152,8 @@ const quickLinksStyle = (isDarkMode: boolean) =>
     flexDirection: 'column',
   });
 
-const calculateAnimationDelay = (rowIndex: number, colIndex: number) => {
-  return rowIndex * 0.2 + colIndex * 0.1;
+const calculateAnimationDelay = (index: number) => {
+  return index * 0.1;
 };
 
 const metricsContainerStyle = (isDarkMode: boolean) =>
@@ -236,7 +232,9 @@ const favouritesGridStyle = mergeStyles({
 const peopleGridStyle = mergeStyles({
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
-  gap: '10px',
+  gap: '20px',
+  alignItems: 'center',
+  width: '100%',
 });
 
 const officeLeaveContainerStyle = (isDarkMode: boolean) =>
@@ -290,41 +288,85 @@ const createColumnsFunction = (isDarkMode: boolean): IColumn[] => [
   },
 ];
 
-const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean }> = ({ person, isDarkMode }) => {
-  return (
-    <div className={mergeStyles({ position: 'relative', display: 'flex', alignItems: 'center' })}>
-      <Persona
-        text=""
-        imageUrl={HelixAvatar}
-        size={PersonaSize.size40}
-        presence={person.presence}
-        hidePersonaDetails={true}
-        styles={{
-          root: { zIndex: 2 },
-        }}
-      />
-      <div
-        className={mergeStyles({
-          position: 'absolute',
-          left: 0,
-          top: '50%',
-          transform: 'translateY(-50%)',
-          backgroundColor: colours.grey,
-          borderRadius: '12px',
-          padding: '0 10px 0 50px',
-          height: '34px',
-          display: 'flex',
-          alignItems: 'center',
-          zIndex: 1,
-          whiteSpace: 'nowrap',
-        })}
-      >
-        <Text className={mergeStyles({ color: isDarkMode ? colours.dark.text : colours.light.text })}>
-          {person.name}
-        </Text>
+const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean; animationDelay?: number }> = ({ person, isDarkMode, animationDelay }) => {
+  const isAttending = person.presence === PersonaPresence.online;
+
+  const bubbleStyle = mergeStyles({
+    position: 'relative',
+    display: 'flex',
+    alignItems: 'center',
+    opacity: 0,
+    transform: 'translateY(20px)',
+    animation: `fadeInUp 0.3s ease forwards`,
+    animationDelay: `${animationDelay}s`,
+  });
+
+  const textBubbleStyle = mergeStyles({
+    position: 'absolute',
+    left: 0,
+    top: '50%',
+    transform: 'translateY(-50%)',
+    backgroundColor: colours.grey,
+    borderRadius: '12px',
+    padding: '0 10px 0 50px',
+    height: '34px',
+    display: 'flex',
+    alignItems: 'center',
+    zIndex: 3,
+    whiteSpace: 'nowrap',
+  });
+
+  const textStyle = mergeStyles({ color: isDarkMode ? colours.dark.text : colours.light.text });
+
+  if (isAttending) {
+    return (
+      <div className={bubbleStyle}>
+        <div style={{ position: 'relative', zIndex: 4 }}>
+          <Persona
+            text=""
+            imageUrl={HelixAvatar}
+            size={PersonaSize.size40}
+            presence={PersonaPresence.online}
+            hidePersonaDetails={true}
+            styles={{
+              root: { zIndex: 4 },
+            }}
+          />
+          <div className={textBubbleStyle}>
+            <Text className={textStyle}>
+              {person.nickname || person.name}
+            </Text>
+          </div>
+        </div>
       </div>
-    </div>
-  );
+    );
+  } else {
+    return (
+      <div className={bubbleStyle}>
+        <div
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: '50%',
+            backgroundColor: '#ffffff',
+            border: `0.5px solid ${colours.darkBlue}`,
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            position: 'relative',
+            zIndex: 4,
+          }}
+        >
+          <Icon iconName="Home" styles={{ root: { color: colours.darkBlue, fontSize: 16 } }} />
+        </div>
+        <div className={textBubbleStyle}>
+          <Text className={textStyle}>
+            {person.nickname || person.name}
+          </Text>
+        </div>
+      </div>
+    );
+  }
 };
 
 const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
@@ -355,9 +397,12 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const [isOfficeAttendancePanelOpen, setIsOfficeAttendancePanelOpen] = useState<boolean>(false);
   const [isAnnualLeavePanelOpen, setIsAnnualLeavePanelOpen] = useState<boolean>(false);
   const [attendanceRecords, setAttendanceRecords] = useState<{name:string;confirmed:boolean;attendingToday:boolean}[]>([]);
+  const [teamData, setTeamData] = useState<{First:string;Initials:string;["Entra ID"]:string;Nickname?:string}[]>([]);
   const [isLoadingAttendance, setIsLoadingAttendance] = useState<boolean>(true);
   const [attendanceError, setAttendanceError] = useState<string | null>(null);
   const [currentUserName, setCurrentUserName] = useState<string>('User');
+
+  const columnsForPeople = 6;
 
   useEffect(() => {
     const styles = `
@@ -370,6 +415,16 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         }
         100% {
             box-shadow: 0 0 0 0 rgba(255, 0, 0, 0);
+        }
+    }
+    @keyframes fadeInUp {
+        0% {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        100% {
+            opacity: 1;
+            transform: translateY(0);
         }
     }
     `;
@@ -490,13 +545,15 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           }
         );
         if (!response.ok) throw new Error(`Failed to fetch attendance: ${response.status}`);
-        const attendanceData: {name:string;confirmed:boolean;attendingToday:boolean}[] = await response.json();
+        const data = await response.json();
 
-        setAttendanceRecords(attendanceData);
+        setAttendanceRecords(data.attendance);
+        setTeamData(data.team);
       } catch (error: any) {
         console.error('Error fetching attendance:', error);
         setAttendanceError(error.message || 'Unknown error occurred.');
         setAttendanceRecords([]);
+        setTeamData([]);
       } finally {
         setIsLoadingAttendance(false);
       }
@@ -528,13 +585,66 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const currentUserConfirmed = currentUserRecord ? currentUserRecord.confirmed : false;
   const officeAttendanceButtonText = currentUserConfirmed ? 'Update Office Attendance' : 'Confirm Office Attendance';
 
-  const inOfficePeople = attendanceRecords
-    .filter((r) => r.attendingToday)
-    .map((r) => ({
-      name: r.name,
-      initials: r.name.split(' ').map((n) => n[0]).join('').toUpperCase(),
-      presence: PersonaPresence.online,
-    }));
+  const metricsData = [
+    {
+      title: 'WIP',
+      today: {
+        money: recordedTime.money,
+        hours: recordedTime.hours,
+        prevMoney: prevRecordedTime.money,
+        prevHours: prevRecordedTime.hours
+      },
+      weekToDate: {
+        money: recordedTime.money,
+        hours: recordedTime.hours,
+        prevMoney: prevRecordedTime.money,
+        prevHours: prevRecordedTime.hours
+      },
+      monthToDate: {
+        money: recordedTime.money,
+        hours: recordedTime.hours,
+        prevMoney: prevRecordedTime.money,
+        prevHours: prevRecordedTime.hours
+      },
+      isTimeMoney: true,
+    },
+    {
+      title: 'Enquiries',
+      today: { count: enquiriesToday, prevCount: prevEnquiriesToday },
+      weekToDate: { count: enquiriesWeekToDate, prevCount: prevEnquiriesWeekToDate },
+      monthToDate: { count: enquiriesMonthToDate, prevCount: prevEnquiriesMonthToDate },
+      isTimeMoney: false,
+    },
+    {
+      title: 'Tasks',
+      today: { count: todaysTasks, prevCount: prevTodaysTasks },
+      weekToDate: { count: tasksDueThisWeek, prevCount: prevTasksDueThisWeek },
+      monthToDate: { count: completedThisWeek, prevCount: prevCompletedThisWeek },
+      isTimeMoney: false,
+    },
+  ];
+
+  const today = new Date();
+  const day = today.getDay();
+  let officeSectionTitle = 'In the Office Today';
+  if (day === 6) {
+    officeSectionTitle = 'In the Office on Monday';
+  } else if (day === 0) {
+    officeSectionTitle = 'In the Office Tomorrow';
+  }
+
+  const sortedPeople = [...teamData].sort((a, b) => a.First.localeCompare(b.First));
+
+  const allPeople = sortedPeople.map((t, i) => {
+    const att = attendanceRecords.find(a => a.name.toLowerCase() === t.First.toLowerCase());
+    const attending = att ? att.attendingToday : false;
+    return {
+      name: t.First,
+      initials: t.Initials,
+      presence: attending ? PersonaPresence.online : PersonaPresence.none,
+      nickname: t.Nickname || t.First
+    };
+  });
 
   const officeAttendanceButtonStyles = currentUserConfirmed
     ? {
@@ -612,54 +722,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
 const officeAttendanceIconProps = currentUserConfirmed
   ? { iconName: 'CheckMark', styles: { root: { color: '#00a300' } } }
   : { iconName: 'Warning', styles: { root: { color: '#ffffff' } } };
-
-  const metricsData = [
-    {
-      title: 'WIP',
-      today: {
-        money: recordedTime.money,
-        hours: recordedTime.hours,
-        prevMoney: prevRecordedTime.money,
-        prevHours: prevRecordedTime.hours
-      },
-      weekToDate: {
-        money: recordedTime.money,
-        hours: recordedTime.hours,
-        prevMoney: prevRecordedTime.money,
-        prevHours: prevRecordedTime.hours
-      },
-      monthToDate: {
-        money: recordedTime.money,
-        hours: recordedTime.hours,
-        prevMoney: prevRecordedTime.money,
-        prevHours: prevRecordedTime.hours
-      },
-      isTimeMoney: true,
-    },
-    {
-      title: 'Enquiries',
-      today: { count: enquiriesToday, prevCount: prevEnquiriesToday },
-      weekToDate: { count: enquiriesWeekToDate, prevCount: prevEnquiriesWeekToDate },
-      monthToDate: { count: enquiriesMonthToDate, prevCount: prevEnquiriesMonthToDate },
-      isTimeMoney: false,
-    },
-    {
-      title: 'Tasks',
-      today: { count: todaysTasks, prevCount: prevTodaysTasks },
-      weekToDate: { count: tasksDueThisWeek, prevCount: prevTasksDueThisWeek },
-      monthToDate: { count: completedThisWeek, prevCount: prevCompletedThisWeek },
-      isTimeMoney: false,
-    },
-  ];
-
-  const today = new Date();
-  const day = today.getDay();
-  let officeSectionTitle = 'In the Office Today';
-  if (day === 6) {
-    officeSectionTitle = 'In the Office on Monday';
-  } else if (day === 0) {
-    officeSectionTitle = 'In the Office Tomorrow';
-  }
 
   return (
     <div className={containerStyle(isDarkMode)}>
@@ -752,7 +814,7 @@ const officeAttendanceIconProps = currentUserConfirmed
                             prevCount: metric[period].prevCount,
                           })}
                       isDarkMode={isDarkMode}
-                      animationDelay={calculateAnimationDelay(rowIndex, colIndex)}
+                      animationDelay={rowIndex * 0.2 + colIndex * 0.1}
                     />
                   </div>
                 ))}
@@ -858,9 +920,17 @@ const officeAttendanceIconProps = currentUserConfirmed
                 <MessageBar messageBarType={MessageBarType.error}>{attendanceError}</MessageBar>
               ) : (
                 <div className={peopleGridStyle}>
-                  {inOfficePeople.map((person: Person, index: number) => (
-                    <PersonBubble key={index} person={person} isDarkMode={isDarkMode} />
-                  ))}
+                  {allPeople.map((person: Person, index: number) => {
+                    const delay = calculateAnimationDelay(index);
+                    return (
+                      <PersonBubble
+                        key={index}
+                        person={person}
+                        isDarkMode={isDarkMode}
+                        animationDelay={delay}
+                      />
+                    );
+                  })}
                 </div>
               )}
             </Stack>
@@ -881,9 +951,6 @@ const officeAttendanceIconProps = currentUserConfirmed
                 />
               </Stack>
               <div className={peopleGridStyle}>
-                {onLeavePeople.map((person: Person, index: number) => (
-                  <PersonBubble key={index} person={person} isDarkMode={isDarkMode} />
-                ))}
               </div>
             </Stack>
           </div>

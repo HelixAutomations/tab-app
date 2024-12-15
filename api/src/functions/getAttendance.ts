@@ -11,7 +11,9 @@ export async function getAttendanceHandler(req: HttpRequest, context: Invocation
     const kvUri = "https://helix-keys.vault.azure.net/";
     const passwordSecretName = "sql-databaseserver-password";
     const sqlServer = "helix-database-server.database.windows.net";
-    const sqlDatabase = "helix-project-data";
+
+    const projectDataDb = "helix-project-data";
+    const coreDataDb = "helix-core-data";
 
     try {
         const secretClient = new SecretClient(kvUri, new DefaultAzureCredential());
@@ -19,15 +21,21 @@ export async function getAttendanceHandler(req: HttpRequest, context: Invocation
         const password = passwordSecret.value;
         context.log("Retrieved SQL password from Key Vault.");
 
-        const connectionString = `Server=${sqlServer};Database=${sqlDatabase};User ID=helix-database-server;Password=${password};Encrypt=true;TrustServerCertificate=false;`;
-        const config = parseConnectionString(connectionString, context);
-        context.log("Parsed SQL connection configuration.");
+        const projectDataConfig = parseConnectionString(
+            `Server=${sqlServer};Database=${projectDataDb};User ID=helix-database-server;Password=${password};Encrypt=true;TrustServerCertificate=false;`,
+            context
+        );
+        const coreDataConfig = parseConnectionString(
+            `Server=${sqlServer};Database=${coreDataDb};User ID=helix-database-server;Password=${password};Encrypt=true;TrustServerCertificate=false;`,
+            context
+        );
+
+        context.log("Parsed SQL connection configurations.");
 
         const todayDate = new Date();
         const dayOfWeek = todayDate.getDay();
         let dayToCheck: string;
 
-        // If weekend, set dayToCheck to "Monday"
         if (dayOfWeek === 0 || dayOfWeek === 6) {
             dayToCheck = "Monday";
             const nextMonday = getNextMonday(todayDate);
@@ -35,7 +43,6 @@ export async function getAttendanceHandler(req: HttpRequest, context: Invocation
             const currentWeekEnd = getEndOfWeek(currentWeekStart);
             var currentWeekRange = formatWeekRange(currentWeekStart, currentWeekEnd);
         } else {
-            // Use current weekday
             dayToCheck = todayDate.toLocaleDateString("en-GB", { weekday: "long" });
             const currentWeekStart = getStartOfWeek(todayDate);
             const currentWeekEnd = getEndOfWeek(currentWeekStart);
@@ -45,12 +52,19 @@ export async function getAttendanceHandler(req: HttpRequest, context: Invocation
         context.log(`Day to check: ${dayToCheck}`);
         context.log(`Current Week Range: ${currentWeekRange}`);
 
-        const attendees = await queryAttendanceForToday(dayToCheck, currentWeekRange, config, context);
-        context.log("Successfully retrieved attendance data.", { attendees });
+        const [attendees, teamData] = await Promise.all([
+            queryAttendanceForToday(dayToCheck, currentWeekRange, projectDataConfig, context),
+            queryTeamData(coreDataConfig, context)
+        ]);
+
+        context.log("Successfully retrieved attendance and team data.", { attendees, teamData });
 
         return {
             status: 200,
-            body: JSON.stringify(attendees)
+            body: JSON.stringify({
+                attendance: attendees,
+                team: teamData
+            })
         };
     } catch (error) {
         context.error("Error retrieving attendance data:", error);
@@ -74,20 +88,19 @@ async function queryAttendanceForToday(day: string, currentWeekRange: string, co
         const connection = new Connection(config);
 
         connection.on("error", (err) => {
-            context.error("SQL Connection Error:", err);
+            context.error("SQL Connection Error (Attendance):", err);
             reject("An error occurred with the SQL connection.");
         });
 
         connection.on("connect", (err) => {
             if (err) {
-                context.error("SQL Connection Error:", err);
+                context.error("SQL Connection Error (Attendance):", err);
                 reject("Failed to connect to SQL database.");
                 return;
             }
 
-            context.log("Successfully connected to SQL database.");
+            context.log("Successfully connected to SQL database (Attendance).");
 
-            // Modified query: remove IS NOT NULL checks
             const query = `
                 SELECT [First_Name] AS name, 
                        [Next_Attendance] AS next_attendance,
@@ -100,16 +113,16 @@ async function queryAttendanceForToday(day: string, currentWeekRange: string, co
                 ORDER BY [First_Name];
             `;
 
-            context.log("SQL Query:", query);
+            context.log("SQL Query (Attendance):", query);
 
             const sqlRequest = new SqlRequest(query, (err, rowCount) => {
                 if (err) {
-                    context.error("SQL Query Execution Error:", err);
+                    context.error("SQL Query Execution Error (Attendance):", err);
                     reject("SQL query failed.");
                     connection.close();
                     return;
                 }
-                context.log(`SQL query executed successfully. Rows returned: ${rowCount}`);
+                context.log(`SQL query executed successfully (Attendance). Rows returned: ${rowCount}`);
             });
 
             interface AttendanceRecord {
@@ -125,16 +138,14 @@ async function queryAttendanceForToday(day: string, currentWeekRange: string, co
                 const nextAttendance = columns[1].value as string | null;
                 const currentAttendance = columns[2].value as string | null;
 
-                // If this person doesn't exist in the map, add them
                 if (!attendanceMap[name]) {
                     attendanceMap[name] = {
                         name,
-                        confirmed: true,       // They appear in the results for this week, so they're confirmed
-                        attendingToday: false  // We'll determine if attending today
+                        confirmed: true,
+                        attendingToday: false
                     };
                 }
 
-                // Check if current or next attendance includes today's day
                 if ((nextAttendance && attendanceIncludesDay(nextAttendance, day)) ||
                     (currentAttendance && attendanceIncludesDay(currentAttendance, day))) {
                     attendanceMap[name].attendingToday = true;
@@ -151,7 +162,62 @@ async function queryAttendanceForToday(day: string, currentWeekRange: string, co
 
             sqlRequest.addParameter("CurrentWeek", TYPES.NVarChar, currentWeekRange);
 
-            context.log("Executing SQL query with parameters:", { Day: day, CurrentWeek: currentWeekRange });
+            context.log("Executing SQL query with parameters (Attendance):", { Day: day, CurrentWeek: currentWeekRange });
+
+            connection.execSql(sqlRequest);
+        });
+
+        connection.connect();
+    });
+}
+
+async function queryTeamData(config: any, context: InvocationContext): Promise<{First:string;Initials:string;["Entra ID"]:string;Nickname?:string}[]> {
+    return new Promise((resolve, reject) => {
+        const connection = new Connection(config);
+
+        connection.on("error", (err) => {
+            context.error("SQL Connection Error (Team):", err);
+            reject("An error occurred with the SQL connection.");
+        });
+
+        connection.on("connect", (err) => {
+            if (err) {
+                context.error("SQL Connection Error (Team):", err);
+                reject("Failed to connect to SQL database.");
+                return;
+            }
+
+            context.log("Successfully connected to SQL database (Team).");
+
+            const query = `SELECT [First],[Initials],[Entra ID],[Nickname] FROM [dbo].[team];`;
+
+            context.log("SQL Query (Team):", query);
+
+            const sqlRequest = new SqlRequest(query, (err, rowCount) => {
+                if (err) {
+                    context.error("SQL Query Execution Error (Team):", err);
+                    reject("SQL query failed.");
+                    connection.close();
+                    return;
+                }
+                context.log(`SQL query executed successfully (Team). Rows returned: ${rowCount}`);
+            });
+
+            const teamData: {First:string;Initials:string;["Entra ID"]:string;Nickname?:string}[] = [];
+
+            sqlRequest.on("row", (columns) => {
+                const obj: any = {};
+                columns.forEach((col) => {
+                    obj[col.metadata.colName] = col.value;
+                });
+                teamData.push(obj);
+            });
+
+            sqlRequest.on("requestCompleted", () => {
+                context.log("Team Data Retrieved:", teamData);
+                resolve(teamData);
+                connection.close();
+            });
 
             connection.execSql(sqlRequest);
         });
