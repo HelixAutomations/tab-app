@@ -172,8 +172,8 @@ const Enquiries: React.FC<{
       if (item) {
         setActiveMainTab(item.props.itemKey as string);
         setCurrentPage(1);
-        setSelectedEnquiry(null); // Reset selected enquiry when switching tabs
-        setActiveSubTab('Overview'); // Reset sub-tab
+        setSelectedEnquiry(null);
+        setActiveSubTab('Overview');
       }
     },
     []
@@ -296,7 +296,7 @@ const Enquiries: React.FC<{
   useEffect(() => {
     if (poidData && localEnquiries.length > 0) {
       const converted = localEnquiries.filter((enquiry) =>
-        poidData.some((poid) => poid.acid?.toString() === enquiry.ID)
+        poidData.some((poid) => poid.poid_id === enquiry.ID)
       );
       setConvertedEnquiriesList(converted);
     }
@@ -477,7 +477,7 @@ const Enquiries: React.FC<{
           root: {
             backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
             borderRadius: '12px',
-            boxShadow: `0 4px 16px rgba(0,0,0,0.1)`,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
             padding: '20px',
             position: 'relative',
           },
@@ -620,7 +620,6 @@ const Enquiries: React.FC<{
         )}
       </div>
 
-      {/* Force re-render by using a key based on activeMainTab */}
       <div
         key={activeMainTab}
         className={mergeStyles({
@@ -655,7 +654,7 @@ const Enquiries: React.FC<{
                     const animationDelay = calculateAnimationDelay(row, col);
                     return (
                       <EnquiryCard
-                        key={`${enquiry.ID}-${index}`} // Ensure unique key
+                        key={`${enquiry.ID}-${index}`}
                         enquiry={enquiry}
                         onSelect={handleSelectEnquiry}
                         onRate={handleRate}
@@ -693,7 +692,7 @@ const Enquiries: React.FC<{
                         const animationDelay = calculateAnimationDelay(row, col);
                         return (
                           <EnquiryCard
-                            key={`${enquiry.ID}-${index}`} // Ensure unique key
+                            key={`${enquiry.ID}-${index}`}
                             enquiry={enquiry}
                             onSelect={handleSelectEnquiry}
                             onRate={handleRate}
