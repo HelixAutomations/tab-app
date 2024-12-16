@@ -310,7 +310,7 @@ const EnquiryCard: React.FC<EnquiryCardProps> = ({ enquiry, onSelect, onRate, an
           {/* Bottom Section: Rate Icon */}
           <TooltipHost content={enquiry.Rating ? `Rating: ${enquiry.Rating}` : 'Rate Enquiry'}>
             <RatingIndicator
-              rating={enquiry.Rating}
+              rating={enquiry.Rating} // Pass only the rating
               onClick={() => onRate(enquiry.ID)}
             />
           </TooltipHost>

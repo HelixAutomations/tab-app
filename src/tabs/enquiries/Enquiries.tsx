@@ -172,6 +172,8 @@ const Enquiries: React.FC<{
       if (item) {
         setActiveMainTab(item.props.itemKey as string);
         setCurrentPage(1);
+        setSelectedEnquiry(null); // Reset selected enquiry when switching tabs
+        setActiveSubTab('Overview'); // Reset sub-tab
       }
     },
     []
@@ -618,7 +620,9 @@ const Enquiries: React.FC<{
         )}
       </div>
 
+      {/* Force re-render by using a key based on activeMainTab */}
       <div
+        key={activeMainTab}
         className={mergeStyles({
           flex: 1,
           display: 'flex',
@@ -651,7 +655,7 @@ const Enquiries: React.FC<{
                     const animationDelay = calculateAnimationDelay(row, col);
                     return (
                       <EnquiryCard
-                        key={enquiry.ID}
+                        key={`${enquiry.ID}-${index}`} // Ensure unique key
                         enquiry={enquiry}
                         onSelect={handleSelectEnquiry}
                         onRate={handleRate}
@@ -689,7 +693,7 @@ const Enquiries: React.FC<{
                         const animationDelay = calculateAnimationDelay(row, col);
                         return (
                           <EnquiryCard
-                            key={enquiry.ID}
+                            key={`${enquiry.ID}-${index}`} // Ensure unique key
                             enquiry={enquiry}
                             onSelect={handleSelectEnquiry}
                             onRate={handleRate}
