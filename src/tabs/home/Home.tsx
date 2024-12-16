@@ -152,8 +152,8 @@ const quickLinksStyle = (isDarkMode: boolean) =>
     flexDirection: 'column',
   });
 
-const calculateAnimationDelay = (index: number) => {
-  return index * 0.1;
+const calculateAnimationDelay = (row: number, col: number) => {
+  return (row + col) * 0.1;
 };
 
 const metricsContainerStyle = (isDarkMode: boolean) =>
@@ -402,7 +402,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const [attendanceError, setAttendanceError] = useState<string | null>(null);
   const [currentUserName, setCurrentUserName] = useState<string>('User');
 
-  const columnsForPeople = 6;
+  const columnsForPeople = 3;
 
   useEffect(() => {
     const styles = `
@@ -921,7 +921,9 @@ const officeAttendanceIconProps = currentUserConfirmed
               ) : (
                 <div className={peopleGridStyle}>
                   {allPeople.map((person: Person, index: number) => {
-                    const delay = calculateAnimationDelay(index);
+                    const row = Math.floor(index / columnsForPeople);
+                    const col = index % columnsForPeople;
+                    const delay = calculateAnimationDelay(row, col);
                     return (
                       <PersonBubble
                         key={index}

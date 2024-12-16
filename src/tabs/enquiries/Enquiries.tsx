@@ -9,8 +9,6 @@ import {
   MessageBarType,
   Link,
   IconButton,
-  Spinner,
-  SpinnerSize,
   PrimaryButton,
   DefaultButton,
   Modal,
@@ -146,7 +144,7 @@ const Enquiries: React.FC<{
   const [showAll, setShowAll] = useState<boolean>(false);
   const [activeMainTab, setActiveMainTab] = useState<string>('Claimed');
   const [activeSubTab, setActiveSubTab] = useState<string>('Overview');
-  const [convertedEnquiries, setConvertedEnquiries] = useState<Enquiry[]>([]);
+  const [convertedEnquiriesList, setConvertedEnquiriesList] = useState<Enquiry[]>([]);
 
   const mainTabs = [
     { key: 'Claimed', text: 'Claimed' },
@@ -255,19 +253,59 @@ const Enquiries: React.FC<{
     }
   }, [ratingEnquiryId, currentRating, handleEditRating, closeRateModal]);
 
-  const triagedPointOfContactEmails = useMemo(() => [
-    'automations@helix-law.com',
-    'commercial@helix-law.com',
-    'construction@helix-law.com',
-    'employment@helix-law.com',
-    'property@helix-law.com',
-  ].map(email => email.toLowerCase()), []);
+  const triagedPointOfContactEmails = useMemo(
+    () =>
+      [
+        'automations@helix-law.com',
+        'commercial@helix-law.com',
+        'construction@helix-law.com',
+        'employment@helix-law.com',
+        'property@helix-law.com',
+      ].map((email) => email.toLowerCase()),
+    []
+  );
+
+  useEffect(() => {
+    (async () => {
+      if (!poidData) {
+        try {
+          const response = await fetch(
+            `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_POID_PATH}?code=${process.env.REACT_APP_GET_POID_CODE}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                dateFrom: '2024-11-01',
+                dateTo: '2024-12-15',
+              }),
+            }
+          );
+          if (response.ok) {
+            const data = await response.json();
+            setPoidData(data);
+          }
+        } catch (error) {
+          console.error('Error fetching POID data:', error);
+        }
+      }
+    })();
+  }, [poidData, setPoidData]);
+
+  useEffect(() => {
+    if (poidData && localEnquiries.length > 0) {
+      const converted = localEnquiries.filter((enquiry) =>
+        poidData.some((poid) => poid.acid?.toString() === enquiry.ID)
+      );
+      setConvertedEnquiriesList(converted);
+    }
+  }, [poidData, localEnquiries]);
 
   const filteredEnquiries = useMemo(() => {
-    let filtered = localEnquiries || [];
+    let filtered: Enquiry[] = [];
 
     switch (activeMainTab) {
       case 'Claimed':
+        filtered = localEnquiries;
         if (!showAll && context && context.userPrincipalName) {
           const userEmail = context.userPrincipalName.toLowerCase();
           filtered = filtered.filter(
@@ -277,31 +315,32 @@ const Enquiries: React.FC<{
         break;
 
       case 'Converted':
-        filtered = filtered.filter(
-          (enquiry) =>
-            enquiry.Tags?.includes('PoID') || enquiry.Tags?.includes('Client')
-        );
+        let converted = convertedEnquiriesList;
         if (!showAll && context && context.userPrincipalName) {
           const userEmail = context.userPrincipalName.toLowerCase();
-          filtered = filtered.filter(
+          converted = converted.filter(
             (enquiry) => enquiry.Point_of_Contact?.toLowerCase() === userEmail
           );
         }
+        filtered = converted;
         break;
 
       case 'Claimable':
-        filtered = filtered.filter(
+        filtered = localEnquiries.filter(
           (enquiry) => enquiry.Point_of_Contact?.toLowerCase() === 'team@helix-law.com'
         );
         break;
 
       case 'Triaged':
-        filtered = filtered.filter(
-          (enquiry) => enquiry.Point_of_Contact && triagedPointOfContactEmails.includes(enquiry.Point_of_Contact.toLowerCase())
+        filtered = localEnquiries.filter(
+          (enquiry) =>
+            enquiry.Point_of_Contact &&
+            triagedPointOfContactEmails.includes(enquiry.Point_of_Contact.toLowerCase())
         );
         break;
 
       default:
+        filtered = localEnquiries;
         break;
     }
 
@@ -324,7 +363,17 @@ const Enquiries: React.FC<{
     }
 
     return filtered;
-  }, [localEnquiries, activeMainTab, showAll, context, filterMethod, searchTerm, filterArea, triagedPointOfContactEmails]);
+  }, [
+    localEnquiries,
+    activeMainTab,
+    showAll,
+    context,
+    filterMethod,
+    searchTerm,
+    filterArea,
+    triagedPointOfContactEmails,
+    convertedEnquiriesList,
+  ]);
 
   const indexOfLastEnquiry = currentPage * enquiriesPerPage;
   const indexOfFirstEnquiry = indexOfLastEnquiry - enquiriesPerPage;
@@ -481,20 +530,13 @@ const Enquiries: React.FC<{
           aria-label="Enquiry Detail Sub-Tabs"
         >
           <PivotItem headerText="Overview" itemKey="Overview">
-            <EnquiryOverview
-              enquiry={enquiry}
-              onEditRating={handleRate}
-              onEditNotes={() => {}}
-            />
+            <EnquiryOverview enquiry={enquiry} onEditRating={handleRate} onEditNotes={() => {}} />
           </PivotItem>
           <PivotItem headerText="Pitch" itemKey="Pitch">
             <PitchBuilder enquiry={enquiry} />
           </PivotItem>
           <PivotItem headerText="Details" itemKey="Details">
-            <EnquiryDetails
-              enquiry={enquiry}
-              onUpdate={handleUpdateEnquiry}
-            />
+            <EnquiryDetails enquiry={enquiry} onUpdate={handleUpdateEnquiry} />
           </PivotItem>
         </Pivot>
       </Stack>
@@ -507,39 +549,6 @@ const Enquiries: React.FC<{
     const delayPerCol = 0.1;
     return row * delayPerRow + col * delayPerCol;
   };
-
-  useEffect(() => {
-    (async () => {
-      if (!poidData) {
-        try {
-          const response = await fetch(
-            `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_POID_PATH}?code=${process.env.REACT_APP_GET_POID_CODE}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                dateFrom: '2024-11-01',
-                dateTo: '2024-12-15'
-              })
-            }
-          );
-          if (response.ok) {
-            const data = await response.json();
-            setPoidData(data);
-          }
-        } catch (error) {}
-      }
-    })();
-  }, [poidData, setPoidData]);
-
-  useEffect(() => {
-    if (poidData && enquiries) {
-      const matchingEnquiries = enquiries.filter((enquiry) =>
-        poidData.some((poid) => poid.acid && poid.acid.toString() === enquiry.ID)
-      );
-      setConvertedEnquiries(matchingEnquiries);
-    }
-  }, [poidData, enquiries]);
 
   return (
     <div className={containerStyle(isDarkMode)}>
@@ -587,14 +596,12 @@ const Enquiries: React.FC<{
             </div>
 
             {(activeMainTab === 'Claimed' || activeMainTab === 'Converted') && (
-
               <DefaultButton
                 text={showAll ? 'Display Mine' : 'Display All'}
                 onClick={handleShowAllToggle}
                 styles={sharedToggleButtonStyle(isDarkMode)}
                 aria-label="Toggle Display Enquiries"
               />
-
             )}
           </div>
         </div>
@@ -627,7 +634,7 @@ const Enquiries: React.FC<{
         ) : (
           <>
             {activeMainTab === 'Converted' ? (
-              convertedEnquiries.length > 0 ? (
+              filteredEnquiries.length > 0 ? (
                 <div
                   className={mergeStyles({
                     display: 'grid',
@@ -638,7 +645,7 @@ const Enquiries: React.FC<{
                     },
                   })}
                 >
-                  {convertedEnquiries.map((enquiry, index) => {
+                  {currentEnquiries.map((enquiry, index) => {
                     const row = Math.floor(index / 4);
                     const col = index % 4;
                     const animationDelay = calculateAnimationDelay(row, col);
@@ -724,7 +731,10 @@ const Enquiries: React.FC<{
             https://helix-law.co.uk/
           </Link>
           {' | '}
-          <Text variant="small" styles={{ root: { color: isDarkMode ? colours.dark.text : colours.light.subText, display: 'inline' } }}>
+          <Text
+            variant="small"
+            styles={{ root: { color: isDarkMode ? colours.dark.text : colours.light.subText, display: 'inline' } }}
+          >
             01273 761990
           </Text>
         </Text>
