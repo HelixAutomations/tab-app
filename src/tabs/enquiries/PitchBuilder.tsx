@@ -26,6 +26,17 @@ import PracticeAreaPitch, { PracticeAreaPitchType } from '../../app/customisatio
 import { templateBlocks, TemplateBlock, TemplateOption } from '../../app/customisation/TemplateBlocks';
 import { availableAttachments, AttachmentOption } from '../../app/customisation/Attachments';
 import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from '../../app/styles/ButtonStyles';
+import {
+  sharedSearchBoxContainerStyle,
+  sharedControlsContainerStyle,
+  sharedSearchBoxStyle,
+  sharedToggleStyle,
+  sharedDropdownContainerStyle,
+  sharedDropdownStyles,
+  sharedToggleButtonStyle,
+  sharedEditorStyle,
+  sharedOptionsDropdownStyles, // Import the new options dropdown style
+} from '../../app/styles/FilterStyles';
 
 interface PitchBuilderProps {
   enquiry: Enquiry;
@@ -354,8 +365,6 @@ Kind regards,
         const areaOfWork = enquiry.Area_of_Work.trim() || 'Practice Area';
         setSubject(`Your ${areaOfWork} Enquiry`);
 
-        // Instead of resetting the entire body, just replace the [Introduction Placeholder]
-        // This way we don't lose what's already inserted in [FE Introduction Placeholder].
         setBody((prevBody) => {
           const introRegex = new RegExp(`(<span[^>]*data-placeholder="\\[Introduction Placeholder\\]"[^>]*>)(.*?)(</span>)`, 'g');
           const newBody = prevBody.replace(introRegex,
@@ -551,8 +560,15 @@ Kind regards,
 
   const applyFormat = (command: string, value?: string) => {
     document.execCommand(command, false, value);
-    const updatedBody = (bodyEditorRef.current?.innerHTML) || '';
-    setBody(updatedBody);
+    if (bodyEditorRef.current) {
+      setBody(bodyEditorRef.current.innerHTML);
+    }
+  };
+
+  const handleBlur = () => {
+    if (bodyEditorRef.current) {
+      setBody(bodyEditorRef.current.innerHTML);
+    }
   };
 
   const containerStyle = mergeStyles({
@@ -693,6 +709,7 @@ Kind regards,
           Pitch Builder
         </Text>
 
+        {/* Select Template */}
         <Stack tokens={{ childrenGap: 6 }}>
           <Label className={labelStyle}>Select Template</Label>
           <Dropdown
@@ -751,6 +768,7 @@ Kind regards,
           />
         </Stack>
 
+        {/* Email Subject */}
         <Stack tokens={{ childrenGap: 6 }}>
           <Label className={labelStyle}>Email Subject</Label>
           <BubbleTextField
@@ -765,6 +783,7 @@ Kind regards,
           />
         </Stack>
 
+        {/* Email Body */}
         <Stack tokens={{ childrenGap: 6 }}>
           <Label className={labelStyle}>Email Body</Label>
           <div className={toolbarStyle}>
@@ -807,22 +826,15 @@ Kind regards,
           <div
             contentEditable
             ref={bodyEditorRef}
-            onInput={(e) => setBody((e.target as HTMLDivElement).innerHTML)}
-            style={{
-              minHeight: '150px',
-              padding: '20px',
-              borderRadius: '8px',
-              border: `1px solid ${isDarkMode ? colours.dark.cardHover : colours.light.cardHover}`,
-              backgroundColor: isDarkMode ? colours.dark.sectionBackground : '#ffffff',
-              color: isDarkMode ? colours.dark.text : colours.light.text,
-              overflowY: 'auto',
-              whiteSpace: 'pre-wrap',
-            }}
+            onBlur={handleBlur}
+            suppressContentEditableWarning={true}
+            className={sharedEditorStyle(isDarkMode)} // Apply the shared editor style
+            dangerouslySetInnerHTML={{ __html: body }}
             aria-label="Email Body Editor"
-          >
-          </div>
+          />
         </Stack>
 
+        {/* Select Attachments */}
         <Stack tokens={{ childrenGap: 6 }}>
           <Label className={labelStyle}>Select Attachments</Label>
           <Stack horizontal tokens={{ childrenGap: 8 }} wrap>
@@ -841,6 +853,7 @@ Kind regards,
           </Stack>
         </Stack>
 
+        {/* Follow Up */}
         <Stack tokens={{ childrenGap: 6 }}>
           <Label className={labelStyle}>Follow Up</Label>
           <Stack horizontal tokens={{ childrenGap: 8 }} wrap>
@@ -882,6 +895,7 @@ Kind regards,
           </Stack>
         </Stack>
 
+        {/* Error Message */}
         {isErrorVisible && (
           <MessageBar
             messageBarType={MessageBarType.error}
@@ -896,6 +910,7 @@ Kind regards,
 
         <Separator />
 
+        {/* Buttons */}
         <Stack
           horizontal
           horizontalAlign="space-between"
@@ -918,6 +933,7 @@ Kind regards,
           />
         </Stack>
 
+        {/* Success Message */}
         {isSuccessVisible && (
           <MessageBar
             messageBarType={MessageBarType.success}
@@ -930,6 +946,7 @@ Kind regards,
           </MessageBar>
         )}
 
+        {/* Email Preview Panel */}
         <Panel
           isOpen={isPreviewOpen}
           onDismiss={togglePreview}
@@ -1062,6 +1079,7 @@ Kind regards,
         </Panel>
       </Stack>
 
+      {/* Template Blocks */}
       <Stack className={templatesContainerStyle}>
         <Text
           variant="xLarge"
@@ -1147,56 +1165,7 @@ Kind regards,
                         ? [selectedTemplateOptions[block.title] as string]
                         : []
                   }
-                  styles={{
-                    dropdown: { width: '100%' },
-                    title: {
-                      ...commonInputStyle,
-                      color: isDarkMode
-                        ? colours.dark.text
-                        : colours.light.text,
-                      padding: '0 20px',
-                      borderRadius: '8px',
-                      border: 'none',
-                      display: 'flex',
-                      alignItems: 'center',
-                      maxWidth: '200px',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      selectors: {
-                        ':hover': {
-                          backgroundColor: isDarkMode
-                            ? colours.dark.cardHover
-                            : colours.light.cardHover,
-                        },
-                      },
-                    },
-                    dropdownItem: {
-                      selectors: {
-                        ':hover': {
-                          backgroundColor: isDarkMode
-                            ? colours.dark.cardHover
-                            : colours.light.cardHover,
-                        },
-                      },
-                    },
-                    callout: {
-                      boxShadow: isDarkMode
-                        ? '0 2px 5px rgba(255, 255, 255, 0.1)'
-                        : '0 2px 5px rgba(0, 0, 0, 0.1)',
-                    },
-                    root: {
-                      border: 'none',
-                      borderRadius: '8px',
-                      padding: '0px',
-                      backgroundColor: isDarkMode
-                        ? colours.dark.sectionBackground
-                        : '#ffffff',
-                      boxShadow: isDarkMode
-                        ? '0 2px 5px rgba(255, 255, 255, 0.1)'
-                        : '0 2px 5px rgba(0, 0, 0, 0.1)',
-                    },
-                  }}
+                  styles={sharedOptionsDropdownStyles(isDarkMode)} // Apply the new options dropdown style
                   ariaLabel={`Select options for ${block.title}`}
                   onClick={(e: React.MouseEvent<HTMLDivElement>) =>
                     e.stopPropagation()

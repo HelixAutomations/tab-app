@@ -1,4 +1,4 @@
-// src/app/styles/sharedStyles.ts
+// src/app/styles/FilterStyles.ts
 
 import { mergeStyles, IDropdownStyles } from '@fluentui/react';
 import { colours } from './colours';
@@ -209,5 +209,92 @@ export const sharedToggleButtonStyle = (isDarkMode: boolean) => ({
   },
   label: {
     color: isDarkMode ? colours.dark.text : '#000000 !important',
+  },
+});
+
+// New Style Added
+export const sharedEditorStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    minHeight: '150px',
+    padding: '20px',
+    borderRadius: '8px',
+    border: `1px solid ${isDarkMode ? colours.dark.cardHover : colours.light.cardHover}`,
+    backgroundColor: isDarkMode ? colours.dark.sectionBackground : '#ffffff',
+    color: isDarkMode ? colours.dark.text : colours.light.text,
+    overflowY: 'auto',
+    whiteSpace: 'pre-wrap',
+    outline: 'none',
+    selectors: {
+      ':focus-visible': {
+        border: `1px solid ${colours.cta}`,
+        boxShadow: `0 0 0 3px rgba(255, 0, 0, 0.2)`,
+      },
+    },
+  });
+
+// New Style for Template Block Dropdowns
+export const sharedOptionsDropdownStyles = (isDarkMode: boolean): Partial<IDropdownStyles> => ({
+  root: {
+    width: '100%', // Ensure dropdown takes full width
+    backgroundColor: isDarkMode ? colours.dark.grey : colours.grey, // Use grey from colours
+    border: 'none',
+    boxShadow: 'none',
+    borderRadius: '8px 8px 0 0', // Round only top corners
+    padding: '0',
+    height: '32px',
+    display: 'flex',
+    alignItems: 'center',
+    outline: 'none',
+    position: 'relative', // To position the caret correctly
+    selectors: {
+      '&::after': {
+        content: '""',
+        position: 'absolute' as const,
+        left: '50%',
+        bottom: '0',
+        height: '1px',
+        width: '100%',
+        backgroundColor: isDarkMode ? colours.dark.highlight : colours.highlight,
+        transform: 'translateX(-50%) scaleX(0)',
+        transformOrigin: 'center',
+        transition: 'transform 0.15s ease-out',
+      },
+      '&:hover::after': {
+        transform: 'translateX(-50%) scaleX(1)',
+      },
+      '&:focus-within::after': {
+        transform: 'translateX(-50%) scaleX(1)',
+      },
+    },
+  },
+  dropdown: {
+    backgroundColor: isDarkMode ? colours.dark.grey : colours.grey, // Consistent grey background
+    border: 'none',
+    boxShadow: 'none',
+    borderRadius: '8px 8px 0 0', // Round only top corners
+    padding: '0',
+    height: '32px',
+    display: 'flex',
+    alignItems: 'center',
+  },
+  title: {
+    backgroundColor: 'transparent',
+    color: isDarkMode ? colours.dark.text : colours.light.text,
+    fontSize: '14px',
+    height: '32px',
+    paddingLeft: '12px',
+    paddingRight: '36px', // Space for the caret
+    display: 'flex',
+    alignItems: 'center',
+    border: 'none',
+  },
+  caretDown: {
+    color: isDarkMode ? colours.dark.iconColor : colours.light.iconColor,
+    fontSize: '16px',
+    position: 'absolute',
+    right: '12px',
+    top: '50%',
+    transform: 'translateY(-50%)',
+    pointerEvents: 'none', // Prevent caret from capturing mouse events
   },
 });
