@@ -17,7 +17,7 @@ import {
   IDropdownOption,
   SearchBox,
 } from '@fluentui/react';
-import { Enquiry, UserData } from '../../app/functionality/types';
+import { Enquiry, UserData, POID } from '../../app/functionality/types';
 import { initializeIcons } from '@fluentui/react/lib/Icons';
 import CustomPagination from '../../app/styles/CustomPagination';
 import EnquiryCard from './EnquiryCard';
@@ -126,8 +126,8 @@ const Enquiries: React.FC<{
   context: TeamsContextType | null;
   enquiries: Enquiry[] | null;
   userData: UserData[] | null;
-  poidData: any[] | null;
-  setPoidData: React.Dispatch<React.SetStateAction<any[] | null>>;
+  poidData: POID[] | null;
+  setPoidData: React.Dispatch<React.SetStateAction<POID[] | null>>;
 }> = ({ context, enquiries, userData, poidData, setPoidData }) => {
   const [localEnquiries, setLocalEnquiries] = useState<Enquiry[]>(enquiries || []);
   const { isDarkMode } = useTheme();
@@ -136,7 +136,7 @@ const Enquiries: React.FC<{
   const [filterMethod, setFilterMethod] = useState<string>('All');
   const [filterArea, setFilterArea] = useState<string>('All');
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [enquiriesPerPage] = useState<number>(12);
+  const enquiriesPerPage = 12; // Made constant since it's not changing
   const [isRateModalOpen, setIsRateModalOpen] = useState<boolean>(false);
   const [currentRating, setCurrentRating] = useState<string>('');
   const [ratingEnquiryId, setRatingEnquiryId] = useState<string | null>(null);
@@ -145,7 +145,7 @@ const Enquiries: React.FC<{
   const [activeMainTab, setActiveMainTab] = useState<string>('Claimed');
   const [activeSubTab, setActiveSubTab] = useState<string>('Overview');
   const [convertedEnquiriesList, setConvertedEnquiriesList] = useState<Enquiry[]>([]);
-  const [convertedPoidDataList, setConvertedPoidDataList] = useState<any[]>([]);
+  const [convertedPoidDataList, setConvertedPoidDataList] = useState<POID[]>([]);
 
   const mainTabs = [
     { key: 'Claimed', text: 'Claimed' },
@@ -190,7 +190,11 @@ const Enquiries: React.FC<{
   );
 
   const handleShowAllToggle = useCallback(() => {
-    setShowAll((prev) => !prev);
+    setShowAll((prev) => {
+      const newShowAll = !prev;
+      console.log('Toggled showAll to:', newShowAll);
+      return newShowAll;
+    });
     setCurrentPage(1);
   }, []);
 
@@ -284,8 +288,12 @@ const Enquiries: React.FC<{
             }
           );
           if (response.ok) {
-            const data = await response.json();
+            const data: POID[] = await response.json();
+            console.log('Fetched POID data:', data);
             setPoidData(data);
+          } else {
+            const errorText = await response.text();
+            console.error('Failed to fetch POID data:', errorText);
           }
         } catch (error) {
           console.error('Error fetching POID data:', error);
@@ -297,12 +305,15 @@ const Enquiries: React.FC<{
   useEffect(() => {
     if (poidData && localEnquiries.length > 0) {
       const converted = localEnquiries.filter((enquiry) =>
-        poidData.some((poid) => poid.poid_id === enquiry.ID)
+        poidData.some((poid) => String(poid.acid) === enquiry.ID)
       );
+      console.log('Converted Enquiries:', converted);
       setConvertedEnquiriesList(converted);
+
       const convertedPoid = poidData.filter((poid) =>
-        localEnquiries.some((enquiry) => enquiry.ID === poid.poid_id)
+        localEnquiries.some((enquiry) => enquiry.ID === String(poid.acid))
       );
+      console.log('Converted POID Data:', convertedPoid);
       setConvertedPoidDataList(convertedPoid);
     }
   }, [poidData, localEnquiries]);
@@ -318,25 +329,38 @@ const Enquiries: React.FC<{
           filtered = filtered.filter(
             (enquiry) => enquiry.Point_of_Contact?.toLowerCase() === userEmail
           );
+          console.log('Claimed Enquiries after user filter:', filtered);
+        } else {
+          console.log('Claimed Enquiries without user filter:', filtered);
         }
         break;
 
       case 'Converted':
-        let converted = convertedEnquiriesList;
-        if (!showAll && context && context.userPrincipalName) {
+        if (showAll) {
+          // No additional filtering
+          filtered = convertedEnquiriesList;
+          console.log('Converted Enquiries (Display All):', filtered);
+        } else if (context && context.userPrincipalName) {
           const userEmail = context.userPrincipalName.toLowerCase();
-          const filteredPoidIds = convertedPoidDataList
-            .filter((poid) => poid.poc.toLowerCase() === userEmail)
+          const userFilteredPoidIds = convertedPoidDataList
+            .filter((poid) => poid.poc?.toLowerCase() === userEmail)
             .map((poid) => poid.poid_id);
-          converted = converted.filter((enquiry) => filteredPoidIds.includes(enquiry.ID));
+          filtered = convertedEnquiriesList.filter((enquiry) =>
+            userFilteredPoidIds.includes(enquiry.ID)
+          );
+          console.log('Converted Enquiries after user filter:', filtered);
+        } else {
+          // Fallback if context or userPrincipalName is missing
+          filtered = convertedEnquiriesList;
+          console.log('Converted Enquiries (No User Filter):', filtered);
         }
-        filtered = converted;
         break;
 
       case 'Claimable':
         filtered = localEnquiries.filter(
           (enquiry) => enquiry.Point_of_Contact?.toLowerCase() === 'team@helix-law.com'
         );
+        console.log('Claimable Enquiries:', filtered);
         break;
 
       case 'Triaged':
@@ -345,21 +369,28 @@ const Enquiries: React.FC<{
             enquiry.Point_of_Contact &&
             triagedPointOfContactEmails.includes(enquiry.Point_of_Contact.toLowerCase())
         );
+        console.log('Triaged Enquiries:', filtered);
         break;
 
       default:
         filtered = localEnquiries;
+        console.log('Default Enquiries:', filtered);
         break;
     }
 
+    // Apply Method of Contact filter
     if (filterMethod !== 'All') {
       filtered = filtered.filter((enquiry) => enquiry.Method_of_Contact === filterMethod);
+      console.log('After Method Filter:', filtered);
     }
 
+    // Apply Area of Work filter
     if (filterArea !== 'All') {
       filtered = filtered.filter((enquiry) => enquiry.Area_of_Work === filterArea);
+      console.log('After Area of Work Filter:', filtered);
     }
 
+    // Apply Search Term filter
     if (searchTerm) {
       const lowerSearchTerm = searchTerm.toLowerCase();
       filtered = filtered.filter(
@@ -368,8 +399,10 @@ const Enquiries: React.FC<{
           enquiry.Email?.toLowerCase().includes(lowerSearchTerm) ||
           (enquiry.Company && enquiry.Company.toLowerCase().includes(lowerSearchTerm))
       );
+      console.log('After Search Filter:', filtered);
     }
 
+    console.log('Final filteredEnquiries:', filtered);
     return filtered;
   }, [
     localEnquiries,
@@ -387,7 +420,9 @@ const Enquiries: React.FC<{
   const indexOfLastEnquiry = currentPage * enquiriesPerPage;
   const indexOfFirstEnquiry = indexOfLastEnquiry - enquiriesPerPage;
   const currentEnquiries = useMemo(() => {
-    return filteredEnquiries.slice(indexOfFirstEnquiry, indexOfLastEnquiry);
+    const sliced = filteredEnquiries.slice(indexOfFirstEnquiry, indexOfLastEnquiry);
+    console.log(`Displaying enquiries from index ${indexOfFirstEnquiry} to ${indexOfLastEnquiry}:`, sliced);
+    return sliced;
   }, [filteredEnquiries, indexOfFirstEnquiry, indexOfLastEnquiry]);
 
   const totalPages = Math.ceil(filteredEnquiries.length / enquiriesPerPage);
@@ -396,6 +431,7 @@ const Enquiries: React.FC<{
     (page: number) => {
       setCurrentPage(page);
       window.scrollTo({ top: 0, behavior: 'smooth' });
+      console.log('Changed to page:', page);
     },
     []
   );
