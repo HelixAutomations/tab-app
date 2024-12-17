@@ -65,6 +65,7 @@ const underlineIcon: IIconProps = { iconName: 'Underline' };
 const unorderedListIcon: IIconProps = { iconName: 'BulletedList' };
 const orderedListIcon: IIconProps = { iconName: 'NumberedList' };
 const linkIcon: IIconProps = { iconName: 'Link' };
+const clearIcon: IIconProps = { iconName: 'Cancel' };
 
 const attachmentTagStyle = (isSelected: boolean, isDarkMode: boolean) =>
   mergeStyles({
@@ -142,6 +143,7 @@ const templateBlockStyle = (isDarkMode: boolean) =>
     borderRadius: '8px',
     boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
     cursor: 'pointer',
+    position: 'relative',
     transition: 'background-color 0.2s, box-shadow 0.2s',
     backgroundColor: isDarkMode
       ? colours.dark.cardBackground
@@ -180,13 +182,13 @@ const replacePlaceholders = (template: string, intro: string, enquiry: Enquiry):
   return template
     .replace(
       /\[Enquiry.First_Name\]/g,
-      `<span style="background-color: ${colours.highlightYellow}; padding: 0 3px;">${
+      `<span style="background-color: ${colours.highlightYellow}; padding: 0 3px;" data-placeholder="[Enquiry.First_Name]">${
         enquiry.First_Name || 'there'
       }</span>`
     )
     .replace(
       /\[Enquiry.Point_of_Contact\]/g,
-      `<span style="background-color: ${colours.highlightYellow}; padding: 0 3px;">${
+      `<span style="background-color: ${colours.highlightYellow}; padding: 0 3px;" data-placeholder="[Enquiry.Point_of_Contact]">${
         enquiry.Point_of_Contact || 'Our Team'
       }</span>`
     )
@@ -347,7 +349,7 @@ Kind regards,
       replacementText = option ? option.previewText.trim() : '';
     }
 
-    const highlightedReplacement = `<span style="background-color: ${colours.highlightYellow}; padding: 0 3px;">${cleanTemplateString(replacementText)}</span>`;
+    const highlightedReplacement = `<span style="background-color: ${colours.highlightYellow}; padding: 0 3px;" data-inserted="${block.title}" data-placeholder="${block.placeholder}">${cleanTemplateString(replacementText)}</span>`;
 
     setBody((prevBody) => {
       const newBody = prevBody.replace(
@@ -671,11 +673,41 @@ Kind regards,
     marginBottom: '8px',
   });
 
+  const handleClearBlock = (block: TemplateBlock) => {
+    // Clear selection
+    setSelectedTemplateOptions((prev) => ({
+      ...prev,
+      [block.title]: block.isMultiSelect ? [] : '',
+    }));
+
+    // Hide preview
+    setInsertedBlocks((prev) => ({
+      ...prev,
+      [block.title]: false,
+    }));
+
+    // Revert inserted text to placeholder
+    setBody((prevBody) => {
+      const placeholder = block.placeholder;
+      const newBody = prevBody.replace(
+        new RegExp(`(<span[^>]*data-inserted="${escapeRegExp(block.title)}"[^>]*>)(.*?)(</span>)`, 'g'),
+        `<span data-placeholder="${placeholder}" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${placeholder}</span>`
+      );
+      if (bodyEditorRef.current) {
+        bodyEditorRef.current.innerHTML = newBody;
+      }
+      return newBody;
+    });
+  };
+
   const renderPreview = (block: TemplateBlock) => {
     const selectedOptions = selectedTemplateOptions[block.title];
     const isInserted = insertedBlocks[block.title] || false;
 
-    if (!selectedOptions) return null;
+    // Show preview if there are selected options
+    if (!selectedOptions || (block.isMultiSelect && Array.isArray(selectedOptions) && selectedOptions.length === 0)) {
+      return null;
+    }
 
     return (
       <div className={templatePreviewStyle(isDarkMode, isInserted)}>
@@ -1109,6 +1141,30 @@ Kind regards,
               }}
               aria-label={`Insert template block ${block.title}`}
             >
+              <IconButton
+                iconProps={clearIcon}
+                ariaLabel={`Clear ${block.title}`}
+                className={mergeStyles({
+                  position: 'absolute',
+                  top: '10px',
+                  right: '10px',
+                  backgroundColor: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  ':hover': {
+                    backgroundColor: isDarkMode
+                      ? colours.dark.cardHover
+                      : colours.light.cardHover,
+                  },
+                  width: '24px',
+                  height: '24px',
+                  padding: '0',
+                })}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleClearBlock(block);
+                }}
+              />
               <Stack tokens={{ childrenGap: 10 }}>
                 <Text
                   variant="mediumPlus"
