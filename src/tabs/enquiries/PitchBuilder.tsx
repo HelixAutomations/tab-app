@@ -969,151 +969,6 @@ Kind regards,
             iconProps={{ iconName: 'Refresh' }}
           />
         </Stack>
-
-        {/* Success Message */}
-        {isSuccessVisible && (
-          <MessageBar
-            messageBarType={MessageBarType.success}
-            isMultiline={false}
-            onDismiss={() => setIsSuccessVisible(false)}
-            dismissButtonAriaLabel="Close"
-            styles={{ root: { borderRadius: '4px' } }}
-          >
-            Email sent successfully!
-          </MessageBar>
-        )}
-
-        {/* Email Preview Panel */}
-        <Panel
-          isOpen={isPreviewOpen}
-          onDismiss={togglePreview}
-          type={PanelType.largeFixed}
-          headerText="Email Preview"
-          closeButtonAriaLabel="Close"
-          styles={{
-            main: {
-              padding: '20px',
-              backgroundImage: `url('https://helix-law.co.uk/wp-content/uploads/2023/09/Asset-2-2.png')`,
-              backgroundSize: 'cover',
-              backgroundPosition: 'top left',
-              backgroundRepeat: 'no-repeat',
-              backgroundColor: isDarkMode
-                ? 'rgba(30, 30, 30, 0.9)'
-                : 'rgba(240, 242, 245, 0.9)',
-              color: isDarkMode ? colours.dark.text : colours.light.text,
-              borderRadius: '8px',
-              display: 'flex',
-              flexDirection: 'column',
-              height: '100%',
-            },
-          }}
-        >
-          <Stack tokens={{ childrenGap: 15 }} styles={{ root: { flex: 1 } }}>
-            <Stack tokens={{ childrenGap: 6 }}>
-              <Text
-                variant="large"
-                styles={{
-                  root: { fontWeight: '600', color: colours.highlight, marginBottom: '5px' },
-                }}
-              >
-                Subject:
-              </Text>
-              <Text
-                variant="medium"
-                styles={{ root: { whiteSpace: 'pre-wrap' } }}
-              >
-                {subject || 'N/A'}
-              </Text>
-            </Stack>
-            <Separator />
-            <Stack tokens={{ childrenGap: 6 }}>
-              <Text
-                variant="large"
-                styles={{
-                  root: { fontWeight: '600', color: colours.highlight, marginBottom: '5px' },
-                }}
-              >
-                Body:
-              </Text>
-              <div style={{ whiteSpace: 'pre-wrap' }}>
-                {getPlainTextBody(body) || 'N/A'}
-              </div>
-            </Stack>
-            {attachments.length > 0 && (
-              <>
-                <Separator />
-                <Stack tokens={{ childrenGap: 6 }}>
-                  <Text
-                    variant="large"
-                    styles={{
-                      root: { fontWeight: '600', color: colours.highlight, marginBottom: '5px' },
-                    }}
-                  >
-                    Attachments:
-                  </Text>
-                  <Stack tokens={{ childrenGap: 5 }}>
-                    {attachments.map((att: string) => (
-                      <Text key={att} variant="medium">
-                        -{' '}
-                        {
-                          availableAttachments.find(
-                            (option) => option.key === att
-                          )?.text
-                        }
-                      </Text>
-                    ))}
-                  </Stack>
-                </Stack>
-              </>
-            )}
-            {followUp && (
-              <>
-                <Separator />
-                <Stack tokens={{ childrenGap: 6 }}>
-                  <Text
-                    variant="large"
-                    styles={{
-                      root: { fontWeight: '600', color: colours.highlight, marginBottom: '5px' },
-                    }}
-                  >
-                    Follow Up:
-                  </Text>
-                  <Text variant="medium">
-                    {followUpOptions.find((opt) => opt.key === followUp)?.text}
-                  </Text>
-                </Stack>
-              </>
-            )}
-          </Stack>
-          <Stack
-            styles={{
-              root: {
-                position: 'absolute',
-                bottom: '20px',
-                left: '20px',
-                width: 'auto',
-              },
-            }}
-            horizontal
-            tokens={{ childrenGap: 15 }}
-          >
-            <PrimaryButton
-              text="Send Email"
-              onClick={sendEmail}
-              styles={sharedPrimaryButtonStyles}
-              ariaLabel="Send Email"
-              iconProps={{ iconName: 'Mail' }}
-            />
-
-            <DefaultButton
-              text="Draft Email"
-              onClick={handleDraftEmail}
-              styles={sharedDefaultButtonStyles}
-              ariaLabel="Draft Email"
-              iconProps={{ iconName: 'Edit' }}
-            />
-          </Stack>
-        </Panel>
       </Stack>
 
       {/* Template Blocks */}
@@ -1241,6 +1096,151 @@ Kind regards,
           ))}
         </Stack>
       </Stack>
+
+      {/* Email Preview Panel */}
+      <Panel
+        isOpen={isPreviewOpen}
+        onDismiss={togglePreview}
+        type={PanelType.largeFixed}
+        headerText="Email Preview"
+        closeButtonAriaLabel="Close"
+        styles={{
+          main: {
+            padding: '20px',
+            backgroundImage: `url('https://helix-law.co.uk/wp-content/uploads/2023/09/Asset-2-2.png')`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'top left',
+            backgroundRepeat: 'no-repeat',
+            backgroundColor: isDarkMode
+              ? 'rgba(30, 30, 30, 0.9)'
+              : 'rgba(240, 242, 245, 0.9)',
+            color: isDarkMode ? colours.dark.text : colours.light.text,
+            borderRadius: '8px',
+            display: 'flex',
+            flexDirection: 'column',
+            height: '100%',
+          },
+        }}
+      >
+        <Stack tokens={{ childrenGap: 15 }} styles={{ root: { flex: 1 } }}>
+          {/* Add Success Message Here */}
+          {isSuccessVisible && (
+            <MessageBar
+              messageBarType={MessageBarType.success}
+              isMultiline={false}
+              onDismiss={() => setIsSuccessVisible(false)}
+              dismissButtonAriaLabel="Close"
+              styles={{ root: { borderRadius: '4px' } }}
+            >
+              Email sent successfully!
+            </MessageBar>
+          )}
+
+          <Stack tokens={{ childrenGap: 6 }}>
+            <Text
+              variant="large"
+              styles={{
+                root: { fontWeight: '600', color: colours.highlight, marginBottom: '5px' },
+              }}
+            >
+              Subject:
+            </Text>
+            <Text
+              variant="medium"
+              styles={{ root: { whiteSpace: 'pre-wrap' } }}
+            >
+              {subject || 'N/A'}
+            </Text>
+          </Stack>
+          <Separator />
+          <Stack tokens={{ childrenGap: 6 }}>
+            <Text
+              variant="large"
+              styles={{
+                root: { fontWeight: '600', color: colours.highlight, marginBottom: '5px' },
+              }}
+            >
+              Body:
+            </Text>
+            <div style={{ whiteSpace: 'pre-wrap' }}>
+              {getPlainTextBody(body) || 'N/A'}
+            </div>
+          </Stack>
+          {attachments.length > 0 && (
+            <>
+              <Separator />
+              <Stack tokens={{ childrenGap: 6 }}>
+                <Text
+                  variant="large"
+                  styles={{
+                    root: { fontWeight: '600', color: colours.highlight, marginBottom: '5px' },
+                  }}
+                >
+                  Attachments:
+                </Text>
+                <Stack tokens={{ childrenGap: 5 }}>
+                  {attachments.map((att: string) => (
+                    <Text key={att} variant="medium">
+                      -{' '}
+                      {
+                        availableAttachments.find(
+                          (option) => option.key === att
+                        )?.text
+                      }
+                    </Text>
+                  ))}
+                </Stack>
+              </Stack>
+            </>
+          )}
+          {followUp && (
+            <>
+              <Separator />
+              <Stack tokens={{ childrenGap: 6 }}>
+                <Text
+                  variant="large"
+                  styles={{
+                    root: { fontWeight: '600', color: colours.highlight, marginBottom: '5px' },
+                  }}
+                >
+                  Follow Up:
+                </Text>
+                <Text variant="medium">
+                  {followUpOptions.find((opt) => opt.key === followUp)?.text}
+                </Text>
+              </Stack>
+            </>
+          )}
+        </Stack>
+        <Stack
+          styles={{
+            root: {
+              position: 'absolute',
+              bottom: '20px',
+              left: '20px',
+              width: 'auto',
+            },
+          }}
+          horizontal
+          tokens={{ childrenGap: 15 }}
+        >
+          <PrimaryButton
+            text="Send Email"
+            onClick={sendEmail}
+            styles={sharedPrimaryButtonStyles}
+            ariaLabel="Send Email"
+            iconProps={{ iconName: 'Mail' }}
+          />
+
+          <DefaultButton
+            text="Draft Email"
+            onClick={handleDraftEmail}
+            styles={sharedDefaultButtonStyles}
+            ariaLabel="Draft Email"
+            iconProps={{ iconName: 'Edit' }}
+          />
+        </Stack>
+      </Panel>
     </Stack>
   );
 };
