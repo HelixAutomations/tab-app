@@ -151,16 +151,25 @@ const templateBlockStyle = (isDarkMode: boolean) =>
     },
   });
 
-const templatePreviewStyle = (isDarkMode: boolean) =>
+const templatePreviewStyle = (isDarkMode: boolean, isInserted: boolean) =>
   mergeStyles({
     padding: '10px',
     borderRadius: '4px',
     overflow: 'hidden',
     color: isDarkMode ? colours.dark.text : colours.light.text,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: isDarkMode
+      ? colours.dark.grey
+      : colours.grey, // Matches dropdown grey
     textAlign: 'left',
     marginTop: '10px',
     fontSize: '14px',
+    border: `0.5px ${isInserted ? 'solid' : 'dashed'} ${
+      isInserted ? colours.highlightYellow : colours.highlightBlue
+    }`,
+    boxShadow: isDarkMode
+      ? '0 2px 5px rgba(255, 255, 255, 0.1)'
+      : '0 2px 5px rgba(0, 0, 0, 0.1)',
+    transition: 'border 0.3s ease',
   });
 
 function escapeRegExp(string: string): string {
@@ -301,6 +310,8 @@ Kind regards,
     [key: string]: string | string[];
   }>({});
 
+  const [insertedBlocks, setInsertedBlocks] = useState<{ [key: string]: boolean }>({});
+
   const templateOptions: IDropdownOption[] = (() => {
     const templates = PracticeAreaPitch[selectedPracticeAreaKey];
 
@@ -350,6 +361,8 @@ Kind regards,
 
       return newBody;
     });
+
+    setInsertedBlocks((prev) => ({ ...prev, [block.title]: true }));
   };
 
   const [template, setTemplate] = useState<string | undefined>(undefined);
@@ -423,6 +436,7 @@ Kind regards,
     setIsErrorVisible(false);
     setErrorMessage('');
     setSelectedTemplateOptions({});
+    setInsertedBlocks({});
     if (bodyEditorRef.current) {
       bodyEditorRef.current.innerHTML = normalizeBody(
         replacePlaceholders(
@@ -659,10 +673,13 @@ Kind regards,
 
   const renderPreview = (block: TemplateBlock) => {
     const selectedOptions = selectedTemplateOptions[block.title];
+    const isInserted = insertedBlocks[block.title] || false;
+
     if (!selectedOptions) return null;
-    if (block.title === 'Required Documents' && Array.isArray(selectedOptions)) {
-      return (
-        <div className={templatePreviewStyle(isDarkMode)}>
+
+    return (
+      <div className={templatePreviewStyle(isDarkMode, isInserted)}>
+        {block.isMultiSelect && Array.isArray(selectedOptions) ? (
           <ul>
             {selectedOptions.map((doc: string) => (
               <li key={doc}>
@@ -670,33 +687,13 @@ Kind regards,
               </li>
             ))}
           </ul>
-        </div>
-      );
-    }
-
-    if (block.isMultiSelect && Array.isArray(selectedOptions)) {
-      return (
-        <div className={templatePreviewStyle(isDarkMode)}>
-          {selectedOptions
-            .map((item: string) => {
-              const option = block.options.find(o => o.label === item);
-              return option ? option.previewText.trim() : item;
-            })
-            .join('\n')}
-        </div>
-      );
-    }
-
-    if (!block.isMultiSelect && typeof selectedOptions === 'string') {
-      const option = block.options.find(o => o.label === selectedOptions);
-      return (
-        <div className={templatePreviewStyle(isDarkMode)}>
-          {option ? option.previewText.trim() : selectedOptions}
-        </div>
-      );
-    }
-
-    return null;
+        ) : (
+          <span>
+            {block.options.find(o => o.label === selectedOptions)?.previewText.trim() || selectedOptions}
+          </span>
+        )}
+      </div>
+    );
   };
 
   return (
