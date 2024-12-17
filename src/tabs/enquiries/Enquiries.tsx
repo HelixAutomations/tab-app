@@ -701,7 +701,7 @@ const Enquiries: React.FC<{
                     const animationDelay = calculateAnimationDelay(row, col);
                     return (
                       <EnquiryCard
-                        key={`${enquiry.ID}-${index}`}
+                        key={`${enquiry.ID}-${index}-${showAll}`} // **Modified Key Prop**
                         enquiry={enquiry}
                         onSelect={handleSelectEnquiry}
                         onRate={handleRate}
@@ -739,7 +739,7 @@ const Enquiries: React.FC<{
                         const animationDelay = calculateAnimationDelay(row, col);
                         return (
                           <EnquiryCard
-                            key={`${enquiry.ID}-${index}`}
+                            key={`${enquiry.ID}-${index}-${showAll}`} // **Modified Key Prop**
                             enquiry={enquiry}
                             onSelect={handleSelectEnquiry}
                             onRate={handleRate}
