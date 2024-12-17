@@ -165,7 +165,7 @@ const templatePreviewStyle = (isDarkMode: boolean, isInserted: boolean) =>
     textAlign: 'left',
     marginTop: '10px',
     fontSize: '14px',
-    border: `0.5px ${isInserted ? 'solid' : 'dashed'} ${
+    border: `1px ${isInserted ? 'solid' : 'dashed'} ${
       isInserted ? colours.highlightYellow : colours.highlightBlue
     }`,
     boxShadow: isDarkMode

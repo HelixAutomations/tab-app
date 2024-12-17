@@ -153,10 +153,12 @@ export const sharedDropdownStyles = (isDarkMode: boolean): Partial<IDropdownStyl
     fontSize: '14px',
     height: '32px',
     paddingLeft: '12px',
-    paddingRight: '36px',
+    paddingRight: '36px', // Reserve space for the caret
     display: 'flex',
     alignItems: 'center',
     border: 'none',
+    flexGrow: 1, // Ensure title takes up available space
+    justifyContent: 'space-between', // Add this line to distribute space
   },
   caretDown: {
     color: isDarkMode ? colours.dark.iconColor : colours.light.iconColor,
@@ -165,7 +167,7 @@ export const sharedDropdownStyles = (isDarkMode: boolean): Partial<IDropdownStyl
     right: '12px',
     top: '50%',
     transform: 'translateY(-50%)',
-    pointerEvents: 'none',
+    pointerEvents: 'none', // Prevent caret from capturing mouse events
   },
 });
 
@@ -235,17 +237,10 @@ export const sharedEditorStyle = (isDarkMode: boolean) =>
 // New Style for Template Block Dropdowns
 export const sharedOptionsDropdownStyles = (isDarkMode: boolean): Partial<IDropdownStyles> => ({
   root: {
-    width: '100%', // Ensure dropdown takes full width
-    backgroundColor: isDarkMode ? colours.dark.grey : colours.grey, // Use grey from colours
-    border: 'none',
-    boxShadow: 'none',
-    borderRadius: '8px 8px 0 0', // Round only top corners
-    padding: '0',
+    position: 'relative',
+    width: '100%',
     height: '32px',
-    display: 'flex',
-    alignItems: 'center',
     outline: 'none',
-    position: 'relative', // To position the caret correctly
     selectors: {
       '&::after': {
         content: '""',
@@ -268,10 +263,10 @@ export const sharedOptionsDropdownStyles = (isDarkMode: boolean): Partial<IDropd
     },
   },
   dropdown: {
-    backgroundColor: isDarkMode ? colours.dark.grey : colours.grey, // Consistent grey background
+    backgroundColor: isDarkMode ? colours.dark.grey : colours.grey,
     border: 'none',
     boxShadow: 'none',
-    borderRadius: '8px 8px 0 0', // Round only top corners
+    borderRadius: '8px 8px 0 0',
     padding: '0',
     height: '32px',
     display: 'flex',
@@ -283,10 +278,11 @@ export const sharedOptionsDropdownStyles = (isDarkMode: boolean): Partial<IDropd
     fontSize: '14px',
     height: '32px',
     paddingLeft: '12px',
-    paddingRight: '36px', // Space for the caret
+    paddingRight: '36px', // Reserve space for the caret
     display: 'flex',
     alignItems: 'center',
     border: 'none',
+    justifyContent: 'space-between', // Ensure caret is at the end
   },
   caretDown: {
     color: isDarkMode ? colours.dark.iconColor : colours.light.iconColor,
