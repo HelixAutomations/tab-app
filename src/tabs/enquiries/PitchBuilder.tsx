@@ -353,7 +353,7 @@ Kind regards,
 
     setBody((prevBody) => {
       const newBody = prevBody.replace(
-        new RegExp(`(<span[^>]*data-placeholder="${escapeRegExp(block.placeholder)}"[^>]*>)(.*?)(</span>)`, 'g'),
+        new RegExp(`(<span[^>]*data-placeholder="${escapeRegExp(block.placeholder)}"[^>]*>)([\\s\\S]*?)(</span>)`, 'g'),
         `$1${highlightedReplacement}$3`
       );
 
@@ -381,7 +381,7 @@ Kind regards,
         setSubject(`Your ${areaOfWork} Enquiry`);
 
         setBody((prevBody) => {
-          const introRegex = new RegExp(`(<span[^>]*data-placeholder="\\[Introduction Placeholder\\]"[^>]*>)(.*?)(</span>)`, 'g');
+          const introRegex = new RegExp(`(<span[^>]*data-placeholder="\\[Introduction Placeholder\\]"[^>]*>)([\\s\\S]*?)(</span>)`, 'g');
           const newBody = prevBody.replace(introRegex,
             `$1<span style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${selectedTemplate.intro.trim()}</span>$3`
           );
@@ -673,6 +673,7 @@ Kind regards,
     marginBottom: '8px',
   });
 
+  // Updated handleClearBlock function with improved regex
   const handleClearBlock = (block: TemplateBlock) => {
     // Clear selection
     setSelectedTemplateOptions((prev) => ({
@@ -689,8 +690,12 @@ Kind regards,
     // Revert inserted text to placeholder
     setBody((prevBody) => {
       const placeholder = block.placeholder;
+      const regex = new RegExp(
+        `(<span[^>]*data-inserted="${escapeRegExp(block.title)}"[^>]*>)([\\s\\S]*?)(</span>)`,
+        'g'
+      );
       const newBody = prevBody.replace(
-        new RegExp(`(<span[^>]*data-inserted="${escapeRegExp(block.title)}"[^>]*>)(.*?)(</span>)`, 'g'),
+        regex,
         `<span data-placeholder="${placeholder}" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${placeholder}</span>`
       );
       if (bodyEditorRef.current) {
@@ -705,7 +710,10 @@ Kind regards,
     const isInserted = insertedBlocks[block.title] || false;
 
     // Show preview if there are selected options
-    if (!selectedOptions || (block.isMultiSelect && Array.isArray(selectedOptions) && selectedOptions.length === 0)) {
+    if (
+      !selectedOptions ||
+      (block.isMultiSelect && Array.isArray(selectedOptions) && selectedOptions.length === 0)
+    ) {
       return null;
     }
 
