@@ -272,6 +272,7 @@ const Enquiries: React.FC<{
     []
   );
 
+  // Fetch POID data if not already available
   useEffect(() => {
     (async () => {
       if (!poidData) {
@@ -302,6 +303,7 @@ const Enquiries: React.FC<{
     })();
   }, [poidData, setPoidData]);
 
+  // Process converted enquiries and their corresponding POID data
   useEffect(() => {
     if (poidData && localEnquiries.length > 0) {
       const converted = localEnquiries.filter((enquiry) =>
@@ -342,11 +344,13 @@ const Enquiries: React.FC<{
           console.log('Converted Enquiries (Display All):', filtered);
         } else if (context && context.userPrincipalName) {
           const userEmail = context.userPrincipalName.toLowerCase();
-          const userFilteredPoidIds = convertedPoidDataList
+          // **Fixed Logic: Filter based on 'acid' where 'poc' matches the user email**
+          const userFilteredEnquiryIds = convertedPoidDataList
             .filter((poid) => poid.poc?.toLowerCase() === userEmail)
-            .map((poid) => poid.poid_id);
+            .map((poid) => String(poid.acid)); // Changed from 'poid_id' to 'acid'
+
           filtered = convertedEnquiriesList.filter((enquiry) =>
-            userFilteredPoidIds.includes(enquiry.ID)
+            userFilteredEnquiryIds.includes(enquiry.ID)
           );
           console.log('Converted Enquiries after user filter:', filtered);
         } else {
