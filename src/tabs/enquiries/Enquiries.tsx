@@ -145,6 +145,7 @@ const Enquiries: React.FC<{
   const [activeMainTab, setActiveMainTab] = useState<string>('Claimed');
   const [activeSubTab, setActiveSubTab] = useState<string>('Overview');
   const [convertedEnquiriesList, setConvertedEnquiriesList] = useState<Enquiry[]>([]);
+  const [convertedPoidDataList, setConvertedPoidDataList] = useState<any[]>([]);
 
   const mainTabs = [
     { key: 'Claimed', text: 'Claimed' },
@@ -299,6 +300,10 @@ const Enquiries: React.FC<{
         poidData.some((poid) => poid.poid_id === enquiry.ID)
       );
       setConvertedEnquiriesList(converted);
+      const convertedPoid = poidData.filter((poid) =>
+        localEnquiries.some((enquiry) => enquiry.ID === poid.poid_id)
+      );
+      setConvertedPoidDataList(convertedPoid);
     }
   }, [poidData, localEnquiries]);
 
@@ -320,9 +325,10 @@ const Enquiries: React.FC<{
         let converted = convertedEnquiriesList;
         if (!showAll && context && context.userPrincipalName) {
           const userEmail = context.userPrincipalName.toLowerCase();
-          converted = converted.filter(
-            (enquiry) => enquiry.Point_of_Contact?.toLowerCase() === userEmail
-          );
+          const filteredPoidIds = convertedPoidDataList
+            .filter((poid) => poid.poc.toLowerCase() === userEmail)
+            .map((poid) => poid.poid_id);
+          converted = converted.filter((enquiry) => filteredPoidIds.includes(enquiry.ID));
         }
         filtered = converted;
         break;
@@ -375,6 +381,7 @@ const Enquiries: React.FC<{
     filterArea,
     triagedPointOfContactEmails,
     convertedEnquiriesList,
+    convertedPoidDataList,
   ]);
 
   const indexOfLastEnquiry = currentPage * enquiriesPerPage;
