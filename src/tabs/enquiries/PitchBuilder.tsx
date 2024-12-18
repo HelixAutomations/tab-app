@@ -35,8 +35,10 @@ import {
   sharedDropdownStyles,
   sharedToggleButtonStyle,
   sharedEditorStyle,
-  sharedOptionsDropdownStyles, // Import the new options dropdown style
+  sharedOptionsDropdownStyles,
 } from '../../app/styles/FilterStyles';
+import ReactDOMServer from 'react-dom/server';
+import EmailSignature from './EmailSignature';
 
 interface PitchBuilderProps {
   enquiry: Enquiry;
@@ -161,7 +163,7 @@ const templatePreviewStyle = (isDarkMode: boolean, isInserted: boolean) =>
     color: isDarkMode ? colours.dark.text : colours.light.text,
     backgroundColor: isDarkMode
       ? colours.dark.grey
-      : colours.grey, // Matches dropdown grey
+      : colours.grey,
     textAlign: 'left',
     marginTop: '10px',
     fontSize: '14px',
@@ -469,9 +471,11 @@ Kind regards,
   const sendEmail = () => {
     if (validateForm()) {
       const followUpText = followUp
-        ? `\n\nFollow Up: ${followUpOptions.find(
-            (opt) => opt.key === followUp
-          )?.text}`
+        ? `\n\nFollow Up: ${
+            followUpOptions.find(
+              (opt) => opt.key === followUp
+            )?.text
+          }`
         : '';
 
       console.log('Email Sent:', {
@@ -485,6 +489,18 @@ Kind regards,
     }
   };
 
+  const removeHighlightSpans = (html: string): string => {
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = html;
+    const spans = tempDiv.querySelectorAll('span[data-placeholder], span[data-inserted]');
+    spans.forEach((span) => {
+      span.removeAttribute('style');
+      span.removeAttribute('data-placeholder');
+      span.removeAttribute('data-inserted');
+    });
+    return tempDiv.innerHTML;
+  };
+
   const handleDraftEmail = async () => {
     const apiUrl = `${process.env.REACT_APP_PROXY_BASE_URL}/sendEmail?code=${process.env.REACT_APP_SEND_EMAIL_CODE}`;
     const userEmail = enquiry.Point_of_Contact;
@@ -495,8 +511,11 @@ Kind regards,
       return;
     }
 
+    const cleanedBody = removeHighlightSpans(body).replace(/\n/g, '<br>');
+    const fullEmailHtml = ReactDOMServer.renderToStaticMarkup(<EmailSignature bodyHtml={cleanedBody} />);
+
     const requestBody = {
-      email_contents: body,
+      email_contents: fullEmailHtml,
       user_email: userEmail,
     };
 
@@ -673,21 +692,17 @@ Kind regards,
     marginBottom: '8px',
   });
 
-  // Updated handleClearBlock function with improved regex
   const handleClearBlock = (block: TemplateBlock) => {
-    // Clear selection
     setSelectedTemplateOptions((prev) => ({
       ...prev,
       [block.title]: block.isMultiSelect ? [] : '',
     }));
 
-    // Hide preview
     setInsertedBlocks((prev) => ({
       ...prev,
       [block.title]: false,
     }));
 
-    // Revert inserted text to placeholder
     setBody((prevBody) => {
       const placeholder = block.placeholder;
       const regex = new RegExp(
@@ -709,7 +724,6 @@ Kind regards,
     const selectedOptions = selectedTemplateOptions[block.title];
     const isInserted = insertedBlocks[block.title] || false;
 
-    // Show preview if there are selected options
     if (
       !selectedOptions ||
       (block.isMultiSelect && Array.isArray(selectedOptions) && selectedOptions.length === 0)
@@ -746,7 +760,6 @@ Kind regards,
           Pitch Builder
         </Text>
 
-        {/* Select Template */}
         <Stack tokens={{ childrenGap: 6 }}>
           <Label className={labelStyle}>Select Template</Label>
           <Dropdown
@@ -805,7 +818,6 @@ Kind regards,
           />
         </Stack>
 
-        {/* Email Subject */}
         <Stack tokens={{ childrenGap: 6 }}>
           <Label className={labelStyle}>Email Subject</Label>
           <BubbleTextField
@@ -820,7 +832,6 @@ Kind regards,
           />
         </Stack>
 
-        {/* Email Body */}
         <Stack tokens={{ childrenGap: 6 }}>
           <Label className={labelStyle}>Email Body</Label>
           <div className={toolbarStyle}>
@@ -865,13 +876,12 @@ Kind regards,
             ref={bodyEditorRef}
             onBlur={handleBlur}
             suppressContentEditableWarning={true}
-            className={sharedEditorStyle(isDarkMode)} // Apply the shared editor style
+            className={sharedEditorStyle(isDarkMode)}
             dangerouslySetInnerHTML={{ __html: body }}
             aria-label="Email Body Editor"
           />
         </Stack>
 
-        {/* Select Attachments */}
         <Stack tokens={{ childrenGap: 6 }}>
           <Label className={labelStyle}>Select Attachments</Label>
           <Stack horizontal tokens={{ childrenGap: 8 }} wrap>
@@ -890,7 +900,6 @@ Kind regards,
           </Stack>
         </Stack>
 
-        {/* Follow Up */}
         <Stack tokens={{ childrenGap: 6 }}>
           <Label className={labelStyle}>Follow Up</Label>
           <Stack horizontal tokens={{ childrenGap: 8 }} wrap>
@@ -932,7 +941,6 @@ Kind regards,
           </Stack>
         </Stack>
 
-        {/* Error Message */}
         {isErrorVisible && (
           <MessageBar
             messageBarType={MessageBarType.error}
@@ -947,7 +955,6 @@ Kind regards,
 
         <Separator />
 
-        {/* Buttons */}
         <Stack
           horizontal
           horizontalAlign="space-between"
@@ -971,7 +978,6 @@ Kind regards,
         </Stack>
       </Stack>
 
-      {/* Template Blocks */}
       <Stack className={templatesContainerStyle}>
         <Text
           variant="xLarge"
@@ -1081,7 +1087,7 @@ Kind regards,
                         ? [selectedTemplateOptions[block.title] as string]
                         : []
                   }
-                  styles={sharedOptionsDropdownStyles(isDarkMode)} // Apply the new options dropdown style
+                  styles={sharedOptionsDropdownStyles(isDarkMode)}
                   ariaLabel={`Select options for ${block.title}`}
                   onClick={(e: React.MouseEvent<HTMLDivElement>) =>
                     e.stopPropagation()
@@ -1097,7 +1103,6 @@ Kind regards,
         </Stack>
       </Stack>
 
-      {/* Email Preview Panel */}
       <Panel
         isOpen={isPreviewOpen}
         onDismiss={togglePreview}
@@ -1123,7 +1128,6 @@ Kind regards,
         }}
       >
         <Stack tokens={{ childrenGap: 15 }} styles={{ root: { flex: 1 } }}>
-          {/* Add Success Message Here */}
           {isSuccessVisible && (
             <MessageBar
               messageBarType={MessageBarType.success}

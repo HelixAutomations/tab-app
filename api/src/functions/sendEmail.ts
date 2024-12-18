@@ -5,26 +5,17 @@ import axios from "axios";
 import { DefaultAzureCredential } from "@azure/identity";
 import { SecretClient } from "@azure/keyvault-secrets";
 
-// Define the interface for the request body
 interface RequestBody {
-    email_contents: string; // HTML content of the email body
-    user_email: string;     // Recipient's email address
+    email_contents: string;
+    user_email: string;
 }
 
-// Define the interface for the email response
 interface EmailResponse {
     success: boolean;
     message?: string;
     error?: string;
 }
 
-/**
- * Sends an email using Microsoft Graph API.
- * @param email_contents The HTML content of the email body.
- * @param user_email The recipient's email address.
- * @param context The invocation context for logging.
- * @returns An object indicating success or failure.
- */
 async function sendEmailWithGraph(
     email_contents: string,
     user_email: string,
@@ -35,21 +26,17 @@ async function sendEmailWithGraph(
     context.log(`Received email_contents length: ${email_contents.length}`);
 
     try {
-        // Hardcoded tenantId
-        const tenantId = "7fbc252f-3ce5-460f-9740-4e1cb8bf78b8"; // Ensure this is correct
+        const tenantId = "7fbc252f-3ce5-460f-9740-4e1cb8bf78b8";
 
-        // Key Vault settings
         const kvUri = "https://helix-keys.vault.azure.net/";
         const clientIdSecretName = "graph-pitchbuilderemailprovider-clientid";
         const clientSecretName = "graph-pitchbuilderemailprovider-clientsecret";
 
-        // Initialize Key Vault client
         context.log("Initializing Key Vault client with DefaultAzureCredential...");
         const credential = new DefaultAzureCredential();
         const secretClient = new SecretClient(kvUri, credential);
         context.log("Key Vault client initialized successfully.");
 
-        // Fetch clientId and clientSecret from Azure Key Vault
         context.log("Fetching clientId from Key Vault...");
         const clientIdSecret = await secretClient.getSecret(clientIdSecretName);
         const clientId = clientIdSecret.value;
@@ -60,14 +47,12 @@ async function sendEmailWithGraph(
         const clientSecret = clientSecretSecret.value;
         context.log("clientSecret fetched successfully.");
 
-        // Validate fetched secrets
         if (!clientId || !clientSecret) {
             context.error("One or more secrets (clientId, clientSecret) are missing from Key Vault.");
             throw new Error("Missing secrets: clientId or clientSecret.");
         }
         context.log("All required secrets are present.");
 
-        // Fetch access token from Microsoft Graph
         context.log("Fetching access token from Microsoft Graph...");
         const tokenResponse = await axios.post(
             `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
@@ -92,10 +77,9 @@ async function sendEmailWithGraph(
         }
         context.log("Access token retrieved successfully.");
 
-        // Prepare email content for Microsoft Graph API
         const emailContent = {
             message: {
-                subject: "Your Enquiry from Helix", // Customize as needed or make dynamic
+                subject: "Your Enquiry from Helix",
                 body: {
                     contentType: "HTML",
                     content: email_contents,
@@ -113,11 +97,10 @@ async function sendEmailWithGraph(
                     },
                 },
             },
-            saveToSentItems: "false", // Set to "true" to save sent emails
+            saveToSentItems: "false",
         };
         context.log("Prepared email content for Microsoft Graph API:", emailContent);
 
-        // Send email via Microsoft Graph API
         context.log("Sending email via Microsoft Graph API...");
         const emailResponse = await axios.post(
             `https://graph.microsoft.com/v1.0/users/automations@helix-law.com/sendMail`,
@@ -146,12 +129,6 @@ async function sendEmailWithGraph(
     }
 }
 
-/**
- * Handler for the sendEmail Azure Function.
- * @param req The HTTP request object.
- * @param context The invocation context for logging.
- * @returns An HTTP response.
- */
 export async function sendEmailHandler(req: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
     context.log("Invocation started for sendEmail Azure Function.");
 
@@ -162,7 +139,6 @@ export async function sendEmailHandler(req: HttpRequest, context: InvocationCont
         body = await req.json() as RequestBody;
         const { email_contents, user_email } = body;
 
-        // Validate request body
         if (!email_contents || !user_email) {
             context.warn("Request missing 'email_contents' or 'user_email'.");
             return {
@@ -174,7 +150,6 @@ export async function sendEmailHandler(req: HttpRequest, context: InvocationCont
         context.log(`Processing email for user_email: ${user_email}`);
         context.log(`email_contents length: ${email_contents.length}`);
 
-        // Send the email
         context.log("Initiating sendEmailWithGraph function...");
         const response = await sendEmailWithGraph(email_contents, user_email, context);
         if (response.success) {
@@ -192,7 +167,6 @@ export async function sendEmailHandler(req: HttpRequest, context: InvocationCont
     }
 }
 
-// Register the function with Azure Functions runtime
 app.http("sendEmail", {
     methods: ["POST"],
     authLevel: "function",
