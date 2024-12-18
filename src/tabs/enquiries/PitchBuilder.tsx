@@ -27,13 +27,6 @@ import { templateBlocks, TemplateBlock, TemplateOption } from '../../app/customi
 import { availableAttachments, AttachmentOption } from '../../app/customisation/Attachments';
 import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from '../../app/styles/ButtonStyles';
 import {
-  sharedSearchBoxContainerStyle,
-  sharedControlsContainerStyle,
-  sharedSearchBoxStyle,
-  sharedToggleStyle,
-  sharedDropdownContainerStyle,
-  sharedDropdownStyles,
-  sharedToggleButtonStyle,
   sharedEditorStyle,
   sharedOptionsDropdownStyles,
 } from '../../app/styles/FilterStyles';
@@ -246,10 +239,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
 
 [Closing Notes Placeholder]
 
-[Google Review Placeholder]
-
-Kind regards,
-[Enquiry.Point_of_Contact]`;
+[Google Review Placeholder]`;
 
   const normalizeBody = (text: string) =>
     text
@@ -517,6 +507,7 @@ Kind regards,
     const requestBody = {
       email_contents: fullEmailHtml,
       user_email: userEmail,
+      subject_line: subject
     };
 
     try {
@@ -651,33 +642,10 @@ Kind regards,
     overflowY: 'auto',
   });
 
-  const sectionHeaderStyle = mergeStyles({
-    fontSize: '18px',
-    fontWeight: '600',
-    color: colours.highlight,
-    marginBottom: '8px',
-  });
-
   const buttonGroupStyle = mergeStyles({
     gap: '15px',
     marginTop: '20px',
     width: '100%',
-  });
-
-  const panelStyle = mergeStyles({
-    padding: '20px',
-    backgroundImage: `url('https://helix-law.co.uk/wp-content/uploads/2023/09/Asset-2-2.png')`,
-    backgroundSize: 'cover',
-    backgroundPosition: 'top left',
-    backgroundRepeat: 'no-repeat',
-    backgroundColor: isDarkMode
-      ? 'rgba(30, 30, 30, 0.9)'
-      : 'rgba(240, 242, 245, 0.9)',
-    color: isDarkMode ? colours.dark.text : colours.light.text,
-    borderRadius: '8px',
-    display: 'flex',
-    flexDirection: 'column',
-    height: '100%',
   });
 
   const labelStyle = mergeStyles({
@@ -912,25 +880,8 @@ Kind regards,
                   onClick={() =>
                     setFollowUp(isSelected ? undefined : (option.key as string))
                   }
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.backgroundColor = isDarkMode
-                      ? colours.dark.cardHover
-                      : colours.light.cardHover)
-                  }
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.backgroundColor = isSelected
-                      ? colours.cta
-                      : isDarkMode
-                      ? colours.dark.sectionBackground
-                      : colours.light.sectionBackground)
-                  }
                   role="button"
                   tabIndex={0}
-                  onKeyPress={(e: React.KeyboardEvent<HTMLSpanElement>) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      setFollowUp(isSelected ? undefined : (option.key as string));
-                    }
-                  }}
                   aria-pressed={isSelected}
                   aria-label={`Set follow up to ${option.text}`}
                 >
@@ -998,14 +949,6 @@ Kind regards,
                 const selectedOption = selectedTemplateOptions[block.title];
                 if (selectedOption) {
                   insertTemplateBlock(block, selectedOption);
-                }
-              }}
-              onKeyPress={(e: React.KeyboardEvent<HTMLDivElement>) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  const selectedOption = selectedTemplateOptions[block.title];
-                  if (selectedOption) {
-                    insertTemplateBlock(block, selectedOption);
-                  }
                 }
               }}
               aria-label={`Insert template block ${block.title}`}
