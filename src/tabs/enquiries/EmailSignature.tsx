@@ -5,10 +5,6 @@ import React from 'react';
 const EmailSignature: React.FC<{ bodyHtml: string }> = ({ bodyHtml }) => {
   return (
     <>
-      {/*
-        Using `dangerouslySetInnerHTML` to combine the `bodyHtml` passed in as a prop
-        with the signature HTML below. The `bodyHtml` is the cleaned body of the email.
-      */}
       <div
         dangerouslySetInnerHTML={{
           __html: `<!DOCTYPE html>
@@ -19,12 +15,24 @@ const EmailSignature: React.FC<{ bodyHtml: string }> = ({ bodyHtml }) => {
     <title>Email Signature</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Raleway:wght@400;700&display=swap');
+        html, body {
+            margin: 0;
+            padding: 0;
+        }
         body {
             font-family: 'Raleway', sans-serif;
             font-size: 10pt;
         }
         .signature {
             line-height: 1.4;
+            margin: 0;
+            padding: 0;
+            border-collapse: collapse;
+        }
+        .signature td {
+            vertical-align: top;
+            margin: 0;
+            padding: 0;
         }
         .signature img.icon {
             height: 12px;
@@ -73,10 +81,7 @@ const EmailSignature: React.FC<{ bodyHtml: string }> = ({ bodyHtml }) => {
 </head>
 <body>
 ${bodyHtml}
-<table class="signature">
-    <tr>
-        <td>&nbsp;</td>
-    </tr>
+<table class="signature" style="border-collapse: collapse; margin: 0; padding: 0;">
     <tr>
         <td>
             Fee Earner<br>
@@ -92,7 +97,7 @@ ${bodyHtml}
     <tr class="spacer"></tr>
     <tr>
         <td class="contact-details">
-            <table>
+            <table style="border-collapse: collapse; margin: 0; padding: 0;">
                 <tr>
                     <td class="icon-cell">
                         <img src="https://helix-law.co.uk/wp-content/uploads/2024/08/email.png" alt="Email Icon" class="icon">
@@ -118,7 +123,7 @@ ${bodyHtml}
     </tr>
     <tr>
         <td class="contact-details">
-            <table>
+            <table style="border-collapse: collapse; margin: 0; padding: 0;">
                 <tr>
                     <td class="icon-cell">
                         <img src="https://helix-law.co.uk/wp-content/uploads/2024/08/pin.png" alt="Location Icon" class="icon">
@@ -134,7 +139,7 @@ ${bodyHtml}
     <tr>
         <td>
             <p class="small-print disclaimer">
-                DISCLAIMER: Please be aware of cyber-crime. Our bank account details will NOT change during the course of a transaction. Helix Law Limited will not be liable if you transfer money to an incorrect account. We accept no responsibility or liability for malicious or fraudulent emails purportedly coming from our firm, and it is your responsibility to ensure that any emails coming from us are genuine before relying on anything contained within them.
+                DISCLAIMER: Please be aware of cyber-crime. Our bank account details will NOT change during the course of a transaction. Helix Law Limited will not be liable if you transfer money to an incorrect account. We accept no responsibility or liability for malicious or fraudulent emails purportedly coming from our firm, and it is your responsibility to ensure that any emails coming from us are genuine before relying on anything contained within them.
             </p>
         </td>
     </tr>
@@ -143,7 +148,7 @@ ${bodyHtml}
         <td>
             <p class="small-print italic-text">
                 Helix Law Limited is a limited liability company registered in England and Wales. Registration Number 07845461.<br>
-                A list of Directors is available for inspection at the Registered Office: Second Floor, Britannia House, 21 Station Street, Brighton BN1 4DE. Authorised and regulated by the Solicitors Regulation Authority. The term partner is a reference to a Director or senior solicitor of Helix Law Limited. Helix Law Limited do not accept service by email. This email is sent by and on behalf of Helix Law Limited. It may be confidential and may also be legally privileged. It is intended only for the stated addressee(s) and access to it by any other person is unauthorised. If you are not an addressee, you must not disclose, copy, circulate or in any other way use or rely on the information contained in this email. If you have received it in error, please inform us immediately and delete all copies. All copyright is reserved entirely on behalf of Helix Law Limited. Helix Law and applicable logo are exclusively owned trademarks of Helix Law Limited, registered with the Intellectual Property Office under numbers UK00003984532 and UK00003984535. The trademarks should not be used, copied or replicated without consent first obtained in writing.
+                A list of Directors is available for inspection at the Registered Office: Second Floor, Britannia House, 21 Station Street, Brighton BN1 4DE. Authorised and regulated by the Solicitors Regulation Authority. The term partner is a reference to a Director or senior solicitor of Helix Law Limited. Helix Law Limited do not accept service by email. This email is sent by and on behalf of Helix Law Limited. It may be confidential and may also be legally privileged. It is intended only for the stated addressee(s) and access to it by any other person is unauthorised. If you are not an addressee, you must not disclose, copy, circulate or in any other way use or rely on the information contained in this email. If you have received it in error, please inform us immediately and delete all copies. All copyright is reserved entirely on behalf of Helix Law Limited. Helix Law and applicable logo are exclusively owned trademarks of Helix Law Limited, registered with the Intellectual Property Office under numbers UK00003984532 and UK00003984535. The trademarks should not be used, copied or replicated without consent first obtained in writing.
             </p>
         </td>
     </tr>
