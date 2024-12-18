@@ -14,7 +14,6 @@ export interface PracticeAreaPitchType {
   Construction: PracticeAreaCategory;
   Property: PracticeAreaCategory;
   Employment: PracticeAreaCategory;
-  // Add other practice areas as needed
 }
 
 const PracticeAreaPitch: PracticeAreaPitchType = {

@@ -18,7 +18,7 @@ import {
   IconButton,
   IIconProps,
 } from '@fluentui/react';
-import { Enquiry } from '../../app/functionality/types';
+import { Enquiry, UserData } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
 import BubbleTextField from '../../app/styles/BubbleTextField';
 import { useTheme } from '../../app/functionality/ThemeContext';
@@ -35,6 +35,7 @@ import EmailSignature from './EmailSignature';
 
 interface PitchBuilderProps {
   enquiry: Enquiry;
+  userDataList?: UserData[];
 }
 
 const commonInputStyle = {
@@ -173,7 +174,7 @@ function escapeRegExp(string: string): string {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-const replacePlaceholders = (template: string, intro: string, enquiry: Enquiry): string => {
+const replacePlaceholders = (template: string, intro: string, enquiry: Enquiry, userFullName: string): string => {
   return template
     .replace(
       /\[Enquiry.First_Name\]/g,
@@ -184,7 +185,7 @@ const replacePlaceholders = (template: string, intro: string, enquiry: Enquiry):
     .replace(
       /\[Enquiry.Point_of_Contact\]/g,
       `<span style="background-color: ${colours.highlightYellow}; padding: 0 3px;" data-placeholder="[Enquiry.Point_of_Contact]">${
-        enquiry.Point_of_Contact || 'Our Team'
+        userFullName || 'Our Team'
       }</span>`
     )
     .replace(
@@ -206,7 +207,7 @@ const isStringArray = (value: string | string[]): value is string[] => {
   return Array.isArray(value);
 };
 
-const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
+const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userDataList = [] }) => {
   const { isDarkMode } = useTheme();
   const capitalizeWords = (str: string): string =>
     str
@@ -220,6 +221,8 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
       ? `Your ${capitalizeWords(enquiry.Area_of_Work)} Enquiry`
       : 'Your Enquiry'
   );
+
+  const userFullName = userDataList.find(u => u.Email === enquiry.Point_of_Contact)?.FullName || 'Our Team';
 
   const BASE_TEMPLATE = `Dear [Enquiry.First_Name],
 
@@ -239,7 +242,10 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
 
 [Closing Notes Placeholder]
 
-[Google Review Placeholder]`;
+[Google Review Placeholder]
+
+Kind regards,
+[Enquiry.Point_of_Contact]`;
 
   const normalizeBody = (text: string) =>
     text
@@ -288,7 +294,8 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
       replacePlaceholders(
         BASE_TEMPLATE,
         'Thank you for your enquiry. I am confident we can assist with your matter.',
-        enquiry
+        enquiry,
+        userFullName
       )
     )
   );
@@ -420,7 +427,8 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
         replacePlaceholders(
           BASE_TEMPLATE,
           'Thank you for your enquiry. I am confident we can assist with your matter.',
-          enquiry
+          enquiry,
+          userFullName
         )
       )
     );
@@ -436,7 +444,8 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
         replacePlaceholders(
           BASE_TEMPLATE,
           'Thank you for your enquiry. I am confident we can assist with your matter.',
-          enquiry
+          enquiry,
+          userFullName
         )
       );
     }
@@ -612,10 +621,10 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
     display: 'flex',
     flexDirection: 'row',
     gap: '20px',
-    flexWrap: 'nowrap', // changed from wrap to nowrap so both columns stretch equally
-    alignItems: 'stretch', // ensure columns align and stretch
+    flexWrap: 'nowrap',
+    alignItems: 'stretch',
     justifyContent: 'space-between',
-    height: 'calc(100vh - 60px)', // try giving full available height minus some offset
+    height: 'calc(100vh - 60px)',
     boxSizing: 'border-box',
   });
 
@@ -631,13 +640,12 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
     display: 'flex',
     flexDirection: 'column',
     gap: '20px',
-    // Make it stretch fully
-    overflow: 'hidden', // so that the grid can scroll internally if needed
+    overflow: 'hidden',
   });
 
   const templatesGridStyle = mergeStyles({
-    flex: 1, // take remaining space
-    overflowY: 'auto', // scroll if needed
+    flex: 1,
+    overflowY: 'auto',
     display: 'grid',
     gridTemplateColumns: 'repeat(2, 1fr)',
     gap: '20px',
@@ -658,7 +666,8 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
   const labelStyle = mergeStyles({
     fontWeight: '600',
     color: isDarkMode ? colours.dark.text : colours.light.text,
-    marginBottom: '10px',
+    paddingTop: '20px',
+    paddingBottom: '5px',
   });
 
   const toolbarStyle = mergeStyles({
@@ -738,7 +747,19 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
         </Text>
 
         <Stack tokens={{ childrenGap: 6 }} styles={{ root: { flexGrow: 1 } }}>
-          <Label className={labelStyle}>Select Template</Label>
+          <Label className={labelStyle}>Subject Line & Practice Area Template</Label>
+          <BubbleTextField
+            value={subject}
+            onChange={(
+              _: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>,
+              newValue?: string
+            ) => setSubject(newValue || '')}
+            placeholder="Enter email subject"
+            ariaLabel="Email Subject"
+            isDarkMode={isDarkMode}
+            style={{ borderRadius: '8px 8px 0 0' }}
+          />
+
           <Dropdown
             placeholder="Choose a template"
             options={templateOptions}
@@ -749,15 +770,13 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
               title: {
                 ...commonInputStyle,
                 padding: '0 15px',
-                borderRadius: '8px',
+                borderRadius: '0 0 8px 8px',
                 border: 'none',
                 display: 'flex',
                 alignItems: 'center',
+                height: '40px',
+                lineHeight: 'normal',
                 color: isDarkMode ? colours.dark.text : colours.light.text,
-                maxWidth: '450px',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
                 selectors: {
                   ':hover': {
                     backgroundColor: isDarkMode
@@ -765,6 +784,13 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
                       : colours.light.cardHover,
                   },
                 },
+              },
+              caretDownWrapper: {
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: '100%',
+                pointerEvents: 'none',
               },
               dropdownItem: {
                 selectors: {
@@ -782,7 +808,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
               },
               root: {
                 border: 'none',
-                borderRadius: '8px',
+                borderRadius: '0 0 8px 8px',
                 backgroundColor: isDarkMode
                   ? colours.dark.sectionBackground
                   : '#ffffff',
@@ -794,17 +820,6 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
             ariaLabel="Select Template"
           />
 
-          <Label className={labelStyle}>Email Subject</Label>
-          <BubbleTextField
-            value={subject}
-            onChange={(
-              _: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>,
-              newValue?: string
-            ) => setSubject(newValue || '')}
-            placeholder="Enter email subject"
-            ariaLabel="Email Subject"
-            isDarkMode={isDarkMode}
-          />
 
           <Label className={labelStyle}>Email Body</Label>
           <div className={toolbarStyle}>

@@ -224,13 +224,30 @@ export const sharedEditorStyle = (isDarkMode: boolean) =>
     overflowY: 'auto',
     whiteSpace: 'pre-wrap',
     outline: 'none',
+    position: 'relative',
     selectors: {
       ':focus-visible': {
         border: `1px solid ${colours.cta}`,
         boxShadow: `0 0 0 3px rgba(255, 0, 0, 0.2)`,
       },
+      ':after': {
+        content: '""',
+        position: 'absolute',
+        bottom: '20px', // Adjusted for 20px from bottom
+        left: '20px',  // Adjusted for 20px from left
+        backgroundImage: 'url("https://helix-law.co.uk/wp-content/uploads/2024/03/HLRblue72.png")',
+        backgroundRepeat: 'no-repeat',
+        backgroundPosition: 'left bottom',
+        backgroundSize: '25%',
+        opacity: 0.2,
+        pointerEvents: 'none',
+        width: 'calc(100% - 20px)', // Adjust to account for left offset
+        height: 'calc(100% - 20px)', // Adjust to account for bottom offset
+        zIndex: 0,
+      },
     },
   });
+
 
 // New Style for Template Block Dropdowns
 export const sharedOptionsDropdownStyles = (isDarkMode: boolean): Partial<IDropdownStyles> => ({
