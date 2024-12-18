@@ -175,9 +175,10 @@ export const sharedToggleButtonStyle = (isDarkMode: boolean) => ({
   root: {
     padding: '6px 12px',
     borderRadius: '8px 8px 0 0',
-    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.secondaryButtonBackground,
+    backgroundColor: '#ffffff', // Always white by default
     border: 'none',
-    fontWeight: '600',
+    // Remove fontWeight to avoid bold text
+    // fontWeight: '600', 
     color: isDarkMode ? colours.dark.text : '#000000',
     transition: 'background 0.3s ease, box-shadow 0.3s ease',
     transform: 'none !important',
@@ -190,18 +191,14 @@ export const sharedToggleButtonStyle = (isDarkMode: boolean) => ({
     },
     selectors: {
       ':hover': {
-        background: `radial-gradient(circle at center, rgba(0,0,0,0) 0%, rgba(0,0,0,0.1) 100%), ${
-          isDarkMode ? colours.dark.sectionBackground : colours.secondaryButtonBackground
-        } !important`,
+        background: `radial-gradient(circle at center, rgba(0,0,0,0) 0%, rgba(0,0,0,0.1) 100%), #ffffff !important`,
         boxShadow: '0 0 8px rgba(0,0,0,0.1) !important',
         transform: 'none !important',
         outline: 'none !important',
         border: 'none !important',
       },
       ':active': {
-        background: `radial-gradient(circle at center, rgba(0,0,0,0) 0%, rgba(0,0,0,0.15) 100%), ${
-          isDarkMode ? colours.dark.sectionBackground : colours.secondaryButtonBackground
-        } !important`,
+        background: `radial-gradient(circle at center, rgba(0,0,0,0) 0%, rgba(0,0,0,0.15) 100%), #ffffff !important`,
         boxShadow: '0 0 8px rgba(0,0,0,0.2) !important',
         transform: 'none !important',
         outline: 'none !important',
@@ -211,6 +208,7 @@ export const sharedToggleButtonStyle = (isDarkMode: boolean) => ({
   },
   label: {
     color: isDarkMode ? colours.dark.text : '#000000 !important',
+    fontWeight: 'normal' // Ensure normal weight text
   },
 });
 

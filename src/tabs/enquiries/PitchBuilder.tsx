@@ -612,13 +612,18 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
     display: 'flex',
     flexDirection: 'row',
     gap: '20px',
-    flexWrap: 'wrap',
+    flexWrap: 'nowrap', // changed from wrap to nowrap so both columns stretch equally
+    alignItems: 'stretch', // ensure columns align and stretch
     justifyContent: 'space-between',
+    height: 'calc(100vh - 60px)', // try giving full available height minus some offset
+    boxSizing: 'border-box',
   });
 
   const formContainerStyle = mergeStyles({
     flex: '0 0 48%',
     minWidth: '300px',
+    display: 'flex',
+    flexDirection: 'column',
   });
 
   const templatesContainerStyle = mergeStyles({
@@ -626,9 +631,13 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
     display: 'flex',
     flexDirection: 'column',
     gap: '20px',
+    // Make it stretch fully
+    overflow: 'hidden', // so that the grid can scroll internally if needed
   });
 
   const templatesGridStyle = mergeStyles({
+    flex: 1, // take remaining space
+    overflowY: 'auto', // scroll if needed
     display: 'grid',
     gridTemplateColumns: 'repeat(2, 1fr)',
     gap: '20px',
@@ -638,8 +647,6 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
     '@media (max-width: 800px)': {
       gridTemplateColumns: '1fr',
     },
-    maxHeight: '80vh',
-    overflowY: 'auto',
   });
 
   const buttonGroupStyle = mergeStyles({
@@ -730,7 +737,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
           Pitch Builder
         </Text>
 
-        <Stack tokens={{ childrenGap: 6 }}>
+        <Stack tokens={{ childrenGap: 6 }} styles={{ root: { flexGrow: 1 } }}>
           <Label className={labelStyle}>Select Template</Label>
           <Dropdown
             placeholder="Choose a template"
@@ -786,9 +793,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
             }}
             ariaLabel="Select Template"
           />
-        </Stack>
 
-        <Stack tokens={{ childrenGap: 6 }}>
           <Label className={labelStyle}>Email Subject</Label>
           <BubbleTextField
             value={subject}
@@ -800,9 +805,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
             ariaLabel="Email Subject"
             isDarkMode={isDarkMode}
           />
-        </Stack>
 
-        <Stack tokens={{ childrenGap: 6 }}>
           <Label className={labelStyle}>Email Body</Label>
           <div className={toolbarStyle}>
             <IconButton
@@ -849,10 +852,9 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
             className={sharedEditorStyle(isDarkMode)}
             dangerouslySetInnerHTML={{ __html: body }}
             aria-label="Email Body Editor"
+            style={{ flexGrow: 1, overflowY: 'auto' }}
           />
-        </Stack>
 
-        <Stack tokens={{ childrenGap: 6 }}>
           <Label className={labelStyle}>Select Attachments</Label>
           <Stack horizontal tokens={{ childrenGap: 8 }} wrap>
             {getFilteredAttachments().map((attachment: AttachmentOption) => {
@@ -868,9 +870,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
               );
             })}
           </Stack>
-        </Stack>
 
-        <Stack tokens={{ childrenGap: 6 }}>
           <Label className={labelStyle}>Follow Up</Label>
           <Stack horizontal tokens={{ childrenGap: 8 }} wrap>
             {followUpOptions.map((option: IDropdownOption) => {
@@ -892,42 +892,42 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
               );
             })}
           </Stack>
-        </Stack>
 
-        {isErrorVisible && (
-          <MessageBar
-            messageBarType={MessageBarType.error}
-            isMultiline={false}
-            onDismiss={() => setIsErrorVisible(false)}
-            dismissButtonAriaLabel="Close"
-            styles={{ root: { borderRadius: '4px' } }}
+          {isErrorVisible && (
+            <MessageBar
+              messageBarType={MessageBarType.error}
+              isMultiline={false}
+              onDismiss={() => setIsErrorVisible(false)}
+              dismissButtonAriaLabel="Close"
+              styles={{ root: { borderRadius: '4px' } }}
+            >
+              {errorMessage}
+            </MessageBar>
+          )}
+
+          <Separator />
+
+          <Stack
+            horizontal
+            horizontalAlign="space-between"
+            className={buttonGroupStyle}
           >
-            {errorMessage}
-          </MessageBar>
-        )}
+            <PrimaryButton
+              text="Preview Email"
+              onClick={togglePreview}
+              styles={sharedPrimaryButtonStyles}
+              ariaLabel="Preview Email"
+              iconProps={{ iconName: 'Preview' }}
+            />
 
-        <Separator />
-
-        <Stack
-          horizontal
-          horizontalAlign="space-between"
-          className={buttonGroupStyle}
-        >
-          <PrimaryButton
-            text="Preview Email"
-            onClick={togglePreview}
-            styles={sharedPrimaryButtonStyles}
-            ariaLabel="Preview Email"
-            iconProps={{ iconName: 'Preview' }}
-          />
-
-          <DefaultButton
-            text="Reset"
-            onClick={resetForm}
-            styles={sharedDefaultButtonStyles}
-            ariaLabel="Reset Form"
-            iconProps={{ iconName: 'Refresh' }}
-          />
+            <DefaultButton
+              text="Reset"
+              onClick={resetForm}
+              styles={sharedDefaultButtonStyles}
+              ariaLabel="Reset Form"
+              iconProps={{ iconName: 'Refresh' }}
+            />
+          </Stack>
         </Stack>
       </Stack>
 
