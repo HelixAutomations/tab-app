@@ -718,6 +718,8 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
     );
   };
 
+  const fullName = `${enquiry.First_Name || ''} ${enquiry.Last_Name || ''}`.trim();
+
   return (
     <Stack className={containerStyle}>
       <Stack className={formContainerStyle} tokens={{ childrenGap: 20 }}>
@@ -1071,6 +1073,22 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
         }}
       >
         <Stack tokens={{ childrenGap: 15 }} styles={{ root: { flex: 1 } }}>
+          <Separator />
+          <Text variant="medium">
+            <strong style={{ color: colours.cta }}>
+              You're sending an email to {fullName || 'N/A'}
+            </strong>
+            <span style={{ color: colours.greyText, margin: '0 8px' }}>&bull;</span>
+            {enquiry.Point_of_Contact || 'N/A'}
+          </Text>
+          <MessageBar
+            messageBarType={MessageBarType.info}
+            isMultiline={false}
+            styles={{ root: { backgroundColor: colours.grey } }}
+          >
+            This is {enquiry.First_Name || 'the prospect'}'s first enquiry. You're responding on the same day.
+          </MessageBar>
+
           {isSuccessVisible && (
             <MessageBar
               messageBarType={MessageBarType.success}
@@ -1082,6 +1100,8 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry }) => {
               Email sent successfully!
             </MessageBar>
           )}
+
+          <Separator />
 
           <Stack tokens={{ childrenGap: 6 }}>
             <Text
