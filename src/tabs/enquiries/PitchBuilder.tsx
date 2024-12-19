@@ -35,7 +35,7 @@ import EmailSignature from './EmailSignature';
 
 interface PitchBuilderProps {
   enquiry: Enquiry;
-  userData: any; // Adjust the type to match your `userData` structure
+  userData: any;
 }
 
 const commonInputStyle = {
@@ -180,7 +180,7 @@ const replacePlaceholders = (
   enquiry: Enquiry,
   userData: any
 ): string => {
-  const userFullName = userData?.[0]?.['Full Name'] || ''; // Retrieve user's full name
+  const userFullName = userData?.[0]?.['Full Name'] || '';
 
   return (
     template
@@ -213,13 +213,11 @@ const replacePlaceholders = (
   );
 };
 
-
 const isStringArray = (value: string | string[]): value is string[] => {
   return Array.isArray(value);
 };
 
 const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
-  // Example usage of userData
   const userFullName = userData?.[0]?.['Full Name'] || 'Unknown User';
   const { isDarkMode } = useTheme();
   const capitalizeWords = (str: string): string =>
@@ -310,7 +308,6 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
       )
     )
   );
-  
 
   const [attachments, setAttachments] = useState<string[]>([]);
   const [followUp, setFollowUp] = useState<string | undefined>(undefined);
@@ -440,7 +437,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
           BASE_TEMPLATE,
           'Thank you for your enquiry. I am confident we can assist with your matter.',
           enquiry,
-          userData // Add userData here
+          userData
         )
       )
     );
@@ -457,7 +454,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
           BASE_TEMPLATE,
           'Thank you for your enquiry. I am confident we can assist with your matter.',
           enquiry,
-          userData // Add userData here
+          userData
         )
       );
     }
@@ -631,34 +628,34 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
     margin: '0 auto',
     fontFamily: 'Raleway, sans-serif',
     display: 'flex',
-    flexDirection: 'row', // Ensure side-by-side layout
-    alignItems: 'flex-start', // Align items at the top
+    flexDirection: 'row',
+    alignItems: 'flex-start',
     gap: '20px',
-    justifyContent: 'space-between', // Keep space between columns
-    height: 'auto', // Allow height to expand dynamically
+    justifyContent: 'space-between',
+    height: 'auto',
     boxSizing: 'border-box',
   });
 
   const formContainerStyle = mergeStyles({
-    flex: '1 1 0', // Flexible width and height
+    flex: '1 1 0',
     minWidth: '300px',
     display: 'flex',
     flexDirection: 'column',
-    height: 'auto', // Dynamically adjust height
+    height: 'auto',
   });
 
   const templatesContainerStyle = mergeStyles({
-    flex: '0 0 48%', // Fixed width (48% of parent)
+    flex: '0 0 48%',
     display: 'flex',
     flexDirection: 'column',
     gap: '20px',
-    height: 'auto', // Allow dynamic adjustment
-    overflowY: 'auto', // Add scroll if content in this column grows
+    height: 'auto',
+    overflowY: 'auto',
   });
 
   const templatesGridStyle = mergeStyles({
-    flex: 1, // take remaining space
-    overflowY: 'auto', // scroll if needed
+    flex: 1,
+    overflowY: 'auto',
     display: 'grid',
     gridTemplateColumns: 'repeat(2, 1fr)',
     gap: '20px',
@@ -800,10 +797,10 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
               },
               caretDownWrapper: {
                 display: 'flex',
-                alignItems: 'center', // Vertically centers the caret
-                justifyContent: 'center', // Horizontally centers the caret
-                height: '100%', // Full height of the dropdown title
-                pointerEvents: 'none', // Prevent accidental interaction
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: '100%',
+                pointerEvents: 'none',
               },
               dropdownItem: {
                 selectors: {
@@ -832,7 +829,6 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
             }}
             ariaLabel="Select Template"
           />
-
 
           <Label className={labelStyle}>Email Body</Label>
           <div className={toolbarStyle}>
@@ -879,11 +875,11 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
             suppressContentEditableWarning={true}
             className={sharedEditorStyle(isDarkMode)}
             style={{
-              flexGrow: 1, // Allow editor to grow dynamically
+              flexGrow: 1,
               overflowY: 'auto',
-              height: 'auto', // Ensure dynamic height
-              minHeight: '200px', // Optional: Set minimum height
-              maxHeight: 'none', // Ensure it doesn’t cap height
+              height: 'auto',
+              minHeight: '200px',
+              maxHeight: 'none',
             }}
             aria-label="Email Body Editor"
           />
@@ -965,6 +961,46 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
       </Stack>
 
       <Stack className={templatesContainerStyle}>
+        {enquiry.Initial_first_call_notes && (
+          <Stack
+            styles={{
+              root: {
+                backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+                padding: '15px',
+                borderRadius: '8px',
+                boxShadow: isDarkMode
+                  ? '0 2px 5px rgba(255,255,255,0.1)'
+                  : '0 2px 5px rgba(0,0,0,0.1)',
+                marginBottom: '20px'
+              }
+            }}
+          >
+            <Text
+              variant="mediumPlus"
+              styles={{
+                root: {
+                  fontWeight: '600',
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                  marginBottom: '10px'
+                },
+              }}
+            >
+              Initial First Call Notes
+            </Text>
+            <Text
+              variant="small"
+              styles={{
+                root: {
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                  whiteSpace: 'pre-wrap',
+                },
+              }}
+            >
+              {enquiry.Initial_first_call_notes}
+            </Text>
+          </Stack>
+        )}
+
         <Text
           variant="xLarge"
           styles={{
