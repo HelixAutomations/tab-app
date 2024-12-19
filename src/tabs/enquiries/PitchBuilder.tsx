@@ -631,29 +631,29 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
     margin: '0 auto',
     fontFamily: 'Raleway, sans-serif',
     display: 'flex',
-    flexDirection: 'row',
+    flexDirection: 'row', // Ensure side-by-side layout
+    alignItems: 'flex-start', // Align items at the top
     gap: '20px',
-    flexWrap: 'nowrap', // changed from wrap to nowrap so both columns stretch equally
-    alignItems: 'stretch', // ensure columns align and stretch
-    justifyContent: 'space-between',
-    height: 'calc(100vh - 60px)', // try giving full available height minus some offset
+    justifyContent: 'space-between', // Keep space between columns
+    height: 'auto', // Allow height to expand dynamically
     boxSizing: 'border-box',
   });
 
   const formContainerStyle = mergeStyles({
-    flex: '0 0 48%',
+    flex: '1 1 0', // Flexible width and height
     minWidth: '300px',
     display: 'flex',
     flexDirection: 'column',
+    height: 'auto', // Dynamically adjust height
   });
 
   const templatesContainerStyle = mergeStyles({
-    flex: '0 0 48%',
+    flex: '0 0 48%', // Fixed width (48% of parent)
     display: 'flex',
     flexDirection: 'column',
     gap: '20px',
-    // Make it stretch fully
-    overflow: 'hidden', // so that the grid can scroll internally if needed
+    height: 'auto', // Allow dynamic adjustment
+    overflowY: 'auto', // Add scroll if content in this column grows
   });
 
   const templatesGridStyle = mergeStyles({
@@ -878,9 +878,14 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
             onBlur={handleBlur}
             suppressContentEditableWarning={true}
             className={sharedEditorStyle(isDarkMode)}
-            dangerouslySetInnerHTML={{ __html: body }}
+            style={{
+              flexGrow: 1, // Allow editor to grow dynamically
+              overflowY: 'auto',
+              height: 'auto', // Ensure dynamic height
+              minHeight: '200px', // Optional: Set minimum height
+              maxHeight: 'none', // Ensure it doesn’t cap height
+            }}
             aria-label="Email Body Editor"
-            style={{ flexGrow: 1, overflowY: 'auto' }}
           />
 
           <Label className={labelStyle}>Select Attachments</Label>
