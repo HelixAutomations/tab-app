@@ -556,7 +556,7 @@ const Enquiries: React.FC<{
           />
           <div style={{ width: '40px' }}></div>
         </Stack>
-
+  
         <Pivot
           selectedKey={activeSubTab}
           onLinkClick={handleSubTabChange}
@@ -582,7 +582,7 @@ const Enquiries: React.FC<{
             <EnquiryOverview enquiry={enquiry} onEditRating={handleRate} onEditNotes={() => {}} />
           </PivotItem>
           <PivotItem headerText="Pitch" itemKey="Pitch">
-            <PitchBuilder enquiry={enquiry} />
+            <PitchBuilder enquiry={enquiry} userData={userData} />
           </PivotItem>
           <PivotItem headerText="Details" itemKey="Details">
             <EnquiryDetails enquiry={enquiry} onUpdate={handleUpdateEnquiry} />
@@ -590,8 +590,8 @@ const Enquiries: React.FC<{
         </Pivot>
       </Stack>
     ),
-    [handleBackToList, handleSubTabChange, handleRate, isDarkMode, handleUpdateEnquiry, activeSubTab]
-  );
+    [handleBackToList, handleSubTabChange, handleRate, isDarkMode, handleUpdateEnquiry, activeSubTab, userData]
+  );  
 
   const calculateAnimationDelay = (row: number, col: number) => {
     const delayPerRow = 0.2;

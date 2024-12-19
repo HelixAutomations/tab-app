@@ -18,7 +18,7 @@ import {
   IconButton,
   IIconProps,
 } from '@fluentui/react';
-import { Enquiry, UserData } from '../../app/functionality/types';
+import { Enquiry } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
 import BubbleTextField from '../../app/styles/BubbleTextField';
 import { useTheme } from '../../app/functionality/ThemeContext';
@@ -35,7 +35,7 @@ import EmailSignature from './EmailSignature';
 
 interface PitchBuilderProps {
   enquiry: Enquiry;
-  userDataList?: UserData[];
+  userData: any; // Adjust the type to match your `userData` structure
 }
 
 const commonInputStyle = {
@@ -174,40 +174,53 @@ function escapeRegExp(string: string): string {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-const replacePlaceholders = (template: string, intro: string, enquiry: Enquiry, userFullName: string): string => {
-  return template
-    .replace(
-      /\[Enquiry.First_Name\]/g,
-      `<span style="background-color: ${colours.highlightYellow}; padding: 0 3px;" data-placeholder="[Enquiry.First_Name]">${
-        enquiry.First_Name || 'there'
-      }</span>`
-    )
-    .replace(
-      /\[Enquiry.Point_of_Contact\]/g,
-      `<span style="background-color: ${colours.highlightYellow}; padding: 0 3px;" data-placeholder="[Enquiry.Point_of_Contact]">${
-        userFullName || 'Our Team'
-      }</span>`
-    )
-    .replace(
-      /\[Introduction Placeholder\]/g,
-      `<span data-placeholder="[Introduction Placeholder]" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${intro.trim()}</span>`
-    )
-    .replace(
-      /\[FE Introduction Placeholder\]/g,
-      `<span data-placeholder="[FE Introduction Placeholder]" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[FE Introduction Placeholder]</span>`
-    )
-    .replace(
-      /\[(Scope of Work Placeholder|Risk Assessment Placeholder|Costs and Budget Placeholder|Follow-Up Instructions Placeholder|Closing Notes Placeholder|Required Documents Placeholder|Google Review Placeholder)\]/g,
-      (match) =>
-        `<span data-placeholder="${match}" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${match}</span>`
-    );
+const replacePlaceholders = (
+  template: string,
+  intro: string,
+  enquiry: Enquiry,
+  userData: any
+): string => {
+  const userFullName = userData?.[0]?.['Full Name'] || ''; // Retrieve user's full name
+
+  return (
+    template
+      .replace(
+        /\[Enquiry.First_Name\]/g,
+        `<span style="background-color: ${colours.highlightYellow}; padding: 0 3px;" data-placeholder="[Enquiry.First_Name]">${
+          enquiry.First_Name || 'there'
+        }</span>`
+      )
+      .replace(
+        /\[Enquiry.Point_of_Contact\]/g,
+        `<span style="background-color: ${colours.highlightYellow}; padding: 0 3px;" data-placeholder="[Enquiry.Point_of_Contact]">${
+          enquiry.Point_of_Contact || 'Our Team'
+        }</span>`
+      )
+      .replace(
+        /\[Introduction Placeholder\]/g,
+        `<span data-placeholder="[Introduction Placeholder]" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${intro.trim()}</span>`
+      )
+      .replace(
+        /\[FE Introduction Placeholder\]/g,
+        `<span data-placeholder="[FE Introduction Placeholder]" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[FE Introduction Placeholder]</span>`
+      )
+      .replace(
+        /\[(Scope of Work Placeholder|Risk Assessment Placeholder|Costs and Budget Placeholder|Follow-Up Instructions Placeholder|Closing Notes Placeholder|Required Documents Placeholder|Google Review Placeholder)\]/g,
+        (match) =>
+          `<span data-placeholder="${match}" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${match}</span>`
+      )
+      .replace(/\[User.Full_Name\]/g, userFullName || 'Unknown User')
+  );
 };
+
 
 const isStringArray = (value: string | string[]): value is string[] => {
   return Array.isArray(value);
 };
 
-const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userDataList = [] }) => {
+const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
+  // Example usage of userData
+  const userFullName = userData?.[0]?.['Full Name'] || 'Unknown User';
   const { isDarkMode } = useTheme();
   const capitalizeWords = (str: string): string =>
     str
@@ -222,30 +235,28 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userDataList = [] 
       : 'Your Enquiry'
   );
 
-  const userFullName = userDataList.find(u => u.Email === enquiry.Point_of_Contact)?.FullName || 'Our Team';
-
   const BASE_TEMPLATE = `Dear [Enquiry.First_Name],
 
-[FE Introduction Placeholder]
-
-[Introduction Placeholder]
-
-[Scope of Work Placeholder]
-
-[Risk Assessment Placeholder]
-
-[Costs and Budget Placeholder]
-
-[Required Documents Placeholder]
-
-[Follow-Up Instructions Placeholder]
-
-[Closing Notes Placeholder]
-
-[Google Review Placeholder]
-
-Kind regards,
-[Enquiry.Point_of_Contact]`;
+  [FE Introduction Placeholder]
+  
+  [Introduction Placeholder]
+  
+  [Scope of Work Placeholder]
+  
+  [Risk Assessment Placeholder]
+  
+  [Costs and Budget Placeholder]
+  
+  [Required Documents Placeholder]
+  
+  [Follow-Up Instructions Placeholder]
+  
+  [Closing Notes Placeholder]
+  
+  [Google Review Placeholder]
+  
+  Kind regards,
+  [User.Full_Name]`;
 
   const normalizeBody = (text: string) =>
     text
@@ -295,10 +306,11 @@ Kind regards,
         BASE_TEMPLATE,
         'Thank you for your enquiry. I am confident we can assist with your matter.',
         enquiry,
-        userFullName
+        userData
       )
     )
   );
+  
 
   const [attachments, setAttachments] = useState<string[]>([]);
   const [followUp, setFollowUp] = useState<string | undefined>(undefined);
@@ -428,7 +440,7 @@ Kind regards,
           BASE_TEMPLATE,
           'Thank you for your enquiry. I am confident we can assist with your matter.',
           enquiry,
-          userFullName
+          userData // Add userData here
         )
       )
     );
@@ -445,7 +457,7 @@ Kind regards,
           BASE_TEMPLATE,
           'Thank you for your enquiry. I am confident we can assist with your matter.',
           enquiry,
-          userFullName
+          userData // Add userData here
         )
       );
     }
@@ -621,10 +633,10 @@ Kind regards,
     display: 'flex',
     flexDirection: 'row',
     gap: '20px',
-    flexWrap: 'nowrap',
-    alignItems: 'stretch',
+    flexWrap: 'nowrap', // changed from wrap to nowrap so both columns stretch equally
+    alignItems: 'stretch', // ensure columns align and stretch
     justifyContent: 'space-between',
-    height: 'calc(100vh - 60px)',
+    height: 'calc(100vh - 60px)', // try giving full available height minus some offset
     boxSizing: 'border-box',
   });
 
@@ -640,12 +652,13 @@ Kind regards,
     display: 'flex',
     flexDirection: 'column',
     gap: '20px',
-    overflow: 'hidden',
+    // Make it stretch fully
+    overflow: 'hidden', // so that the grid can scroll internally if needed
   });
 
   const templatesGridStyle = mergeStyles({
-    flex: 1,
-    overflowY: 'auto',
+    flex: 1, // take remaining space
+    overflowY: 'auto', // scroll if needed
     display: 'grid',
     gridTemplateColumns: 'repeat(2, 1fr)',
     gap: '20px',
@@ -787,10 +800,10 @@ Kind regards,
               },
               caretDownWrapper: {
                 display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                height: '100%',
-                pointerEvents: 'none',
+                alignItems: 'center', // Vertically centers the caret
+                justifyContent: 'center', // Horizontally centers the caret
+                height: '100%', // Full height of the dropdown title
+                pointerEvents: 'none', // Prevent accidental interaction
               },
               dropdownItem: {
                 selectors: {
