@@ -74,7 +74,9 @@ interface Person {
 const quickActions: QuickLink[] = [
   { title: 'Create a Task', icon: 'Add' },
   { title: 'Create a Time Entry', icon: 'Clock' },
-  { title: 'Record an Attendance Note', icon: 'Add' },
+  { title: 'Save Telephone Note', icon: 'Add' },
+  { title: 'Save Attendance Note', icon: 'Add' },
+  { title: 'Create a Contact', icon: 'AddFriend' },
   { title: 'Retrieve a Contact', icon: 'Contact' },
 ];
 
@@ -148,8 +150,10 @@ const quickLinksStyle = (isDarkMode: boolean) =>
       : `0 4px 12px ${colours.light.border}`,
     transition: 'background-color 0.3s, box-shadow 0.3s',
     flex: '1',
-    display: 'flex',
-    flexDirection: 'column',
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, 1fr)',
+    gridTemplateRows: 'repeat(2, 1fr)',
+    gap: '20px',
   });
 
 const calculateAnimationDelay = (row: number, col: number) => {
@@ -159,8 +163,8 @@ const calculateAnimationDelay = (row: number, col: number) => {
 const metricsContainerStyle = (isDarkMode: boolean) =>
   mergeStyles({
     display: 'grid',
-    gridTemplateColumns: '60px 1fr 1fr 1fr',
-    gridTemplateRows: 'auto repeat(3, 1fr)',
+    gridTemplateColumns: '1fr 1fr 1fr',
+    gridTemplateRows: 'repeat(2, 1fr)',
     gap: '20px',
     backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
     backgroundImage: `url(${GreyHelixMark})`,
@@ -176,27 +180,6 @@ const metricsContainerStyle = (isDarkMode: boolean) =>
     flex: '1',
     position: 'relative',
     overflow: 'visible',
-  });
-
-const metricsSidebarLabelStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    fontWeight: '600',
-    fontSize: '16px',
-    color: isDarkMode ? colours.dark.text : colours.light.text,
-    textAlign: 'center',
-    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-    padding: '10px 20px',
-    borderTopRightRadius: '12px',
-    borderBottomRightRadius: '12px',
-    writingMode: 'vertical-rl',
-    textOrientation: 'mixed',
-    transform: 'rotate(180deg)',
-    boxShadow: isDarkMode
-      ? `2px 0 4px ${colours.dark.border}`
-      : `2px 0 4px ${colours.light.border}`,
-    marginRight: '-20px',
-    paddingRight: '30px',
-    zIndex: 1,
   });
 
 const cardTitleStyle = (isDarkMode: boolean) =>
@@ -405,8 +388,8 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const columnsForPeople = 3;
 
   useEffect(() => {
-    const styles = `
-    @keyframes redPulse {
+    const styles = 
+    `@keyframes redPulse {
         0% {
             box-shadow: 0 0 0 0 rgba(255, 0, 0, 0.4);
         }
@@ -426,8 +409,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
             opacity: 1;
             transform: translateY(0);
         }
-    }
-    `;
+    }`;
     const styleSheet = document.createElement("style");
     styleSheet.type = "text/css";
     styleSheet.innerText = styles;
@@ -587,40 +569,46 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
 
   const metricsData = [
     {
-      title: 'WIP',
-      today: {
-        money: recordedTime.money,
-        hours: recordedTime.hours,
-        prevMoney: prevRecordedTime.money,
-        prevHours: prevRecordedTime.hours
-      },
-      weekToDate: {
-        money: recordedTime.money,
-        hours: recordedTime.hours,
-        prevMoney: prevRecordedTime.money,
-        prevHours: prevRecordedTime.hours
-      },
-      monthToDate: {
-        money: recordedTime.money,
-        hours: recordedTime.hours,
-        prevMoney: prevRecordedTime.money,
-        prevHours: prevRecordedTime.hours
-      },
+      title: 'Time Today',
       isTimeMoney: true,
+      money: recordedTime.money,
+      hours: recordedTime.hours,
+      prevMoney: prevRecordedTime.money,
+      prevHours: prevRecordedTime.hours
     },
     {
-      title: 'Enquiries',
-      today: { count: enquiriesToday, prevCount: prevEnquiriesToday },
-      weekToDate: { count: enquiriesWeekToDate, prevCount: prevEnquiriesWeekToDate },
-      monthToDate: { count: enquiriesMonthToDate, prevCount: prevEnquiriesMonthToDate },
-      isTimeMoney: false,
+      title: 'Av. Time This Week',
+      isTimeMoney: true,
+      money: recordedTime.money,
+      hours: recordedTime.hours,
+      prevMoney: prevRecordedTime.money,
+      prevHours: prevRecordedTime.hours
     },
     {
-      title: 'Tasks',
-      today: { count: todaysTasks, prevCount: prevTodaysTasks },
-      weekToDate: { count: tasksDueThisWeek, prevCount: prevTasksDueThisWeek },
-      monthToDate: { count: completedThisWeek, prevCount: prevCompletedThisWeek },
+      title: 'Fees Recovered This Month',
+      isTimeMoney: true,
+      money: recordedTime.money,
+      hours: recordedTime.hours,
+      prevMoney: prevRecordedTime.money,
+      prevHours: prevRecordedTime.hours
+    },
+    {
+      title: 'Enquiries Today',
       isTimeMoney: false,
+      count: enquiriesToday,
+      prevCount: prevEnquiriesToday
+    },
+    {
+      title: 'Enquiries This Week',
+      isTimeMoney: false,
+      count: enquiriesWeekToDate,
+      prevCount: prevEnquiriesWeekToDate
+    },
+    {
+      title: 'Enquiries This Month',
+      isTimeMoney: false,
+      count: enquiriesMonthToDate,
+      prevCount: prevEnquiriesMonthToDate
     },
   ];
 
@@ -719,9 +707,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     },
   };
 
-const officeAttendanceIconProps = currentUserConfirmed
-  ? { iconName: 'CheckMark', styles: { root: { color: '#00a300' } } }
-  : { iconName: 'Warning', styles: { root: { color: '#ffffff' } } };
+  const officeAttendanceIconProps = currentUserConfirmed
+    ? { iconName: 'CheckMark', styles: { root: { color: '#00a300' } } }
+    : { iconName: 'Warning', styles: { root: { color: '#ffffff' } } };
 
   return (
     <div className={containerStyle(isDarkMode)}>
@@ -732,93 +720,45 @@ const officeAttendanceIconProps = currentUserConfirmed
       <Stack className={mainContentStyle} tokens={{ childrenGap: 40 }}>
         <div className={sectionRowStyle}>
           <div className={quickLinksStyle(isDarkMode)}>
-            <Stack tokens={{ childrenGap: 25 }}>
-              <Text className={sectionLabelStyle(isDarkMode)}>Quick Actions</Text>
-              <Stack tokens={{ childrenGap: 10 }}>
-                {quickActions.map((action: QuickLink) => (
-                  <QuickActionsCard
-                    key={action.title}
-                    title={action.title}
-                    icon={action.icon}
-                    isDarkMode={isDarkMode}
-                    onClick={() => handleActionClick(action)}
-                    iconColor={colours.highlight}
-                  />
-                ))}
-              </Stack>
-            </Stack>
+            {quickActions.map((action: QuickLink, index: number) => (
+              <QuickActionsCard
+                key={action.title}
+                title={action.title}
+                icon={action.icon}
+                isDarkMode={isDarkMode}
+                onClick={() => handleActionClick(action)}
+                iconColor={colours.highlight}
+              />
+            ))}
           </div>
 
           <div className={metricsContainerStyle(isDarkMode)}>
-            <div style={{ gridColumn: '1', gridRow: '1' }}></div>
-            <Text
-              style={{ gridColumn: '2', gridRow: '1', textAlign: 'center' }}
-              className={mergeStyles({
-                fontWeight: '600',
-                fontSize: '16px',
-                color: isDarkMode ? colours.dark.text : colours.light.text,
-              })}
-            >
-              Today
-            </Text>
-            <Text
-              style={{ gridColumn: '3', gridRow: '1', textAlign: 'center' }}
-              className={mergeStyles({
-                fontWeight: '600',
-                fontSize: '16px',
-                color: isDarkMode ? colours.dark.text : colours.light.text,
-              })}
-            >
-              Week to Date
-            </Text>
-            <Text
-              style={{ gridColumn: '4', gridRow: '1', textAlign: 'center' }}
-              className={mergeStyles({
-                fontWeight: '600',
-                fontSize: '16px',
-                color: isDarkMode ? colours.dark.text : colours.light.text,
-              })}
-            >
-              Month to Date
-            </Text>
-
-            {metricsData.map((metric: any, rowIndex: number) => (
-              <React.Fragment key={metric.title}>
-                <Text
-                  style={{ gridColumn: '1', gridRow: `${rowIndex + 2}` }}
-                  className={metricsSidebarLabelStyle(isDarkMode)}
-                >
-                  {metric.title}
-                </Text>
-
-                {['today', 'weekToDate', 'monthToDate'].map((period: string, colIndex: number) => (
-                  <div
-                    key={`${metric.title}-${period}`}
-                    style={{
-                      gridColumn: `${colIndex + 2}`,
-                      gridRow: `${rowIndex + 2}`,
-                    }}
-                  >
-                    <MetricCard
-                      title={metric.title}
-                      {...(metric.isTimeMoney
-                        ? {
-                            money: metric[period].money,
-                            hours: metric[period].hours,
-                            prevMoney: metric[period].prevMoney,
-                            prevHours: metric[period].prevHours,
-                            isTimeMoney: metric.isTimeMoney,
-                          }
-                        : {
-                            count: metric[period].count,
-                            prevCount: metric[period].prevCount,
-                          })}
-                      isDarkMode={isDarkMode}
-                      animationDelay={rowIndex * 0.2 + colIndex * 0.1}
-                    />
-                  </div>
-                ))}
-              </React.Fragment>
+            {metricsData.map((metric: any, index: number) => (
+              <div
+                key={metric.title}
+                style={{
+                  gridColumn: `${(index % 3) + 1}`,
+                  gridRow: `${Math.floor(index / 3) + 1}`,
+                }}
+              >
+                <MetricCard
+                  title={metric.title}
+                  {...(metric.isTimeMoney
+                    ? {
+                        money: metric.money,
+                        hours: metric.hours,
+                        prevMoney: metric.prevMoney,
+                        prevHours: metric.prevHours,
+                        isTimeMoney: metric.isTimeMoney,
+                      }
+                    : {
+                        count: metric.count,
+                        prevCount: metric.prevCount,
+                      })}
+                  isDarkMode={isDarkMode}
+                  animationDelay={(Math.floor(index / 3) * 0.2) + ((index % 3) * 0.1)}
+                />
+              </div>
             ))}
           </div>
         </div>
@@ -1113,7 +1053,9 @@ const officeAttendanceIconProps = currentUserConfirmed
       >
         {selectedAction?.title === 'Create a Task' && <Tasking />}
         {selectedAction?.title === 'Create a Time Entry' && <CreateTimeEntryForm />}
-        {selectedAction?.title === 'Record an Attendance Note' && <TelephoneAttendance />}
+        {selectedAction?.title === 'Save Attendance Note' && <TelephoneAttendance />}
+        {selectedAction?.title === 'Save Telephone Note' && <TelephoneAttendance />}
+        {selectedAction?.title === 'Create a Contact' && <RetrieveContactForm />}
         {selectedAction?.title === 'Retrieve a Contact' && <RetrieveContactForm />}
       </Panel>
 

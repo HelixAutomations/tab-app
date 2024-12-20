@@ -66,6 +66,22 @@ const footerStyle = (isDarkMode: boolean) =>
     fontFamily: 'Raleway, sans-serif',
   });
 
+const areaColor = (area: string) => {
+  const normalizedArea = area.toLowerCase();
+  switch (normalizedArea) {
+    case 'commercial':
+      return colours.blue;
+    case 'construction':
+      return colours.orange;
+    case 'property':
+      return colours.green;
+    case 'employment':
+      return colours.yellow;
+    default:
+      return colours.cta;
+  }
+};
+
 interface RatingIndicatorProps {
   rating: string;
   isDarkMode: boolean;
@@ -136,7 +152,7 @@ const Enquiries: React.FC<{
   const [filterMethod, setFilterMethod] = useState<string>('All');
   const [filterArea, setFilterArea] = useState<string>('All');
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const enquiriesPerPage = 12; // Made constant since it's not changing
+  const enquiriesPerPage = 12;
   const [isRateModalOpen, setIsRateModalOpen] = useState<boolean>(false);
   const [currentRating, setCurrentRating] = useState<string>('');
   const [ratingEnquiryId, setRatingEnquiryId] = useState<string | null>(null);
@@ -146,12 +162,14 @@ const Enquiries: React.FC<{
   const [activeSubTab, setActiveSubTab] = useState<string>('Overview');
   const [convertedEnquiriesList, setConvertedEnquiriesList] = useState<Enquiry[]>([]);
   const [convertedPoidDataList, setConvertedPoidDataList] = useState<POID[]>([]);
+  const [currentSiloArea, setCurrentSiloArea] = useState<string | null>(null);
 
   const mainTabs = [
     { key: 'Claimed', text: 'Claimed' },
-    { key: 'Converted', text: 'Converted' },
-    { key: 'Claimable', text: 'Claimable' },
+    { key: 'Converted', text: 'Enquiry ID' },
+    { key: 'Claimable', text: 'Unclaimed' },
     { key: 'Triaged', text: 'Triaged' },
+    { key: 'Silo', text: 'Silo' },
   ];
 
   const subTabs = [
@@ -175,6 +193,7 @@ const Enquiries: React.FC<{
         setCurrentPage(1);
         setSelectedEnquiry(null);
         setActiveSubTab('Overview');
+        setCurrentSiloArea(null);
       }
     },
     []
@@ -192,7 +211,6 @@ const Enquiries: React.FC<{
   const handleShowAllToggle = useCallback(() => {
     setShowAll((prev) => {
       const newShowAll = !prev;
-      console.log('Toggled showAll to:', newShowAll);
       return newShowAll;
     });
     setCurrentPage(1);
@@ -272,7 +290,6 @@ const Enquiries: React.FC<{
     []
   );
 
-  // Fetch POID data if not already available
   useEffect(() => {
     (async () => {
       if (!poidData) {
@@ -290,7 +307,6 @@ const Enquiries: React.FC<{
           );
           if (response.ok) {
             const data: POID[] = await response.json();
-            console.log('Fetched POID data:', data);
             setPoidData(data);
           } else {
             const errorText = await response.text();
@@ -303,19 +319,16 @@ const Enquiries: React.FC<{
     })();
   }, [poidData, setPoidData]);
 
-  // Process converted enquiries and their corresponding POID data
   useEffect(() => {
     if (poidData && localEnquiries.length > 0) {
       const converted = localEnquiries.filter((enquiry) =>
         poidData.some((poid) => String(poid.acid) === enquiry.ID)
       );
-      console.log('Converted Enquiries:', converted);
       setConvertedEnquiriesList(converted);
 
       const convertedPoid = poidData.filter((poid) =>
         localEnquiries.some((enquiry) => enquiry.ID === String(poid.acid))
       );
-      console.log('Converted POID Data:', convertedPoid);
       setConvertedPoidDataList(convertedPoid);
     }
   }, [poidData, localEnquiries]);
@@ -331,40 +344,31 @@ const Enquiries: React.FC<{
           filtered = filtered.filter(
             (enquiry) => enquiry.Point_of_Contact?.toLowerCase() === userEmail
           );
-          console.log('Claimed Enquiries after user filter:', filtered);
-        } else {
-          console.log('Claimed Enquiries without user filter:', filtered);
         }
         break;
 
       case 'Converted':
+        // Now labeled as Enquiry ID
         if (showAll) {
-          // No additional filtering
           filtered = convertedEnquiriesList;
-          console.log('Converted Enquiries (Display All):', filtered);
         } else if (context && context.userPrincipalName) {
           const userEmail = context.userPrincipalName.toLowerCase();
-          // **Fixed Logic: Filter based on 'acid' where 'poc' matches the user email**
           const userFilteredEnquiryIds = convertedPoidDataList
             .filter((poid) => poid.poc?.toLowerCase() === userEmail)
-            .map((poid) => String(poid.acid)); // Changed from 'poid_id' to 'acid'
-
+            .map((poid) => String(poid.acid));
           filtered = convertedEnquiriesList.filter((enquiry) =>
             userFilteredEnquiryIds.includes(enquiry.ID)
           );
-          console.log('Converted Enquiries after user filter:', filtered);
         } else {
-          // Fallback if context or userPrincipalName is missing
           filtered = convertedEnquiriesList;
-          console.log('Converted Enquiries (No User Filter):', filtered);
         }
         break;
 
       case 'Claimable':
+        // Now labeled as Unclaimed
         filtered = localEnquiries.filter(
           (enquiry) => enquiry.Point_of_Contact?.toLowerCase() === 'team@helix-law.com'
         );
-        console.log('Claimable Enquiries:', filtered);
         break;
 
       case 'Triaged':
@@ -373,28 +377,33 @@ const Enquiries: React.FC<{
             enquiry.Point_of_Contact &&
             triagedPointOfContactEmails.includes(enquiry.Point_of_Contact.toLowerCase())
         );
-        console.log('Triaged Enquiries:', filtered);
+        break;
+
+      case 'Silo':
+        if (currentSiloArea) {
+          filtered = localEnquiries.filter(
+            (enquiry) =>
+              enquiry.Area_of_Work &&
+              enquiry.Area_of_Work.toLowerCase() === currentSiloArea.toLowerCase()
+          );
+        } else {
+          filtered = [];
+        }
         break;
 
       default:
         filtered = localEnquiries;
-        console.log('Default Enquiries:', filtered);
         break;
     }
 
-    // Apply Method of Contact filter
     if (filterMethod !== 'All') {
       filtered = filtered.filter((enquiry) => enquiry.Method_of_Contact === filterMethod);
-      console.log('After Method Filter:', filtered);
     }
 
-    // Apply Area of Work filter
     if (filterArea !== 'All') {
       filtered = filtered.filter((enquiry) => enquiry.Area_of_Work === filterArea);
-      console.log('After Area of Work Filter:', filtered);
     }
 
-    // Apply Search Term filter
     if (searchTerm) {
       const lowerSearchTerm = searchTerm.toLowerCase();
       filtered = filtered.filter(
@@ -403,10 +412,8 @@ const Enquiries: React.FC<{
           enquiry.Email?.toLowerCase().includes(lowerSearchTerm) ||
           (enquiry.Company && enquiry.Company.toLowerCase().includes(lowerSearchTerm))
       );
-      console.log('After Search Filter:', filtered);
     }
 
-    console.log('Final filteredEnquiries:', filtered);
     return filtered;
   }, [
     localEnquiries,
@@ -419,13 +426,13 @@ const Enquiries: React.FC<{
     triagedPointOfContactEmails,
     convertedEnquiriesList,
     convertedPoidDataList,
+    currentSiloArea,
   ]);
 
   const indexOfLastEnquiry = currentPage * enquiriesPerPage;
   const indexOfFirstEnquiry = indexOfLastEnquiry - enquiriesPerPage;
   const currentEnquiries = useMemo(() => {
     const sliced = filteredEnquiries.slice(indexOfFirstEnquiry, indexOfLastEnquiry);
-    console.log(`Displaying enquiries from index ${indexOfFirstEnquiry} to ${indexOfLastEnquiry}:`, sliced);
     return sliced;
   }, [filteredEnquiries, indexOfFirstEnquiry, indexOfLastEnquiry]);
 
@@ -435,7 +442,6 @@ const Enquiries: React.FC<{
     (page: number) => {
       setCurrentPage(page);
       window.scrollTo({ top: 0, behavior: 'smooth' });
-      console.log('Changed to page:', page);
     },
     []
   );
@@ -599,6 +605,56 @@ const Enquiries: React.FC<{
     return row * delayPerRow + col * delayPerCol;
   };
 
+  const siloContainerStyle = mergeStyles({
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gridTemplateRows: '1fr 1fr',
+    gap: '20px',
+    width: '100%',
+    height: '100%',
+    flex: 1,
+  });
+
+  const siloButtonStyle = (area: string, isDarkMode: boolean) => {
+    const mainColor = areaColor(area);
+    return {
+      root: {
+        width: '100%',
+        height: '100%',
+        borderRadius: '12px',
+        boxShadow: isDarkMode
+          ? '0 2px 8px rgba(255,255,255,0.1)'
+          : '0 2px 8px rgba(0,0,0,0.1)',
+        fontSize: '24px',
+        fontWeight: '700',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+        color: isDarkMode ? colours.dark.text : colours.light.text,
+        transition: 'transform 0.2s, box-shadow 0.2s, background-color 0.3s',
+        borderLeft: `4px solid ${mainColor}`,
+        ':hover': {
+          transform: 'scale(1.02)',
+          backgroundColor: mainColor,
+          color: '#ffffff',
+          boxShadow: isDarkMode
+            ? '0 4px 16px rgba(255,255,255,0.2)'
+            : '0 4px 16px rgba(0,0,0,0.2)',
+        },
+        ':focus': {
+          outline: 'none',
+          transform: 'scale(1.02)',
+          backgroundColor: mainColor,
+          color: '#ffffff',
+        },
+      },
+      label: {
+        fontWeight: '700',
+      },
+    };
+  };
+
   return (
     <div className={containerStyle(isDarkMode)}>
       <div className={mergeStyles({ paddingTop: '0px', paddingBottom: '20px' })}>
@@ -683,7 +739,73 @@ const Enquiries: React.FC<{
           renderDetailView(selectedEnquiry)
         ) : (
           <>
-            {activeMainTab === 'Converted' ? (
+            {activeMainTab === 'Silo' ? (
+              currentSiloArea ? (
+                filteredEnquiries.length === 0 ? (
+                  <Text variant="medium" styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.light.subText } }}>
+                    No enquiries found matching your criteria.
+                  </Text>
+                ) : (
+                  <>
+                    <div
+                      className={mergeStyles({
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(4, 1fr)',
+                        gap: '20px',
+                        '@media (max-width: 1200px)': {
+                          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                        },
+                      })}
+                    >
+                      {currentEnquiries.map((enquiry, index) => {
+                        const row = Math.floor(index / 4);
+                        const col = index % 4;
+                        const animationDelay = calculateAnimationDelay(row, col);
+                        return (
+                          <EnquiryCard
+                            key={`${enquiry.ID}-${index}-${showAll}`}
+                            enquiry={enquiry}
+                            onSelect={handleSelectEnquiry}
+                            onRate={handleRate}
+                            animationDelay={animationDelay}
+                          />
+                        );
+                      })}
+                    </div>
+                    {totalPages > 1 && (
+                      <CustomPagination
+                        currentPage={currentPage}
+                        totalPages={totalPages}
+                        onPageChange={handlePageChange}
+                      />
+                    )}
+                  </>
+                )
+              ) : (
+                <div className={siloContainerStyle}>
+                  <PrimaryButton
+                    text="Commercial"
+                    onClick={() => setCurrentSiloArea('commercial')}
+                    styles={siloButtonStyle('commercial', isDarkMode)}
+                  />
+                  <PrimaryButton
+                    text="Construction"
+                    onClick={() => setCurrentSiloArea('construction')}
+                    styles={siloButtonStyle('construction', isDarkMode)}
+                  />
+                  <PrimaryButton
+                    text="Employment"
+                    onClick={() => setCurrentSiloArea('employment')}
+                    styles={siloButtonStyle('employment', isDarkMode)}
+                  />
+                  <PrimaryButton
+                    text="Property"
+                    onClick={() => setCurrentSiloArea('property')}
+                    styles={siloButtonStyle('property', isDarkMode)}
+                  />
+                </div>
+              )
+            ) : activeMainTab === 'Converted' ? ( // "Enquiry ID" tab
               filteredEnquiries.length > 0 ? (
                 <div
                   className={mergeStyles({
@@ -701,7 +823,39 @@ const Enquiries: React.FC<{
                     const animationDelay = calculateAnimationDelay(row, col);
                     return (
                       <EnquiryCard
-                        key={`${enquiry.ID}-${index}-${showAll}`} // **Modified Key Prop**
+                        key={`${enquiry.ID}-${index}-${showAll}`}
+                        enquiry={enquiry}
+                        onSelect={handleSelectEnquiry}
+                        onRate={handleRate}
+                        animationDelay={animationDelay}
+                      />
+                    );
+                  })}
+                </div>
+              ) : (
+                <Text variant="medium" styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.light.subText } }}>
+                  No enquiries found matching your criteria.
+                </Text>
+              )
+            ) : activeMainTab === 'Claimable' ? ( // "Unclaimed" tab
+              filteredEnquiries.length > 0 ? (
+                <div
+                  className={mergeStyles({
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(4, 1fr)',
+                    gap: '20px',
+                    '@media (max-width: 1200px)': {
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                    },
+                  })}
+                >
+                  {currentEnquiries.map((enquiry, index) => {
+                    const row = Math.floor(index / 4);
+                    const col = index % 4;
+                    const animationDelay = calculateAnimationDelay(row, col);
+                    return (
+                      <EnquiryCard
+                        key={`${enquiry.ID}-${index}-${showAll}`}
                         enquiry={enquiry}
                         onSelect={handleSelectEnquiry}
                         onRate={handleRate}
@@ -739,7 +893,7 @@ const Enquiries: React.FC<{
                         const animationDelay = calculateAnimationDelay(row, col);
                         return (
                           <EnquiryCard
-                            key={`${enquiry.ID}-${index}-${showAll}`} // **Modified Key Prop**
+                            key={`${enquiry.ID}-${index}-${showAll}`}
                             enquiry={enquiry}
                             onSelect={handleSelectEnquiry}
                             onRate={handleRate}
