@@ -610,16 +610,16 @@ const Enquiries: React.FC<{
     width: '100%',
     flex: 1,
   });
-
+  
   const siloCardStyle = (area: string, isDarkMode: boolean) =>
     mergeStyles({
-      backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+      backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
       color: isDarkMode ? colours.dark.text : colours.light.text,
       padding: '20px',
       borderRadius: '12px',
       boxShadow: isDarkMode
-        ? `0 4px 12px ${colours.dark.border}`
-        : `0 4px 12px ${colours.light.border}`,
+        ? `0 4px 16px rgba(0, 0, 0, 0.5)`
+        : `0 4px 16px rgba(0, 0, 0, 0.2)`,
       transition: 'background-color 0.3s, box-shadow 0.3s, transform 0.3s',
       display: 'flex',
       flexDirection: 'column',
@@ -627,24 +627,70 @@ const Enquiries: React.FC<{
       alignItems: 'center',
       height: '150px',
       cursor: 'pointer',
-      border: '2px solid transparent',
+      position: 'relative',
       ':hover': {
         transform: 'translateY(-5px)',
         boxShadow: isDarkMode
-          ? `0 6px 16px ${colours.dark.border}`
-          : `0 6px 16px ${colours.light.border}`,
+          ? `0 6px 20px rgba(0, 0, 0, 0.7)`
+          : `0 6px 20px rgba(0, 0, 0, 0.3)`,
       },
     });
-
+  
   const siloIconStyle = mergeStyles({
-    fontSize: '40px',
-    marginBottom: '10px',
+    fontSize: '112px', // 75% of the card height (150px * 0.75)
+    position: 'absolute',
+    top: '50%',
+    left: '10px',
+    transform: 'translateY(-50%)',
+    color: isDarkMode ? colours.dark.background : colours.light.background,
   });
-
+  
   const siloLabelStyle = mergeStyles({
     fontWeight: '700',
-    fontSize: '20px',
+    fontSize: '26px', // Slightly enlarged text
+    color: colours.highlight,
+    textAlign: 'center',
   });
+  
+  const fixedCardHeightStyle = mergeStyles({
+    height: '150px', // Ensuring all cards have the same height
+  });
+  
+  <div className={siloContainerStyle}>
+    <div
+      className={`${siloCardStyle('commercial', isDarkMode)} ${fixedCardHeightStyle}`}
+      onClick={() => setCurrentSiloArea('commercial')}
+      aria-label="Commercial"
+    >
+      <Icon iconName="Suitcase" className={siloIconStyle} />
+      <Text className={siloLabelStyle}>Commercial</Text>
+    </div>
+    <div
+      className={`${siloCardStyle('construction', isDarkMode)} ${fixedCardHeightStyle}`}
+      onClick={() => setCurrentSiloArea('construction')}
+      aria-label="Construction"
+    >
+      <Icon iconName="ConstructionCone" className={siloIconStyle} />
+      <Text className={siloLabelStyle}>Construction</Text>
+    </div>
+    <div
+      className={`${siloCardStyle('employment', isDarkMode)} ${fixedCardHeightStyle}`}
+      onClick={() => setCurrentSiloArea('employment')}
+      aria-label="Employment"
+    >
+      <Icon iconName="Work" className={siloIconStyle} />
+      <Text className={siloLabelStyle}>Employment</Text>
+    </div>
+    <div
+      className={`${siloCardStyle('property', isDarkMode)} ${fixedCardHeightStyle}`}
+      onClick={() => setCurrentSiloArea('property')}
+      aria-label="Property"
+    >
+      <Icon iconName="Home" className={siloIconStyle} />
+      <Text className={siloLabelStyle}>Property</Text>
+    </div>
+  </div>
+  
 
   return (
     <div className={containerStyle(isDarkMode)}>
@@ -940,7 +986,7 @@ const Enquiries: React.FC<{
           {' | '}
           <Text
             variant="small"
-            styles={{ root: { color: isDarkMode ? colours.dark.text : colours.light.subText, display: 'inline' } }}
+            styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.light.subText, display: 'inline' } }}
           >
             01273 761990
           </Text>
