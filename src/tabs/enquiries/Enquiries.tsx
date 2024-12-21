@@ -348,7 +348,6 @@ const Enquiries: React.FC<{
         break;
 
       case 'Converted':
-        // Now labeled as Enquiry ID
         if (showAll) {
           filtered = convertedEnquiriesList;
         } else if (context && context.userPrincipalName) {
@@ -365,7 +364,6 @@ const Enquiries: React.FC<{
         break;
 
       case 'Claimable':
-        // Now labeled as Unclaimed
         filtered = localEnquiries.filter(
           (enquiry) => enquiry.Point_of_Contact?.toLowerCase() === 'team@helix-law.com'
         );
@@ -562,7 +560,7 @@ const Enquiries: React.FC<{
           />
           <div style={{ width: '40px' }}></div>
         </Stack>
-  
+
         <Pivot
           selectedKey={activeSubTab}
           onLinkClick={handleSubTabChange}
@@ -597,7 +595,7 @@ const Enquiries: React.FC<{
       </Stack>
     ),
     [handleBackToList, handleSubTabChange, handleRate, isDarkMode, handleUpdateEnquiry, activeSubTab, userData]
-  );  
+  );
 
   const calculateAnimationDelay = (row: number, col: number) => {
     const delayPerRow = 0.2;
@@ -607,53 +605,46 @@ const Enquiries: React.FC<{
 
   const siloContainerStyle = mergeStyles({
     display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gridTemplateRows: '1fr 1fr',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
     gap: '20px',
     width: '100%',
-    height: '100%',
     flex: 1,
   });
 
-  const siloButtonStyle = (area: string, isDarkMode: boolean) => {
-    const mainColor = areaColor(area);
-    return {
-      root: {
-        width: '100%',
-        height: '100%',
-        borderRadius: '12px',
+  const siloCardStyle = (area: string, isDarkMode: boolean) =>
+    mergeStyles({
+      backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+      color: isDarkMode ? colours.dark.text : colours.light.text,
+      padding: '20px',
+      borderRadius: '12px',
+      boxShadow: isDarkMode
+        ? `0 4px 12px ${colours.dark.border}`
+        : `0 4px 12px ${colours.light.border}`,
+      transition: 'background-color 0.3s, box-shadow 0.3s, transform 0.3s',
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'center',
+      alignItems: 'center',
+      height: '150px',
+      cursor: 'pointer',
+      border: '2px solid transparent',
+      ':hover': {
+        transform: 'translateY(-5px)',
         boxShadow: isDarkMode
-          ? '0 2px 8px rgba(255,255,255,0.1)'
-          : '0 2px 8px rgba(0,0,0,0.1)',
-        fontSize: '24px',
-        fontWeight: '700',
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
-        color: isDarkMode ? colours.dark.text : colours.light.text,
-        transition: 'transform 0.2s, box-shadow 0.2s, background-color 0.3s',
-        borderLeft: `4px solid ${mainColor}`,
-        ':hover': {
-          transform: 'scale(1.02)',
-          backgroundColor: mainColor,
-          color: '#ffffff',
-          boxShadow: isDarkMode
-            ? '0 4px 16px rgba(255,255,255,0.2)'
-            : '0 4px 16px rgba(0,0,0,0.2)',
-        },
-        ':focus': {
-          outline: 'none',
-          transform: 'scale(1.02)',
-          backgroundColor: mainColor,
-          color: '#ffffff',
-        },
+          ? `0 6px 16px ${colours.dark.border}`
+          : `0 6px 16px ${colours.light.border}`,
       },
-      label: {
-        fontWeight: '700',
-      },
-    };
-  };
+    });
+
+  const siloIconStyle = mergeStyles({
+    fontSize: '40px',
+    marginBottom: '10px',
+  });
+
+  const siloLabelStyle = mergeStyles({
+    fontWeight: '700',
+    fontSize: '20px',
+  });
 
   return (
     <div className={containerStyle(isDarkMode)}>
@@ -783,29 +774,41 @@ const Enquiries: React.FC<{
                 )
               ) : (
                 <div className={siloContainerStyle}>
-                  <PrimaryButton
-                    text="Commercial"
+                  <div
+                    className={siloCardStyle('commercial', isDarkMode)}
                     onClick={() => setCurrentSiloArea('commercial')}
-                    styles={siloButtonStyle('commercial', isDarkMode)}
-                  />
-                  <PrimaryButton
-                    text="Construction"
+                    aria-label="Commercial"
+                  >
+                    <Icon iconName="Suitcase" className={siloIconStyle} />
+                    <Text className={siloLabelStyle}>Commercial</Text>
+                  </div>
+                  <div
+                    className={siloCardStyle('construction', isDarkMode)}
                     onClick={() => setCurrentSiloArea('construction')}
-                    styles={siloButtonStyle('construction', isDarkMode)}
-                  />
-                  <PrimaryButton
-                    text="Employment"
+                    aria-label="Construction"
+                  >
+                    <Icon iconName="ConstructionCone" className={siloIconStyle} />
+                    <Text className={siloLabelStyle}>Construction</Text>
+                  </div>
+                  <div
+                    className={siloCardStyle('employment', isDarkMode)}
                     onClick={() => setCurrentSiloArea('employment')}
-                    styles={siloButtonStyle('employment', isDarkMode)}
-                  />
-                  <PrimaryButton
-                    text="Property"
+                    aria-label="Employment"
+                  >
+                    <Icon iconName="Work" className={siloIconStyle} />
+                    <Text className={siloLabelStyle}>Employment</Text>
+                  </div>
+                  <div
+                    className={siloCardStyle('property', isDarkMode)}
                     onClick={() => setCurrentSiloArea('property')}
-                    styles={siloButtonStyle('property', isDarkMode)}
-                  />
+                    aria-label="Property"
+                  >
+                    <Icon iconName="Home" className={siloIconStyle} />
+                    <Text className={siloLabelStyle}>Property</Text>
+                  </div>
                 </div>
               )
-            ) : activeMainTab === 'Converted' ? ( // "Enquiry ID" tab
+            ) : activeMainTab === 'Converted' ? (
               filteredEnquiries.length > 0 ? (
                 <div
                   className={mergeStyles({
@@ -837,7 +840,7 @@ const Enquiries: React.FC<{
                   No enquiries found matching your criteria.
                 </Text>
               )
-            ) : activeMainTab === 'Claimable' ? ( // "Unclaimed" tab
+            ) : activeMainTab === 'Claimable' ? (
               filteredEnquiries.length > 0 ? (
                 <div
                   className={mergeStyles({
