@@ -662,7 +662,7 @@ const Enquiries: React.FC<{
       onClick={() => setCurrentSiloArea('commercial')}
       aria-label="Commercial"
     >
-      <Icon iconName="Suitcase" className={siloIconStyle} />
+      <Icon iconName="KnowledgeArticle" className={siloIconStyle} />
       <Text className={siloLabelStyle}>Commercial</Text>
     </div>
     <div
@@ -678,7 +678,7 @@ const Enquiries: React.FC<{
       onClick={() => setCurrentSiloArea('employment')}
       aria-label="Employment"
     >
-      <Icon iconName="Work" className={siloIconStyle} />
+      <Icon iconName="People" className={siloIconStyle} />
       <Text className={siloLabelStyle}>Employment</Text>
     </div>
     <div
@@ -686,7 +686,7 @@ const Enquiries: React.FC<{
       onClick={() => setCurrentSiloArea('property')}
       aria-label="Property"
     >
-      <Icon iconName="Home" className={siloIconStyle} />
+      <Icon iconName="CityNext" className={siloIconStyle} />
       <Text className={siloLabelStyle}>Property</Text>
     </div>
   </div>
@@ -825,7 +825,7 @@ const Enquiries: React.FC<{
                     onClick={() => setCurrentSiloArea('commercial')}
                     aria-label="Commercial"
                   >
-                    <Icon iconName="Suitcase" className={siloIconStyle} />
+                    <Icon iconName="KnowledgeArticle" className={siloIconStyle} />
                     <Text className={siloLabelStyle}>Commercial</Text>
                   </div>
                   <div
@@ -841,7 +841,7 @@ const Enquiries: React.FC<{
                     onClick={() => setCurrentSiloArea('employment')}
                     aria-label="Employment"
                   >
-                    <Icon iconName="Work" className={siloIconStyle} />
+                    <Icon iconName="People" className={siloIconStyle} />
                     <Text className={siloLabelStyle}>Employment</Text>
                   </div>
                   <div
@@ -849,7 +849,7 @@ const Enquiries: React.FC<{
                     onClick={() => setCurrentSiloArea('property')}
                     aria-label="Property"
                   >
-                    <Icon iconName="Home" className={siloIconStyle} />
+                    <Icon iconName="CityNext" className={siloIconStyle} />
                     <Text className={siloLabelStyle}>Property</Text>
                   </div>
                 </div>

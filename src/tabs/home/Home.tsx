@@ -1,6 +1,6 @@
 // src/tabs/home/Home.tsx
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   mergeStyles,
   Text,
@@ -24,7 +24,6 @@ import {
 } from '@fluentui/react';
 import { colours } from '../../app/styles/colours';
 import { initializeIcons } from '@fluentui/react/lib/Icons';
-import QuickActionsCard from './QuickActionsCard';
 import MetricCard from './MetricCard';
 import GreyHelixMark from '../../assets/grey helix mark.png';
 import HelixAvatar from '../../assets/helix avatar.png';
@@ -72,10 +71,10 @@ interface Person {
 }
 
 const quickActions: QuickLink[] = [
-  { title: 'Create a Task', icon: 'Add' },
+  { title: 'Create a Task', icon: 'Checklist' },
   { title: 'Create a Time Entry', icon: 'Clock' },
-  { title: 'Save Telephone Note', icon: 'Add' },
-  { title: 'Save Attendance Note', icon: 'Add' },
+  { title: 'Save Telephone Note', icon: 'NoteAdd' },
+  { title: 'Save Attendance Note', icon: 'Note' },
   { title: 'Create a Contact', icon: 'AddFriend' },
   { title: 'Retrieve a Contact', icon: 'Contact' },
 ];
@@ -271,7 +270,69 @@ const createColumnsFunction = (isDarkMode: boolean): IColumn[] => [
   },
 ];
 
-const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean; animationDelay?: number }> = ({ person, isDarkMode, animationDelay }) => {
+const QuickActionsCardStyled: React.FC<{
+  title: string;
+  icon: string;
+  isDarkMode: boolean;
+  onClick: () => void;
+  animationDelay?: number;
+}> = ({ title, icon, isDarkMode, onClick, animationDelay = 0 }) => {
+  const quickActionCardStyle = mergeStyles({
+    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+    color: isDarkMode ? colours.dark.text : colours.light.text,
+    padding: '20px',
+    borderRadius: '12px',
+    boxShadow: `0 4px 12px ${isDarkMode ? colours.dark.border : colours.light.border}`,
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: '150px',
+    cursor: 'pointer',
+    position: 'relative',
+    opacity: 0,
+    transform: 'translateY(20px)',
+    animation: `fadeInUp 0.3s ease forwards`,
+    animationDelay: `${animationDelay}s`,
+    transition: 'transform 0.3s, box-shadow 0.3s',
+    ':hover': {
+      transform: 'translateY(-5px)',
+      boxShadow: `0 6px 20px ${isDarkMode ? colours.dark.border : colours.light.border}`,
+    },
+  });
+
+  const quickActionIconStyle = mergeStyles({
+    fontSize: '80px',
+    color: '#ccc',
+    position: 'absolute',
+    left: '20px',
+    top: '50%',
+    transform: 'translateY(-50%)',
+    opacity: 0.2,
+    pointerEvents: 'none',
+  });
+
+  const quickActionLabelStyle = mergeStyles({
+    fontWeight: '700',
+    fontSize: '24px',
+    color: colours.highlight,
+    textAlign: 'center',
+    zIndex: 1,
+  });
+
+  return (
+    <div className={quickActionCardStyle} onClick={onClick} aria-label={title}>
+      <Icon iconName={icon} className={quickActionIconStyle} />
+      <Text className={quickActionLabelStyle}>{title}</Text>
+    </div>
+  );
+};
+
+const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean; animationDelay?: number }> = ({
+  person,
+  isDarkMode,
+  animationDelay,
+}) => {
   const isAttending = person.presence === PersonaPresence.online;
 
   const bubbleStyle = mergeStyles({
@@ -316,9 +377,7 @@ const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean; animationDel
             }}
           />
           <div className={textBubbleStyle}>
-            <Text className={textStyle}>
-              {person.nickname || person.name}
-            </Text>
+            <Text className={textStyle}>{person.nickname || person.name}</Text>
           </div>
         </div>
       </div>
@@ -343,9 +402,7 @@ const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean; animationDel
           <Icon iconName="Home" styles={{ root: { color: colours.darkBlue, fontSize: 16 } }} />
         </div>
         <div className={textBubbleStyle}>
-          <Text className={textStyle}>
-            {person.nickname || person.name}
-          </Text>
+          <Text className={textStyle}>{person.nickname || person.name}</Text>
         </div>
       </div>
     );
@@ -362,14 +419,20 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const [todaysTasks, setTodaysTasks] = useState<number>(10);
   const [tasksDueThisWeek, setTasksDueThisWeek] = useState<number>(20);
   const [completedThisWeek, setCompletedThisWeek] = useState<number>(15);
-  const [recordedTime, setRecordedTime] = useState<{ hours: number; money: number }>({ hours: 120, money: 1000 });
+  const [recordedTime, setRecordedTime] = useState<{ hours: number; money: number }>({
+    hours: 120,
+    money: 1000,
+  });
   const [prevEnquiriesToday, setPrevEnquiriesToday] = useState<number>(8);
   const [prevEnquiriesWeekToDate, setPrevEnquiriesWeekToDate] = useState<number>(18);
   const [prevEnquiriesMonthToDate, setPrevEnquiriesMonthToDate] = useState<number>(950);
   const [prevTodaysTasks, setPrevTodaysTasks] = useState<number>(12);
   const [prevTasksDueThisWeek, setPrevTasksDueThisWeek] = useState<number>(18);
   const [prevCompletedThisWeek, setPrevCompletedThisWeek] = useState<number>(17);
-  const [prevRecordedTime, setPrevRecordedTime] = useState<{ hours: number; money: number }>({ hours: 110, money: 900 });
+  const [prevRecordedTime, setPrevRecordedTime] = useState<{ hours: number; money: number }>({
+    hours: 110,
+    money: 900,
+  });
   const [isContextsExpanded, setIsContextsExpanded] = useState<boolean>(false);
   const [isPanelOpen, setIsPanelOpen] = useState<boolean>(false);
   const [selectedAction, setSelectedAction] = useState<QuickLink | null>(null);
@@ -379,8 +442,12 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
   const [isOfficeAttendancePanelOpen, setIsOfficeAttendancePanelOpen] = useState<boolean>(false);
   const [isAnnualLeavePanelOpen, setIsAnnualLeavePanelOpen] = useState<boolean>(false);
-  const [attendanceRecords, setAttendanceRecords] = useState<{name:string;confirmed:boolean;attendingToday:boolean}[]>([]);
-  const [teamData, setTeamData] = useState<{First:string;Initials:string;["Entra ID"]:string;Nickname?:string}[]>([]);
+  const [attendanceRecords, setAttendanceRecords] = useState<
+    { name: string; confirmed: boolean; attendingToday: boolean }[]
+  >([]);
+  const [teamData, setTeamData] = useState<
+    { First: string; Initials: string; ['Entra ID']: string; Nickname?: string }[]
+  >([]);
   const [isLoadingAttendance, setIsLoadingAttendance] = useState<boolean>(true);
   const [attendanceError, setAttendanceError] = useState<string | null>(null);
   const [currentUserName, setCurrentUserName] = useState<string>('User');
@@ -388,30 +455,70 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const columnsForPeople = 3;
 
   useEffect(() => {
-    const styles = 
-    `@keyframes redPulse {
-        0% {
-            box-shadow: 0 0 0 0 rgba(255, 0, 0, 0.4);
-        }
-        70% {
-            box-shadow: 0 0 0 10px rgba(255, 0, 0, 0);
-        }
-        100% {
-            box-shadow: 0 0 0 0 rgba(255, 0, 0, 0);
-        }
+    const styles = `
+@keyframes redPulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(255, 0, 0, 0.4);
     }
-    @keyframes fadeInUp {
-        0% {
-            opacity: 0;
-            transform: translateY(20px);
-        }
-        100% {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }`;
-    const styleSheet = document.createElement("style");
-    styleSheet.type = "text/css";
+    70% {
+        box-shadow: 0 0 0 10px rgba(255, 0, 0, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(255, 0, 0, 0);
+    }
+}
+@keyframes fadeInUp {
+    0% {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+@keyframes fadeInFromTopLeft {
+    0% {
+        opacity: 0;
+        transform: translate(-20px, -20px);
+    }
+    100% {
+        opacity: 1;
+        transform: translate(0, 0);
+    }
+}
+@keyframes fadeInFromTopRight {
+    0% {
+        opacity: 0;
+        transform: translate(20px, -20px);
+    }
+    100% {
+        opacity: 1;
+        transform: translate(0, 0);
+    }
+}
+@keyframes fadeInFromBottomLeft {
+    0% {
+        opacity: 0;
+        transform: translate(-20px, 20px);
+    }
+    100% {
+        opacity: 1,
+        transform: translate(0, 0);
+    }
+}
+@keyframes fadeInFromBottomRight {
+    0% {
+        opacity: 0;
+        transform: translate(20px, 20px);
+    }
+    100% {
+        opacity: 1,
+        transform: translate(0, 0);
+    }
+}`;
+    const styleSheet = document.createElement('style');
+    styleSheet.type = 'text/css';
     styleSheet.innerText = styles;
     document.head.appendChild(styleSheet);
     return () => {
@@ -556,16 +663,21 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   };
 
   const copyToClipboardHandler = (url: string, title: string) => {
-    navigator.clipboard.writeText(url).then(() => {
-      console.log(`Copied '${title}' to clipboard.`);
-    }).catch((err) => {
-      console.error('Failed to copy: ', err);
-    });
+    navigator.clipboard
+      .writeText(url)
+      .then(() => {
+        console.log(`Copied '${title}' to clipboard.`);
+      })
+      .catch((err) => {
+        console.error('Failed to copy: ', err);
+      });
   };
 
   const currentUserRecord = attendanceRecords.find((r) => r.name === currentUserName);
   const currentUserConfirmed = currentUserRecord ? currentUserRecord.confirmed : false;
-  const officeAttendanceButtonText = currentUserConfirmed ? 'Update Office Attendance' : 'Confirm Office Attendance';
+  const officeAttendanceButtonText = currentUserConfirmed
+    ? 'Update Office Attendance'
+    : 'Confirm Office Attendance';
 
   const metricsData = [
     {
@@ -574,7 +686,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       money: recordedTime.money,
       hours: recordedTime.hours,
       prevMoney: prevRecordedTime.money,
-      prevHours: prevRecordedTime.hours
+      prevHours: prevRecordedTime.hours,
     },
     {
       title: 'Av. Time This Week',
@@ -582,7 +694,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       money: recordedTime.money,
       hours: recordedTime.hours,
       prevMoney: prevRecordedTime.money,
-      prevHours: prevRecordedTime.hours
+      prevHours: prevRecordedTime.hours,
     },
     {
       title: 'Fees Recovered This Month',
@@ -590,25 +702,25 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       money: recordedTime.money,
       hours: recordedTime.hours,
       prevMoney: prevRecordedTime.money,
-      prevHours: prevRecordedTime.hours
+      prevHours: prevRecordedTime.hours,
     },
     {
       title: 'Enquiries Today',
       isTimeMoney: false,
       count: enquiriesToday,
-      prevCount: prevEnquiriesToday
+      prevCount: prevEnquiriesToday,
     },
     {
       title: 'Enquiries This Week',
       isTimeMoney: false,
       count: enquiriesWeekToDate,
-      prevCount: prevEnquiriesWeekToDate
+      prevCount: prevEnquiriesWeekToDate,
     },
     {
       title: 'Enquiries This Month',
       isTimeMoney: false,
       count: enquiriesMonthToDate,
-      prevCount: prevEnquiriesMonthToDate
+      prevCount: prevEnquiriesMonthToDate,
     },
   ];
 
@@ -624,13 +736,13 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const sortedPeople = [...teamData].sort((a, b) => a.First.localeCompare(b.First));
 
   const allPeople = sortedPeople.map((t, i) => {
-    const att = attendanceRecords.find(a => a.name.toLowerCase() === t.First.toLowerCase());
+    const att = attendanceRecords.find((a) => a.name.toLowerCase() === t.First.toLowerCase());
     const attending = att ? att.attendingToday : false;
     return {
       name: t.First,
       initials: t.Initials,
       presence: attending ? PersonaPresence.online : PersonaPresence.none,
-      nickname: t.Nickname || t.First
+      nickname: t.Nickname || t.First,
     };
   });
 
@@ -720,16 +832,67 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       <Stack className={mainContentStyle} tokens={{ childrenGap: 40 }}>
         <div className={sectionRowStyle}>
           <div className={quickLinksStyle(isDarkMode)}>
-            {quickActions.map((action: QuickLink, index: number) => (
-              <QuickActionsCard
-                key={action.title}
-                title={action.title}
-                icon={action.icon}
-                isDarkMode={isDarkMode}
-                onClick={() => handleActionClick(action)}
-                iconColor={colours.highlight}
-              />
-            ))}
+            {quickActions.map((action: QuickLink, index: number) => {
+              const delay = (Math.floor(index / 3) * 0.2) + ((index % 3) * 0.1);
+
+              const quickActionCardStyle = mergeStyles({
+                backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+                color: isDarkMode ? colours.dark.text : colours.light.text,
+                padding: '20px',
+                borderRadius: '12px',
+                boxShadow: `0 4px 12px ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                alignItems: 'center',
+                height: '150px',
+                cursor: 'pointer',
+                position: 'relative',
+                opacity: 0,
+                transform: 'translateY(20px)',
+                animation: `fadeInUp 0.3s ease forwards`,
+                animationDelay: `${delay}s`,
+                transition: 'transform 0.3s, box-shadow 0.3s',
+                ':hover': {
+                  transform: 'translateY(-5px)',
+                  boxShadow: `0 6px 20px ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                },
+              });
+
+              return (
+                <div
+                  key={action.title}
+                  className={quickActionCardStyle}
+                  onClick={() => handleActionClick(action)}
+                  aria-label={action.title}
+                >
+                  <Icon
+                    iconName={action.icon}
+                    className={mergeStyles({
+                      fontSize: '80px',
+                      color: '#ccc',
+                      position: 'absolute',
+                      left: '20px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      opacity: 0.2,
+                      pointerEvents: 'none',
+                    })}
+                  />
+                  <Text
+                    className={mergeStyles({
+                      fontWeight: '700',
+                      fontSize: '24px',
+                      color: colours.highlight,
+                      textAlign: 'center',
+                      zIndex: 1,
+                    })}
+                  >
+                    {action.title}
+                  </Text>
+                </div>
+              );
+            })}
           </div>
 
           <div className={metricsContainerStyle(isDarkMode)}>
@@ -748,7 +911,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                         money: metric.money,
                         hours: metric.hours,
                         prevMoney: metric.prevMoney,
-                        prevHours: metric.prevHours,
+                        prevHours: metric.prevHours, // Corrected line
                         isTimeMoney: metric.isTimeMoney,
                       }
                     : {
@@ -756,7 +919,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                         prevCount: metric.prevCount,
                       })}
                   isDarkMode={isDarkMode}
-                  animationDelay={(Math.floor(index / 3) * 0.2) + ((index % 3) * 0.1)}
+                  animationDelay={Math.floor(index / 3) * 0.2 + (index % 3) * 0.1}
                 />
               </div>
             ))}
@@ -799,9 +962,14 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                     onCopy={(url: string, title: string) => copyToClipboardHandler(url, title)}
                     onSelect={() => setSelectedForm(form)}
                     onToggleFavorite={() => {
-                      const updatedFavorites = formsFavorites.filter(fav => fav.title !== form.title);
+                      const updatedFavorites = formsFavorites.filter(
+                        (fav) => fav.title !== form.title
+                      );
                       setFormsFavorites(updatedFavorites);
-                      localStorage.setItem('formsFavorites', JSON.stringify(updatedFavorites));
+                      localStorage.setItem(
+                        'formsFavorites',
+                        JSON.stringify(updatedFavorites)
+                      );
                     }}
                     onGoTo={() => {
                       window.open(form.url, '_blank');
@@ -827,9 +995,14 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                     isFavorite={true}
                     onCopy={(url: string, title: string) => copyToClipboardHandler(url, title)}
                     onToggleFavorite={() => {
-                      const updatedFavorites = resourcesFavorites.filter(fav => fav.title !== resource.title);
+                      const updatedFavorites = resourcesFavorites.filter(
+                        (fav) => fav.title !== resource.title
+                      );
                       setResourcesFavorites(updatedFavorites);
-                      localStorage.setItem('resourcesFavorites', JSON.stringify(updatedFavorites));
+                      localStorage.setItem(
+                        'resourcesFavorites',
+                        JSON.stringify(updatedFavorites)
+                      );
                     }}
                     onGoTo={() => window.open(resource.url, '_blank')}
                     onSelect={() => setSelectedResource(resource)}
@@ -844,7 +1017,12 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         <div className={officeSectionRowStyle}>
           <div className={officeLeaveContainerStyle(isDarkMode)}>
             <Stack tokens={{ childrenGap: 20 }}>
-              <Stack horizontal verticalAlign="center" horizontalAlign="space-between" styles={{ root: { width: '100%' } }}>
+              <Stack
+                horizontal
+                verticalAlign="center"
+                horizontalAlign="space-between"
+                styles={{ root: { width: '100%' } }}
+              >
                 <Text className={sectionLabelStyle(isDarkMode)}>{officeSectionTitle}</Text>
                 <DefaultButton
                   text={officeAttendanceButtonText}
@@ -882,7 +1060,12 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
 
           <div className={officeLeaveContainerStyle(isDarkMode)}>
             <Stack tokens={{ childrenGap: 20 }}>
-              <Stack horizontal verticalAlign="center" horizontalAlign="space-between" styles={{ root: { width: '100%' } }}>
+              <Stack
+                horizontal
+                verticalAlign="center"
+                horizontalAlign="space-between"
+                styles={{ root: { width: '100%' } }}
+              >
                 <Text className={sectionLabelStyle(isDarkMode)}>On Annual Leave Today</Text>
                 <DefaultButton
                   text="Request Annual Leave"
@@ -892,8 +1075,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                   ariaLabel="Request Annual Leave"
                 />
               </Stack>
-              <div className={peopleGridStyle}>
-              </div>
+              <div className={peopleGridStyle}></div>
             </Stack>
           </div>
         </div>
@@ -923,9 +1105,13 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 10 }}>
             <Text className={cardTitleStyle(isDarkMode)}>Contexts</Text>
             <Stack horizontal tokens={{ childrenGap: 5 }}>
-              <Text style={{ color: isDarkMode ? colours.dark.text : colours.light.text }}>Teams Context</Text>
+              <Text style={{ color: isDarkMode ? colours.dark.text : colours.light.text }}>
+                Teams Context
+              </Text>
               <Text style={{ color: isDarkMode ? colours.dark.text : colours.light.text }}>|</Text>
-              <Text style={{ color: isDarkMode ? colours.dark.text : colours.light.text }}>SQL Context</Text>
+              <Text style={{ color: isDarkMode ? colours.dark.text : colours.light.text }}>
+                SQL Context
+              </Text>
             </Stack>
           </Stack>
           <IconButton
@@ -1069,10 +1255,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       )}
 
       {selectedResource && (
-        <ResourceDetails
-          resource={selectedResource}
-          onClose={() => setSelectedResource(null)}
-        />
+        <ResourceDetails resource={selectedResource} onClose={() => setSelectedResource(null)} />
       )}
 
       <HomePanel
