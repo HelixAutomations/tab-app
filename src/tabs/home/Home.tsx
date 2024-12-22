@@ -409,6 +409,10 @@ const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean; animationDel
   }
 };
 
+let cachedAttendance: any[] | null = null;
+let cachedAttendanceError: string | null = null;
+let cachedTeamData: any[] | null = null;
+
 const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const { isDarkMode } = useTheme();
   const [greeting, setGreeting] = useState<string>('');
@@ -623,32 +627,42 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   }, [greeting]);
 
   useEffect(() => {
-    const fetchAttendance = async () => {
-      try {
-        setIsLoadingAttendance(true);
-        const response = await fetch(
-          `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_ATTENDANCE_PATH}?code=${process.env.REACT_APP_GET_ATTENDANCE_CODE}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-          }
-        );
-        if (!response.ok) throw new Error(`Failed to fetch attendance: ${response.status}`);
-        const data = await response.json();
+    if (cachedAttendance || cachedAttendanceError) {
+      setAttendanceRecords(cachedAttendance || []);
+      setTeamData(cachedTeamData || []);
+      setAttendanceError(cachedAttendanceError);
+      setIsLoadingAttendance(false);
+    } else {
+      const fetchAttendance = async () => {
+        try {
+          setIsLoadingAttendance(true);
+          const response = await fetch(
+            `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_ATTENDANCE_PATH}?code=${process.env.REACT_APP_GET_ATTENDANCE_CODE}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+            }
+          );
+          if (!response.ok) throw new Error(`Failed to fetch attendance: ${response.status}`);
+          const data = await response.json();
 
-        setAttendanceRecords(data.attendance);
-        setTeamData(data.team);
-      } catch (error: any) {
-        console.error('Error fetching attendance:', error);
-        setAttendanceError(error.message || 'Unknown error occurred.');
-        setAttendanceRecords([]);
-        setTeamData([]);
-      } finally {
-        setIsLoadingAttendance(false);
-      }
-    };
+          cachedAttendance = data.attendance;
+          cachedTeamData = data.team;
+          setAttendanceRecords(data.attendance);
+          setTeamData(data.team);
+        } catch (error: any) {
+          console.error('Error fetching attendance:', error);
+          cachedAttendanceError = error.message || 'Unknown error occurred.';
+          setAttendanceError(error.message || 'Unknown error occurred.');
+          setAttendanceRecords([]);
+          setTeamData([]);
+        } finally {
+          setIsLoadingAttendance(false);
+        }
+      };
 
-    fetchAttendance();
+      fetchAttendance();
+    }
   }, []);
 
   const columns = useMemo(() => createColumnsFunction(isDarkMode), [isDarkMode]);
@@ -911,7 +925,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                         money: metric.money,
                         hours: metric.hours,
                         prevMoney: metric.prevMoney,
-                        prevHours: metric.prevHours, // Corrected line
+                        prevHours: metric.prevHours,
                         isTimeMoney: metric.isTimeMoney,
                       }
                     : {
