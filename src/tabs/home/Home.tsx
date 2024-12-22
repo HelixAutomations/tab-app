@@ -413,6 +413,9 @@ let cachedAttendance: any[] | null = null;
 let cachedAttendanceError: string | null = null;
 let cachedTeamData: any[] | null = null;
 
+let cachedWipClio: any | null = null;
+let cachedWipClioError: string | null = null;
+
 const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const { isDarkMode } = useTheme();
   const [greeting, setGreeting] = useState<string>('');
@@ -456,6 +459,10 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const [attendanceError, setAttendanceError] = useState<string | null>(null);
   const [currentUserName, setCurrentUserName] = useState<string>('User');
 
+  const [wipClioData, setWipClioData] = useState<any | null>(cachedWipClio);
+  const [wipClioError, setWipClioError] = useState<string | null>(cachedWipClioError);
+  const [isLoadingWipClio, setIsLoadingWipClio] = useState<boolean>(!cachedWipClio && !cachedWipClioError);
+
   const columnsForPeople = 3;
 
   useEffect(() => {
@@ -487,7 +494,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         transform: translate(-20px, -20px);
     }
     100% {
-        opacity: 1;
+        opacity: 1,
         transform: translate(0, 0);
     }
 }
@@ -497,7 +504,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         transform: translate(20px, -20px);
     }
     100% {
-        opacity: 1;
+        opacity: 1,
         transform: translate(0, 0);
     }
 }
@@ -665,6 +672,42 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     }
   }, []);
 
+  useEffect(() => {
+    if (cachedWipClio || cachedWipClioError) {
+      setWipClioData(cachedWipClio);
+      setWipClioError(cachedWipClioError);
+      setIsLoadingWipClio(false);
+    } else {
+      const fetchWipClio = async () => {
+        try {
+          setIsLoadingWipClio(true);
+          const response = await fetch(
+            `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_WIP_CLIO_PATH}?code=${process.env.REACT_APP_GET_WIP_CLIO_CODE}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ClioID: parseInt(userData[0]["Clio ID"], 10) }), // Corrected ClioID access
+            }
+          );
+          if (!response.ok) throw new Error(`Failed to fetch WIP Clio: ${response.status}`);
+          const data = await response.json();
+
+          cachedWipClio = data;
+          setWipClioData(data);
+        } catch (error: any) {
+          console.error('Error fetching WIP Clio:', error);
+          cachedWipClioError = error.message || 'Unknown error occurred.';
+          setWipClioError(error.message || 'Unknown error occurred.');
+          setWipClioData(null);
+        } finally {
+          setIsLoadingWipClio(false);
+        }
+      };
+
+      fetchWipClio();
+    }
+  }, [userData]);
+
   const columns = useMemo(() => createColumnsFunction(isDarkMode), [isDarkMode]);
 
   const handleActionClick = (action: QuickLink) => {
@@ -693,52 +736,8 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     ? 'Update Office Attendance'
     : 'Confirm Office Attendance';
 
-  const metricsData = [
-    {
-      title: 'Time Today',
-      isTimeMoney: true,
-      money: recordedTime.money,
-      hours: recordedTime.hours,
-      prevMoney: prevRecordedTime.money,
-      prevHours: prevRecordedTime.hours,
-    },
-    {
-      title: 'Av. Time This Week',
-      isTimeMoney: true,
-      money: recordedTime.money,
-      hours: recordedTime.hours,
-      prevMoney: prevRecordedTime.money,
-      prevHours: prevRecordedTime.hours,
-    },
-    {
-      title: 'Fees Recovered This Month',
-      isTimeMoney: true,
-      money: recordedTime.money,
-      hours: recordedTime.hours,
-      prevMoney: prevRecordedTime.money,
-      prevHours: prevRecordedTime.hours,
-    },
-    {
-      title: 'Enquiries Today',
-      isTimeMoney: false,
-      count: enquiriesToday,
-      prevCount: prevEnquiriesToday,
-    },
-    {
-      title: 'Enquiries This Week',
-      isTimeMoney: false,
-      count: enquiriesWeekToDate,
-      prevCount: prevEnquiriesWeekToDate,
-    },
-    {
-      title: 'Enquiries This Month',
-      isTimeMoney: false,
-      count: enquiriesMonthToDate,
-      prevCount: prevEnquiriesMonthToDate,
-    },
-  ];
-
   const today = new Date();
+  const formattedToday = today.toISOString().split('T')[0];
   const day = today.getDay();
   let officeSectionTitle = 'In the Office Today';
   if (day === 6) {
@@ -747,18 +746,143 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     officeSectionTitle = 'In the Office Tomorrow';
   }
 
-  const sortedPeople = [...teamData].sort((a, b) => a.First.localeCompare(b.First));
+  const allPeople = useMemo(() => {
+    if (!teamData || teamData.length === 0) return [];
+    return teamData
+      .sort((a, b) => a.First.localeCompare(b.First))
+      .map((t) => {
+        const att = attendanceRecords.find((a) => a.name.toLowerCase() === t.First.toLowerCase());
+        const attending = att ? att.attendingToday : false;
+        return {
+          name: t.First,
+          initials: t.Initials,
+          presence: attending ? PersonaPresence.online : PersonaPresence.none,
+          nickname: t.Nickname || t.First,
+        };
+      });
+  }, [teamData, attendanceRecords]);
 
-  const allPeople = sortedPeople.map((t, i) => {
-    const att = attendanceRecords.find((a) => a.name.toLowerCase() === t.First.toLowerCase());
-    const attending = att ? att.attendingToday : false;
-    return {
-      name: t.First,
-      initials: t.Initials,
-      presence: attending ? PersonaPresence.online : PersonaPresence.none,
-      nickname: t.Nickname || t.First,
-    };
-  });
+  const metricsData = useMemo(() => {
+    if (!wipClioData) {
+      return [
+        {
+          title: 'Time Today',
+          isTimeMoney: true,
+          money: 0,
+          hours: 0,
+          prevMoney: 0,
+          prevHours: 0,
+        },
+        {
+          title: 'Av. Time This Week',
+          isTimeMoney: true,
+          money: 0,
+          hours: 0,
+          prevMoney: 0,
+          prevHours: 0,
+        },
+        {
+          title: 'Fees Recovered This Month',
+          isTimeMoney: true,
+          money: 0,
+          hours: 0,
+          prevMoney: 0,
+          prevHours: 0,
+        },
+        {
+          title: 'Enquiries Today',
+          isTimeMoney: false,
+          count: enquiriesToday,
+          prevCount: prevEnquiriesToday,
+        },
+        {
+          title: 'Enquiries This Week',
+          isTimeMoney: false,
+          count: enquiriesWeekToDate,
+          prevCount: prevEnquiriesWeekToDate,
+        },
+        {
+          title: 'Enquiries This Month',
+          isTimeMoney: false,
+          count: enquiriesMonthToDate,
+          prevCount: prevEnquiriesMonthToDate,
+        },
+      ];
+    }
+
+    const currentWeekData = wipClioData.current_week.daily_data[formattedToday];
+    const lastWeekDate = new Date(today);
+    lastWeekDate.setDate(today.getDate() - 7);
+    const formattedLastWeekDate = lastWeekDate.toISOString().split('T')[0];
+    const lastWeekData = wipClioData.last_week.daily_data[formattedLastWeekDate];
+
+    return [
+      {
+        title: 'Time Today',
+        isTimeMoney: true,
+        money: currentWeekData ? currentWeekData.total_amount : 0,
+        hours: currentWeekData ? currentWeekData.total_hours : 0,
+        prevMoney: lastWeekData ? lastWeekData.total_amount : 0,
+        prevHours: lastWeekData ? lastWeekData.total_hours : 0,
+      },
+      {
+        title: 'Av. Time This Week',
+        isTimeMoney: true,
+        money: wipClioData.current_week.daily_average * 100, // Assuming money is proportional
+        hours: wipClioData.current_week.daily_average,
+        prevMoney: wipClioData.last_week.daily_average * 100,
+        prevHours: wipClioData.last_week.daily_average,
+      },
+      {
+        title: 'Fees Recovered This Month',
+        isTimeMoney: true,
+        money: Object.values(wipClioData.current_week.daily_data).reduce(
+          (sum: number, day: any) => sum + day.total_amount,
+          0
+        ),
+        hours: Object.values(wipClioData.current_week.daily_data).reduce(
+          (sum: number, day: any) => sum + day.total_hours,
+          0
+        ),
+        prevMoney: Object.values(wipClioData.last_week.daily_data).reduce(
+          (sum: number, day: any) => sum + day.total_amount,
+          0
+        ),
+        prevHours: Object.values(wipClioData.last_week.daily_data).reduce(
+          (sum: number, day: any) => sum + day.total_hours,
+          0
+        ),
+      },
+      {
+        title: 'Enquiries Today',
+        isTimeMoney: false,
+        count: enquiriesToday,
+        prevCount: prevEnquiriesToday,
+      },
+      {
+        title: 'Enquiries This Week',
+        isTimeMoney: false,
+        count: enquiriesWeekToDate,
+        prevCount: prevEnquiriesWeekToDate,
+      },
+      {
+        title: 'Enquiries This Month',
+        isTimeMoney: false,
+        count: enquiriesMonthToDate,
+        prevCount: prevEnquiriesMonthToDate,
+      },
+    ];
+  }, [
+    wipClioData,
+    formattedToday,
+    enquiriesToday,
+    prevEnquiriesToday,
+    enquiriesWeekToDate,
+    prevEnquiriesWeekToDate,
+    enquiriesMonthToDate,
+    prevEnquiriesMonthToDate,
+    today,
+  ]);
 
   const officeAttendanceButtonStyles = currentUserConfirmed
     ? {
@@ -847,64 +971,17 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         <div className={sectionRowStyle}>
           <div className={quickLinksStyle(isDarkMode)}>
             {quickActions.map((action: QuickLink, index: number) => {
-              const delay = (Math.floor(index / 3) * 0.2) + ((index % 3) * 0.1);
-
-              const quickActionCardStyle = mergeStyles({
-                backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-                color: isDarkMode ? colours.dark.text : colours.light.text,
-                padding: '20px',
-                borderRadius: '12px',
-                boxShadow: `0 4px 12px ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'center',
-                alignItems: 'center',
-                height: '150px',
-                cursor: 'pointer',
-                position: 'relative',
-                opacity: 0,
-                transform: 'translateY(20px)',
-                animation: `fadeInUp 0.3s ease forwards`,
-                animationDelay: `${delay}s`,
-                transition: 'transform 0.3s, box-shadow 0.3s',
-                ':hover': {
-                  transform: 'translateY(-5px)',
-                  boxShadow: `0 6px 20px ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                },
-              });
+              const delay = Math.floor(index / 3) * 0.2 + (index % 3) * 0.1;
 
               return (
-                <div
+                <QuickActionsCardStyled
                   key={action.title}
-                  className={quickActionCardStyle}
+                  title={action.title}
+                  icon={action.icon}
+                  isDarkMode={isDarkMode}
                   onClick={() => handleActionClick(action)}
-                  aria-label={action.title}
-                >
-                  <Icon
-                    iconName={action.icon}
-                    className={mergeStyles({
-                      fontSize: '80px',
-                      color: '#ccc',
-                      position: 'absolute',
-                      left: '20px',
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      opacity: 0.2,
-                      pointerEvents: 'none',
-                    })}
-                  />
-                  <Text
-                    className={mergeStyles({
-                      fontWeight: '700',
-                      fontSize: '24px',
-                      color: colours.highlight,
-                      textAlign: 'center',
-                      zIndex: 1,
-                    })}
-                  >
-                    {action.title}
-                  </Text>
-                </div>
+                  animationDelay={delay}
+                />
               );
             })}
           </div>
