@@ -16,6 +16,7 @@ interface MetricCardProps {
   prevMoney?: number;
   isDarkMode: boolean;
   isTimeMoney?: boolean;
+  isMoneyOnly?: boolean; // Added prop
   animationDelay?: number; // Add this prop
 }
 
@@ -91,6 +92,7 @@ const MetricCard: React.FC<MetricCardProps> = ({
   prevMoney,
   isDarkMode,
   isTimeMoney = false,
+  isMoneyOnly = false, // Default to false
   animationDelay = 0, // Default delay
 }) => {
   const [isHovered, setIsHovered] = useState<boolean>(false);
@@ -130,6 +132,16 @@ const MetricCard: React.FC<MetricCardProps> = ({
   }
 
   const tooltipContent = () => {
+    if (isMoneyOnly) {
+      return (
+        <div>
+          <strong>Fees Recovered:</strong> £
+          {money !== undefined
+            ? (money / 1000).toFixed(2) + 'k'
+            : '0.00k'}
+        </div>
+      );
+    }
     if (isTimeMoney) {
       return (
         <>
@@ -154,7 +166,7 @@ const MetricCard: React.FC<MetricCardProps> = ({
         <div>
           <strong>Change:</strong> {Math.abs(countChange.change).toLocaleString()} (
           {Math.abs(Number(countChange.percentage.toFixed(2)))}%{' '}
-          {countChange.change >= 0 ? '↑' : '↓'})
+          {countChange.change >= 0 ? '↑' : '↓'} )
         </div>
       );
     }
@@ -171,7 +183,19 @@ const MetricCard: React.FC<MetricCardProps> = ({
         aria-label={`${title} metric card`}
       >
         <Text className={metricTitleStyle}>{title}</Text>
-        {isTimeMoney ? (
+        {isMoneyOnly ? (
+          <Text className={mergeStyles({ fontSize: '24px', fontWeight: '700', color: colours.highlight })}>
+            £
+            <CountUp
+              start={0}
+              end={money ? money / 1000 : 0}
+              duration={2.5}
+              decimals={2}
+              separator=","
+              suffix="k"
+            />
+          </Text>
+        ) : isTimeMoney ? (
           <Text className={mergeStyles({ display: 'flex', alignItems: 'center' })}>
             <span className={moneyStyle}>
               £
@@ -190,7 +214,13 @@ const MetricCard: React.FC<MetricCardProps> = ({
 
         {isHovered && (
           <div style={{ display: 'flex', flexDirection: 'row', gap: '10px', justifyContent: 'space-between' }}>
-            {isTimeMoney ? (
+            {isMoneyOnly ? (
+              <div style={{ display: 'flex', flexDirection: 'row', gap: '5px', alignItems: 'center' }}>
+                <Text className={changeStyle(moneyChange ? moneyChange.change >= 0 : true)}>
+                  £{money !== undefined ? (money / 1000).toFixed(2) : '0.00'}k
+                </Text>
+              </div>
+            ) : isTimeMoney ? (
               <>
                 {moneyChange && (
                   <div style={{ display: 'flex', flexDirection: 'row', gap: '5px', alignItems: 'center' }}>

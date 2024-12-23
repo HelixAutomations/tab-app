@@ -1,6 +1,6 @@
 // src/tabs/home/Home.tsx
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   mergeStyles,
   Text,
@@ -416,6 +416,9 @@ let cachedTeamData: any[] | null = null;
 let cachedWipClio: any | null = null;
 let cachedWipClioError: string | null = null;
 
+let cachedRecovered: number | null = null;
+let cachedRecoveredError: string | null = null;
+
 const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const { isDarkMode } = useTheme();
   const [greeting, setGreeting] = useState<string>('');
@@ -462,6 +465,10 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const [wipClioData, setWipClioData] = useState<any | null>(cachedWipClio);
   const [wipClioError, setWipClioError] = useState<string | null>(cachedWipClioError);
   const [isLoadingWipClio, setIsLoadingWipClio] = useState<boolean>(!cachedWipClio && !cachedWipClioError);
+
+  const [recoveredData, setRecoveredData] = useState<number | null>(cachedRecovered);
+  const [recoveredError, setRecoveredError] = useState<string | null>(cachedRecoveredError);
+  const [isLoadingRecovered, setIsLoadingRecovered] = useState<boolean>(!cachedRecovered && !cachedRecoveredError);
 
   const columnsForPeople = 3;
 
@@ -673,38 +680,65 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   }, []);
 
   useEffect(() => {
-    if (cachedWipClio || cachedWipClioError) {
+    if (cachedWipClio || cachedWipClioError || cachedRecovered || cachedRecoveredError) {
       setWipClioData(cachedWipClio);
       setWipClioError(cachedWipClioError);
+      setRecoveredData(cachedRecovered);
+      setRecoveredError(cachedRecoveredError);
       setIsLoadingWipClio(false);
+      setIsLoadingRecovered(false);
     } else {
-      const fetchWipClio = async () => {
+      const fetchWipClioAndRecovered = async () => {
         try {
           setIsLoadingWipClio(true);
-          const response = await fetch(
-            `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_WIP_CLIO_PATH}?code=${process.env.REACT_APP_GET_WIP_CLIO_CODE}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ ClioID: parseInt(userData[0]["Clio ID"], 10) }), // Corrected ClioID access
-            }
-          );
-          if (!response.ok) throw new Error(`Failed to fetch WIP Clio: ${response.status}`);
-          const data = await response.json();
+          setIsLoadingRecovered(true);
+          const clioID = parseInt(userData[0]["Clio ID"], 10);
+          const [wipResponse, recoveredResponse] = await Promise.all([
+            fetch(
+              `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_WIP_CLIO_PATH}?code=${process.env.REACT_APP_GET_WIP_CLIO_CODE}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ClioID: clioID }),
+              }
+            ),
+            fetch(
+              `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_RECOVERED_PATH}?code=${process.env.REACT_APP_GET_RECOVERED_CODE}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ClioID: clioID }),
+              }
+            ),
+          ]);
 
-          cachedWipClio = data;
-          setWipClioData(data);
+          if (!wipResponse.ok) throw new Error(`Failed to fetch WIP Clio: ${wipResponse.status}`);
+          const wipData = await wipResponse.json();
+          cachedWipClio = wipData;
+          setWipClioData(wipData);
+
+          if (!recoveredResponse.ok) throw new Error(`Failed to fetch Recovered: ${recoveredResponse.status}`);
+          const recoveredData = await recoveredResponse.json();
+          cachedRecovered = recoveredData.totalPaymentAllocated;
+          setRecoveredData(recoveredData.totalPaymentAllocated);
         } catch (error: any) {
-          console.error('Error fetching WIP Clio:', error);
-          cachedWipClioError = error.message || 'Unknown error occurred.';
-          setWipClioError(error.message || 'Unknown error occurred.');
-          setWipClioData(null);
+          console.error('Error fetching WIP Clio or Recovered:', error);
+          if (error.message.includes('WIP Clio')) {
+            cachedWipClioError = error.message || 'Unknown error occurred.';
+            setWipClioError(error.message || 'Unknown error occurred.');
+            setWipClioData(null);
+          } else {
+            cachedRecoveredError = error.message || 'Unknown error occurred.';
+            setRecoveredError(error.message || 'Unknown error occurred.');
+            setRecoveredData(null);
+          }
         } finally {
           setIsLoadingWipClio(false);
+          setIsLoadingRecovered(false);
         }
       };
 
-      fetchWipClio();
+      fetchWipClioAndRecovered();
     }
   }, [userData]);
 
@@ -713,10 +747,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const handleActionClick = (action: QuickLink) => {
     setSelectedAction(action);
     setIsPanelOpen(true);
-  };
-
-  const handleFormSubmit = () => {
-    setIsPanelOpen(false);
   };
 
   const copyToClipboardHandler = (url: string, title: string) => {
@@ -783,11 +813,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         },
         {
           title: 'Fees Recovered This Month',
-          isTimeMoney: true,
+          isMoneyOnly: true,
           money: 0,
-          hours: 0,
           prevMoney: 0,
-          prevHours: 0,
         },
         {
           title: 'Enquiries Today',
@@ -810,11 +838,11 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       ];
     }
 
-    const currentWeekData = wipClioData.current_week.daily_data[formattedToday];
+    const currentWeekData = wipClioData.current_week?.daily_data[formattedToday];
     const lastWeekDate = new Date(today);
     lastWeekDate.setDate(today.getDate() - 7);
     const formattedLastWeekDate = lastWeekDate.toISOString().split('T')[0];
-    const lastWeekData = wipClioData.last_week.daily_data[formattedLastWeekDate];
+    const lastWeekData = wipClioData.last_week?.daily_data[formattedLastWeekDate];
 
     return [
       {
@@ -828,30 +856,16 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       {
         title: 'Av. Time This Week',
         isTimeMoney: true,
-        money: wipClioData.current_week.daily_average * 100, // Assuming money is proportional
+        money: wipClioData.current_week.daily_average * 100,
         hours: wipClioData.current_week.daily_average,
         prevMoney: wipClioData.last_week.daily_average * 100,
         prevHours: wipClioData.last_week.daily_average,
       },
       {
         title: 'Fees Recovered This Month',
-        isTimeMoney: true,
-        money: Object.values(wipClioData.current_week.daily_data).reduce(
-          (sum: number, day: any) => sum + day.total_amount,
-          0
-        ),
-        hours: Object.values(wipClioData.current_week.daily_data).reduce(
-          (sum: number, day: any) => sum + day.total_hours,
-          0
-        ),
-        prevMoney: Object.values(wipClioData.last_week.daily_data).reduce(
-          (sum: number, day: any) => sum + day.total_amount,
-          0
-        ),
-        prevHours: Object.values(wipClioData.last_week.daily_data).reduce(
-          (sum: number, day: any) => sum + day.total_hours,
-          0
-        ),
+        isMoneyOnly: true,
+        money: recoveredData ? recoveredData : 0,
+        prevMoney: 0, // Assuming no previous data
       },
       {
         title: 'Enquiries Today',
@@ -874,6 +888,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     ];
   }, [
     wipClioData,
+    recoveredData,
     formattedToday,
     enquiriesToday,
     prevEnquiriesToday,
@@ -997,18 +1012,26 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
               >
                 <MetricCard
                   title={metric.title}
-                  {...(metric.isTimeMoney
-                    ? {
-                        money: metric.money,
-                        hours: metric.hours,
-                        prevMoney: metric.prevMoney,
-                        prevHours: metric.prevHours,
-                        isTimeMoney: metric.isTimeMoney,
-                      }
-                    : {
-                        count: metric.count,
-                        prevCount: metric.prevCount,
-                      })}
+                  {...(
+                    metric.isMoneyOnly
+                      ? {
+                          money: metric.money,
+                          prevMoney: metric.prevMoney,
+                          isMoneyOnly: metric.isMoneyOnly,
+                        }
+                      : metric.isTimeMoney
+                      ? {
+                          money: metric.money,
+                          hours: metric.hours,
+                          prevMoney: metric.prevMoney,
+                          prevHours: metric.prevHours,
+                          isTimeMoney: metric.isTimeMoney,
+                        }
+                      : {
+                          count: metric.count,
+                          prevCount: metric.prevCount,
+                        }
+                  )}
                   isDarkMode={isDarkMode}
                   animationDelay={Math.floor(index / 3) * 0.2 + (index % 3) * 0.1}
                 />
