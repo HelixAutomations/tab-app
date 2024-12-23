@@ -73,8 +73,8 @@ interface Person {
 const quickActions: QuickLink[] = [
   { title: 'Create a Task', icon: 'Checklist' },
   { title: 'Create a Time Entry', icon: 'Clock' },
-  { title: 'Save Telephone Note', icon: 'NoteAdd' },
-  { title: 'Save Attendance Note', icon: 'Note' },
+  { title: 'Save Telephone Note', icon: 'Comment' },
+  { title: 'Save Attendance Note', icon: 'NotePinned' },
   { title: 'Create a Contact', icon: 'AddFriend' },
   { title: 'Retrieve a Contact', icon: 'Contact' },
 ];
@@ -461,6 +461,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const [isLoadingAttendance, setIsLoadingAttendance] = useState<boolean>(true);
   const [attendanceError, setAttendanceError] = useState<string | null>(null);
   const [currentUserName, setCurrentUserName] = useState<string>('User');
+  const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
 
   const [wipClioData, setWipClioData] = useState<any | null>(cachedWipClio);
   const [wipClioError, setWipClioError] = useState<string | null>(cachedWipClioError);
@@ -580,6 +581,8 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     if (userData && Array.isArray(userData) && userData.length > 0 && (userData[0].First || userData[0].First_Name)) {
       const firstName = userData[0].First || userData[0].First_Name || 'User';
       setCurrentUserName(firstName);
+      const email = userData[0].Email || '';
+      setCurrentUserEmail(email);
       const currentHour = new Date().getHours();
       let timeOfDay = 'Hello';
       if (currentHour < 12) {
@@ -605,26 +608,26 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       const todayCount = enquiries.filter((enquiry: any) => {
         if (!enquiry.Touchpoint_Date) return false;
         const enquiryDate = new Date(enquiry.Touchpoint_Date);
-        return enquiryDate.toDateString() === today.toDateString();
+        return enquiryDate.toDateString() === today.toDateString() && enquiry.Point_of_Contact === currentUserEmail;
       }).length;
 
       const weekToDateCount = enquiries.filter((enquiry: any) => {
         if (!enquiry.Touchpoint_Date) return false;
         const enquiryDate = new Date(enquiry.Touchpoint_Date);
-        return enquiryDate >= startOfWeek && enquiryDate <= today;
+        return enquiryDate >= startOfWeek && enquiryDate <= today && enquiry.Point_of_Contact === currentUserEmail;
       }).length;
 
       const monthToDateCount = enquiries.filter((enquiry: any) => {
         if (!enquiry.Touchpoint_Date) return false;
         const enquiryDate = new Date(enquiry.Touchpoint_Date);
-        return enquiryDate >= startOfMonth && enquiryDate <= today;
+        return enquiryDate >= startOfMonth && enquiryDate <= today && enquiry.Point_of_Contact === currentUserEmail;
       }).length;
 
       setEnquiriesToday(todayCount);
       setEnquiriesWeekToDate(weekToDateCount);
       setEnquiriesMonthToDate(monthToDateCount);
     }
-  }, [enquiries]);
+  }, [enquiries, currentUserEmail]);
 
   useEffect(() => {
     let currentIndex = 0;

@@ -149,7 +149,7 @@ const MetricCard: React.FC<MetricCardProps> = ({
         <>
           {moneyChange && (
             <div>
-              <strong>Money:</strong> £{Math.abs(moneyChange.change).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} (
+              <strong>Money:</strong> £{Math.abs(moneyChange.change).toLocaleString(undefined, {minimumFractionDigits: money && money > 1000 ? 2 : 0, maximumFractionDigits: money && money > 1000 ? 2 : 0})} (
               {Math.abs(Number(moneyChange.percentage.toFixed(2)))}%{' '}
               {moneyChange.change >= 0 ? '↑' : '↓'})
             </div>
@@ -190,7 +190,7 @@ const MetricCard: React.FC<MetricCardProps> = ({
             £
             <CountUp
               start={0}
-              end={money ? parseFloat((money > 1000 ? money / 1000 : money / 1000).toFixed(money > 1000 ? 2 : 0)) : 0}
+              end={money ? parseFloat((money > 1000 ? (money / 1000).toFixed(2) : (money / 1000).toFixed(0))) : 0}
               duration={2.5}
               decimals={money && money > 1000 ? 2 : 0}
               separator=","
@@ -206,7 +206,7 @@ const MetricCard: React.FC<MetricCardProps> = ({
                 end={Number(money) || 0}
                 duration={2.5}
                 separator=","
-                decimals={2}
+                decimals={money && money > 1000 ? 2 : 0}
               />
             </span>
             <span className={pipeStyle}>|</span>
@@ -240,7 +240,7 @@ const MetricCard: React.FC<MetricCardProps> = ({
                 {moneyChange && (
                   <div style={{ display: 'flex', flexDirection: 'row', gap: '5px', alignItems: 'center' }}>
                     <Text className={changeStyle(moneyChange.change >= 0)}>
-                      £{Math.abs(moneyChange.change).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                      £{Math.abs(moneyChange.change).toLocaleString(undefined, {minimumFractionDigits: money && money > 1000 ? 2 : 0, maximumFractionDigits: money && money > 1000 ? 2 : 0})}
                     </Text>
                     <Text className={changeStyle(moneyChange.change >= 0)}>
                       ({Math.abs(Number(moneyChange.percentage.toFixed(2)))}%{' '}
