@@ -467,7 +467,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const [wipClioError, setWipClioError] = useState<string | null>(cachedWipClioError);
   const [isLoadingWipClio, setIsLoadingWipClio] = useState<boolean>(!cachedWipClio && !cachedWipClioError);
 
-  const [recoveredData, setRecoveredData] = useState<number | null>(cachedRecovered);
+  const [recoveredData, setRecoveredData] = useState<number | null>(() => cachedRecovered || null);
   const [recoveredError, setRecoveredError] = useState<string | null>(cachedRecoveredError);
   const [isLoadingRecovered, setIsLoadingRecovered] = useState<boolean>(!cachedRecovered && !cachedRecoveredError);
 
@@ -859,10 +859,10 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       {
         title: 'Av. Time This Week',
         isTimeMoney: true,
-        money: wipClioData.current_week.daily_average * 100,
-        hours: wipClioData.current_week.daily_average,
-        prevMoney: wipClioData.last_week.daily_average * 100,
-        prevHours: wipClioData.last_week.daily_average,
+        money: wipClioData.current_week.daily_average_amount,
+        hours: wipClioData.current_week.daily_average_hours,
+        prevMoney: wipClioData.last_week.daily_average_amount,
+        prevHours: wipClioData.last_week.daily_average_hours,
       },
       {
         title: 'Fees Recovered This Month',

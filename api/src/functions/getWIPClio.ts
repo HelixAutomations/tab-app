@@ -29,11 +29,13 @@ interface ClioActivity {
 interface StructuredResponse {
     current_week: {
         daily_data: Record<string, { total_hours: number; total_amount: number }>;
-        daily_average: number;
+        daily_average_hours: number;
+        daily_average_amount: number;
     };
     last_week: {
         daily_data: Record<string, { total_hours: number; total_amount: number }>;
-        daily_average: number;
+        daily_average_hours: number;
+        daily_average_amount: number;
     };
 }
 
@@ -350,11 +352,13 @@ function structureResponse(
     const response: StructuredResponse = {
         current_week: {
             daily_data: {},
-            daily_average: 0,
+            daily_average_hours: 0,
+            daily_average_amount: 0,
         },
         last_week: {
             daily_data: {},
-            daily_average: 0,
+            daily_average_hours: 0,
+            daily_average_amount: 0,
         },
     };
 
@@ -377,8 +381,10 @@ function structureResponse(
     });
 
     // Calculate daily averages
-    response.current_week.daily_average = calculateDailyAverage(response.current_week.daily_data, currentWeekStart, currentWeekEnd);
-    response.last_week.daily_average = calculateDailyAverage(response.last_week.daily_data, lastWeekStart, lastWeekEnd);
+    response.current_week.daily_average_hours = calculateDailyAverage(response.current_week.daily_data, currentWeekStart, currentWeekEnd);
+    response.last_week.daily_average_hours = calculateDailyAverage(response.last_week.daily_data, lastWeekStart, lastWeekEnd);
+    response.current_week.daily_average_amount = calculateDailyAverageAmount(response.current_week.daily_data, currentWeekStart, currentWeekEnd);
+    response.last_week.daily_average_amount = calculateDailyAverageAmount(response.last_week.daily_data, lastWeekStart, lastWeekEnd);
 
     return response;
 }
@@ -462,14 +468,41 @@ function calculateDailyAverage(
 
     for (let d = new Date(weekStart); d <= weekEnd; d.setDate(d.getDate() + 1)) {
         const dayOfWeek = d.getDay();
-        if (dayOfWeek === 0 || dayOfWeek === 6) {
-            // Skip Sundays and Saturdays
-            continue;
-        }
         const dateStr = formatDateForClio(d); // Ensure 'YYYY-MM-DD' format
         if (dailyData[dateStr]) {
             total += dailyData[dateStr].total_hours;
-            count += 1;
+            if (dayOfWeek >= 1 && dayOfWeek <= 5) { // Monday to Friday
+                count += 1;
+            }
+        }
+    }
+
+    return count > 0 ? parseFloat((total / count).toFixed(2)) : 0;
+}
+
+/**
+ * Calculates the daily average of total_amount, considering only Monday-Friday and excluding days with no data.
+ * @param dailyData - An object containing daily WIP data.
+ * @param weekStart - The start date of the week.
+ * @param weekEnd - The end date of the week.
+ * @returns The daily average as a number.
+ */
+function calculateDailyAverageAmount(
+    dailyData: Record<string, { total_hours: number; total_amount: number }>,
+    weekStart: Date,
+    weekEnd: Date
+): number {
+    let total = 0;
+    let count = 0;
+
+    for (let d = new Date(weekStart); d <= weekEnd; d.setDate(d.getDate() + 1)) {
+        const dayOfWeek = d.getDay();
+        const dateStr = formatDateForClio(d); // Ensure 'YYYY-MM-DD' format
+        if (dailyData[dateStr]) {
+            total += dailyData[dateStr].total_amount;
+            if (dayOfWeek >= 1 && dayOfWeek <= 5) { // Monday to Friday
+                count += 1;
+            }
         }
     }
 
