@@ -292,7 +292,7 @@ const QuickActionsCardStyled: React.FC<{
     position: 'relative',
     opacity: 0,
     transform: 'translateY(20px)',
-    animation: `fadeInUp 0.3s ease forwards`,
+    animation: 'fadeInUp 0.3s ease forwards',
     animationDelay: `${animationDelay}s`,
     transition: 'transform 0.3s, box-shadow 0.3s',
     ':hover': {
@@ -341,7 +341,7 @@ const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean; animationDel
     alignItems: 'center',
     opacity: 0,
     transform: 'translateY(20px)',
-    animation: `fadeInUp 0.3s ease forwards`,
+    animation: 'fadeInUp 0.3s ease forwards',
     animationDelay: `${animationDelay}s`,
   });
 
@@ -467,7 +467,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const [wipClioError, setWipClioError] = useState<string | null>(cachedWipClioError);
   const [isLoadingWipClio, setIsLoadingWipClio] = useState<boolean>(!cachedWipClio && !cachedWipClioError);
 
-  const [recoveredData, setRecoveredData] = useState<number | null>(() => cachedRecovered || null);
+  const [recoveredData, setRecoveredData] = useState<number | null>(cachedRecovered);
   const [recoveredError, setRecoveredError] = useState<string | null>(cachedRecoveredError);
   const [isLoadingRecovered, setIsLoadingRecovered] = useState<boolean>(!cachedRecovered && !cachedRecoveredError);
 
@@ -817,7 +817,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         {
           title: 'Fees Recovered This Month',
           isMoneyOnly: true,
-          money: 0,
+          money: '--',
           prevMoney: 0,
         },
         {
@@ -867,7 +867,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       {
         title: 'Fees Recovered This Month',
         isMoneyOnly: true,
-        money: recoveredData ? recoveredData : 0,
+        money: recoveredData ? recoveredData : '--',
         prevMoney: 0, // Assuming no previous data
       },
       {
