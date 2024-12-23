@@ -137,8 +137,10 @@ const MetricCard: React.FC<MetricCardProps> = ({
         <div>
           <strong>Fees Recovered:</strong> £
           {money !== undefined
-            ? (money / 1000).toFixed(2) + 'k'
-            : '0.00k'}
+            ? money > 1000
+              ? (money / 1000).toFixed(2) + 'k'
+              : (money / 1000).toFixed(0) + 'k'
+            : '0k'}
         </div>
       );
     }
@@ -147,14 +149,14 @@ const MetricCard: React.FC<MetricCardProps> = ({
         <>
           {moneyChange && (
             <div>
-              <strong>Money:</strong> £{Math.abs(moneyChange.change).toLocaleString()} (
+              <strong>Money:</strong> £{Math.abs(moneyChange.change).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} (
               {Math.abs(Number(moneyChange.percentage.toFixed(2)))}%{' '}
               {moneyChange.change >= 0 ? '↑' : '↓'})
             </div>
           )}
           {hoursChange && (
             <div>
-              <strong>Hours:</strong> {Math.abs(hoursChange.change)} hrs (
+              <strong>Hours:</strong> {Math.abs(hoursChange.change).toFixed(2)} hrs (
               {Math.abs(Number(hoursChange.percentage.toFixed(2)))}%{' '}
               {hoursChange.change >= 0 ? '↑' : '↓'})
             </div>
@@ -188,9 +190,9 @@ const MetricCard: React.FC<MetricCardProps> = ({
             £
             <CountUp
               start={0}
-              end={money ? money / 1000 : 0}
+              end={money ? parseFloat((money > 1000 ? money / 1000 : money / 1000).toFixed(money > 1000 ? 2 : 0)) : 0}
               duration={2.5}
-              decimals={2}
+              decimals={money && money > 1000 ? 2 : 0}
               separator=","
               suffix="k"
             />
@@ -199,11 +201,24 @@ const MetricCard: React.FC<MetricCardProps> = ({
           <Text className={mergeStyles({ display: 'flex', alignItems: 'center' })}>
             <span className={moneyStyle}>
               £
-              <CountUp start={0} end={Number(money) || 0} duration={2.5} separator="," />
+              <CountUp
+                start={0}
+                end={Number(money) || 0}
+                duration={2.5}
+                separator=","
+                decimals={2}
+              />
             </span>
             <span className={pipeStyle}>|</span>
             <span className={hoursStyle}>
-              <CountUp start={0} end={Number(hours) || 0} duration={2.5} separator="," /> hrs
+              <CountUp
+                start={0}
+                end={Number(hours) || 0}
+                duration={2.5}
+                separator=","
+                decimals={2}
+              />{' '}
+              hrs
             </span>
           </Text>
         ) : (
@@ -217,7 +232,7 @@ const MetricCard: React.FC<MetricCardProps> = ({
             {isMoneyOnly ? (
               <div style={{ display: 'flex', flexDirection: 'row', gap: '5px', alignItems: 'center' }}>
                 <Text className={changeStyle(moneyChange ? moneyChange.change >= 0 : true)}>
-                  £{money !== undefined ? (money / 1000).toFixed(2) : '0.00'}k
+                  £{money !== undefined ? (money > 1000 ? (money / 1000).toFixed(2) : (money / 1000).toFixed(0)) : '0'}k
                 </Text>
               </div>
             ) : isTimeMoney ? (
@@ -225,7 +240,7 @@ const MetricCard: React.FC<MetricCardProps> = ({
                 {moneyChange && (
                   <div style={{ display: 'flex', flexDirection: 'row', gap: '5px', alignItems: 'center' }}>
                     <Text className={changeStyle(moneyChange.change >= 0)}>
-                      £{Math.abs(moneyChange.change).toLocaleString()}
+                      £{Math.abs(moneyChange.change).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
                     </Text>
                     <Text className={changeStyle(moneyChange.change >= 0)}>
                       ({Math.abs(Number(moneyChange.percentage.toFixed(2)))}%{' '}
@@ -236,7 +251,7 @@ const MetricCard: React.FC<MetricCardProps> = ({
                 {hoursChange && (
                   <div style={{ display: 'flex', flexDirection: 'row', gap: '5px', alignItems: 'center' }}>
                     <Text className={changeStyle(hoursChange.change >= 0)}>
-                      {Math.abs(hoursChange.change)} hrs
+                      {Math.abs(hoursChange.change).toFixed(2)} hrs
                     </Text>
                     <Text className={changeStyle(hoursChange.change >= 0)}>
                       ({Math.abs(Number(hoursChange.percentage.toFixed(2)))}%{' '}
