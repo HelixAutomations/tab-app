@@ -158,18 +158,18 @@ const Enquiries: React.FC<{
   const [ratingEnquiryId, setRatingEnquiryId] = useState<string | null>(null);
   const [isSuccessVisible, setIsSuccessVisible] = useState<boolean>(false);
   const [showAll, setShowAll] = useState<boolean>(false);
-  const [activeMainTab, setActiveMainTab] = useState<string>('Claimed');
+  const [activeMainTab, setActiveMainTab] = useState<string>('Silo');
   const [activeSubTab, setActiveSubTab] = useState<string>('Overview');
   const [convertedEnquiriesList, setConvertedEnquiriesList] = useState<Enquiry[]>([]);
   const [convertedPoidDataList, setConvertedPoidDataList] = useState<POID[]>([]);
   const [currentSiloArea, setCurrentSiloArea] = useState<string | null>(null);
 
   const mainTabs = [
+    { key: 'Silo', text: 'Silo' },
     { key: 'Claimed', text: 'Claimed' },
     { key: 'Converted', text: 'Enquiry ID' },
     { key: 'Claimable', text: 'Unclaimed' },
     { key: 'Triaged', text: 'Triaged' },
-    { key: 'Silo', text: 'Silo' },
   ];
 
   const subTabs = [
@@ -610,13 +610,14 @@ const Enquiries: React.FC<{
     width: '100%',
     flex: 1,
   });
-  
+
   const siloCardStyle = (area: string, isDarkMode: boolean) =>
     mergeStyles({
       backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
       color: isDarkMode ? colours.dark.text : colours.light.text,
       padding: '20px',
       borderRadius: '12px',
+      borderLeft: `4px solid ${areaColor(area)}`, // Added color hint
       boxShadow: isDarkMode
         ? `0 4px 16px rgba(0, 0, 0, 0.5)`
         : `0 4px 16px rgba(0, 0, 0, 0.2)`,
@@ -635,7 +636,7 @@ const Enquiries: React.FC<{
           : `0 6px 20px rgba(0, 0, 0, 0.3)`,
       },
     });
-  
+
   const siloIconStyle = mergeStyles({
     fontSize: '112px', // 75% of the card height (150px * 0.75)
     position: 'absolute',
@@ -644,53 +645,52 @@ const Enquiries: React.FC<{
     transform: 'translateY(-50%)',
     color: isDarkMode ? colours.dark.background : colours.light.background,
   });
-  
+
   const siloLabelStyle = mergeStyles({
     fontWeight: '700',
     fontSize: '26px', // Slightly enlarged text
     color: colours.highlight,
     textAlign: 'center',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
   });
-  
+
   const fixedCardHeightStyle = mergeStyles({
     height: '150px', // Ensuring all cards have the same height
   });
-  
-  <div className={siloContainerStyle}>
-    <div
-      className={`${siloCardStyle('commercial', isDarkMode)} ${fixedCardHeightStyle}`}
-      onClick={() => setCurrentSiloArea('commercial')}
-      aria-label="Commercial"
-    >
-      <Icon iconName="KnowledgeArticle" className={siloIconStyle} />
-      <Text className={siloLabelStyle}>Commercial</Text>
-    </div>
-    <div
-      className={`${siloCardStyle('construction', isDarkMode)} ${fixedCardHeightStyle}`}
-      onClick={() => setCurrentSiloArea('construction')}
-      aria-label="Construction"
-    >
-      <Icon iconName="ConstructionCone" className={siloIconStyle} />
-      <Text className={siloLabelStyle}>Construction</Text>
-    </div>
-    <div
-      className={`${siloCardStyle('employment', isDarkMode)} ${fixedCardHeightStyle}`}
-      onClick={() => setCurrentSiloArea('employment')}
-      aria-label="Employment"
-    >
-      <Icon iconName="People" className={siloIconStyle} />
-      <Text className={siloLabelStyle}>Employment</Text>
-    </div>
-    <div
-      className={`${siloCardStyle('property', isDarkMode)} ${fixedCardHeightStyle}`}
-      onClick={() => setCurrentSiloArea('property')}
-      aria-label="Property"
-    >
-      <Icon iconName="CityNext" className={siloIconStyle} />
-      <Text className={siloLabelStyle}>Property</Text>
-    </div>
-  </div>
-  
+
+  // Define a custom badge style
+  const badgeStyle = (color: string) =>
+    mergeStyles({
+      display: 'inline-block',
+      padding: '4px 8px',
+      borderRadius: '12px',
+      backgroundColor: color,
+      color: 'white',
+      fontSize: '12px',
+      fontWeight: 'bold',
+      marginLeft: '8px',
+    });
+
+  // Calculate counts for each area of work
+  const areaCounts = useMemo(() => {
+    const counts: { [key: string]: number } = {
+      commercial: 0,
+      construction: 0,
+      employment: 0,
+      property: 0,
+    };
+
+    localEnquiries.forEach((enquiry) => {
+      const area = enquiry.Area_of_Work?.toLowerCase();
+      if (area && counts.hasOwnProperty(area)) {
+        counts[area]++;
+      }
+    });
+
+    return counts;
+  }, [localEnquiries]);
 
   return (
     <div className={containerStyle(isDarkMode)}>
@@ -821,36 +821,48 @@ const Enquiries: React.FC<{
               ) : (
                 <div className={siloContainerStyle}>
                   <div
-                    className={siloCardStyle('commercial', isDarkMode)}
+                    className={`${siloCardStyle('commercial', isDarkMode)} ${fixedCardHeightStyle}`}
                     onClick={() => setCurrentSiloArea('commercial')}
                     aria-label="Commercial"
                   >
                     <Icon iconName="KnowledgeArticle" className={siloIconStyle} />
-                    <Text className={siloLabelStyle}>Commercial</Text>
+                    <Text className={siloLabelStyle}>
+                      Commercial
+                      <span className={badgeStyle(areaColor('commercial'))}>{areaCounts.commercial}</span>
+                    </Text>
                   </div>
                   <div
-                    className={siloCardStyle('construction', isDarkMode)}
+                    className={`${siloCardStyle('construction', isDarkMode)} ${fixedCardHeightStyle}`}
                     onClick={() => setCurrentSiloArea('construction')}
                     aria-label="Construction"
                   >
                     <Icon iconName="ConstructionCone" className={siloIconStyle} />
-                    <Text className={siloLabelStyle}>Construction</Text>
+                    <Text className={siloLabelStyle}>
+                      Construction
+                      <span className={badgeStyle(areaColor('construction'))}>{areaCounts.construction}</span>
+                    </Text>
                   </div>
                   <div
-                    className={siloCardStyle('employment', isDarkMode)}
+                    className={`${siloCardStyle('employment', isDarkMode)} ${fixedCardHeightStyle}`}
                     onClick={() => setCurrentSiloArea('employment')}
                     aria-label="Employment"
                   >
                     <Icon iconName="People" className={siloIconStyle} />
-                    <Text className={siloLabelStyle}>Employment</Text>
+                    <Text className={siloLabelStyle}>
+                      Employment
+                      <span className={badgeStyle(areaColor('employment'))}>{areaCounts.employment}</span>
+                    </Text>
                   </div>
                   <div
-                    className={siloCardStyle('property', isDarkMode)}
+                    className={`${siloCardStyle('property', isDarkMode)} ${fixedCardHeightStyle}`}
                     onClick={() => setCurrentSiloArea('property')}
                     aria-label="Property"
                   >
                     <Icon iconName="CityNext" className={siloIconStyle} />
-                    <Text className={siloLabelStyle}>Property</Text>
+                    <Text className={siloLabelStyle}>
+                      Property
+                      <span className={badgeStyle(areaColor('property'))}>{areaCounts.property}</span>
+                    </Text>
                   </div>
                 </div>
               )

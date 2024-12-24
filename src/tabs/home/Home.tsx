@@ -233,15 +233,29 @@ const officeLeaveContainerStyle = (isDarkMode: boolean) =>
     width: '100%',
   });
 
+const flattenObject = (obj: any, prefix = ''): { key: string; value: any }[] => {
+  let result: { key: string; value: any }[] = [];
+  for (const [k, v] of Object.entries(obj)) {
+    const newKey = prefix ? `${prefix}.${k}` : k;
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      result = result.concat(flattenObject(v, newKey));
+    } else {
+      result.push({ key: newKey, value: v });
+    }
+  }
+  return result;
+};
+
 const transformContext = (contextObj: any): { key: string; value: string }[] => {
   if (!contextObj || typeof contextObj !== 'object') {
     console.warn('Invalid context object:', contextObj);
     return [];
   }
 
-  return Object.entries(contextObj).map(([key, value]) => ({
+  const flattened = flattenObject(contextObj);
+  return flattened.map(({ key, value }) => ({
     key,
-    value: String(value),
+    value: typeof value === 'object' ? JSON.stringify(value) : String(value),
   }));
 };
 
