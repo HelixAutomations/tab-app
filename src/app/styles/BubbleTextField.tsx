@@ -1,9 +1,11 @@
+// src/app/styles/BubbleTextField.tsx
+
 import React, { CSSProperties } from 'react';
 import { TextField, ITextFieldStyles } from '@fluentui/react';
 import { colours } from './colours';
 
 interface BubbleTextFieldProps {
-  value: string;
+  value: string | number; // Updated to accept string or number
   onChange: (event: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>, newValue?: string) => void;
   placeholder: string;
   multiline?: boolean;
@@ -12,7 +14,7 @@ interface BubbleTextFieldProps {
   isDarkMode: boolean;
   minHeight?: string;
   type?: string;
-  style?: CSSProperties; // Add this optional style prop
+  style?: CSSProperties; // Optional style prop
 }
 
 const BubbleTextField: React.FC<BubbleTextFieldProps> = ({
@@ -54,7 +56,7 @@ const BubbleTextField: React.FC<BubbleTextFieldProps> = ({
   return (
     <div style={style}> {/* Wrapper to apply the custom style */}
       <TextField
-        value={value}
+        value={String(value)} // Ensures the value is a string
         onChange={onChange}
         placeholder={placeholder}
         multiline={multiline}
