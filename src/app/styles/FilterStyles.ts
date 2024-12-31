@@ -35,7 +35,6 @@ export const sharedSearchBoxStyle = (isDarkMode: boolean) => ({
     height: '32px',
     outline: 'none',
     selectors: {
-      // Add overrides for focus states here
       ':focus': {
         outline: 'none',
         border: 'none',
@@ -153,12 +152,12 @@ export const sharedDropdownStyles = (isDarkMode: boolean): Partial<IDropdownStyl
     fontSize: '14px',
     height: '32px',
     paddingLeft: '12px',
-    paddingRight: '36px', // Reserve space for the caret
+    paddingRight: '36px',
     display: 'flex',
     alignItems: 'center',
     border: 'none',
-    flexGrow: 1, // Ensure title takes up available space
-    justifyContent: 'space-between', // Add this line to distribute space
+    flexGrow: 1,
+    justifyContent: 'space-between',
   },
   caretDown: {
     color: isDarkMode ? colours.dark.iconColor : colours.light.iconColor,
@@ -167,7 +166,7 @@ export const sharedDropdownStyles = (isDarkMode: boolean): Partial<IDropdownStyl
     right: '12px',
     top: '50%',
     transform: 'translateY(-50%)',
-    pointerEvents: 'none', // Prevent caret from capturing mouse events
+    pointerEvents: 'none',
   },
 });
 
@@ -175,10 +174,8 @@ export const sharedToggleButtonStyle = (isDarkMode: boolean) => ({
   root: {
     padding: '6px 12px',
     borderRadius: '8px 8px 0 0',
-    backgroundColor: '#ffffff', // Always white by default
+    backgroundColor: '#ffffff',
     border: 'none',
-    // Remove fontWeight to avoid bold text
-    // fontWeight: '600', 
     color: isDarkMode ? colours.dark.text : '#000000',
     transition: 'background 0.3s ease, box-shadow 0.3s ease',
     transform: 'none !important',
@@ -208,7 +205,7 @@ export const sharedToggleButtonStyle = (isDarkMode: boolean) => ({
   },
   label: {
     color: isDarkMode ? colours.dark.text : '#000000 !important',
-    fontWeight: 'normal' // Ensure normal weight text
+    fontWeight: 'normal'
   },
 });
 
@@ -216,7 +213,7 @@ export const sharedToggleButtonStyle = (isDarkMode: boolean) => ({
 export const sharedEditorStyle = (isDarkMode: boolean) =>
   mergeStyles({
     minHeight: '150px',
-    padding: '20px',
+    padding: '20px 20px 110px 20px',
     borderRadius: '8px',
     border: `1px solid ${isDarkMode ? colours.dark.cardHover : colours.light.cardHover}`,
     backgroundColor: isDarkMode ? colours.dark.sectionBackground : '#ffffff',
@@ -233,21 +230,20 @@ export const sharedEditorStyle = (isDarkMode: boolean) =>
       ':after': {
         content: '""',
         position: 'absolute',
-        bottom: '20px', // Adjusted for 20px from bottom
-        left: '20px',  // Adjusted for 20px from left
+        bottom: '20px',
+        left: '20px',
         backgroundImage: 'url("https://helix-law.co.uk/wp-content/uploads/2024/03/HLRblue72.png")',
         backgroundRepeat: 'no-repeat',
         backgroundPosition: 'left bottom',
         backgroundSize: '25%',
         opacity: 0.2,
         pointerEvents: 'none',
-        width: 'calc(100% - 20px)', // Adjust to account for left offset
-        height: 'calc(100% - 20px)', // Adjust to account for bottom offset
+        width: 'calc(100% - 20px)',
+        height: 'calc(100% - 20px)',
         zIndex: 0,
       },
     },
   });
-
 
 // New Style for Template Block Dropdowns
 export const sharedOptionsDropdownStyles = (isDarkMode: boolean): Partial<IDropdownStyles> => ({
@@ -293,11 +289,11 @@ export const sharedOptionsDropdownStyles = (isDarkMode: boolean): Partial<IDropd
     fontSize: '14px',
     height: '32px',
     paddingLeft: '12px',
-    paddingRight: '36px', // Reserve space for the caret
+    paddingRight: '36px',
     display: 'flex',
     alignItems: 'center',
     border: 'none',
-    justifyContent: 'space-between', // Ensure caret is at the end
+    justifyContent: 'space-between',
   },
   caretDown: {
     color: isDarkMode ? colours.dark.iconColor : colours.light.iconColor,
@@ -306,6 +302,6 @@ export const sharedOptionsDropdownStyles = (isDarkMode: boolean): Partial<IDropd
     right: '12px',
     top: '50%',
     transform: 'translateY(-50%)',
-    pointerEvents: 'none', // Prevent caret from capturing mouse events
+    pointerEvents: 'none',
   },
 });

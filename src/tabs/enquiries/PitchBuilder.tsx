@@ -43,6 +43,37 @@ const commonInputStyle = {
   lineHeight: '40px',
 };
 
+const leftoverPlaceholders = [
+  '[Current Situation and Problem Placeholder]',
+  '[Scope of Work Placeholder]',
+  '[Risk Assessment Placeholder]',
+  '[Costs and Budget Placeholder]',
+  '[Required Documents Placeholder]',
+  '[Follow-Up Instructions Placeholder]',
+  '[Closing Notes Placeholder]',
+  '[Google Review Placeholder]',
+  '[FE Introduction Placeholder]',
+  '[Introduction Placeholder]',
+];
+
+function removeUnfilledPlaceholders(text: string): string {
+  const lines = text.split('\n');
+  const filteredLines = lines.filter(
+    (line) => !leftoverPlaceholders.some((placeholder) => line.includes(placeholder))
+  );
+
+  const consolidated: string[] = [];
+  for (const line of filteredLines) {
+    // If this line is blank, and the previous line in consolidated is also blank, skip it
+    if (line.trim() === '' && consolidated.length > 0 && consolidated[consolidated.length - 1].trim() === '') {
+      continue;
+    }
+    consolidated.push(line);
+  }
+
+  return consolidated.join('\n').trim();
+}
+
 const stripHtmlTags = (html: string): string => {
   const tempDiv = document.createElement('div');
   tempDiv.innerHTML = html;
@@ -93,7 +124,6 @@ const attachmentTagStyle = (isSelected: boolean, isDarkMode: boolean) =>
         : isDarkMode
         ? colours.dark.cardHover
         : colours.light.cardHover,
-      color: '#ffffff',
     },
     transition: 'all 0.2s',
   });
@@ -128,7 +158,6 @@ const followUpTagStyle = (isSelected: boolean, isDarkMode: boolean) =>
         : isDarkMode
         ? colours.dark.cardHover
         : colours.light.cardHover,
-      color: '#ffffff',
     },
     transition: 'all 0.2s',
   });
@@ -201,6 +230,10 @@ const replacePlaceholders = (
         `<span data-placeholder="[Introduction Placeholder]" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${intro.trim()}</span>`
       )
       .replace(
+        /\[Current Situation and Problem Placeholder\]/g,
+        `<span data-placeholder="[Current Situation and Problem Placeholder]" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[Current Situation and Problem Placeholder]</span>`
+      )
+      .replace(
         /\[FE Introduction Placeholder\]/g,
         `<span data-placeholder="[FE Introduction Placeholder]" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[FE Introduction Placeholder]</span>`
       )
@@ -238,6 +271,8 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
   [FE Introduction Placeholder]
   
   [Introduction Placeholder]
+  
+  [Current Situation and Problem Placeholder]
   
   [Scope of Work Placeholder]
   
@@ -324,11 +359,9 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
 
   const templateOptions: IDropdownOption[] = (() => {
     const templates = PracticeAreaPitch[selectedPracticeAreaKey];
-
     if (!templates) {
       return [];
     }
-
     return Object.keys(templates).map((tpl) => ({
       key: tpl,
       text: tpl,
@@ -339,39 +372,42 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
 
   const insertTemplateBlock = (block: TemplateBlock, selectedOption: string | string[]) => {
     let replacementText = '';
-
     if (block.isMultiSelect && isStringArray(selectedOption)) {
       if (block.title === 'Required Documents') {
-        replacementText = `<ul>${selectedOption.map((doc: string) => {
-          const option = block.options.find(o => o.label === doc);
-          return `<li>${option ? option.previewText.trim() : doc}</li>`;
-        }).join('')}</ul>`;
+        replacementText = `<ul>${selectedOption
+          .map((doc: string) => {
+            const option = block.options.find((o) => o.label === doc);
+            return `<li>${option ? option.previewText.trim() : doc}</li>`;
+          })
+          .join('')}</ul>`;
       } else {
-        replacementText = selectedOption.map((item: string) => {
-          const option = block.options.find(o => o.label === item);
-          return option ? `${option.previewText.trim()}` : item;
-        }).join('\n');
+        replacementText = selectedOption
+          .map((item: string) => {
+            const option = block.options.find((o) => o.label === item);
+            return option ? `${option.previewText.trim()}` : item;
+          })
+          .join('\n');
       }
     } else if (!block.isMultiSelect && typeof selectedOption === 'string') {
       const option = block.options.find((o) => o.label === selectedOption);
       replacementText = option ? option.previewText.trim() : '';
     }
-
-    const highlightedReplacement = `<span style="background-color: ${colours.highlightYellow}; padding: 0 3px;" data-inserted="${block.title}" data-placeholder="${block.placeholder}">${cleanTemplateString(replacementText)}</span>`;
-
+    const highlightedReplacement = `<span style="background-color: ${colours.highlightYellow}; padding: 0 3px;" data-inserted="${block.title}" data-placeholder="${block.placeholder}">${cleanTemplateString(
+      replacementText
+    )}</span>`;
     setBody((prevBody) => {
       const newBody = prevBody.replace(
-        new RegExp(`(<span[^>]*data-placeholder="${escapeRegExp(block.placeholder)}"[^>]*>)([\\s\\S]*?)(</span>)`, 'g'),
+        new RegExp(
+          `(<span[^>]*data-placeholder="${escapeRegExp(block.placeholder)}"[^>]*>)([\\s\\S]*?)(</span>)`,
+          'g'
+        ),
         `$1${highlightedReplacement}$3`
       );
-
       if (bodyEditorRef.current) {
         bodyEditorRef.current.innerHTML = newBody;
       }
-
       return newBody;
     });
-
     setInsertedBlocks((prev) => ({ ...prev, [block.title]: true }));
   };
 
@@ -383,17 +419,21 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
   ) => {
     if (option) {
       setTemplate(option.key as string);
-      const selectedTemplate = PracticeAreaPitch[selectedPracticeAreaKey][option.key as string];
+      const selectedTemplate = PracticeAreaPitch[selectedPracticeAreaKey][
+        option.key as string
+      ];
       if (selectedTemplate) {
         const areaOfWork = enquiry.Area_of_Work.trim() || 'Practice Area';
         setSubject(`Your ${areaOfWork} Enquiry`);
-
         setBody((prevBody) => {
-          const introRegex = new RegExp(`(<span[^>]*data-placeholder="\\[Introduction Placeholder\\]"[^>]*>)([\\s\\S]*?)(</span>)`, 'g');
-          const newBody = prevBody.replace(introRegex,
+          const introRegex = new RegExp(
+            `(<span[^>]*data-placeholder="\\[Introduction Placeholder\\]"[^>]*>)([\\s\\S]*?)(</span>)`,
+            'g'
+          );
+          const newBody = prevBody.replace(
+            introRegex,
             `$1<span style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${selectedTemplate.intro.trim()}</span>$3`
           );
-
           if (bodyEditorRef.current) {
             bodyEditorRef.current.innerHTML = newBody;
           }
@@ -480,15 +520,14 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
     if (validateForm()) {
       const followUpText = followUp
         ? `\n\nFollow Up: ${
-            followUpOptions.find(
-              (opt) => opt.key === followUp
-            )?.text
+            followUpOptions.find((opt) => opt.key === followUp)?.text
           }`
         : '';
-
+      // Here, remove placeholders on a per-line basis, then consolidate blank lines
+      const finalBody = removeUnfilledPlaceholders(getPlainTextBody(body));
       console.log('Email Sent:', {
         subject,
-        body: body + followUpText,
+        body: finalBody + followUpText,
         attachments,
         followUp,
       });
@@ -510,41 +549,39 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
   };
 
   const handleDraftEmail = async () => {
-    const apiUrl = `${process.env.REACT_APP_PROXY_BASE_URL}/sendEmail?code=${process.env.REACT_APP_SEND_EMAIL_CODE}`;
-    const userEmail = enquiry.Point_of_Contact;
-
-    if (!body || !userEmail) {
+    if (!body || !enquiry.Point_of_Contact) {
       setErrorMessage('Email contents and user email are required.');
       setIsErrorVisible(true);
       return;
     }
-
-    const cleanedBody = removeHighlightSpans(body).replace(/\n/g, '<br>');
-    const fullEmailHtml = ReactDOMServer.renderToStaticMarkup(<EmailSignature bodyHtml={cleanedBody} />);
-
+    const finalBody = removeUnfilledPlaceholders(getPlainTextBody(body));
+    const cleanedBody = finalBody.replace(/\n/g, '<br>');
+    const fullEmailHtml = ReactDOMServer.renderToStaticMarkup(
+      <EmailSignature bodyHtml={cleanedBody} />
+    );
     const requestBody = {
       email_contents: fullEmailHtml,
-      user_email: userEmail,
-      subject_line: subject
+      user_email: enquiry.Point_of_Contact,
+      subject_line: subject,
     };
 
     try {
       setErrorMessage('');
       setIsErrorVisible(false);
-
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
-      });
-
+      const response = await fetch(
+        `${process.env.REACT_APP_PROXY_BASE_URL}/sendEmail?code=${process.env.REACT_APP_SEND_EMAIL_CODE}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+        }
+      );
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(errorText || 'Failed to draft email.');
       }
-
       setIsSuccessVisible(true);
     } catch (error: any) {
       console.error('Error drafting email:', error);
@@ -691,12 +728,10 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
       ...prev,
       [block.title]: block.isMultiSelect ? [] : '',
     }));
-
     setInsertedBlocks((prev) => ({
       ...prev,
       [block.title]: false,
     }));
-
     setBody((prevBody) => {
       const placeholder = block.placeholder;
       const regex = new RegExp(
@@ -717,27 +752,26 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
   const renderPreview = (block: TemplateBlock) => {
     const selectedOptions = selectedTemplateOptions[block.title];
     const isInserted = insertedBlocks[block.title] || false;
-
     if (
       !selectedOptions ||
       (block.isMultiSelect && Array.isArray(selectedOptions) && selectedOptions.length === 0)
     ) {
       return null;
     }
-
     return (
       <div className={templatePreviewStyle(isDarkMode, isInserted)}>
         {block.isMultiSelect && Array.isArray(selectedOptions) ? (
           <ul>
             {selectedOptions.map((doc: string) => (
               <li key={doc}>
-                {block.options.find(o => o.label === doc)?.previewText.trim() || doc}
+                {block.options.find((o) => o.label === doc)?.previewText.trim() || doc}
               </li>
             ))}
           </ul>
         ) : (
           <span>
-            {block.options.find(o => o.label === selectedOptions)?.previewText.trim() || selectedOptions}
+            {block.options.find((o) => o.label === selectedOptions)?.previewText.trim() ||
+              selectedOptions}
           </span>
         )}
       </div>
@@ -1068,7 +1102,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
                   {block.description}
                 </Text>
                 <Dropdown
-                  placeholder={block.isMultiSelect ? "Select options" : "Select an option"}
+                  placeholder={block.isMultiSelect ? 'Select options' : 'Select an option'}
                   multiSelect={block.isMultiSelect}
                   options={block.options.map((option: TemplateOption) => ({
                     key: option.label,
@@ -1081,11 +1115,11 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
                     if (option) {
                       if (block.isMultiSelect) {
                         const currentSelections = Array.isArray(selectedTemplateOptions[block.title])
-                          ? selectedTemplateOptions[block.title] as string[]
+                          ? (selectedTemplateOptions[block.title] as string[])
                           : [];
                         const updatedSelections = option.selected
                           ? [...currentSelections, option.key as string]
-                          : currentSelections.filter(key => key !== option.key);
+                          : currentSelections.filter((key) => key !== option.key);
                         handleMultiSelectChange(block.title, updatedSelections);
                       } else {
                         handleSingleSelectChange(block.title, option.key as string);
@@ -1095,20 +1129,16 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
                   selectedKeys={
                     block.isMultiSelect
                       ? Array.isArray(selectedTemplateOptions[block.title])
-                        ? selectedTemplateOptions[block.title] as string[]
+                        ? (selectedTemplateOptions[block.title] as string[])
                         : []
                       : typeof selectedTemplateOptions[block.title] === 'string'
-                        ? [selectedTemplateOptions[block.title] as string]
-                        : []
+                      ? [selectedTemplateOptions[block.title] as string]
+                      : []
                   }
                   styles={sharedOptionsDropdownStyles(isDarkMode)}
                   ariaLabel={`Select options for ${block.title}`}
-                  onClick={(e: React.MouseEvent<HTMLDivElement>) =>
-                    e.stopPropagation()
-                  }
-                  onFocus={(e: React.FocusEvent<HTMLDivElement>) =>
-                    e.stopPropagation()
-                  }
+                  onClick={(e: React.MouseEvent<HTMLDivElement>) => e.stopPropagation()}
+                  onFocus={(e: React.FocusEvent<HTMLDivElement>) => e.stopPropagation()}
                 />
                 {renderPreview(block)}
               </Stack>
@@ -1181,10 +1211,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
             >
               Subject:
             </Text>
-            <Text
-              variant="medium"
-              styles={{ root: { whiteSpace: 'pre-wrap' } }}
-            >
+            <Text variant="medium" styles={{ root: { whiteSpace: 'pre-wrap' } }}>
               {subject || 'N/A'}
             </Text>
           </Stack>
@@ -1199,7 +1226,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
               Body:
             </Text>
             <div style={{ whiteSpace: 'pre-wrap' }}>
-              {getPlainTextBody(body) || 'N/A'}
+              {removeUnfilledPlaceholders(getPlainTextBody(body)) || 'N/A'}
             </div>
           </Stack>
           {attachments.length > 0 && (
@@ -1218,11 +1245,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
                   {attachments.map((att: string) => (
                     <Text key={att} variant="medium">
                       -{' '}
-                      {
-                        availableAttachments.find(
-                          (option) => option.key === att
-                        )?.text
-                      }
+                      {availableAttachments.find((option) => option.key === att)?.text}
                     </Text>
                   ))}
                 </Stack>
@@ -1267,7 +1290,6 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
             ariaLabel="Send Email"
             iconProps={{ iconName: 'Mail' }}
           />
-
           <DefaultButton
             text="Draft Email"
             onClick={handleDraftEmail}

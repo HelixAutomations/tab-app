@@ -42,6 +42,30 @@ export const templateBlocks: TemplateBlock[] = [
     ],
   },
   {
+    title: 'Current Situation and Problem',
+    description: 'Overview of the current situation and identified problems.',
+    placeholder: '[Current Situation and Problem Placeholder]',
+    isMultiSelect: true,
+    options: [
+      {
+        label: 'You have informed me that',
+        previewText: `You have informed me that you are facing challenges with...`,
+      },
+      {
+        label: 'You have confirmed that',
+        previewText: `You have confirmed that there have been issues related to...`,
+      },
+      {
+        label: 'You would like to',
+        previewText: `You would like to address the following problems...`,
+      },
+      {
+        label: 'Additional Context',
+        previewText: `You have also mentioned that...`,
+      },
+    ],
+  },
+  {
     title: 'Scope of Work',
     description: 'Define what assistance will be provided.',
     placeholder: '[Scope of Work Placeholder]',
