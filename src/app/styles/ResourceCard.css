@@ -21,18 +21,21 @@
   opacity: 0.2;
 }
 
+:root {
+  --backdrop-grey: #F4F4F6; /* Set to match colours.grey */
+}
+
 .backdropIcon {
-  width: 80px;
-  height: 80px;
-  font-size: 80px; /* Ensures icon scales properly */
-  color: #ccc;
-  opacity: 0.2;
+  transition: opacity 0.3s ease;
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  right: 140px;
+  right: 80px; /* Align closer to the separator */
+  height: 80px; /* Same height as other icons */
+  color: var(--backdrop-grey); /* Use grey from colours file */
+  opacity: 0.1; /* Subtle background */
   pointer-events: none;
   z-index: 1;
-  filter: grayscale(100%) brightness(0.6);
-  transition: opacity 0.3s ease;
+  filter: grayscale(100%) brightness(1); /* Match the grey tone */
 }
+

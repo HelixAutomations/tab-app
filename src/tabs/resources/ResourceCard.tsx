@@ -152,15 +152,15 @@ const ResourceCard: React.FC<ResourceCardProps> = React.memo(
                 className="backdropIcon"
                 styles={{
                   root: {
-                    fontSize: '80px', // Matches the height of custom SVG icons
-                    color: '#ccc', // Maintain consistent colour for backdrop
-                    opacity: 0.2,
+                    fontSize: '80px',
+                    color: colours.grey, // Use grey from colours file
+                    opacity: 0.1, // Subtle appearance
                     position: 'absolute',
                     top: '50%',
-                    right: '140px',
+                    right: '60px', // Positioned closer to the separator
                     transform: 'translateY(-50%)',
                     zIndex: 1,
-                    filter: 'grayscale(100%) brightness(0.6)',
+                    filter: 'grayscale(100%) brightness(1)', // Maintain grey tone
                     pointerEvents: 'none',
                   },
                 }}
