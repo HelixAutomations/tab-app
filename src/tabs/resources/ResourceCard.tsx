@@ -68,6 +68,8 @@ const cardStyle = (isDarkMode: boolean) =>
     flexDirection: 'row',
     alignItems: 'center',
     height: '100%',
+    position: 'relative',
+    overflow: 'hidden',
     ':hover': {
       boxShadow: isDarkMode
         ? '0 4px 16px rgba(255, 255, 255, 0.2)'
@@ -83,6 +85,7 @@ const mainContentStyle = (isDarkMode: boolean) =>
     alignItems: 'center',
     gap: '10px',
     flex: 1,
+    zIndex: 2,
   });
 
 const resourceTitleStyle = mergeStyles({
@@ -99,6 +102,7 @@ const actionsContainerStyle = (isDarkMode: boolean) =>
     flexDirection: 'column',
     alignItems: 'center',
     gap: '10px',
+    zIndex: 2,
   });
 
 const separatorStyle = (isDarkMode: boolean) =>
@@ -108,11 +112,17 @@ const separatorStyle = (isDarkMode: boolean) =>
     height: '60%',
     margin: '0 15px',
     alignSelf: 'center',
+    zIndex: 2,
   });
 
 const ResourceCard: React.FC<ResourceCardProps> = React.memo(
   ({ resource, isFavorite, onCopy, onToggleFavorite, onGoTo, onSelect, animationDelay = 0 }) => {
     const { isDarkMode } = useTheme();
+
+    const isCustomIcon = resource.icon.endsWith('.svg');
+
+    // Determine the grey color based on the theme
+    const backdropGreyColor = isDarkMode ? colours.dark.grey : colours.grey;
 
     return (
       <TooltipHost content={`View details for ${resource.title}`}>
@@ -129,23 +139,62 @@ const ResourceCard: React.FC<ResourceCardProps> = React.memo(
           }}
           aria-label={`View details for ${resource.title}`}
         >
-          {/* Left Side: Icon and Label */}
-          <div className={mainContentStyle(isDarkMode)}>
-            {resource.icon && (
+          {resource.icon && (
+            isCustomIcon ? (
+              <img
+                src={resource.icon}
+                alt={`${resource.title} icon backdrop`}
+                className="backdropIcon"
+              />
+            ) : (
               <Icon
                 iconName={resource.icon}
-                styles={{ root: { fontSize: 32, color: colours.highlight } }}
+                className="backdropIcon"
+                styles={{
+                  root: {
+                    fontSize: '80px', // Matches the height of custom SVG icons
+                    color: '#ccc', // Maintain consistent colour for backdrop
+                    opacity: 0.2,
+                    position: 'absolute',
+                    top: '50%',
+                    right: '140px',
+                    transform: 'translateY(-50%)',
+                    zIndex: 1,
+                    filter: 'grayscale(100%) brightness(0.6)',
+                    pointerEvents: 'none',
+                  },
+                }}
               />
+            )
+          )}
+
+          <div className={mainContentStyle(isDarkMode)}>
+            {resource.icon && (
+              isCustomIcon ? (
+                <img
+                  src={resource.icon}
+                  alt={`${resource.title} icon`}
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    filter: isDarkMode
+                      ? 'invert(1) brightness(0.8)'
+                      : 'brightness(0) saturate(100%) invert(26%) sepia(92%) saturate(6218%) hue-rotate(182deg) brightness(96%) contrast(93%)',
+                  }}
+                />
+              ) : (
+                <Icon
+                  iconName={resource.icon}
+                  styles={{ root: { fontSize: 32, color: colours.highlight } }}
+                />
+              )
             )}
             <Text className={resourceTitleStyle}>{resource.title}</Text>
           </div>
 
-          {/* Separator */}
           <div className={separatorStyle(isDarkMode)} />
 
-          {/* Right Side: Action Buttons */}
           <div className={actionsContainerStyle(isDarkMode)}>
-            {/* Copy Button */}
             <TooltipHost
               content={`Copy link for ${resource.title}`}
               id={`tooltip-copy-${resource.title}`}
@@ -162,7 +211,6 @@ const ResourceCard: React.FC<ResourceCardProps> = React.memo(
               />
             </TooltipHost>
 
-            {/* Favorite Button */}
             <TooltipHost
               content={isFavorite ? 'Remove from Favorites' : 'Add to Favorites'}
               id={`tooltip-fav-${resource.title}`}
@@ -181,7 +229,6 @@ const ResourceCard: React.FC<ResourceCardProps> = React.memo(
               />
             </TooltipHost>
 
-            {/* Go To Button */}
             <TooltipHost
               content={`Go to ${resource.title}`}
               id={`tooltip-go-${resource.title}`}

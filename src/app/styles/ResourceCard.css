@@ -16,3 +16,23 @@
   animation: dropIn 0.3s ease forwards;
   animation-delay: var(--animation-delay, 0s);
 }
+
+.resourceCard:hover .backdropIcon {
+  opacity: 0.2;
+}
+
+.backdropIcon {
+  width: 80px;
+  height: 80px;
+  font-size: 80px; /* Ensures icon scales properly */
+  color: #ccc;
+  opacity: 0.2;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  right: 140px;
+  pointer-events: none;
+  z-index: 1;
+  filter: grayscale(100%) brightness(0.6);
+  transition: opacity 0.3s ease;
+}

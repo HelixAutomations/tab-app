@@ -18,6 +18,19 @@ import { sharedSearchBoxContainerStyle, sharedSearchBoxStyle } from '../../app/s
 import { useTheme } from '../../app/functionality/ThemeContext';
 import '../../app/styles/ResourceCard.css';
 
+// Import Custom SVG Icons
+import asanaIcon from '../../assets/asana.svg';
+import nuclinoIcon from '../../assets/nuclino.svg';
+import clioIcon from '../../assets/clio.svg';
+import netdocumentsIcon from '../../assets/netdocuments.svg';
+import activecampaignIcon from '../../assets/activecampaign.svg';
+import bundledocsIcon from '../../assets/bundledocs.svg';
+import leapsomeIcon from '../../assets/leapsome.svg';
+import harveyIcon from '../../assets/harvey.svg';
+import lexisnexisIcon from '../../assets/lexisnexis.svg';
+import thompsonReutersIcon from '../../assets/thompson-reuters.svg';
+import landRegistryIcon from '../../assets/land-registry.svg';
+
 // Initialize Fluent UI Icons
 initializeIcons();
 
@@ -159,64 +172,64 @@ const Resources: React.FC<ResourcesProps> = () => {
         {
           title: 'Asana',
           url: 'https://app.asana.com/',
-          icon: 'BulletedList',
+          icon: asanaIcon,
         },
         {
           title: 'Nuclino',
           url: 'https://www.nuclino.com/',
-          icon: 'KnowledgeArticle',
+          icon: nuclinoIcon,
         },
         {
           title: 'Clio',
           url: 'https://eu.app.clio.com/nc/#/',
-          icon: 'Suitcase',
+          icon: clioIcon,
         },
         {
           title: 'NetDocuments',
           url: 'https://eu.netdocuments.com/neWeb2/home',
-          icon: 'DocumentSet',
+          icon: netdocumentsIcon,
         },
         {
           title: 'ActiveCampaign',
           url: 'https://helix-law54533.activehosted.com/',
-          icon: 'Mail',
+          icon: activecampaignIcon,
         },
         {
           title: 'BundleDocs',
           url: 'https://www.bundledocs.com/',
-          icon: 'Folder',
+          icon: bundledocsIcon,
         },
         {
           title: 'Leapsome',
           url: 'https://www.leapsome.com/app/#/dashboard?init=true',
-          icon: 'People',
+          icon: leapsomeIcon,
         },
       ],
       External: [
         {
           title: 'Harvey',
           url: 'https://www.harvey.ai/',
-          icon: 'Robot',
+          icon: harveyIcon,
         },
         {
           title: 'LexisNexis',
           url: 'https://www.lexisnexis.com/en-us/gateway.page',
-          icon: 'Library',
+          icon: lexisnexisIcon,
         },
         {
           title: 'Thompson Reuters',
           url: 'https://www.thomsonreuters.com/en.html',
-          icon: 'Database',
+          icon: thompsonReutersIcon,
         },
         {
           title: 'Land Registry',
           url: 'https://www.gov.uk/government/organisations/land-registry',
-          icon: 'Globe',
+          icon: landRegistryIcon,
         },
         {
           title: 'Companies House',
           url: 'https://www.gov.uk/government/organisations/companies-house',
-          icon: 'CityNext',
+          icon: 'CityNext', // Retaining Fluent UI icon
         },
       ],
       Favorites: [], // Will be populated based on favorites
