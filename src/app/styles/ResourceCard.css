@@ -18,7 +18,7 @@
 }
 
 .resourceCard:hover .backdropIcon {
-  opacity: 0.2;
+  opacity: 1.0;
 }
 
 :root {
@@ -31,11 +31,10 @@
   top: 50%;
   transform: translateY(-50%);
   right: 80px; /* Align closer to the separator */
-  height: 80px; /* Same height as other icons */
-  color: var(--backdrop-grey); /* Use grey from colours file */
-  opacity: 0.1; /* Subtle background */
+  width: 80px; /* Ensure width is set */
+  height: 80px; /* Ensure height is set */
+  opacity: 0.5; /* Subtle background */
   pointer-events: none;
   z-index: 1;
-  filter: grayscale(100%) brightness(1); /* Match the grey tone */
+  filter: brightness(0) saturate(100%) invert(93%); /* Adjusted filter to achieve #F4F4F6 */
 }
-

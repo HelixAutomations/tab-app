@@ -124,6 +124,14 @@ const ResourceCard: React.FC<ResourceCardProps> = React.memo(
     // Determine the grey color based on the theme
     const backdropGreyColor = isDarkMode ? colours.dark.grey : colours.grey;
 
+    // Function to determine if backdropIcon should be rendered
+    const shouldRenderBackdropIcon = () => {
+      if (resource.title === 'Companies House') {
+        return false;
+      }
+      return isCustomIcon;
+    };
+
     return (
       <TooltipHost content={`View details for ${resource.title}`}>
         <div
@@ -139,33 +147,15 @@ const ResourceCard: React.FC<ResourceCardProps> = React.memo(
           }}
           aria-label={`View details for ${resource.title}`}
         >
-          {resource.icon && (
-            isCustomIcon ? (
-              <img
-                src={resource.icon}
-                alt={`${resource.title} icon backdrop`}
-                className="backdropIcon"
-              />
-            ) : (
-              <Icon
-                iconName={resource.icon}
-                className="backdropIcon"
-                styles={{
-                  root: {
-                    fontSize: '80px',
-                    color: colours.grey, // Use grey from colours file
-                    opacity: 0.1, // Subtle appearance
-                    position: 'absolute',
-                    top: '50%',
-                    right: '60px', // Positioned closer to the separator
-                    transform: 'translateY(-50%)',
-                    zIndex: 1,
-                    filter: 'grayscale(100%) brightness(1)', // Maintain grey tone
-                    pointerEvents: 'none',
-                  },
-                }}
-              />
-            )
+          {resource.icon && shouldRenderBackdropIcon() && (
+            <img
+              src={resource.icon}
+              alt={`${resource.title} icon backdrop`}
+              className="backdropIcon"
+              style={{
+                /* The filter is already set in CSS to achieve #F4F4F6 */
+              }}
+            />
           )}
 
           <div className={mainContentStyle(isDarkMode)}>
