@@ -7,12 +7,14 @@ import {
   IconButton,
   TooltipHost,
   IButtonStyles,
+  DefaultButton,
 } from '@fluentui/react';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { colours } from '../../app/styles/colours';
 import { Resource } from './Resources';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import '../../app/styles/ResourceCard.css';
+import { sharedDefaultButtonStyles, sharedPrimaryButtonStyles } from '../../app/styles/ButtonStyles';
 
 // Define button styles similar to LinkCard
 const iconButtonStyles = (iconColor: string): IButtonStyles => ({
@@ -65,7 +67,7 @@ const cardStyle = (isDarkMode: boolean) =>
     transition: 'box-shadow 0.3s, transform 0.3s, background-color 0.3s',
     cursor: 'pointer',
     display: 'flex',
-    flexDirection: 'row',
+    flexDirection: 'row', // Maintain row layout for left and right sections
     alignItems: 'center',
     height: '100%',
     position: 'relative',
@@ -78,14 +80,22 @@ const cardStyle = (isDarkMode: boolean) =>
     },
   });
 
-const mainContentStyle = (isDarkMode: boolean) =>
+const leftSectionStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    display: 'flex',
+    flexDirection: 'column', // Stack logo/label and tabs vertically
+    alignItems: 'flex-start',
+    flex: 1,
+    transition: 'transform 0.3s ease', // For shifting on hover
+  });
+
+const logoLabelContainerStyle = (isDarkMode: boolean) =>
   mergeStyles({
     display: 'flex',
     flexDirection: 'row',
     alignItems: 'center',
     gap: '10px',
-    flex: 1,
-    zIndex: 2,
+    transition: 'transform 0.3s ease', // For smooth shifting
   });
 
 const resourceTitleStyle = mergeStyles({
@@ -95,6 +105,19 @@ const resourceTitleStyle = mergeStyles({
   cursor: 'pointer',
   marginTop: '0px',
 });
+
+const tabsContainerStyle = (isDarkMode: boolean) =>
+  mergeStyles('tabsContainer', {
+    display: 'flex',
+    flexDirection: 'row', // Align tabs horizontally
+    alignItems: 'center',
+    gap: '8px', // Reduced spacing between tabs
+    marginTop: '10px', // Space between label and tabs
+    opacity: 0,
+    transform: 'translateY(10px)',
+    transition: 'opacity 0.3s ease, transform 0.3s ease',
+    pointerEvents: 'none', // Prevent interaction when hidden
+  });
 
 const actionsContainerStyle = (isDarkMode: boolean) =>
   mergeStyles({
@@ -115,22 +138,46 @@ const separatorStyle = (isDarkMode: boolean) =>
     zIndex: 2,
   });
 
+// Mapping of resource titles to their respective tab texts
+const resourceTabsMap: { [key: string]: string[] } = {
+  Asana: ['Inbox', 'Task Board'],
+  Nuclino: ['Home'],
+  Clio: ['Contacts', 'Matters', 'Activities'],
+  NetDocuments: ['Home'],
+  ActiveCampaign: ['Contacts', 'Accounts'],
+  BundleDocs: ['Home'],
+  Leapsome: ['Home'],
+  Harvey: ['Home'], // No tabs
+  LexisNexis: ['Home'], // No tabs
+  'Thompson Reuters': ['Home'], // No tabs
+  'Land Registry': ['Home'], // No tabs
+  'Companies House': ['Home', 'Company Search'],
+};
+
 const ResourceCard: React.FC<ResourceCardProps> = React.memo(
-  ({ resource, isFavorite, onCopy, onToggleFavorite, onGoTo, onSelect, animationDelay = 0 }) => {
+  ({
+    resource,
+    isFavorite,
+    onCopy,
+    onToggleFavorite,
+    onGoTo,
+    onSelect,
+    animationDelay = 0,
+  }) => {
     const { isDarkMode } = useTheme();
 
     const isCustomIcon = resource.icon.endsWith('.svg');
 
-    // Determine the grey color based on the theme
-    const backdropGreyColor = isDarkMode ? colours.dark.grey : colours.grey;
-
-    // Function to determine if backdropIcon should be rendered
+    // Determine if backdropIcon should be rendered
     const shouldRenderBackdropIcon = () => {
       if (resource.title === 'Companies House') {
         return false;
       }
       return isCustomIcon;
     };
+
+    // Get tabs for the current resource
+    const tabs = resourceTabsMap[resource.title] || [];
 
     return (
       <TooltipHost content={`View details for ${resource.title}`}>
@@ -152,38 +199,55 @@ const ResourceCard: React.FC<ResourceCardProps> = React.memo(
               src={resource.icon}
               alt={`${resource.title} icon backdrop`}
               className="backdropIcon"
-              style={{
-                /* The filter is already set in CSS to achieve #F4F4F6 */
-              }}
             />
           )}
 
-          <div className={mainContentStyle(isDarkMode)}>
-            {resource.icon && (
-              isCustomIcon ? (
-                <img
-                  src={resource.icon}
-                  alt={`${resource.title} icon`}
-                  style={{
-                    width: '32px',
-                    height: '32px',
-                    filter: isDarkMode
-                      ? 'invert(1) brightness(0.8)'
-                      : 'brightness(0) saturate(100%) invert(26%) sepia(92%) saturate(6218%) hue-rotate(182deg) brightness(96%) contrast(93%)',
-                  }}
-                />
-              ) : (
-                <Icon
-                  iconName={resource.icon}
-                  styles={{ root: { fontSize: 32, color: colours.highlight } }}
-                />
-              )
+          {/* Left Section: Logo, Label, Tabs */}
+          <div className={leftSectionStyle(isDarkMode)}>
+            <div className={logoLabelContainerStyle(isDarkMode)}>
+              {resource.icon && (
+                isCustomIcon ? (
+                  <img
+                    src={resource.icon}
+                    alt={`${resource.title} icon`}
+                    style={{
+                      width: '32px',
+                      height: '32px',
+                      filter: isDarkMode
+                        ? 'invert(1) brightness(0.8)'
+                        : 'brightness(0) saturate(100%) invert(26%) sepia(92%) saturate(6218%) hue-rotate(182deg) brightness(96%) contrast(93%)',
+                    }}
+                  />
+                ) : (
+                  <Icon
+                    iconName={resource.icon}
+                    styles={{ root: { fontSize: 32, color: colours.highlight } }}
+                  />
+                )
+              )}
+              <Text className={resourceTitleStyle}>{resource.title}</Text>
+            </div>
+
+            {/* Tabs Container */}
+            {tabs.length > 0 && (
+              <div className={tabsContainerStyle(isDarkMode)}>
+                {tabs.map((tabText, index) => (
+                  <DefaultButton
+                    key={index}
+                    href={`/path/to/${tabText.toLowerCase().replace(' ', '-')}`}
+                    text={tabText}
+                    className="tab"
+                    styles={sharedDefaultButtonStyles}
+                  />
+                ))}
+              </div>
             )}
-            <Text className={resourceTitleStyle}>{resource.title}</Text>
           </div>
 
+          {/* Separator */}
           <div className={separatorStyle(isDarkMode)} />
 
+          {/* Right Section: Action Buttons */}
           <div className={actionsContainerStyle(isDarkMode)}>
             <TooltipHost
               content={`Copy link for ${resource.title}`}

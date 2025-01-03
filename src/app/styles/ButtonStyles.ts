@@ -1,8 +1,9 @@
-// src/app/styles/buttonStyles.ts
+// src/app/styles/ButtonStyles.ts
 
+import { IButtonStyles } from '@fluentui/react';
 import { colours } from './colours';
 
-export const sharedPrimaryButtonStyles = {
+export const sharedPrimaryButtonStyles: IButtonStyles = {
   root: {
     padding: '6px 12px',
     borderRadius: '4px',
@@ -19,7 +20,7 @@ export const sharedPrimaryButtonStyles = {
       outline: 'none !important',
       border: 'none !important',
       transform: 'none !important',
-    }
+    },
   },
   rootHovered: {
     background: `radial-gradient(circle at center, rgba(0,0,0,0) 0%, rgba(0,0,0,0.15) 100%), ${colours.cta} !important`,
@@ -46,14 +47,14 @@ export const sharedPrimaryButtonStyles = {
   },
 };
 
-export const sharedDefaultButtonStyles = {
+export const sharedDefaultButtonStyles: IButtonStyles = {
   root: {
-    padding: '6px 12px',
+    padding: '4px 8px', /* Reduced padding for smaller size */
     borderRadius: '4px',
     backgroundColor: colours.secondaryButtonBackground,
-    border: `none`,
-    height: '40px',
-    fontWeight: '600',
+    border: 'none',
+    height: '32px', /* Reduced height */
+    fontWeight: 'normal', /* Normal font weight */
     color: '#000000',
     transition: 'background 0.3s ease, box-shadow 0.3s ease',
     transform: 'none !important',
@@ -62,11 +63,11 @@ export const sharedDefaultButtonStyles = {
       outline: 'none !important',
       border: 'none !important',
       transform: 'none !important',
-    }
+    },
   },
   rootHovered: {
     background: `radial-gradient(circle at center, rgba(0,0,0,0) 0%, rgba(0,0,0,0.1) 100%), ${colours.secondaryButtonBackground} !important`,
-    boxShadow: '0 0 8px rgba(0,0,0,0.1) !important',
+    boxShadow: '0 2px 6px rgba(0,0,0,0.15) !important', /* Enhanced shadow on hover */
     transform: 'none !important',
     outline: 'none !important',
     border: 'none !important',
@@ -86,5 +87,6 @@ export const sharedDefaultButtonStyles = {
   },
   label: {
     color: '#000000 !important',
+    fontWeight: 'normal !important', /* Ensure label font weight is normal */
   },
 };

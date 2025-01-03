@@ -34,34 +34,23 @@ export async function getAttendanceHandler(req: HttpRequest, context: Invocation
 
         context.log("Parsed SQL connection configurations.");
 
-        const todayDate = new Date("2025-01-02"); // For testing purposes; replace with `new Date()` in production
-        const dayOfWeek = todayDate.getDay(); // 0 (Sunday) to 6 (Saturday)
-        let dayToCheck: string;
-
-        // Determine current week range
+        const todayDate = new Date();
         const currentWeekStart = getStartOfWeek(todayDate);
         const currentWeekEnd = getEndOfWeek(currentWeekStart);
         const currentWeekRange = formatWeekRange(currentWeekStart, currentWeekEnd);
 
-        // Determine next week range (not used in current logic)
         const nextWeekStart = getNextWeekStart(currentWeekStart);
         const nextWeekEnd = getEndOfWeek(nextWeekStart);
         const nextWeekRange = formatWeekRange(nextWeekStart, nextWeekEnd);
 
-        // Determine the day to check
-        if (dayOfWeek === 0 || dayOfWeek === 6) { // Sunday or Saturday
-            dayToCheck = "Monday";
-        } else {
-            dayToCheck = todayDate.toLocaleDateString("en-GB", { weekday: "long" });
-        }
+        const dayToCheck = todayDate.toLocaleDateString("en-GB", { weekday: "long" });
 
         context.log(`Day to check: ${dayToCheck}`);
         context.log(`Current Week Range: ${currentWeekRange}`);
         context.log(`Next Week Range: ${nextWeekRange}`);
 
-        // Fetch attendance and team data concurrently
         const [attendees, teamData] = await Promise.all([
-            queryAttendanceForToday(dayToCheck, currentWeekRange, projectDataConfig, context),
+            queryAttendanceForToday(dayToCheck, currentWeekRange, nextWeekRange, projectDataConfig, context),
             queryTeamData(coreDataConfig, context)
         ]);
 
@@ -94,6 +83,7 @@ app.http("getAttendance", {
 async function queryAttendanceForToday(
     day: string,
     currentWeekRange: string,
+    nextWeekRange: string,
     config: any,
     context: InvocationContext
 ): Promise<{ name: string; confirmed: boolean; attendingToday: boolean }[]> {
@@ -125,7 +115,7 @@ async function queryAttendanceForToday(
                 WHERE 
                     [Current_Week] = @CurrentWeek
                     OR
-                    [Next_Week] = @CurrentWeek
+                    [Next_Week] = @NextWeek
                 ORDER BY [First_Name];
             `;
 
@@ -156,7 +146,6 @@ async function queryAttendanceForToday(
                 const nextAttendance = columns[3].value as string | null;
                 const nextWeek = columns[4].value as string;
 
-                // Initialize the record if it doesn't exist
                 if (!attendanceMap[name]) {
                     attendanceMap[name] = {
                         name,
@@ -165,13 +154,13 @@ async function queryAttendanceForToday(
                     };
                 }
 
-                // Check Current_Attendance
-                if (currentWeek === currentWeekRange && currentAttendance && attendanceIncludesDay(currentAttendance, day)) {
-                    attendanceMap[name].attendingToday = true;
-                }
+                const isCurrentWeekRelevant = currentWeek === currentWeekRange;
+                const isNextWeekRelevant = nextWeek === currentWeekRange;
 
-                // Check Next_Attendance
-                if (nextWeek === currentWeekRange && nextAttendance && attendanceIncludesDay(nextAttendance, day)) {
+                if (
+                    (isCurrentWeekRelevant && currentAttendance && attendanceIncludesDay(currentAttendance, day)) ||
+                    (isNextWeekRelevant && nextAttendance && attendanceIncludesDay(nextAttendance, day))
+                ) {
                     attendanceMap[name].attendingToday = true;
                 }
             });
@@ -184,10 +173,10 @@ async function queryAttendanceForToday(
                 connection.close();
             });
 
-            // Add parameters for current week only
             sqlRequest.addParameter("CurrentWeek", TYPES.NVarChar, currentWeekRange);
+            sqlRequest.addParameter("NextWeek", TYPES.NVarChar, nextWeekRange);
 
-            context.log("Executing SQL query with parameters (Attendance):", { CurrentWeek: currentWeekRange });
+            context.log("Executing SQL query with parameters (Attendance):", { CurrentWeek: currentWeekRange, NextWeek: nextWeekRange });
 
             connection.execSql(sqlRequest);
         });

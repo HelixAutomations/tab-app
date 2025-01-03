@@ -2,7 +2,7 @@
 
 @keyframes dropIn {
   from {
-    transform: translateY(-20px);
+    transform: translateY(10px);
     opacity: 0;
   }
   to {
@@ -15,16 +15,19 @@
   opacity: 0; /* Initially invisible */
   animation: dropIn 0.3s ease forwards;
   animation-delay: var(--animation-delay, 0s);
+  position: relative; /* To position absolute children */
 }
 
 .resourceCard:hover .backdropIcon {
   opacity: 1.0;
 }
 
+/* Existing styles */
 :root {
   --backdrop-grey: #F4F4F6; /* Set to match colours.grey */
 }
 
+/* Adjusted backdropIcon for better positioning */
 .backdropIcon {
   transition: opacity 0.3s ease;
   position: absolute;
@@ -37,4 +40,81 @@
   pointer-events: none;
   z-index: 1;
   filter: brightness(0) saturate(100%) invert(93%); /* Adjusted filter to achieve #F4F4F6 */
+}
+
+/* Logo and Label Shifting */
+.logoLabelContainer {
+  transition: transform 0.3s ease; /* Smooth transition for shifting */
+}
+
+.resourceCard:hover .logoLabelContainer {
+  transform: translateY(-10px); /* Shift up by 10px */
+}
+
+/* Tabs Container */
+.tabsContainer {
+  opacity: 0;
+  transform: translateY(10px);
+  display: flex;
+  flex-direction: row; /* Align tabs horizontally */
+  align-items: center;
+  gap: 8px; /* Reduced spacing between tabs */
+  margin-top: 10px; /* Space between label and tabs */
+  pointer-events: none; /* Prevent interaction when hidden */
+  z-index: 2;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.resourceCard:hover .tabsContainer {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto; /* Enable interaction when visible */
+}
+
+/* Tab Styles */
+.tab {
+  opacity: 0;
+  transform: translateY(10px);
+  text-decoration: none;
+  padding: 4px 8px; /* Reduced padding for smaller size */
+  background-color: #ffffff; /* Keep tabs white */
+  border-radius: 4px;
+  color: var(--tab-text, #000000);
+  font-size: 12px; /* Reduced font size */
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); /* Subtle shadow */
+  transition: background-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease;
+  font-weight: normal; /* Ensure font is not bold */
+}
+
+.resourceCard:hover .tabsContainer .tab:nth-child(1) {
+  animation: dropIn 0.3s forwards 0.0s;
+}
+
+.resourceCard:hover .tabsContainer .tab:nth-child(2) {
+  animation: dropIn 0.3s forwards 0.1s;
+}
+
+.resourceCard:hover .tabsContainer .tab:nth-child(3) {
+  animation: dropIn 0.3s forwards 0.2s;
+}
+
+.tab:hover {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15); /* Enhanced shadow on hover */
+  background-color: var(--tab-background-hover, #f0f0f0); /* Use secondary hover style */
+  color: var(--tab-text-hover, #000000);
+}
+
+/* Dark mode variables */
+body.dark .tabsContainer a {
+  --tab-background: #ffffff; /* Keep tabs white in dark mode */
+  --tab-text: #000000;
+  --tab-background-hover: #e0e0e0; /* Secondary hover background */
+  --tab-text-hover: #000000;
+}
+
+body.light .tabsContainer a {
+  --tab-background: #ffffff; /* Keep tabs white in light mode */
+  --tab-text: #000000;
+  --tab-background-hover: #f0f0f0; /* Secondary hover background */
+  --tab-text-hover: #000000;
 }
