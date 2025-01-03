@@ -1,37 +1,44 @@
 /* src/tabs/home/QuickActionsCard.css */
 
 @keyframes dropIn {
-    from {
-      transform: translateY(-10px);
-      opacity: 0;
-    }
-    to {
-      transform: translateY(0);
-      opacity: 1;
-    }
+  from {
+    transform: translateY(-10px);
+    opacity: 0;
   }
-  
-  .quickActionCard {
-    opacity: 0; /* Initially invisible */
-    animation: dropIn 0.3s ease forwards;
+  to {
+    transform: translateY(0);
+    opacity: 1;
   }
-  
-  /* Apply staggered animation delays */
-  .quickActionCard:nth-child(1) {
-    animation-delay: 0s;
-  }
-  
-  .quickActionCard:nth-child(2) {
-    animation-delay: 0.1s;
-  }
-  
-  .quickActionCard:nth-child(3) {
-    animation-delay: 0.2s;
-  }
-  
-  .quickActionCard:nth-child(4) {
-    animation-delay: 0.3s;
-  }
-  
-  /* Add more nth-child selectors if there are more QuickActionsCards */
-  
+}
+
+.quickActionCard {
+  background-color: #ffffff; /* Always white */
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1); /* Subtle initial shadow */
+  transition: transform 0.3s, box-shadow 0.3s; /* Smooth transitions */
+  opacity: 0; /* Initially invisible */
+  animation: dropIn 0.3s ease forwards;
+}
+
+/* Apply staggered animation delays */
+.quickActionCard:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.quickActionCard:nth-child(2) {
+  animation-delay: 0.1s;
+}
+
+.quickActionCard:nth-child(3) {
+  animation-delay: 0.2s;
+}
+
+.quickActionCard:nth-child(4) {
+  animation-delay: 0.3s;
+}
+
+/* Add more nth-child selectors if there are more QuickActionsCards */
+
+.quickActionCard:hover {
+  transform: translateY(-5px); /* Slight upward movement */
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2); /* Intensified shadow on hover */
+}

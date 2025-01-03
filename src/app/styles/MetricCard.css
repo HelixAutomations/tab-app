@@ -11,8 +11,27 @@
   }
 }
 
+@keyframes fadeInUp {
+  0% {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .metricCard {
+  background-color: #ffffff; /* Always white */
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1); /* Subtle initial shadow */
+  transition: transform 0.3s, box-shadow 0.3s; /* Smooth transitions */
   opacity: 0; /* Initially invisible */
   animation: dropIn 0.3s ease forwards;
   animation-delay: var(--animation-delay, 0s);
+}
+
+.metricCard:hover {
+  transform: translateY(-5px); /* Slight upward movement */
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2); /* Intensified shadow on hover */
 }

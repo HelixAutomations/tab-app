@@ -292,11 +292,11 @@ const QuickActionsCardStyled: React.FC<{
   animationDelay?: number;
 }> = ({ title, icon, isDarkMode, onClick, animationDelay = 0 }) => {
   const quickActionCardStyle = mergeStyles({
-    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+    backgroundColor: '#ffffff', // Always white
     color: isDarkMode ? colours.dark.text : colours.light.text,
     padding: '20px',
     borderRadius: '12px',
-    boxShadow: `0 4px 12px ${isDarkMode ? colours.dark.border : colours.light.border}`,
+    boxShadow: '0 2px 6px rgba(0, 0, 0, 0.1)', // Subtle initial shadow
     display: 'flex',
     flexDirection: 'column',
     justifyContent: 'center',
@@ -311,7 +311,7 @@ const QuickActionsCardStyled: React.FC<{
     transition: 'transform 0.3s, box-shadow 0.3s',
     ':hover': {
       transform: 'translateY(-5px)',
-      boxShadow: `0 6px 20px ${isDarkMode ? colours.dark.border : colours.light.border}`,
+      boxShadow: '0 6px 20px rgba(0, 0, 0, 0.2)', // Intensified shadow on hover
     },
   });
 
@@ -327,9 +327,9 @@ const QuickActionsCardStyled: React.FC<{
   });
 
   const quickActionLabelStyle = mergeStyles({
-    fontWeight: '700',
-    fontSize: '24px',
-    color: colours.highlight,
+    fontWeight: '600',
+    fontSize: '18px',
+    color: colours.highlight, // Always blue
     textAlign: 'center',
     zIndex: 1,
   });
@@ -949,7 +949,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           borderRadius: '4px !important',
           padding: '6px 12px !important',
           animation: 'redPulse 2s infinite !important',
-          transition: 'background 0.3s ease !important',
+          transition: 'box-shadow 0.3s, transform 0.3s, background 0.3s ease !important',
         },
         rootHovered: {
           background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.15) 100%), ${colours.cta} !important`,
@@ -973,7 +973,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       fontWeight: '600 !important',
       borderRadius: '4px !important',
       padding: '6px 12px !important',
-      transition: 'background 0.3s ease !important',
+      transition: 'transform 0.3s, box-shadow 0.3s',
     },
     rootHovered: {
       background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.15) 100%), ${colours.light.border} !important`,
