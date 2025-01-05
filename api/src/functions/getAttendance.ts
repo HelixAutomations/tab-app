@@ -43,14 +43,16 @@ export async function getAttendanceHandler(req: HttpRequest, context: Invocation
         const nextWeekEnd = getEndOfWeek(nextWeekStart);
         const nextWeekRange = formatWeekRange(nextWeekStart, nextWeekEnd);
 
-        const dayToCheck = todayDate.toLocaleDateString("en-GB", { weekday: "long" });
+        // **Updated Logic: Determine Next Working Day**
+        const nextWorkingDayDate = getNextWorkingDay(todayDate);
+        const dayToCheck = nextWorkingDayDate.toLocaleDateString("en-GB", { weekday: "long" });
 
-        context.log(`Day to check: ${dayToCheck}`);
+        context.log(`Day to check (Next Working Day): ${dayToCheck}`);
         context.log(`Current Week Range: ${currentWeekRange}`);
         context.log(`Next Week Range: ${nextWeekRange}`);
 
         const [attendees, teamData] = await Promise.all([
-            queryAttendanceForToday(dayToCheck, currentWeekRange, nextWeekRange, projectDataConfig, context),
+            queryAttendanceForDay(dayToCheck, currentWeekRange, nextWeekRange, projectDataConfig, context),
             queryTeamData(coreDataConfig, context)
         ]);
 
@@ -80,7 +82,7 @@ app.http("getAttendance", {
     handler: getAttendanceHandler,
 });
 
-async function queryAttendanceForToday(
+async function queryAttendanceForDay(
     day: string,
     currentWeekRange: string,
     nextWeekRange: string,
@@ -155,13 +157,19 @@ async function queryAttendanceForToday(
                 }
 
                 const isCurrentWeekRelevant = currentWeek === currentWeekRange;
-                const isNextWeekRelevant = nextWeek === currentWeekRange;
+                const isNextWeekRelevant = nextWeek === nextWeekRange; // **Fixed Comparison**
+
+                context.log(`Processing attendee: ${name}`);
+                context.log(`isCurrentWeekRelevant: ${isCurrentWeekRelevant}, isNextWeekRelevant: ${isNextWeekRelevant}`);
 
                 if (
                     (isCurrentWeekRelevant && currentAttendance && attendanceIncludesDay(currentAttendance, day)) ||
                     (isNextWeekRelevant && nextAttendance && attendanceIncludesDay(nextAttendance, day))
                 ) {
                     attendanceMap[name].attendingToday = true;
+                    context.log(`Marking ${name} as attending today.`);
+                } else {
+                    context.log(`Not attending today: ${name}, Current: "${currentAttendance}", Next: "${nextAttendance}"`);
                 }
             });
 
@@ -312,8 +320,35 @@ function formatWeekRange(start: Date, end: Date): string {
 }
 
 function attendanceIncludesDay(attendance: string, day: string): boolean {
-    const days = attendance.split(',').map(d => d.trim());
-    return days.includes(day);
+    if (!attendance) return false;
+    const days = attendance.split(",").map((d) => d.trim().toLowerCase());
+    const targetDay = day.toLowerCase();
+    const includes = days.includes(targetDay);
+    // Optional: Uncomment the following line for debugging
+    // console.log(`Checking attendance: "${attendance}" for day: "${day}" => ${includes}`);
+    return includes;
+}
+
+/**
+ * **New Function: Get Next Working Day**
+ * 
+ * Determines the next working day (Monday to Friday) based on the given date.
+ * Skips weekends (Saturday and Sunday).
+ * 
+ * @param date - The current date
+ * @returns The next working day as a Date object
+ */
+function getNextWorkingDay(date: Date): Date {
+    const nextDay = new Date(date);
+    nextDay.setDate(date.getDate() + 1); // Start with the next day
+
+    // Loop until the next working day is found (Monday to Friday)
+    while (nextDay.getDay() === 0 || nextDay.getDay() === 6) { // 0 = Sunday, 6 = Saturday
+        nextDay.setDate(nextDay.getDate() + 1);
+    }
+
+    nextDay.setHours(0, 0, 0, 0);
+    return nextDay;
 }
 
 export default app;
