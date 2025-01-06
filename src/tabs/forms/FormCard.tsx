@@ -8,8 +8,8 @@ import {
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { colours } from '../../app/styles/colours';
 import { FormItem } from '../../app/functionality/types';
-import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme
-import '../../app/styles/FormCard.css'; // Import the CSS file
+import { useTheme } from '../../app/functionality/ThemeContext';
+import '../../app/styles/FormCard.css'; // Ensure this has your .backdropIcon CSS
 
 const iconButtonStyles = (iconColor: string) => ({
   root: {
@@ -46,15 +46,19 @@ interface FormCardProps {
   onToggleFavorite: () => void;
   onGoTo: () => void;
   onSelect: () => void;
-  animationDelay?: number; // Existing prop
-  description?: string; // Add this line
+  animationDelay?: number;
+  description?: string;
 }
 
 const cardStyle = (isDarkMode: boolean) =>
   mergeStyles({
     padding: '20px',
-    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+    backgroundColor: isDarkMode
+      ? colours.dark.sectionBackground
+      : colours.light.sectionBackground,
+    border: `1px solid ${
+      isDarkMode ? colours.dark.border : colours.light.border
+    }`,
     borderRadius: '8px',
     boxShadow: isDarkMode
       ? '0 2px 8px rgba(255, 255, 255, 0.1)'
@@ -65,6 +69,7 @@ const cardStyle = (isDarkMode: boolean) =>
     flexDirection: 'row',
     alignItems: 'center',
     height: '100%',
+    position: 'relative', // Important for backdropIcon positioning
     ':hover': {
       boxShadow: isDarkMode
         ? '0 4px 16px rgba(255, 255, 255, 0.2)'
@@ -73,33 +78,19 @@ const cardStyle = (isDarkMode: boolean) =>
     },
   });
 
-const mainContentStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    display: 'flex',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: '10px',
-    flex: 1,
-  });
-
-const titleContainerStyle = mergeStyles({
+const mainContentStyle = mergeStyles({
   display: 'flex',
-  flexDirection: 'column', // Stack title and description
-  gap: '4px', // Adds spacing between title and description
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: '10px',
+  flex: 1,
 });
-
-const descriptionStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    fontSize: '14px',
-    color: isDarkMode ? colours.dark.subText : colours.light.subText,
-    marginTop: '8px', // Add spacing above the description
-  });
 
 const textContentStyle = mergeStyles({
   display: 'flex',
-  flexDirection: 'column', // Title and description stack vertically
-  alignItems: 'flex-start', // Align to the left
-  marginLeft: '10px', // Add spacing between the icon and text
+  flexDirection: 'column',
+  alignItems: 'flex-start',
+  marginLeft: '10px',
 });
 
 const linkTitleStyle = mergeStyles({
@@ -110,13 +101,20 @@ const linkTitleStyle = mergeStyles({
   marginTop: '0px',
 });
 
-const actionsContainerStyle = (isDarkMode: boolean) =>
+const descriptionStyle = (isDarkMode: boolean) =>
   mergeStyles({
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    gap: '10px',
+    fontSize: '14px',
+    color: isDarkMode ? colours.dark.subText : colours.light.subText,
+    marginTop: '8px',
   });
+
+const actionsContainerStyle = mergeStyles({
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  gap: '10px',
+  zIndex: 2, // Ensure buttons are above the backdrop icon
+});
 
 const separatorStyle = (isDarkMode: boolean) =>
   mergeStyles({
@@ -125,11 +123,20 @@ const separatorStyle = (isDarkMode: boolean) =>
     height: '60%',
     margin: '0 15px',
     alignSelf: 'center',
+    zIndex: 2,
   });
 
 const FormCard: React.FC<FormCardProps> = React.memo(
-  ({ link, isFavorite, onCopy, onToggleFavorite, onGoTo, onSelect, animationDelay = 0 }) => {
-    const { isDarkMode } = useTheme(); // Access isDarkMode from Theme Context
+  ({
+    link,
+    isFavorite,
+    onCopy,
+    onToggleFavorite,
+    onGoTo,
+    onSelect,
+    animationDelay = 0,
+  }) => {
+    const { isDarkMode } = useTheme();
 
     return (
       <TooltipHost content={`View details for ${link.title}`}>
@@ -146,18 +153,47 @@ const FormCard: React.FC<FormCardProps> = React.memo(
           }}
           aria-label={`View details for ${link.title}`}
         >
-          {/* Left Side: Icon and Label */}
-          <div className={mainContentStyle(isDarkMode)}>
-            {link.icon && (
+          {/* Backdrop Icon (subtle) */}
+          {link.icon && (
+            <Icon
+              iconName={link.icon}
+              className="backdropIcon" // Make sure .backdropIcon positions/filters it in FormCard.css
+            />
+          )}
+
+          {/* Left: Main Icon + Text */}
+          <div className={mainContentStyle}>
+            {link.icon && link.icon.endsWith('.svg') ? (
+              // If it's an SVG, render <img> with a filter to approximate #0C6D8F
+              <img
+                src={link.icon}
+                alt={link.title}
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  // Filter approximating a darker teal (#0C6D8F).
+                  filter:
+                    'invert(16%) sepia(47%) saturate(1652%) hue-rotate(166deg) brightness(93%) contrast(90%)',
+                }}
+              />
+            ) : (
+              // Otherwise, render Fluent UI icon in #0C6D8F
               <Icon
                 iconName={link.icon}
-                styles={{ root: { fontSize: 32, color: colours.highlight } }}
+                styles={{
+                  root: {
+                    fontSize: 32,
+                    color: '#0C6D8F',
+                  },
+                }}
               />
             )}
             <div className={textContentStyle}>
               <Text className={linkTitleStyle}>{link.title}</Text>
               {link.description && (
-                <Text className={descriptionStyle(isDarkMode)}>{link.description}</Text>
+                <Text className={descriptionStyle(isDarkMode)}>
+                  {link.description}
+                </Text>
               )}
             </div>
           </div>
@@ -165,9 +201,8 @@ const FormCard: React.FC<FormCardProps> = React.memo(
           {/* Separator */}
           <div className={separatorStyle(isDarkMode)} />
 
-          {/* Right Side: Action Buttons */}
-          <div className={actionsContainerStyle(isDarkMode)}>
-            {/* Copy Button */}
+          {/* Right: Action Buttons */}
+          <div className={actionsContainerStyle}>
             <TooltipHost
               content={`Copy link for ${link.title}`}
               id={`tooltip-copy-${link.title}`}
@@ -184,17 +219,18 @@ const FormCard: React.FC<FormCardProps> = React.memo(
               />
             </TooltipHost>
 
-            {/* Favorite Button */}
             <TooltipHost
-              content={isFavorite ? 'Remove from Favorites' : 'Add to Favorites'}
+              content={
+                isFavorite ? 'Remove from Favourites' : 'Add to Favourites'
+              }
               id={`tooltip-fav-${link.title}`}
             >
               <IconButton
                 iconProps={{
                   iconName: isFavorite ? 'FavoriteStarFill' : 'FavoriteStar',
                 }}
-                title="Toggle Favorite"
-                ariaLabel="Toggle Favorite"
+                title="Toggle Favourite"
+                ariaLabel="Toggle Favourite"
                 onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
                   e.stopPropagation();
                   onToggleFavorite();
@@ -203,7 +239,6 @@ const FormCard: React.FC<FormCardProps> = React.memo(
               />
             </TooltipHost>
 
-            {/* Go To Button */}
             <TooltipHost
               content={`Go to ${link.title}`}
               id={`tooltip-go-${link.title}`}
@@ -225,7 +260,5 @@ const FormCard: React.FC<FormCardProps> = React.memo(
     );
   }
 );
-
-
 
 export default FormCard;
