@@ -1197,7 +1197,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                 horizontalAlign="space-between"
                 styles={{ root: { width: '100%' } }}
               >
-                <Text className={sectionLabelStyle(isDarkMode)}>OOO or On A/L Today</Text>
+                <Text className={sectionLabelStyle(isDarkMode)}>Out or On Annual Leave Today</Text>
                 <DefaultButton
                   text="Request Annual Leave"
                   onClick={() => setIsAnnualLeavePanelOpen(true)}
