@@ -1,5 +1,3 @@
-// src/functions/getAttendance.ts
-
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { DefaultAzureCredential } from "@azure/identity";
 import { SecretClient } from "@azure/keyvault-secrets";
@@ -16,13 +14,13 @@ export async function getAttendanceHandler(req: HttpRequest, context: Invocation
     const coreDataDb = "helix-core-data";
 
     try {
-        // Retrieve SQL password from Azure Key Vault
+        // 1) Retrieve SQL password from Azure Key Vault
         const secretClient = new SecretClient(kvUri, new DefaultAzureCredential());
         const passwordSecret = await secretClient.getSecret(passwordSecretName);
-        const password = passwordSecret.value;
+        const password = passwordSecret.value || "";
         context.log("Retrieved SQL password from Key Vault.");
 
-        // Parse SQL connection strings
+        // 2) Parse SQL connection configs
         const projectDataConfig = parseConnectionString(
             `Server=${sqlServer};Database=${projectDataDb};User ID=helix-database-server;Password=${password};Encrypt=true;TrustServerCertificate=false;`,
             context
@@ -32,31 +30,44 @@ export async function getAttendanceHandler(req: HttpRequest, context: Invocation
             context
         );
 
-        context.log("Parsed SQL connection configurations.");
-
+        // 3) Determine date ranges (Previous, Current, Next)
         const todayDate = new Date();
         const currentWeekStart = getStartOfWeek(todayDate);
-        const currentWeekEnd = getEndOfWeek(currentWeekStart);
+        const currentWeekEnd   = getEndOfWeek(currentWeekStart);
         const currentWeekRange = formatWeekRange(currentWeekStart, currentWeekEnd);
 
         const nextWeekStart = getNextWeekStart(currentWeekStart);
-        const nextWeekEnd = getEndOfWeek(nextWeekStart);
+        const nextWeekEnd   = getEndOfWeek(nextWeekStart);
         const nextWeekRange = formatWeekRange(nextWeekStart, nextWeekEnd);
 
-        // **Updated Logic: Determine Next Working Day**
-        const nextWorkingDayDate = getNextWorkingDay(todayDate);
-        const dayToCheck = nextWorkingDayDate.toLocaleDateString("en-GB", { weekday: "long" });
+        // Let's define a "previousWeekRange" so we can catch last week's "Next_Week"
+        const previousWeekStart = new Date(currentWeekStart);
+        previousWeekStart.setDate(previousWeekStart.getDate() - 7);
+        const previousWeekEnd = getEndOfWeek(previousWeekStart);
+        const previousWeekRange = formatWeekRange(previousWeekStart, previousWeekEnd);
 
-        context.log(`Day to check (Next Working Day): ${dayToCheck}`);
+        // For demonstration, let's figure out the "day to check".
+        // *If you specifically want the next working day logic, you can use getNextWorkingDay().
+        const dayToCheckDate = todayDate; // or getNextWorkingDay(todayDate) if you want the next day.
+        const dayToCheck = dayToCheckDate.toLocaleDateString("en-GB", { weekday: "long" });
+
+        context.log(`Previous Week Range: ${previousWeekRange}`);
         context.log(`Current Week Range: ${currentWeekRange}`);
         context.log(`Next Week Range: ${nextWeekRange}`);
+        context.log(`Day to check: ${dayToCheck}`);
 
-        const [attendees, teamData] = await Promise.all([
-            queryAttendanceForDay(dayToCheck, currentWeekRange, nextWeekRange, projectDataConfig, context),
-            queryTeamData(coreDataConfig, context)
-        ]);
+        // 4) Query the attendance data with the new WHERE clause
+        const attendees = await queryAttendance(
+            previousWeekRange,
+            currentWeekRange,
+            nextWeekRange,
+            dayToCheck,
+            projectDataConfig,
+            context
+        );
 
-        context.log("Successfully retrieved attendance and team data.", { attendees, teamData });
+        // 5) Query your team data (unchanged)
+        const teamData = await queryTeamData(coreDataConfig, context);
 
         return {
             status: 200,
@@ -76,16 +87,12 @@ export async function getAttendanceHandler(req: HttpRequest, context: Invocation
     }
 }
 
-app.http("getAttendance", {
-    methods: ["POST"],
-    authLevel: "function",
-    handler: getAttendanceHandler,
-});
-
-async function queryAttendanceForDay(
-    day: string,
+// Slightly adjusted query function:
+async function queryAttendance(
+    previousWeekRange: string,
     currentWeekRange: string,
     nextWeekRange: string,
+    day: string,
     config: any,
     context: InvocationContext
 ): Promise<{ name: string; confirmed: boolean; attendingToday: boolean }[]> {
@@ -106,18 +113,29 @@ async function queryAttendanceForDay(
 
             context.log("Successfully connected to SQL database (Attendance).");
 
+            // Notice the WHERE:  
+            //  1) Current_Week = @CurrentWeek
+            //  2) Next_Week    = @NextWeek
+            //  3) (Next_Week   = @CurrentWeek AND Current_Week = @PreviousWeek)
             const query = `
                 SELECT 
                     [First_Name] AS name, 
                     [Current_Attendance] AS current_attendance,
                     [Current_Week] AS current_week,
                     [Next_Attendance] AS next_attendance,
-                    [Next_Week] AS next_week
+                    [Next_Week] AS next_week,
+                    [Level],
+                    [Entry_ID]
                 FROM [dbo].[officeAttendance-clioCalendarEntries]
                 WHERE 
                     [Current_Week] = @CurrentWeek
                     OR
                     [Next_Week] = @NextWeek
+                    OR
+                    (
+                        [Next_Week] = @CurrentWeek
+                        AND [Current_Week] = @PreviousWeek
+                    )
                 ORDER BY [First_Name];
             `;
 
@@ -139,15 +157,18 @@ async function queryAttendanceForDay(
                 attendingToday: boolean;
             }
 
+            // We keep a map by name so we can combine multiple entries
             const attendanceMap: { [name: string]: AttendanceRecord } = {};
 
             sqlRequest.on("row", (columns) => {
-                const name = columns[0].value as string;
-                const currentAttendance = columns[1].value as string | null;
-                const currentWeek = columns[2].value as string;
-                const nextAttendance = columns[3].value as string | null;
-                const nextWeek = columns[4].value as string;
+                // Extract columns
+                const name = (columns.find(c => c.metadata.colName === "name")?.value as string) || "";
+                const currentAttendance = (columns.find(c => c.metadata.colName === "current_attendance")?.value as string) || "";
+                const currentWeek       = (columns.find(c => c.metadata.colName === "current_week")?.value as string) || "";
+                const nextAttendance    = (columns.find(c => c.metadata.colName === "next_attendance")?.value as string) || "";
+                const nextWeek          = (columns.find(c => c.metadata.colName === "next_week")?.value as string) || "";
 
+                // If we haven't yet, initialize a record for them
                 if (!attendanceMap[name]) {
                     attendanceMap[name] = {
                         name,
@@ -156,20 +177,35 @@ async function queryAttendanceForDay(
                     };
                 }
 
-                const isCurrentWeekRelevant = currentWeek === currentWeekRange;
-                const isNextWeekRelevant = nextWeek === nextWeekRange; // **Fixed Comparison**
+                // Are we currently dealing with the row that belongs to "current week" or "next week"?
+                // Or the special condition: last week's row that includes next_week = currentWeekRange?
+                const thisRowRelevantToCurrentWeek =
+                    currentWeek === currentWeekRange ||                // normal case
+                    (nextWeek === currentWeekRange && currentWeek === previousWeekRange); // the special fallback
 
-                context.log(`Processing attendee: ${name}`);
-                context.log(`isCurrentWeekRelevant: ${isCurrentWeekRelevant}, isNextWeekRelevant: ${isNextWeekRelevant}`);
+                const thisRowRelevantToNextWeek = nextWeek === nextWeekRange;
 
-                if (
-                    (isCurrentWeekRelevant && currentAttendance && attendanceIncludesDay(currentAttendance, day)) ||
-                    (isNextWeekRelevant && nextAttendance && attendanceIncludesDay(nextAttendance, day))
-                ) {
-                    attendanceMap[name].attendingToday = true;
-                    context.log(`Marking ${name} as attending today.`);
-                } else {
-                    context.log(`Not attending today: ${name}, Current: "${currentAttendance}", Next: "${nextAttendance}"`);
+                // If "today" is within the "current week," we check current_attendance 
+                // *unless* we matched the fallback scenario where we check next_attendance (from last week's row).
+                if (thisRowRelevantToCurrentWeek) {
+                    // If it's a fallback row from previousWeek→nextWeek => that means next_attendance is the relevant portion.
+                    const fallbackRow = (nextWeek === currentWeekRange && currentWeek === previousWeekRange);
+
+                    // The attendance string relevant for "today"
+                    const relevantAttendance = fallbackRow
+                        ? nextAttendance  // from last week's row, but for "next_week"
+                        : currentAttendance;
+
+                    // If that attendance includes "day," mark them as attending
+                    if (attendanceIncludesDay(relevantAttendance, day)) {
+                        attendanceMap[name].attendingToday = true;
+                    }
+
+                // If "today" is in the "next week," we look at next_attendance
+                } else if (thisRowRelevantToNextWeek) {
+                    if (attendanceIncludesDay(nextAttendance, day)) {
+                        attendanceMap[name].attendingToday = true;
+                    }
                 }
             });
 
@@ -181,10 +217,16 @@ async function queryAttendanceForDay(
                 connection.close();
             });
 
+            // Bind parameters
+            sqlRequest.addParameter("PreviousWeek", TYPES.NVarChar, previousWeekRange);
             sqlRequest.addParameter("CurrentWeek", TYPES.NVarChar, currentWeekRange);
             sqlRequest.addParameter("NextWeek", TYPES.NVarChar, nextWeekRange);
 
-            context.log("Executing SQL query with parameters (Attendance):", { CurrentWeek: currentWeekRange, NextWeek: nextWeekRange });
+            context.log("Executing SQL query with parameters (Attendance):", {
+                PreviousWeek: previousWeekRange,
+                CurrentWeek: currentWeekRange,
+                NextWeek: nextWeekRange
+            });
 
             connection.execSql(sqlRequest);
         });
@@ -192,6 +234,8 @@ async function queryAttendanceForDay(
         connection.connect();
     });
 }
+
+// The rest is unchanged...
 
 async function queryTeamData(config: any, context: InvocationContext): Promise<{ First: string; Initials: string; ["Entra ID"]: string; Nickname?: string }[]> {
     return new Promise((resolve, reject) => {
@@ -211,8 +255,7 @@ async function queryTeamData(config: any, context: InvocationContext): Promise<{
 
             context.log("Successfully connected to SQL database (Team).");
 
-            const query = `SELECT [First], [Initials], [Entra ID], [Nickname] FROM [dbo].[team];`;
-
+            const query = "SELECT [First], [Initials], [Entra ID], [Nickname] FROM [dbo].[team];";
             context.log("SQL Query (Team):", query);
 
             const sqlRequest = new SqlRequest(query, (err, rowCount) => {
@@ -248,6 +291,7 @@ async function queryTeamData(config: any, context: InvocationContext): Promise<{
     });
 }
 
+// Utility functions (unchanged except we added a "previousWeekRange" approach):
 function parseConnectionString(connectionString: string, context: InvocationContext): any {
     const parts = connectionString.split(";");
     const config: any = {};
@@ -289,9 +333,10 @@ function parseConnectionString(connectionString: string, context: InvocationCont
     return config;
 }
 
+// Start of week (Monday) 
 function getStartOfWeek(date: Date): Date {
-    const day = date.getDay();
-    const diff = (day === 0 ? -6 : 1) - day; // Adjust when day is Sunday
+    const day = date.getDay(); // 0=Sunday,1=Monday,...
+    const diff = (day === 0 ? -6 : 1) - day; // If Sunday, shift back 6 days, else shift back day-1
     const start = new Date(date);
     start.setDate(date.getDate() + diff);
     start.setHours(0, 0, 0, 0);
@@ -314,41 +359,31 @@ function getEndOfWeek(startDate: Date): Date {
 
 function formatWeekRange(start: Date, end: Date): string {
     const options: Intl.DateTimeFormatOptions = { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' };
-    const startStr = start.toLocaleDateString("en-GB", options);
-    const endStr = end.toLocaleDateString("en-GB", options);
+    const startStr = start.toLocaleDateString("en-GB", options); 
+    const endStr   = end.toLocaleDateString("en-GB", options);
+    // e.g. "Monday, 06/01/2025 - Sunday, 12/01/2025"
     return `Monday, ${startStr.split(', ')[1]} - Sunday, ${endStr.split(', ')[1]}`;
 }
 
 function attendanceIncludesDay(attendance: string, day: string): boolean {
     if (!attendance) return false;
-    const days = attendance.split(",").map((d) => d.trim().toLowerCase());
-    const targetDay = day.toLowerCase();
-    const includes = days.includes(targetDay);
-    // Optional: Uncomment the following line for debugging
-    // console.log(`Checking attendance: "${attendance}" for day: "${day}" => ${includes}`);
-    return includes;
+    const days = attendance.split(",").map(d => d.trim().toLowerCase());
+    return days.includes(day.toLowerCase());
 }
 
-/**
- * **New Function: Get Next Working Day**
- * 
- * Determines the next working day (Monday to Friday) based on the given date.
- * Skips weekends (Saturday and Sunday).
- * 
- * @param date - The current date
- * @returns The next working day as a Date object
- */
+/** Example “next working day” logic if you need it (currently not used) */
 function getNextWorkingDay(date: Date): Date {
     const nextDay = new Date(date);
     nextDay.setDate(date.getDate() + 1); // Start with the next day
-
-    // Loop until the next working day is found (Monday to Friday)
-    while (nextDay.getDay() === 0 || nextDay.getDay() === 6) { // 0 = Sunday, 6 = Saturday
+    while (nextDay.getDay() === 0 || nextDay.getDay() === 6) { // Sunday=0,Saturday=6
         nextDay.setDate(nextDay.getDate() + 1);
     }
-
     nextDay.setHours(0, 0, 0, 0);
     return nextDay;
 }
 
-export default app;
+export default app.http("getAttendance", {
+    methods: ["POST"],
+    authLevel: "function",
+    handler: getAttendanceHandler,
+});
