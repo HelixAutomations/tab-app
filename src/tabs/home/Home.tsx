@@ -50,6 +50,15 @@ import { officeAttendanceForm, annualLeaveForm } from './HomeForms';
 
 import { Context as TeamsContextType } from '@microsoft/teams-js';
 
+// Define AnnualLeaveRecord type
+interface AnnualLeaveRecord {
+  person: string;
+  start_date: string;
+  end_date: string;
+  reason: string;
+  status: string;
+}
+
 interface HomeProps {
   context: TeamsContextType | null;
   userData: any;
@@ -118,7 +127,7 @@ const sectionRowStyle = mergeStyles({
 
 const officeSectionRowStyle = mergeStyles({
   display: 'grid',
-  gridTemplateColumns: '1fr min-content 1fr',
+  gridTemplateColumns: '2fr min-content 1fr', // Increased space for the office section
   alignItems: 'stretch',
   width: '100%',
   gap: '20px',
@@ -347,8 +356,6 @@ const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean; animationDel
   isDarkMode,
   animationDelay,
 }) => {
-  const isAttending = person.presence === PersonaPresence.online;
-
   const bubbleStyle = mergeStyles({
     position: 'relative',
     display: 'flex',
@@ -376,7 +383,8 @@ const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean; animationDel
 
   const textStyle = mergeStyles({ color: isDarkMode ? colours.dark.text : colours.light.text });
 
-  if (isAttending) {
+  // If user is in the office
+  if (person.presence === PersonaPresence.online) {
     return (
       <div className={bubbleStyle}>
         <div style={{ position: 'relative', zIndex: 4 }}>
@@ -385,10 +393,8 @@ const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean; animationDel
             imageUrl={HelixAvatar}
             size={PersonaSize.size40}
             presence={PersonaPresence.online}
-            hidePersonaDetails={true}
-            styles={{
-              root: { zIndex: 4 },
-            }}
+            hidePersonaDetails
+            styles={{ root: { zIndex: 4 } }}
           />
           <div className={textBubbleStyle}>
             <Text className={textStyle}>{person.nickname || person.name}</Text>
@@ -396,6 +402,34 @@ const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean; animationDel
         </div>
       </div>
     );
+
+  // If user is on annual leave
+  } else if (person.presence === PersonaPresence.busy) {
+    return (
+      <div className={bubbleStyle}>
+        <div
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: '50%',
+            backgroundColor: '#ffffff',
+            border: `0.5px solid ${colours.darkBlue}`,
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            position: 'relative',
+            zIndex: 4,
+          }}
+        >
+          <Icon iconName="Airplane" styles={{ root: { color: colours.darkBlue, fontSize: 16 } }} />
+        </div>
+        <div className={textBubbleStyle}>
+          <Text className={textStyle}>{person.nickname || person.name}</Text>
+        </div>
+      </div>
+    );
+
+  // Otherwise, fallback
   } else {
     return (
       <div className={bubbleStyle}>
@@ -423,15 +457,21 @@ const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean; animationDel
   }
 };
 
+// Caching Variables
 let cachedAttendance: any[] | null = null;
 let cachedAttendanceError: string | null = null;
 let cachedTeamData: any[] | null = null;
 
+let cachedAnnualLeave: AnnualLeaveRecord[] | null = null;
+let cachedAnnualLeaveError: string | null = null;
+
+// Additional Caching Variables for WIP Clio and Recovered
 let cachedWipClio: any | null = null;
 let cachedWipClioError: string | null = null;
-
 let cachedRecovered: number | null = null;
 let cachedRecoveredError: string | null = null;
+
+// You can define more caching variables as needed for other data
 
 const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const { isDarkMode } = useTheme();
@@ -477,13 +517,20 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const [currentUserName, setCurrentUserName] = useState<string>('User');
   const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
 
-  const [wipClioData, setWipClioData] = useState<any | null>(cachedWipClio);
-  const [wipClioError, setWipClioError] = useState<string | null>(cachedWipClioError);
-  const [isLoadingWipClio, setIsLoadingWipClio] = useState<boolean>(!cachedWipClio && !cachedWipClioError);
+  // Annual Leave State Variables
+  const [annualLeaveRecords, setAnnualLeaveRecords] = useState<AnnualLeaveRecord[]>([]);
+  const [isLoadingAnnualLeave, setIsLoadingAnnualLeave] = useState<boolean>(true);
+  const [annualLeaveError, setAnnualLeaveError] = useState<string | null>(null);
 
-  const [recoveredData, setRecoveredData] = useState<number | null>(cachedRecovered);
-  const [recoveredError, setRecoveredError] = useState<string | null>(cachedRecoveredError);
-  const [isLoadingRecovered, setIsLoadingRecovered] = useState<boolean>(!cachedRecovered && !cachedRecoveredError);
+  // State Variables for WIP Clio and Recovered
+  const [wipClioData, setWipClioData] = useState<any>(null);
+  const [wipClioError, setWipClioError] = useState<string | null>(null);
+  const [recoveredData, setRecoveredData] = useState<number | null>(null);
+  const [recoveredError, setRecoveredError] = useState<string | null>(null);
+  const [isLoadingWipClio, setIsLoadingWipClio] = useState<boolean>(true);
+  const [isLoadingRecovered, setIsLoadingRecovered] = useState<boolean>(true);
+
+  // Additional cached variables for other data can be defined here
 
   const columnsForPeople = 3;
 
@@ -658,29 +705,41 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   }, [greeting]);
 
   useEffect(() => {
-    if (cachedAttendance || cachedAttendanceError) {
+    if (
+      cachedAttendance ||
+      cachedAttendanceError ||
+      cachedAnnualLeave ||
+      cachedAnnualLeaveError
+    ) {
       setAttendanceRecords(cachedAttendance || []);
       setTeamData(cachedTeamData || []);
       setAttendanceError(cachedAttendanceError);
+      setAnnualLeaveRecords(cachedAnnualLeave || []);
+      setAnnualLeaveError(cachedAnnualLeaveError);
       setIsLoadingAttendance(false);
+      setIsLoadingAnnualLeave(false);
     } else {
-      const fetchAttendance = async () => {
+      const fetchData = async () => {
         try {
           setIsLoadingAttendance(true);
-          const response = await fetch(
+          setIsLoadingAnnualLeave(true);
+
+          // Fetch Attendance Data
+          const attendanceResponse = await fetch(
             `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_ATTENDANCE_PATH}?code=${process.env.REACT_APP_GET_ATTENDANCE_CODE}`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
             }
           );
-          if (!response.ok) throw new Error(`Failed to fetch attendance: ${response.status}`);
-          const data = await response.json();
 
-          cachedAttendance = data.attendance;
-          cachedTeamData = data.team;
-          setAttendanceRecords(data.attendance);
-          setTeamData(data.team);
+          if (!attendanceResponse.ok) throw new Error(`Failed to fetch attendance: ${attendanceResponse.status}`);
+          const attendanceData = await attendanceResponse.json();
+
+          cachedAttendance = attendanceData.attendance;
+          cachedTeamData = attendanceData.team;
+          setAttendanceRecords(attendanceData.attendance);
+          setTeamData(attendanceData.team);
         } catch (error: any) {
           console.error('Error fetching attendance:', error);
           cachedAttendanceError = error.message || 'Unknown error occurred.';
@@ -690,9 +749,38 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         } finally {
           setIsLoadingAttendance(false);
         }
+
+        try {
+          // Fetch Annual Leave Data
+          const annualLeaveResponse = await fetch(
+            `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_ANNUAL_LEAVE_PATH}?code=${process.env.REACT_APP_GET_ANNUAL_LEAVE_CODE}`,
+            {
+              method: 'GET', // Adjust method if your Azure Function expects POST
+              headers: { 'Content-Type': 'application/json' },
+            }
+          );
+
+          if (!annualLeaveResponse.ok) throw new Error(`Failed to fetch annual leave: ${annualLeaveResponse.status}`);
+          const annualLeaveData = await annualLeaveResponse.json();
+
+          // Ensure the response has the expected structure
+          if (annualLeaveData && Array.isArray(annualLeaveData.annual_leave)) {
+            cachedAnnualLeave = annualLeaveData.annual_leave;
+            setAnnualLeaveRecords(annualLeaveData.annual_leave);
+          } else {
+            throw new Error('Invalid annual leave data format.');
+          }
+        } catch (error: any) {
+          console.error('Error fetching annual leave:', error);
+          cachedAnnualLeaveError = error.message || 'Unknown error occurred.';
+          setAnnualLeaveError(error.message || 'Unknown error occurred.');
+          setAnnualLeaveRecords([]);
+        } finally {
+          setIsLoadingAnnualLeave(false);
+        }
       };
 
-      fetchAttendance();
+      fetchData();
     }
   }, []);
 
@@ -1000,6 +1088,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       </Stack>
 
       <Stack className={mainContentStyle} tokens={{ childrenGap: 40 }}>
+        {/* Quick Links and Metrics */}
         <div className={sectionRowStyle}>
           <div className={quickLinksStyle(isDarkMode)}>
             {quickActions.map((action: QuickLink, index: number) => {
@@ -1057,6 +1146,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           </div>
         </div>
 
+        {/* Favourites Section */}
         <div
           className={mergeStyles({
             backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
@@ -1145,7 +1235,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           )}
         </div>
 
+        {/* In the Office and Annual Leave Sections */}
         <div className={officeSectionRowStyle}>
+          {/* In the Office Today Section */}
           <div className={officeLeaveContainerStyle(isDarkMode)}>
             <Stack tokens={{ childrenGap: 20 }}>
               <Stack
@@ -1189,6 +1281,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
 
           <div className={verticalPipeStyle}></div>
 
+          {/* Out or On Annual Leave Today Section */}
           <div className={officeLeaveContainerStyle(isDarkMode)}>
             <Stack tokens={{ childrenGap: 20 }}>
               <Stack
@@ -1206,12 +1299,43 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                   ariaLabel="Request Annual Leave"
                 />
               </Stack>
-              <div className={peopleGridStyle}></div>
+              {isLoadingAnnualLeave ? (
+                <Spinner label="Loading annual leave..." size={SpinnerSize.medium} />
+              ) : annualLeaveError ? (
+                <MessageBar messageBarType={MessageBarType.error}>{annualLeaveError}</MessageBar>
+              ) : (
+                <div className={peopleGridStyle}>
+                  {annualLeaveRecords.map((leave, index) => {
+                    // Find the corresponding team member data by Initials
+                    const teamMember = teamData.find(
+                      (member) => member.Initials.toLowerCase() === leave.person.toLowerCase()
+                    );
+
+                    return (
+                      <PersonBubble
+                        key={`leave-${index}`}
+                        person={{
+                          name: leave.person,
+                          initials: teamMember ? teamMember.Initials : '',
+                          presence: PersonaPresence.busy, // Using 'busy' to indicate on leave
+                          nickname: teamMember ? teamMember.Nickname : leave.person,
+                        }}
+                        isDarkMode={isDarkMode}
+                        animationDelay={calculateAnimationDelay(
+                          Math.floor(index / columnsForPeople),
+                          index % columnsForPeople
+                        )}
+                      />
+                    );
+                  })}
+                </div>
+              )}
             </Stack>
           </div>
         </div>
       </Stack>
 
+      {/* Contexts Section */}
       <div
         className={mergeStyles({
           backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
@@ -1361,6 +1485,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
 
       <div className={versionStyle}>Version 1.1</div>
 
+      {/* Main Panels */}
       <Panel
         isOpen={isPanelOpen}
         onDismiss={() => setIsPanelOpen(false)}
@@ -1389,6 +1514,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         <ResourceDetails resource={selectedResource} onClose={() => setSelectedResource(null)} />
       )}
 
+      {/* Office Attendance Panel */}
       <HomePanel
         isOpen={isOfficeAttendancePanelOpen}
         onClose={() => setIsOfficeAttendancePanelOpen(false)}
@@ -1398,6 +1524,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         embedScript={{ key: 'QzaAr_2Q7kesClKq8g229g', formId: '109' }}
       />
 
+      {/* Annual Leave Panel */}
       <HomePanel
         isOpen={isAnnualLeavePanelOpen}
         onClose={() => setIsAnnualLeavePanelOpen(false)}
