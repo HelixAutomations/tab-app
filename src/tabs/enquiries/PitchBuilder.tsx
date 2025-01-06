@@ -65,7 +65,11 @@ function removeUnfilledPlaceholders(text: string): string {
   const consolidated: string[] = [];
   for (const line of filteredLines) {
     // If this line is blank, and the previous line in consolidated is also blank, skip it
-    if (line.trim() === '' && consolidated.length > 0 && consolidated[consolidated.length - 1].trim() === '') {
+    if (
+      line.trim() === '' &&
+      consolidated.length > 0 &&
+      consolidated[consolidated.length - 1].trim() === ''
+    ) {
       continue;
     }
     consolidated.push(line);
@@ -94,7 +98,12 @@ const orderedListIcon: IIconProps = { iconName: 'NumberedList' };
 const linkIcon: IIconProps = { iconName: 'Link' };
 const clearIcon: IIconProps = { iconName: 'Cancel' };
 
-const attachmentTagStyle = (isSelected: boolean, isDarkMode: boolean) =>
+// Updated attachmentTagStyle to handle isDraft
+const attachmentTagStyle = (
+  isSelected: boolean,
+  isDarkMode: boolean,
+  isDraft: boolean
+) =>
   mergeStyles({
     backgroundColor: isSelected
       ? colours.cta
@@ -111,14 +120,16 @@ const attachmentTagStyle = (isSelected: boolean, isDarkMode: boolean) =>
     }`,
     borderRadius: '12px',
     padding: '6px 12px',
-    cursor: 'pointer',
+    cursor: isDraft ? 'not-allowed' : 'pointer',
     userSelect: 'none',
     minWidth: '100px',
     textAlign: 'center',
     ':hover': {
-      boxShadow: '0 4px 8px rgba(0, 0, 0, 0.2)',
-      transform: 'translateY(-2px)',
-      border: '1px solid red',
+      boxShadow: isDraft
+        ? 'none'
+        : '0 4px 8px rgba(0, 0, 0, 0.2)',
+      transform: isDraft ? 'none' : 'translateY(-2px)',
+      border: isDraft ? `1px solid ${colours.grey}` : '1px solid red',
       backgroundColor: isSelected
         ? colours.cta
         : isDarkMode
@@ -128,7 +139,10 @@ const attachmentTagStyle = (isSelected: boolean, isDarkMode: boolean) =>
     transition: 'all 0.2s',
   });
 
-const followUpTagStyle = (isSelected: boolean, isDarkMode: boolean) =>
+const followUpTagStyle = (
+  isSelected: boolean,
+  isDarkMode: boolean
+) =>
   mergeStyles({
     backgroundColor: isSelected
       ? colours.cta
@@ -178,7 +192,10 @@ const templateBlockStyle = (isDarkMode: boolean) =>
     },
   });
 
-const templatePreviewStyle = (isDarkMode: boolean, isInserted: boolean) =>
+const templatePreviewStyle = (
+  isDarkMode: boolean,
+  isInserted: boolean
+) =>
   mergeStyles({
     padding: '10px',
     borderRadius: '4px',
@@ -211,39 +228,37 @@ const replacePlaceholders = (
 ): string => {
   const userFullName = userData?.[0]?.['Full Name'] || '';
 
-  return (
-    template
-      .replace(
-        /\[Enquiry.First_Name\]/g,
-        `<span style="background-color: ${colours.highlightYellow}; padding: 0 3px;" data-placeholder="[Enquiry.First_Name]">${
-          enquiry.First_Name || 'there'
-        }</span>`
-      )
-      .replace(
-        /\[Enquiry.Point_of_Contact\]/g,
-        `<span style="background-color: ${colours.highlightYellow}; padding: 0 3px;" data-placeholder="[Enquiry.Point_of_Contact]">${
-          enquiry.Point_of_Contact || 'Our Team'
-        }</span>`
-      )
-      .replace(
-        /\[Introduction Placeholder\]/g,
-        `<span data-placeholder="[Introduction Placeholder]" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${intro.trim()}</span>`
-      )
-      .replace(
-        /\[Current Situation and Problem Placeholder\]/g,
-        `<span data-placeholder="[Current Situation and Problem Placeholder]" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[Current Situation and Problem Placeholder]</span>`
-      )
-      .replace(
-        /\[FE Introduction Placeholder\]/g,
-        `<span data-placeholder="[FE Introduction Placeholder]" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[FE Introduction Placeholder]</span>`
-      )
-      .replace(
-        /\[(Scope of Work Placeholder|Risk Assessment Placeholder|Costs and Budget Placeholder|Follow-Up Instructions Placeholder|Closing Notes Placeholder|Required Documents Placeholder|Google Review Placeholder)\]/g,
-        (match) =>
-          `<span data-placeholder="${match}" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${match}</span>`
-      )
-      .replace(/\[User.Full_Name\]/g, userFullName || 'Unknown User')
-  );
+  return template
+    .replace(
+      /\[Enquiry.First_Name\]/g,
+      `<span style="background-color: ${colours.highlightYellow}; padding: 0 3px;" data-placeholder="[Enquiry.First_Name]">${
+        enquiry.First_Name || 'there'
+      }</span>`
+    )
+    .replace(
+      /\[Enquiry.Point_of_Contact\]/g,
+      `<span style="background-color: ${colours.highlightYellow}; padding: 0 3px;" data-placeholder="[Enquiry.Point_of_Contact]">${
+        enquiry.Point_of_Contact || 'Our Team'
+      }</span>`
+    )
+    .replace(
+      /\[Introduction Placeholder\]/g,
+      `<span data-placeholder="[Introduction Placeholder]" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${intro.trim()}</span>`
+    )
+    .replace(
+      /\[Current Situation and Problem Placeholder\]/g,
+      `<span data-placeholder="[Current Situation and Problem Placeholder]" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[Current Situation and Problem Placeholder]</span>`
+    )
+    .replace(
+      /\[FE Introduction Placeholder\]/g,
+      `<span data-placeholder="[FE Introduction Placeholder]" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[FE Introduction Placeholder]</span>`
+    )
+    .replace(
+      /\[(Scope of Work Placeholder|Risk Assessment Placeholder|Costs and Budget Placeholder|Follow-Up Instructions Placeholder|Closing Notes Placeholder|Required Documents Placeholder|Google Review Placeholder)\]/g,
+      (match) =>
+        `<span data-placeholder="${match}" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${match}</span>`
+    )
+    .replace(/\[User.Full_Name\]/g, userFullName || 'Unknown User');
 };
 
 const isStringArray = (value: string | string[]): value is string[] => {
@@ -268,28 +283,28 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
 
   const BASE_TEMPLATE = `Dear [Enquiry.First_Name],
 
-  [FE Introduction Placeholder]
-  
-  [Introduction Placeholder]
-  
-  [Current Situation and Problem Placeholder]
-  
-  [Scope of Work Placeholder]
-  
-  [Risk Assessment Placeholder]
-  
-  [Costs and Budget Placeholder]
-  
-  [Required Documents Placeholder]
-  
-  [Follow-Up Instructions Placeholder]
-  
-  [Closing Notes Placeholder]
-  
-  [Google Review Placeholder]
-  
-  Kind regards,
-  [User.Full_Name]`;
+[FE Introduction Placeholder]
+
+[Introduction Placeholder]
+
+[Current Situation and Problem Placeholder]
+
+[Scope of Work Placeholder]
+
+[Risk Assessment Placeholder]
+
+[Costs and Budget Placeholder]
+
+[Required Documents Placeholder]
+
+[Follow-Up Instructions Placeholder]
+
+[Closing Notes Placeholder]
+
+[Google Review Placeholder]
+
+Kind regards,
+[User.Full_Name]`;
 
   const normalizeBody = (text: string) =>
     text
@@ -369,8 +384,74 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
   })();
 
   const bodyEditorRef = useRef<HTMLDivElement>(null);
+  const savedSelection = useRef<Range | null>(null);
 
-  const insertTemplateBlock = (block: TemplateBlock, selectedOption: string | string[]) => {
+  const saveSelection = () => {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      savedSelection.current = sel.getRangeAt(0).cloneRange();
+    }
+  };
+
+  const restoreSelection = () => {
+    const sel = window.getSelection();
+    if (sel && savedSelection.current) {
+      sel.removeAllRanges();
+      sel.addRange(savedSelection.current);
+    }
+  };
+
+  const isSelectionInsideEditor = (): boolean => {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return false;
+    let node = sel.getRangeAt(0).commonAncestorContainer;
+    if (node.nodeType === Node.TEXT_NODE) {
+      node = node.parentNode!;
+    }
+    return bodyEditorRef.current?.contains(node) || false;
+  };
+
+  const insertAtCursor = (html: string) => {
+    if (!isSelectionInsideEditor()) {
+      // Insert at the end if selection is not inside the editor
+      setBody((prevBody) => prevBody + `\n\n${html}`);
+      return;
+    }
+
+    restoreSelection();
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      const range = sel.getRangeAt(0);
+      range.deleteContents();
+
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = html;
+      const fragment = document.createDocumentFragment();
+      let node: ChildNode | null;
+      while ((node = tempDiv.firstChild)) {
+        fragment.appendChild(node);
+      }
+      range.insertNode(fragment);
+
+      // Move the cursor after the inserted content
+      range.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(range);
+
+      // Save the new selection
+      saveSelection();
+
+      // Update the body state without disrupting the editor
+      if (bodyEditorRef.current) {
+        setBody(bodyEditorRef.current.innerHTML);
+      }
+    }
+  };
+
+  const insertTemplateBlock = (
+    block: TemplateBlock,
+    selectedOption: string | string[]
+  ) => {
     let replacementText = '';
     if (block.isMultiSelect && isStringArray(selectedOption)) {
       if (block.title === 'Required Documents') {
@@ -384,7 +465,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
         replacementText = selectedOption
           .map((item: string) => {
             const option = block.options.find((o) => o.label === item);
-            return option ? `${option.previewText.trim()}` : item;
+            return option ? option.previewText.trim() : item;
           })
           .join('\n');
       }
@@ -403,12 +484,27 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
         ),
         `$1${highlightedReplacement}$3`
       );
-      if (bodyEditorRef.current) {
-        bodyEditorRef.current.innerHTML = newBody;
-      }
       return newBody;
     });
     setInsertedBlocks((prev) => ({ ...prev, [block.title]: true }));
+
+    // Update the selection to after the inserted block
+    setTimeout(() => {
+      if (bodyEditorRef.current) {
+        const insertedSpan = bodyEditorRef.current.querySelector(`span[data-inserted="${block.title}"]`);
+        if (insertedSpan) {
+          const range = document.createRange();
+          const sel = window.getSelection();
+          range.setStartAfter(insertedSpan);
+          range.collapse(true);
+          if (sel) {
+            sel.removeAllRanges();
+            sel.addRange(range);
+            saveSelection();
+          }
+        }
+      }
+    }, 0);
   };
 
   const [template, setTemplate] = useState<string | undefined>(undefined);
@@ -434,21 +530,48 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
             introRegex,
             `$1<span style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${selectedTemplate.intro.trim()}</span>$3`
           );
-          if (bodyEditorRef.current) {
-            bodyEditorRef.current.innerHTML = newBody;
-          }
           return newBody;
         });
       }
     }
   };
 
-  const toggleAttachment = (attachmentKey: string) => {
-    setAttachments((prev) =>
-      prev.includes(attachmentKey)
-        ? prev.filter((key) => key !== attachmentKey)
-        : [...prev, attachmentKey]
-    );
+  // Updated toggleAttachment to handle draft status and insert/remove links with red highlight
+  const toggleAttachment = (attachment: AttachmentOption) => {
+    if (attachment.status === 'draft') {
+      // Do not allow selection of draft attachments
+      return;
+    }
+
+    if (attachments.includes(attachment.key)) {
+      // Unselecting: Remove the link
+      setAttachments((prev) => prev.filter((key) => key !== attachment.key));
+      removeAttachmentLink(attachment.key);
+    } else {
+      // Selecting: Add the link
+      setAttachments((prev) => [...prev, attachment.key]);
+      // Save the current selection
+      saveSelection();
+      // Insert the link at cursor with red highlight and specified text color
+      const linkHTML = `<span style="background-color: #ffe6e6; padding: 0 3px;" data-link="${attachment.key}"><a href="${attachment.link}" style="color: #3690CE; text-decoration: none;">${attachment.text}</a></span>`;
+      insertAtCursor(linkHTML);
+    }
+  };
+
+  const removeAttachmentLink = (key: string) => {
+    if (bodyEditorRef.current) {
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = bodyEditorRef.current.innerHTML;
+      const spans = tempDiv.querySelectorAll(`span[data-link="${key}"]`);
+      spans.forEach((span) => {
+        const parent = span.parentNode;
+        if (parent) {
+          parent.removeChild(span);
+        }
+      });
+      const newBody = tempDiv.innerHTML;
+      setBody(newBody);
+    }
   };
 
   const getFilteredAttachments = (): AttachmentOption[] => {
@@ -488,16 +611,6 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
     setErrorMessage('');
     setSelectedTemplateOptions({});
     setInsertedBlocks({});
-    if (bodyEditorRef.current) {
-      bodyEditorRef.current.innerHTML = normalizeBody(
-        replacePlaceholders(
-          BASE_TEMPLATE,
-          'Thank you for your enquiry. I am confident we can assist with your matter.',
-          enquiry,
-          userData
-        )
-      );
-    }
   };
 
   const validateForm = (): boolean => {
@@ -523,7 +636,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
             followUpOptions.find((opt) => opt.key === followUp)?.text
           }`
         : '';
-      // Here, remove placeholders on a per-line basis, then consolidate blank lines
+      // Here, remove placeholders and link highlights on a per-line basis, then consolidate blank lines
       const finalBody = removeUnfilledPlaceholders(getPlainTextBody(body));
       console.log('Email Sent:', {
         subject,
@@ -536,14 +649,16 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
     }
   };
 
+  // Updated removeHighlightSpans to also remove link highlights
   const removeHighlightSpans = (html: string): string => {
     const tempDiv = document.createElement('div');
     tempDiv.innerHTML = html;
-    const spans = tempDiv.querySelectorAll('span[data-placeholder], span[data-inserted]');
+    const spans = tempDiv.querySelectorAll('span[data-placeholder], span[data-inserted], span[data-link]');
     spans.forEach((span) => {
       span.removeAttribute('style');
       span.removeAttribute('data-placeholder');
       span.removeAttribute('data-inserted');
+      span.removeAttribute('data-link');
     });
     return tempDiv.innerHTML;
   };
@@ -605,7 +720,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
   }, [isErrorVisible]);
 
   useEffect(() => {
-    if (bodyEditorRef.current) {
+    if (bodyEditorRef.current && bodyEditorRef.current.innerHTML !== body) {
       bodyEditorRef.current.innerHTML = body;
     }
   }, [body]);
@@ -742,9 +857,6 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
         regex,
         `<span data-placeholder="${placeholder}" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${placeholder}</span>`
       );
-      if (bodyEditorRef.current) {
-        bodyEditorRef.current.innerHTML = newBody;
-      }
       return newBody;
     });
   };
@@ -916,19 +1028,26 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
               maxHeight: 'none',
             }}
             aria-label="Email Body Editor"
+            onMouseUp={saveSelection}
+            onKeyUp={saveSelection}
           />
 
           <Label className={labelStyle}>Select Attachments</Label>
           <Stack horizontal tokens={{ childrenGap: 8 }} wrap>
             {getFilteredAttachments().map((attachment: AttachmentOption) => {
               const isSelected = attachments.includes(attachment.key);
+              const isDraft = attachment.status === 'draft';
               return (
                 <span
                   key={attachment.key}
-                  className={attachmentTagStyle(isSelected, isDarkMode)}
-                  onClick={() => toggleAttachment(attachment.key)}
+                  className={attachmentTagStyle(isSelected, isDarkMode, isDraft)}
+                  onClick={() => toggleAttachment(attachment)}
+                  style={{ cursor: isDraft ? 'not-allowed' : 'pointer', opacity: isDraft ? 0.5 : 1 }}
+                  title={isDraft ? 'This attachment is in draft and cannot be selected.' : ''}
+                  role={isDraft ? 'img' : 'button'}
+                  aria-disabled={isDraft}
                 >
-                  {attachment.text}
+                  {attachment.text} {isDraft && <span style={{ color: 'gray', fontSize: '0.8em' }}>[draft]</span>}
                 </span>
               );
             })}
@@ -1004,7 +1123,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
                 borderRadius: '8px',
                 boxShadow: isDarkMode
                   ? '0 2px 5px rgba(255,255,255,0.1)'
-                  : '0 2px 5px rgba(0,0,0,0.1)',
+                  : '0 2px 5px rgba(0, 0, 0, 0.1)',
                 marginBottom: '20px'
               }
             }}
@@ -1301,6 +1420,20 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
       </Panel>
     </Stack>
   );
+};
+
+// Updated removeHighlightSpans to also remove link highlights
+const removeHighlightSpans = (html: string): string => {
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = html;
+  const spans = tempDiv.querySelectorAll('span[data-placeholder], span[data-inserted], span[data-link]');
+  spans.forEach((span) => {
+    span.removeAttribute('style');
+    span.removeAttribute('data-placeholder');
+    span.removeAttribute('data-inserted');
+    span.removeAttribute('data-link');
+  });
+  return tempDiv.innerHTML;
 };
 
 export default PitchBuilder;
