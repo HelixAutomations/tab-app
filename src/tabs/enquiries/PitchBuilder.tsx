@@ -43,7 +43,6 @@ const commonInputStyle = {
   lineHeight: '40px',
 };
 
-// Updated leftoverPlaceholders without '[Meeting Link Placeholder]' if you want to manage it differently
 const leftoverPlaceholders = [
   '[Current Situation and Problem Placeholder]',
   '[Scope of Work Placeholder]',
@@ -54,8 +53,6 @@ const leftoverPlaceholders = [
   '[Closing Notes Placeholder]',
   '[Google Review Placeholder]',
   '[FE Introduction Placeholder]',
-  // '[Meeting Link Placeholder]', // Ensure it's handled as part of the body
-  // Removed '[Introduction Placeholder]'
 ];
 
 function removeUnfilledPlaceholders(text: string): string {
@@ -66,7 +63,6 @@ function removeUnfilledPlaceholders(text: string): string {
 
   const consolidated: string[] = [];
   for (const line of filteredLines) {
-    // If this line is blank, and the previous line in consolidated is also blank, skip it
     if (
       line.trim() === '' &&
       consolidated.length > 0 &&
@@ -88,9 +84,8 @@ const stripHtmlTags = (html: string): string => {
 
 const cleanTemplateString = (template: string): string => {
   return template
-    .replace(/^\s*\n|\n\s*$/g, '')  // Remove leading/trailing blank lines
-    // .replace(/\n{2,}/g, '\n');    // Remove this line to preserve multiple newlines
-    .replace(/\n/g, '<br />');      // Replace single newlines with <br />
+    .replace(/^\s*\n|\n\s*$/g, '')
+    .replace(/\n/g, '<br />');
 };
 
 const boldIcon: IIconProps = { iconName: 'Bold' };
@@ -101,7 +96,6 @@ const orderedListIcon: IIconProps = { iconName: 'NumberedList' };
 const linkIcon: IIconProps = { iconName: 'Link' };
 const clearIcon: IIconProps = { iconName: 'Cancel' };
 
-// Updated attachmentTagStyle to handle isDraft
 const attachmentTagStyle = (
   isSelected: boolean,
   isDarkMode: boolean,
@@ -244,7 +238,6 @@ const replacePlaceholders = (
         enquiry.Point_of_Contact || 'Our Team'
       }</span>`
     )
-    // Removed Introduction Placeholder replacement as per the requirement
     .replace(
       /\[Current Situation and Problem Placeholder\]/g,
       `<span data-placeholder="[Current Situation and Problem Placeholder]" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[Current Situation and Problem Placeholder]</span>`
@@ -649,7 +642,6 @@ Kind regards,
       to,
       cc,
       bcc,
-      // Include attachments and followUp if needed
     };
 
     try {
@@ -753,11 +745,10 @@ Kind regards,
     fontFamily: 'Raleway, sans-serif',
     display: 'flex',
     flexDirection: 'row',
-    alignItems: 'stretch',
+    alignItems: 'flex-start', // Align items to the start to allow left expansion without stretching right column
     gap: '20px',
     justifyContent: 'space-between',
-    height: 'calc(100vh - 80px)', // fixed height relative to viewport
-    flexWrap: 'nowrap',           // prevent wrapping of columns
+    flexWrap: 'nowrap',
     boxSizing: 'border-box',
   });
 
@@ -766,7 +757,6 @@ Kind regards,
     minWidth: '300px',
     display: 'flex',
     flexDirection: 'column',
-    height: '100%',  // fill vertical space
   });
 
   const templatesContainerStyle = mergeStyles({
@@ -774,8 +764,9 @@ Kind regards,
     display: 'flex',
     flexDirection: 'column',
     gap: '20px',
-    height: '100%',      // fill vertical space
-    overflowY: 'auto',
+    alignSelf: 'flex-start',        // Prevent right column from stretching with left
+    maxHeight: 'calc(100vh - 160px)', // Fixed max height for right column
+    overflowY: 'auto',              // Enable scrolling within right column
   });
 
   const templatesGridStyle = mergeStyles({
@@ -784,7 +775,7 @@ Kind regards,
     display: 'flex',
     flexDirection: 'column',
     gap: '20px',
-    maxHeight: '100%',   // use full available height
+    maxHeight: '100%',
   });
 
   const buttonGroupStyle = mergeStyles({
@@ -876,7 +867,6 @@ Kind regards,
 
   const fullName = `${enquiry.First_Name || ''} ${enquiry.Last_Name || ''}`.trim();
 
-  // New useEffect to auto-select and insert single-option blocks
   useEffect(() => {
     templateBlocks.forEach(block => {
       if (
@@ -884,12 +874,10 @@ Kind regards,
         block.options.length === 1
       ) {
         const selectedOption = block.options[0].label;
-        // Update selectedTemplateOptions
         setSelectedTemplateOptions(prev => ({
           ...prev,
           [block.title]: block.isMultiSelect ? [selectedOption] : selectedOption,
         }));
-        // Insert the template block into the email body
         insertTemplateBlock(block, block.isMultiSelect ? [selectedOption] : selectedOption);
       }
     });
