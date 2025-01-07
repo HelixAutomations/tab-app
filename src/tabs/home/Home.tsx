@@ -1,6 +1,6 @@
 // src/tabs/home/Home.tsx
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, ReactNode } from 'react';
 import {
   mergeStyles,
   Text,
@@ -14,8 +14,6 @@ import {
   DetailsList,
   IColumn,
   DetailsListLayoutMode,
-  Panel,
-  PanelType,
   Persona,
   PersonaSize,
   PersonaPresence,
@@ -50,6 +48,11 @@ import { officeAttendanceForm, annualLeaveForm } from './HomeForms';
 
 import { Context as TeamsContextType } from '@microsoft/teams-js';
 
+// Import the custom BespokePanel
+import BespokePanel from '../../app/functionality/BespokePanel';
+
+initializeIcons();
+
 // Define AnnualLeaveRecord type
 interface AnnualLeaveRecord {
   person: string;
@@ -64,8 +67,6 @@ interface HomeProps {
   userData: any;
   enquiries: any[] | null;
 }
-
-initializeIcons();
 
 interface QuickLink {
   title: string;
@@ -498,8 +499,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     money: 900,
   });
   const [isContextsExpanded, setIsContextsExpanded] = useState<boolean>(false);
-  const [isPanelOpen, setIsPanelOpen] = useState<boolean>(false);
-  const [selectedAction, setSelectedAction] = useState<QuickLink | null>(null);
   const [formsFavorites, setFormsFavorites] = useState<FormItem[]>([]);
   const [resourcesFavorites, setResourcesFavorites] = useState<Resource[]>([]);
   const [selectedForm, setSelectedForm] = useState<FormItem | null>(null);
@@ -530,7 +529,10 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const [isLoadingWipClio, setIsLoadingWipClio] = useState<boolean>(true);
   const [isLoadingRecovered, setIsLoadingRecovered] = useState<boolean>(true);
 
-  // Additional cached variables for other data can be defined here
+  // New state variables for BespokePanel
+  const [isBespokePanelOpen, setIsBespokePanelOpen] = useState<boolean>(false);
+  const [bespokePanelContent, setBespokePanelContent] = useState<ReactNode>(null);
+  const [bespokePanelTitle, setBespokePanelTitle] = useState<string>('');
 
   const columnsForPeople = 3;
 
@@ -849,9 +851,35 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
 
   const columns = useMemo(() => createColumnsFunction(isDarkMode), [isDarkMode]);
 
+  // Updated handleActionClick to use BespokePanel
   const handleActionClick = (action: QuickLink) => {
-    setSelectedAction(action);
-    setIsPanelOpen(true);
+    // Determine the content based on action.title
+    let content: ReactNode = <div>No form available.</div>;
+    let titleText: string = action.title;
+
+    switch (action.title) {
+      case 'Create a Task':
+        content = <Tasking />;
+        break;
+      case 'Create a Time Entry':
+        content = <CreateTimeEntryForm />;
+        break;
+      case 'Save Telephone Note':
+      case 'Save Attendance Note':
+        content = <TelephoneAttendance />;
+        break;
+      case 'Create a Contact':
+      case 'Retrieve a Contact':
+        content = <RetrieveContactForm />;
+        break;
+      default:
+        content = <div>No form available.</div>;
+        break;
+    }
+
+    setBespokePanelContent(content);
+    setBespokePanelTitle(titleText);
+    setIsBespokePanelOpen(true);
   };
 
   const copyToClipboardHandler = (url: string, title: string) => {
@@ -1485,22 +1513,17 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
 
       <div className={versionStyle}>Version 1.1</div>
 
-      {/* Main Panels */}
-      <Panel
-        isOpen={isPanelOpen}
-        onDismiss={() => setIsPanelOpen(false)}
-        type={PanelType.medium}
-        headerText={selectedAction ? selectedAction.title : ''}
-        closeButtonAriaLabel="Close"
+      {/* BespokePanel for Forms */}
+      <BespokePanel
+        isOpen={isBespokePanelOpen}
+        onClose={() => setIsBespokePanelOpen(false)}
+        title={bespokePanelTitle}
+        width="1000px" // Increased width by 200px (original was 800px)
       >
-        {selectedAction?.title === 'Create a Task' && <Tasking />}
-        {selectedAction?.title === 'Create a Time Entry' && <CreateTimeEntryForm />}
-        {selectedAction?.title === 'Save Attendance Note' && <TelephoneAttendance />}
-        {selectedAction?.title === 'Save Telephone Note' && <TelephoneAttendance />}
-        {selectedAction?.title === 'Create a Contact' && <RetrieveContactForm />}
-        {selectedAction?.title === 'Retrieve a Contact' && <RetrieveContactForm />}
-      </Panel>
+        {bespokePanelContent}
+      </BespokePanel>
 
+      {/* Existing Panels */}
       {selectedForm && (
         <FormDetails
           isOpen={true}

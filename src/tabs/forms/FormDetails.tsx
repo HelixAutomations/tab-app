@@ -1,9 +1,9 @@
+// src/tabs/forms/FormDetails.tsx
+
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Stack,
   Text,
-  Panel,
-  PanelType,
   Link,
   TooltipHost,
   PrimaryButton,
@@ -19,6 +19,9 @@ import loaderIcon from '../../assets/grey helix mark.png';
 import { BespokeForm } from '../../app/styles/BespokeForms';
 import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from '../../app/styles/ButtonStyles';
 
+// Import the custom BespokePanel
+import BespokePanel from '../../app/functionality/BespokePanel';
+
 interface FormDetailsProps {
   link: FormItem;
   isDarkMode: boolean;
@@ -32,6 +35,9 @@ const detailsContainerStyle = (isDarkMode: boolean) =>
     padding: '20px',
     color: isDarkMode ? colours.dark.text : colours.light.text,
     fontFamily: 'Raleway, sans-serif',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '10px',
   });
 
 const headerContainerStyle = (isDarkMode: boolean) =>
@@ -54,7 +60,6 @@ const titleStyle = (isDarkMode: boolean) =>
 
 const buttonsContainerStyle = (isDarkMode: boolean) =>
   mergeStyles({
-    marginTop: '20px',
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -65,33 +70,6 @@ const leftButtonsStyle = () =>
     display: 'flex',
     gap: '10px',
   });
-
-const panelStyles = {
-  main: {
-    height: '100vh',
-    maxWidth: '800px',
-  },
-  content: {
-    display: 'flex',
-    flexDirection: 'column',
-    height: '100%',
-    padding: '0',
-  },
-  scrollableContent: {
-    flexGrow: 1,
-    display: 'flex',
-    flexDirection: 'column',
-  },
-  navigation: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    width: '100%',
-    padding: '0',
-    boxSizing: 'border-box',
-    borderBottom: `1px solid ${colours.light.border}`,
-  },
-};
 
 const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose, isOpen }) => {
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
@@ -144,7 +122,7 @@ const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose, is
     });
   }, []);
 
-  // Load the Cognito script when the component mounts
+  // Load the Cognito script when the panel opens
   useEffect(() => {
     if (isOpen) {
       loadCognitoScript()
@@ -191,64 +169,44 @@ const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose, is
   }, [link.url]);
 
   return (
-    <Panel
+    <BespokePanel
       isOpen={isOpen}
-      onDismiss={onClose}
-      type={PanelType.custom}
-      customWidth="100%"
-      styles={panelStyles}
-      onRenderHeader={() => (
-        <div className={headerContainerStyle(isDarkMode)}>
-          {link.icon && (
-            <Icon
-              iconName={link.icon}
-              styles={{
-                root: {
-                  fontSize: 24,
-                  color: colours.highlight,
-                  marginTop: '2px',
-                },
-              }}
-              aria-hidden="true"
-            />
-          )}
-          <Text variant="medium" className={titleStyle(isDarkMode)}>
-            {link.title}
-          </Text>
-        </div>
-      )}
+      onClose={onClose}
+      title={link.title}
+      width="1000px" // Increased width by 200px (original was 800px)
     >
-      {/* Main content area */}
-      <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
-        {/* Embed Form */}
-        {link.embedScript ? (
-          <div
-            ref={formContainerRef}
-            style={{ marginTop: '20px', padding: '0 24px', flexGrow: 1 }}
-          >
-            {!isCognitoLoaded && (
-              <div style={loaderStyle}>
-                <img src={loaderIcon} alt="Loading..." style={{ width: '100px', height: 'auto' }} />
-              </div>
-            )}
-            {/* Cognito form will be injected here */}
-          </div>
-        ) : link.fields ? (
-          <div style={{ marginTop: '20px', padding: '0 24px', flexGrow: 1 }}>
-            <BespokeForm
-              fields={link.fields}
-              onSubmit={(values) => console.log('Submitted Financial Form:', values)}
-              onCancel={() => console.log('Form cancelled')}
-            />
-          </div>
-        ) : (
-          <div style={{ marginTop: '20px', padding: '0 24px', flexGrow: 1 }}>
-            <Text>No form available for this item.</Text>
-          </div>
-        )}
+      {/* Main container with flex layout */}
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        {/* Form Content */}
+        <div style={{ flexGrow: 1, overflowY: 'auto', padding: '20px' }}>
+          {link.embedScript ? (
+            <div
+              ref={formContainerRef}
+              style={{ flexGrow: 1 }}
+            >
+              {!isCognitoLoaded && (
+                <div style={loaderStyle}>
+                  <img src={loaderIcon} alt="Loading..." style={{ width: '100px', height: 'auto' }} />
+                </div>
+              )}
+              {/* Cognito form will be injected here */}
+            </div>
+          ) : link.fields ? (
+            <div style={{ flexGrow: 1 }}>
+              <BespokeForm
+                fields={link.fields}
+                onSubmit={(values) => console.log('Submitted Financial Form:', values)}
+                onCancel={() => console.log('Form cancelled')}
+              />
+            </div>
+          ) : (
+            <div>
+              <Text>No form available for this item.</Text>
+            </div>
+          )}
+        </div>
 
-
-        {/* Content aligned to the bottom */}
+        {/* Footer: URL and Buttons */}
         <div className={detailsContainerStyle(isDarkMode)}>
           {/* URL Section */}
           <Stack tokens={{ childrenGap: 6 }}>
@@ -261,31 +219,31 @@ const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose, is
           </Stack>
 
           {/* Buttons */}
-        <div className={buttonsContainerStyle(isDarkMode)}>
-          <div className={leftButtonsStyle()}>
-            <PrimaryButton
-              text="Copy"
-              onClick={copyToClipboard}
-              styles={sharedPrimaryButtonStyles}
-              ariaLabel="Copy URL to clipboard"
-              iconProps={{ iconName: 'Copy' }}
-            />
-            <PrimaryButton
-              text="Go To"
-              onClick={goToLink}
-              styles={sharedPrimaryButtonStyles}
-              ariaLabel="Go to URL"
-              iconProps={{ iconName: 'NavigateExternalInline' }}
+          <div className={buttonsContainerStyle(isDarkMode)}>
+            <div className={leftButtonsStyle()}>
+              <PrimaryButton
+                text="Copy"
+                onClick={copyToClipboard}
+                styles={sharedPrimaryButtonStyles}
+                ariaLabel="Copy URL to clipboard"
+                iconProps={{ iconName: 'Copy' }}
+              />
+              <PrimaryButton
+                text="Go To"
+                onClick={goToLink}
+                styles={sharedPrimaryButtonStyles}
+                ariaLabel="Go to URL"
+                iconProps={{ iconName: 'NavigateExternalInline' }}
+              />
+            </div>
+            <DefaultButton
+              text="Close"
+              onClick={onClose}
+              styles={sharedDefaultButtonStyles}
+              ariaLabel="Close Details"
+              iconProps={{ iconName: 'Cancel' }}
             />
           </div>
-          <DefaultButton
-            text="Close"
-            onClick={onClose}
-            styles={sharedDefaultButtonStyles}
-            ariaLabel="Close Details"
-            iconProps={{ iconName: 'Cancel' }}
-          />
-        </div>
         </div>
       </div>
 
@@ -310,7 +268,7 @@ const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose, is
           {copySuccess}
         </MessageBar>
       )}
-    </Panel>
+    </BespokePanel>
   );
 };
 
