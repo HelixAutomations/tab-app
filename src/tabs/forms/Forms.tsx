@@ -28,7 +28,7 @@ import { financialForms } from './FinancialForms';
 initializeIcons();
 
 // Define types for sections and links
-export type SectionName = 'Favorites' | 'General_Processes' | 'Operations' | 'Financial';
+export type SectionName = 'Favorites' | 'Financial' | 'General_Processes' | 'Operations';
 
 export interface FormItem {
   title: string;
@@ -284,7 +284,7 @@ const Forms: React.FC = () => {
     };
 
     // Prepare Favorites section separately
-    const allSectionsExceptFavorites = ['General_Processes', 'Operations', 'Financial'] as SectionName[];
+    const allSectionsExceptFavorites = ['Financial', 'General_Processes', 'Operations'] as SectionName[];
     const favoriteLinks = allSectionsExceptFavorites.reduce<FormItem[]>((acc, section) => {
       return acc.concat(formHubSections[section].filter(link => favorites.some(fav => fav.title === link.title)));
     }, []);
@@ -295,9 +295,9 @@ const Forms: React.FC = () => {
           link.title.toLowerCase().includes(searchQuery.toLowerCase())
         )
       ),
+      Financial: sortLinks(filterLinks(formHubSections.Financial)),
       General_Processes: sortLinks(filterLinks(formHubSections.General_Processes)),
       Operations: sortLinks(filterLinks(formHubSections.Operations)),
-      Financial: sortLinks(filterLinks(formHubSections.Financial)),
     };
   }, [favorites, formHubSections, searchQuery]);
 
@@ -352,33 +352,86 @@ const Forms: React.FC = () => {
           </section>
         )}
 
-        {(['General_Processes', 'Operations', 'Financial'] as SectionName[]).map((sectionName) => (
-          filteredSections[sectionName].length > 0 && (
-            <section key={sectionName} className={sectionStyle(isDarkMode)}>
-              <Text variant="large" className={sectionHeaderStyleCustom(isDarkMode)}>
-                {sectionName.replace('_', ' ')}
-              </Text>
-              <div className={resourceGridStyle}>
-                {filteredSections[sectionName].map((link: FormItem, index: number) => {
-                  const animationDelay = calculateAnimationDelay(index);
-                  return (
-                    <FormCard
-                      key={link.title}
-                      link={link}
-                      isFavorite={favorites.some(fav => fav.title === link.title)}
-                      onCopy={copyToClipboard}
-                      onToggleFavorite={() => toggleFavorite(link)}
-                      onGoTo={() => goToLink(link.url)}
-                      onSelect={() => setSelectedLink(link)}
-                      animationDelay={animationDelay}
-                      description={link.description} // Pass description if available
-                    />
-                  );
-                })}
-              </div>
-            </section>
-          )
-        ))}
+        {/* Financial Section */}
+        {filteredSections.Financial.length > 0 && (
+          <section key="Financial" className={sectionStyle(isDarkMode)}>
+            <Text variant="large" className={sectionHeaderStyleCustom(isDarkMode)}>
+              Financial
+            </Text>
+            <div className={resourceGridStyle}>
+              {filteredSections.Financial.map((link: FormItem, index: number) => {
+                const animationDelay = calculateAnimationDelay(index);
+                return (
+                  <FormCard
+                    key={link.title}
+                    link={link}
+                    isFavorite={favorites.some(fav => fav.title === link.title)}
+                    onCopy={copyToClipboard}
+                    onToggleFavorite={() => toggleFavorite(link)}
+                    onGoTo={() => goToLink(link.url)}
+                    onSelect={() => setSelectedLink(link)}
+                    animationDelay={animationDelay}
+                    description={link.description} // Pass description if available
+                  />
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* General Processes Section */}
+        {filteredSections.General_Processes.length > 0 && (
+          <section key="General_Processes" className={sectionStyle(isDarkMode)}>
+            <Text variant="large" className={sectionHeaderStyleCustom(isDarkMode)}>
+              General Processes
+            </Text>
+            <div className={resourceGridStyle}>
+              {filteredSections.General_Processes.map((link: FormItem, index: number) => {
+                const animationDelay = calculateAnimationDelay(index);
+                return (
+                  <FormCard
+                    key={link.title}
+                    link={link}
+                    isFavorite={favorites.some(fav => fav.title === link.title)}
+                    onCopy={copyToClipboard}
+                    onToggleFavorite={() => toggleFavorite(link)}
+                    onGoTo={() => goToLink(link.url)}
+                    onSelect={() => setSelectedLink(link)}
+                    animationDelay={animationDelay}
+                    description={link.description} // Pass description if available
+                  />
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* Operations Section */}
+        {filteredSections.Operations.length > 0 && (
+          <section key="Operations" className={sectionStyle(isDarkMode)}>
+            <Text variant="large" className={sectionHeaderStyleCustom(isDarkMode)}>
+              Operations
+            </Text>
+            <div className={resourceGridStyle}>
+              {filteredSections.Operations.map((link: FormItem, index: number) => {
+                const animationDelay = calculateAnimationDelay(index);
+                return (
+                  <FormCard
+                    key={link.title}
+                    link={link}
+                    isFavorite={favorites.some(fav => fav.title === link.title)}
+                    onCopy={copyToClipboard}
+                    onToggleFavorite={() => toggleFavorite(link)}
+                    onGoTo={() => goToLink(link.url)}
+                    onSelect={() => setSelectedLink(link)}
+                    animationDelay={animationDelay}
+                    description={link.description} // Pass description if available
+                  />
+                );
+              })}
+            </div>
+          </section>
+        )}
       </main>
 
       {/* Footer */}

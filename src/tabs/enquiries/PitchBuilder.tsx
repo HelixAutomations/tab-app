@@ -53,7 +53,7 @@ const leftoverPlaceholders = [
   '[Closing Notes Placeholder]',
   '[Google Review Placeholder]',
   '[FE Introduction Placeholder]',
-  '[Introduction Placeholder]',
+  // Removed '[Introduction Placeholder]'
 ];
 
 function removeUnfilledPlaceholders(text: string): string {
@@ -99,7 +99,6 @@ const orderedListIcon: IIconProps = { iconName: 'NumberedList' };
 const linkIcon: IIconProps = { iconName: 'Link' };
 const clearIcon: IIconProps = { iconName: 'Cancel' };
 
-// Updated attachmentTagStyle to handle isDraft
 const attachmentTagStyle = (
   isSelected: boolean,
   isDarkMode: boolean,
@@ -242,10 +241,7 @@ const replacePlaceholders = (
         enquiry.Point_of_Contact || 'Our Team'
       }</span>`
     )
-    .replace(
-      /\[Introduction Placeholder\]/g,
-      `<span data-placeholder="[Introduction Placeholder]" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${intro.trim()}</span>`
-    )
+    // Removed Introduction Placeholder replacement as per the requirement
     .replace(
       /\[Current Situation and Problem Placeholder\]/g,
       `<span data-placeholder="[Current Situation and Problem Placeholder]" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[Current Situation and Problem Placeholder]</span>`
@@ -282,11 +278,13 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
       : 'Your Enquiry'
   );
 
+  const [to, setTo] = useState<string>('');
+  const [cc, setCc] = useState<string>('');
+  const [bcc, setBcc] = useState<string>('');
+
   const BASE_TEMPLATE = `Dear [Enquiry.First_Name],
 
 [FE Introduction Placeholder]
-
-[Introduction Placeholder]
 
 [Current Situation and Problem Placeholder]
 
@@ -353,7 +351,7 @@ Kind regards,
     normalizeBody(
       replacePlaceholders(
         BASE_TEMPLATE,
-        'Thank you for your enquiry. I am confident we can assist with your matter.',
+        '',
         enquiry,
         userData
       )
@@ -372,17 +370,6 @@ Kind regards,
   }>({});
 
   const [insertedBlocks, setInsertedBlocks] = useState<{ [key: string]: boolean }>({});
-
-  const templateOptions: IDropdownOption[] = (() => {
-    const templates = PracticeAreaPitch[selectedPracticeAreaKey];
-    if (!templates) {
-      return [];
-    }
-    return Object.keys(templates).map((tpl) => ({
-      key: tpl,
-      text: tpl,
-    }));
-  })();
 
   const bodyEditorRef = useRef<HTMLDivElement>(null);
   const savedSelection = useRef<Range | null>(null);
@@ -414,7 +401,6 @@ Kind regards,
 
   const insertAtCursor = (html: string) => {
     if (!isSelectionInsideEditor()) {
-      // Insert at the end if selection is not inside the editor
       setBody((prevBody) => prevBody + `\n\n${html}`);
       return;
     }
@@ -434,15 +420,12 @@ Kind regards,
       }
       range.insertNode(fragment);
 
-      // Move the cursor after the inserted content
       range.collapse(false);
       sel.removeAllRanges();
       sel.addRange(range);
 
-      // Save the new selection
       saveSelection();
 
-      // Update the body state without disrupting the editor
       if (bodyEditorRef.current) {
         setBody(bodyEditorRef.current.innerHTML);
       }
@@ -454,7 +437,7 @@ Kind regards,
     selectedOption: string | string[]
   ) => {
     let replacementText = '';
-  
+
     if (block.isMultiSelect && isStringArray(selectedOption)) {
       if (block.title === 'Required Documents') {
         replacementText = `<ul>${selectedOption
@@ -469,18 +452,18 @@ Kind regards,
             const option = block.options.find((o) => o.label === item);
             return option ? option.previewText.trim() : item;
           })
-          .join('<br />'); // Replace \n with <br />
+          .join('<br />');
       }
     } else if (!block.isMultiSelect && typeof selectedOption === 'string') {
       const option = block.options.find((o) => o.label === selectedOption);
       replacementText = option ? option.previewText.trim() : '';
-      replacementText = replacementText.replace(/\n/g, '<br />'); // Replace \n with <br />
+      replacementText = replacementText.replace(/\n/g, '<br />');
     }
-  
+
     const highlightedReplacement = `<span style="background-color: ${colours.highlightYellow}; padding: 0 3px;" data-inserted="${block.title}" data-placeholder="${block.placeholder}">${cleanTemplateString(
       replacementText
     )}</span>`;
-  
+
     setBody((prevBody) => {
       const newBody = prevBody.replace(
         new RegExp(
@@ -492,8 +475,7 @@ Kind regards,
       return newBody;
     });
     setInsertedBlocks((prev) => ({ ...prev, [block.title]: true }));
-  
-    // Update the selection to after the inserted block
+
     setTimeout(() => {
       if (bodyEditorRef.current) {
         const insertedSpan = bodyEditorRef.current.querySelector(`span[data-inserted="${block.title}"]`);
@@ -510,54 +492,21 @@ Kind regards,
         }
       }
     }, 0);
-  };  
+  };
 
   const [template, setTemplate] = useState<string | undefined>(undefined);
 
-  const handleTemplateChange = (
-    _: React.FormEvent<HTMLDivElement>,
-    option?: IDropdownOption
-  ) => {
-    if (option) {
-      setTemplate(option.key as string);
-      const selectedTemplate = PracticeAreaPitch[selectedPracticeAreaKey][
-        option.key as string
-      ];
-      if (selectedTemplate) {
-        const areaOfWork = enquiry.Area_of_Work.trim() || 'Practice Area';
-        setSubject(`Your ${areaOfWork} Enquiry`);
-        setBody((prevBody) => {
-          const introRegex = new RegExp(
-            `(<span[^>]*data-placeholder="\\[Introduction Placeholder\\]"[^>]*>)([\\s\\S]*?)(</span>)`,
-            'g'
-          );
-          const newBody = prevBody.replace(
-            introRegex,
-            `$1<span style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${selectedTemplate.intro.trim()}</span>$3`
-          );
-          return newBody;
-        });
-      }
-    }
-  };
-
-  // Updated toggleAttachment to handle draft status and insert/remove links with red highlight
   const toggleAttachment = (attachment: AttachmentOption) => {
     if (attachment.status === 'draft') {
-      // Do not allow selection of draft attachments
       return;
     }
 
     if (attachments.includes(attachment.key)) {
-      // Unselecting: Remove the link
       setAttachments((prev) => prev.filter((key) => key !== attachment.key));
       removeAttachmentLink(attachment.key);
     } else {
-      // Selecting: Add the link
       setAttachments((prev) => [...prev, attachment.key]);
-      // Save the current selection
       saveSelection();
-      // Insert the link at cursor with red highlight and specified text color
       const linkHTML = `<span style="background-color: #ffe6e6; padding: 0 3px;" data-link="${attachment.key}"><a href="${attachment.link}" style="color: #3690CE; text-decoration: none;">${attachment.text}</a></span>`;
       insertAtCursor(linkHTML);
     }
@@ -599,11 +548,14 @@ Kind regards,
   const resetForm = () => {
     setTemplate(undefined);
     setSubject('Your Practice Area Enquiry');
+    setTo('');
+    setCc('');
+    setBcc('');
     setBody(
       normalizeBody(
         replacePlaceholders(
           BASE_TEMPLATE,
-          'Thank you for your enquiry. I am confident we can assist with your matter.',
+          '',
           enquiry,
           userData
         )
@@ -619,6 +571,11 @@ Kind regards,
   };
 
   const validateForm = (): boolean => {
+    if (!to.trim()) {
+      setErrorMessage('To field cannot be empty.');
+      setIsErrorVisible(true);
+      return false;
+    }
     if (!subject.trim()) {
       setErrorMessage('Subject cannot be empty.');
       setIsErrorVisible(true);
@@ -641,9 +598,11 @@ Kind regards,
             followUpOptions.find((opt) => opt.key === followUp)?.text
           }`
         : '';
-      // Here, remove placeholders and link highlights on a per-line basis, then consolidate blank lines
       const finalBody = removeUnfilledPlaceholders(getPlainTextBody(body));
       console.log('Email Sent:', {
+        to,
+        cc,
+        bcc,
         subject,
         body: finalBody + followUpText,
         attachments,
@@ -654,7 +613,6 @@ Kind regards,
     }
   };
 
-  // Updated removeHighlightSpans to also remove link highlights
   const removeHighlightSpans = (html: string): string => {
     const tempDiv = document.createElement('div');
     tempDiv.innerHTML = html;
@@ -683,6 +641,9 @@ Kind regards,
       email_contents: fullEmailHtml,
       user_email: enquiry.Point_of_Contact,
       subject_line: subject,
+      to: to,
+      cc: cc,
+      bcc: bcc,
     };
 
     try {
@@ -786,10 +747,11 @@ Kind regards,
     fontFamily: 'Raleway, sans-serif',
     display: 'flex',
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'stretch',
     gap: '20px',
     justifyContent: 'space-between',
-    height: 'auto',
+    height: 'calc(100vh - 80px)', // fixed height relative to viewport
+    flexWrap: 'nowrap',           // prevent wrapping of columns
     boxSizing: 'border-box',
   });
 
@@ -798,7 +760,7 @@ Kind regards,
     minWidth: '300px',
     display: 'flex',
     flexDirection: 'column',
-    height: 'auto',
+    height: '100%',  // fill vertical space
   });
 
   const templatesContainerStyle = mergeStyles({
@@ -806,22 +768,17 @@ Kind regards,
     display: 'flex',
     flexDirection: 'column',
     gap: '20px',
-    height: 'auto',
+    height: '100%',      // fill vertical space
     overflowY: 'auto',
   });
 
   const templatesGridStyle = mergeStyles({
     flex: 1,
     overflowY: 'auto',
-    display: 'grid',
-    gridTemplateColumns: 'repeat(2, 1fr)',
+    display: 'flex',
+    flexDirection: 'column',
     gap: '20px',
-    '@media (max-width: 1200px)': {
-      gridTemplateColumns: 'repeat(1, 1fr)',
-    },
-    '@media (max-width: 800px)': {
-      gridTemplateColumns: '1fr',
-    },
+    maxHeight: '100%',   // use full available height
   });
 
   const buttonGroupStyle = mergeStyles({
@@ -869,18 +826,18 @@ Kind regards,
   const renderPreview = (block: TemplateBlock) => {
     const selectedOptions = selectedTemplateOptions[block.title];
     const isInserted = insertedBlocks[block.title] || false;
-  
+
     if (
       !selectedOptions ||
       (block.isMultiSelect && Array.isArray(selectedOptions) && selectedOptions.length === 0)
     ) {
       return null;
     }
-  
+
     const formatPreviewText = (text: string) => {
-      return text.replace(/\n/g, '<br />'); // Replace \n with <br /> for line breaks
+      return text.replace(/\n/g, '<br />');
     };
-  
+
     return (
       <div className={templatePreviewStyle(isDarkMode, isInserted)}>
         {block.isMultiSelect && Array.isArray(selectedOptions) ? (
@@ -909,12 +866,13 @@ Kind regards,
         )}
       </div>
     );
-  };  
+  };
 
   const fullName = `${enquiry.First_Name || ''} ${enquiry.Last_Name || ''}`.trim();
 
   return (
     <Stack className={containerStyle}>
+      {/* Form Container */}
       <Stack className={formContainerStyle} tokens={{ childrenGap: 20 }}>
         <Text
           variant="xLarge"
@@ -923,217 +881,175 @@ Kind regards,
           Pitch Builder
         </Text>
 
-        <Stack tokens={{ childrenGap: 6 }} styles={{ root: { flexGrow: 1 } }}>
-          <Label className={labelStyle}>Subject Line & Practice Area Template</Label>
-          <BubbleTextField
-            value={subject}
-            onChange={(
-              _: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>,
-              newValue?: string
-            ) => setSubject(newValue || '')}
-            placeholder="Enter email subject"
-            ariaLabel="Email Subject"
-            isDarkMode={isDarkMode}
-            style={{ borderRadius: '8px 8px 0 0' }}
-          />
+        {/* To, CC, BCC, Subject Line */}
+        <Stack tokens={{ childrenGap: 20 }}>
+          {/* To, CC, BCC on the same line */}
+          <Stack horizontal tokens={{ childrenGap: 10 }} verticalAlign="start">
+            {/* To Field */}
+            <Stack tokens={{ childrenGap: 6 }} style={{ flex: 1 }}>
+              <Label className={labelStyle}>To</Label>
+              <BubbleTextField
+                value={to}
+                onChange={(
+                  _: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>,
+                  newValue?: string
+                ) => setTo(newValue || '')}
+                placeholder="Enter recipient addresses, separated by commas"
+                ariaLabel="To Addresses"
+                isDarkMode={isDarkMode}
+                style={{ borderRadius: '8px' }}
+              />
+            </Stack>
 
-          <Dropdown
-            placeholder="Choose a template"
-            options={templateOptions}
-            onChange={handleTemplateChange}
-            selectedKey={template}
-            styles={{
-              dropdown: { width: '100%' },
-              title: {
-                ...commonInputStyle,
-                padding: '0 15px',
-                borderRadius: '0 0 8px 8px',
-                border: 'none',
-                display: 'flex',
-                alignItems: 'center',
-                height: '40px',
-                lineHeight: 'normal',
-                color: isDarkMode ? colours.dark.text : colours.light.text,
-                selectors: {
-                  ':hover': {
-                    backgroundColor: isDarkMode
-                      ? colours.dark.cardHover
-                      : colours.light.cardHover,
-                  },
-                },
-              },
-              caretDownWrapper: {
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                height: '100%',
-                pointerEvents: 'none',
-              },
-              dropdownItem: {
-                selectors: {
-                  ':hover': {
-                    backgroundColor: isDarkMode
-                      ? colours.dark.cardHover
-                      : colours.light.cardHover,
-                  },
-                },
-              },
-              callout: {
-                boxShadow: isDarkMode
-                  ? '0 2px 5px rgba(255, 255, 255, 0.1)'
-                  : '0 2px 5px rgba(0, 0, 0, 0.1)',
-              },
-              root: {
-                border: 'none',
-                borderRadius: '0 0 8px 8px',
-                backgroundColor: isDarkMode
-                  ? colours.dark.sectionBackground
-                  : '#ffffff',
-                boxShadow: isDarkMode
-                  ? '0 2px 5px rgba(255, 255, 255, 0.1)'
-                  : '0 2px 5px rgba(0, 0, 0, 0.1)',
-              },
-            }}
-            ariaLabel="Select Template"
-          />
+            {/* CC Field */}
+            <Stack tokens={{ childrenGap: 6 }} style={{ flex: 1 }}>
+              <Label className={labelStyle}>CC</Label>
+              <BubbleTextField
+                value={cc}
+                onChange={(
+                  _: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>,
+                  newValue?: string
+                ) => setCc(newValue || '')}
+                placeholder="Enter CC addresses, separated by commas"
+                ariaLabel="CC Addresses"
+                isDarkMode={isDarkMode}
+                style={{ borderRadius: '8px' }}
+              />
+            </Stack>
 
-          <Label className={labelStyle}>Email Body</Label>
-          <div className={toolbarStyle}>
-            <IconButton
-              iconProps={boldIcon}
-              ariaLabel="Bold"
-              onClick={() => applyFormat('bold')}
-            />
-            <IconButton
-              iconProps={italicIcon}
-              ariaLabel="Italic"
-              onClick={() => applyFormat('italic')}
-            />
-            <IconButton
-              iconProps={underlineIcon}
-              ariaLabel="Underline"
-              onClick={() => applyFormat('underline')}
-            />
-            <IconButton
-              iconProps={unorderedListIcon}
-              ariaLabel="Bulleted List"
-              onClick={() => applyFormat('insertUnorderedList')}
-            />
-            <IconButton
-              iconProps={orderedListIcon}
-              ariaLabel="Numbered List"
-              onClick={() => applyFormat('insertOrderedList')}
-            />
-            <IconButton
-              iconProps={linkIcon}
-              ariaLabel="Insert Link"
-              onClick={() => {
-                const url = prompt('Enter the URL');
-                if (url) {
-                  applyFormat('createLink', url);
-                }
-              }}
-            />
-          </div>
-          <div
-            contentEditable
-            ref={bodyEditorRef}
-            onBlur={handleBlur}
-            suppressContentEditableWarning={true}
-            className={sharedEditorStyle(isDarkMode)}
-            style={{
-              flexGrow: 1,
-              overflowY: 'auto',
-              height: 'auto',
-              minHeight: '200px',
-              maxHeight: 'none',
-            }}
-            aria-label="Email Body Editor"
-            onMouseUp={saveSelection}
-            onKeyUp={saveSelection}
-          />
-
-          <Label className={labelStyle}>Select Attachments</Label>
-          <Stack horizontal tokens={{ childrenGap: 8 }} wrap>
-            {getFilteredAttachments().map((attachment: AttachmentOption) => {
-              const isSelected = attachments.includes(attachment.key);
-              const isDraft = attachment.status === 'draft';
-              return (
-                <span
-                  key={attachment.key}
-                  className={attachmentTagStyle(isSelected, isDarkMode, isDraft)}
-                  onClick={() => toggleAttachment(attachment)}
-                  style={{ cursor: isDraft ? 'not-allowed' : 'pointer', opacity: isDraft ? 0.5 : 1 }}
-                  title={isDraft ? 'This attachment is in draft and cannot be selected.' : ''}
-                  role={isDraft ? 'img' : 'button'}
-                  aria-disabled={isDraft}
-                >
-                  {attachment.text} {isDraft && <span style={{ color: 'gray', fontSize: '0.8em' }}>[draft]</span>}
-                </span>
-              );
-            })}
+            {/* BCC Field */}
+            <Stack tokens={{ childrenGap: 6 }} style={{ flex: 1 }}>
+              <Label className={labelStyle}>BCC</Label>
+              <BubbleTextField
+                value={bcc}
+                onChange={(
+                  _: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>,
+                  newValue?: string
+                ) => setBcc(newValue || '')}
+                placeholder="Enter BCC addresses, separated by commas"
+                ariaLabel="BCC Addresses"
+                isDarkMode={isDarkMode}
+                style={{ borderRadius: '8px' }}
+              />
+            </Stack>
           </Stack>
 
-          <Label className={labelStyle}>Follow Up</Label>
-          <Stack horizontal tokens={{ childrenGap: 8 }} wrap>
-            {followUpOptions.map((option: IDropdownOption) => {
-              const isSelected = followUp === option.key;
-              return (
-                <span
-                  key={option.key}
-                  className={followUpTagStyle(isSelected, isDarkMode)}
-                  onClick={() =>
-                    setFollowUp(isSelected ? undefined : (option.key as string))
-                  }
-                  role="button"
-                  tabIndex={0}
-                  aria-pressed={isSelected}
-                  aria-label={`Set follow up to ${option.text}`}
-                >
-                  {option.text}
-                </span>
-              );
-            })}
-          </Stack>
-
-          {isErrorVisible && (
-            <MessageBar
-              messageBarType={MessageBarType.error}
-              isMultiline={false}
-              onDismiss={() => setIsErrorVisible(false)}
-              dismissButtonAriaLabel="Close"
-              styles={{ root: { borderRadius: '4px' } }}
-            >
-              {errorMessage}
-            </MessageBar>
-          )}
-
-          <Separator />
-
-          <Stack
-            horizontal
-            horizontalAlign="space-between"
-            className={buttonGroupStyle}
-          >
-            <PrimaryButton
-              text="Preview Email"
-              onClick={togglePreview}
-              styles={sharedPrimaryButtonStyles}
-              ariaLabel="Preview Email"
-              iconProps={{ iconName: 'Preview' }}
-            />
-
-            <DefaultButton
-              text="Reset"
-              onClick={resetForm}
-              styles={sharedDefaultButtonStyles}
-              ariaLabel="Reset Form"
-              iconProps={{ iconName: 'Refresh' }}
+          {/* Subject Line */}
+          <Stack tokens={{ childrenGap: 6 }}>
+            <Label className={labelStyle}>Subject Line</Label>
+            <BubbleTextField
+              value={subject}
+              onChange={(
+                _: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>,
+                newValue?: string
+              ) => setSubject(newValue || '')}
+              placeholder="Enter email subject"
+              ariaLabel="Email Subject"
+              isDarkMode={isDarkMode}
+              style={{ borderRadius: '8px' }}
             />
           </Stack>
         </Stack>
+
+        {/* Email Body */}
+        <Label className={labelStyle}>Email Body</Label>
+        <Stack horizontal tokens={{ childrenGap: 20 }}>
+          <Stack tokens={{ childrenGap: 6 }} grow>
+            <div className={toolbarStyle}>
+              <IconButton
+                iconProps={boldIcon}
+                ariaLabel="Bold"
+                onClick={() => applyFormat('bold')}
+              />
+              <IconButton
+                iconProps={italicIcon}
+                ariaLabel="Italic"
+                onClick={() => applyFormat('italic')}
+              />
+              <IconButton
+                iconProps={underlineIcon}
+                ariaLabel="Underline"
+                onClick={() => applyFormat('underline')}
+              />
+              <IconButton
+                iconProps={unorderedListIcon}
+                ariaLabel="Bulleted List"
+                onClick={() => applyFormat('insertUnorderedList')}
+              />
+              <IconButton
+                iconProps={orderedListIcon}
+                ariaLabel="Numbered List"
+                onClick={() => applyFormat('insertOrderedList')}
+              />
+              <IconButton
+                iconProps={linkIcon}
+                ariaLabel="Insert Link"
+                onClick={() => {
+                  const url = prompt('Enter the URL');
+                  if (url) {
+                    applyFormat('createLink', url);
+                  }
+                }}
+              />
+            </div>
+            <div
+              contentEditable
+              ref={bodyEditorRef}
+              onBlur={handleBlur}
+              suppressContentEditableWarning={true}
+              className={sharedEditorStyle(isDarkMode)}
+              style={{
+                flexGrow: 1,
+                overflowY: 'auto',
+                height: 'auto',
+                minHeight: '200px',
+                maxHeight: 'none',
+              }}
+              aria-label="Email Body Editor"
+              onMouseUp={saveSelection}
+              onKeyUp={saveSelection}
+            />
+          </Stack>
+        </Stack>
+
+        {isErrorVisible && (
+          <MessageBar
+            messageBarType={MessageBarType.error}
+            isMultiline={false}
+            onDismiss={() => setIsErrorVisible(false)}
+            dismissButtonAriaLabel="Close"
+            styles={{ root: { borderRadius: '4px' } }}
+          >
+            {errorMessage}
+          </MessageBar>
+        )}
+
+        <Separator />
+
+        <Stack
+          horizontal
+          horizontalAlign="space-between"
+          className={buttonGroupStyle}
+        >
+          <PrimaryButton
+            text="Preview Email"
+            onClick={togglePreview}
+            styles={sharedPrimaryButtonStyles}
+            ariaLabel="Preview Email"
+            iconProps={{ iconName: 'Preview' }}
+          />
+
+          <DefaultButton
+            text="Reset"
+            onClick={resetForm}
+            styles={sharedDefaultButtonStyles}
+            ariaLabel="Reset Form"
+            iconProps={{ iconName: 'Refresh' }}
+          />
+        </Stack>
       </Stack>
 
+      {/* Templates Container */}
       <Stack className={templatesContainerStyle}>
         {enquiry.Initial_first_call_notes && (
           <Stack
@@ -1287,6 +1203,7 @@ Kind regards,
         </Stack>
       </Stack>
 
+      {/* Preview Panel */}
       <Panel
         isOpen={isPreviewOpen}
         onDismiss={togglePreview}
@@ -1342,6 +1259,58 @@ Kind regards,
 
           <Separator />
 
+          {/* To */}
+          <Stack tokens={{ childrenGap: 6 }}>
+            <Text
+              variant="large"
+              styles={{
+                root: { fontWeight: '600', color: colours.highlight, marginBottom: '5px' },
+              }}
+            >
+              To:
+            </Text>
+            <Text variant="medium" styles={{ root: { whiteSpace: 'pre-wrap' } }}>
+              {to || 'N/A'}
+            </Text>
+          </Stack>
+
+          <Separator />
+
+          {/* CC */}
+          <Stack tokens={{ childrenGap: 6 }}>
+            <Text
+              variant="large"
+              styles={{
+                root: { fontWeight: '600', color: colours.highlight, marginBottom: '5px' },
+              }}
+            >
+              CC:
+            </Text>
+            <Text variant="medium" styles={{ root: { whiteSpace: 'pre-wrap' } }}>
+              {cc || 'N/A'}
+            </Text>
+          </Stack>
+
+          <Separator />
+
+          {/* BCC */}
+          <Stack tokens={{ childrenGap: 6 }}>
+            <Text
+              variant="large"
+              styles={{
+                root: { fontWeight: '600', color: colours.highlight, marginBottom: '5px' },
+              }}
+            >
+              BCC:
+            </Text>
+            <Text variant="medium" styles={{ root: { whiteSpace: 'pre-wrap' } }}>
+              {bcc || 'N/A'}
+            </Text>
+          </Stack>
+
+          <Separator />
+
+          {/* Subject */}
           <Stack tokens={{ childrenGap: 6 }}>
             <Text
               variant="large"
@@ -1355,7 +1324,10 @@ Kind regards,
               {subject || 'N/A'}
             </Text>
           </Stack>
+
           <Separator />
+          
+          {/* Body */}
           <Stack tokens={{ childrenGap: 6 }}>
             <Text
               variant="large"
@@ -1372,6 +1344,7 @@ Kind regards,
               }}
             />
           </Stack>
+
           {attachments.length > 0 && (
             <>
               <Separator />
@@ -1395,6 +1368,7 @@ Kind regards,
               </Stack>
             </>
           )}
+
           {followUp && (
             <>
               <Separator />
@@ -1446,7 +1420,6 @@ Kind regards,
   );
 };
 
-// Updated removeHighlightSpans to also remove link highlights
 const removeHighlightSpans = (html: string): string => {
   const tempDiv = document.createElement('div');
   tempDiv.innerHTML = html;

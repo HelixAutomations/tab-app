@@ -483,7 +483,9 @@ const Resources: React.FC<ResourcesProps> = () => {
               right: 20,
               maxWidth: '300px',
               zIndex: 1000,
-              borderRadius: '4px',
+              borderRadius: '8px',
+              backgroundColor: colours.green,
+              color: 'white',
             },
           }}
         >

@@ -245,177 +245,19 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
           <div style={{ width: '40px' }}></div>
         </Stack>
 
-        {/* Matter Details */}
-        <Text variant="xxLarge" styles={{ root: { fontWeight: 'bold' } }}>
-          Matter Details
+        {/* Display the 'Not ready yet' Message */}
+        <Text
+          variant="xxLarge"
+          styles={{
+            root: {
+              fontWeight: 'bold',
+              textAlign: 'center',
+              color: isDarkMode ? colours.dark.text : colours.light.text,
+            },
+          }}
+        >
+          Not ready yet - working on it!
         </Text>
-        <Stack tokens={{ childrenGap: 8 }}>
-          {/* Display Number */}
-          <Stack tokens={{ childrenGap: 4 }}>
-            <Text
-              variant="small"
-              styles={{
-                root: {
-                  color: colours.highlight,
-                  fontWeight: 'semibold',
-                },
-              }}
-            >
-              Display Number
-            </Text>
-            <Text
-              variant="small"
-              styles={{
-                root: {
-                  color: isDarkMode ? colours.dark.text : colours.light.text,
-                },
-              }}
-            >
-              {matter.DisplayNumber}
-            </Text>
-          </Stack>
-
-          {/* Open Date */}
-          <Stack tokens={{ childrenGap: 4 }}>
-            <Text
-              variant="small"
-              styles={{
-                root: {
-                  color: colours.highlight,
-                  fontWeight: 'semibold',
-                },
-              }}
-            >
-              Open Date
-            </Text>
-            <Text
-              variant="small"
-              styles={{
-                root: {
-                  color: isDarkMode ? colours.dark.text : colours.light.text,
-                },
-              }}
-            >
-              {new Date(matter.OpenDate).toLocaleDateString()}
-            </Text>
-          </Stack>
-
-          {/* Practice Area */}
-          <Stack tokens={{ childrenGap: 4 }}>
-            <Text
-              variant="small"
-              styles={{
-                root: {
-                  color: colours.highlight,
-                  fontWeight: 'semibold',
-                },
-              }}
-            >
-              Practice Area
-            </Text>
-            <Text
-              variant="small"
-              styles={{
-                root: {
-                  color: isDarkMode ? colours.dark.text : colours.light.text,
-                },
-              }}
-            >
-              {matter.PracticeArea}
-            </Text>
-          </Stack>
-
-          {/* Client Name */}
-          <Stack tokens={{ childrenGap: 4 }}>
-            <Text
-              variant="small"
-              styles={{
-                root: {
-                  color: colours.highlight,
-                  fontWeight: 'semibold',
-                },
-              }}
-            >
-              Client Name
-            </Text>
-            <Text
-              variant="small"
-              styles={{
-                root: {
-                  color: isDarkMode ? colours.dark.text : colours.light.text,
-                },
-              }}
-            >
-              {matter.ClientName}
-            </Text>
-          </Stack>
-
-          {/* Description */}
-          <Stack tokens={{ childrenGap: 4 }}>
-            <Text
-              variant="small"
-              styles={{
-                root: {
-                  color: colours.highlight,
-                  fontWeight: 'semibold',
-                },
-              }}
-            >
-              Description
-            </Text>
-            <Text
-              variant="small"
-              styles={{
-                root: {
-                  color: isDarkMode ? colours.dark.text : colours.light.text,
-                },
-              }}
-            >
-              {matter.Description}
-            </Text>
-          </Stack>
-
-          {/* Approx. Value */}
-          <Stack tokens={{ childrenGap: 4 }}>
-            <Text
-              variant="small"
-              styles={{
-                root: {
-                  color: colours.highlight,
-                  fontWeight: 'semibold',
-                },
-              }}
-            >
-              Approx. Value
-            </Text>
-            <Text
-              variant="small"
-              styles={{
-                root: {
-                  color: isDarkMode ? colours.dark.text : colours.light.text,
-                },
-              }}
-            >
-              {matter.ApproxValue}
-            </Text>
-          </Stack>
-        </Stack>
-
-        {/* Action Buttons */}
-        <Stack horizontal tokens={{ childrenGap: 10 }} styles={{ root: { marginTop: '20px' } }}>
-          <PrimaryButton
-            text="Call Client"
-            iconProps={{ iconName: 'Phone' }}
-            onClick={() => window.location.href = `tel:${matter.ClientPhone}`}
-            styles={actionButtonStyle}
-          />
-          <PrimaryButton
-            text="Email Client"
-            iconProps={{ iconName: 'Mail' }}
-            onClick={() => window.location.href = `mailto:${matter.ClientEmail}`}
-            styles={actionButtonStyle}
-          />
-        </Stack>
       </Stack>
     ),
     [handleBackToList, isDarkMode]
@@ -423,8 +265,9 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
 
   // Calculate animation delays based on index
   const calculateAnimationDelay = (index: number) => {
-    const delayPerCard = 0.1; // 0.1 seconds delay per card
-    return index * delayPerCard;
+    const row = Math.floor(index / 5); // Assuming 5 columns per row
+    const col = index % 5;
+    return row * 0.2 + col * 0.1; // Adjust delays as needed
   };
 
   return (
@@ -432,7 +275,6 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
       {/* Header: Search and Filter Controls */}
       <div className={headerStyle(isDarkMode)}>
         <div className={sharedControlsContainerStyle}>
-
           {/* Search Box */}
           <div className={sharedSearchBoxContainerStyle(isDarkMode)}>
             <SearchBox
@@ -507,8 +349,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
                   })}
                 >
                   {currentMatters.map((matter, index) => {
-                    const globalIndex = index; // Simplify animation delay
-                    const animationDelay = calculateAnimationDelay(globalIndex);
+                    const animationDelay = calculateAnimationDelay(index);
                     return (
                       <MatterCard
                         key={matter.UniqueID}

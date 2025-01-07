@@ -1,6 +1,6 @@
 // src/tabs/home/Home.tsx
 
-import React, { useState, useEffect, useMemo, ReactNode } from 'react';
+import React, { useState, useEffect, useMemo, ReactNode, useRef } from 'react';
 import {
   mergeStyles,
   Text,
@@ -31,8 +31,6 @@ import '../../app/styles/MetricCard.css';
 
 import Tasking from '../../CustomForms/Tasking';
 import TelephoneAttendance from '../../CustomForms/TelephoneAttendance';
-import RetrieveContactForm from '../../CustomForms/RetrieveContactForm';
-import CreateTimeEntryForm from '../../CustomForms/CreateTimeEntryForm';
 
 import FormCard from '../forms/FormCard';
 import ResourceCard from '../resources/ResourceCard';
@@ -85,8 +83,8 @@ const quickActions: QuickLink[] = [
   { title: 'Create a Time Entry', icon: 'Clock' },
   { title: 'Save Telephone Note', icon: 'Comment' },
   { title: 'Save Attendance Note', icon: 'NotePinned' },
-  { title: 'Create a Contact', icon: 'AddFriend' },
-  { title: 'Retrieve a Contact', icon: 'Contact' },
+  { title: 'Request ID', icon: 'ContactInfo' }, // Renamed from 'Create a Contact' with updated icon
+  { title: 'Open a Matter', icon: 'FolderOpen' }, // Renamed from 'Retrieve a Contact' with updated icon
 ];
 
 const containerStyle = (isDarkMode: boolean) =>
@@ -404,7 +402,7 @@ const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean; animationDel
       </div>
     );
 
-  // If user is on annual leave
+    // If user is on annual leave
   } else if (person.presence === PersonaPresence.busy) {
     return (
       <div className={bubbleStyle}>
@@ -430,7 +428,7 @@ const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean; animationDel
       </div>
     );
 
-  // Otherwise, fallback
+    // Otherwise, fallback
   } else {
     return (
       <div className={bubbleStyle}>
@@ -473,6 +471,33 @@ let cachedRecovered: number | null = null;
 let cachedRecoveredError: string | null = null;
 
 // You can define more caching variables as needed for other data
+
+// Updated CognitoForm Component to ensure forms render inside the BespokePanel
+const CognitoForm: React.FC<{ dataKey: string; dataForm: string }> = ({ dataKey, dataForm }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (containerRef.current) {
+      // Clear any existing content
+      containerRef.current.innerHTML = '';
+
+      const script = document.createElement('script');
+      script.src = 'https://www.cognitoforms.com/f/seamless.js';
+      script.setAttribute('data-key', dataKey);
+      script.setAttribute('data-form', dataForm);
+      script.async = true;
+      containerRef.current.appendChild(script);
+
+      return () => {
+        if (containerRef.current) {
+          containerRef.current.innerHTML = '';
+        }
+      };
+    }
+  }, [dataKey, dataForm]);
+
+  return <div ref={containerRef} />;
+};
 
 const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const { isDarkMode } = useTheme();
@@ -851,7 +876,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
 
   const columns = useMemo(() => createColumnsFunction(isDarkMode), [isDarkMode]);
 
-  // Updated handleActionClick to use BespokePanel
+  // Updated handleActionClick to use BespokePanel and ensure forms render inside the panel
   const handleActionClick = (action: QuickLink) => {
     // Determine the content based on action.title
     let content: ReactNode = <div>No form available.</div>;
@@ -861,16 +886,18 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       case 'Create a Task':
         content = <Tasking />;
         break;
-      case 'Create a Time Entry':
-        content = <CreateTimeEntryForm />;
-        break;
       case 'Save Telephone Note':
+        content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="38" />;
+        break;
       case 'Save Attendance Note':
         content = <TelephoneAttendance />;
         break;
-      case 'Create a Contact':
-      case 'Retrieve a Contact':
-        content = <RetrieveContactForm />;
+      case 'Open a Matter':
+        content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="9" />;
+        break;
+      case 'Create a Time Entry':
+      case 'Request ID':
+        content = <Text>Not ready yet - working on it.</Text>;
         break;
       default:
         content = <div>No form available.</div>;
@@ -1333,7 +1360,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                 <MessageBar messageBarType={MessageBarType.error}>{annualLeaveError}</MessageBar>
               ) : (
                 <div className={peopleGridStyle}>
-                  {annualLeaveRecords.map((leave, index) => {
+                  {annualLeaveRecords.map((leave, index: number) => {
                     // Find the corresponding team member data by Initials
                     const teamMember = teamData.find(
                       (member) => member.Initials.toLowerCase() === leave.person.toLowerCase()
@@ -1381,8 +1408,8 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           className={mergeStyles({
             display: 'flex',
             justifyContent: 'space-between',
-            alignItems: 'center',
-            width: '100%',
+            alignItems: 'flex-start',
+            marginBottom: '15px',
           })}
         >
           <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 10 }}>

@@ -4,8 +4,6 @@ import React, { useCallback, useState } from 'react';
 import {
   Stack,
   Text,
-  Panel,
-  PanelType,
   Link,
   TooltipHost,
   PrimaryButton,
@@ -15,77 +13,65 @@ import {
   MessageBarType,
   mergeStyles,
 } from '@fluentui/react';
-import { CSSTransition, TransitionGroup } from 'react-transition-group';
+import { CSSTransition } from 'react-transition-group';
 import { colours } from '../../app/styles/colours';
 import { Resource } from './Resources';
 import { useTheme } from '../../app/functionality/ThemeContext';
-import StyledTextField from '../../app/styles/StyledTextField';
-import { ResourceAction, resourceActions } from '../../app/customisation/ResourceActions';
-import '../../app/styles/ResourceDetails.css'; // Ensure this path is correct
 import { BespokeForm } from '../../app/styles/BespokeForms';
 import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from '../../app/styles/ButtonStyles';
 
+// Import the custom BespokePanel
+import BespokePanel from '../../app/functionality/BespokePanel';
+import '../../app/styles/ResourceDetails.css'; // Ensure this path is correct
+
+// Define the props for ResourceDetails component
 interface ResourceDetailsProps {
   resource: Resource;
   onClose: () => void;
 }
 
-// Define all necessary style constants
-const panelStyles = {
-  main: {
-    height: '100vh',
-    maxWidth: '800px',
+// Define button styles similar to FormDetails
+const iconButtonStyles = (iconColor: string) => ({
+  root: {
+    marginBottom: '8px',
+    color: iconColor,
+    backgroundColor: 'transparent',
+    border: 'none',
+    selectors: {
+      ':hover': {
+        backgroundColor: colours.cta,
+        color: '#ffffff',
+      },
+      ':focus': {
+        backgroundColor: colours.cta,
+        color: '#ffffff',
+      },
+    },
+    height: '24px',
+    width: '24px',
+    padding: '0px',
+    boxShadow: 'none',
   },
-  content: {
-    display: 'flex',
-    flexDirection: 'column',
-    height: '100%',
-    padding: '0',
+  icon: {
+    fontSize: '16px',
+    lineHeight: '20px',
+    color: iconColor,
   },
-  scrollableContent: {
-    flexGrow: 1,
-    display: 'flex',
-    flexDirection: 'column',
-  },
-  navigation: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    width: '100%',
-    padding: '0',
-    boxSizing: 'border-box',
-    borderBottom: `1px solid ${colours.light.border}`,
-  },
-};
+});
 
-const headerContainerStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    display: 'flex',
-    alignItems: 'flex-start',
-    padding: '16px 24px',
-    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-    borderBottom: 'none',
-  });
-
-const titleStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    marginLeft: '10px',
-    color: isDarkMode ? colours.dark.text : colours.light.text,
-    fontSize: '20px',
-    fontWeight: 700,
-    alignSelf: 'flex-start',
-  });
-
+// Define style functions using mergeStyles
 const detailsContainerStyle = (isDarkMode: boolean) =>
   mergeStyles({
     padding: '20px',
     color: isDarkMode ? colours.dark.text : colours.light.text,
     fontFamily: 'Raleway, sans-serif',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '10px',
   });
 
 const buttonsContainerStyle = (isDarkMode: boolean) =>
   mergeStyles({
-    marginTop: '20px',
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -97,7 +83,45 @@ const leftButtonsStyle = () =>
     gap: '20px', // Increased spacing between buttons
   });
 
-// Styles for the input form container
+// Define button styles for action buttons
+const actionButtonStyle = (isDarkMode: boolean, isSelected: boolean) =>
+  mergeStyles({
+    padding: '10px 20px',
+    backgroundColor: isSelected
+      ? isDarkMode
+        ? colours.dark.buttonBackground
+        : colours.light.buttonBackground
+      : isDarkMode
+      ? colours.dark.cardBackground
+      : colours.light.cardBackground,
+    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+    borderRadius: '8px',
+    color: isSelected
+      ? isDarkMode
+        ? colours.dark.buttonText
+        : colours.light.buttonText
+      : isDarkMode
+      ? colours.dark.text
+      : colours.light.text,
+    transition: 'background-color 0.3s ease, color 0.3s ease',
+    cursor: 'pointer',
+    display: 'flex',
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    height: '50px', // Adjusted height
+    ':hover': {
+      backgroundColor: isSelected
+        ? isDarkMode
+          ? colours.dark.hoverBackground
+          : colours.light.hoverBackground
+        : isDarkMode
+        ? colours.dark.cardHover
+        : colours.light.cardHover,
+    },
+  });
+
+// Define style for the form container
 const formContainerStyle = mergeStyles({
   marginTop: '10px', // Reduced margin to align closely under the button
   padding: '20px',
@@ -106,45 +130,31 @@ const formContainerStyle = mergeStyles({
   // No shadow as per requirement
 });
 
-// Define a style for action buttons similar to ResourceCard
-const actionButtonStyle = (isDarkMode: boolean, isSelected: boolean) =>
-  mergeStyles({
-    padding: '20px',
-    backgroundColor: isSelected
-      ? (isDarkMode ? colours.dark.buttonBackground : colours.light.buttonBackground)
-      : (isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground),
-    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-    borderRadius: '8px',
-    color: isSelected
-      ? (isDarkMode ? colours.dark.buttonText : colours.light.buttonText)
-      : (isDarkMode ? colours.dark.text : colours.light.text),
-    transition: 'background-color 0.3s ease, color 0.3s ease',
-    cursor: 'pointer',
-    display: 'flex',
-    flexDirection: 'row',
-    alignItems: 'center',
-    width: '100%',
-    height: '70px', // Increased height for taller buttons
-    ':hover': {
-      backgroundColor: isSelected
-        ? (isDarkMode ? colours.dark.hoverBackground : colours.light.hoverBackground)
-        : (isDarkMode ? colours.dark.cardHover : colours.light.cardHover),
-    },
-  });
-
 const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) => {
   const { isDarkMode } = useTheme();
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
   const [selectedAction, setSelectedAction] = useState<ResourceAction | null>(null);
   const [actionInputs, setActionInputs] = useState<{ [key: string]: string }>({});
 
+  // Define the type for ResourceAction if not already defined
+  // Assuming ResourceAction has at least 'label' and 'requiredFields'
+  interface ResourceAction {
+    label: string;
+    requiredFields: string[];
+  }
+
+  // Example resourceActions mapping, adjust as per your actual implementation
+  const resourceActions: { [key: string]: ResourceAction[] } = {
+    // Add your resource-specific actions here
+    // Example:
+    // 'asana': [{ label: 'Create Task', requiredFields: ['taskName', 'dueDate'] }],
+  };
+
   // Normalize the resource title to match the keys in resourceActions
   const normalizedTitle = resource.title.toLowerCase().replace(/\s+/g, '');
   const actions: ResourceAction[] = resourceActions[normalizedTitle] || [];
 
-  // Optional: Log the actions for debugging
-  console.log(`Actions for "${resource.title}" (normalized: "${normalizedTitle}"):`, actions);
-
+  // Handle Copy to Clipboard
   const copyToClipboard = useCallback(() => {
     navigator.clipboard
       .writeText(resource.url)
@@ -157,6 +167,7 @@ const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) 
       });
   }, [resource.url, resource.title]);
 
+  // Handle Go To Link
   const goToLink = useCallback(() => {
     window.open(resource.url, '_blank', 'noopener,noreferrer');
   }, [resource.url]);
@@ -182,37 +193,16 @@ const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) 
   };
 
   return (
-    <Panel
+    <BespokePanel
       isOpen={true}
-      onDismiss={onClose}
-      type={PanelType.custom}
-      customWidth="100%"
-      styles={panelStyles}
-      onRenderHeader={() => (
-        <div className={headerContainerStyle(isDarkMode)}>
-          {resource.icon && (
-            <Icon
-              iconName={resource.icon}
-              styles={{
-                root: {
-                  fontSize: 24,
-                  color: colours.highlight,
-                  marginTop: '2px',
-                },
-              }}
-              aria-hidden="true"
-            />
-          )}
-          <Text variant="medium" className={titleStyle(isDarkMode)}>
-            {resource.title}
-          </Text>
-        </div>
-      )}
+      onClose={onClose}
+      title={resource.title}
+      width="1000px" // Match the width used in Forms
     >
-      {/* Main content area */}
-      <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
-        {/* Action Buttons with Transition */}
-        <div style={{ marginTop: '20px', padding: '0 24px', flexGrow: 1 }}>
+      {/* Main container with flex layout */}
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        {/* Form Content */}
+        <div style={{ flexGrow: 1, overflowY: 'auto', padding: '20px' }}>
           {actions.length > 0 ? (
             <Stack tokens={{ childrenGap: 20 }} className={mergeStyles({ width: '100%' })}>
               {actions.map((action) => (
@@ -226,8 +216,12 @@ const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) 
                       root: actionButtonStyle(isDarkMode, selectedAction === action),
                       label: {
                         color: isDarkMode
-                          ? (selectedAction === action ? colours.dark.buttonText : colours.dark.text)
-                          : (selectedAction === action ? colours.light.buttonText : colours.light.text),
+                          ? selectedAction === action
+                            ? colours.dark.buttonText
+                            : colours.dark.text
+                          : selectedAction === action
+                          ? colours.light.buttonText
+                          : colours.light.text,
                         fontWeight: '600',
                       },
                     }}
@@ -266,8 +260,7 @@ const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) 
           )}
         </div>
 
-
-        {/* Bottom Section */}
+        {/* Footer: URL and Buttons */}
         <div className={detailsContainerStyle(isDarkMode)}>
           {/* URL Section */}
           <Stack tokens={{ childrenGap: 6 }}>
@@ -372,7 +365,7 @@ const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) 
           {copySuccess}
         </MessageBar>
       )}
-    </Panel>
+    </BespokePanel>
   );
 };
 
