@@ -48,17 +48,13 @@ export const templateBlocks: TemplateBlock[] = [
     isMultiSelect: true,
     options: [
       {
-        label: 'Current Position - confirmed',
-        previewText: `We have discussed that you are [INSERT]. You have a dispute with [INSERT] because [INSERT]... and have confirmed that…[INSERT]`,
-      },
-      {
-        label: 'The Problem',
-        previewText: `The dispute with [INSERT] situation creates difficulty for you for obvious reasons including because…[INSERT].`,
-      },
-      {
-        label: 'The Bigger Problem',
-        previewText: `In addition to the above the additional problems arise and need to be addressed…[INSERT].`,
-      },
+        label: 'Current Position and Problems',
+        previewText: `We have discussed that you are [INSERT]. You have a dispute with [INSERT] because [INSERT] and have confirmed that [INSERT].
+      
+      The dispute with [INSERT] situation creates difficulty for you for obvious reasons, including because [INSERT].
+      
+      In addition to the above, additional problems arise and need to be addressed, such as [INSERT].`,
+      },      
     ],
   },
   {
@@ -108,12 +104,20 @@ export const templateBlocks: TemplateBlock[] = [
     isMultiSelect: true,
     options: [
       {
-        label: 'Hourly Rate Explanation',
-        previewText: `We charge on a time recorded basis and record all time in 6 minute units. This includes for emails in and out and telephone attendances, and all steps on your behalf. I am a Partner and my hourly rate is £395 + VAT.\n\nWe work as a team and a number of colleagues may assist in relation to various steps in relation to your matter, at different times. Their time will be recorded and charged on the basis of their hourly rates as applicable from time to time- these are all lower than £395+VAT.`,
+        label: 'Initial Cost',
+        previewText: `We charge on a time recorded basis and record all time in 6 minute units. This includes for emails in and out and telephone attendances, and all steps on your behalf. I am a Partner and my hourly rate is £395 + VAT.
+      
+      We work as a team and a number of colleagues may assist in relation to various steps in relation to your matter, at different times. Their time will be recorded and charged on the basis of their hourly rates as applicable from time to time – these are all lower than £395+VAT.
+      
+      For the initial work and review above you will need to budget in the region of approximately £1,500 + VAT. This is an estimate and not a fixed fee; the cost will ultimately depend on the time spent including the scale of documents and enquiries received from you, but based on my experience this is likely to be an accurate estimate at this stage.
+      
+      Further work will incur additional costs on a time basis and in a fully litigated dispute it is not unusual for each party to incur costs of tens of thousands of pounds in this type of dispute, if not higher. Costs will of course be a concern, naturally.
+      
+      Equally, if you are positioned to win a dispute you can usually expect to recover in the region of approximately 65-70% of your costs (if not higher). In this context the fear of being ordered to pay your costs can provide powerful leverage to force resolution of a dispute in your favour. We will of course consider this within our initial review and work as above.`,
       },
       {
-        label: 'Initial Budget Estimate',
-        previewText: `For the initial work and review above you will need to budget in the region of approximately £1,500 + VAT. This is an estimate and not a fixed fee; the cost will ultimately depend on the time spent including the scale of documents and enquiries received from you, but based on my experience this is likely to be an accurate estimate at this stage.\n\nFurther work will incur additional costs on a time basis and in a fully litigated dispute it is not unusual for each party to incur costs of tens of thousands of pounds in this type of dispute, if not higher. Costs will of course be a concern, naturally.\n\nEqually, if you are positioned to win a dispute you can usually expect to recover in the region of approximately 65-70% of your costs (if not higher). In this context the fear of being ordered to pay your costs, can provide powerful leverage to force resolution of a dispute in your favour. We will of course consider this within our initial review and work as above.`,
+        label: 'CFA',
+        previewText: `I am aware that you are seeking alternative funding regarding your matter commonly known as a Conditional Fee Agreement, or 'no win, no fee' agreement. We are not obliged to offer this form of funding but I am happy to consider doing so. This is subject to us entering into a separate funding agreement between us (a contract). Transparently we only offer no win, no fee funding where it stacks up for you and for us and we need to be sufficiently confident in your prospects of success. At this initial stage please therefore provide the initial documents and information I have requested to enable me to initially briefly review whether this will be appropriate.`,
       },
     ],
   },
@@ -149,23 +153,39 @@ export const templateBlocks: TemplateBlock[] = [
     isMultiSelect: true,
     options: [
       {
-        label: 'Confirm Instructions and Verify Identity',
-        previewText: `To confirm my instructions and to enable us to open a file and move this forwards please take the steps below;\n\nWe are required to verify your identity. Please complete the identity form below with your personal details. We will try to verify you electronically initially;\n\nhttps://helix-law.co.uk/proof-of-identity/`,
-      },
-      {
-        label: 'Payment Instructions',
-        previewText: `We work with funds on account of costs at all times. Please pay £1800 on account of costs, using our account details below:\n\nHelix Law General Client Account\nBarclays Bank\nAccount Number: 93472434\nSort Code: 20-27-91\nReference: FE [NAME] // [ACID]\n\nPlease ensure to quote the above reference so that we promptly identify your payment.`,
-      },
-      {
-        label: 'Document Submission',
-        previewText: `I have mentioned above some specific documents that will assist me at this stage. Please put these together and email them to me.\n\nIf the file sizes or volume are significant please let me know and we can arrange a document sharing facility for you to send these to us. Alternatively please send the files to me via WeTransfer or Dropbox- both are free services.`,
-      },
-      {
-        label: 'Meeting Link (Optional)',
-        previewText: `You are welcome to schedule a meeting using the link below:\n\nhttps://calendly.com/helixlaw-fe`,
+        label: 'Confirm Instructions, Payment & Document Submission',
+        previewText: 
+          `To confirm my instructions and to enable us to open a file and move this forwards please take the steps below;\n\n` +
+          `We are required to verify your identity. Please complete the identity form below with your personal details. We will try to verify you electronically initially;\n\n` +
+          `https://helix-law.co.uk/proof-of-identity/\n\n` +
+          `We work with funds on account of costs at all times. Please pay £1800 on account of costs, using our account details below:\n\n` +
+          `Helix Law General Client Account\n` +
+          `Barclays Bank\n` +
+          `Account Number: 93472434\n` +
+          `Sort Code: 20-27-91\n` +
+          `Reference: FE [NAME] // [ACID]\n\n` +
+          `Please ensure to quote the above reference so that we promptly identify your payment.\n\n` +
+          `I have mentioned above some specific documents that will assist me at this stage. Please put these together and email them to me.\n\n` +
+          `If the file sizes or volume are significant please let me know and we can arrange a document sharing facility for you to send these to us. Alternatively please send the files to me via WeTransfer or Dropbox- both are free services.`,
       },
     ],
   },
+
+  // Separate Block for Meeting Link
+  {
+    title: 'Meeting Link',
+    description: 'Provide the client with an option to schedule a meeting.',
+    placeholder: '[Meeting Link Placeholder]',
+    isMultiSelect: false,
+    options: [
+      {
+        label: 'Meeting Link',
+        previewText: 
+          `You are welcome to schedule a meeting using the link below:\n\n` +
+          `https://calendly.com/helixlaw-fe`,
+      },
+    ],
+  },  
   {
     title: 'Closing Notes',
     description: 'Summarise and add a personal touch to the email.',

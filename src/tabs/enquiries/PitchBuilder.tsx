@@ -43,6 +43,7 @@ const commonInputStyle = {
   lineHeight: '40px',
 };
 
+// Updated leftoverPlaceholders without '[Meeting Link Placeholder]' if you want to manage it differently
 const leftoverPlaceholders = [
   '[Current Situation and Problem Placeholder]',
   '[Scope of Work Placeholder]',
@@ -53,6 +54,7 @@ const leftoverPlaceholders = [
   '[Closing Notes Placeholder]',
   '[Google Review Placeholder]',
   '[FE Introduction Placeholder]',
+  // '[Meeting Link Placeholder]', // Ensure it's handled as part of the body
   // Removed '[Introduction Placeholder]'
 ];
 
@@ -99,6 +101,7 @@ const orderedListIcon: IIconProps = { iconName: 'NumberedList' };
 const linkIcon: IIconProps = { iconName: 'Link' };
 const clearIcon: IIconProps = { iconName: 'Cancel' };
 
+// Updated attachmentTagStyle to handle isDraft
 const attachmentTagStyle = (
   isSelected: boolean,
   isDarkMode: boolean,
@@ -251,7 +254,7 @@ const replacePlaceholders = (
       `<span data-placeholder="[FE Introduction Placeholder]" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[FE Introduction Placeholder]</span>`
     )
     .replace(
-      /\[(Scope of Work Placeholder|Risk Assessment Placeholder|Costs and Budget Placeholder|Follow-Up Instructions Placeholder|Closing Notes Placeholder|Required Documents Placeholder|Google Review Placeholder)\]/g,
+      /\[(Scope of Work Placeholder|Risk Assessment Placeholder|Costs and Budget Placeholder|Follow-Up Instructions Placeholder|Closing Notes Placeholder|Required Documents Placeholder|Google Review Placeholder|Meeting Link Placeholder)\]/g,
       (match) =>
         `<span data-placeholder="${match}" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${match}</span>`
     )
@@ -299,6 +302,8 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
 [Follow-Up Instructions Placeholder]
 
 [Closing Notes Placeholder]
+
+[Meeting Link Placeholder]
 
 [Google Review Placeholder]
 
@@ -641,9 +646,10 @@ Kind regards,
       email_contents: fullEmailHtml,
       user_email: enquiry.Point_of_Contact,
       subject_line: subject,
-      to: to,
-      cc: cc,
-      bcc: bcc,
+      to,
+      cc,
+      bcc,
+      // Include attachments and followUp if needed
     };
 
     try {
@@ -869,6 +875,26 @@ Kind regards,
   };
 
   const fullName = `${enquiry.First_Name || ''} ${enquiry.Last_Name || ''}`.trim();
+
+  // New useEffect to auto-select and insert single-option blocks
+  useEffect(() => {
+    templateBlocks.forEach(block => {
+      if (
+        ['Risk Assessment', 'Next Steps', 'Closing Notes'].includes(block.title) &&
+        block.options.length === 1
+      ) {
+        const selectedOption = block.options[0].label;
+        // Update selectedTemplateOptions
+        setSelectedTemplateOptions(prev => ({
+          ...prev,
+          [block.title]: block.isMultiSelect ? [selectedOption] : selectedOption,
+        }));
+        // Insert the template block into the email body
+        insertTemplateBlock(block, block.isMultiSelect ? [selectedOption] : selectedOption);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <Stack className={containerStyle}>
@@ -1259,57 +1285,6 @@ Kind regards,
 
           <Separator />
 
-          {/* To */}
-          <Stack tokens={{ childrenGap: 6 }}>
-            <Text
-              variant="large"
-              styles={{
-                root: { fontWeight: '600', color: colours.highlight, marginBottom: '5px' },
-              }}
-            >
-              To:
-            </Text>
-            <Text variant="medium" styles={{ root: { whiteSpace: 'pre-wrap' } }}>
-              {to || 'N/A'}
-            </Text>
-          </Stack>
-
-          <Separator />
-
-          {/* CC */}
-          <Stack tokens={{ childrenGap: 6 }}>
-            <Text
-              variant="large"
-              styles={{
-                root: { fontWeight: '600', color: colours.highlight, marginBottom: '5px' },
-              }}
-            >
-              CC:
-            </Text>
-            <Text variant="medium" styles={{ root: { whiteSpace: 'pre-wrap' } }}>
-              {cc || 'N/A'}
-            </Text>
-          </Stack>
-
-          <Separator />
-
-          {/* BCC */}
-          <Stack tokens={{ childrenGap: 6 }}>
-            <Text
-              variant="large"
-              styles={{
-                root: { fontWeight: '600', color: colours.highlight, marginBottom: '5px' },
-              }}
-            >
-              BCC:
-            </Text>
-            <Text variant="medium" styles={{ root: { whiteSpace: 'pre-wrap' } }}>
-              {bcc || 'N/A'}
-            </Text>
-          </Stack>
-
-          <Separator />
-
           {/* Subject */}
           <Stack tokens={{ childrenGap: 6 }}>
             <Text
@@ -1418,19 +1393,6 @@ Kind regards,
       </Panel>
     </Stack>
   );
-};
-
-const removeHighlightSpans = (html: string): string => {
-  const tempDiv = document.createElement('div');
-  tempDiv.innerHTML = html;
-  const spans = tempDiv.querySelectorAll('span[data-placeholder], span[data-inserted], span[data-link]');
-  spans.forEach((span) => {
-    span.removeAttribute('style');
-    span.removeAttribute('data-placeholder');
-    span.removeAttribute('data-inserted');
-    span.removeAttribute('data-link');
-  });
-  return tempDiv.innerHTML;
 };
 
 export default PitchBuilder;
