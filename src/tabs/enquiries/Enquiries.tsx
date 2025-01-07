@@ -17,6 +17,18 @@ import {
   IDropdownOption,
   SearchBox,
 } from '@fluentui/react';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+  LabelList,
+} from 'recharts';
+import { parseISO, startOfMonth, format, isValid } from 'date-fns';
 import { Enquiry, UserData, POID } from '../../app/functionality/types';
 import { initializeIcons } from '@fluentui/react/lib/Icons';
 import CustomPagination from '../../app/styles/CustomPagination';
@@ -138,6 +150,15 @@ const RatingIndicator: React.FC<RatingIndicatorProps> = ({ rating, isDarkMode, o
   );
 };
 
+// Renamed interface from WeeklyCount to MonthlyCount
+interface MonthlyCount {
+  month: string;
+  commercial: number;
+  construction: number;
+  employment: number;
+  property: number;
+}
+
 const Enquiries: React.FC<{
   context: TeamsContextType | null;
   enquiries: Enquiry[] | null;
@@ -163,6 +184,9 @@ const Enquiries: React.FC<{
   const [convertedEnquiriesList, setConvertedEnquiriesList] = useState<Enquiry[]>([]);
   const [convertedPoidDataList, setConvertedPoidDataList] = useState<POID[]>([]);
   const [currentSiloArea, setCurrentSiloArea] = useState<string | null>(null);
+
+  // New state variables for date range
+  const [dateRange, setDateRange] = useState<{ oldest: string; newest: string } | null>(null);
 
   const mainTabs = [
     { key: 'Silo', text: 'Silo' },
@@ -209,10 +233,7 @@ const Enquiries: React.FC<{
   );
 
   const handleShowAllToggle = useCallback(() => {
-    setShowAll((prev) => {
-      const newShowAll = !prev;
-      return newShowAll;
-    });
+    setShowAll((prev) => !prev);
     setCurrentPage(1);
   }, []);
 
@@ -332,6 +353,27 @@ const Enquiries: React.FC<{
       setConvertedPoidDataList(convertedPoid);
     }
   }, [poidData, localEnquiries]);
+
+  // Calculate date range based on enquiries
+  useEffect(() => {
+    if (localEnquiries.length > 0) {
+      const validDates = localEnquiries
+        .map((enquiry) => enquiry.Touchpoint_Date)
+        .filter((dateStr): dateStr is string => typeof dateStr === 'string' && isValid(parseISO(dateStr)))
+        .map((dateStr) => parseISO(dateStr));
+
+      if (validDates.length > 0) {
+        const oldestDate = new Date(Math.min(...validDates.map((date) => date.getTime())));
+        const newestDate = new Date(Math.max(...validDates.map((date) => date.getTime())));
+        setDateRange({
+          oldest: format(oldestDate, 'dd MMM yyyy'),
+          newest: format(newestDate, 'dd MMM yyyy'),
+        });
+      }
+    } else {
+      setDateRange(null);
+    }
+  }, [localEnquiries]);
 
   const filteredEnquiries = useMemo(() => {
     let filtered: Enquiry[] = [];
@@ -571,7 +613,7 @@ const Enquiries: React.FC<{
             },
             link: {
               fontSize: '16px',
-              fontWeight: '600',
+              fontWeight: 600,
               padding: '10px',
               margin: '0 5px',
               color: isDarkMode ? colours.dark.text : colours.light.text,
@@ -654,6 +696,7 @@ const Enquiries: React.FC<{
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
+    fontFamily: 'Raleway, sans-serif',
   });
 
   const fixedCardHeightStyle = mergeStyles({
@@ -671,6 +714,7 @@ const Enquiries: React.FC<{
       fontSize: '12px',
       fontWeight: 'bold',
       marginLeft: '8px',
+      fontFamily: 'Raleway, sans-serif',
     });
 
   // Calculate counts for each area of work
@@ -690,6 +734,56 @@ const Enquiries: React.FC<{
     });
 
     return counts;
+  }, [localEnquiries]);
+
+  // Process monthly enquiry counts stacked by area
+  const monthlyEnquiryCounts = useMemo<MonthlyCount[]>(() => {
+    if (!localEnquiries) return [];
+
+    const counts: { [month: string]: MonthlyCount } = {};
+
+    localEnquiries.forEach((enquiry) => {
+      if (enquiry.Touchpoint_Date && enquiry.Area_of_Work) {
+        const date = parseISO(enquiry.Touchpoint_Date);
+        if (!isValid(date)) return; // Skip invalid dates
+        const monthStart = startOfMonth(date);
+        const monthLabel = format(monthStart, 'MMM yyyy'); // e.g., 'Nov 2024'
+        const area = enquiry.Area_of_Work.toLowerCase();
+
+        if (!counts[monthLabel]) {
+          counts[monthLabel] = {
+            month: monthLabel,
+            commercial: 0,
+            construction: 0,
+            employment: 0,
+            property: 0,
+          };
+        }
+
+        switch (area) {
+          case 'commercial':
+            counts[monthLabel].commercial += 1;
+            break;
+          case 'construction':
+            counts[monthLabel].construction += 1;
+            break;
+          case 'employment':
+            counts[monthLabel].employment += 1;
+            break;
+          case 'property':
+            counts[monthLabel].property += 1;
+            break;
+          default:
+            break;
+        }
+      }
+    });
+
+    // Convert the counts object to an array sorted by month
+    const sortedMonths = Object.keys(counts).sort(
+      (a, b) => new Date(a).getTime() - new Date(b).getTime()
+    );
+    return sortedMonths.map((month) => counts[month]);
   }, [localEnquiries]);
 
   return (
@@ -777,48 +871,7 @@ const Enquiries: React.FC<{
         ) : (
           <>
             {activeMainTab === 'Silo' ? (
-              currentSiloArea ? (
-                filteredEnquiries.length === 0 ? (
-                  <Text variant="medium" styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.light.subText } }}>
-                    No enquiries found matching your criteria.
-                  </Text>
-                ) : (
-                  <>
-                    <div
-                      className={mergeStyles({
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(4, 1fr)',
-                        gap: '20px',
-                        '@media (max-width: 1200px)': {
-                          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                        },
-                      })}
-                    >
-                      {currentEnquiries.map((enquiry, index) => {
-                        const row = Math.floor(index / 4);
-                        const col = index % 4;
-                        const animationDelay = calculateAnimationDelay(row, col);
-                        return (
-                          <EnquiryCard
-                            key={`${enquiry.ID}-${index}-${showAll}`}
-                            enquiry={enquiry}
-                            onSelect={handleSelectEnquiry}
-                            onRate={handleRate}
-                            animationDelay={animationDelay}
-                          />
-                        );
-                      })}
-                    </div>
-                    {totalPages > 1 && (
-                      <CustomPagination
-                        currentPage={currentPage}
-                        totalPages={totalPages}
-                        onPageChange={handlePageChange}
-                      />
-                    )}
-                  </>
-                )
-              ) : (
+              <>
                 <div className={siloContainerStyle}>
                   <div
                     className={`${siloCardStyle('commercial', isDarkMode)} ${fixedCardHeightStyle}`}
@@ -865,7 +918,181 @@ const Enquiries: React.FC<{
                     </Text>
                   </div>
                 </div>
-              )
+
+                {/* Enhanced Date Range Display */}
+                {dateRange && (
+                  <div
+                    className={mergeStyles({
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginTop: '20px',
+                    })}
+                  >
+                    <div
+                      className={mergeStyles({
+                        background: isDarkMode
+                          ? 'linear-gradient(135deg, #1a1a1a, #333333)'
+                          : 'linear-gradient(135deg, #ffffff, #f0f0f0)',
+                        borderRadius: '20px',
+                        padding: '10px 20px',
+                        boxShadow: isDarkMode
+                          ? '0 4px 12px rgba(255, 255, 255, 0.1)'
+                          : '0 4px 12px rgba(0, 0, 0, 0.1)',
+                      })}
+                    >
+                      <Text
+                        variant="mediumPlus"
+                        styles={{
+                          root: {
+                            fontWeight: '700',
+                            color: isDarkMode ? colours.dark.text : colours.light.text,
+                            fontSize: '16px',
+                            fontFamily: 'Raleway, sans-serif',
+                          },
+                        }}
+                      >
+                        Date Range: {dateRange.oldest} - {dateRange.newest}
+                      </Text>
+                    </div>
+                  </div>
+                )}
+
+                {/* Redesigned Monthly Enquiry Counts Stacked Bar Chart */}
+                <div
+                  className={mergeStyles({
+                    marginTop: '40px',
+                    padding: '30px',
+                    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+                    borderRadius: '20px',
+                    boxShadow: isDarkMode
+                      ? `0 8px 24px rgba(0, 0, 0, 0.5)`
+                      : `0 8px 24px rgba(0, 0, 0, 0.2)`,
+                    position: 'relative',
+                    fontFamily: 'Raleway, sans-serif',
+                  })}
+                >
+                  <ResponsiveContainer width="100%" height={400}>
+                    <BarChart
+                      data={monthlyEnquiryCounts}
+                      margin={{ top: 20, right: 30, left: 20, bottom: 60 }}
+                      style={{ fontFamily: 'Raleway, sans-serif' }}
+                    >
+                      {/* Define subtle gradients for each area */}
+                      <defs>
+                        <linearGradient id="colorCommercial" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="rgba(0, 120, 215, 0.6)" stopOpacity={0.8} />
+                          <stop offset="95%" stopColor="rgba(0, 120, 215, 0.6)" stopOpacity={0.2} />
+                        </linearGradient>
+                        <linearGradient id="colorConstruction" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="rgba(255, 140, 0, 0.6)" stopOpacity={0.8} />
+                          <stop offset="95%" stopColor="rgba(255, 140, 0, 0.6)" stopOpacity={0.2} />
+                        </linearGradient>
+                        <linearGradient id="colorEmployment" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="rgba(255, 242, 0, 0.6)" stopOpacity={0.8} />
+                          <stop offset="95%" stopColor="rgba(255, 242, 0, 0.6)" stopOpacity={0.2} />
+                        </linearGradient>
+                        <linearGradient id="colorProperty" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="rgba(34, 177, 76, 0.6)" stopOpacity={0.8} />
+                          <stop offset="95%" stopColor="rgba(34, 177, 76, 0.6)" stopOpacity={0.2} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke={isDarkMode ? colours.dark.border : colours.light.border}
+                      />
+                      <XAxis
+                        dataKey="month"
+                        stroke={isDarkMode ? colours.dark.text : colours.light.text}
+                        tick={{
+                          fontSize: 14,
+                          fontWeight: 400,
+                          fontFamily: 'Raleway, sans-serif',
+                          textAnchor: 'middle',
+                        }}
+                        height={60}
+                      />
+                      <YAxis
+                        stroke={isDarkMode ? colours.dark.text : colours.light.text}
+                        tick={{
+                          fontSize: 14,
+                          fontWeight: 400,
+                          fontFamily: 'Raleway, sans-serif',
+                        }}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.background,
+                          border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                          color: isDarkMode ? colours.dark.text : colours.light.text,
+                          fontFamily: 'Raleway, sans-serif',
+                        }}
+                        labelStyle={{ color: isDarkMode ? colours.dark.text : colours.light.text, fontFamily: 'Raleway, sans-serif' }}
+                        itemStyle={{ color: isDarkMode ? colours.dark.text : colours.light.text, fontFamily: 'Raleway, sans-serif' }}
+                      />
+                      <Legend
+                        wrapperStyle={{ color: isDarkMode ? colours.dark.text : colours.light.text, fontFamily: 'Raleway, sans-serif' }}
+                      />
+                      <Bar
+                        dataKey="commercial"
+                        stackId="a"
+                        fill="url(#colorCommercial)"
+                        animationDuration={1500}
+                        animationEasing="ease-out"
+                      >
+                        <LabelList
+                          dataKey="commercial"
+                          position="insideTop"
+                          fill={isDarkMode ? colours.dark.text : colours.light.text}
+                          style={{ fontFamily: 'Raleway, sans-serif', fontWeight: 400 }}
+                        />
+                      </Bar>
+                      <Bar
+                        dataKey="construction"
+                        stackId="a"
+                        fill="url(#colorConstruction)"
+                        animationDuration={1500}
+                        animationEasing="ease-out"
+                      >
+                        <LabelList
+                          dataKey="construction"
+                          position="insideTop"
+                          fill={isDarkMode ? colours.dark.text : colours.light.text}
+                          style={{ fontFamily: 'Raleway, sans-serif', fontWeight: 400 }}
+                        />
+                      </Bar>
+                      <Bar
+                        dataKey="employment"
+                        stackId="a"
+                        fill="url(#colorEmployment)"
+                        animationDuration={1500}
+                        animationEasing="ease-out"
+                      >
+                        <LabelList
+                          dataKey="employment"
+                          position="insideTop"
+                          fill={isDarkMode ? colours.dark.text : colours.light.text}
+                          style={{ fontFamily: 'Raleway, sans-serif', fontWeight: 400 }}
+                        />
+                      </Bar>
+                      <Bar
+                        dataKey="property"
+                        stackId="a"
+                        fill="url(#colorProperty)"
+                        animationDuration={1500}
+                        animationEasing="ease-out"
+                      >
+                        <LabelList
+                          dataKey="property"
+                          position="insideTop"
+                          fill={isDarkMode ? colours.dark.text : colours.light.text}
+                          style={{ fontFamily: 'Raleway, sans-serif', fontWeight: 400 }}
+                        />
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </>
             ) : activeMainTab === 'Converted' ? (
               filteredEnquiries.length > 0 ? (
                 <div
@@ -894,7 +1121,7 @@ const Enquiries: React.FC<{
                   })}
                 </div>
               ) : (
-                <Text variant="medium" styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.light.subText } }}>
+                <Text variant="medium" styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.light.subText, fontFamily: 'Raleway, sans-serif' } }}>
                   No enquiries found matching your criteria.
                 </Text>
               )
@@ -926,14 +1153,14 @@ const Enquiries: React.FC<{
                   })}
                 </div>
               ) : (
-                <Text variant="medium" styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.light.subText } }}>
+                <Text variant="medium" styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.light.subText, fontFamily: 'Raleway, sans-serif' } }}>
                   No enquiries found matching your criteria.
                 </Text>
               )
             ) : (
               <>
                 {filteredEnquiries.length === 0 ? (
-                  <Text variant="medium" styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.light.subText } }}>
+                  <Text variant="medium" styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.light.subText, fontFamily: 'Raleway, sans-serif' } }}>
                     No enquiries found matching your criteria.
                   </Text>
                 ) : (
@@ -998,7 +1225,7 @@ const Enquiries: React.FC<{
           {' | '}
           <Text
             variant="small"
-            styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.light.subText, display: 'inline' } }}
+            styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.light.subText, display: 'inline', fontFamily: 'Raleway, sans-serif' } }}
           >
             01273 761990
           </Text>
@@ -1030,6 +1257,7 @@ const Enquiries: React.FC<{
               maxWidth: '300px',
               zIndex: 1000,
               borderRadius: '4px',
+              fontFamily: 'Raleway, sans-serif',
             },
           }}
         >
@@ -1047,6 +1275,7 @@ const Enquiries: React.FC<{
           borderRadius: '12px',
           backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
           color: isDarkMode ? colours.dark.text : colours.light.text,
+          fontFamily: 'Raleway, sans-serif',
         })}
         styles={{
           main: {
@@ -1057,10 +1286,10 @@ const Enquiries: React.FC<{
         aria-labelledby="rate-enquiry-modal"
       >
         <Stack tokens={{ childrenGap: 20 }}>
-          <Text variant="xxLarge" styles={{ root: { fontWeight: '700', color: isDarkMode ? colours.dark.text : colours.light.text } }}>
+          <Text variant="xxLarge" styles={{ root: { fontWeight: '700', color: isDarkMode ? colours.dark.text : colours.light.text, fontFamily: 'Raleway, sans-serif' } }}>
             Rate Enquiry
           </Text>
-          <Text variant="medium" styles={{ root: { color: isDarkMode ? colours.dark.text : colours.light.text } }}>
+          <Text variant="medium" styles={{ root: { color: isDarkMode ? colours.dark.text : colours.light.text, fontFamily: 'Raleway, sans-serif' } }}>
             Please select a rating for this enquiry:
           </Text>
           {renderRatingOptions()}

@@ -28,15 +28,28 @@ const customTheme = createTheme({
   },
 });
 
-// Helper function to calculate the date range
+// Helper function to calculate the date range (6 months)
 const getDateRange = () => {
   const now = new Date();
-  const startOfPreviousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const today = now;
+
+  // Calculate 6 months ago from the current month
+  const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, 1); // Subtract 6 months
+
+  // Ensure the start date is the 1st of the month
+  const startDate = new Date(sixMonthsAgo.getFullYear(), sixMonthsAgo.getMonth(), 1);
+
+  // Today's date remains as the end date
+  const endDate = now;
+
+  // Format dates to YYYY-MM-DD
+  const formattedStartDate = startDate.toISOString().split('T')[0];
+  const formattedEndDate = endDate.toISOString().split('T')[0];
+
+  console.log('Calculated Date Range:', { formattedStartDate, formattedEndDate }); // Temporary log for verification
 
   return {
-    dateFrom: startOfPreviousMonth.toISOString().split('T')[0],
-    dateTo: today.toISOString().split('T')[0],
+    dateFrom: formattedStartDate,
+    dateTo: formattedEndDate,
   };
 };
 
