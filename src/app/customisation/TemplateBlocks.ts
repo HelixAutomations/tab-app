@@ -25,19 +25,19 @@ export const templateBlocks: TemplateBlock[] = [
     options: [
       {
         label: 'Standard Acknowledgment',
-        previewText: `Thank you for your enquiry. I am confident we can assist with your matter.`,
+        previewText: `Thank you for your enquiry to Helix Law. We’re a specialist firm of litigation solicitors. We only deal with disputes and act nationally. I am confident we can assist in relation to your matter.\n\nAs a starting point some further initial details and information will help me understand your situation and confirm your best next steps. I have therefore set out below some brief requests and would be grateful if you can please consider this and come back to me as soon as possible.`,
       },
       {
         label: 'Follow-Up After Call',
-        previewText: `Thank you for your enquiry and for your time on the phone earlier. It was good speaking with you.`,
+        previewText: `Thank you for your enquiry and for your time on the phone earlier. It was good speaking with you.\n\nThe purpose of this email is to briefly follow up on our conversation.`,
       },
       {
         label: 'Missed Call Acknowledgment',
-        previewText: `Thank you for your enquiry. I tried to call earlier but could not reach you.`,
+        previewText: `Thank you for your enquiry to Helix Law. I have tried to call you to discuss your matter but was unable to reach you.\n\nAs a starting point, if you prefer, please email me a brief summary of the background and current position. I will briefly review the content and will come back to you and we can take it from there.`,
       },
       {
         label: 'Apology for Delay',
-        previewText: `Thank you for your enquiry. Apologies for the slight delay in responding.`,
+        previewText: `Thank you for your enquiry to Helix Law. Please accept my apology for the slight delay in my contacting you.\n\nI have only limited information regarding your dispute. As a starting point please can you email me a brief summary of the background and current position. I will briefly review the content and will come back to you and we can take it from there.`,
       },
     ],
   },
@@ -48,20 +48,16 @@ export const templateBlocks: TemplateBlock[] = [
     isMultiSelect: true,
     options: [
       {
-        label: 'You have informed me that',
-        previewText: `You have informed me that you are facing challenges with...`,
+        label: 'Current Position - confirmed',
+        previewText: `We have discussed that you are [INSERT]. You have a dispute with [INSERT] because [INSERT]... and have confirmed that…[INSERT]`,
       },
       {
-        label: 'You have confirmed that',
-        previewText: `You have confirmed that there have been issues related to...`,
+        label: 'The Problem',
+        previewText: `The dispute with [INSERT] situation creates difficulty for you for obvious reasons including because…[INSERT].`,
       },
       {
-        label: 'You would like to',
-        previewText: `You would like to address the following problems...`,
-      },
-      {
-        label: 'Additional Context',
-        previewText: `You have also mentioned that...`,
+        label: 'The Bigger Problem',
+        previewText: `In addition to the above the additional problems arise and need to be addressed…[INSERT].`,
       },
     ],
   },
@@ -72,19 +68,27 @@ export const templateBlocks: TemplateBlock[] = [
     isMultiSelect: true,
     options: [
       {
-        label: 'Initial Review and Advice',
-        previewText: `I will review the documents you provide and offer initial advice on next steps.`,
+        label: 'Initial Steps- Review and Advice',
+        previewText: `I am experienced in dealing with this type of issue and am happy to assist you. At this initial stage it is necessary and incredibly important to review the background and current position so that we can then advise on your best next steps.\n\nThis will require an initial review of core documents such as [INSERT the contracts, notices, demands, accounts, relevant correspondence set out below] so that we can be as clear as possible on the factual position with companies house and land registry. I then anticipate being able to provide initial advice on your current position and best next steps.`,
+      },
+      {
+        label: 'Shareholder Dispute',
+        previewText: `Obviously you will want and need to protect your position in the company as robustly as possible. In the above context I need to review your situation and the background and current position in more detail, including documents that are relevant to your situation and filings with companies house. This will enable me to provide you with initial advice on your current position and your best next steps.\n\nTo assist me in completing the review if you can please provide a copy of the shareholders agreement (if any), Directors service agreement (if any), copies of the recent correspondence you have received and sent, and a brief summary over no more than 2 pages of the current position. It is fine to use bullet points within an email for this if you prefer.\n\nOn receipt of the above I will confirm our time and cost estimate for our review of the documents and initial advice on your current position and best next steps.`,
+      },
+      {
+        label: 'Statutory Demand',
+        previewText: `In the above context I need to review your situation and the background and current position in more detail, including documents that are relevant to your situation. This will enable me to provide you with initial advice on your current position and your best next steps.\n\nIt is usually important to act quickly in this type of situation to force or avoid a winding up petition being issued. When a petition is issued all company bank accounts are immediately frozen which can have a catastrophic impact on a business for obvious reasons. A quick and robust approach is therefore needed to force resolution.\n\nIt will assist me in completing the review if you can please provide a copy of the contract or agreement (if any), any terms and conditions, the unpaid invoice and copies of the recent correspondence you have received and have sent, as well as a brief summary over no more than 2 pages setting out the relevant background and current position. It is fine to use bullet points for this in an email if you prefer.\n\nOn receipt of the above I will confirm our time and cost estimate for our review of the documents and initial advice on your current position and best next steps.`,
+      },
+      {
+        label: 'Property-Specific Review and Advice',
+        previewText: `In the above context I need to review your situation and the background and current position in more detail, including documents that are relevant to your situation.\n\nAt this initial early stage please provide me with the tenancy agreement, any relevant correspondence, and a brief summary of no more than 2 pages or bullet points in an email, summarising your current position and the dispute. This will enable me to provide you with initial advice on your current position and your best next steps.\n\nFurther documents might be needed from you which I will confirm separately when you have taken the next steps below.`,
       },
       {
         label: 'Construction-Specific Scope',
-        previewText: `We can review the quote/contract, correspondence, and provide a detailed letter of advice.`,
-      },
-      {
-        label: 'Dispute Resolution Overview',
-        previewText: `We can review your position and provide advice on strategy, including settlement and litigation steps.`,
+        previewText: `In the above context I need to review your situation and the background and current position in more detail, including documents that are relevant to your dispute.\n\nPlease provide me with a copy of the contract, any relevant correspondence, and a brief summary of no more than 2 pages summarising the nature of the dispute. This will enable me to provide you with initial advice on your current position and your best next steps.\n\nIt is likely that further documents and information might be needed which I will confirm in due course, but this will be a useful starting point.\n\nI will then review your position and advise on strategy, including settlement and appropriate next steps and we can then discuss this further.`,
       },
     ],
-  },
+  },  
   {
     title: 'Risk Assessment',
     description: 'Outline potential risks and considerations.',
@@ -92,16 +96,8 @@ export const templateBlocks: TemplateBlock[] = [
     isMultiSelect: true,
     options: [
       {
-        label: 'General Risk Explanation',
-        previewText: `Litigation carries risks, including the possibility of costs being awarded against you.`,
-      },
-      {
         label: 'Cost/Benefit Analysis',
-        previewText: `It is important to ensure that any costs incurred add sufficient value to justify proceeding.`,
-      },
-      {
-        label: 'Specific Legal Risks',
-        previewText: `We will carefully assess the strengths and weaknesses of your claim to minimize potential risks.`,
+        previewText: `My current initial view is that this is a situation, and is sufficiently serious, where it stacks up from a cost; benefit perspective for you to obtain advice on your current position and best next steps.\n\nObviously it is fundamentally important that we (you and I) continue to keep this under review including within our initial work on your behalf.`,
       },
     ],
   },
@@ -113,15 +109,11 @@ export const templateBlocks: TemplateBlock[] = [
     options: [
       {
         label: 'Hourly Rate Explanation',
-        previewText: `I am a Partner, and my hourly rate is £395 + VAT. Work is charged in 6-minute increments.`,
+        previewText: `We charge on a time recorded basis and record all time in 6 minute units. This includes for emails in and out and telephone attendances, and all steps on your behalf. I am a Partner and my hourly rate is £395 + VAT.\n\nWe work as a team and a number of colleagues may assist in relation to various steps in relation to your matter, at different times. Their time will be recorded and charged on the basis of their hourly rates as applicable from time to time- these are all lower than £395+VAT.`,
       },
       {
         label: 'Initial Budget Estimate',
-        previewText: `For the initial scope, you should budget approximately £1,500 + VAT. This is an estimate, not a fixed fee.`,
-      },
-      {
-        label: 'Comprehensive Budget Overview',
-        previewText: `You will need to budget £30,000 + VAT for our fees and a further £20,000 + VAT for counsel's fees.`,
+        previewText: `For the initial work and review above you will need to budget in the region of approximately £1,500 + VAT. This is an estimate and not a fixed fee; the cost will ultimately depend on the time spent including the scale of documents and enquiries received from you, but based on my experience this is likely to be an accurate estimate at this stage.\n\nFurther work will incur additional costs on a time basis and in a fully litigated dispute it is not unusual for each party to incur costs of tens of thousands of pounds in this type of dispute, if not higher. Costs will of course be a concern, naturally.\n\nEqually, if you are positioned to win a dispute you can usually expect to recover in the region of approximately 65-70% of your costs (if not higher). In this context the fear of being ordered to pay your costs, can provide powerful leverage to force resolution of a dispute in your favour. We will of course consider this within our initial review and work as above.`,
       },
     ],
   },
@@ -151,32 +143,26 @@ export const templateBlocks: TemplateBlock[] = [
     },
   },
   {
-    title: 'Follow-Up Instructions',
+    title: 'Next Steps',
     description: 'Define clear next steps for the client.',
     placeholder: '[Follow-Up Instructions Placeholder]',
     isMultiSelect: true,
     options: [
       {
-        label: 'Proof of ID',
-        previewText: `Please complete the identity form below for our compliance purposes:  
-https://helix-law.co.uk/proof-of-identity/`,
+        label: 'Confirm Instructions and Verify Identity',
+        previewText: `To confirm my instructions and to enable us to open a file and move this forwards please take the steps below;\n\nWe are required to verify your identity. Please complete the identity form below with your personal details. We will try to verify you electronically initially;\n\nhttps://helix-law.co.uk/proof-of-identity/`,
       },
       {
         label: 'Payment Instructions',
-        previewText: `Please pay £X on account, using our account details below:  
-Helix Law General Client Account  
-Barclays Bank  
-Account Number: 93472434  
-Sort Code: 20-27-91  
-
-Reference: FE [NAME] // [ACID]
-
-Please ensure to quote the above reference so that we promptly identify your payment.`,
+        previewText: `We work with funds on account of costs at all times. Please pay £1800 on account of costs, using our account details below:\n\nHelix Law General Client Account\nBarclays Bank\nAccount Number: 93472434\nSort Code: 20-27-91\nReference: FE [NAME] // [ACID]\n\nPlease ensure to quote the above reference so that we promptly identify your payment.`,
+      },
+      {
+        label: 'Document Submission',
+        previewText: `I have mentioned above some specific documents that will assist me at this stage. Please put these together and email them to me.\n\nIf the file sizes or volume are significant please let me know and we can arrange a document sharing facility for you to send these to us. Alternatively please send the files to me via WeTransfer or Dropbox- both are free services.`,
       },
       {
         label: 'Meeting Link (Optional)',
-        previewText: `You are welcome to schedule a meeting using the link below:
-https://calendly.com/helixlaw-sam/telephone-call-duplicate`,
+        previewText: `You are welcome to schedule a meeting using the link below:\n\nhttps://calendly.com/helixlaw-fe`,
       },
     ],
   },
@@ -187,16 +173,8 @@ https://calendly.com/helixlaw-sam/telephone-call-duplicate`,
     isMultiSelect: true,
     options: [
       {
-        label: 'General Closing',
-        previewText: `I look forward to hearing from you and hope the above is helpful.`,
-      },
-      {
-        label: 'Encouragement to Contact',
-        previewText: `Please let me know if you have any questions or need further clarification.`,
-      },
-      {
-        label: 'Custom Closing for High-Value Matters',
-        previewText: `This is obviously a complex matter. We’re here to assist you in navigating the process effectively.`,
+        label: 'Closing',
+        previewText: `I hope the above helps and look forward to helping resolve your matter.\n\nThere is obviously some degree of complexity factually and legally in relation to your matter. We’re a specialist team and I hope to assist you navigate the process effectively to achieve a positive outcome.\n\nPlease let me know if you have any questions and I will be happy to help. Otherwise as soon as we have received the above from you I will confirm that we are able to open a file and we will then start to move this forwards.`,
       },
     ],
   },
@@ -208,15 +186,8 @@ https://calendly.com/helixlaw-sam/telephone-call-duplicate`,
     options: [
       {
         label: 'Request for Review',
-        previewText: `I hope the above is useful and of course come back to me if I can help you further. In the meantime, I’m wondering if you can help me by providing a brief positive Google review of me and Helix Law. We’re a small but specialist team, and this would make a huge difference to us.
-
-If you don’t mind, please can you give us a brief 5* positive review at the following link:  
-http://bit.ly/2gGwyNJ
-
-You will need to be signed into Google.
-
-Many thanks in advance.`,
+        previewText: `I hope the above [and our call] is useful and of course come back to me if I can help you further.\n\nIn the meantime, I’m wondering if you can help me by providing a brief positive Google review of me and Helix Law. We’re a small but specialist team, and this would make a huge difference to us.\n\nIf you don’t mind, please can you give us a brief 5* positive review at the following link:\n\nhttp://bit.ly/2gGwyNJ\n\nYou will need to be signed into Google.\n\nMany thanks in advance.`,
       },
     ],
-  },
+  }  
 ];

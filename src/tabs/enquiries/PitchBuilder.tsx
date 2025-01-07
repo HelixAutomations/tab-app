@@ -86,8 +86,9 @@ const stripHtmlTags = (html: string): string => {
 
 const cleanTemplateString = (template: string): string => {
   return template
-    .replace(/^\s*\n|\n\s*$/g, '')
-    .replace(/\n{2,}/g, '\n');
+    .replace(/^\s*\n|\n\s*$/g, '')  // Remove leading/trailing blank lines
+    // .replace(/\n{2,}/g, '\n');    // Remove this line to preserve multiple newlines
+    .replace(/\n/g, '<br />');      // Replace single newlines with <br />
 };
 
 const boldIcon: IIconProps = { iconName: 'Bold' };
@@ -453,6 +454,7 @@ Kind regards,
     selectedOption: string | string[]
   ) => {
     let replacementText = '';
+  
     if (block.isMultiSelect && isStringArray(selectedOption)) {
       if (block.title === 'Required Documents') {
         replacementText = `<ul>${selectedOption
@@ -467,15 +469,18 @@ Kind regards,
             const option = block.options.find((o) => o.label === item);
             return option ? option.previewText.trim() : item;
           })
-          .join('\n');
+          .join('<br />'); // Replace \n with <br />
       }
     } else if (!block.isMultiSelect && typeof selectedOption === 'string') {
       const option = block.options.find((o) => o.label === selectedOption);
       replacementText = option ? option.previewText.trim() : '';
+      replacementText = replacementText.replace(/\n/g, '<br />'); // Replace \n with <br />
     }
+  
     const highlightedReplacement = `<span style="background-color: ${colours.highlightYellow}; padding: 0 3px;" data-inserted="${block.title}" data-placeholder="${block.placeholder}">${cleanTemplateString(
       replacementText
     )}</span>`;
+  
     setBody((prevBody) => {
       const newBody = prevBody.replace(
         new RegExp(
@@ -487,7 +492,7 @@ Kind regards,
       return newBody;
     });
     setInsertedBlocks((prev) => ({ ...prev, [block.title]: true }));
-
+  
     // Update the selection to after the inserted block
     setTimeout(() => {
       if (bodyEditorRef.current) {
@@ -505,7 +510,7 @@ Kind regards,
         }
       }
     }, 0);
-  };
+  };  
 
   const [template, setTemplate] = useState<string | undefined>(undefined);
 
@@ -864,31 +869,47 @@ Kind regards,
   const renderPreview = (block: TemplateBlock) => {
     const selectedOptions = selectedTemplateOptions[block.title];
     const isInserted = insertedBlocks[block.title] || false;
+  
     if (
       !selectedOptions ||
       (block.isMultiSelect && Array.isArray(selectedOptions) && selectedOptions.length === 0)
     ) {
       return null;
     }
+  
+    const formatPreviewText = (text: string) => {
+      return text.replace(/\n/g, '<br />'); // Replace \n with <br /> for line breaks
+    };
+  
     return (
       <div className={templatePreviewStyle(isDarkMode, isInserted)}>
         {block.isMultiSelect && Array.isArray(selectedOptions) ? (
           <ul>
             {selectedOptions.map((doc: string) => (
-              <li key={doc}>
-                {block.options.find((o) => o.label === doc)?.previewText.trim() || doc}
-              </li>
+              <li
+                key={doc}
+                dangerouslySetInnerHTML={{
+                  __html: formatPreviewText(
+                    block.options.find((o) => o.label === doc)?.previewText.trim() || doc
+                  ),
+                }}
+              ></li>
             ))}
           </ul>
         ) : (
-          <span>
-            {block.options.find((o) => o.label === selectedOptions)?.previewText.trim() ||
-              selectedOptions}
-          </span>
+          typeof selectedOptions === 'string' && (
+            <span
+              dangerouslySetInnerHTML={{
+                __html: formatPreviewText(
+                  block.options.find((o) => o.label === selectedOptions)?.previewText.trim() || selectedOptions
+                ),
+              }}
+            ></span>
+          )
         )}
       </div>
     );
-  };
+  };  
 
   const fullName = `${enquiry.First_Name || ''} ${enquiry.Last_Name || ''}`.trim();
 
