@@ -1365,9 +1365,12 @@ Kind regards,
             >
               Body:
             </Text>
-            <div style={{ whiteSpace: 'pre-wrap' }}>
-              {removeUnfilledPlaceholders(getPlainTextBody(body)) || 'N/A'}
-            </div>
+            <div
+              style={{ whiteSpace: 'pre-wrap' }}
+              dangerouslySetInnerHTML={{
+                __html: removeUnfilledPlaceholders(removeHighlightSpans(body)),
+              }}
+            />
           </Stack>
           {attachments.length > 0 && (
             <>
