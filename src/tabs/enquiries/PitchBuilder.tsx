@@ -274,9 +274,9 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
       : 'Your Enquiry'
   );
 
-  const [to, setTo] = useState<string>('');
+  const [to, setTo] = useState<string>(enquiry.Email || ''); 
   const [cc, setCc] = useState<string>('');
-  const [bcc, setBcc] = useState<string>('');
+  const [bcc, setBcc] = useState<string>('2day@followupthen.com');
 
   const BASE_TEMPLATE = `Dear [Enquiry.First_Name],
 
@@ -546,9 +546,9 @@ Kind regards,
   const resetForm = () => {
     setTemplate(undefined);
     setSubject('Your Practice Area Enquiry');
-    setTo('');
+    setTo(enquiry.Email || ''); // Reset To field to prospect's email
     setCc('');
-    setBcc('');
+    setBcc('2day@followupthen.com'); // Reset BCC field to default
     setBody(
       normalizeBody(
         replacePlaceholders(
@@ -731,6 +731,7 @@ Kind regards,
     }
   };
 
+  // Updated container styles
   const containerStyle = mergeStyles({
     padding: '30px',
     backgroundColor: isDarkMode
@@ -744,11 +745,8 @@ Kind regards,
     margin: '0 auto',
     fontFamily: 'Raleway, sans-serif',
     display: 'flex',
-    flexDirection: 'row',
-    alignItems: 'flex-start', // Align items to the start to allow left expansion without stretching right column
+    flexDirection: 'column',
     gap: '20px',
-    justifyContent: 'space-between',
-    flexWrap: 'nowrap',
     boxSizing: 'border-box',
   });
 
@@ -760,13 +758,13 @@ Kind regards,
   });
 
   const templatesContainerStyle = mergeStyles({
-    flex: '0 0 48%',
+    flex: '0 0 50%',
     display: 'flex',
     flexDirection: 'column',
     gap: '20px',
-    alignSelf: 'flex-start',        // Prevent right column from stretching with left
-    maxHeight: 'calc(100vh - 160px)', // Fixed max height for right column
-    overflowY: 'auto',              // Enable scrolling within right column
+    alignSelf: 'flex-start',
+    maxHeight: 'calc(100vh - 160px)',
+    overflowY: 'auto',
   });
 
   const templatesGridStyle = mergeStyles({
@@ -886,198 +884,104 @@ Kind regards,
 
   return (
     <Stack className={containerStyle}>
-      {/* Form Container */}
-      <Stack className={formContainerStyle} tokens={{ childrenGap: 20 }}>
-        <Text
-          variant="xLarge"
-          styles={{ root: { fontWeight: '700', color: colours.highlight } }}
-        >
-          Pitch Builder
-        </Text>
-
-        {/* To, CC, BCC, Subject Line */}
-        <Stack tokens={{ childrenGap: 20 }}>
-          {/* To, CC, BCC on the same line */}
-          <Stack horizontal tokens={{ childrenGap: 10 }} verticalAlign="start">
-            {/* To Field */}
-            <Stack tokens={{ childrenGap: 6 }} style={{ flex: 1 }}>
-              <Label className={labelStyle}>To</Label>
-              <BubbleTextField
-                value={to}
-                onChange={(
-                  _: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>,
-                  newValue?: string
-                ) => setTo(newValue || '')}
-                placeholder="Enter recipient addresses, separated by commas"
-                ariaLabel="To Addresses"
-                isDarkMode={isDarkMode}
-                style={{ borderRadius: '8px' }}
-              />
-            </Stack>
-
-            {/* CC Field */}
-            <Stack tokens={{ childrenGap: 6 }} style={{ flex: 1 }}>
-              <Label className={labelStyle}>CC</Label>
-              <BubbleTextField
-                value={cc}
-                onChange={(
-                  _: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>,
-                  newValue?: string
-                ) => setCc(newValue || '')}
-                placeholder="Enter CC addresses, separated by commas"
-                ariaLabel="CC Addresses"
-                isDarkMode={isDarkMode}
-                style={{ borderRadius: '8px' }}
-              />
-            </Stack>
-
-            {/* BCC Field */}
-            <Stack tokens={{ childrenGap: 6 }} style={{ flex: 1 }}>
-              <Label className={labelStyle}>BCC</Label>
-              <BubbleTextField
-                value={bcc}
-                onChange={(
-                  _: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>,
-                  newValue?: string
-                ) => setBcc(newValue || '')}
-                placeholder="Enter BCC addresses, separated by commas"
-                ariaLabel="BCC Addresses"
-                isDarkMode={isDarkMode}
-                style={{ borderRadius: '8px' }}
-              />
-            </Stack>
-          </Stack>
-
-          {/* Subject Line */}
-          <Stack tokens={{ childrenGap: 6 }}>
-            <Label className={labelStyle}>Subject Line</Label>
-            <BubbleTextField
-              value={subject}
-              onChange={(
-                _: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>,
-                newValue?: string
-              ) => setSubject(newValue || '')}
-              placeholder="Enter email subject"
-              ariaLabel="Email Subject"
-              isDarkMode={isDarkMode}
-              style={{ borderRadius: '8px' }}
-            />
-          </Stack>
-        </Stack>
-
-        {/* Email Body */}
-        <Label className={labelStyle}>Email Body</Label>
-        <Stack horizontal tokens={{ childrenGap: 20 }}>
-          <Stack tokens={{ childrenGap: 6 }} grow>
-            <div className={toolbarStyle}>
-              <IconButton
-                iconProps={boldIcon}
-                ariaLabel="Bold"
-                onClick={() => applyFormat('bold')}
-              />
-              <IconButton
-                iconProps={italicIcon}
-                ariaLabel="Italic"
-                onClick={() => applyFormat('italic')}
-              />
-              <IconButton
-                iconProps={underlineIcon}
-                ariaLabel="Underline"
-                onClick={() => applyFormat('underline')}
-              />
-              <IconButton
-                iconProps={unorderedListIcon}
-                ariaLabel="Bulleted List"
-                onClick={() => applyFormat('insertUnorderedList')}
-              />
-              <IconButton
-                iconProps={orderedListIcon}
-                ariaLabel="Numbered List"
-                onClick={() => applyFormat('insertOrderedList')}
-              />
-              <IconButton
-                iconProps={linkIcon}
-                ariaLabel="Insert Link"
-                onClick={() => {
-                  const url = prompt('Enter the URL');
-                  if (url) {
-                    applyFormat('createLink', url);
-                  }
-                }}
-              />
-            </div>
-            <div
-              contentEditable
-              ref={bodyEditorRef}
-              onBlur={handleBlur}
-              suppressContentEditableWarning={true}
-              className={sharedEditorStyle(isDarkMode)}
-              style={{
-                flexGrow: 1,
-                overflowY: 'auto',
-                height: 'auto',
-                minHeight: '200px',
-                maxHeight: 'none',
-              }}
-              aria-label="Email Body Editor"
-              onMouseUp={saveSelection}
-              onKeyUp={saveSelection}
-            />
-          </Stack>
-        </Stack>
-
-        {isErrorVisible && (
-          <MessageBar
-            messageBarType={MessageBarType.error}
-            isMultiline={false}
-            onDismiss={() => setIsErrorVisible(false)}
-            dismissButtonAriaLabel="Close"
-            styles={{ root: { borderRadius: '4px' } }}
-          >
-            {errorMessage}
-          </MessageBar>
-        )}
-
-        <Separator />
-
+      {/* Top horizontal container: Form Fields and Initial Notes */}
+      <Stack horizontal tokens={{ childrenGap: 20 }} verticalAlign="stretch">
+        {/* Left container: Form Fields */}
         <Stack
-          horizontal
-          horizontalAlign="space-between"
-          className={buttonGroupStyle}
+          style={{ width: '50%' }}
+          className={formContainerStyle}
+          tokens={{ childrenGap: 20 }}
         >
-          <PrimaryButton
-            text="Preview Email"
-            onClick={togglePreview}
-            styles={sharedPrimaryButtonStyles}
-            ariaLabel="Preview Email"
-            iconProps={{ iconName: 'Preview' }}
-          />
+          <Text
+            variant="xLarge"
+            styles={{ root: { fontWeight: '700', color: colours.highlight } }}
+          >
+            Pitch Builder
+          </Text>
 
-          <DefaultButton
-            text="Reset"
-            onClick={resetForm}
-            styles={sharedDefaultButtonStyles}
-            ariaLabel="Reset Form"
-            iconProps={{ iconName: 'Refresh' }}
-          />
+          {/* To, CC, BCC, Subject Line */}
+          <Stack tokens={{ childrenGap: 20 }}>
+            <Stack horizontal tokens={{ childrenGap: 10 }} verticalAlign="start">
+              <Stack tokens={{ childrenGap: 6 }} style={{ flex: 1 }}>
+                <Label className={labelStyle}>To</Label>
+                <BubbleTextField
+                  value={to}
+                  onChange={(
+                    _: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>,
+                    newValue?: string
+                  ) => setTo(newValue || '')}
+                  placeholder="Enter recipient addresses, separated by commas"
+                  ariaLabel="To Addresses"
+                  isDarkMode={isDarkMode}
+                  style={{ borderRadius: '8px' }}
+                />
+              </Stack>
+
+              <Stack tokens={{ childrenGap: 6 }} style={{ flex: 1 }}>
+                <Label className={labelStyle}>CC</Label>
+                <BubbleTextField
+                  value={cc}
+                  onChange={(
+                    _: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>,
+                    newValue?: string
+                  ) => setCc(newValue || '')}
+                  placeholder="Enter CC addresses, separated by commas"
+                  ariaLabel="CC Addresses"
+                  isDarkMode={isDarkMode}
+                  style={{ borderRadius: '8px' }}
+                />
+              </Stack>
+
+              <Stack tokens={{ childrenGap: 6 }} style={{ flex: 1 }}>
+                <Label className={labelStyle}>BCC</Label>
+                <BubbleTextField
+                  value={bcc}
+                  onChange={(
+                    _: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>,
+                    newValue?: string
+                  ) => setBcc(newValue || '')}
+                  placeholder="Enter BCC addresses, separated by commas"
+                  ariaLabel="BCC Addresses"
+                  isDarkMode={isDarkMode}
+                  style={{ borderRadius: '8px' }}
+                />
+              </Stack>
+            </Stack>
+
+            <Stack tokens={{ childrenGap: 6 }}>
+              <Label className={labelStyle}>Subject Line</Label>
+              <BubbleTextField
+                value={subject}
+                onChange={(
+                  _: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>,
+                  newValue?: string
+                ) => setSubject(newValue || '')}
+                placeholder="Enter email subject"
+                ariaLabel="Email Subject"
+                isDarkMode={isDarkMode}
+                style={{ borderRadius: '8px' }}
+              />
+            </Stack>
+          </Stack>
         </Stack>
-      </Stack>
 
-      {/* Templates Container */}
-      <Stack className={templatesContainerStyle}>
+        {/* Right container: Initial First Call Notes */}
         {enquiry.Initial_first_call_notes && (
           <Stack
-            styles={{
-              root: {
-                backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-                padding: '15px',
-                borderRadius: '8px',
-                boxShadow: isDarkMode
-                  ? '0 2px 5px rgba(255,255,255,0.1)'
-                  : '0 2px 5px rgba(0, 0, 0, 0.1)',
-                marginBottom: '20px'
-              }
+            style={{
+              width: '50%',
+              backgroundColor: isDarkMode
+                ? colours.dark.sectionBackground
+                : colours.light.sectionBackground,
+              padding: '15px',
+              borderRadius: '8px',
+              boxShadow: isDarkMode
+                ? '0 2px 5px rgba(255,255,255,0.1)'
+                : '0 2px 5px rgba(0, 0, 0, 0.1)',
+              overflowY: 'auto',
+              maxHeight: '240px' // restrict expansion beyond this height
             }}
+            tokens={{ childrenGap: 6 }}
           >
             <Text
               variant="mediumPlus"
@@ -1089,7 +993,7 @@ Kind regards,
                 },
               }}
             >
-              Initial First Call Notes
+              Enquiry Notes or Message
             </Text>
             <Text
               variant="small"
@@ -1104,116 +1008,221 @@ Kind regards,
             </Text>
           </Stack>
         )}
+      </Stack>
 
-        <Text
-          variant="xLarge"
-          styles={{
-            root: { fontWeight: '700', color: colours.highlight },
-          }}
-        >
-          Template Blocks
-        </Text>
-        <Stack className={templatesGridStyle}>
-          {templateBlocks.map((block: TemplateBlock) => (
-            <Stack
-              key={block.title}
-              className={templateBlockStyle(isDarkMode)}
-              role="button"
-              tabIndex={0}
-              onClick={() => {
-                const selectedOption = selectedTemplateOptions[block.title];
-                if (selectedOption) {
-                  insertTemplateBlock(block, selectedOption);
-                }
-              }}
-              aria-label={`Insert template block ${block.title}`}
-            >
-              <IconButton
-                iconProps={clearIcon}
-                ariaLabel={`Clear ${block.title}`}
-                className={mergeStyles({
-                  position: 'absolute',
-                  top: '10px',
-                  right: '10px',
-                  backgroundColor: 'transparent',
-                  border: 'none',
-                  cursor: 'pointer',
-                  ':hover': {
-                    backgroundColor: isDarkMode
-                      ? colours.dark.cardHover
-                      : colours.light.cardHover,
-                  },
-                  width: '24px',
-                  height: '24px',
-                  padding: '0',
-                })}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleClearBlock(block);
-                }}
-              />
-              <Stack tokens={{ childrenGap: 10 }}>
-                <Text
-                  variant="mediumPlus"
-                  styles={{
-                    root: { fontWeight: '600', color: colours.highlight },
-                  }}
-                >
-                  {block.title}
-                </Text>
-                <Text
-                  variant="small"
-                  styles={{
-                    root: {
-                      color: isDarkMode ? colours.dark.text : colours.light.text,
-                    },
-                  }}
-                >
-                  {block.description}
-                </Text>
-                <Dropdown
-                  placeholder={block.isMultiSelect ? 'Select options' : 'Select an option'}
-                  multiSelect={block.isMultiSelect}
-                  options={block.options.map((option: TemplateOption) => ({
-                    key: option.label,
-                    text: option.label,
-                  }))}
-                  onChange={(
-                    _: React.FormEvent<HTMLDivElement>,
-                    option?: IDropdownOption
-                  ) => {
-                    if (option) {
-                      if (block.isMultiSelect) {
-                        const currentSelections = Array.isArray(selectedTemplateOptions[block.title])
-                          ? (selectedTemplateOptions[block.title] as string[])
-                          : [];
-                        const updatedSelections = option.selected
-                          ? [...currentSelections, option.key as string]
-                          : currentSelections.filter((key) => key !== option.key);
-                        handleMultiSelectChange(block.title, updatedSelections);
-                      } else {
-                        handleSingleSelectChange(block.title, option.key as string);
-                      }
+      {/* Horizontal Row: Email Body and Template Blocks */}
+      <Stack horizontal tokens={{ childrenGap: 20 }} style={{ width: '100%' }}>
+        {/* Email Body Section */}
+        <Stack style={{ width: '50%' }} tokens={{ childrenGap: 20 }}>
+          <Label className={labelStyle}>Email Body</Label>
+          <Stack horizontal tokens={{ childrenGap: 20 }}>
+            <Stack tokens={{ childrenGap: 6 }} grow>
+              <div className={toolbarStyle}>
+                <IconButton
+                  iconProps={boldIcon}
+                  ariaLabel="Bold"
+                  onClick={() => applyFormat('bold')}
+                />
+                <IconButton
+                  iconProps={italicIcon}
+                  ariaLabel="Italic"
+                  onClick={() => applyFormat('italic')}
+                />
+                <IconButton
+                  iconProps={underlineIcon}
+                  ariaLabel="Underline"
+                  onClick={() => applyFormat('underline')}
+                />
+                <IconButton
+                  iconProps={unorderedListIcon}
+                  ariaLabel="Bulleted List"
+                  onClick={() => applyFormat('insertUnorderedList')}
+                />
+                <IconButton
+                  iconProps={orderedListIcon}
+                  ariaLabel="Numbered List"
+                  onClick={() => applyFormat('insertOrderedList')}
+                />
+                <IconButton
+                  iconProps={linkIcon}
+                  ariaLabel="Insert Link"
+                  onClick={() => {
+                    const url = prompt('Enter the URL');
+                    if (url) {
+                      applyFormat('createLink', url);
                     }
                   }}
-                  selectedKeys={
-                    block.isMultiSelect
-                      ? Array.isArray(selectedTemplateOptions[block.title])
-                        ? (selectedTemplateOptions[block.title] as string[])
-                        : []
-                      : typeof selectedTemplateOptions[block.title] === 'string'
-                      ? [selectedTemplateOptions[block.title] as string]
-                      : []
-                  }
-                  styles={sharedOptionsDropdownStyles(isDarkMode)}
-                  ariaLabel={`Select options for ${block.title}`}
-                  onClick={(e: React.MouseEvent<HTMLDivElement>) => e.stopPropagation()}
-                  onFocus={(e: React.FocusEvent<HTMLDivElement>) => e.stopPropagation()}
                 />
-                {renderPreview(block)}
-              </Stack>
+              </div>
+              <div
+                contentEditable
+                ref={bodyEditorRef}
+                onBlur={handleBlur}
+                suppressContentEditableWarning={true}
+                className={sharedEditorStyle(isDarkMode)}
+                style={{
+                  flexGrow: 1,
+                  overflowY: 'auto',
+                  height: 'auto',
+                  minHeight: '200px',
+                  maxHeight: 'none',
+                }}
+                aria-label="Email Body Editor"
+                onMouseUp={saveSelection}
+                onKeyUp={saveSelection}
+              />
             </Stack>
-          ))}
+          </Stack>
+
+          {isErrorVisible && (
+            <MessageBar
+              messageBarType={MessageBarType.error}
+              isMultiline={false}
+              onDismiss={() => setIsErrorVisible(false)}
+              dismissButtonAriaLabel="Close"
+              styles={{ root: { borderRadius: '4px' } }}
+            >
+              {errorMessage}
+            </MessageBar>
+          )}
+
+          <Separator />
+
+          <Stack
+            horizontal
+            horizontalAlign="space-between"
+            className={buttonGroupStyle}
+          >
+            <PrimaryButton
+              text="Preview Email"
+              onClick={togglePreview}
+              styles={sharedPrimaryButtonStyles}
+              ariaLabel="Preview Email"
+              iconProps={{ iconName: 'Preview' }}
+            />
+
+            <DefaultButton
+              text="Reset"
+              onClick={resetForm}
+              styles={sharedDefaultButtonStyles}
+              ariaLabel="Reset Form"
+              iconProps={{ iconName: 'Refresh' }}
+            />
+          </Stack>
+        </Stack>
+
+        {/* Templates Container */}
+        <Stack className={templatesContainerStyle}>
+          <Text
+            variant="xLarge"
+            styles={{
+              root: { fontWeight: '700', color: colours.highlight },
+            }}
+          >
+            Template Blocks
+          </Text>
+          <Stack className={templatesGridStyle}>
+            {templateBlocks.map((block: TemplateBlock) => (
+              <Stack
+                key={block.title}
+                className={templateBlockStyle(isDarkMode)}
+                role="button"
+                tabIndex={0}
+                onClick={() => {
+                  const selectedOption = selectedTemplateOptions[block.title];
+                  if (selectedOption) {
+                    insertTemplateBlock(block, selectedOption);
+                  }
+                }}
+                aria-label={`Insert template block ${block.title}`}
+              >
+                <IconButton
+                  iconProps={clearIcon}
+                  ariaLabel={`Clear ${block.title}`}
+                  className={mergeStyles({
+                    position: 'absolute',
+                    top: '10px',
+                    right: '10px',
+                    backgroundColor: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    ':hover': {
+                      backgroundColor: isDarkMode
+                        ? colours.dark.cardHover
+                        : colours.light.cardHover,
+                    },
+                    width: '24px',
+                    height: '24px',
+                    padding: '0',
+                  })}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleClearBlock(block);
+                  }}
+                />
+                <Stack tokens={{ childrenGap: 10 }}>
+                  <Text
+                    variant="mediumPlus"
+                    styles={{
+                      root: { fontWeight: '600', color: colours.highlight },
+                    }}
+                  >
+                    {block.title}
+                  </Text>
+                  <Text
+                    variant="small"
+                    styles={{
+                      root: {
+                        color: isDarkMode ? colours.dark.text : colours.light.text,
+                      },
+                    }}
+                  >
+                    {block.description}
+                  </Text>
+                  <Dropdown
+                    placeholder={block.isMultiSelect ? 'Select options' : 'Select an option'}
+                    multiSelect={block.isMultiSelect}
+                    options={block.options.map((option: TemplateOption) => ({
+                      key: option.label,
+                      text: option.label,
+                    }))}
+                    onChange={(
+                      _: React.FormEvent<HTMLDivElement>,
+                      option?: IDropdownOption
+                    ) => {
+                      if (option) {
+                        if (block.isMultiSelect) {
+                          const currentSelections = Array.isArray(selectedTemplateOptions[block.title])
+                            ? (selectedTemplateOptions[block.title] as string[])
+                            : [];
+                          const updatedSelections = option.selected
+                            ? [...currentSelections, option.key as string]
+                            : currentSelections.filter((key) => key !== option.key);
+                          handleMultiSelectChange(block.title, updatedSelections);
+                        } else {
+                          handleSingleSelectChange(block.title, option.key as string);
+                        }
+                      }
+                    }}
+                    selectedKeys={
+                      block.isMultiSelect
+                        ? Array.isArray(selectedTemplateOptions[block.title])
+                          ? (selectedTemplateOptions[block.title] as string[])
+                          : []
+                        : typeof selectedTemplateOptions[block.title] === 'string'
+                        ? [selectedTemplateOptions[block.title] as string]
+                        : []
+                    }
+                    styles={sharedOptionsDropdownStyles(isDarkMode)}
+                    ariaLabel={`Select options for ${block.title}`}
+                    onClick={(e: React.MouseEvent<HTMLDivElement>) => e.stopPropagation()}
+                    onFocus={(e: React.FocusEvent<HTMLDivElement>) => e.stopPropagation()}
+                  />
+                  {renderPreview(block)}
+                </Stack>
+              </Stack>
+            ))}
+          </Stack>
         </Stack>
       </Stack>
 
