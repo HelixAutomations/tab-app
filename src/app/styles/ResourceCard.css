@@ -33,13 +33,13 @@
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  right: 80px; /* Align closer to the separator */
-  width: 80px; /* Ensure width is set */
-  height: 80px; /* Ensure height is set */
-  opacity: 0.5; /* Subtle background */
+  right: 80px; /* Adjust positioning if necessary */
+  width: 80px;
+  height: 80px;
+  opacity: 0.5;
   pointer-events: none;
-  z-index: 1;
-  filter: brightness(0) saturate(100%) invert(93%); /* Adjusted filter to achieve #F4F4F6 */
+  z-index: -1; /* Lower z-index to place it behind other content */
+  filter: brightness(0) saturate(100%) invert(93%);
 }
 
 /* Logo and Label Shifting */

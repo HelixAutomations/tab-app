@@ -20,15 +20,14 @@
 .backdropIcon {
   position: absolute;
   top: 50%;
-  right: 80px; /* Adjust as needed */
+  right: 80px; /* Adjust positioning if needed */
   transform: translateY(-50%);
-  font-size: 80px;           /* Larger for a subtle background */
-  opacity: 0.5;             /* Subtle background */
-  pointer-events: none;     /* Don’t block interactions */
-  z-index: 1;
+  font-size: 80px; /* Large for subtle background */
+  opacity: 0.5; /* Subtle transparency */
+  pointer-events: none; /* Prevent interaction */
+  z-index: -1; /* Position it behind the text and other elements */
   transition: opacity 0.3s ease;
-  /* Example filter to get a grey-ish colour: */
-  filter: brightness(0) saturate(100%) invert(93%);
+  filter: brightness(0) saturate(100%) invert(93%); /* Adjust for desired colour */
 }
 
 .formCard:hover .backdropIcon {

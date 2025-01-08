@@ -49,12 +49,12 @@ export const sharedPrimaryButtonStyles: IButtonStyles = {
 
 export const sharedDefaultButtonStyles: IButtonStyles = {
   root: {
-    padding: '4px 8px', /* Reduced padding for smaller size */
+    padding: '6px 12px', // match the primary button padding
     borderRadius: '4px',
     backgroundColor: colours.secondaryButtonBackground,
     border: 'none',
-    height: '32px', /* Reduced height */
-    fontWeight: 'normal', /* Normal font weight */
+    height: '40px', // match the primary button height
+    fontWeight: 'normal', 
     color: '#000000',
     transition: 'background 0.3s ease, box-shadow 0.3s ease',
     transform: 'none !important',

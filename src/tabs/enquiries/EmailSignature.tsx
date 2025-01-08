@@ -2,7 +2,26 @@
 
 import React from 'react';
 
-const EmailSignature: React.FC<{ bodyHtml: string }> = ({ bodyHtml }) => {
+interface EmailSignatureProps {
+  bodyHtml: string;
+  userData: any;
+}
+
+const EmailSignature: React.FC<EmailSignatureProps> = ({ bodyHtml, userData }) => {
+  // Extract user full name from userData
+  const userFullName = userData?.[0]?.['Full Name'] || '';
+  
+  // Compute user initials (e.g., "Lukasz Zemanek" -> "lz")
+  const userInitials = userFullName
+    ? userFullName
+        .split(' ')
+        .map((name: string) => name[0].toLowerCase())
+        .join('')
+    : 'fe'; // Default to 'fe' if no name is available
+
+  // Construct the dynamic email address
+  const userEmail = `${userInitials}@helix-law.com`;
+
   return (
     <>
       <div
@@ -82,12 +101,9 @@ const EmailSignature: React.FC<{ bodyHtml: string }> = ({ bodyHtml }) => {
 <body>
 ${bodyHtml}
 <table class="signature" style="border-collapse: collapse; margin: 0; padding: 0;">
-    <tr>
-        <td>
-            Fee Earner<br>
-            Title/Position
-        </td>
-    </tr>
+    <!-- Removed Sign-Off Section -->
+    
+    <!-- Logo Section -->
     <tr class="spacer"></tr>
     <tr>
         <td>
@@ -95,6 +111,8 @@ ${bodyHtml}
         </td>
     </tr>
     <tr class="spacer"></tr>
+    
+    <!-- Contact Details Section -->
     <tr>
         <td class="contact-details">
             <table style="border-collapse: collapse; margin: 0; padding: 0;">
@@ -103,7 +121,7 @@ ${bodyHtml}
                         <img src="https://helix-law.co.uk/wp-content/uploads/2024/08/email.png" alt="Email Icon" class="icon">
                     </td>
                     <td style="text-align: left;">
-                        <a href="mailto:fe@helix-law.com">fe@helix-law.com</a>
+                        <a href="mailto:${userEmail}">${userEmail}</a>
                     </td>
                     <td class="icon-cell">
                         <img src="https://helix-law.co.uk/wp-content/uploads/2024/08/phone.png" alt="Phone Icon" class="icon">
@@ -121,6 +139,8 @@ ${bodyHtml}
             </table>
         </td>
     </tr>
+    
+    <!-- Address Section -->
     <tr>
         <td class="contact-details">
             <table style="border-collapse: collapse; margin: 0; padding: 0;">
@@ -135,6 +155,8 @@ ${bodyHtml}
             </table>
         </td>
     </tr>
+    
+    <!-- Disclaimer Section -->
     <tr class="line-break"><td></td></tr>
     <tr>
         <td>
@@ -143,6 +165,8 @@ ${bodyHtml}
             </p>
         </td>
     </tr>
+    
+    <!-- Additional Disclaimer Text -->
     <tr class="line-break"><td></td></tr>
     <tr>
         <td>

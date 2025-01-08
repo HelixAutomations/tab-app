@@ -53,6 +53,7 @@ const leftoverPlaceholders = [
   '[Closing Notes Placeholder]',
   '[Google Review Placeholder]',
   '[FE Introduction Placeholder]',
+  '[Meeting Link Placeholder]',
 ];
 
 function removeUnfilledPlaceholders(text: string): string {
@@ -223,7 +224,9 @@ const replacePlaceholders = (
   enquiry: Enquiry,
   userData: any
 ): string => {
-  const userFullName = userData?.[0]?.['Full Name'] || '';
+  const userFirstName = userData?.[0]?.['First'] || 'Your'; // Ensure variable name matches here
+  const userFullName = userData?.[0]?.['Full Name'] || 'Your Name';
+  const userRole = userData?.[0]?.['Role'] || 'Your Position';
 
   return template
     .replace(
@@ -243,15 +246,22 @@ const replacePlaceholders = (
       `<span data-placeholder="[Current Situation and Problem Placeholder]" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[Current Situation and Problem Placeholder]</span>`
     )
     .replace(
-      /\[FE Introduction Placeholder\]/g,
-      `<span data-placeholder="[FE Introduction Placeholder]" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[FE Introduction Placeholder]</span>`
+      /\[First Name\]/g,
+      `<span data-placeholder="[First Name]" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${userFirstName}</span>` // Updated here
+    )
+    .replace(
+      /\[Full Name\]/g,
+      `<span data-placeholder="[Full Name]" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${userFullName}</span>`
+    )
+    .replace(
+      /\[Position\]/g,
+      `<span data-placeholder="[Position]" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${userRole}</span>`
     )
     .replace(
       /\[(Scope of Work Placeholder|Risk Assessment Placeholder|Costs and Budget Placeholder|Follow-Up Instructions Placeholder|Closing Notes Placeholder|Required Documents Placeholder|Google Review Placeholder|Meeting Link Placeholder)\]/g,
       (match) =>
         `<span data-placeholder="${match}" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${match}</span>`
-    )
-    .replace(/\[User.Full_Name\]/g, userFullName || 'Unknown User');
+    );
 };
 
 const isStringArray = (value: string | string[]): value is string[] => {
@@ -294,14 +304,16 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
 
 [Follow-Up Instructions Placeholder]
 
-[Closing Notes Placeholder]
-
 [Meeting Link Placeholder]
+
+[Closing Notes Placeholder]
 
 [Google Review Placeholder]
 
-Kind regards,
-[User.Full_Name]`;
+[First Name]
+
+[Full Name]
+[Position]`;
 
   const normalizeBody = (text: string) =>
     text
@@ -633,7 +645,7 @@ Kind regards,
     const finalBody = removeUnfilledPlaceholders(getPlainTextBody(body));
     const cleanedBody = finalBody.replace(/\n/g, '<br>');
     const fullEmailHtml = ReactDOMServer.renderToStaticMarkup(
-      <EmailSignature bodyHtml={cleanedBody} />
+      <EmailSignature bodyHtml={cleanedBody} userData={userData} />
     );
     const requestBody = {
       email_contents: fullEmailHtml,
@@ -1361,16 +1373,14 @@ Kind regards,
           )}
         </Stack>
         <Stack
-          styles={{
-            root: {
-              position: 'absolute',
-              bottom: '20px',
-              left: '20px',
-              width: 'auto',
-            },
-          }}
           horizontal
           tokens={{ childrenGap: 15 }}
+          // No position: 'absolute'
+          styles={{
+            root: {
+              marginTop: '20px',    // or whatever spacing you prefer
+            },
+          }}
         >
           <PrimaryButton
             text="Send Email"
