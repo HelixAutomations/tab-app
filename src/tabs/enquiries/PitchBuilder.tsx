@@ -242,6 +242,12 @@ const replacePlaceholders = (
       }</span>`
     )
     .replace(
+      /\[FE Introduction Placeholder\]/g,
+      intro
+        ? `<span data-placeholder="[FE Introduction Placeholder]">${intro}</span>`
+        : `<span data-placeholder="[FE Introduction Placeholder]" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[FE Introduction Placeholder]</span>`
+    )    
+    .replace(
       /\[Current Situation and Problem Placeholder\]/g,
       `<span data-placeholder="[Current Situation and Problem Placeholder]" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[Current Situation and Problem Placeholder]</span>`
     )
