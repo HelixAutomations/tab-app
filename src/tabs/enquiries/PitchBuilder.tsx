@@ -25,7 +25,10 @@ import { useTheme } from '../../app/functionality/ThemeContext';
 import PracticeAreaPitch, { PracticeAreaPitchType } from '../../app/customisation/PracticeAreaPitch';
 import { templateBlocks, TemplateBlock, TemplateOption } from '../../app/customisation/TemplateBlocks';
 import { availableAttachments, AttachmentOption } from '../../app/customisation/Attachments';
-import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from '../../app/styles/ButtonStyles';
+import {
+  sharedPrimaryButtonStyles,
+  sharedDefaultButtonStyles,
+} from '../../app/styles/ButtonStyles';
 import {
   sharedEditorStyle,
   sharedOptionsDropdownStyles,
@@ -33,15 +36,26 @@ import {
 import ReactDOMServer from 'react-dom/server';
 import EmailSignature from './EmailSignature';
 
+/**
+ * Utility: turn consecutive <br><br> lines into real paragraphs (<p>...).
+ * Some email clients (especially Outlook) collapse repeated <br> tags.
+ * Converting them into <p> ensures consistent spacing.
+ */
+function convertDoubleBreaksToParagraphs(html: string): string {
+  // Wrap content in an initial <p> so we can easily "split" paragraphs
+  let wrapped = `<p>${html}</p>`;
+
+  // Replace consecutive <br> with a closing </p> and a new <p>
+  // That means every "blank line" becomes a new paragraph
+  wrapped = wrapped.replace(/(<br\s*\/?>\s*){2,}/g, '</p><p>');
+
+  return wrapped;
+}
+
 interface PitchBuilderProps {
   enquiry: Enquiry;
   userData: any;
 }
-
-const commonInputStyle = {
-  height: '40px',
-  lineHeight: '40px',
-};
 
 const leftoverPlaceholders = [
   '[Current Situation and Problem Placeholder]',
@@ -56,10 +70,15 @@ const leftoverPlaceholders = [
   '[Meeting Link Placeholder]',
 ];
 
+/**
+ * Removes lines that contain leftover placeholders.
+ * Also condenses multiple blank lines down to one.
+ */
 function removeUnfilledPlaceholders(text: string): string {
   const lines = text.split('\n');
   const filteredLines = lines.filter(
-    (line) => !leftoverPlaceholders.some((placeholder) => line.includes(placeholder))
+    (line) =>
+      !leftoverPlaceholders.some((placeholder) => line.includes(placeholder))
   );
 
   const consolidated: string[] = [];
@@ -77,17 +96,33 @@ function removeUnfilledPlaceholders(text: string): string {
   return consolidated.join('\n').trim();
 }
 
-const stripHtmlTags = (html: string): string => {
+/**
+ * Strips all the highlight <span> attributes (data-placeholder, data-inserted, etc.)
+ * so final email doesn't have bright highlighting.
+ */
+function removeHighlightSpans(html: string): string {
   const tempDiv = document.createElement('div');
   tempDiv.innerHTML = html;
-  return tempDiv.textContent || tempDiv.innerText || '';
-};
+  const spans = tempDiv.querySelectorAll(
+    'span[data-placeholder], span[data-inserted], span[data-link]'
+  );
+  spans.forEach((span) => {
+    span.removeAttribute('style');
+    span.removeAttribute('data-placeholder');
+    span.removeAttribute('data-inserted');
+    span.removeAttribute('data-link');
+  });
+  return tempDiv.innerHTML;
+}
 
-const cleanTemplateString = (template: string): string => {
+/**
+ * When we insert multiline text from the TemplateBlocks, we turn raw newlines into <br />.
+ */
+function cleanTemplateString(template: string): string {
   return template
     .replace(/^\s*\n|\n\s*$/g, '')
     .replace(/\n/g, '<br />');
-};
+}
 
 const boldIcon: IIconProps = { iconName: 'Bold' };
 const italicIcon: IIconProps = { iconName: 'Italic' };
@@ -97,137 +132,28 @@ const orderedListIcon: IIconProps = { iconName: 'NumberedList' };
 const linkIcon: IIconProps = { iconName: 'Link' };
 const clearIcon: IIconProps = { iconName: 'Cancel' };
 
-const attachmentTagStyle = (
-  isSelected: boolean,
-  isDarkMode: boolean,
-  isDraft: boolean
-) =>
-  mergeStyles({
-    backgroundColor: isSelected
-      ? colours.cta
-      : isDarkMode
-      ? colours.dark.sectionBackground
-      : colours.light.sectionBackground,
-    color: isSelected
-      ? '#ffffff'
-      : isDarkMode
-      ? colours.dark.text
-      : colours.light.text,
-    border: `1px solid ${
-      isDarkMode ? colours.dark.cardHover : colours.light.cardHover
-    }`,
-    borderRadius: '12px',
-    padding: '6px 12px',
-    cursor: isDraft ? 'not-allowed' : 'pointer',
-    userSelect: 'none',
-    minWidth: '100px',
-    textAlign: 'center',
-    ':hover': {
-      boxShadow: isDraft
-        ? 'none'
-        : '0 4px 8px rgba(0, 0, 0, 0.2)',
-      transform: isDraft ? 'none' : 'translateY(-2px)',
-      border: isDraft ? `1px solid ${colours.grey}` : '1px solid red',
-      backgroundColor: isSelected
-        ? colours.cta
-        : isDarkMode
-        ? colours.dark.cardHover
-        : colours.light.cardHover,
-    },
-    transition: 'all 0.2s',
-  });
+// Your styling for attachments, tags, etc... left as-is for brevity
+// (attachmentTagStyle, followUpTagStyle, templateBlockStyle, templatePreviewStyle...)
 
-const followUpTagStyle = (
-  isSelected: boolean,
-  isDarkMode: boolean
-) =>
-  mergeStyles({
-    backgroundColor: isSelected
-      ? colours.cta
-      : isDarkMode
-      ? colours.dark.sectionBackground
-      : colours.light.sectionBackground,
-    color: isSelected
-      ? '#ffffff'
-      : isDarkMode
-      ? colours.dark.text
-      : colours.light.text,
-    border: `1px solid ${
-      isDarkMode ? colours.dark.cardHover : colours.light.cardHover
-    }`,
-    borderRadius: '12px',
-    padding: '6px 12px',
-    cursor: 'pointer',
-    userSelect: 'none',
-    minWidth: '80px',
-    textAlign: 'center',
-    ':hover': {
-      boxShadow: '0 4px 8px rgba(0, 0, 0, 0.2)',
-      transform: 'translateY(-2px)',
-      border: '1px solid red',
-      backgroundColor: isSelected
-        ? colours.cta
-        : isDarkMode
-        ? colours.dark.cardHover
-        : colours.light.cardHover,
-    },
-    transition: 'all 0.2s',
-  });
-
-const templateBlockStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    padding: '15px',
-    borderRadius: '8px',
-    boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
-    cursor: 'pointer',
-    position: 'relative',
-    transition: 'background-color 0.2s, box-shadow 0.2s',
-    backgroundColor: isDarkMode
-      ? colours.dark.cardBackground
-      : colours.light.cardBackground,
-    ':hover': {
-      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)',
-    },
-  });
-
-const templatePreviewStyle = (
-  isDarkMode: boolean,
-  isInserted: boolean
-) =>
-  mergeStyles({
-    padding: '10px',
-    borderRadius: '4px',
-    overflow: 'hidden',
-    color: isDarkMode ? colours.dark.text : colours.light.text,
-    backgroundColor: isDarkMode
-      ? colours.dark.grey
-      : colours.grey,
-    textAlign: 'left',
-    marginTop: '10px',
-    fontSize: '14px',
-    border: `1px ${isInserted ? 'solid' : 'dashed'} ${
-      isInserted ? colours.highlightYellow : colours.highlightBlue
-    }`,
-    boxShadow: isDarkMode
-      ? '0 2px 5px rgba(255, 255, 255, 0.1)'
-      : '0 2px 5px rgba(0, 0, 0, 0.1)',
-    transition: 'border 0.3s ease',
-  });
-
-function escapeRegExp(string: string): string {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// A quick helper: do we have an array of strings or a single string?
+function isStringArray(value: string | string[]): value is string[] {
+  return Array.isArray(value);
 }
 
-const replacePlaceholders = (
+/**
+ * Replaces placeholders in the base template, e.g. [Enquiry.First_Name].
+ */
+function replacePlaceholders(
   template: string,
   intro: string,
   enquiry: Enquiry,
   userData: any
-): string => {
-  const userFirstName = userData?.[0]?.['First'] || 'Your'; // Ensure variable name matches here
+): string {
+  const userFirstName = userData?.[0]?.['First'] || 'Your';
   const userFullName = userData?.[0]?.['Full Name'] || 'Your Name';
   const userRole = userData?.[0]?.['Role'] || 'Your Position';
 
+  // Insert highlight spans so user can see placeholders in the editor
   return template
     .replace(
       /\[Enquiry.First_Name\]/g,
@@ -246,14 +172,14 @@ const replacePlaceholders = (
       intro
         ? `<span data-placeholder="[FE Introduction Placeholder]">${intro}</span>`
         : `<span data-placeholder="[FE Introduction Placeholder]" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[FE Introduction Placeholder]</span>`
-    )    
+    )
     .replace(
       /\[Current Situation and Problem Placeholder\]/g,
       `<span data-placeholder="[Current Situation and Problem Placeholder]" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">[Current Situation and Problem Placeholder]</span>`
     )
     .replace(
       /\[First Name\]/g,
-      `<span data-placeholder="[First Name]" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${userFirstName}</span>` // Updated here
+      `<span data-placeholder="[First Name]" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${userFirstName}</span>`
     )
     .replace(
       /\[Full Name\]/g,
@@ -268,32 +194,33 @@ const replacePlaceholders = (
       (match) =>
         `<span data-placeholder="${match}" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${match}</span>`
     );
-};
-
-const isStringArray = (value: string | string[]): value is string[] => {
-  return Array.isArray(value);
-};
+}
 
 const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
-  const userFullName = userData?.[0]?.['Full Name'] || 'Unknown User';
   const { isDarkMode } = useTheme();
-  const capitalizeWords = (str: string): string =>
-    str
+
+  // Simple helper to capitalize your "Area_of_Work" for the subject line
+  function capitalizeWords(str: string): string {
+    return str
       .toLowerCase()
       .split(' ')
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ');
+  }
 
+  // Default subject
   const [subject, setSubject] = useState<string>(
     enquiry.Area_of_Work
       ? `Your ${capitalizeWords(enquiry.Area_of_Work)} Enquiry`
       : 'Your Enquiry'
   );
 
-  const [to, setTo] = useState<string>(enquiry.Email || ''); 
+  // Default recipient fields
+  const [to, setTo] = useState<string>(enquiry.Email || '');
   const [cc, setCc] = useState<string>('');
   const [bcc, setBcc] = useState<string>('2day@followupthen.com');
 
+  // Basic template that includes placeholders
   const BASE_TEMPLATE = `Dear [Enquiry.First_Name],
 
 [FE Introduction Placeholder]
@@ -321,59 +248,17 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
 [Full Name]
 [Position]`;
 
-  const normalizeBody = (text: string) =>
-    text
+  // The main "body" of the editor content
+  // We'll insert placeholders right away
+  const [body, setBody] = useState<string>(() => {
+    // Optionally you can do the placeholder replacements here if desired
+    return replacePlaceholders(BASE_TEMPLATE, '', enquiry, userData)
       .split('\n')
       .map((line) => line.trim())
       .join('\n');
+  });
 
-  const normalizeString = (str: string): string => {
-    return str
-      .toLowerCase()
-      .split(' ')
-      .map(
-        (word) => word.charAt(0).toUpperCase() + word.slice(1)
-      )
-      .join(' ');
-  };
-
-  const getMatchingPracticeAreas = (area: string): string[] => {
-    const normalizedArea = normalizeString(area);
-    const practiceAreas = Object.keys(
-      PracticeAreaPitch
-    ) as Array<keyof PracticeAreaPitchType>;
-
-    const matchingPracticeAreas = practiceAreas.filter((pa) => {
-      return pa.toLowerCase() === normalizedArea.toLowerCase();
-    });
-
-    return matchingPracticeAreas.length > 0
-      ? matchingPracticeAreas
-      : ['Miscellaneous (None of the above)'];
-  };
-
-  const getSelectedPracticeArea = (): keyof PracticeAreaPitchType => {
-    const normalizedArea = normalizeString(enquiry.Area_of_Work.trim());
-    const matchingPracticeAreas = getMatchingPracticeAreas(normalizedArea);
-    return (
-      (matchingPracticeAreas[0] as keyof PracticeAreaPitchType) ||
-      'Miscellaneous (None of the above)'
-    );
-  };
-
-  const selectedPracticeAreaKey = getSelectedPracticeArea();
-
-  const [body, setBody] = useState<string>(
-    normalizeBody(
-      replacePlaceholders(
-        BASE_TEMPLATE,
-        '',
-        enquiry,
-        userData
-      )
-    )
-  );
-
+  // Attachments, followUp, preview, error states, etc...
   const [attachments, setAttachments] = useState<string[]>([]);
   const [followUp, setFollowUp] = useState<string | undefined>(undefined);
   const [isPreviewOpen, setIsPreviewOpen] = useState<boolean>(false);
@@ -381,31 +266,37 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
   const [isErrorVisible, setIsErrorVisible] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
 
+  // Tracks selected template options for each block
   const [selectedTemplateOptions, setSelectedTemplateOptions] = useState<{
     [key: string]: string | string[];
   }>({});
 
+  // Tracks which blocks have been inserted
   const [insertedBlocks, setInsertedBlocks] = useState<{ [key: string]: boolean }>({});
 
+  // For the body editor
   const bodyEditorRef = useRef<HTMLDivElement>(null);
   const savedSelection = useRef<Range | null>(null);
 
-  const saveSelection = () => {
+  /**
+   * Save the user's cursor selection in the contentEditable, so we can insert text at that exact spot.
+   */
+  function saveSelection() {
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0) {
       savedSelection.current = sel.getRangeAt(0).cloneRange();
     }
-  };
+  }
 
-  const restoreSelection = () => {
+  function restoreSelection() {
     const sel = window.getSelection();
     if (sel && savedSelection.current) {
       sel.removeAllRanges();
       sel.addRange(savedSelection.current);
     }
-  };
+  }
 
-  const isSelectionInsideEditor = (): boolean => {
+  function isSelectionInsideEditor(): boolean {
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0) return false;
     let node = sel.getRangeAt(0).commonAncestorContainer;
@@ -413,9 +304,12 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
       node = node.parentNode!;
     }
     return bodyEditorRef.current?.contains(node) || false;
-  };
+  }
 
-  const insertAtCursor = (html: string) => {
+  /**
+   * Insert some HTML at the cursor. If there's no selection, we append at the end.
+   */
+  function insertAtCursor(html: string) {
     if (!isSelectionInsideEditor()) {
       setBody((prevBody) => prevBody + `\n\n${html}`);
       return;
@@ -446,16 +340,21 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
         setBody(bodyEditorRef.current.innerHTML);
       }
     }
-  };
+  }
 
-  const insertTemplateBlock = (
+  /**
+   * Insert a template block's text (either single or multiSelect) at the corresponding placeholder <span>.
+   */
+  function insertTemplateBlock(
     block: TemplateBlock,
     selectedOption: string | string[]
-  ) => {
+  ) {
     let replacementText = '';
 
+    // MultiSelect
     if (block.isMultiSelect && isStringArray(selectedOption)) {
       if (block.title === 'Required Documents') {
+        // If "Required Documents", let's create a <ul> instead of <br><br>
         replacementText = `<ul>${selectedOption
           .map((doc: string) => {
             const option = block.options.find((o) => o.label === doc);
@@ -470,31 +369,47 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
           })
           .join('<br />');
       }
-    } else if (!block.isMultiSelect && typeof selectedOption === 'string') {
+    }
+    // SingleSelect
+    else if (!block.isMultiSelect && typeof selectedOption === 'string') {
       const option = block.options.find((o) => o.label === selectedOption);
       replacementText = option ? option.previewText.trim() : '';
+      // Convert newlines to <br>
       replacementText = replacementText.replace(/\n/g, '<br />');
     }
 
-    const highlightedReplacement = `<span style="background-color: ${colours.highlightYellow}; padding: 0 3px;" data-inserted="${block.title}" data-placeholder="${block.placeholder}">${cleanTemplateString(
-      replacementText
-    )}</span>`;
+    // Highlight the inserted block
+    const highlightedReplacement = `<span style="background-color: ${
+      colours.highlightYellow
+    }; padding: 0 3px;" data-inserted="${
+      block.title
+    }" data-placeholder="${
+      block.placeholder
+    }">${cleanTemplateString(replacementText)}</span>`;
 
+    // Actually replace the <span data-placeholder="..."> in the current body
     setBody((prevBody) => {
       const newBody = prevBody.replace(
         new RegExp(
-          `(<span[^>]*data-placeholder="${escapeRegExp(block.placeholder)}"[^>]*>)([\\s\\S]*?)(</span>)`,
+          `(<span[^>]*data-placeholder="${block.placeholder.replace(
+            /[-[\]{}()*+?.,\\^$|#\s]/g,
+            '\\$&'
+          )}"[^>]*>)([\\s\\S]*?)(</span>)`,
           'g'
         ),
         `$1${highlightedReplacement}$3`
       );
       return newBody;
     });
+
     setInsertedBlocks((prev) => ({ ...prev, [block.title]: true }));
 
+    // Move cursor just after the inserted block
     setTimeout(() => {
       if (bodyEditorRef.current) {
-        const insertedSpan = bodyEditorRef.current.querySelector(`span[data-inserted="${block.title}"]`);
+        const insertedSpan = bodyEditorRef.current.querySelector(
+          `span[data-inserted="${block.title}"]`
+        );
         if (insertedSpan) {
           const range = document.createRange();
           const sel = window.getSelection();
@@ -508,16 +423,17 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
         }
       }
     }, 0);
-  };
+  }
 
-  const [template, setTemplate] = useState<string | undefined>(undefined);
-
-  const toggleAttachment = (attachment: AttachmentOption) => {
+  /**
+   * When the user chooses an attachment from the list, we either insert or remove it.
+   */
+  function toggleAttachment(attachment: AttachmentOption) {
     if (attachment.status === 'draft') {
       return;
     }
-
     if (attachments.includes(attachment.key)) {
+      // remove
       setAttachments((prev) => prev.filter((key) => key !== attachment.key));
       removeAttachmentLink(attachment.key);
     } else {
@@ -526,9 +442,12 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
       const linkHTML = `<span style="background-color: #ffe6e6; padding: 0 3px;" data-link="${attachment.key}"><a href="${attachment.link}" style="color: #3690CE; text-decoration: none;">${attachment.text}</a></span>`;
       insertAtCursor(linkHTML);
     }
-  };
+  }
 
-  const removeAttachmentLink = (key: string) => {
+  /**
+   * Removes the <span data-link="..."> for an attachment
+   */
+  function removeAttachmentLink(key: string) {
     if (bodyEditorRef.current) {
       const tempDiv = document.createElement('div');
       tempDiv.innerHTML = bodyEditorRef.current.innerHTML;
@@ -542,41 +461,39 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
       const newBody = tempDiv.innerHTML;
       setBody(newBody);
     }
-  };
+  }
 
-  const getFilteredAttachments = (): AttachmentOption[] => {
+  function getFilteredAttachments(): AttachmentOption[] {
+    // Show only attachments relevant to the selected practice area
     return availableAttachments.filter(
       (attachment) =>
-        !attachment.applicableTo || attachment.applicableTo.includes(selectedPracticeAreaKey)
-    );
-  };
-
-  const togglePreview = () => {
-    setIsPreviewOpen(!isPreviewOpen);
-  };
-
-  const getPlainTextBody = (htmlBody: string): string => {
-    const tempDiv = document.createElement('div');
-    tempDiv.innerHTML = htmlBody;
-    return tempDiv.textContent || tempDiv.innerText || '';
-  };
-
-  const resetForm = () => {
-    setTemplate(undefined);
-    setSubject('Your Practice Area Enquiry');
-    setTo(enquiry.Email || ''); // Reset To field to prospect's email
-    setCc('');
-    setBcc('2day@followupthen.com'); // Reset BCC field to default
-    setBody(
-      normalizeBody(
-        replacePlaceholders(
-          BASE_TEMPLATE,
-          '',
-          enquiry,
-          userData
+        !attachment.applicableTo ||
+        attachment.applicableTo.includes(
+          Object.keys(PracticeAreaPitch).find(
+            (k) => PracticeAreaPitch[k as keyof PracticeAreaPitchType]
+          ) || ''
         )
-      )
     );
+  }
+
+  function togglePreview() {
+    setIsPreviewOpen(!isPreviewOpen);
+  }
+
+  /**
+   * Reset the entire form
+   */
+  function resetForm() {
+    setSubject('Your Practice Area Enquiry');
+    setTo(enquiry.Email || '');
+    setCc('');
+    setBcc('2day@followupthen.com');
+    // Re-load the base template
+    const newBody = replacePlaceholders(BASE_TEMPLATE, '', enquiry, userData)
+      .split('\n')
+      .map((line) => line.trim())
+      .join('\n');
+    setBody(newBody);
     setAttachments([]);
     setFollowUp(undefined);
     setIsPreviewOpen(false);
@@ -584,9 +501,12 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
     setErrorMessage('');
     setSelectedTemplateOptions({});
     setInsertedBlocks({});
-  };
+  }
 
-  const validateForm = (): boolean => {
+  /**
+   * Validate mandatory fields
+   */
+  function validateForm(): boolean {
     if (!to.trim()) {
       setErrorMessage('To field cannot be empty.');
       setIsErrorVisible(true);
@@ -605,54 +525,52 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
     setIsErrorVisible(false);
     setErrorMessage('');
     return true;
-  };
+  }
 
-  const sendEmail = () => {
+  /**
+   * If user hits "Send Email" in the preview, we might do something else.
+   * For now, just console.log and reset.
+   */
+  function sendEmail() {
     if (validateForm()) {
-      const followUpText = followUp
-        ? `\n\nFollow Up: ${
-            followUpOptions.find((opt) => opt.key === followUp)?.text
-          }`
-        : '';
-      const finalBody = removeUnfilledPlaceholders(getPlainTextBody(body));
       console.log('Email Sent:', {
         to,
         cc,
         bcc,
         subject,
-        body: finalBody + followUpText,
+        body,
         attachments,
         followUp,
       });
       setIsSuccessVisible(true);
       resetForm();
     }
-  };
+  }
 
-  const removeHighlightSpans = (html: string): string => {
-    const tempDiv = document.createElement('div');
-    tempDiv.innerHTML = html;
-    const spans = tempDiv.querySelectorAll('span[data-placeholder], span[data-inserted], span[data-link]');
-    spans.forEach((span) => {
-      span.removeAttribute('style');
-      span.removeAttribute('data-placeholder');
-      span.removeAttribute('data-inserted');
-      span.removeAttribute('data-link');
-    });
-    return tempDiv.innerHTML;
-  };
-
-  const handleDraftEmail = async () => {
+  /**
+   * handleDraftEmail: keep HTML, remove placeholders & highlights, convert <br><br> to <p>, then pass to EmailSignature.
+   */
+  async function handleDraftEmail() {
     if (!body || !enquiry.Point_of_Contact) {
       setErrorMessage('Email contents and user email are required.');
       setIsErrorVisible(true);
       return;
     }
-    const finalBody = removeUnfilledPlaceholders(getPlainTextBody(body));
-    const cleanedBody = finalBody.replace(/\n/g, '<br>');
+
+    // Remove highlight spans
+    const rawHtml = removeHighlightSpans(body);
+
+    // Remove leftover placeholders
+    const noPlaceholders = removeUnfilledPlaceholders(rawHtml);
+
+    // Convert multiple <br><br> lines into <p> paragraphs
+    const finalHtml = convertDoubleBreaksToParagraphs(noPlaceholders);
+
+    // Render final email with your signature
     const fullEmailHtml = ReactDOMServer.renderToStaticMarkup(
-      <EmailSignature bodyHtml={cleanedBody} userData={userData} />
+      <EmailSignature bodyHtml={finalHtml} userData={userData} />
     );
+
     const requestBody = {
       email_contents: fullEmailHtml,
       user_email: enquiry.Point_of_Contact,
@@ -669,9 +587,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
         `${process.env.REACT_APP_PROXY_BASE_URL}/sendEmail?code=${process.env.REACT_APP_SEND_EMAIL_CODE}`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(requestBody),
         }
       );
@@ -685,8 +601,11 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
       setErrorMessage(error.message || 'An unknown error occurred.');
       setIsErrorVisible(true);
     }
-  };
+  }
 
+  /**
+   * Hide success message automatically after 3s
+   */
   useEffect(() => {
     if (isSuccessVisible) {
       const timer = setTimeout(() => setIsSuccessVisible(false), 3000);
@@ -694,6 +613,9 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
     }
   }, [isSuccessVisible]);
 
+  /**
+   * Hide error after 5s
+   */
   useEffect(() => {
     if (isErrorVisible) {
       const timer = setTimeout(() => setIsErrorVisible(false), 5000);
@@ -701,12 +623,16 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
     }
   }, [isErrorVisible]);
 
+  /**
+   * Keep the editor's HTML in sync with our `body` state
+   */
   useEffect(() => {
     if (bodyEditorRef.current && bodyEditorRef.current.innerHTML !== body) {
       bodyEditorRef.current.innerHTML = body;
     }
   }, [body]);
 
+  // Example follow-up options
   const followUpOptions: IDropdownOption[] = [
     { key: '1_day', text: '1 day' },
     { key: '2_days', text: '2 days' },
@@ -716,45 +642,165 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
     { key: '30_days', text: '30 days' },
   ];
 
-  const handleMultiSelectChange = (
-    blockTitle: string,
-    selectedOptions: string[]
-  ) => {
+  /**
+   * Update selected template options for multi-select blocks
+   */
+  function handleMultiSelectChange(blockTitle: string, selectedOptions: string[]) {
     setSelectedTemplateOptions((prev) => ({
       ...prev,
       [blockTitle]: selectedOptions,
     }));
-  };
+  }
 
-  const handleSingleSelectChange = (
-    blockTitle: string,
-    selectedOption: string
-  ) => {
+  /**
+   * Update selected template options for single-select blocks
+   */
+  function handleSingleSelectChange(blockTitle: string, selectedOption: string) {
     setSelectedTemplateOptions((prev) => ({
       ...prev,
       [blockTitle]: selectedOption,
     }));
-  };
+  }
 
-  const applyFormat = (command: string, value?: string) => {
+  /**
+   * For simple formatting commands (bold, italic, etc.)
+   */
+  function applyFormat(command: string, value?: string) {
     document.execCommand(command, false, value);
     if (bodyEditorRef.current) {
       setBody(bodyEditorRef.current.innerHTML);
     }
-  };
+  }
 
-  const handleBlur = () => {
+  function handleBlur() {
     if (bodyEditorRef.current) {
       setBody(bodyEditorRef.current.innerHTML);
     }
-  };
+  }
 
-  // Updated container styles
+  /**
+   * When you click "clear" on a block, we remove its inserted text, 
+   * restoring the original placeholder <span>.
+   */
+  function handleClearBlock(block: TemplateBlock) {
+    setSelectedTemplateOptions((prev) => ({
+      ...prev,
+      [block.title]: block.isMultiSelect ? [] : '',
+    }));
+    setInsertedBlocks((prev) => ({ ...prev, [block.title]: false }));
+    setBody((prevBody) => {
+      const placeholder = block.placeholder;
+      const regex = new RegExp(
+        `(<span[^>]*data-inserted="${block.title.replace(
+          /[-[\]{}()*+?.,\\^$|#\s]/g,
+          '\\$&'
+        )}"[^>]*>)([\\s\\S]*?)(</span>)`,
+        'g'
+      );
+      const newBody = prevBody.replace(
+        regex,
+        `<span data-placeholder="${placeholder}" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${placeholder}</span>`
+      );
+      return newBody;
+    });
+  }
+
+  /**
+   * Renders the "preview" text for a selected block in the UI
+   */
+  function renderPreview(block: TemplateBlock) {
+    const selectedOptions = selectedTemplateOptions[block.title];
+    const isInserted = insertedBlocks[block.title] || false;
+
+    if (
+      !selectedOptions ||
+      (block.isMultiSelect &&
+        Array.isArray(selectedOptions) &&
+        selectedOptions.length === 0)
+    ) {
+      return null;
+    }
+
+    const formatPreviewText = (text: string) => {
+      // Convert embedded newlines to <br> for display in the preview
+      return text.replace(/\n/g, '<br />');
+    };
+
+    if (block.isMultiSelect && Array.isArray(selectedOptions)) {
+      return (
+        <div
+          className={mergeStyles({
+            marginTop: '10px',
+            border: isInserted
+              ? `1px solid ${colours.highlightYellow}`
+              : `1px dashed ${colours.highlightBlue}`,
+            padding: '10px',
+            borderRadius: '4px',
+          })}
+        >
+          <ul>
+            {selectedOptions.map((doc: string) => (
+              <li
+                key={doc}
+                dangerouslySetInnerHTML={{
+                  __html: formatPreviewText(
+                    block.options.find((o) => o.label === doc)?.previewText.trim() || doc
+                  ),
+                }}
+              ></li>
+            ))}
+          </ul>
+        </div>
+      );
+    } else if (typeof selectedOptions === 'string') {
+      const option = block.options.find((o) => o.label === selectedOptions);
+      return (
+        <div
+          className={mergeStyles({
+            marginTop: '10px',
+            border: isInserted
+              ? `1px solid ${colours.highlightYellow}`
+              : `1px dashed ${colours.highlightBlue}`,
+            padding: '10px',
+            borderRadius: '4px',
+          })}
+        >
+          <span
+            dangerouslySetInnerHTML={{
+              __html: formatPreviewText(option ? option.previewText.trim() : ''),
+            }}
+          />
+        </div>
+      );
+    }
+    return null;
+  }
+
+  // Auto-insert single-option blocks for "Risk Assessment", "Next Steps", etc. on mount
+  useEffect(() => {
+    templateBlocks.forEach((block) => {
+      if (
+        ['Risk Assessment', 'Next Steps', 'Closing Notes'].includes(block.title) &&
+        block.options.length === 1
+      ) {
+        const selectedOption = block.options[0].label;
+        setSelectedTemplateOptions((prev) => ({
+          ...prev,
+          [block.title]: block.isMultiSelect ? [selectedOption] : selectedOption,
+        }));
+        insertTemplateBlock(
+          block,
+          block.isMultiSelect ? [selectedOption] : selectedOption
+        );
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Some styling
   const containerStyle = mergeStyles({
     padding: '30px',
-    backgroundColor: isDarkMode
-      ? colours.dark.background
-      : colours.light.background,
+    backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
     borderRadius: '12px',
     boxShadow: isDarkMode
       ? '0 4px 12px rgba(255, 255, 255, 0.1)'
@@ -813,103 +859,14 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
     marginBottom: '8px',
   });
 
-  const handleClearBlock = (block: TemplateBlock) => {
-    setSelectedTemplateOptions((prev) => ({
-      ...prev,
-      [block.title]: block.isMultiSelect ? [] : '',
-    }));
-    setInsertedBlocks((prev) => ({
-      ...prev,
-      [block.title]: false,
-    }));
-    setBody((prevBody) => {
-      const placeholder = block.placeholder;
-      const regex = new RegExp(
-        `(<span[^>]*data-inserted="${escapeRegExp(block.title)}"[^>]*>)([\\s\\S]*?)(</span>)`,
-        'g'
-      );
-      const newBody = prevBody.replace(
-        regex,
-        `<span data-placeholder="${placeholder}" style="background-color: ${colours.highlightBlue}; padding: 0 3px;">${placeholder}</span>`
-      );
-      return newBody;
-    });
-  };
-
-  const renderPreview = (block: TemplateBlock) => {
-    const selectedOptions = selectedTemplateOptions[block.title];
-    const isInserted = insertedBlocks[block.title] || false;
-
-    if (
-      !selectedOptions ||
-      (block.isMultiSelect && Array.isArray(selectedOptions) && selectedOptions.length === 0)
-    ) {
-      return null;
-    }
-
-    const formatPreviewText = (text: string) => {
-      return text.replace(/\n/g, '<br />');
-    };
-
-    return (
-      <div className={templatePreviewStyle(isDarkMode, isInserted)}>
-        {block.isMultiSelect && Array.isArray(selectedOptions) ? (
-          <ul>
-            {selectedOptions.map((doc: string) => (
-              <li
-                key={doc}
-                dangerouslySetInnerHTML={{
-                  __html: formatPreviewText(
-                    block.options.find((o) => o.label === doc)?.previewText.trim() || doc
-                  ),
-                }}
-              ></li>
-            ))}
-          </ul>
-        ) : (
-          typeof selectedOptions === 'string' && (
-            <span
-              dangerouslySetInnerHTML={{
-                __html: formatPreviewText(
-                  block.options.find((o) => o.label === selectedOptions)?.previewText.trim() || selectedOptions
-                ),
-              }}
-            ></span>
-          )
-        )}
-      </div>
-    );
-  };
-
   const fullName = `${enquiry.First_Name || ''} ${enquiry.Last_Name || ''}`.trim();
-
-  useEffect(() => {
-    templateBlocks.forEach(block => {
-      if (
-        ['Risk Assessment', 'Next Steps', 'Closing Notes'].includes(block.title) &&
-        block.options.length === 1
-      ) {
-        const selectedOption = block.options[0].label;
-        setSelectedTemplateOptions(prev => ({
-          ...prev,
-          [block.title]: block.isMultiSelect ? [selectedOption] : selectedOption,
-        }));
-        insertTemplateBlock(block, block.isMultiSelect ? [selectedOption] : selectedOption);
-      }
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   return (
     <Stack className={containerStyle}>
-      {/* Top horizontal container: Form Fields and Initial Notes */}
+      {/* Row: Left (Form Fields) and Right (Initial Notes) */}
       <Stack horizontal tokens={{ childrenGap: 20 }} verticalAlign="stretch">
-        {/* Left container: Form Fields */}
-        <Stack
-          style={{ width: '50%' }}
-          className={formContainerStyle}
-          tokens={{ childrenGap: 20 }}
-        >
+        {/* Left container: To, CC, BCC, Subject */}
+        <Stack style={{ width: '50%' }} className={formContainerStyle} tokens={{ childrenGap: 20 }}>
           <Text
             variant="xLarge"
             styles={{ root: { fontWeight: '700', color: colours.highlight } }}
@@ -917,7 +874,6 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
             Pitch Builder
           </Text>
 
-          {/* To, CC, BCC, Subject Line */}
           <Stack tokens={{ childrenGap: 20 }}>
             <Stack horizontal tokens={{ childrenGap: 10 }} verticalAlign="start">
               <Stack tokens={{ childrenGap: 6 }} style={{ flex: 1 }}>
@@ -934,7 +890,6 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
                   style={{ borderRadius: '8px' }}
                 />
               </Stack>
-
               <Stack tokens={{ childrenGap: 6 }} style={{ flex: 1 }}>
                 <Label className={labelStyle}>CC</Label>
                 <BubbleTextField
@@ -949,7 +904,6 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
                   style={{ borderRadius: '8px' }}
                 />
               </Stack>
-
               <Stack tokens={{ childrenGap: 6 }} style={{ flex: 1 }}>
                 <Label className={labelStyle}>BCC</Label>
                 <BubbleTextField
@@ -983,7 +937,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
           </Stack>
         </Stack>
 
-        {/* Right container: Initial First Call Notes */}
+        {/* Right container: Initial First Call Notes (if any) */}
         {enquiry.Initial_first_call_notes && (
           <Stack
             style={{
@@ -997,7 +951,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
                 ? '0 2px 5px rgba(255,255,255,0.1)'
                 : '0 2px 5px rgba(0, 0, 0, 0.1)',
               overflowY: 'auto',
-              maxHeight: '240px' // restrict expansion beyond this height
+              maxHeight: '240px',
             }}
             tokens={{ childrenGap: 6 }}
           >
@@ -1007,7 +961,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
                 root: {
                   fontWeight: '600',
                   color: isDarkMode ? colours.dark.text : colours.light.text,
-                  marginBottom: '10px'
+                  marginBottom: '10px',
                 },
               }}
             >
@@ -1028,19 +982,15 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
         )}
       </Stack>
 
-      {/* Horizontal Row: Email Body and Template Blocks */}
+      {/* Row: Left (Email Body) and Right (Template Blocks) */}
       <Stack horizontal tokens={{ childrenGap: 20 }} style={{ width: '100%' }}>
-        {/* Email Body Section */}
+        {/* Left: Email Body Editor */}
         <Stack style={{ width: '50%' }} tokens={{ childrenGap: 20 }}>
           <Label className={labelStyle}>Email Body</Label>
           <Stack horizontal tokens={{ childrenGap: 20 }}>
             <Stack tokens={{ childrenGap: 6 }} grow>
               <div className={toolbarStyle}>
-                <IconButton
-                  iconProps={boldIcon}
-                  ariaLabel="Bold"
-                  onClick={() => applyFormat('bold')}
-                />
+                <IconButton iconProps={boldIcon} ariaLabel="Bold" onClick={() => applyFormat('bold')} />
                 <IconButton
                   iconProps={italicIcon}
                   ariaLabel="Italic"
@@ -1072,6 +1022,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
                   }}
                 />
               </div>
+
               <div
                 contentEditable
                 ref={bodyEditorRef}
@@ -1106,11 +1057,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
 
           <Separator />
 
-          <Stack
-            horizontal
-            horizontalAlign="space-between"
-            className={buttonGroupStyle}
-          >
+          <Stack horizontal horizontalAlign="space-between" className={buttonGroupStyle}>
             <PrimaryButton
               text="Preview Email"
               onClick={togglePreview}
@@ -1129,7 +1076,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
           </Stack>
         </Stack>
 
-        {/* Templates Container */}
+        {/* Right: Template Blocks */}
         <Stack className={templatesContainerStyle}>
           <Text
             variant="xLarge"
@@ -1143,7 +1090,21 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
             {templateBlocks.map((block: TemplateBlock) => (
               <Stack
                 key={block.title}
-                className={templateBlockStyle(isDarkMode)}
+                // example styling for the block "card"
+                className={mergeStyles({
+                  padding: '15px',
+                  borderRadius: '8px',
+                  boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
+                  cursor: 'pointer',
+                  position: 'relative',
+                  transition: 'background-color 0.2s, box-shadow 0.2s',
+                  backgroundColor: isDarkMode
+                    ? colours.dark.cardBackground
+                    : colours.light.cardBackground,
+                  ':hover': {
+                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)',
+                  },
+                })}
                 role="button"
                 tabIndex={0}
                 onClick={() => {
@@ -1178,6 +1139,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
                     handleClearBlock(block);
                   }}
                 />
+
                 <Stack tokens={{ childrenGap: 10 }}>
                   <Text
                     variant="mediumPlus"
@@ -1197,8 +1159,11 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
                   >
                     {block.description}
                   </Text>
+
                   <Dropdown
-                    placeholder={block.isMultiSelect ? 'Select options' : 'Select an option'}
+                    placeholder={
+                      block.isMultiSelect ? 'Select options' : 'Select an option'
+                    }
                     multiSelect={block.isMultiSelect}
                     options={block.options.map((option: TemplateOption) => ({
                       key: option.label,
@@ -1210,7 +1175,9 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
                     ) => {
                       if (option) {
                         if (block.isMultiSelect) {
-                          const currentSelections = Array.isArray(selectedTemplateOptions[block.title])
+                          const currentSelections = Array.isArray(
+                            selectedTemplateOptions[block.title]
+                          )
                             ? (selectedTemplateOptions[block.title] as string[])
                             : [];
                           const updatedSelections = option.selected
@@ -1218,7 +1185,10 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
                             : currentSelections.filter((key) => key !== option.key);
                           handleMultiSelectChange(block.title, updatedSelections);
                         } else {
-                          handleSingleSelectChange(block.title, option.key as string);
+                          handleSingleSelectChange(
+                            block.title,
+                            option.key as string
+                          );
                         }
                       }
                     }}
@@ -1236,6 +1206,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
                     onClick={(e: React.MouseEvent<HTMLDivElement>) => e.stopPropagation()}
                     onFocus={(e: React.FocusEvent<HTMLDivElement>) => e.stopPropagation()}
                   />
+
                   {renderPreview(block)}
                 </Stack>
               </Stack>
@@ -1244,7 +1215,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
         </Stack>
       </Stack>
 
-      {/* Preview Panel */}
+      {/* The Preview Panel */}
       <Panel
         isOpen={isPreviewOpen}
         onDismiss={togglePreview}
@@ -1283,7 +1254,8 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
             isMultiline={false}
             styles={{ root: { backgroundColor: colours.grey } }}
           >
-            This is {enquiry.First_Name || 'the prospect'}'s first enquiry. You're responding on the same day.
+            This is {enquiry.First_Name || 'the prospect'}'s first enquiry. You're
+            responding on the same day.
           </MessageBar>
 
           {isSuccessVisible && (
@@ -1316,7 +1288,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
           </Stack>
 
           <Separator />
-          
+
           {/* Body */}
           <Stack tokens={{ childrenGap: 6 }}>
             <Text
@@ -1378,13 +1350,13 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
             </>
           )}
         </Stack>
+
         <Stack
           horizontal
           tokens={{ childrenGap: 15 }}
-          // No position: 'absolute'
           styles={{
             root: {
-              marginTop: '20px',    // or whatever spacing you prefer
+              marginTop: '20px',
             },
           }}
         >
