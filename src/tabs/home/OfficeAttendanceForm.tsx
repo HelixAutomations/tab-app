@@ -1,7 +1,7 @@
 // src/tabs/home/OfficeAttendanceForm.tsx
 
 import React from 'react';
-import { BespokeForm } from '../../app/styles/BespokeForms';
+import BespokeForm from '../../CustomForms/BespokeForms';
 
 const officeAttendanceForm = [
   {

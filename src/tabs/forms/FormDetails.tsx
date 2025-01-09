@@ -16,7 +16,7 @@ import { colours } from '../../app/styles/colours';
 import { FormItem } from '../../app/functionality/types';
 import { mergeStyles } from '@fluentui/react';
 import loaderIcon from '../../assets/grey helix mark.png';
-import { BespokeForm } from '../../app/styles/BespokeForms';
+import BespokeForm from '../../CustomForms/BespokeForms';
 import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from '../../app/styles/ButtonStyles';
 
 // Import the custom BespokePanel
@@ -194,7 +194,7 @@ const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose, is
           ) : link.fields ? (
             <div style={{ flexGrow: 1 }}>
               <BespokeForm
-                fields={link.fields}
+                fields={link.fields.map(field => ({ ...field, name: field.label }))}
                 onSubmit={(values) => console.log('Submitted Financial Form:', values)}
                 onCancel={() => console.log('Form cancelled')}
               />

@@ -8,11 +8,13 @@ import * as microsoftTeams from '@microsoft/teams-js';
 import { Context as TeamsContextType } from '@microsoft/teams-js';
 import { Matter, UserData, Enquiry } from './functionality/types';
 
+// Lazy load components
 const Home = lazy(() => import('../tabs/home/Home'));
 const Forms = lazy(() => import('../tabs/forms/Forms'));
 const Resources = lazy(() => import('../tabs/resources/Resources'));
 const Enquiries = lazy(() => import('../tabs/enquiries/Enquiries'));
 const Matters = lazy(() => import('../tabs/matters/Matters'));
+const Roadmap = lazy(() => import('../tabs/roadmap/Roadmap')); // Import Roadmap
 
 interface AppProps {
   teamsContext: TeamsContextType | null;
@@ -52,14 +54,17 @@ const App: React.FC<AppProps> = ({
     }
   }, [teamsContext, userData, enquiries, matters]);
 
+  // Define tabs including the new Roadmap tab
   const tabs = [
     { key: 'home', text: 'Home' },
     { key: 'forms', text: 'Forms' },
     { key: 'resources', text: 'Resources' },
     { key: 'enquiries', text: 'Enquiries' },
     { key: 'matters', text: 'Matters' },
+    { key: 'roadmap', text: 'Roadmap' }, // New Roadmap tab
   ];
 
+  // Function to render content based on the active tab
   const renderContent = () => {
     switch (activeTab) {
       case 'home':
@@ -88,11 +93,14 @@ const App: React.FC<AppProps> = ({
             userData={userData}
           />
         );
+      case 'roadmap': // Ensure userData is passed to the Roadmap tab
+        return <Roadmap userData={userData} />;
       default:
         return <Home context={teamsContext} userData={userData} enquiries={enquiries} />;
     }
   };
 
+  // Render loading or error state
   if (!teamsContext || !userData || !enquiries || !matters) {
     return <div>Loading or Error...</div>;
   }
@@ -112,7 +120,7 @@ const App: React.FC<AppProps> = ({
           tabs={tabs}
           ariaLabel="Main Navigation Tabs"
         />
-        <Suspense fallback={<div />}>{renderContent()}</Suspense>
+        <Suspense fallback={<div>Loading...</div>}>{renderContent()}</Suspense>
       </div>
     </ThemeProvider>
   );

@@ -1,0 +1,31 @@
+/* src/app/styles/Roadmap.css */
+
+@keyframes pulse {
+    0% {
+      transform: scale(1);
+      box-shadow: 0 0 0 0 rgba(0, 120, 215, 0.7);
+    }
+    70% {
+      transform: scale(1.05);
+      box-shadow: 0 0 0 10px rgba(0, 120, 215, 0);
+    }
+    100% {
+      transform: scale(1);
+      box-shadow: 0 0 0 0 rgba(0, 120, 215, 0);
+    }
+  }
+  
+  .roadmapItem:hover {
+    cursor: pointer;
+  }
+  
+  .timelineLine {
+    background: linear-gradient(to bottom, #3690CE, #ffffff); /* Gradient from blue to white */
+  }
+  
+  @media (max-width: 768px) {
+    .roadmapItem:hover {
+      cursor: pointer;
+    }
+  }
+  

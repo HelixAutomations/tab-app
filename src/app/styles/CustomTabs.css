@@ -37,6 +37,10 @@
   .customPivot .ms-Pivot-link:nth-child(5) {
     animation-delay: 0.4s;
   }
+
+  .customPivot .ms-Pivot-link:nth-child(6) {
+    animation-delay: 0.5s; /* Adjust the delay for staggered animation */
+}
   
   /* Optional: Adjust the number based on the number of tabs */
   

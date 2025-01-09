@@ -17,7 +17,7 @@ import { CSSTransition } from 'react-transition-group';
 import { colours } from '../../app/styles/colours';
 import { Resource } from './Resources';
 import { useTheme } from '../../app/functionality/ThemeContext';
-import { BespokeForm } from '../../app/styles/BespokeForms';
+import BespokeForm from '../../CustomForms/BespokeForms';
 import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from '../../app/styles/ButtonStyles';
 
 // Import the custom BespokePanel
@@ -237,6 +237,7 @@ const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) 
                       <BespokeForm
                         fields={action.requiredFields.map((field) => ({
                           label: field.charAt(0).toUpperCase() + field.slice(1),
+                          name: field,
                           type: 'text', // Adjust type if required
                           placeholder: `Enter ${field}`,
                           required: true,
