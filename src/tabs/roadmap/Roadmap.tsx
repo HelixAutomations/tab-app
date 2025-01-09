@@ -1,5 +1,3 @@
-// src/tabs/roadmap/Roadmap.tsx
-
 import React, { useState } from 'react';
 import {
   Stack,
@@ -7,7 +5,6 @@ import {
   mergeStyles,
   Icon,
   IStackTokens,
-  TooltipHost,
   Modal,
   PrimaryButton,
   IconButton,
@@ -24,109 +21,6 @@ interface RoadmapProps {
   userData: UserData[] | null;
 }
 
-const containerStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    padding: '40px 20px',
-    backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
-    minHeight: '100vh',
-    transition: 'background-color 0.3s',
-    fontFamily: 'Raleway, sans-serif',
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'flex-start',
-    '@media (min-width: 768px)': {
-      justifyContent: 'center',
-    },
-  });
-
-const timelineContainerStyle = mergeStyles({
-  position: 'relative',
-  width: '100%',
-  maxWidth: '600px',
-  padding: '20px 0',
-});
-
-const timelineLineStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    position: 'absolute',
-    left: '20px',
-    top: 0,
-    bottom: 0,
-    width: '4px',
-    background: `linear-gradient(to bottom, ${colours.blue}, ${colours.light.background})`,
-  });
-
-// Updated markerStyle to add padding on the right side
-const markerStyle = (statusColor: string) =>
-  mergeStyles({
-    position: 'absolute',
-    top: '20px',
-    left: '35px', // Increased left to add more space on the right
-    width: '20px',
-    height: '20px',
-    borderRadius: '50%',
-    backgroundColor: statusColor,
-    animation: 'pulse 2s infinite',
-    border: '4px solid white',
-    boxShadow: '0 0 0 2px rgba(0,0,0,0.1)',
-    transform: 'translate(-50%, -50%)',
-  });
-
-const timelineItemStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    position: 'relative',
-    marginBottom: '20px', // Reduced marginBottom to bring items closer
-    paddingLeft: '70px', // Increased paddingLeft to accommodate the added right padding
-    width: '100%',
-    display: 'flex',
-    justifyContent: 'flex-start',
-  });
-
-const contentStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-    padding: '20px',
-    borderRadius: '8px',
-    boxShadow: isDarkMode
-      ? `0 4px 12px ${colours.dark.border}`
-      : `0 4px 12px ${colours.light.border}`,
-    transition: 'background-color 0.3s, box-shadow 0.3s',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'flex-start',
-    fontSize: '20px',
-    cursor: 'pointer',
-    width: '100%',
-    ':hover': {
-      boxShadow: isDarkMode
-        ? `0 6px 16px ${colours.dark.border}`
-        : `0 6px 16px ${colours.light.border}`,
-    },
-  });
-
-const descriptionStyle = mergeStyles({
-  textAlign: 'left',
-  fontSize: '16px',
-  color: colours.blue,
-  marginTop: '10px',
-});
-
-const statusStyle = (isDarkMode: boolean, statusColor: string) =>
-  mergeStyles({
-    display: 'inline-flex',
-    alignItems: 'center',
-    padding: '4px 12px',
-    borderRadius: '12px',
-    backgroundColor: statusColor,
-    color: 'white',
-    fontWeight: 'bold',
-    fontSize: '14px',
-    marginTop: '10px',
-    alignSelf: 'flex-end',
-  });
-
-const stackTokens: IStackTokens = { childrenGap: 20 }; // Reduced childrenGap for closer items
-
 interface RoadmapItem {
   label: string;
   description: string;
@@ -134,7 +28,7 @@ interface RoadmapItem {
   statusColor?: string;
 }
 
-const roadmapData: { [key: string]: RoadmapItem[] } = {
+const roadmapData: Record<string, RoadmapItem[]> = {
   'Currently Working On': [
     {
       label: 'Pitch Email Structure/HTML Bugs',
@@ -159,7 +53,7 @@ const roadmapData: { [key: string]: RoadmapItem[] } = {
       statusColor: colours.orange,
     },
   ],
-  'Suggested': [
+  Suggested: [
     {
       label: 'Prospect Feedback Loops',
       description: 'Implementing feedback loops for prospects.',
@@ -182,8 +76,103 @@ const getStatusIcon = (status: string) => {
   }
 };
 
+/**
+ * STYLES
+ */
+
+// 1. Outer container holds the single vertical line at 30% from the left
+const containerStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    position: 'relative',
+    width: '100%',
+    minHeight: '100vh',
+    padding: '40px 20px',
+    backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
+    transition: 'background-color 0.3s',
+    fontFamily: 'Raleway, sans-serif',
+  });
+
+// 2. The single vertical timeline line at left: '30%'
+const timelineLineStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    position: 'absolute',
+    left: '30%',
+    top: 0,
+    bottom: 0,
+    width: '4px',
+    background: `linear-gradient(to bottom, ${colours.blue}, ${
+      isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground
+    })`,
+    transition: 'background-color 0.3s',
+    zIndex: 1,
+  });
+
+// 3. Each item row is a flex container. We'll adjust widths so the label is on the left, dot in the middle, item box on the right.
+const timelineRowStyle = mergeStyles({
+  position: 'relative',
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  margin: '40px 0',
+});
+
+// 4. Left column: the section label
+//    Make it about 25% width so it doesn't overlap the line at 30%
+const sectionLabelStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    width: '25%', 
+    textAlign: 'right',
+    paddingRight: '20px',
+    color: isDarkMode ? colours.dark.text : colours.light.text,
+    fontWeight: 'bold',
+    fontSize: '20px',
+  });
+
+// 5. The dot is at left: 'calc(30% - 10px)' so it lines up exactly with the vertical line
+const markerStyle = (statusColor: string) =>
+  mergeStyles({
+    position: 'absolute',
+    left: 'calc(30% - 16px)', 
+    top: '50%',
+    transform: 'translateY(-50%)',
+    width: '20px',
+    height: '20px',
+    borderRadius: '50%',
+    backgroundColor: statusColor,
+    animation: 'pulse 2s infinite',
+    border: '4px solid white',
+    boxShadow: '0 0 0 2px rgba(0,0,0,0.1)',
+    zIndex: 2,
+  });
+
+// 6. Right column: the item box
+//    We'll give it about 65% width so it sits neatly to the right of the line
+const contentBoxStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    width: '65%', 
+    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+    padding: '20px',
+    borderRadius: '8px',
+    boxShadow: isDarkMode
+      ? `0 4px 12px ${colours.dark.border}`
+      : `0 4px 12px ${colours.light.border}`,
+    transition: 'background-color 0.3s, box-shadow 0.3s',
+    display: 'flex',
+    flexDirection: 'column',
+    cursor: 'pointer',
+    ':hover': {
+      boxShadow: isDarkMode
+        ? `0 6px 16px ${colours.dark.border}`
+        : `0 6px 16px ${colours.light.border}`,
+    },
+  });
+
+// A bit of margin between sections (the overall vertical stack)
+const stackTokens: IStackTokens = { childrenGap: 20 };
+
 const Roadmap: React.FC<RoadmapProps> = ({ userData }) => {
   const { isDarkMode } = useTheme();
+
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [selectedItem, setSelectedItem] = useState<RoadmapItem | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -199,15 +188,20 @@ const Roadmap: React.FC<RoadmapProps> = ({ userData }) => {
     setIsModalOpen(false);
   };
 
-  const handleSuggestSubmit = async (values: { [key: string]: string | number | boolean | File }) => {
+  const handleSuggestSubmit = async (values: {
+    [key: string]: string | number | boolean | File;
+  }) => {
     console.log('Suggestion Submitted:', values);
 
     if (!userData || userData.length === 0) {
-      setMessage({ type: MessageBarType.error, text: "User data is missing. Cannot submit suggestion." });
+      setMessage({
+        type: MessageBarType.error,
+        text: 'User data is missing. Cannot submit suggestion.',
+      });
       return;
     }
 
-    const userInitials = userData[0]?.Initials || "N/A";
+    const userInitials = userData[0]?.Initials || 'N/A';
 
     const payload = {
       component: values['Component'],
@@ -233,16 +227,25 @@ const Roadmap: React.FC<RoadmapProps> = ({ userData }) => {
 
       if (response.ok) {
         const data = await response.json();
-        console.log("Roadmap entry created:", data);
-        setMessage({ type: MessageBarType.success, text: "Your suggestion has been submitted successfully!" });
+        console.log('Roadmap entry created:', data);
+        setMessage({
+          type: MessageBarType.success,
+          text: 'Your suggestion has been submitted successfully!',
+        });
       } else {
         const errorText = await response.text();
-        console.error("Error submitting suggestion:", errorText);
-        setMessage({ type: MessageBarType.error, text: "There was an error submitting your suggestion. Please try again later." });
+        console.error('Error submitting suggestion:', errorText);
+        setMessage({
+          type: MessageBarType.error,
+          text: 'There was an error submitting your suggestion. Please try again later.',
+        });
       }
     } catch (error) {
-      console.error("Error submitting suggestion:", error);
-      setMessage({ type: MessageBarType.error, text: "There was an unexpected error. Please try again later." });
+      console.error('Error submitting suggestion:', error);
+      setMessage({
+        type: MessageBarType.error,
+        text: 'There was an unexpected error. Please try again later.',
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -250,123 +253,147 @@ const Roadmap: React.FC<RoadmapProps> = ({ userData }) => {
 
   return (
     <div className={containerStyle(isDarkMode)}>
-      <div className={timelineContainerStyle}>
-        <div className={timelineLineStyle(isDarkMode)}></div>
-        <Stack tokens={stackTokens}>
-          {Object.entries(roadmapData).map(([section, items], sectionIndex) => (
-            <div key={sectionIndex} className={mergeStyles({ marginBottom: '20px' })}> {/* Reduced marginBottom between sections */}
-              <Text
-                variant="xxLarge"
-                styles={{
-                  root: {
-                    paddingBottom: '20px', // Added marginBottom for spacing below the label
-                    color: isDarkMode ? colours.dark.text : colours.light.text,
-                    fontSize: '24px',
-                    textAlign: 'left',
-                    paddingLeft: '70px',
-                  },
-                }}
-              >
-                {section}
-              </Text>
-              {items.map((item, index) => (
-                <div key={index} className={timelineItemStyle(isDarkMode)}>
-                  <div className={markerStyle(item.statusColor || colours.cta)}></div>
-                  <Stack
-                    className={contentStyle(isDarkMode)}
-                    onClick={() => openModal(item)}
-                    role="button"
-                    tabIndex={0}
-                    aria-label={`View details for ${item.label}`}
-                  >
-                    <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
-                      <Icon iconName={getStatusIcon(item.status || '')} />
-                      <Text
-                        variant="large"
-                        styles={{
-                          root: {
-                            fontWeight: '700',
-                            color: isDarkMode ? colours.dark.text : colours.light.text,
-                            fontSize: '20px',
-                          },
-                        }}
-                      >
-                        {item.label}
-                      </Text>
-                    </Stack>
-                    <Text className={descriptionStyle}>{item.description}</Text>
-                    {item.status && (
-                      <Text className={statusStyle(isDarkMode, item.statusColor || colours.cta)}>
-                        <Icon iconName={getStatusIcon(item.status)} style={{ marginRight: '6px' }} />
-                        {item.status}
-                      </Text>
-                    )}
-                  </Stack>
-                </div>
-              ))}
-            </div>
-          ))}
-          <div className={timelineItemStyle(isDarkMode)}>
-            <div className={markerStyle(colours.cta)}></div>
-            <Stack className={contentStyle(isDarkMode)}>
-              <Text
-                variant="large"
-                styles={{
-                  root: {
-                    fontWeight: '700',
-                    color: isDarkMode ? colours.dark.text : colours.light.text,
-                    fontSize: '20px',
-                    marginBottom: '10px',
-                  },
-                }}
-              >
-                Suggest an Improvement
-              </Text>
-              {message && (
-                <MessageBar
-                  messageBarType={message.type}
-                  isMultiline={false}
-                  onDismiss={() => setMessage(null)}
-                  dismissButtonAriaLabel="Close"
-                  styles={{ root: { marginBottom: '20px' } }}
-                >
-                  {message.text}
-                </MessageBar>
-              )}
-              <BespokeForm
-                fields={[
-                  {
-                    label: 'Component',
-                    name: 'Component',
-                    type: 'dropdown',
-                    options: ['Home', 'Forms', 'Resources', 'Enquiries', 'Matters'],
-                    required: true,
-                  },
-                  {
-                    label: 'Label',
-                    name: 'Label',
-                    type: 'text',
-                    required: true,
-                    placeholder: 'Enter a short title for your improvement...',
-                  },
-                  {
-                    label: 'Description',
-                    name: 'Description',
-                    type: 'textarea',
-                    required: true,
-                    placeholder: 'Describe your improvement suggestion in detail...',
-                  },
-                ]}
-                onSubmit={handleSuggestSubmit}
-                onCancel={() => {}}
-                isSubmitting={isSubmitting}
-                style={{ width: '100%' }}
-              />
-            </Stack>
-          </div>
-        </Stack>
-      </div>
+      {/* The single vertical line at 30% of the container width */}
+      <div className={timelineLineStyle(isDarkMode)} />
 
+      <Stack tokens={stackTokens}>
+        {Object.entries(roadmapData).map(([section, items], sectionIndex) => (
+          <React.Fragment key={sectionIndex}>
+            {items.map((item, itemIndex) => (
+              <div key={itemIndex} className={timelineRowStyle}>
+                {/* Left: The section label */}
+                <Text className={sectionLabelStyle(isDarkMode)}>
+                  {section}
+                </Text>
+
+                {/* The pulsing dot in the center (30% from the left) */}
+                <div className={markerStyle(item.statusColor || colours.cta)} />
+
+                {/* Right: The item box */}
+                <Stack
+                  className={contentBoxStyle(isDarkMode)}
+                  onClick={() => openModal(item)}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`View details for ${item.label}`}
+                >
+                  <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
+                    <Icon iconName={getStatusIcon(item.status || '')} />
+                    <Text
+                      variant="large"
+                      styles={{
+                        root: {
+                          fontWeight: '700',
+                          color: isDarkMode ? colours.dark.text : colours.light.text,
+                          fontSize: '20px',
+                        },
+                      }}
+                    >
+                      {item.label}
+                    </Text>
+                  </Stack>
+
+                  <Text
+                    styles={{
+                      root: {
+                        textAlign: 'left',
+                        fontSize: '16px',
+                        color: colours.blue,
+                        marginTop: '10px',
+                      },
+                    }}
+                  >
+                    {item.description}
+                  </Text>
+
+                  {item.status && (
+                    <Text
+                      styles={{
+                        root: {
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          padding: '4px 12px',
+                          borderRadius: '12px',
+                          backgroundColor: item.statusColor || colours.cta,
+                          color: 'white',
+                          fontWeight: 'bold',
+                          fontSize: '14px',
+                          marginTop: '10px',
+                          alignSelf: 'flex-end',
+                        },
+                      }}
+                    >
+                      <Icon
+                        iconName={getStatusIcon(item.status)}
+                        style={{ marginRight: '6px' }}
+                      />
+                      {item.status}
+                    </Text>
+                  )}
+                </Stack>
+              </div>
+            ))}
+          </React.Fragment>
+        ))}
+
+        {/* MAKE “SUGGEST AN IMPROVEMENT” LOOK LIKE AN ITEM */}
+        <div className={timelineRowStyle}>
+          {/* Left: Label = "Suggest an Improvement" */}
+          <Text className={sectionLabelStyle(isDarkMode)}>
+            Suggest an Improvement
+          </Text>
+
+          {/* Center: Pulsing dot */}
+          <div className={markerStyle(colours.cta)} />
+
+          {/* Right: The form in place of item details */}
+          <Stack className={contentBoxStyle(isDarkMode)}>
+            {message && (
+              <MessageBar
+                messageBarType={message.type}
+                isMultiline={false}
+                onDismiss={() => setMessage(null)}
+                dismissButtonAriaLabel="Close"
+                styles={{ root: { marginBottom: '20px' } }}
+              >
+                {message.text}
+              </MessageBar>
+            )}
+
+            <BespokeForm
+              fields={[
+                {
+                  label: 'Component',
+                  name: 'Component',
+                  type: 'dropdown',
+                  options: ['Home', 'Forms', 'Resources', 'Enquiries', 'Matters'],
+                  required: true,
+                },
+                {
+                  label: 'Label',
+                  name: 'Label',
+                  type: 'text',
+                  required: true,
+                  placeholder: 'Enter a short title for your improvement...',
+                },
+                {
+                  label: 'Description',
+                  name: 'Description',
+                  type: 'textarea',
+                  required: true,
+                  placeholder: 'Describe your improvement suggestion in detail...',
+                },
+              ]}
+              onSubmit={handleSuggestSubmit}
+              onCancel={() => {}}
+              isSubmitting={isSubmitting}
+              style={{ width: '100%' }}
+            />
+          </Stack>
+        </div>
+      </Stack>
+
+      {/* MODAL: Show details of a selected item */}
       <Modal
         isOpen={isModalOpen}
         onDismiss={closeModal}
@@ -375,7 +402,9 @@ const Roadmap: React.FC<RoadmapProps> = ({ userData }) => {
           maxWidth: '600px',
           padding: '30px',
           borderRadius: '12px',
-          backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+          backgroundColor: isDarkMode
+            ? colours.dark.sectionBackground
+            : colours.light.sectionBackground,
           color: isDarkMode ? colours.dark.text : colours.light.text,
           fontFamily: 'Raleway, sans-serif',
         })}
@@ -390,7 +419,11 @@ const Roadmap: React.FC<RoadmapProps> = ({ userData }) => {
         {selectedItem && (
           <Stack tokens={{ childrenGap: 20 }}>
             <Stack horizontalAlign="end">
-              <IconButton iconProps={{ iconName: 'Cancel' }} onClick={closeModal} aria-label="Close" />
+              <IconButton
+                iconProps={{ iconName: 'Cancel' }}
+                onClick={closeModal}
+                aria-label="Close"
+              />
             </Stack>
             <Text
               variant="xxLarge"
