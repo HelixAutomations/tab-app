@@ -180,7 +180,7 @@ const cancelButtonStyle = mergeStyles({
 });
 
 // Form Props Interface
-interface BespokeFormProps {
+export interface BespokeFormProps {
   fields: Array<{
     label: string;
     name: string;
@@ -197,10 +197,17 @@ interface BespokeFormProps {
   onSubmit: (values: { [key: string]: string | number | boolean | File }) => void; // Included File type
   onCancel: () => void;
   isSubmitting?: boolean; // Optional prop for handling loading state
+  style?: React.CSSProperties; // Added style prop
 }
 
 // Bespoke Form Component
-const BespokeForm: React.FC<BespokeFormProps> = ({ fields, onSubmit, onCancel, isSubmitting = false }) => {
+const BespokeForm: React.FC<BespokeFormProps> = ({
+  fields,
+  onSubmit,
+  onCancel,
+  isSubmitting = false,
+  style,
+}) => {
   const [formValues, setFormValues] = React.useState<{ [key: string]: string | number | boolean | File }>({});
 
   const handleInputChange = (field: string, value: string | number | boolean | File) => {
@@ -219,7 +226,7 @@ const BespokeForm: React.FC<BespokeFormProps> = ({ fields, onSubmit, onCancel, i
   };
 
   return (
-    <form onSubmit={handleSubmit}>
+    <form onSubmit={handleSubmit} style={style}>
       <div className={formContainerStyle}>
         <Stack tokens={{ childrenGap: 20 }}>
           {fields.map((field, index) => {
@@ -318,7 +325,9 @@ const BespokeForm: React.FC<BespokeFormProps> = ({ fields, onSubmit, onCancel, i
                       />
                     </div>
                     {field.helpText && (
-                      <span style={{ color: colours.greyText, fontSize: '12px' }}>{field.helpText}</span>
+                      <span style={{ color: colours.greyText, fontSize: '12px', marginTop: '10px', display: 'block' }}>
+                        {field.helpText}
+                      </span>
                     )}
                   </div>
                 );
