@@ -1,4 +1,4 @@
-// src/app/styles/BespokeForms.tsx
+// src/CustomForms/BespokeForms.tsx
 
 import React from 'react';
 import {
@@ -115,13 +115,13 @@ export const prefixStyle = mergeStyles({
   padding: '0 5px', // Added padding
 });
 
-// Amount input field styling
-export const amountInputStyle = mergeStyles({
+// **Updated: Amount input field styling as a function**
+export const amountInputStyle = (hasPrefix: boolean) => mergeStyles({
   flexGrow: 1,
   height: '100%',
-  borderTopLeftRadius: '0',
-  borderBottomLeftRadius: '0',
-  borderLeft: 'none',
+  borderLeft: hasPrefix ? 'none' : `1px solid ${colours.light.border}`,
+  borderTopLeftRadius: hasPrefix ? '0' : '4px',
+  borderBottomLeftRadius: hasPrefix ? '0' : '4px',
   borderTopRightRadius: '4px',
   borderBottomRightRadius: '4px',
   padding: '5px', // Ensuring 5px padding
@@ -187,24 +187,27 @@ export const cancelButtonStyle = mergeStyles({
   },
 });
 
-// Form Props Interface
+// **Define and Export FormField Interface**
+export interface FormField {
+  label: string;
+  name: string;
+  type: 'text' | 'number' | 'textarea' | 'dropdown' | 'toggle' | 'currency-picker' | 'file';
+  options?: string[]; // For dropdowns
+  step?: number; // For number inputs
+  min?: number; // Minimum value for number inputs
+  max?: number; // Maximum value for number inputs
+  editable?: boolean; // For number inputs
+  required?: boolean;
+  defaultValue?: boolean | string | number | File; // Included File type
+  prefix?: string; // Added
+  helpText?: string; // Added
+  placeholder?: string; // Added
+  group?: string; // Grouping fields (e.g., date range)
+}
+
+// **Update Form Props Interface to Use FormField**
 export interface BespokeFormProps {
-  fields: Array<{
-    label: string;
-    name: string;
-    type: 'text' | 'number' | 'textarea' | 'dropdown' | 'toggle' | 'currency-picker' | 'file';
-    options?: string[]; // For dropdowns
-    step?: number; // For number inputs
-    min?: number; // Minimum value for number inputs
-    max?: number; // Maximum value for number inputs
-    editable?: boolean; // For number inputs
-    required?: boolean;
-    defaultValue?: boolean | string | number | File; // Included File type
-    prefix?: string; // Added
-    helpText?: string; // Added
-    placeholder?: string; // Added
-    group?: string; // Grouping fields (e.g., date range)
-  }>;
+  fields: FormField[]; // Use the exported FormField interface
   onSubmit: (values: { [key: string]: string | number | boolean | File }) => void; // Included File type
   onCancel: () => void;
   isSubmitting?: boolean; // Optional prop for handling loading state
@@ -342,7 +345,7 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                         type={field.type === 'currency-picker' ? 'text' : 'number'}
                         disabled={isSubmitting}
                         styles={{
-                          fieldGroup: amountInputStyle,
+                          fieldGroup: amountInputStyle(!!field.prefix), // **Pass hasPrefix here**
                         }}
                         step={field.step}
                         min={field.min}
