@@ -8,7 +8,8 @@ import { Connection, Request as SqlRequest, TYPES } from "tedious";
 // Define the interface for the request body
 interface InsertRoadmapRequest {
   component: string;
-  narrative: string;
+  label: string;
+  description: string;
   requested_by: string; // Initials from user data
 }
 
@@ -48,13 +49,13 @@ export async function insertRoadmapHandler(
     };
   }
 
-  const { component, narrative, requested_by } = requestBody;
+  const { component, label, description, requested_by } = requestBody;
 
-  if (!component || !narrative || !requested_by) {
-    context.warn("Missing 'component', 'narrative', or 'requested_by' in request body.");
+  if (!component || !label || !description || !requested_by) {
+    context.warn("Missing 'component', 'label', 'description', or 'requested_by' in request body.");
     return {
       status: 400,
-      body: "Missing 'component', 'narrative', or 'requested_by' in request body.",
+      body: "Missing 'component', 'label', 'description', or 'requested_by' in request body.",
     };
   }
 
@@ -62,7 +63,7 @@ export async function insertRoadmapHandler(
     context.log("Initiating SQL insert operation.");
 
     // Insert the roadmap entry into SQL
-    const insertResult = await insertRoadmapEntry(component, narrative, requested_by, context);
+    const insertResult = await insertRoadmapEntry(component, label, description, requested_by, context);
     context.log("Successfully inserted roadmap entry into SQL database.", insertResult);
 
     return {
@@ -86,7 +87,8 @@ export async function insertRoadmapHandler(
 // Function to insert a roadmap entry into the SQL table
 async function insertRoadmapEntry(
   component: string,
-  narrative: string,
+  label: string,
+  description: string,
   requested_by: string,
   context: InvocationContext
 ): Promise<InsertResult> {
@@ -125,9 +127,9 @@ async function insertRoadmapEntry(
       // SQL INSERT query
       const query = `
         INSERT INTO [dbo].[teamHubRoadmap] 
-          ([requested_by], [date_requested], [component], [narrative], [status])
+          ([requested_by], [date_requested], [component], [label], [description], [status])
         VALUES 
-          (@RequestedBy, @DateRequested, @Component, @Narrative, @Status);
+          (@RequestedBy, @DateRequested, @Component, @Label, @Description, @Status);
         SELECT SCOPE_IDENTITY() AS InsertedId;
       `;
 
@@ -171,14 +173,16 @@ async function insertRoadmapEntry(
       sqlRequest.addParameter("RequestedBy", TYPES.NVarChar, requested_by);
       sqlRequest.addParameter("DateRequested", TYPES.Date, today.toISOString().split('T')[0]); // YYYY-MM-DD
       sqlRequest.addParameter("Component", TYPES.NVarChar, component);
-      sqlRequest.addParameter("Narrative", TYPES.NVarChar, narrative);
+      sqlRequest.addParameter("Label", TYPES.NVarChar, label);
+      sqlRequest.addParameter("Description", TYPES.NVarChar, description);
       sqlRequest.addParameter("Status", TYPES.NVarChar, "requested");
 
       context.log("Executing SQL query with parameters (insertRoadmap):", {
         RequestedBy: requested_by,
         DateRequested: today.toISOString().split('T')[0],
         Component: component,
-        Narrative: narrative,
+        Label: label,
+        Description: description,
         Status: "requested",
       });
 

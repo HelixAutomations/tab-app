@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+// src/tabs/roadmap/Roadmap.tsx
+
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Stack,
   Text,
@@ -10,93 +12,86 @@ import {
   IconButton,
   MessageBar,
   MessageBarType,
+  Spinner,
+  SpinnerSize,
 } from '@fluentui/react';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 import BespokeForm from '../../CustomForms/BespokeForms';
 import '../../app/styles/Roadmap.css';
-import { UserData } from '../../app/functionality/types'; // Adjust the import path as needed
+import { UserData } from '../../app/functionality/types';
+import { format } from 'date-fns';
 
 interface RoadmapProps {
   userData: UserData[] | null;
 }
 
-interface RoadmapItem {
+interface RoadmapEntry {
+  id: number;
+  requested_by: string;
+  date_requested: string;
+  component: string;
   label: string;
   description: string;
-  status?: string;
-  statusColor?: string;
+  status: string;
 }
 
-const roadmapData: Record<string, RoadmapItem[]> = {
-  'Currently Working On': [
-    {
-      label: 'Pitch Email Structure/HTML Bugs',
-      description: 'Resolving HTML rendering issues in pitch emails.',
-      status: 'In Progress',
-      statusColor: colours.blue,
-    },
-  ],
-  'Up Next': [
-    {
-      label: 'Matter Overview UI + Functionality',
-      description: 'Developing the user interface and functionality for Matter Overview.',
-      status: 'Planned',
-      statusColor: colours.orange,
-    },
-  ],
-  'In The Pipeline': [
-    {
-      label: 'TBD',
-      description: 'To be determined based on project priorities.',
-      status: 'Planned',
-      statusColor: colours.orange,
-    },
-  ],
-  Suggested: [
-    {
-      label: 'Prospect Feedback Loops',
-      description: 'Implementing feedback loops for prospects.',
-      status: 'Delayed',
-      statusColor: colours.red,
-    },
-  ],
-};
+interface GroupedRoadmap {
+  [status: string]: RoadmapEntry[];
+}
 
-const getStatusIcon = (status: string) => {
-  switch (status) {
-    case 'In Progress':
-      return 'Sync';
-    case 'Planned':
-      return 'Calendar';
-    case 'Delayed':
-      return 'Warning';
+// Caches
+let cachedRoadmapData: RoadmapEntry[] | null = null;
+let cachedRoadmapError: string | null = null;
+
+const normalizeStatus = (status: string): string => {
+  switch (status.toLowerCase()) {
+    case 'in_progress':
+    case 'in progress':
+      return 'In Progress';
+    case 'next':
+      return 'Next';
+    case 'suggested':
+      return 'Suggested';
     default:
-      return 'Info';
+      return 'Suggested'; // Map unknown statuses to 'Suggested'
   }
 };
 
-/**
- * STYLES
- */
+const getStatusIcon = (status: string) => {
+  switch (status.toLowerCase()) {
+    case 'in progress':
+      return 'Sync';
+    case 'next':
+      return 'ArrowRight';
+    case 'suggested':
+      return 'Lightbulb';
+    default:
+      return 'Lightbulb';
+  }
+};
 
-// 1. Outer container holds the single vertical line at 30% from the left
+const formatDate = (isoDate: string): string => {
+  const date = new Date(isoDate);
+  return format(date, 'MMM d, yyyy');
+};
+
 const containerStyle = (isDarkMode: boolean) =>
   mergeStyles({
     position: 'relative',
     width: '100%',
     minHeight: '100vh',
-    padding: '40px 20px',
+    padding: '40px',
     backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
     transition: 'background-color 0.3s',
     fontFamily: 'Raleway, sans-serif',
   });
 
-// 2. The single vertical timeline line at left: '30%'
 const timelineLineStyle = (isDarkMode: boolean) =>
   mergeStyles({
     position: 'absolute',
-    left: '30%',
+    left: '28.2%',
+    transform: 'translateX(-50%)',
     top: 0,
     bottom: 0,
     width: '4px',
@@ -107,34 +102,19 @@ const timelineLineStyle = (isDarkMode: boolean) =>
     zIndex: 1,
   });
 
-// 3. Each item row is a flex container. We'll adjust widths so the label is on the left, dot in the middle, item box on the right.
+const stackTokens: IStackTokens = { childrenGap: 20 };
+
 const timelineRowStyle = mergeStyles({
   position: 'relative',
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  margin: '40px 0',
+  marginBottom: '40px',
 });
 
-// 4. Left column: the section label
-//    Make it about 25% width so it doesn't overlap the line at 30%
-const sectionLabelStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    width: '25%', 
-    textAlign: 'right',
-    paddingRight: '20px',
-    color: isDarkMode ? colours.dark.text : colours.light.text,
-    fontWeight: 'bold',
-    fontSize: '20px',
-  });
-
-// 5. The dot is at left: 'calc(30% - 10px)' so it lines up exactly with the vertical line
 const markerStyle = (statusColor: string) =>
   mergeStyles({
     position: 'absolute',
-    left: 'calc(30% - 16px)', 
+    left: '28.2%',
     top: '50%',
-    transform: 'translateY(-50%)',
+    transform: 'translate(-50%, -50%)',
     width: '20px',
     height: '20px',
     borderRadius: '50%',
@@ -145,11 +125,15 @@ const markerStyle = (statusColor: string) =>
     zIndex: 2,
   });
 
-// 6. Right column: the item box
-//    We'll give it about 65% width so it sits neatly to the right of the line
+const contentContainerStyle = mergeStyles({
+  position: 'relative',
+  marginLeft: '31%',
+  maxWidth: '1000px',
+});
+
 const contentBoxStyle = (isDarkMode: boolean) =>
   mergeStyles({
-    width: '65%', 
+    width: '100%',
     backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
     padding: '20px',
     borderRadius: '8px',
@@ -157,9 +141,8 @@ const contentBoxStyle = (isDarkMode: boolean) =>
       ? `0 4px 12px ${colours.dark.border}`
       : `0 4px 12px ${colours.light.border}`,
     transition: 'background-color 0.3s, box-shadow 0.3s',
-    display: 'flex',
-    flexDirection: 'column',
     cursor: 'pointer',
+    marginTop: '10px',
     ':hover': {
       boxShadow: isDarkMode
         ? `0 6px 16px ${colours.dark.border}`
@@ -167,18 +150,94 @@ const contentBoxStyle = (isDarkMode: boolean) =>
     },
   });
 
-// A bit of margin between sections (the overall vertical stack)
-const stackTokens: IStackTokens = { childrenGap: 20 };
+const greyBubbleStyle = mergeStyles({
+  display: 'inline-flex',
+  alignItems: 'center',
+  padding: '4px 8px',
+  borderRadius: '12px',
+  backgroundColor: colours.grey,
+  color: colours.greyText,
+  fontSize: '14px',
+  marginTop: '5px',
+  marginRight: '8px',
+});
+
+const statusColorMapping: { [key: string]: string } = {
+  'In Progress': colours.cta, // CTA Red
+  'Next': colours.highlight, // Highlight Blue at 100% opacity
+  'Suggested': colours.darkBlue, // Same as 'Other' was
+};
 
 const Roadmap: React.FC<RoadmapProps> = ({ userData }) => {
   const { isDarkMode } = useTheme();
 
+  const [roadmapData, setRoadmapData] = useState<RoadmapEntry[] | null>(null);
+  const [isLoadingRoadmap, setIsLoadingRoadmap] = useState<boolean>(true);
+  const [roadmapError, setRoadmapError] = useState<string | null>(null);
+
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
-  const [selectedItem, setSelectedItem] = useState<RoadmapItem | null>(null);
+  const [selectedItem, setSelectedItem] = useState<RoadmapEntry | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [message, setMessage] = useState<{ type: MessageBarType; text: string } | null>(null);
 
-  const openModal = (item: RoadmapItem) => {
+  useEffect(() => {
+    if (cachedRoadmapData || cachedRoadmapError) {
+      setRoadmapData(cachedRoadmapData);
+      setRoadmapError(cachedRoadmapError);
+      setIsLoadingRoadmap(false);
+    } else {
+      const fetchRoadmap = async () => {
+        try {
+          setIsLoadingRoadmap(true);
+          setRoadmapError(null);
+
+          const response = await fetch(
+            `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_GET_ROADMAP_PATH}?code=${process.env.REACT_APP_GET_GET_ROADMAP_CODE}`,
+            {
+              method: 'GET',
+              headers: { 'Content-Type': 'application/json' },
+            }
+          );
+
+          if (!response.ok) {
+            throw new Error(`Failed to fetch roadmap: ${response.statusText}`);
+          }
+
+          const data = await response.json();
+          if (data && Array.isArray(data.data)) {
+            setRoadmapData(data.data);
+            cachedRoadmapData = data.data;
+          } else {
+            throw new Error('Invalid data format received from roadmap API.');
+          }
+        } catch (error: any) {
+          console.error('Error fetching roadmap:', error);
+          setRoadmapError(error.message || 'Unknown error occurred while fetching roadmap.');
+          cachedRoadmapError = error.message || 'Unknown error occurred while fetching roadmap.';
+        } finally {
+          setIsLoadingRoadmap(false);
+        }
+      };
+
+      fetchRoadmap();
+    }
+  }, []);
+
+  const groupedRoadmap = useMemo<GroupedRoadmap>(() => {
+    const groups: GroupedRoadmap = {};
+    if (roadmapData) {
+      roadmapData.forEach((entry) => {
+        const normStatus = normalizeStatus(entry.status);
+        if (!groups[normStatus]) {
+          groups[normStatus] = [];
+        }
+        groups[normStatus].push(entry);
+      });
+    }
+    return groups;
+  }, [roadmapData]);
+
+  const openModal = (item: RoadmapEntry) => {
     setSelectedItem(item);
     setIsModalOpen(true);
   };
@@ -188,11 +247,7 @@ const Roadmap: React.FC<RoadmapProps> = ({ userData }) => {
     setIsModalOpen(false);
   };
 
-  const handleSuggestSubmit = async (values: {
-    [key: string]: string | number | boolean | File;
-  }) => {
-    console.log('Suggestion Submitted:', values);
-
+  const handleSuggestSubmit = async (values: { [key: string]: string | number | boolean | File }) => {
     if (!userData || userData.length === 0) {
       setMessage({
         type: MessageBarType.error,
@@ -202,11 +257,22 @@ const Roadmap: React.FC<RoadmapProps> = ({ userData }) => {
     }
 
     const userInitials = userData[0]?.Initials || 'N/A';
+    const label = typeof values['Label'] === 'string' ? values['Label'] : '';
+    const component = typeof values['Component'] === 'string' ? values['Component'] : '';
+    const description = typeof values['Description'] === 'string' ? values['Description'] : '';
+
+    if (!label || !component || !description) {
+      setMessage({
+        type: MessageBarType.error,
+        text: 'Suggestion Title/Label, Component, and Description are required.',
+      });
+      return;
+    }
 
     const payload = {
-      component: values['Component'],
-      label: values['Label'],
-      description: values['Description'],
+      label,
+      component,
+      description,
       requested_by: userInitials,
     };
 
@@ -218,33 +284,45 @@ const Roadmap: React.FC<RoadmapProps> = ({ userData }) => {
         `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_INSERT_ROADMAP_PATH}?code=${process.env.REACT_APP_GET_INSERT_ROADMAP_CODE}`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         }
       );
 
       if (response.ok) {
         const data = await response.json();
-        console.log('Roadmap entry created:', data);
         setMessage({
           type: MessageBarType.success,
           text: 'Your suggestion has been submitted successfully!',
+        });
+
+        setRoadmapData((prevData) => {
+          const newEntry: RoadmapEntry = {
+            id: data.insertedId,
+            requested_by: userInitials,
+            date_requested: new Date().toISOString(),
+            component: payload.component,
+            label: payload.label,
+            description: payload.description,
+            status: 'Suggested',
+          };
+          const updatedData = prevData ? [...prevData, newEntry] : [newEntry];
+          cachedRoadmapData = updatedData;
+          return updatedData;
         });
       } else {
         const errorText = await response.text();
         console.error('Error submitting suggestion:', errorText);
         setMessage({
           type: MessageBarType.error,
-          text: 'There was an error submitting your suggestion. Please try again later.',
+          text: 'Error submitting your suggestion. Please try again later.',
         });
       }
     } catch (error) {
       console.error('Error submitting suggestion:', error);
       setMessage({
         type: MessageBarType.error,
-        text: 'There was an unexpected error. Please try again later.',
+        text: 'Unexpected error. Please try again later.',
       });
     } finally {
       setIsSubmitting(false);
@@ -253,32 +331,21 @@ const Roadmap: React.FC<RoadmapProps> = ({ userData }) => {
 
   return (
     <div className={containerStyle(isDarkMode)}>
-      {/* The single vertical line at 30% of the container width */}
       <div className={timelineLineStyle(isDarkMode)} />
 
       <Stack tokens={stackTokens}>
-        {Object.entries(roadmapData).map(([section, items], sectionIndex) => (
-          <React.Fragment key={sectionIndex}>
-            {items.map((item, itemIndex) => (
-              <div key={itemIndex} className={timelineRowStyle}>
-                {/* Left: The section label */}
-                <Text className={sectionLabelStyle(isDarkMode)}>
-                  {section}
-                </Text>
-
-                {/* The pulsing dot in the center (30% from the left) */}
-                <div className={markerStyle(item.statusColor || colours.cta)} />
-
-                {/* Right: The item box */}
-                <Stack
-                  className={contentBoxStyle(isDarkMode)}
-                  onClick={() => openModal(item)}
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`View details for ${item.label}`}
-                >
+        {isLoadingRoadmap ? (
+          <Spinner label="Loading roadmap..." size={SpinnerSize.medium} />
+        ) : roadmapError ? (
+          <MessageBar messageBarType={MessageBarType.error}>{roadmapError}</MessageBar>
+        ) : roadmapData && roadmapData.length > 0 ? (
+          Object.entries(groupedRoadmap).map(([status, items], index) => (
+            <div key={index} className={timelineRowStyle}>
+              <div className={markerStyle(statusColorMapping[status] || colours.darkBlue)} />
+              <div className={contentContainerStyle}>
+                <Stack className={contentBoxStyle(isDarkMode)}>
                   <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
-                    <Icon iconName={getStatusIcon(item.status || '')} />
+                    <Icon iconName={getStatusIcon(status)} />
                     <Text
                       variant="large"
                       styles={{
@@ -289,111 +356,105 @@ const Roadmap: React.FC<RoadmapProps> = ({ userData }) => {
                         },
                       }}
                     >
-                      {item.label}
+                      {status} ({items.length})
                     </Text>
                   </Stack>
 
-                  <Text
-                    styles={{
-                      root: {
-                        textAlign: 'left',
-                        fontSize: '16px',
-                        color: colours.blue,
+                  {items.map((item) => (
+                    <div
+                      key={item.id}
+                      className={mergeStyles({
+                        borderTop: `1px solid ${
+                          isDarkMode ? colours.dark.border : colours.light.border
+                        }`,
+                        paddingTop: '10px',
                         marginTop: '10px',
-                      },
-                    }}
-                  >
-                    {item.description}
-                  </Text>
-
-                  {item.status && (
-                    <Text
-                      styles={{
-                        root: {
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          padding: '4px 12px',
-                          borderRadius: '12px',
-                          backgroundColor: item.statusColor || colours.cta,
-                          color: 'white',
-                          fontWeight: 'bold',
-                          fontSize: '14px',
-                          marginTop: '10px',
-                          alignSelf: 'flex-end',
-                        },
-                      }}
+                        cursor: 'pointer',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                      })}
+                      onClick={() => openModal(item)}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`View details for ${item.label}`}
                     >
-                      <Icon
-                        iconName={getStatusIcon(item.status)}
-                        style={{ marginRight: '6px' }}
-                      />
-                      {item.status}
-                    </Text>
-                  )}
+                      <Text
+                        styles={{
+                          root: {
+                            textAlign: 'left',
+                            fontSize: '16px',
+                            color: colours.blue,
+                            flex: 1,
+                          },
+                        }}
+                      >
+                        {item.label}
+                      </Text>
+                      <Stack horizontal tokens={{ childrenGap: 8 }}>
+                        <Text className={greyBubbleStyle}>{formatDate(item.date_requested)}</Text>
+                        <Text className={greyBubbleStyle}>{item.component}</Text>
+                      </Stack>
+                    </div>
+                  ))}
                 </Stack>
               </div>
-            ))}
-          </React.Fragment>
-        ))}
+            </div>
+          ))
+        ) : (
+          <Text>No roadmap entries available.</Text>
+        )}
 
-        {/* MAKE “SUGGEST AN IMPROVEMENT” LOOK LIKE AN ITEM */}
         <div className={timelineRowStyle}>
-          {/* Left: Label = "Suggest an Improvement" */}
-          <Text className={sectionLabelStyle(isDarkMode)}>
-            Suggest an Improvement
-          </Text>
-
-          {/* Center: Pulsing dot */}
           <div className={markerStyle(colours.cta)} />
+          <div className={contentContainerStyle}>
+            <Stack className={contentBoxStyle(isDarkMode)}>
+              {message && (
+                <MessageBar
+                  messageBarType={message.type}
+                  isMultiline={false}
+                  onDismiss={() => setMessage(null)}
+                  dismissButtonAriaLabel="Close"
+                  styles={{ root: { marginBottom: '20px' } }}
+                >
+                  {message.text}
+                </MessageBar>
+              )}
 
-          {/* Right: The form in place of item details */}
-          <Stack className={contentBoxStyle(isDarkMode)}>
-            {message && (
-              <MessageBar
-                messageBarType={message.type}
-                isMultiline={false}
-                onDismiss={() => setMessage(null)}
-                dismissButtonAriaLabel="Close"
-                styles={{ root: { marginBottom: '20px' } }}
-              >
-                {message.text}
-              </MessageBar>
-            )}
-
-            <BespokeForm
-              fields={[
-                {
-                  label: 'Component',
-                  name: 'Component',
-                  type: 'dropdown',
-                  options: ['Home', 'Forms', 'Resources', 'Enquiries', 'Matters'],
-                  required: true,
-                },
-                {
-                  label: 'Label',
-                  name: 'Label',
-                  type: 'text',
-                  required: true,
-                  placeholder: 'Enter a short title for your improvement...',
-                },
-                {
-                  label: 'Description',
-                  name: 'Description',
-                  type: 'textarea',
-                  required: true,
-                  placeholder: 'Describe your improvement suggestion in detail...',
-                },
-              ]}
-              onSubmit={handleSuggestSubmit}
-              onCancel={() => {}}
-              isSubmitting={isSubmitting}
-              style={{ width: '100%' }}
-            />
-          </Stack>
+              <BespokeForm
+                fields={[
+                  {
+                    label: 'Suggestion Title/Label',
+                    name: 'Label',
+                    type: 'text',
+                    required: true,
+                    placeholder: 'Enter the title of your suggestion…',
+                  },
+                  {
+                    label: 'Component',
+                    name: 'Component',
+                    type: 'dropdown',
+                    options: ['Home', 'Forms', 'Resources', 'Enquiries', 'Matters'],
+                    required: true,
+                  },
+                  {
+                    label: 'Description',
+                    name: 'Description',
+                    type: 'textarea',
+                    required: true,
+                    placeholder: 'Describe your improvement suggestion in detail…',
+                  },
+                ]}
+                onSubmit={handleSuggestSubmit}
+                onCancel={() => {}}
+                isSubmitting={isSubmitting}
+                style={{ width: '100%' }}
+              />
+            </Stack>
+          </div>
         </div>
       </Stack>
 
-      {/* MODAL: Show details of a selected item */}
       <Modal
         isOpen={isModalOpen}
         onDismiss={closeModal}
@@ -448,27 +509,62 @@ const Roadmap: React.FC<RoadmapProps> = ({ userData }) => {
             >
               {selectedItem.description}
             </Text>
-            {selectedItem.status && (
-              <Text
-                variant="small"
-                styles={{
-                  root: {
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    padding: '4px 8px',
-                    borderRadius: '12px',
-                    backgroundColor: selectedItem.statusColor || colours.cta,
-                    color: 'white',
-                    fontSize: '16px',
-                    fontWeight: 'bold',
-                    alignSelf: 'flex-end',
-                  },
-                }}
-              >
-                <Icon iconName={getStatusIcon(selectedItem.status)} style={{ marginRight: '6px' }} />
-                Status: {selectedItem.status}
-              </Text>
-            )}
+            <Text
+              variant="medium"
+              styles={{
+                root: {
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                  fontSize: '16px',
+                },
+              }}
+            >
+              <strong>Component:</strong> {selectedItem.component}
+            </Text>
+            <Text
+              variant="medium"
+              styles={{
+                root: {
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                  fontSize: '16px',
+                },
+              }}
+            >
+              <strong>Requested By:</strong> {selectedItem.requested_by}
+            </Text>
+            <Text
+              variant="medium"
+              styles={{
+                root: {
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                  fontSize: '16px',
+                },
+              }}
+            >
+              <strong>Date Suggested:</strong> {formatDate(selectedItem.date_requested)}
+            </Text>
+            <Text
+              variant="small"
+              styles={{
+                root: {
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  padding: '4px 8px',
+                  borderRadius: '12px',
+                  backgroundColor:
+                    statusColorMapping[normalizeStatus(selectedItem.status)] || colours.darkBlue,
+                  color: 'white',
+                  fontSize: '16px',
+                  fontWeight: 'bold',
+                  alignSelf: 'flex-start',
+                },
+              }}
+            >
+              <Icon
+                iconName={getStatusIcon(normalizeStatus(selectedItem.status))}
+                style={{ marginRight: '6px' }}
+              />
+              {normalizeStatus(selectedItem.status)}
+            </Text>
             <Stack horizontal tokens={{ childrenGap: 10 }} horizontalAlign="end">
               <PrimaryButton text="Close" onClick={closeModal} />
             </Stack>
