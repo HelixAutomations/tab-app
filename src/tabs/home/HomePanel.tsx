@@ -224,12 +224,12 @@ const HomePanel: React.FC<HomePanelProps> = ({
       )}
     >
       {/* Main Content */}
-      <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1, padding: '20px' }}>
         {/* Embed Form or Bespoke Form */}
         {embedScript ? (
           <div
             ref={formContainerRef}
-            style={{ marginTop: '20px', padding: '0 24px', flexGrow: 1 }}
+            style={{ flexGrow: 1, padding: '20px' }} // Second padding for the form wrapper
           >
             {!isCognitoLoaded && (
               <div style={loaderStyle}>
@@ -243,7 +243,7 @@ const HomePanel: React.FC<HomePanelProps> = ({
             {title === "Request Annual Leave" && bespokeFormFields ? (
               <Stack
                 tokens={{ childrenGap: 20 }}
-                style={{ marginTop: '20px', padding: '0 24px', flexGrow: 1 }}
+                style={{ flexGrow: 1, padding: '20px' }} // Second padding for the form content
               >
                 {/* Grouped Fields: Start Date and End Date Side by Side */}
                 <Stack horizontal tokens={{ childrenGap: 10 }}>
@@ -258,10 +258,12 @@ const HomePanel: React.FC<HomePanelProps> = ({
                         type="date"
                         styles={{
                           fieldGroup: {
-                            flex: 1, // Ensures equal width for fields
+                            flex: 1,
                             borderRadius: '8px',
                             border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                            backgroundColor: isDarkMode ? colours.dark.inputBackground : colours.light.inputBackground,
+                            backgroundColor: isDarkMode
+                              ? colours.dark.inputBackground
+                              : colours.light.inputBackground,
                           },
                         }}
                       />
@@ -285,13 +287,16 @@ const HomePanel: React.FC<HomePanelProps> = ({
                             styles={{
                               fieldGroup: {
                                 borderRadius: '8px',
-                                border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                                backgroundColor: isDarkMode ? colours.dark.inputBackground : colours.light.inputBackground,
+                                border: `1px solid ${
+                                  isDarkMode ? colours.dark.border : colours.light.border
+                                }`,
+                                backgroundColor: isDarkMode
+                                  ? colours.dark.inputBackground
+                                  : colours.light.inputBackground,
                               },
                             }}
                           />
                         );
-                      // Add other field types if necessary
                       default:
                         return (
                           <TextField
@@ -303,8 +308,12 @@ const HomePanel: React.FC<HomePanelProps> = ({
                             styles={{
                               fieldGroup: {
                                 borderRadius: '8px',
-                                border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                                backgroundColor: isDarkMode ? colours.dark.inputBackground : colours.light.inputBackground,
+                                border: `1px solid ${
+                                  isDarkMode ? colours.dark.border : colours.light.border
+                                }`,
+                                backgroundColor: isDarkMode
+                                  ? colours.dark.inputBackground
+                                  : colours.light.inputBackground,
                               },
                             }}
                           />
@@ -313,7 +322,7 @@ const HomePanel: React.FC<HomePanelProps> = ({
                   })}
               </Stack>
             ) : bespokeFormFields ? (
-              <div style={{ marginTop: '20px', padding: '0 24px', flexGrow: 1 }}>
+              <div style={{ flexGrow: 1, padding: '20px' }}> {/* Second padding for BespokeForm */}
                 <BespokeForm
                   fields={bespokeFormFields}
                   onSubmit={(values) => {
@@ -324,13 +333,14 @@ const HomePanel: React.FC<HomePanelProps> = ({
                 />
               </div>
             ) : (
-              <div style={{ marginTop: '20px', padding: '0 24px', flexGrow: 1 }}>
+              <div style={{ padding: '20px' }}> {/* Padding for placeholder message */}
                 <Text>No form available for this item.</Text>
               </div>
             )}
           </>
         )}
       </div>
+
 
       {/* Content aligned to the bottom */}
       <div className={detailsContainerStyle(isDarkMode)}>

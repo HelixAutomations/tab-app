@@ -1,7 +1,7 @@
 // src/tabs/home/AnnualLeaveForm.tsx
 
 import React from 'react';
-import BespokeForm from '../../CustomForms/BespokeForms';
+import BespokeForm from './BespokeForms';
 
 const annualLeaveForm = [
   {

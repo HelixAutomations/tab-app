@@ -1,6 +1,6 @@
 // src/tabs/home/Home.tsx
 
-import React, { useState, useEffect, useMemo, ReactNode, useRef } from 'react';
+import React, { useState, useEffect, useMemo, ReactNode } from 'react';
 import {
   mergeStyles,
   Text,
@@ -20,7 +20,7 @@ import {
   DefaultButton,
   Icon,
 } from '@fluentui/react';
-import { colours } from '../../app/styles/colours';
+import { colours } from '../../app/styles/colours'; // Corrected import path
 import { initializeIcons } from '@fluentui/react/lib/Icons';
 import MetricCard from './MetricCard';
 import GreyHelixMark from '../../assets/grey helix mark.png';
@@ -42,12 +42,13 @@ import FormDetails from '../forms/FormDetails';
 import ResourceDetails from '../resources/ResourceDetails';
 
 import HomePanel from './HomePanel';
-import { officeAttendanceForm, annualLeaveForm } from './HomeForms';
+import { officeAttendanceForm, annualLeaveForm } from '../../CustomForms/HomeForms';
 
 import { Context as TeamsContextType } from '@microsoft/teams-js';
 
 // Import the custom BespokePanel
 import BespokePanel from '../../app/functionality/BespokePanel';
+import CreateTimeEntryForm from '../../CustomForms/CreateTimeEntryForm'; // **New Import**
 
 initializeIcons();
 
@@ -474,9 +475,9 @@ let cachedRecoveredError: string | null = null;
 
 // Updated CognitoForm Component to ensure forms render inside the BespokePanel
 const CognitoForm: React.FC<{ dataKey: string; dataForm: string }> = ({ dataKey, dataForm }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const containerRef = React.useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (containerRef.current) {
       // Clear any existing content
       containerRef.current.innerHTML = '';
@@ -895,7 +896,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       case 'Open a Matter':
         content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="9" />;
         break;
-      case 'Create a Time Entry':
+      case 'Create a Time Entry': // **Handle Create a Time Entry**
+        content = <CreateTimeEntryForm />;
+        break;
       case 'Request ID':
         content = <Text>Not ready yet - working on it.</Text>;
         break;
@@ -1085,7 +1088,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       }
     : {
         root: {
-          backgroundColor: `${colours.cta} !important`,
+          backgroundColor: `${colours.cta} !important`, // Using existing CTA color for errors
           border: 'none !important',
           height: '40px !important',
           fontWeight: '600 !important',
@@ -1545,7 +1548,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         isOpen={isBespokePanelOpen}
         onClose={() => setIsBespokePanelOpen(false)}
         title={bespokePanelTitle}
-        width="1000px" // Increased width by 200px (original was 800px)
+        width="1000px" // Adjust as needed
       >
         {bespokePanelContent}
       </BespokePanel>

@@ -1,80 +1,175 @@
-// src/Forms/CreateTimeEntryForm.tsx
-
 import React, { useState } from 'react';
-import { Stack, TextField, PrimaryButton, Dropdown, IDropdownOption, Label, MessageBar, MessageBarType } from '@fluentui/react';
+import { Text, MessageBar, MessageBarType } from '@fluentui/react';
+import { useTheme } from '../app/functionality/ThemeContext';
+import { colours } from '../app/styles/colours';
+import BespokeForm, { BespokeFormProps } from './BespokeForms'; // Ensure correct import
 
 const CreateTimeEntryForm: React.FC = () => {
-  const [task, setTask] = useState<string>('');
-  const [hours, setHours] = useState<string>(''); // Changed to string
-  const [date, setDate] = useState<string>('');
+  const { isDarkMode } = useTheme();
   const [error, setError] = useState<string>('');
   const [success, setSuccess] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  const taskOptions: IDropdownOption[] = [
-    { key: 'Development', text: 'Development' },
-    { key: 'Design', text: 'Design' },
-    { key: 'Testing', text: 'Testing' },
-    { key: 'Deployment', text: 'Deployment' },
-  ];
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (values: { [key: string]: string | number | boolean | File }) => {
     setError('');
     setSuccess('');
+    setIsSubmitting(true);
 
-    // Basic validation
-    if (!task || !hours || !date) {
-      setError('All fields are required.');
+    const hours = parseInt(values['Hours'] as string, 10) || 0;
+    const minutes = parseInt(values['Minutes'] as string, 10) || 0;
+    const matterReference = (values['Matter Reference'] as string).trim();
+    const date = values['Date'] as string;
+    const description = (values['Description'] as string).trim();
+
+    if (!hours && !minutes) {
+      setError('Please enter the duration.');
+      setIsSubmitting(false);
       return;
     }
 
-    const parsedHours = parseFloat(hours);
-    if (isNaN(parsedHours) || parsedHours < 0) {
-      setError('Hours must be a positive number.');
+    if (isNaN(hours) || hours < 0 || isNaN(minutes) || minutes < 0 || minutes >= 60) {
+      setError('Please enter valid hours and minutes.');
+      setIsSubmitting(false);
       return;
     }
 
-    // Simulate form submission
-    setTimeout(() => {
+    if (!matterReference) {
+      setError('Matter Reference is required.');
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (!date) {
+      setError('Date is required.');
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (!description) {
+      setError('Description is required.');
+      setIsSubmitting(false);
+      return;
+    }
+
+    try {
+      const response = await fetch('https://your-api-endpoint.com/time-entries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hours,
+          minutes,
+          matterReference,
+          date,
+          description,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to create time entry. Please try again.');
+      }
+
       setSuccess('Time entry created successfully!');
-      setTask('');
-      setHours('');
-      setDate('');
-    }, 1000);
+    } catch (err: any) {
+      setError(err.message || 'An unexpected error occurred.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
+  const handleCancel = () => {
+    // Handle form cancellation
+  };
+
+  const fields: BespokeFormProps['fields'] = [
+    {
+      label: 'Hours',
+      name: 'Hours',
+      type: 'number',
+      required: true,
+      placeholder: 'Enter hours',
+      step: 1,
+      min: 0, // No error now
+    },
+    {
+      label: 'Minutes',
+      name: 'Minutes',
+      type: 'number',
+      required: true,
+      placeholder: 'Enter minutes',
+      step: 1,
+      min: 0, // No error now
+      max: 59,
+    },
+    {
+      label: 'Matter Reference',
+      name: 'Matter Reference',
+      type: 'text',
+      required: true,
+      placeholder: 'Enter Matter Reference',
+    },
+    {
+      label: 'Date',
+      name: 'Date',
+      type: 'text',
+      required: true,
+    },
+    {
+      label: 'Description',
+      name: 'Description',
+      type: 'textarea',
+      required: true,
+      placeholder: 'Enter Description',
+    },
+  ];
+  
   return (
-    <form onSubmit={handleSubmit}>
-      <Stack tokens={{ childrenGap: 15 }}>
-        <Label>Create Time Entry</Label>
-        <Dropdown
-          label="Task"
-          selectedKey={task}
-          onChange={(e, option) => setTask(option?.key as string)}
-          options={taskOptions}
-          placeholder="Select a task"
-          required
-        />
-        <TextField
-          label="Hours"
-          type="number"
-          value={hours}
-          onChange={(e, newValue) => setHours(newValue || '')} // Now handling string
-          required
-          min={0}
-        />
-        <TextField
-          label="Date"
-          type="date"
-          value={date}
-          onChange={(e, newValue) => setDate(newValue || '')}
-          required
-        />
-        {error && <MessageBar messageBarType={MessageBarType.error}>{error}</MessageBar>}
-        {success && <MessageBar messageBarType={MessageBarType.success}>{success}</MessageBar>}
-        <PrimaryButton type="submit">Create</PrimaryButton>
-      </Stack>
-    </form>
+    <div>
+      <Text
+        variant="large"
+        style={{
+          marginBottom: '20px',
+          color: isDarkMode ? colours.dark.text : colours.light.text,
+        }}
+      >
+        Create Time Entry
+      </Text>
+      <BespokeForm
+        fields={fields}
+        onSubmit={handleSubmit}
+        onCancel={handleCancel}
+        isSubmitting={isSubmitting}
+      />
+      {error && (
+        <MessageBar
+          messageBarType={MessageBarType.error}
+          isMultiline={false}
+          styles={{
+            root: {
+              marginTop: '10px',
+              backgroundColor: colours.cta,
+              color: '#ffffff',
+            },
+          }}
+        >
+          {error}
+        </MessageBar>
+      )}
+      {success && (
+        <MessageBar
+          messageBarType={MessageBarType.success}
+          isMultiline={false}
+          styles={{
+            root: {
+              marginTop: '10px',
+              backgroundColor: colours.green,
+              color: '#ffffff',
+            },
+          }}
+        >
+          {success}
+        </MessageBar>
+      )}
+    </div>
   );
 };
 
