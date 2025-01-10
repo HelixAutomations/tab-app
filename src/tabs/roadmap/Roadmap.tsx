@@ -18,7 +18,6 @@ import {
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 import BespokeForm from '../../CustomForms/BespokeForms';
-import '../../app/styles/Roadmap.css';
 import { UserData } from '../../app/functionality/types';
 import { format } from 'date-fns';
 
@@ -53,6 +52,9 @@ const normalizeStatus = (status: string): string => {
       return 'Next';
     case 'suggested':
       return 'Suggested';
+    case 'add_suggestion':
+    case 'add suggestion':
+      return 'Add Suggestion';
     default:
       return 'Suggested'; // Map unknown statuses to 'Suggested'
   }
@@ -63,9 +65,11 @@ const getStatusIcon = (status: string) => {
     case 'in progress':
       return 'Sync';
     case 'next':
-      return 'ArrowRight';
+      return 'View';
     case 'suggested':
       return 'Lightbulb';
+    case 'add suggestion':
+      return 'Add';
     default:
       return 'Lightbulb';
   }
@@ -140,14 +144,12 @@ const contentBoxStyle = (isDarkMode: boolean) =>
     boxShadow: isDarkMode
       ? `0 4px 12px ${colours.dark.border}`
       : `0 4px 12px ${colours.light.border}`,
-    transition: 'background-color 0.3s, box-shadow 0.3s',
+    transition: 'background-color 0.3s, box-shadow 0.3s, transform 0.3s',
     cursor: 'pointer',
     marginTop: '10px',
-    ':hover': {
-      boxShadow: isDarkMode
-        ? `0 6px 16px ${colours.dark.border}`
-        : `0 6px 16px ${colours.light.border}`,
-    },
+    opacity: 0,
+    transform: 'translateY(20px)',
+    animation: 'fadeInUp 0.5s ease forwards',
   });
 
 const greyBubbleStyle = mergeStyles({
@@ -163,9 +165,10 @@ const greyBubbleStyle = mergeStyles({
 });
 
 const statusColorMapping: { [key: string]: string } = {
-  'In Progress': colours.cta, // CTA Red
-  'Next': colours.highlight, // Highlight Blue at 100% opacity
-  'Suggested': colours.darkBlue, // Same as 'Other' was
+  'in progress': colours.cta, // CTA Red
+  'next': colours.highlight, // Highlight Blue at 100% opacity
+  'suggested': colours.darkBlue, // Same as 'Other' was
+  'add suggestion': colours.green, // Green for the form
 };
 
 const Roadmap: React.FC<RoadmapProps> = ({ userData }) => {
@@ -179,6 +182,43 @@ const Roadmap: React.FC<RoadmapProps> = ({ userData }) => {
   const [selectedItem, setSelectedItem] = useState<RoadmapEntry | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [message, setMessage] = useState<{ type: MessageBarType; text: string } | null>(null);
+
+  useEffect(() => {
+    // Inject keyframes for animations
+    const styles = `
+@keyframes pulse {
+  0% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.2);
+    opacity: 0.7;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+}
+@keyframes fadeInUp {
+  0% {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+`;
+    const styleSheet = document.createElement('style');
+    styleSheet.type = 'text/css';
+    styleSheet.innerText = styles;
+    document.head.appendChild(styleSheet);
+    return () => {
+      document.head.removeChild(styleSheet);
+    };
+  }, []);
 
   useEffect(() => {
     if (cachedRoadmapData || cachedRoadmapError) {
@@ -329,6 +369,27 @@ const Roadmap: React.FC<RoadmapProps> = ({ userData }) => {
     }
   };
 
+  // Calculate animation delay for groups
+  const calculateGroupAnimationDelay = (groupIndex: number) => {
+    return groupIndex * 0.3; // 300ms delay between groups
+  };
+
+  // Calculate animation delay for entries within a group
+  const calculateEntryAnimationDelay = (entryIndex: number) => {
+    return entryIndex * 0.1; // 100ms delay between entries
+  };
+
+  const groupedRoadmapEntries = useMemo(() => {
+    const groups = roadmapData ? Object.entries(groupedRoadmap) : [];
+    // Append the form as a separate group
+    groups.push(['Add Suggestion', []]); // Empty entries array for the form
+    return groups.map(([status, entries], groupIndex) => ({
+      status,
+      entries,
+      animationDelay: calculateGroupAnimationDelay(groupIndex),
+    }));
+  }, [groupedRoadmap, roadmapData]);
+
   return (
     <div className={containerStyle(isDarkMode)}>
       <div className={timelineLineStyle(isDarkMode)} />
@@ -339,120 +400,136 @@ const Roadmap: React.FC<RoadmapProps> = ({ userData }) => {
         ) : roadmapError ? (
           <MessageBar messageBarType={MessageBarType.error}>{roadmapError}</MessageBar>
         ) : roadmapData && roadmapData.length > 0 ? (
-          Object.entries(groupedRoadmap).map(([status, items], index) => (
-            <div key={index} className={timelineRowStyle}>
-              <div className={markerStyle(statusColorMapping[status] || colours.darkBlue)} />
-              <div className={contentContainerStyle}>
-                <Stack className={contentBoxStyle(isDarkMode)}>
-                  <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
-                    <Icon iconName={getStatusIcon(status)} />
-                    <Text
-                      variant="large"
-                      styles={{
-                        root: {
-                          fontWeight: '700',
-                          color: isDarkMode ? colours.dark.text : colours.light.text,
-                          fontSize: '20px',
-                        },
-                      }}
-                    >
-                      {status} ({items.length})
-                    </Text>
-                  </Stack>
+          groupedRoadmapEntries.map((group, groupIndex) => {
+            const statusLower = group.status.toLowerCase();
+            const statusColor = statusColorMapping[statusLower] || colours.darkBlue;
+            const isFormGroup = group.status.toLowerCase() === 'add suggestion';
 
-                  {items.map((item) => (
-                    <div
-                      key={item.id}
-                      className={mergeStyles({
-                        borderTop: `1px solid ${
-                          isDarkMode ? colours.dark.border : colours.light.border
-                        }`,
-                        paddingTop: '10px',
-                        marginTop: '10px',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                      })}
-                      onClick={() => openModal(item)}
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`View details for ${item.label}`}
-                    >
+            return (
+              <div key={group.status} className={timelineRowStyle}>
+                <div className={markerStyle(statusColor)} />
+                <div className={contentContainerStyle}>
+                  <Stack
+                    className={mergeStyles(contentBoxStyle(isDarkMode), {
+                      animationDelay: `${group.animationDelay}s`,
+                    })}
+                  >
+                    <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
+                      <Icon iconName={getStatusIcon(group.status)} />
                       <Text
+                        variant="large"
                         styles={{
                           root: {
-                            textAlign: 'left',
-                            fontSize: '16px',
-                            color: colours.blue,
-                            flex: 1,
+                            fontWeight: '700',
+                            color: isDarkMode ? colours.dark.text : colours.light.text,
+                            fontSize: '20px',
                           },
                         }}
                       >
-                        {item.label}
+                        {isFormGroup
+                          ? group.status // Just "Add Suggestion"
+                          : `${group.status} (${group.entries.length})`}
                       </Text>
-                      <Stack horizontal tokens={{ childrenGap: 8 }}>
-                        <Text className={greyBubbleStyle}>{formatDate(item.date_requested)}</Text>
-                        <Text className={greyBubbleStyle}>{item.component}</Text>
+                    </Stack>
+
+                    {!isFormGroup ? (
+                      // Render roadmap entries within the group
+                      <Stack tokens={{ childrenGap: 10 }} styles={{ root: { marginTop: '15px' } }}>
+                        {group.entries.map((entry, entryIndex) => (
+                          <div
+                            key={entry.id}
+                            className={mergeStyles({
+                              borderTop: `1px solid ${
+                                isDarkMode ? colours.dark.border : colours.light.border
+                              }`,
+                              paddingTop: '10px',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              opacity: 0,
+                              transform: 'translateY(20px)',
+                              animation: `fadeInUp 0.5s ease forwards`,
+                              animationDelay: `${group.animationDelay + calculateEntryAnimationDelay(entryIndex)}s`,
+                            })}
+                            onClick={() => openModal(entry)}
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`View details for ${entry.label}`}
+                          >
+                            <Text
+                              styles={{
+                                root: {
+                                  textAlign: 'left',
+                                  fontSize: '16px',
+                                  color: colours.blue,
+                                  flex: 1,
+                                },
+                              }}
+                            >
+                              {entry.label}
+                            </Text>
+                            <Stack horizontal tokens={{ childrenGap: 8 }}>
+                              <Text className={greyBubbleStyle}>{formatDate(entry.date_requested)}</Text>
+                              <Text className={greyBubbleStyle}>{entry.component}</Text>
+                            </Stack>
+                          </div>
+                        ))}
                       </Stack>
-                    </div>
-                  ))}
-                </Stack>
+                    ) : (
+                      // Render the form within the group
+                      <Stack tokens={{ childrenGap: 20 }} styles={{ root: { marginTop: '15px' } }}>
+                        {message && (
+                          <MessageBar
+                            messageBarType={message.type}
+                            isMultiline={false}
+                            onDismiss={() => setMessage(null)}
+                            dismissButtonAriaLabel="Close"
+                            styles={{ root: { marginBottom: '20px' } }}
+                          >
+                            {message.text}
+                          </MessageBar>
+                        )}
+
+                        <BespokeForm
+                          fields={[
+                            {
+                              label: 'Suggestion Title/Label',
+                              name: 'Label',
+                              type: 'text',
+                              required: true,
+                              placeholder: 'Enter the title of your suggestion…',
+                            },
+                            {
+                              label: 'Component',
+                              name: 'Component',
+                              type: 'dropdown',
+                              options: ['Home', 'Forms', 'Resources', 'Enquiries', 'Matters'],
+                              required: true,
+                            },
+                            {
+                              label: 'Description',
+                              name: 'Description',
+                              type: 'textarea',
+                              required: true,
+                              placeholder: 'Describe your improvement suggestion in detail…',
+                            },
+                          ]}
+                          onSubmit={handleSuggestSubmit}
+                          onCancel={() => {}}
+                          isSubmitting={isSubmitting}
+                          style={{ width: '100%' }}
+                        />
+                      </Stack>
+                    )}
+                  </Stack>
+                </div>
               </div>
-            </div>
-          ))
+            );
+          })
         ) : (
           <Text>No roadmap entries available.</Text>
         )}
-
-        <div className={timelineRowStyle}>
-          <div className={markerStyle(colours.cta)} />
-          <div className={contentContainerStyle}>
-            <Stack className={contentBoxStyle(isDarkMode)}>
-              {message && (
-                <MessageBar
-                  messageBarType={message.type}
-                  isMultiline={false}
-                  onDismiss={() => setMessage(null)}
-                  dismissButtonAriaLabel="Close"
-                  styles={{ root: { marginBottom: '20px' } }}
-                >
-                  {message.text}
-                </MessageBar>
-              )}
-
-              <BespokeForm
-                fields={[
-                  {
-                    label: 'Suggestion Title/Label',
-                    name: 'Label',
-                    type: 'text',
-                    required: true,
-                    placeholder: 'Enter the title of your suggestion…',
-                  },
-                  {
-                    label: 'Component',
-                    name: 'Component',
-                    type: 'dropdown',
-                    options: ['Home', 'Forms', 'Resources', 'Enquiries', 'Matters'],
-                    required: true,
-                  },
-                  {
-                    label: 'Description',
-                    name: 'Description',
-                    type: 'textarea',
-                    required: true,
-                    placeholder: 'Describe your improvement suggestion in detail…',
-                  },
-                ]}
-                onSubmit={handleSuggestSubmit}
-                onCancel={() => {}}
-                isSubmitting={isSubmitting}
-                style={{ width: '100%' }}
-              />
-            </Stack>
-          </div>
-        </div>
       </Stack>
 
       <Modal
@@ -565,7 +642,7 @@ const Roadmap: React.FC<RoadmapProps> = ({ userData }) => {
               />
               {normalizeStatus(selectedItem.status)}
             </Text>
-            <Stack horizontal tokens={{ childrenGap: 10 }} horizontalAlign="end">
+            <Stack horizontal tokens={{ childrenGap: 15 }} horizontalAlign="end">
               <PrimaryButton text="Close" onClick={closeModal} />
             </Stack>
           </Stack>
