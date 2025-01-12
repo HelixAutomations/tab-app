@@ -39,23 +39,20 @@ export async function getAnnualLeaveHandler(req: HttpRequest, context: Invocatio
 
         context.log(`Today's Date: ${todayStr}`);
 
-        // 4) Query the annual leave data
-        const annualLeaveEntries = await queryAnnualLeave(
-            todayDate,
-            projectDataConfig,
-            context
-        );
+        // 4) Query the annual leave data (active leave)
+        const annualLeaveEntries = await queryAnnualLeave(todayDate, projectDataConfig, context);
 
-        // 5) Query the team data
-        const teamData = await queryTeamData(
-            coreDataConfig,
-            context
-        );
+        // 5) Query future annual leave data (entries with start_date from today inclusive)
+        const futureLeaveEntries = await queryFutureLeave(todayDate, projectDataConfig, context);
+
+        // 6) Query the team data
+        const teamData = await queryTeamData(coreDataConfig, context);
 
         return {
             status: 200,
             body: JSON.stringify({
                 annual_leave: annualLeaveEntries,
+                future_leave: futureLeaveEntries,
                 team: teamData // Include team data in the response
             })
         };
@@ -70,7 +67,7 @@ export async function getAnnualLeaveHandler(req: HttpRequest, context: Invocatio
     }
 }
 
-// Function to query the annualLeave table
+// Function to query the annualLeave table for active leave (today between start_date and end_date)
 async function queryAnnualLeave(
     today: Date,
     config: any,
@@ -149,6 +146,95 @@ async function queryAnnualLeave(
             sqlRequest.addParameter("Today", TYPES.Date, today);
 
             context.log("Executing SQL query with parameters (AnnualLeave):", {
+                Today: today.toISOString().split('T')[0]
+            });
+
+            connection.execSql(sqlRequest);
+        });
+
+        connection.connect();
+    });
+}
+
+// Function to query the annualLeave table for future leave (start_date from today inclusive)
+async function queryFutureLeave(
+    today: Date,
+    config: any,
+    context: InvocationContext
+): Promise<{ person: string; start_date: string; end_date: string; reason: string; status: string }[]> {
+    return new Promise((resolve, reject) => {
+        const connection = new Connection(config);
+
+        connection.on("error", (err) => {
+            context.error("SQL Connection Error (FutureLeave):", err);
+            reject("An error occurred with the SQL connection.");
+        });
+
+        connection.on("connect", (err) => {
+            if (err) {
+                context.error("SQL Connection Error (FutureLeave):", err);
+                reject("Failed to connect to SQL database.");
+                return;
+            }
+
+            context.log("Successfully connected to SQL database (FutureLeave).");
+
+            // SQL query to retrieve annual leave entries where start_date is from today inclusive
+            const query = `
+                SELECT 
+                    [fe] AS person, 
+                    [start_date], 
+                    [end_date], 
+                    [reason], 
+                    [status]
+                FROM [dbo].[annualLeave]
+                WHERE 
+                    [start_date] >= @Today;
+            `;
+
+            context.log("SQL Query (FutureLeave):", query);
+
+            const sqlRequest = new SqlRequest(query, (err, rowCount) => {
+                if (err) {
+                    context.error("SQL Query Execution Error (FutureLeave):", err);
+                    reject("SQL query failed.");
+                    connection.close();
+                    return;
+                }
+                context.log(`SQL query executed successfully (FutureLeave). Rows returned: ${rowCount}`);
+            });
+
+            const futureLeaveList: { person: string; start_date: string; end_date: string; reason: string; status: string }[] = [];
+
+            sqlRequest.on("row", (columns) => {
+                const entry: any = {};
+                columns.forEach((col) => {
+                    entry[col.metadata.colName] = col.value;
+                });
+
+                // Format dates to ISO strings
+                const formattedStartDate = entry.start_date ? new Date(entry.start_date).toISOString().split('T')[0] : null;
+                const formattedEndDate = entry.end_date ? new Date(entry.end_date).toISOString().split('T')[0] : null;
+
+                futureLeaveList.push({
+                    person: entry.person || "",
+                    start_date: formattedStartDate || "",
+                    end_date: formattedEndDate || "",
+                    reason: entry.reason || "",
+                    status: entry.status || ""
+                });
+            });
+
+            sqlRequest.on("requestCompleted", () => {
+                context.log("Future Leave Data Retrieved:", futureLeaveList);
+                resolve(futureLeaveList);
+                connection.close();
+            });
+
+            // Bind parameters
+            sqlRequest.addParameter("Today", TYPES.Date, today);
+
+            context.log("Executing SQL query with parameters (FutureLeave):", {
                 Today: today.toISOString().split('T')[0]
             });
 
@@ -269,7 +355,7 @@ function formatDate(date: Date): string {
 
 // Export the Azure Function
 export default app.http("getAnnualLeave", {
-    methods: ["GET"], // or ["POST"] depending on your requirements
+    methods: ["GET"],
     authLevel: "function",
     handler: getAnnualLeaveHandler,
 });

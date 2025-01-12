@@ -1,0 +1,23 @@
+/* src/app/styles/CustomDateRange.css */
+
+.rdrDaySelected,
+.rdrDayInRange,
+.rdrDayInPreview {
+  background-color: #3690CE !important;
+  border-color: #3690CE !important;
+}
+
+.rdrDaySelected .rdrDayNumber span,
+.rdrDayInRange .rdrDayNumber span,
+.rdrDayInPreview .rdrDayNumber span {
+  color: #061733 !important;
+}
+
+.rdrDayHovered {
+  background-color: #3690CE !important;
+  border-color: #3690CE !important;
+}
+
+.rdrDayHovered .rdrDayNumber span {
+  color: #061733 !important;
+}

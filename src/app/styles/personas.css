@@ -1,0 +1,68 @@
+/* personas.css */
+
+/* Container for the persona bubble (with fade-in effect) */
+.persona-bubble {
+    position: relative;
+    display: flex;
+    align-items: center;
+    opacity: 0;
+    transform: translateY(20px);
+    animation: fadeInUp 0.3s ease forwards;
+  }
+  
+  /* Apply a hover effect (optional) */
+  .persona-bubble:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+    transition: transform 0.3s, box-shadow 0.3s;
+  }
+  
+  /* Icon container for a persona (round shape with a border) */
+  .persona-icon-container {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background-color: #ffffff;
+    border: 0.5px solid #004080; /* Replace with your darkBlue color */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+    z-index: 4;
+  }
+  
+  /* The nickname box that appears attached to the persona */
+  .persona-nickname-box {
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    background-color: #cccccc;  /* Replace with your designated grey color */
+    border-radius: 12px;
+    padding: 0 10px 0 50px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    z-index: 3;
+    white-space: nowrap;
+  }
+  
+  /* Text inside the nickname box */
+  .persona-nickname-text {
+    font-weight: 600;
+    font-size: 14px;
+    color: #333333; /* Replace or override based on theme/dark mode */
+  }
+  
+  /* Keyframe for fadeInUp animation */
+  @keyframes fadeInUp {
+    0% {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  

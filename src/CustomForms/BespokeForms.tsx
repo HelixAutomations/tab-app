@@ -34,8 +34,8 @@ export const formContainerStyle = mergeStyles({
 export const inputFieldStyle = mergeStyles({
   height: `${INPUT_HEIGHT}px`,
   padding: '5px',
-  borderRadius: '4px',
   border: `1px solid ${colours.light.border}`,
+  borderRadius: '4px',
   backgroundColor: colours.light.inputBackground,
   boxSizing: 'border-box',
   selectors: {
@@ -53,18 +53,19 @@ export const inputFieldStyle = mergeStyles({
 
 export const dropdownStyle = mergeStyles({
   height: `${INPUT_HEIGHT}px`,
+  border: `1px solid ${colours.light.border}`,
   borderRadius: '4px',
   backgroundColor: colours.light.inputBackground,
   display: 'flex',
   alignItems: 'center',
-  border: 'none',
   padding: '0 5px',
+  boxSizing: 'border-box',
   selectors: {
     ':hover': {
-      border: `1px solid ${colours.light.cta}`,
+      borderColor: colours.light.cta,
     },
     ':focus-within': {
-      border: `1px solid ${colours.light.cta}`,
+      borderColor: colours.light.cta,
     },
     '.ms-Dropdown-title': {
       backgroundColor: 'transparent',
@@ -113,13 +114,9 @@ export const amountInputStyle = (hasPrefix: boolean) =>
   mergeStyles({
     flexGrow: 1,
     height: '100%',
-    borderLeft: hasPrefix ? 'none' : `1px solid ${colours.light.border}`,
-    borderTopLeftRadius: hasPrefix ? '0' : '4px',
-    borderBottomLeftRadius: hasPrefix ? '0' : '4px',
-    borderTopRightRadius: '4px',
-    borderBottomRightRadius: '4px',
-    padding: '5px',
     border: `1px solid ${colours.light.border}`,
+    borderRadius: '4px',
+    padding: '5px',
     backgroundColor: colours.light.inputBackground,
     boxSizing: 'border-box',
     selectors: {
@@ -227,6 +224,10 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSubmit(formValues);
+  };
+
+  const handleClear = () => {
+    setFormValues({});
   };
 
   return (
@@ -392,8 +393,8 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
             />
             <DefaultButton
               type="button"
-              text="Cancel"
-              onClick={onCancel}
+              text="Clear"
+              onClick={handleClear}
               styles={sharedDefaultButtonStyles}
               disabled={isSubmitting}
             />

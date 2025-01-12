@@ -551,6 +551,8 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const [annualLeaveRecords, setAnnualLeaveRecords] = useState<AnnualLeaveRecord[]>([]);
   const [isLoadingAnnualLeave, setIsLoadingAnnualLeave] = useState<boolean>(true);
   const [annualLeaveError, setAnnualLeaveError] = useState<string | null>(null);
+  const [futureLeaveRecords, setFutureLeaveRecords] = useState<AnnualLeaveRecord[]>([]);
+
 
   // State for WIP Clio and Recovered
   const [wipClioData, setWipClioData] = useState<any>(null);
@@ -785,7 +787,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         }
 
         try {
-          // Fetch Annual Leave
           const annualLeaveResponse = await fetch(
             `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_ANNUAL_LEAVE_PATH}?code=${process.env.REACT_APP_GET_ANNUAL_LEAVE_CODE}`,
             {
@@ -793,13 +794,17 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
               headers: { 'Content-Type': 'application/json' },
             }
           );
-
+        
           if (!annualLeaveResponse.ok) throw new Error(`Failed to fetch annual leave: ${annualLeaveResponse.status}`);
           const annualLeaveData = await annualLeaveResponse.json();
-
+        
           if (annualLeaveData && Array.isArray(annualLeaveData.annual_leave)) {
             cachedAnnualLeave = annualLeaveData.annual_leave;
             setAnnualLeaveRecords(annualLeaveData.annual_leave);
+            // New: store future leave if available
+            if (Array.isArray(annualLeaveData.future_leave)) {
+              setFutureLeaveRecords(annualLeaveData.future_leave);
+            }
           } else {
             throw new Error('Invalid annual leave data format.');
           }
@@ -1357,7 +1362,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                 <DefaultButton
                   text="Request Annual Leave"
                   onClick={() => {
-                    setBespokePanelContent(<AnnualLeaveForm />);
+                    setBespokePanelContent(
+                      <AnnualLeaveForm futureLeave={futureLeaveRecords} team={teamData} />
+                    );
                     setBespokePanelTitle('Request Annual Leave');
                     setIsBespokePanelOpen(true);
                   }}
