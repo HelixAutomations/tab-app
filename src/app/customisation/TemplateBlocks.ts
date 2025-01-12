@@ -61,7 +61,7 @@ export const templateBlocks: TemplateBlock[] = [
     options: [
       {
         label: 'Initial Steps- Review and Advice',
-        previewText: `I am experienced in dealing with this type of issue and am happy to assist you. At this initial stage it is necessary and incredibly important to review the background and current position so that we can then advise on your best next steps.\n\nThis will require an initial review of core documents such as [INSERT the contracts, notices, demands, accounts, relevant correspondence set out below] so that we can be as clear as possible on the factual position with companies house and land registry. I then anticipate being able to provide initial advice on your current position and best next steps.`,
+        previewText: `Initial Steps- Review and Advice\n\nI am experienced in dealing with this type of issue and am happy to assist you. At this initial stage it is necessary and incredibly important to review the background and current position so that we can then advise on your best next steps.\n\nThis will require an initial review of core documents such as [INSERT the contracts, notices, demands, accounts, relevant correspondence set out below] so that we can be as clear as possible on the factual position with companies house and land registry. I then anticipate being able to provide initial advice on your current position and best next steps.`,
       },
       {
         label: 'Shareholder Dispute',
@@ -181,8 +181,8 @@ export const templateBlocks: TemplateBlock[] = [
     isMultiSelect: true,
     options: [
       {
-        label: 'Closing',
-        previewText: `I hope the above helps and look forward to helping resolve your matter.\n\nThere is obviously some degree of complexity factually and legally in relation to your matter. We’re a specialist team and I hope to assist you navigate the process effectively to achieve a positive outcome.\n\nPlease let me know if you have any questions and I will be happy to help. Otherwise as soon as we have received the above from you I will confirm that we are able to open a file and we will then start to move this forwards.`,
+        "label": "Closing",
+        "previewText": "I hope the above helps and look forward to helping resolve your matter.\n\nThere is obviously some degree of complexity factually and legally in relation to your matter. We’re a specialist team and I hope to assist you navigate the process effectively to achieve a positive outcome.\n\nTo be clear, when you have completed the above steps we will review the position and at our discretion will open a file. We will then set out the terms of our retainer and file with you and will ask you to confirm that those terms are accepted. Only at that stage will a retainer be confirmed between us. Although unusual, we may decline to act for you for any reason in which case any monies paid by you will be returned without charge. I hope the above makes sense and is clear but don't hesitate to contact me if you have any queries and I will be happy to help."
       },
     ],
   },

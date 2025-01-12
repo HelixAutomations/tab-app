@@ -776,7 +776,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
     return null;
   }
 
-  // Auto-insert single-option blocks for "Risk Assessment", "Next Steps", etc. on mount
+  // Auto-insert single-option blocks for "Risk Assessment", "Next Steps", and "Closing Notes" on mount
   useEffect(() => {
     templateBlocks.forEach((block) => {
       if (
@@ -796,6 +796,47 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Auto-insert additional blocks for Commercial area of work
+  useEffect(() => {
+    if (enquiry.Area_of_Work && enquiry.Area_of_Work.toLowerCase() === 'commercial') {
+      templateBlocks.forEach((block) => {
+        if (block.title === 'Introduction') {
+          const autoOptionLabel = 'Standard Acknowledgment';
+          const optionExists = block.options.find((o) => o.label === autoOptionLabel);
+          if (optionExists) {
+            setSelectedTemplateOptions((prev) => ({
+              ...prev,
+              [block.title]: block.isMultiSelect ? [autoOptionLabel] : autoOptionLabel,
+            }));
+            insertTemplateBlock(block, block.isMultiSelect ? [autoOptionLabel] : autoOptionLabel);
+          }
+        }
+        if (block.title === 'Current Situation and Problem') {
+          const autoOptionLabel = 'Current Position and Problems';
+          const optionExists = block.options.find((o) => o.label === autoOptionLabel);
+          if (optionExists) {
+            setSelectedTemplateOptions((prev) => ({
+              ...prev,
+              [block.title]: block.isMultiSelect ? [autoOptionLabel] : autoOptionLabel,
+            }));
+            insertTemplateBlock(block, block.isMultiSelect ? [autoOptionLabel] : autoOptionLabel);
+          }
+        }
+        if (block.title === 'Scope of Work') {
+          const autoOptionLabel = 'Initial Steps- Review and Advice';
+          const optionExists = block.options.find((o) => o.label === autoOptionLabel);
+          if (optionExists) {
+            setSelectedTemplateOptions((prev) => ({
+              ...prev,
+              [block.title]: block.isMultiSelect ? [autoOptionLabel] : autoOptionLabel,
+            }));
+            insertTemplateBlock(block, block.isMultiSelect ? [autoOptionLabel] : autoOptionLabel);
+          }
+        }
+      });
+    }
+  }, [enquiry.Area_of_Work]);
 
   // Some styling
   const containerStyle = mergeStyles({
