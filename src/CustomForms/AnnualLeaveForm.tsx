@@ -1,7 +1,7 @@
 // src/CustomForms/AnnualLeaveForm.tsx
 
 import React, { useState, useEffect } from 'react';
-import { Stack, Text, PrimaryButton } from '@fluentui/react';
+import { Stack, Text, PrimaryButton, DefaultButton, TextField } from '@fluentui/react';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';
 import BespokeForm, { FormField } from './BespokeForms';
@@ -18,15 +18,7 @@ interface DateRangeSelection {
   halfDayEnd?: boolean;
 }
 
-const initialFormFields: FormField[] = [
-  {
-    label: 'Notes (Optional)',
-    type: 'textarea',
-    required: false,
-    placeholder: 'Enter any additional notes',
-    name: 'notes',
-  },
-];
+const initialFormFields: FormField[] = [];
 
 const buttonStylesFixedWidth = {
   root: {
@@ -41,11 +33,41 @@ const buttonStylesFixedWidth = {
   },
 };
 
+const buttonStylesFixedWidthSecondary = {
+  root: {
+    ...(sharedDefaultButtonStyles.root as object),
+    width: '150px',
+  },
+  rootHovered: {
+    ...(sharedDefaultButtonStyles.rootHovered as object),
+  },
+  rootPressed: {
+    ...(sharedDefaultButtonStyles.rootPressed as object),
+  },
+};
+
+const textFieldStyles = {
+  fieldGroup: {
+    borderRadius: '4px',
+    border: `1px solid ${colours.light.border}`,
+    backgroundColor: colours.light.inputBackground,
+    selectors: {
+      ':hover': {
+        borderColor: colours.light.cta,
+      },
+      ':focus': {
+        borderColor: colours.light.cta,
+      },
+    },
+  },
+};
+
 const AnnualLeaveForm: React.FC = () => {
   const { isDarkMode } = useTheme();
   const [dateRanges, setDateRanges] = useState<DateRangeSelection[]>([]);
   const [totalDays, setTotalDays] = useState<number>(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [notes, setNotes] = useState<string>('');
 
   const addDateRange = () => {
     setDateRanges([
@@ -86,6 +108,7 @@ const AnnualLeaveForm: React.FC = () => {
     try {
       const formData = {
         ...values,
+        notes,
         dateRanges,
         totalDays,
       };
@@ -154,10 +177,10 @@ const AnnualLeaveForm: React.FC = () => {
                 months={1}
                 direction="horizontal"
               />
-              <PrimaryButton
+              <DefaultButton
                 text="Remove Range"
                 onClick={() => removeDateRange(index)}
-                styles={buttonStylesFixedWidth}
+                styles={buttonStylesFixedWidthSecondary}
               />
             </Stack>
           ))}
@@ -165,6 +188,15 @@ const AnnualLeaveForm: React.FC = () => {
             text="Add Date Range"
             onClick={addDateRange}
             styles={buttonStylesFixedWidth}
+          />
+          <TextField
+            label="Notes (Optional)"
+            placeholder="Enter any additional notes"
+            value={notes}
+            onChange={(e, newVal) => setNotes(newVal || '')}
+            styles={textFieldStyles}
+            multiline
+            rows={3}
           />
         </Stack>
       </BespokeForm>
