@@ -19,6 +19,7 @@ import {
   PersonaPresence,
   DefaultButton,
   Icon,
+  PrimaryButton,
 } from '@fluentui/react';
 import { colours } from '../../app/styles/colours'; // Corrected import path
 import { initializeIcons } from '@fluentui/react/lib/Icons';
@@ -42,17 +43,17 @@ import FormDetails from '../forms/FormDetails';
 import ResourceDetails from '../resources/ResourceDetails';
 
 import HomePanel from './HomePanel';
-import { officeAttendanceForm, annualLeaveForm } from '../../CustomForms/HomeForms';
-
 import { Context as TeamsContextType } from '@microsoft/teams-js';
 
 // Import the custom BespokePanel
 import BespokePanel from '../../app/functionality/BespokePanel';
-import CreateTimeEntryForm from '../../CustomForms/CreateTimeEntryForm'; // **New Import**
+
+// ** Import the forms that use BespokeForm styling **
+import CreateTimeEntryForm from '../../CustomForms/CreateTimeEntryForm';
+import AnnualLeaveForm from '../../CustomForms/AnnualLeaveForm';
 
 initializeIcons();
 
-// Define AnnualLeaveRecord type
 interface AnnualLeaveRecord {
   person: string;
   start_date: string;
@@ -84,10 +85,11 @@ const quickActions: QuickLink[] = [
   { title: 'Create a Time Entry', icon: 'Clock' },
   { title: 'Save Telephone Note', icon: 'Comment' },
   { title: 'Save Attendance Note', icon: 'NotePinned' },
-  { title: 'Request ID', icon: 'ContactInfo' }, // Renamed from 'Create a Contact' with updated icon
-  { title: 'Open a Matter', icon: 'FolderOpen' }, // Renamed from 'Retrieve a Contact' with updated icon
+  { title: 'Request ID', icon: 'ContactInfo' },
+  { title: 'Open a Matter', icon: 'FolderOpen' },
 ];
 
+// Styles
 const containerStyle = (isDarkMode: boolean) =>
   mergeStyles({
     backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
@@ -127,7 +129,7 @@ const sectionRowStyle = mergeStyles({
 
 const officeSectionRowStyle = mergeStyles({
   display: 'grid',
-  gridTemplateColumns: '2fr min-content 1fr', // Increased space for the office section
+  gridTemplateColumns: '2fr min-content 1fr',
   alignItems: 'stretch',
   width: '100%',
   gap: '20px',
@@ -242,6 +244,7 @@ const officeLeaveContainerStyle = (isDarkMode: boolean) =>
     width: '100%',
   });
 
+// Flatten & Transform Context
 const flattenObject = (obj: any, prefix = ''): { key: string; value: any }[] => {
   let result: { key: string; value: any }[] = [];
   for (const [k, v] of Object.entries(obj)) {
@@ -293,6 +296,7 @@ const createColumnsFunction = (isDarkMode: boolean): IColumn[] => [
   },
 ];
 
+// QuickActions Card
 const QuickActionsCardStyled: React.FC<{
   title: string;
   icon: string;
@@ -305,7 +309,7 @@ const QuickActionsCardStyled: React.FC<{
     color: isDarkMode ? colours.dark.text : colours.light.text,
     padding: '20px',
     borderRadius: '12px',
-    boxShadow: '0 2px 6px rgba(0, 0, 0, 0.1)', // Subtle initial shadow
+    boxShadow: '0 2px 6px rgba(0, 0, 0, 0.1)', 
     display: 'flex',
     flexDirection: 'column',
     justifyContent: 'center',
@@ -320,7 +324,7 @@ const QuickActionsCardStyled: React.FC<{
     transition: 'transform 0.3s, box-shadow 0.3s',
     ':hover': {
       transform: 'translateY(-5px)',
-      boxShadow: '0 6px 20px rgba(0, 0, 0, 0.2)', // Intensified shadow on hover
+      boxShadow: '0 6px 20px rgba(0, 0, 0, 0.2)',
     },
   });
 
@@ -338,7 +342,7 @@ const QuickActionsCardStyled: React.FC<{
   const quickActionLabelStyle = mergeStyles({
     fontWeight: '600',
     fontSize: '18px',
-    color: colours.highlight, // Always blue
+    color: colours.highlight, 
     textAlign: 'center',
     zIndex: 1,
   });
@@ -351,6 +355,7 @@ const QuickActionsCardStyled: React.FC<{
   );
 };
 
+// Person Bubbles
 const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean; animationDelay?: number }> = ({
   person,
   isDarkMode,
@@ -402,9 +407,9 @@ const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean; animationDel
         </div>
       </div>
     );
-
-    // If user is on annual leave
-  } else if (person.presence === PersonaPresence.busy) {
+  }
+  // If user is on annual leave
+  else if (person.presence === PersonaPresence.busy) {
     return (
       <div className={bubbleStyle}>
         <div
@@ -428,9 +433,9 @@ const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean; animationDel
         </div>
       </div>
     );
-
-    // Otherwise, fallback
-  } else {
+  }
+  // Otherwise fallback
+  else {
     return (
       <div className={bubbleStyle}>
         <div
@@ -471,15 +476,12 @@ let cachedWipClioError: string | null = null;
 let cachedRecovered: number | null = null;
 let cachedRecoveredError: string | null = null;
 
-// You can define more caching variables as needed for other data
-
-// Updated CognitoForm Component to ensure forms render inside the BespokePanel
+// Updated CognitoForm for embedding Cognito forms
 const CognitoForm: React.FC<{ dataKey: string; dataForm: string }> = ({ dataKey, dataForm }) => {
   const containerRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
     if (containerRef.current) {
-      // Clear any existing content
       containerRef.current.innerHTML = '';
 
       const script = document.createElement('script');
@@ -530,7 +532,10 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const [selectedForm, setSelectedForm] = useState<FormItem | null>(null);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
   const [isOfficeAttendancePanelOpen, setIsOfficeAttendancePanelOpen] = useState<boolean>(false);
-  const [isAnnualLeavePanelOpen, setIsAnnualLeavePanelOpen] = useState<boolean>(false);
+
+  // We no longer need isAnnualLeavePanelOpen or references to an older HomePanel for annual leave.
+  // We'll show the new AnnualLeaveForm in a BespokePanel.
+
   const [attendanceRecords, setAttendanceRecords] = useState<
     { name: string; confirmed: boolean; attendingToday: boolean }[]
   >([]);
@@ -542,12 +547,12 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const [currentUserName, setCurrentUserName] = useState<string>('User');
   const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
 
-  // Annual Leave State Variables
+  // Annual Leave State
   const [annualLeaveRecords, setAnnualLeaveRecords] = useState<AnnualLeaveRecord[]>([]);
   const [isLoadingAnnualLeave, setIsLoadingAnnualLeave] = useState<boolean>(true);
   const [annualLeaveError, setAnnualLeaveError] = useState<string | null>(null);
 
-  // State Variables for WIP Clio and Recovered
+  // State for WIP Clio and Recovered
   const [wipClioData, setWipClioData] = useState<any>(null);
   const [wipClioError, setWipClioError] = useState<string | null>(null);
   const [recoveredData, setRecoveredData] = useState<number | null>(null);
@@ -555,75 +560,76 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const [isLoadingWipClio, setIsLoadingWipClio] = useState<boolean>(true);
   const [isLoadingRecovered, setIsLoadingRecovered] = useState<boolean>(true);
 
-  // New state variables for BespokePanel
+  // State for the BespokePanel
   const [isBespokePanelOpen, setIsBespokePanelOpen] = useState<boolean>(false);
   const [bespokePanelContent, setBespokePanelContent] = useState<ReactNode>(null);
   const [bespokePanelTitle, setBespokePanelTitle] = useState<string>('');
 
   const columnsForPeople = 3;
 
+  // Animations
   useEffect(() => {
     const styles = `
 @keyframes redPulse {
-    0% {
-        box-shadow: 0 0 0 0 rgba(255, 0, 0, 0.4);
-    }
-    70% {
-        box-shadow: 0 0 0 10px rgba(255, 0, 0, 0);
-    }
-    100% {
-        box-shadow: 0 0 0 0 rgba(255, 0, 0, 0);
-    }
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 0, 0, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(255, 0, 0, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 0, 0, 0);
+  }
 }
 @keyframes fadeInUp {
-    0% {
-        opacity: 0;
-        transform: translateY(20px);
-    }
-    100% {
-        opacity: 1;
-        transform: translateY(0);
-    }
+  0% {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 @keyframes fadeInFromTopLeft {
-    0% {
-        opacity: 0;
-        transform: translate(-20px, -20px);
-    }
-    100% {
-        opacity: 1,
-        transform: translate(0, 0);
-    }
+  0% {
+    opacity: 0;
+    transform: translate(-20px, -20px);
+  }
+  100% {
+    opacity: 1,
+    transform: translate(0, 0);
+  }
 }
 @keyframes fadeInFromTopRight {
-    0% {
-        opacity: 0;
-        transform: translate(20px, -20px);
-    }
-    100% {
-        opacity: 1,
-        transform: translate(0, 0);
-    }
+  0% {
+    opacity: 0;
+    transform: translate(20px, -20px);
+  }
+  100% {
+    opacity: 1,
+    transform: translate(0, 0);
+  }
 }
 @keyframes fadeInFromBottomLeft {
-    0% {
-        opacity: 0;
-        transform: translate(-20px, 20px);
-    }
-    100% {
-        opacity: 1,
-        transform: translate(0, 0);
-    }
+  0% {
+    opacity: 0;
+    transform: translate(-20px, 20px);
+  }
+  100% {
+    opacity: 1,
+    transform: translate(0, 0);
+  }
 }
 @keyframes fadeInFromBottomRight {
-    0% {
-        opacity: 0;
-        transform: translate(20px, 20px);
-    }
-    100% {
-        opacity: 1,
-        transform: translate(0, 0);
-    }
+  0% {
+    opacity: 0;
+    transform: translate(20px, 20px);
+  }
+  100% {
+    opacity: 1,
+    transform: translate(0, 0);
+  }
 }`;
     const styleSheet = document.createElement('style');
     styleSheet.type = 'text/css';
@@ -634,6 +640,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     };
   }, []);
 
+  // Load Favorites from LocalStorage
   useEffect(() => {
     const storedFormsFavorites = localStorage.getItem('formsFavorites');
     const storedResourcesFavorites = localStorage.getItem('resourcesFavorites');
@@ -666,6 +673,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     };
   }, []);
 
+  // Greet User
   useEffect(() => {
     if (userData && Array.isArray(userData) && userData.length > 0 && (userData[0].First || userData[0].First_Name)) {
       const firstName = userData[0].First || userData[0].First_Name || 'User';
@@ -687,6 +695,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     }
   }, [userData]);
 
+  // Calculate Enquiries
   useEffect(() => {
     if (enquiries) {
       const today = new Date();
@@ -718,6 +727,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     }
   }, [enquiries, currentUserEmail]);
 
+  // Typing effect
   useEffect(() => {
     let currentIndex = 0;
     setTypedGreeting('');
@@ -732,13 +742,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     return () => clearInterval(typingInterval);
   }, [greeting]);
 
+  // Fetch Attendance & Annual Leave
   useEffect(() => {
-    if (
-      cachedAttendance ||
-      cachedAttendanceError ||
-      cachedAnnualLeave ||
-      cachedAnnualLeaveError
-    ) {
+    if (cachedAttendance || cachedAttendanceError || cachedAnnualLeave || cachedAnnualLeaveError) {
       setAttendanceRecords(cachedAttendance || []);
       setTeamData(cachedTeamData || []);
       setAttendanceError(cachedAttendanceError);
@@ -752,7 +758,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           setIsLoadingAttendance(true);
           setIsLoadingAnnualLeave(true);
 
-          // Fetch Attendance Data
+          // Fetch Attendance
           const attendanceResponse = await fetch(
             `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_ATTENDANCE_PATH}?code=${process.env.REACT_APP_GET_ATTENDANCE_CODE}`,
             {
@@ -779,11 +785,11 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         }
 
         try {
-          // Fetch Annual Leave Data
+          // Fetch Annual Leave
           const annualLeaveResponse = await fetch(
             `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_ANNUAL_LEAVE_PATH}?code=${process.env.REACT_APP_GET_ANNUAL_LEAVE_CODE}`,
             {
-              method: 'GET', // Adjust method if your Azure Function expects POST
+              method: 'GET', 
               headers: { 'Content-Type': 'application/json' },
             }
           );
@@ -791,7 +797,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           if (!annualLeaveResponse.ok) throw new Error(`Failed to fetch annual leave: ${annualLeaveResponse.status}`);
           const annualLeaveData = await annualLeaveResponse.json();
 
-          // Ensure the response has the expected structure
           if (annualLeaveData && Array.isArray(annualLeaveData.annual_leave)) {
             cachedAnnualLeave = annualLeaveData.annual_leave;
             setAnnualLeaveRecords(annualLeaveData.annual_leave);
@@ -812,6 +817,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     }
   }, []);
 
+  // Fetch WIP Clio & Recovered
   useEffect(() => {
     if (cachedWipClio || cachedWipClioError || cachedRecovered || cachedRecoveredError) {
       setWipClioData(cachedWipClio);
@@ -825,7 +831,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         try {
           setIsLoadingWipClio(true);
           setIsLoadingRecovered(true);
-          const clioID = parseInt(userData[0]["Clio ID"], 10);
+          const clioID = parseInt(userData[0]['Clio ID'], 10);
           const [wipResponse, recoveredResponse] = await Promise.all([
             fetch(
               `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_WIP_CLIO_PATH}?code=${process.env.REACT_APP_GET_WIP_CLIO_CODE}`,
@@ -877,9 +883,8 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
 
   const columns = useMemo(() => createColumnsFunction(isDarkMode), [isDarkMode]);
 
-  // Updated handleActionClick to use BespokePanel and ensure forms render inside the panel
+  // Handle click on Quick Actions
   const handleActionClick = (action: QuickLink) => {
-    // Determine the content based on action.title
     let content: ReactNode = <div>No form available.</div>;
     let titleText: string = action.title;
 
@@ -896,7 +901,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       case 'Open a Matter':
         content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="9" />;
         break;
-      case 'Create a Time Entry': // **Handle Create a Time Entry**
+      case 'Create a Time Entry':
         content = <CreateTimeEntryForm />;
         break;
       case 'Request ID':
@@ -923,12 +928,14 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       });
   };
 
+  // Office attendance
   const currentUserRecord = attendanceRecords.find((r) => r.name === currentUserName);
   const currentUserConfirmed = currentUserRecord ? currentUserRecord.confirmed : false;
   const officeAttendanceButtonText = currentUserConfirmed
     ? 'Update Office Attendance'
     : 'Confirm Office Attendance';
 
+  // Dates
   const today = new Date();
   const formattedToday = today.toISOString().split('T')[0];
   const day = today.getDay();
@@ -939,6 +946,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     officeSectionTitle = 'In the Office Tomorrow';
   }
 
+  // Map team
   const allPeople = useMemo(() => {
     if (!teamData || teamData.length === 0) return [];
     return teamData
@@ -955,6 +963,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       });
   }, [teamData, attendanceRecords]);
 
+  // Metrics
   const metricsData = useMemo(() => {
     if (!wipClioData) {
       return [
@@ -1028,7 +1037,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         title: 'Fees Recovered This Month',
         isMoneyOnly: true,
         money: recoveredData ? recoveredData : '--',
-        prevMoney: 0, // Assuming no previous data
+        prevMoney: 0,
       },
       {
         title: 'Enquiries Today',
@@ -1062,6 +1071,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     today,
   ]);
 
+  // Office Attendance Button
   const officeAttendanceButtonStyles = currentUserConfirmed
     ? {
         root: {
@@ -1088,7 +1098,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       }
     : {
         root: {
-          backgroundColor: `${colours.cta} !important`, // Using existing CTA color for errors
+          backgroundColor: `${colours.cta} !important`,
           border: 'none !important',
           height: '40px !important',
           fontWeight: '600 !important',
@@ -1111,6 +1121,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         },
       };
 
+  // "Request Annual Leave" button
   const requestAnnualLeaveButtonStyles = {
     root: {
       backgroundColor: `${colours.light.border} !important`,
@@ -1146,12 +1157,11 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       </Stack>
 
       <Stack className={mainContentStyle} tokens={{ childrenGap: 40 }}>
-        {/* Quick Links and Metrics */}
+        {/* Quick Links & Metrics */}
         <div className={sectionRowStyle}>
           <div className={quickLinksStyle(isDarkMode)}>
             {quickActions.map((action: QuickLink, index: number) => {
               const delay = Math.floor(index / 3) * 0.2 + (index % 3) * 0.1;
-
               return (
                 <QuickActionsCardStyled
                   key={action.title}
@@ -1245,10 +1255,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                         (fav) => fav.title !== form.title
                       );
                       setFormsFavorites(updatedFavorites);
-                      localStorage.setItem(
-                        'formsFavorites',
-                        JSON.stringify(updatedFavorites)
-                      );
+                      localStorage.setItem('formsFavorites', JSON.stringify(updatedFavorites));
                     }}
                     onGoTo={() => {
                       window.open(form.url, '_blank');
@@ -1278,10 +1285,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                         (fav) => fav.title !== resource.title
                       );
                       setResourcesFavorites(updatedFavorites);
-                      localStorage.setItem(
-                        'resourcesFavorites',
-                        JSON.stringify(updatedFavorites)
-                      );
+                      localStorage.setItem('resourcesFavorites', JSON.stringify(updatedFavorites));
                     }}
                     onGoTo={() => window.open(resource.url, '_blank')}
                     onSelect={() => setSelectedResource(resource)}
@@ -1349,9 +1353,14 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                 styles={{ root: { width: '100%' } }}
               >
                 <Text className={sectionLabelStyle(isDarkMode)}>Out or On Annual Leave Today</Text>
+                {/* Clicking this button now opens a BespokePanel with <AnnualLeaveForm /> */}
                 <DefaultButton
                   text="Request Annual Leave"
-                  onClick={() => setIsAnnualLeavePanelOpen(true)}
+                  onClick={() => {
+                    setBespokePanelContent(<AnnualLeaveForm />);
+                    setBespokePanelTitle('Request Annual Leave');
+                    setIsBespokePanelOpen(true);
+                  }}
                   iconProps={{ iconName: 'Calendar' }}
                   styles={requestAnnualLeaveButtonStyles}
                   ariaLabel="Request Annual Leave"
@@ -1364,7 +1373,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
               ) : (
                 <div className={peopleGridStyle}>
                   {annualLeaveRecords.map((leave, index: number) => {
-                    // Find the corresponding team member data by Initials
+                    // Find the corresponding team member data by initials
                     const teamMember = teamData.find(
                       (member) => member.Initials.toLowerCase() === leave.person.toLowerCase()
                     );
@@ -1375,7 +1384,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                         person={{
                           name: leave.person,
                           initials: teamMember ? teamMember.Initials : '',
-                          presence: PersonaPresence.busy, // Using 'busy' to indicate on leave
+                          presence: PersonaPresence.busy, // 'busy' = on leave
                           nickname: teamMember ? teamMember.Nickname : leave.person,
                         }}
                         isDarkMode={isDarkMode}
@@ -1543,17 +1552,17 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
 
       <div className={versionStyle}>Version 1.1</div>
 
-      {/* BespokePanel for Forms */}
+      {/* BespokePanel for dynamic forms (Time Entry, Annual Leave, etc.) */}
       <BespokePanel
         isOpen={isBespokePanelOpen}
         onClose={() => setIsBespokePanelOpen(false)}
         title={bespokePanelTitle}
-        width="1000px" // Adjust as needed
+        width="1000px"
       >
         {bespokePanelContent}
       </BespokePanel>
 
-      {/* Existing Panels */}
+      {/* Existing Panels (Office Attendance, etc.) */}
       {selectedForm && (
         <FormDetails
           isOpen={true}
@@ -1571,21 +1580,16 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       <HomePanel
         isOpen={isOfficeAttendancePanelOpen}
         onClose={() => setIsOfficeAttendancePanelOpen(false)}
-        title={officeAttendanceForm.title}
+        title="Office Attendance"
         isDarkMode={isDarkMode}
-        displayUrl={officeAttendanceForm.link}
+        displayUrl=""
         embedScript={{ key: 'QzaAr_2Q7kesClKq8g229g', formId: '109' }}
       />
 
-      {/* Annual Leave Panel */}
-      <HomePanel
-        isOpen={isAnnualLeavePanelOpen}
-        onClose={() => setIsAnnualLeavePanelOpen(false)}
-        title={annualLeaveForm.title}
-        isDarkMode={isDarkMode}
-        bespokeFormFields={annualLeaveForm.fields}
-        displayUrl={annualLeaveForm.link}
-      />
+      {/* 
+        No longer using <HomePanel> for Annual Leave. 
+        It's now handled in the BespokePanel with <AnnualLeaveForm /> 
+      */}
     </div>
   );
 };

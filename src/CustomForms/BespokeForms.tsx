@@ -10,33 +10,30 @@ import {
   TextField,
 } from '@fluentui/react';
 import { mergeStyles } from '@fluentui/react';
-import { colours } from '../app/styles/colours'; // Corrected import path
-import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from '../app/styles/ButtonStyles'; // Corrected import path
+import { colours } from '../app/styles/colours';
+import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from '../app/styles/ButtonStyles';
 
 // Type Guard to check if a value is a File
 const isFile = (value: any): value is File => {
   return value instanceof File;
 };
 
-// Define a consistent height for all input fields
 export const INPUT_HEIGHT = 40;
 
-// Container styling for the entire form
 export const formContainerStyle = mergeStyles({
   marginTop: '10px',
   padding: '20px',
   backgroundColor: colours.light.sectionBackground,
   borderRadius: '4px',
-  boxShadow: '0 2px 5px rgba(0, 0, 0, 0.1)', // Subtle shadow
+  boxShadow: '0 2px 5px rgba(0, 0, 0, 0.1)',
   display: 'flex',
   flexDirection: 'column',
   gap: '20px',
 });
 
-// Input field styling
 export const inputFieldStyle = mergeStyles({
   height: `${INPUT_HEIGHT}px`,
-  padding: '5px', // Ensuring 5px padding
+  padding: '5px',
   borderRadius: '4px',
   border: `1px solid ${colours.light.border}`,
   backgroundColor: colours.light.inputBackground,
@@ -49,38 +46,37 @@ export const inputFieldStyle = mergeStyles({
       borderColor: colours.light.cta,
     },
     'input': {
-      padding: '0 5px', // Additional padding inside the input
+      padding: '0 5px',
     },
   },
 });
 
-// Dropdown styling
 export const dropdownStyle = mergeStyles({
   height: `${INPUT_HEIGHT}px`,
   borderRadius: '4px',
   backgroundColor: colours.light.inputBackground,
   display: 'flex',
   alignItems: 'center',
-  border: 'none', // No border by default
-  padding: '0 5px', // Added padding to prevent text from touching edges
+  border: 'none',
+  padding: '0 5px',
   selectors: {
     ':hover': {
-      border: `1px solid ${colours.light.cta}`, // Show border on hover
+      border: `1px solid ${colours.light.cta}`,
     },
     ':focus-within': {
-      border: `1px solid ${colours.light.cta}`, // Show border when focused
+      border: `1px solid ${colours.light.cta}`,
     },
     '.ms-Dropdown-title': {
-      backgroundColor: 'transparent', // Transparent background for the selected item
-      border: 'none', // No border for the selected item
-      boxShadow: 'none', // Remove any shadow
-      padding: '0 5px', // Add padding to align text
-      height: '100%', // Ensure it fills the height
-      lineHeight: `${INPUT_HEIGHT}px`, // Vertically center the text
+      backgroundColor: 'transparent',
+      border: 'none',
+      boxShadow: 'none',
+      padding: '0 5px',
+      height: '100%',
+      lineHeight: `${INPUT_HEIGHT}px`,
     },
     '.ms-Dropdown-item.is-selected': {
-      backgroundColor: 'transparent', // Transparent for the selected item
-      border: 'none', // Remove border or outline
+      backgroundColor: 'transparent',
+      border: 'none',
       outline: 'none',
     },
     '.ms-Dropdown-caretDown': {
@@ -92,19 +88,17 @@ export const dropdownStyle = mergeStyles({
   },
 });
 
-// Container for amount and prefix
 export const amountContainerStyle = mergeStyles({
   display: 'flex',
   alignItems: 'center',
   height: `${INPUT_HEIGHT}px`,
 });
 
-// Prefix (£) styling
 export const prefixStyle = mergeStyles({
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  width: '50px', // Fixed width for consistency
+  width: '50px',
   height: '100%',
   backgroundColor: colours.light.sectionBackground,
   border: `1px solid ${colours.light.border}`,
@@ -112,36 +106,35 @@ export const prefixStyle = mergeStyles({
   borderTopLeftRadius: '4px',
   borderBottomLeftRadius: '4px',
   fontWeight: 'bold',
-  padding: '0 5px', // Added padding
+  padding: '0 5px',
 });
 
-// **Updated: Amount input field styling as a function**
-export const amountInputStyle = (hasPrefix: boolean) => mergeStyles({
-  flexGrow: 1,
-  height: '100%',
-  borderLeft: hasPrefix ? 'none' : `1px solid ${colours.light.border}`,
-  borderTopLeftRadius: hasPrefix ? '0' : '4px',
-  borderBottomLeftRadius: hasPrefix ? '0' : '4px',
-  borderTopRightRadius: '4px',
-  borderBottomRightRadius: '4px',
-  padding: '5px', // Ensuring 5px padding
-  border: `1px solid ${colours.light.border}`,
-  backgroundColor: colours.light.inputBackground,
-  boxSizing: 'border-box',
-  selectors: {
-    ':hover': {
-      borderColor: colours.light.cta,
+export const amountInputStyle = (hasPrefix: boolean) =>
+  mergeStyles({
+    flexGrow: 1,
+    height: '100%',
+    borderLeft: hasPrefix ? 'none' : `1px solid ${colours.light.border}`,
+    borderTopLeftRadius: hasPrefix ? '0' : '4px',
+    borderBottomLeftRadius: hasPrefix ? '0' : '4px',
+    borderTopRightRadius: '4px',
+    borderBottomRightRadius: '4px',
+    padding: '5px',
+    border: `1px solid ${colours.light.border}`,
+    backgroundColor: colours.light.inputBackground,
+    boxSizing: 'border-box',
+    selectors: {
+      ':hover': {
+        borderColor: colours.light.cta,
+      },
+      ':focus': {
+        borderColor: colours.light.cta,
+      },
+      'input': {
+        padding: '0 5px',
+      },
     },
-    ':focus': {
-      borderColor: colours.light.cta,
-    },
-    'input': {
-      padding: '0 5px', // Additional padding inside the input
-    },
-  },
-});
+  });
 
-// Toggle styling
 export const toggleStyle = mergeStyles({
   height: `${INPUT_HEIGHT}px`,
   selectors: {
@@ -151,7 +144,6 @@ export const toggleStyle = mergeStyles({
   },
 });
 
-// Button styling
 export const buttonStyle = mergeStyles({
   height: `${INPUT_HEIGHT}px`,
   padding: '0 20px',
@@ -171,7 +163,6 @@ export const buttonStyle = mergeStyles({
   },
 });
 
-// Cancel button styling
 export const cancelButtonStyle = mergeStyles({
   height: `${INPUT_HEIGHT}px`,
   padding: '0 20px',
@@ -187,40 +178,39 @@ export const cancelButtonStyle = mergeStyles({
   },
 });
 
-// **Define and Export FormField Interface**
 export interface FormField {
   label: string;
   name: string;
   type: 'text' | 'number' | 'textarea' | 'dropdown' | 'toggle' | 'currency-picker' | 'file';
-  options?: string[]; // For dropdowns
-  step?: number; // For number inputs
-  min?: number; // Minimum value for number inputs
-  max?: number; // Maximum value for number inputs
-  editable?: boolean; // For number inputs
+  options?: string[];
+  step?: number;
+  min?: number;
+  max?: number;
+  editable?: boolean;
   required?: boolean;
-  defaultValue?: boolean | string | number | File; // Included File type
-  prefix?: string; // Added
-  helpText?: string; // Added
-  placeholder?: string; // Added
-  group?: string; // Grouping fields (e.g., date range)
+  defaultValue?: boolean | string | number | File;
+  prefix?: string;
+  helpText?: string;
+  placeholder?: string;
+  group?: string;
 }
 
-// **Update Form Props Interface to Use FormField**
 export interface BespokeFormProps {
-  fields: FormField[]; // Use the exported FormField interface
-  onSubmit: (values: { [key: string]: string | number | boolean | File }) => void; // Included File type
+  fields: FormField[];
+  onSubmit: (values: { [key: string]: string | number | boolean | File }) => void;
   onCancel: () => void;
-  isSubmitting?: boolean; // Optional prop for handling loading state
-  style?: React.CSSProperties; // Added style prop
+  isSubmitting?: boolean;
+  style?: React.CSSProperties;
+  children?: React.ReactNode;
 }
 
-// Bespoke Form Component
 const BespokeForm: React.FC<BespokeFormProps> = ({
   fields,
   onSubmit,
   onCancel,
   isSubmitting = false,
   style,
+  children,
 }) => {
   const [formValues, setFormValues] = React.useState<{ [key: string]: string | number | boolean | File }>({});
 
@@ -244,7 +234,6 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
       <div className={formContainerStyle}>
         <Stack tokens={{ childrenGap: 20 }}>
           {fields.map((field, index) => {
-            // Handle grouped fields separately
             if (field.group === 'dateRange') {
               return (
                 <Stack horizontal tokens={{ childrenGap: 10 }} key={index}>
@@ -257,9 +246,7 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                     onChange={(e, value) => handleInputChange(field.name, value || '')}
                     styles={{
                       fieldGroup: inputFieldStyle,
-                      field: {
-                        padding: '0 5px', // Ensuring padding inside grouped fields
-                      },
+                      field: { padding: '0 5px' },
                     }}
                   />
                 </Stack>
@@ -276,19 +263,7 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                     onChange={(_, option) => handleInputChange(field.name, option?.key || '')}
                     required={field.required}
                     disabled={isSubmitting}
-                    styles={{
-                      dropdown: dropdownStyle,
-                      title: {
-                        height: `${INPUT_HEIGHT}px`,
-                        lineHeight: `${INPUT_HEIGHT}px`,
-                        padding: '0 5px',
-                        borderRadius: '4px',
-                        backgroundColor: colours.light.inputBackground,
-                      },
-                      caretDown: {
-                        padding: '0 5px',
-                      },
-                    }}
+                    styles={{ dropdown: dropdownStyle }}
                   />
                 );
               case 'toggle':
@@ -299,9 +274,7 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                       checked={Boolean(formValues[field.name])}
                       onChange={(_, checked) => handleInputChange(field.name, checked || false)}
                       disabled={isSubmitting}
-                      styles={{
-                        root: toggleStyle,
-                      }}
+                      styles={{ root: toggleStyle }}
                     />
                   </div>
                 );
@@ -316,16 +289,7 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                     value={formValues[field.name]?.toString() || ''}
                     onChange={(e, value) => handleInputChange(field.name, value || '')}
                     disabled={isSubmitting}
-                    styles={{
-                      fieldGroup: inputFieldStyle,
-                      field: {
-                        height: '100%',
-                        lineHeight: '1.5',
-                        fontSize: '14px',
-                        padding: '5px',
-                        overflow: 'auto',
-                      },
-                    }}
+                    styles={{ fieldGroup: inputFieldStyle }}
                   />
                 );
               case 'number':
@@ -345,12 +309,12 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                         type={field.type === 'currency-picker' ? 'text' : 'number'}
                         disabled={isSubmitting}
                         styles={{
-                          fieldGroup: amountInputStyle(!!field.prefix), // **Pass hasPrefix here**
+                          fieldGroup: amountInputStyle(!!field.prefix),
                         }}
                         step={field.step}
                         min={field.min}
                         max={field.max}
-                        readOnly={field.editable === false} // Correctly apply readOnly based on editable prop
+                        readOnly={field.editable === false}
                       />
                     </div>
                     {field.helpText && (
@@ -360,9 +324,8 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                     )}
                   </div>
                 );
-              case 'file': // Updated 'file' case
-                const fileValue = formValues[field.name]; // Extract the value
-
+              case 'file':
+                const fileValue = formValues[field.name];
                 return (
                   <div key={index} style={{ marginBottom: '15px' }}>
                     <label style={{ display: 'block', marginBottom: '5px', fontWeight: 600 }}>
@@ -373,7 +336,6 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                       text="Upload File"
                       iconProps={{ iconName: 'Upload' }}
                       onClick={() => {
-                        // Trigger the hidden file input when button is clicked
                         const fileInput = document.getElementById(`file-input-${index}`);
                         fileInput?.click();
                       }}
@@ -384,12 +346,10 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                       id={`file-input-${index}`}
                       type="file"
                       required={field.required}
-                      onChange={(e) =>
-                        handleFileChange(field.name, e.target.files ? e.target.files[0] : null)
-                      }
-                      style={{ display: 'none' }} // Hide the native file input
+                      onChange={(e) => handleFileChange(field.name, e.target.files ? e.target.files[0] : null)}
+                      style={{ display: 'none' }}
                     />
-                    {isFile(fileValue) && ( // Use type guard here
+                    {isFile(fileValue) && (
                       <span style={{ marginTop: '10px', display: 'block', fontSize: '14px' }}>
                         Selected File: {fileValue.name}
                       </span>
@@ -414,18 +374,15 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                     onChange={(e, value) => handleInputChange(field.name, value || '')}
                     type={field.type}
                     disabled={isSubmitting}
-                    styles={{ 
+                    styles={{
                       fieldGroup: inputFieldStyle,
-                      field: {
-                        padding: '0 5px', // Ensuring padding inside the input
-                      },
+                      field: { padding: '0 5px' },
                     }}
                   />
                 );
             }
           })}
-
-          {/* Submit and Cancel Buttons */}
+          {children}
           <Stack horizontal tokens={{ childrenGap: 10 }}>
             <PrimaryButton
               type="submit"
