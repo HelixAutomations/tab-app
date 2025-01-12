@@ -412,6 +412,7 @@ const AnnualLeaveForm: React.FC<AnnualLeaveFormProps> = ({ futureLeave, team }) 
                 moveRangeOnFirstSelection={false}
                 months={1}
                 direction="horizontal"
+                rangeColors={[colours.highlight]}
               />
               <DefaultButton
                 text="Remove Range"
