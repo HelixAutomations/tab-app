@@ -350,7 +350,7 @@ const AnnualLeaveForm: React.FC<AnnualLeaveFormProps> = ({ futureLeave, team, us
           </Stack>
           {groupedLeave.length > 0 && (
             <Stack tokens={{ childrenGap: 10 }} style={{ marginTop: 20 }}>
-              <Text style={{ ...labelStyle }}>People on Leave in Selected Range</Text>
+              <Text style={{ ...labelStyle }}>Team Leave Conflicts</Text>
               <div
                 style={{
                   display: 'grid',
