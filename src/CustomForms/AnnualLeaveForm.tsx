@@ -31,6 +31,7 @@ export interface AnnualLeaveRecord {
 interface AnnualLeaveFormProps {
   futureLeave: AnnualLeaveRecord[];
   team: TeamMember[];
+  userData: any; // adjust type as needed
 }
 
 interface DateRangeSelection {
@@ -123,7 +124,7 @@ const getOverlapDates = (leave: AnnualLeaveRecord, range: DateRangeSelection) =>
   const overlapEnd = leaveEnd > selEnd ? selEnd : leaveEnd;
   if (overlapStart > overlapEnd) return [];
   return eachDayOfInterval({ start: overlapStart, end: overlapEnd }).map((date) =>
-    format(date, 'dd/MM')
+    format(date, 'yyyy-MM-dd')
   );
 };
 
@@ -181,7 +182,7 @@ function groupConsecutiveDates(dates: string[]): string[] {
   });
 }
 
-const AnnualLeaveForm: React.FC<AnnualLeaveFormProps> = ({ futureLeave, team }) => {
+const AnnualLeaveForm: React.FC<AnnualLeaveFormProps> = ({ futureLeave, team, userData }) => {
   const { isDarkMode } = useTheme();
   const [dateRanges, setDateRanges] = useState<DateRangeSelection[]>([]);
   const [totalDays, setTotalDays] = useState<number>(0);
@@ -222,18 +223,96 @@ const AnnualLeaveForm: React.FC<AnnualLeaveFormProps> = ({ futureLeave, team }) 
     setTotalDays(days);
   }, [dateRanges]);
 
+  // Compute overlapping leave details using futureLeave, dateRanges, and team.
+  // Each group stores raw date ranges (in "yyyy-MM-dd" format) and a status.
+  const groupedLeave = useMemo(() => {
+    const groups: {
+      [key: string]: {
+        nickname: string;
+        dateRanges: { start_date: string; end_date: string }[];
+        status: string;
+      }
+    } = {};
+    futureLeave.forEach((leave) => {
+      dateRanges.forEach((range) => {
+        const overlaps = getOverlapDates(leave, range); // returns array of dates in "yyyy-MM-dd" format
+        if (overlaps.length > 0) {
+          const teamMember = team.find(
+            (member) => member.Initials.toLowerCase() === leave.person.toLowerCase()
+          );
+          const nickname = teamMember ? teamMember.Nickname || teamMember.First : leave.person;
+          const leaveStatus = leave.status.toLowerCase(); // e.g., 'approved', 'booked', or 'requested'
+          const newRange = {
+            start_date: overlaps[0],
+            end_date: overlaps[overlaps.length - 1]
+          };
+          if (groups[leave.person]) {
+            // Avoid adding a duplicate range.
+            const exists = groups[leave.person].dateRanges.some(
+              dr => dr.start_date === newRange.start_date && dr.end_date === newRange.end_date
+            );
+            if (!exists) {
+              groups[leave.person].dateRanges.push(newRange);
+            }
+            // If differing statuses for the same person occur, default to 'requested'
+            if (groups[leave.person].status !== leaveStatus) {
+              groups[leave.person].status = "requested";
+            }
+          } else {
+            groups[leave.person] = { 
+              nickname, 
+              dateRanges: [newRange], 
+              status: leaveStatus 
+            };
+          }
+        }
+      });
+    });
+    return Object.values(groups);
+  }, [futureLeave, dateRanges, team]);
+
   const handleSubmit = async (values: { [key: string]: string | number | boolean | File }) => {
     setIsSubmitting(true);
     try {
-      const formData = {
-        ...values,
-        notes,
-        dateRanges,
-        totalDays,
+      // Determine the fee earner initials from userData.
+      const feeEarner = userData && userData.length > 0 ? userData[0].Initials : "XX";
+
+      // Convert our dateRanges to the payload format expected by the backend,
+      // each range with start_date and end_date in "YYYY-MM-DD" format.
+      const formattedDateRanges = dateRanges.map(range => ({
+        start_date: range.startDate.toISOString().split("T")[0],
+        end_date: range.endDate.toISOString().split("T")[0],
+      }));
+
+      // Build the payload.
+      const payload = {
+        fe: feeEarner,
+        dateRanges: formattedDateRanges,
+        reason: notes,
+        days_taken: totalDays,
+        overlapDetails: groupedLeave
       };
-      console.log('Annual Leave Form Submitted:', formData);
+
+      console.log("Annual Leave Form Payload:", payload);
+
+      // Construct the endpoint URL using your environment variables.
+      const url = `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_INSERT_ANNUAL_LEAVE_PATH}?code=${process.env.REACT_APP_INSERT_ANNUAL_LEAVE_CODE}`;
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Request failed with status ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log("Insert Annual Leave Successful:", result);
+      // Optionally, show a success message or reset the form here.
     } catch (error) {
-      console.error('Error submitting Annual Leave Form:', error);
+      console.error("Error submitting Annual Leave Form:", error);
     } finally {
       setIsSubmitting(false);
     }
@@ -242,35 +321,6 @@ const AnnualLeaveForm: React.FC<AnnualLeaveFormProps> = ({ futureLeave, team }) 
   const handleCancel = () => {
     console.log('Annual Leave Form Cancelled');
   };
-
-  const groupedLeave = useMemo(() => {
-    const groups: { [key: string]: { nickname: string; overlaps: Set<string>; approved: boolean } } = {};
-    futureLeave.forEach((leave) => {
-      dateRanges.forEach((range) => {
-        const overlaps = getOverlapDates(leave, range);
-        if (overlaps.length > 0) {
-          const teamMember = team.find(
-            (member) => member.Initials.toLowerCase() === leave.person.toLowerCase()
-          );
-          const nickname = teamMember ? teamMember.Nickname || teamMember.First : leave.person;
-          const isApproved = leave.status.toLowerCase() === 'approved';
-          if (groups[leave.person]) {
-            overlaps.forEach(o => groups[leave.person].overlaps.add(o));
-            groups[leave.person].approved = groups[leave.person].approved && isApproved;
-          } else {
-            groups[leave.person] = { nickname, overlaps: new Set(overlaps), approved: isApproved };
-          }
-        }
-      });
-    });
-    const result: { nickname: string; ranges: string[]; approved: boolean }[] = [];
-    Object.values(groups).forEach(item => {
-      const overlapArray = Array.from(item.overlaps);
-      const groupedDates = groupConsecutiveDates(overlapArray);
-      result.push({ nickname: item.nickname, ranges: groupedDates, approved: item.approved });
-    });
-    return result;
-  }, [futureLeave, dateRanges, team]);
 
   return (
     <Stack tokens={{ childrenGap: 20 }}>
@@ -309,8 +359,25 @@ const AnnualLeaveForm: React.FC<AnnualLeaveFormProps> = ({ futureLeave, team }) 
                 }}
               >
                 {groupedLeave.map((item, idx) => {
-                  const formattedRanges = item.ranges.join(' | ');
-                  const borderColor = item.approved ? colours.cta : colours.orange;
+                  // For display, format each date range.
+                  // If start_date and end_date are the same, show just one day.
+                  const formattedRanges = item.dateRanges
+                    .map(dr => {
+                      const start = new Date(dr.start_date);
+                      const end = new Date(dr.end_date);
+                      return dr.start_date === dr.end_date
+                        ? format(start, 'd MMM')
+                        : `${format(start, 'd MMM')} - ${format(end, 'd MMM')}`;
+                    })
+                    .join(' | ');
+                  // Choose border color based on status:
+                  // approved => orange, booked => green, otherwise => cta (red).
+                  let borderColor = colours.cta;
+                  if (item.status === 'approved') {
+                    borderColor = colours.orange;
+                  } else if (item.status === 'booked') {
+                    borderColor = colours.green;
+                  }
                   return (
                     <div
                       key={idx}
@@ -357,6 +424,15 @@ const AnnualLeaveForm: React.FC<AnnualLeaveFormProps> = ({ futureLeave, team }) 
                   );
                 })}
               </div>
+              <Text
+                style={{
+                  fontStyle: 'italic',
+                  marginTop: '10px',
+                  color: isDarkMode ? colours.dark.text : colours.light.text
+                }}
+              >
+                Please note: There are other team members scheduled for leave during the dates you've chosen. This may affect the likelihood of automatic approval for your request. You can still submit your request, and we will notify you of the outcome once a decision has been reached.
+              </Text>
             </Stack>
           )}
         </div>

@@ -1363,7 +1363,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                   text="Request Annual Leave"
                   onClick={() => {
                     setBespokePanelContent(
-                      <AnnualLeaveForm futureLeave={futureLeaveRecords} team={teamData} />
+                      <AnnualLeaveForm futureLeave={futureLeaveRecords} team={teamData} userData={userData} />
                     );
                     setBespokePanelTitle('Request Annual Leave');
                     setIsBespokePanelOpen(true);
