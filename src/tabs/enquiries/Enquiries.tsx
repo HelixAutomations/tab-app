@@ -13,8 +13,6 @@ import {
   DefaultButton,
   Modal,
   Icon,
-  Dropdown,
-  IDropdownOption,
   SearchBox,
 } from '@fluentui/react';
 import {
@@ -37,14 +35,6 @@ import EnquiryOverview from './EnquiryOverview';
 import PitchBuilder from './PitchBuilder';
 import EnquiryDetails from './EnquiryDetails';
 import { colours } from '../../app/styles/colours';
-import {
-  sharedSearchBoxContainerStyle,
-  sharedSearchBoxStyle,
-  sharedDropdownContainerStyle,
-  sharedDropdownStyles,
-  sharedControlsContainerStyle,
-  sharedToggleButtonStyle,
-} from '../../app/styles/FilterStyles';
 import CustomTabs from '../../app/styles/CustomTabs';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { Pivot, PivotItem } from '@fluentui/react';
@@ -52,6 +42,7 @@ import { Context as TeamsContextType } from '@microsoft/teams-js';
 
 initializeIcons();
 
+// Container styles
 const containerStyle = (isDarkMode: boolean) =>
   mergeStyles({
     padding: '20px',
@@ -78,6 +69,7 @@ const footerStyle = (isDarkMode: boolean) =>
     fontFamily: 'Raleway, sans-serif',
   });
 
+// (Area color helper remains available, though for backdrop icons we use a fixed subtle grey.)
 const areaColor = (area: string) => {
   const normalizedArea = area.toLowerCase();
   switch (normalizedArea) {
@@ -128,7 +120,7 @@ const RatingIndicator: React.FC<RatingIndicatorProps> = ({ rating, isDarkMode, o
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: backgroundColor,
+        backgroundColor,
         borderRadius: '50%',
         width: '36px',
         height: '36px',
@@ -136,8 +128,8 @@ const RatingIndicator: React.FC<RatingIndicatorProps> = ({ rating, isDarkMode, o
         cursor: 'pointer',
         position: 'relative',
         transition: 'transform 0.2s',
-        ':hover': {
-          transform: 'scale(1.1)',
+        selectors: {
+          ':hover': { transform: 'scale(1.1)' },
         },
         boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
       })}
@@ -150,7 +142,6 @@ const RatingIndicator: React.FC<RatingIndicatorProps> = ({ rating, isDarkMode, o
   );
 };
 
-// Renamed interface from WeeklyCount to MonthlyCount
 interface MonthlyCount {
   month: string;
   commercial: number;
@@ -170,8 +161,6 @@ const Enquiries: React.FC<{
   const { isDarkMode } = useTheme();
   const [selectedEnquiry, setSelectedEnquiry] = useState<Enquiry | null>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
-  const [filterMethod, setFilterMethod] = useState<string>('All');
-  const [filterArea, setFilterArea] = useState<string>('All');
   const [currentPage, setCurrentPage] = useState<number>(1);
   const enquiriesPerPage = 12;
   const [isRateModalOpen, setIsRateModalOpen] = useState<boolean>(false);
@@ -179,17 +168,22 @@ const Enquiries: React.FC<{
   const [ratingEnquiryId, setRatingEnquiryId] = useState<string | null>(null);
   const [isSuccessVisible, setIsSuccessVisible] = useState<boolean>(false);
   const [showAll, setShowAll] = useState<boolean>(false);
-  const [activeMainTab, setActiveMainTab] = useState<string>('Silo');
+
+  // MAIN TYPES MENU (deselectable). "Silo" is removed.
+  // No default selection.
+  const [activeMainTab, setActiveMainTab] = useState<string>('');
   const [activeSubTab, setActiveSubTab] = useState<string>('Overview');
   const [convertedEnquiriesList, setConvertedEnquiriesList] = useState<Enquiry[]>([]);
   const [convertedPoidDataList, setConvertedPoidDataList] = useState<POID[]>([]);
-  const [currentSiloArea, setCurrentSiloArea] = useState<string | null>(null);
-
-  // New state variables for date range
+  // Track currently selected area-of-work from the top menu.
+  const [selectedArea, setSelectedArea] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<{ oldest: string; newest: string } | null>(null);
 
+  // State for search input reveal in types menu.
+  const [isSearchActive, setSearchActive] = useState<boolean>(false);
+
+  // MAIN TYPES MENU (excludes "Silo")
   const mainTabs = [
-    { key: 'Silo', text: 'Silo' },
     { key: 'Claimed', text: 'Claimed' },
     { key: 'Converted', text: 'Enquiry ID' },
     { key: 'Claimable', text: 'Unclaimed' },
@@ -202,22 +196,15 @@ const Enquiries: React.FC<{
     { key: 'Details', text: 'Details' },
   ];
 
-  const [areaOfWorkOptions, setAreaOfWorkOptions] = useState<IDropdownOption[]>([
-    { key: 'All', text: 'All Areas' },
-  ]);
-
-  const [contactMethodOptions, setContactMethodOptions] = useState<IDropdownOption[]>([
-    { key: 'All', text: 'All Methods' },
-  ]);
-
+  // Toggle type selection; deselect if clicked again.
   const handleMainTabChange = useCallback(
     (item?: PivotItem, ev?: React.MouseEvent<HTMLElement>) => {
       if (item) {
-        setActiveMainTab(item.props.itemKey as string);
+        const clickedKey = item.props.itemKey as string;
+        setActiveMainTab((prevKey) => (prevKey === clickedKey ? '' : clickedKey));
         setCurrentPage(1);
         setSelectedEnquiry(null);
         setActiveSubTab('Overview');
-        setCurrentSiloArea(null);
       }
     },
     []
@@ -231,11 +218,6 @@ const Enquiries: React.FC<{
     },
     []
   );
-
-  const handleShowAllToggle = useCallback(() => {
-    setShowAll((prev) => !prev);
-    setCurrentPage(1);
-  }, []);
 
   const handleSelectEnquiry = useCallback((enquiry: Enquiry) => {
     setSelectedEnquiry(enquiry);
@@ -260,13 +242,9 @@ const Enquiries: React.FC<{
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              ID: id,
-              Rating: newRating,
-            }),
+            body: JSON.stringify({ ID: id, Rating: newRating }),
           }
         );
-
         if (response.ok) {
           setLocalEnquiries((prevEnquiries) =>
             prevEnquiries.map((enquiry) =>
@@ -320,10 +298,7 @@ const Enquiries: React.FC<{
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                dateFrom: '2024-11-01',
-                dateTo: '2024-12-15',
-              }),
+              body: JSON.stringify({ dateFrom: '2024-11-01', dateTo: '2024-12-15' }),
             }
           );
           if (response.ok) {
@@ -346,7 +321,6 @@ const Enquiries: React.FC<{
         poidData.some((poid) => String(poid.acid) === enquiry.ID)
       );
       setConvertedEnquiriesList(converted);
-
       const convertedPoid = poidData.filter((poid) =>
         localEnquiries.some((enquiry) => enquiry.ID === String(poid.acid))
       );
@@ -354,45 +328,35 @@ const Enquiries: React.FC<{
     }
   }, [poidData, localEnquiries]);
 
-  // Calculate date range based on enquiries
+  // Calculate date range based on enquiries.
   useEffect(() => {
     if (localEnquiries.length > 0) {
       const validDates = localEnquiries
         .map((enquiry) => enquiry.Touchpoint_Date)
         .filter((dateStr): dateStr is string => typeof dateStr === 'string' && isValid(parseISO(dateStr)))
         .map((dateStr) => parseISO(dateStr));
-
       if (validDates.length > 0) {
         const oldestDate = new Date(Math.min(...validDates.map((date) => date.getTime())));
         const newestDate = new Date(Math.max(...validDates.map((date) => date.getTime())));
-        setDateRange({
-          oldest: format(oldestDate, 'dd MMM yyyy'),
-          newest: format(newestDate, 'dd MMM yyyy'),
-        });
+        setDateRange({ oldest: format(oldestDate, 'dd MMM yyyy'), newest: format(newestDate, 'dd MMM yyyy') });
       }
     } else {
       setDateRange(null);
     }
   }, [localEnquiries]);
 
+  // Filtering: types menu, search term, and area-of-work.
   const filteredEnquiries = useMemo(() => {
     let filtered: Enquiry[] = [];
-
     switch (activeMainTab) {
       case 'Claimed':
-        filtered = localEnquiries;
-        if (!showAll && context && context.userPrincipalName) {
-          const userEmail = context.userPrincipalName.toLowerCase();
-          filtered = filtered.filter(
-            (enquiry) => enquiry.Point_of_Contact?.toLowerCase() === userEmail
-          );
-        }
+        filtered = localEnquiries.filter(
+          (enquiry) =>
+            enquiry.Point_of_Contact?.toLowerCase() === (context?.userPrincipalName || '').toLowerCase()
+        );
         break;
-
       case 'Converted':
-        if (showAll) {
-          filtered = convertedEnquiriesList;
-        } else if (context && context.userPrincipalName) {
+        if (context && context.userPrincipalName) {
           const userEmail = context.userPrincipalName.toLowerCase();
           const userFilteredEnquiryIds = convertedPoidDataList
             .filter((poid) => poid.poc?.toLowerCase() === userEmail)
@@ -404,13 +368,11 @@ const Enquiries: React.FC<{
           filtered = convertedEnquiriesList;
         }
         break;
-
       case 'Claimable':
         filtered = localEnquiries.filter(
           (enquiry) => enquiry.Point_of_Contact?.toLowerCase() === 'team@helix-law.com'
         );
         break;
-
       case 'Triaged':
         filtered = localEnquiries.filter(
           (enquiry) =>
@@ -418,32 +380,10 @@ const Enquiries: React.FC<{
             triagedPointOfContactEmails.includes(enquiry.Point_of_Contact.toLowerCase())
         );
         break;
-
-      case 'Silo':
-        if (currentSiloArea) {
-          filtered = localEnquiries.filter(
-            (enquiry) =>
-              enquiry.Area_of_Work &&
-              enquiry.Area_of_Work.toLowerCase() === currentSiloArea.toLowerCase()
-          );
-        } else {
-          filtered = [];
-        }
-        break;
-
       default:
         filtered = localEnquiries;
         break;
     }
-
-    if (filterMethod !== 'All') {
-      filtered = filtered.filter((enquiry) => enquiry.Method_of_Contact === filterMethod);
-    }
-
-    if (filterArea !== 'All') {
-      filtered = filtered.filter((enquiry) => enquiry.Area_of_Work === filterArea);
-    }
-
     if (searchTerm) {
       const lowerSearchTerm = searchTerm.toLowerCase();
       filtered = filtered.filter(
@@ -453,29 +393,31 @@ const Enquiries: React.FC<{
           (enquiry.Company && enquiry.Company.toLowerCase().includes(lowerSearchTerm))
       );
     }
-
+    if (selectedArea) {
+      filtered = filtered.filter(
+        (enquiry) =>
+          enquiry.Area_of_Work &&
+          enquiry.Area_of_Work.toLowerCase() === selectedArea.toLowerCase()
+      );
+    }
     return filtered;
   }, [
     localEnquiries,
     activeMainTab,
-    showAll,
     context,
-    filterMethod,
     searchTerm,
-    filterArea,
     triagedPointOfContactEmails,
     convertedEnquiriesList,
     convertedPoidDataList,
-    currentSiloArea,
+    selectedArea,
   ]);
 
   const indexOfLastEnquiry = currentPage * enquiriesPerPage;
   const indexOfFirstEnquiry = indexOfLastEnquiry - enquiriesPerPage;
-  const currentEnquiries = useMemo(() => {
-    const sliced = filteredEnquiries.slice(indexOfFirstEnquiry, indexOfLastEnquiry);
-    return sliced;
-  }, [filteredEnquiries, indexOfFirstEnquiry, indexOfLastEnquiry]);
-
+  const currentEnquiries = useMemo(
+    () => filteredEnquiries.slice(indexOfFirstEnquiry, indexOfLastEnquiry),
+    [filteredEnquiries, indexOfFirstEnquiry, indexOfLastEnquiry]
+  );
   const totalPages = Math.ceil(filteredEnquiries.length / enquiriesPerPage);
 
   const handlePageChange = useCallback(
@@ -507,49 +449,36 @@ const Enquiries: React.FC<{
     },
   ];
 
-  const renderRatingOptions = useCallback(() => {
-    return (
-      <Stack tokens={{ childrenGap: 15 }}>
-        {ratingOptions.map((option) => (
-          <Stack key={option.key} tokens={{ childrenGap: 5 }}>
-            <label htmlFor={`radio-${option.key}`} style={{ display: 'flex', alignItems: 'center' }}>
-              <input
-                type="radio"
-                id={`radio-${option.key}`}
-                name="rating"
-                value={option.key}
-                checked={currentRating === option.key}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCurrentRating(e.target.value)}
-                style={{ marginRight: '12px', width: '18px', height: '18px' }}
-              />
-              <Text
-                variant="medium"
-                styles={{
-                  root: {
-                    fontWeight: '700',
-                    color: colours.highlight,
-                  },
-                }}
-              >
-                {option.text}
-              </Text>
-            </label>
-            <Text
-              variant="small"
-              styles={{
-                root: {
-                  marginLeft: '30px',
-                  color: isDarkMode ? colours.dark.text : colours.light.text,
-                },
-              }}
-            >
-              {option.description}
+  const renderRatingOptions = useCallback(() => (
+    <Stack tokens={{ childrenGap: 15 }}>
+      {ratingOptions.map((option) => (
+        <Stack key={option.key} tokens={{ childrenGap: 5 }}>
+          <label htmlFor={`radio-${option.key}`} style={{ display: 'flex', alignItems: 'center' }}>
+            <input
+              type="radio"
+              id={`radio-${option.key}`}
+              name="rating"
+              value={option.key}
+              checked={currentRating === option.key}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCurrentRating(e.target.value)}
+              style={{ marginRight: '12px', width: '18px', height: '18px' }}
+            />
+            <Text variant="medium" styles={{ root: { fontWeight: '700', color: colours.highlight } }}>
+              {option.text}
             </Text>
-          </Stack>
-        ))}
-      </Stack>
-    );
-  }, [currentRating, isDarkMode, ratingOptions]);
+          </label>
+          <Text
+            variant="small"
+            styles={{
+              root: { marginLeft: '30px', color: isDarkMode ? colours.dark.text : colours.light.text },
+            }}
+          >
+            {option.description}
+          </Text>
+        </Stack>
+      ))}
+    </Stack>
+  ), [currentRating, isDarkMode, ratingOptions]);
 
   const handleUpdateEnquiry = useCallback(
     (updatedEnquiry: Enquiry) => {
@@ -594,8 +523,10 @@ const Enquiries: React.FC<{
                 borderRadius: '50%',
                 width: '40px',
                 height: '40px',
-                ':hover': {
-                  backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
+                selectors: {
+                  ':hover': {
+                    backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
+                  },
                 },
               },
             }}
@@ -607,10 +538,7 @@ const Enquiries: React.FC<{
           selectedKey={activeSubTab}
           onLinkClick={handleSubTabChange}
           styles={{
-            root: {
-              marginBottom: '20px',
-              borderBottom: 'none',
-            },
+            root: { marginBottom: '20px', borderBottom: 'none' },
             link: {
               fontSize: '16px',
               fontWeight: 600,
@@ -618,9 +546,7 @@ const Enquiries: React.FC<{
               margin: '0 5px',
               color: isDarkMode ? colours.dark.text : colours.light.text,
             },
-            linkIsSelected: {
-              borderBottom: 'none',
-            },
+            linkIsSelected: { borderBottom: 'none' },
           }}
           aria-label="Enquiry Detail Sub-Tabs"
         >
@@ -645,111 +571,98 @@ const Enquiries: React.FC<{
     return row * delayPerRow + col * delayPerCol;
   };
 
-  const siloContainerStyle = mergeStyles({
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
-    gap: '20px',
-    width: '100%',
-    flex: 1,
-  });
+  // --- New Area of Work Tab Menu Styles and Options ---
+  const areaOfWorkTabs = [
+    { key: 'commercial', text: 'Commercial', icon: 'KnowledgeArticle' },
+    { key: 'construction', text: 'Construction', icon: 'ConstructionCone' },
+    { key: 'employment', text: 'Employment', icon: 'People' },
+    { key: 'property', text: 'Property', icon: 'CityNext' },
+  ];
 
-  const siloCardStyle = (area: string, isDarkMode: boolean) =>
+  // Each area tab now displays its icon as a subtle backdrop.
+  const areaTabStyle = (isSelected: boolean, area: string) =>
     mergeStyles({
-      backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-      color: isDarkMode ? colours.dark.text : colours.light.text,
-      padding: '20px',
-      borderRadius: '12px',
-      borderLeft: `4px solid ${areaColor(area)}`, // Added color hint
-      boxShadow: isDarkMode
-        ? `0 4px 16px rgba(0, 0, 0, 0.5)`
-        : `0 4px 16px rgba(0, 0, 0, 0.2)`,
-      transition: 'background-color 0.3s, box-shadow 0.3s, transform 0.3s',
+      flex: 1,
+      height: '80px',
       display: 'flex',
-      flexDirection: 'column',
-      justifyContent: 'center',
       alignItems: 'center',
-      height: '150px',
+      justifyContent: 'center',
       cursor: 'pointer',
+      backgroundColor: isSelected
+        ? isDarkMode
+          ? `${areaColor(area)}20`
+          : `${areaColor(area)}20`
+        : isDarkMode
+        ? colours.dark.sectionBackground
+        : colours.light.sectionBackground,
+      borderBottom: isSelected ? `4px solid ${areaColor(area)}` : '4px solid transparent',
+      borderTopLeftRadius: '8px',
+      borderTopRightRadius: '8px',
+      boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+      marginRight: '4px',
+      transition: 'background-color 0.3s, border-bottom 0.3s, box-shadow 0.3s',
+      padding: '10px',
       position: 'relative',
-      ':hover': {
-        transform: 'translateY(-5px)',
-        boxShadow: isDarkMode
-          ? `0 6px 20px rgba(0, 0, 0, 0.7)`
-          : `0 6px 20px rgba(0, 0, 0, 0.3)`,
+      overflow: 'hidden',
+      selectors: {
+        ':hover': {
+          boxShadow: isDarkMode
+            ? '0 4px 12px rgba(0, 0, 0, 0.5)'
+            : '0 4px 12px rgba(0, 0, 0, 0.3)',
+          '.backdropIcon': { opacity: 0.6 },
+        },
       },
     });
 
-  const siloIconStyle = mergeStyles({
-    fontSize: '112px', // 75% of the card height (150px * 0.75)
-    position: 'absolute',
-    top: '50%',
-    left: '10px',
-    transform: 'translateY(-50%)',
-    color: isDarkMode ? colours.dark.background : colours.light.background,
-  });
-
-  const siloLabelStyle = mergeStyles({
-    fontWeight: '700',
-    fontSize: '26px', // Slightly enlarged text
-    color: colours.highlight,
-    textAlign: 'center',
+  const areaTabContainerStyle = mergeStyles({
     display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    fontFamily: 'Raleway, sans-serif',
+    width: '100%',
+    marginBottom: '10px',
   });
+  // --- End of Area of Work Tab Menu ---
 
-  const fixedCardHeightStyle = mergeStyles({
-    height: '150px', // Ensuring all cards have the same height
-  });
+  // --- Types Menu Search Button / Input ---
+  // For animated reveal, we animate width and opacity.
+  const searchButtonStyles = {
+    root: {
+      width: '40px',
+      height: '80px',
+      backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+      borderRadius: '0 0 8px 8px',
+      transition: 'all 0.3s ease',
+    },
+    icon: { fontSize: '20px' },
+  };
 
-  // Define a custom badge style
-  const badgeStyle = (color: string) =>
-    mergeStyles({
-      display: 'inline-block',
-      padding: '4px 8px',
-      borderRadius: '12px',
-      backgroundColor: color,
-      color: 'white',
-      fontSize: '12px',
-      fontWeight: 'bold',
-      marginLeft: '8px',
-      fontFamily: 'Raleway, sans-serif',
-    });
+  const searchInputStyles = {
+    root: {
+      width: isSearchActive ? '200px' : '0px',
+      opacity: isSearchActive ? 1 : 0,
+      border: 'none',
+      backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+      borderRadius: '0 0 8px 8px',
+      transition: 'width 0.3s ease, opacity 0.3s ease',
+      height: '80px',
+      display: 'flex',
+      alignItems: 'center',
+      padding: isSearchActive ? '0 10px' : '0px',
+      overflow: 'hidden' as 'hidden',
+    },
+    field: { border: 'none', background: 'transparent' },
+  };
+  // --- End of Search ---
 
-  // Calculate counts for each area of work
-  const areaCounts = useMemo(() => {
-    const counts: { [key: string]: number } = {
-      commercial: 0,
-      construction: 0,
-      employment: 0,
-      property: 0,
-    };
-
-    localEnquiries.forEach((enquiry) => {
-      const area = enquiry.Area_of_Work?.toLowerCase();
-      if (area && counts.hasOwnProperty(area)) {
-        counts[area]++;
-      }
-    });
-
-    return counts;
-  }, [localEnquiries]);
-
-  // Process monthly enquiry counts stacked by area
+  // Process monthly enquiry counts stacked by area.
   const monthlyEnquiryCounts = useMemo<MonthlyCount[]>(() => {
     if (!localEnquiries) return [];
-
     const counts: { [month: string]: MonthlyCount } = {};
-
     localEnquiries.forEach((enquiry) => {
       if (enquiry.Touchpoint_Date && enquiry.Area_of_Work) {
         const date = parseISO(enquiry.Touchpoint_Date);
-        if (!isValid(date)) return; // Skip invalid dates
+        if (!isValid(date)) return;
         const monthStart = startOfMonth(date);
-        const monthLabel = format(monthStart, 'MMM yyyy'); // e.g., 'Nov 2024'
+        const monthLabel = format(monthStart, 'MMM yyyy');
         const area = enquiry.Area_of_Work.toLowerCase();
-
         if (!counts[monthLabel]) {
           counts[monthLabel] = {
             month: monthLabel,
@@ -759,7 +672,6 @@ const Enquiries: React.FC<{
             property: 0,
           };
         }
-
         switch (area) {
           case 'commercial':
             counts[monthLabel].commercial += 1;
@@ -778,79 +690,106 @@ const Enquiries: React.FC<{
         }
       }
     });
-
-    // Convert the counts object to an array sorted by month
     const sortedMonths = Object.keys(counts).sort(
       (a, b) => new Date(a).getTime() - new Date(b).getTime()
     );
     return sortedMonths.map((month) => counts[month]);
   }, [localEnquiries]);
 
+  const areaCounts = useMemo(() => {
+    const counts: { [key: string]: number } = {
+      commercial: 0,
+      construction: 0,
+      employment: 0,
+      property: 0,
+    };
+    localEnquiries.forEach((enquiry) => {
+      const area = enquiry.Area_of_Work?.toLowerCase();
+      if (area && counts.hasOwnProperty(area)) {
+        counts[area]++;
+      }
+    });
+    return counts;
+  }, [localEnquiries]);
+
   return (
     <div className={containerStyle(isDarkMode)}>
       <div className={mergeStyles({ paddingTop: '0px', paddingBottom: '20px' })}>
-        <div
-          className={mergeStyles({
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '15px',
-            flexWrap: 'wrap',
-          })}
-        >
-          <div className={sharedControlsContainerStyle}>
-            <div className={sharedSearchBoxContainerStyle(isDarkMode)}>
-              <SearchBox
-                placeholder="Search enquiries..."
-                value={searchTerm}
-                onChange={(_, newValue) => setSearchTerm(newValue || '')}
-                styles={sharedSearchBoxStyle(isDarkMode)}
-                aria-label="Search enquiries"
-              />
-            </div>
-
-            <div className={sharedDropdownContainerStyle(isDarkMode)}>
-              <Dropdown
-                placeholder="Select Area of Work"
-                selectedKey={filterArea}
-                onChange={(event, option) => setFilterArea(option?.key as string)}
-                options={areaOfWorkOptions}
-                styles={sharedDropdownStyles(isDarkMode)}
-                ariaLabel="Filter by Area of Work"
-              />
-            </div>
-
-            <div className={sharedDropdownContainerStyle(isDarkMode)}>
-              <Dropdown
-                placeholder="Select Contact Method"
-                selectedKey={filterMethod}
-                onChange={(event, option) => setFilterMethod(option?.key as string)}
-                options={contactMethodOptions}
-                styles={sharedDropdownStyles(isDarkMode)}
-                ariaLabel="Filter by Contact Method"
-              />
-            </div>
-
-            {(activeMainTab === 'Claimed' || activeMainTab === 'Converted') && (
-              <DefaultButton
-                text={showAll ? 'Display Mine' : 'Display All'}
-                onClick={handleShowAllToggle}
-                styles={sharedToggleButtonStyle(isDarkMode)}
-                aria-label="Toggle Display Enquiries"
-              />
-            )}
-          </div>
-        </div>
-
+        {/* New Area of Work Tab Menu */}
         {!selectedEnquiry && (
-          <div className={mergeStyles({ marginTop: '30px' })}>
-            <CustomTabs
-              selectedKey={activeMainTab}
-              onLinkClick={handleMainTabChange}
-              tabs={mainTabs}
-              ariaLabel="Enquiries Main Tabs"
-            />
-          </div>
+          <Stack tokens={{ childrenGap: 10 }}>
+            <div className={areaTabContainerStyle}>
+              {areaOfWorkTabs.map((option) => {
+                const isSelected = selectedArea === option.key;
+                return (
+                  <div
+                    key={option.key}
+                    className={areaTabStyle(isSelected, option.key)}
+                    onClick={() => setSelectedArea(isSelected ? null : option.key)}
+                    aria-label={option.text}
+                  >
+                    <div style={{ position: 'relative', width: '100%', textAlign: 'center' }}>
+                      {/* Backdrop Icon: subtle grey, centered */}
+                      <Icon
+                        iconName={option.icon}
+                        className="backdropIcon"
+                        style={{
+                          position: 'absolute',
+                          top: '50%',
+                          left: '50%',
+                          transform: 'translate(-50%, -50%)',
+                          fontSize: '60px',
+                          opacity: 0.2,
+                          zIndex: 0,
+                          color: '#aaa',
+                          transition: 'opacity 0.3s ease',
+                        }}
+                      />
+                      <Text variant="xLarge" styles={{ root: { fontWeight: 700, position: 'relative', zIndex: 1 } }}>
+                        {option.text}
+                      </Text>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Types Menu with vertical separators and Animated Search */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+                borderRadius: '0 0 8px 8px',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                padding: '0 10px',
+              }}
+            >
+              <CustomTabs
+                selectedKey={activeMainTab}
+                onLinkClick={handleMainTabChange}
+                tabs={mainTabs}
+                ariaLabel="Enquiries Main Tabs"
+              />
+              <div style={{ marginLeft: 'auto', position: 'relative', height: '80px', display: 'flex', alignItems: 'center' }}>
+                {isSearchActive ? (
+                  <SearchBox
+                    placeholder="Search enquiries..."
+                    value={searchTerm}
+                    onChange={(_, newValue) => setSearchTerm(newValue || '')}
+                    styles={searchInputStyles}
+                    onBlur={() => { if (!searchTerm) { setSearchActive(false); } }}
+                  />
+                ) : (
+                  <IconButton
+                    iconProps={{ iconName: 'Search' }}
+                    onClick={() => setSearchActive(true)}
+                    styles={searchButtonStyles}
+                  />
+                )}
+              </div>
+            </div>
+          </Stack>
         )}
       </div>
 
@@ -866,338 +805,214 @@ const Enquiries: React.FC<{
           transition: 'background-color 0.3s',
         })}
       >
-        {selectedEnquiry ? (
+        {/* Show chart only if no area or type is selected */}
+        {!selectedEnquiry && !selectedArea && !activeMainTab ? (
+          <>
+            {dateRange && (
+              <div className={mergeStyles({ display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: '20px' })}>
+                <div
+                  className={mergeStyles({
+                    background: isDarkMode
+                      ? 'linear-gradient(135deg, #1a1a1a, #333333)'
+                      : 'linear-gradient(135deg, #ffffff, #f0f0f0)',
+                    borderRadius: '20px',
+                    padding: '10px 20px',
+                    boxShadow: isDarkMode
+                      ? '0 4px 12px rgba(255, 255, 255, 0.1)'
+                      : '0 4px 12px rgba(0, 0, 0, 0.1)',
+                  })}
+                >
+                  <Text
+                    variant="mediumPlus"
+                    styles={{
+                      root: {
+                        fontWeight: '700',
+                        color: isDarkMode ? colours.dark.text : colours.light.text,
+                        fontSize: '16px',
+                        fontFamily: 'Raleway, sans-serif',
+                      },
+                    }}
+                  >
+                    Date Range: {dateRange.oldest} - {dateRange.newest}
+                  </Text>
+                </div>
+              </div>
+            )}
+
+            <div
+              className={mergeStyles({
+                marginTop: '40px',
+                padding: '30px',
+                backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+                borderRadius: '20px',
+                boxShadow: isDarkMode
+                  ? `0 8px 24px rgba(0, 0, 0, 0.5)`
+                  : `0 8px 24px rgba(0, 0, 0, 0.2)`,
+                position: 'relative',
+                fontFamily: 'Raleway, sans-serif',
+              })}
+            >
+              <ResponsiveContainer width="100%" height={400}>
+                <BarChart
+                  data={monthlyEnquiryCounts}
+                  margin={{ top: 20, right: 30, left: 20, bottom: 60 }}
+                  style={{ fontFamily: 'Raleway, sans-serif' }}
+                >
+                  <defs>
+                    <linearGradient id="colorCommercial" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="rgba(0, 120, 215, 0.6)" stopOpacity={0.8} />
+                      <stop offset="95%" stopColor="rgba(0, 120, 215, 0.6)" stopOpacity={0.2} />
+                    </linearGradient>
+                    <linearGradient id="colorConstruction" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="rgba(255, 140, 0, 0.6)" stopOpacity={0.8} />
+                      <stop offset="95%" stopColor="rgba(255, 140, 0, 0.6)" stopOpacity={0.2} />
+                    </linearGradient>
+                    <linearGradient id="colorEmployment" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="rgba(255, 242, 0, 0.6)" stopOpacity={0.8} />
+                      <stop offset="95%" stopColor="rgba(255, 242, 0, 0.6)" stopOpacity={0.2} />
+                    </linearGradient>
+                    <linearGradient id="colorProperty" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="rgba(34, 177, 76, 0.6)" stopOpacity={0.8} />
+                      <stop offset="95%" stopColor="rgba(34, 177, 76, 0.6)" stopOpacity={0.2} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke={isDarkMode ? colours.dark.border : colours.light.border}
+                  />
+                  <XAxis
+                    dataKey="month"
+                    stroke={isDarkMode ? colours.dark.text : colours.light.text}
+                    tick={{
+                      fontSize: 14,
+                      fontWeight: 400,
+                      fontFamily: 'Raleway, sans-serif',
+                      textAnchor: 'middle',
+                    }}
+                    height={60}
+                  />
+                  <YAxis
+                    stroke={isDarkMode ? colours.dark.text : colours.light.text}
+                    tick={{
+                      fontSize: 14,
+                      fontWeight: 400,
+                      fontFamily: 'Raleway, sans-serif',
+                    }}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.background,
+                      border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                      color: isDarkMode ? colours.dark.text : colours.light.text,
+                      fontFamily: 'Raleway, sans-serif',
+                    }}
+                    labelStyle={{ color: isDarkMode ? colours.dark.text : colours.light.text, fontFamily: 'Raleway, sans-serif' }}
+                    itemStyle={{ color: isDarkMode ? colours.dark.text : colours.light.text, fontFamily: 'Raleway, sans-serif' }}
+                  />
+                  <Legend
+                    wrapperStyle={{ color: isDarkMode ? colours.dark.text : colours.light.text, fontFamily: 'Raleway, sans-serif' }}
+                  />
+                  <Bar
+                    dataKey="commercial"
+                    stackId="a"
+                    fill="url(#colorCommercial)"
+                    animationDuration={1500}
+                    animationEasing="ease-out"
+                  >
+                    <LabelList
+                      dataKey="commercial"
+                      position="insideTop"
+                      fill={isDarkMode ? colours.dark.text : colours.light.text}
+                      style={{ fontFamily: 'Raleway, sans-serif', fontWeight: 400 }}
+                    />
+                  </Bar>
+                  <Bar
+                    dataKey="construction"
+                    stackId="a"
+                    fill="url(#colorConstruction)"
+                    animationDuration={1500}
+                    animationEasing="ease-out"
+                  >
+                    <LabelList
+                      dataKey="construction"
+                      position="insideTop"
+                      fill={isDarkMode ? colours.dark.text : colours.light.text}
+                      style={{ fontFamily: 'Raleway, sans-serif', fontWeight: 400 }}
+                    />
+                  </Bar>
+                  <Bar
+                    dataKey="employment"
+                    stackId="a"
+                    fill="url(#colorEmployment)"
+                    animationDuration={1500}
+                    animationEasing="ease-out"
+                  >
+                    <LabelList
+                      dataKey="employment"
+                      position="insideTop"
+                      fill={isDarkMode ? colours.dark.text : colours.light.text}
+                      style={{ fontFamily: 'Raleway, sans-serif', fontWeight: 400 }}
+                    />
+                  </Bar>
+                  <Bar
+                    dataKey="property"
+                    stackId="a"
+                    fill="url(#colorProperty)"
+                    animationDuration={1500}
+                    animationEasing="ease-out"
+                  >
+                    <LabelList
+                      dataKey="property"
+                      position="insideTop"
+                      fill={isDarkMode ? colours.dark.text : colours.light.text}
+                      style={{ fontFamily: 'Raleway, sans-serif', fontWeight: 400 }}
+                    />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </>
+        ) : selectedEnquiry ? (
           renderDetailView(selectedEnquiry)
         ) : (
           <>
-            {activeMainTab === 'Silo' ? (
-              <>
-                <div className={siloContainerStyle}>
-                  <div
-                    className={`${siloCardStyle('commercial', isDarkMode)} ${fixedCardHeightStyle}`}
-                    onClick={() => setCurrentSiloArea('commercial')}
-                    aria-label="Commercial"
-                  >
-                    <Icon iconName="KnowledgeArticle" className={siloIconStyle} />
-                    <Text className={siloLabelStyle}>
-                      Commercial
-                      <span className={badgeStyle(areaColor('commercial'))}>{areaCounts.commercial}</span>
-                    </Text>
-                  </div>
-                  <div
-                    className={`${siloCardStyle('construction', isDarkMode)} ${fixedCardHeightStyle}`}
-                    onClick={() => setCurrentSiloArea('construction')}
-                    aria-label="Construction"
-                  >
-                    <Icon iconName="ConstructionCone" className={siloIconStyle} />
-                    <Text className={siloLabelStyle}>
-                      Construction
-                      <span className={badgeStyle(areaColor('construction'))}>{areaCounts.construction}</span>
-                    </Text>
-                  </div>
-                  <div
-                    className={`${siloCardStyle('employment', isDarkMode)} ${fixedCardHeightStyle}`}
-                    onClick={() => setCurrentSiloArea('employment')}
-                    aria-label="Employment"
-                  >
-                    <Icon iconName="People" className={siloIconStyle} />
-                    <Text className={siloLabelStyle}>
-                      Employment
-                      <span className={badgeStyle(areaColor('employment'))}>{areaCounts.employment}</span>
-                    </Text>
-                  </div>
-                  <div
-                    className={`${siloCardStyle('property', isDarkMode)} ${fixedCardHeightStyle}`}
-                    onClick={() => setCurrentSiloArea('property')}
-                    aria-label="Property"
-                  >
-                    <Icon iconName="CityNext" className={siloIconStyle} />
-                    <Text className={siloLabelStyle}>
-                      Property
-                      <span className={badgeStyle(areaColor('property'))}>{areaCounts.property}</span>
-                    </Text>
-                  </div>
-                </div>
-
-                {/* Enhanced Date Range Display */}
-                {dateRange && (
-                  <div
-                    className={mergeStyles({
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      marginTop: '20px',
-                    })}
-                  >
-                    <div
-                      className={mergeStyles({
-                        background: isDarkMode
-                          ? 'linear-gradient(135deg, #1a1a1a, #333333)'
-                          : 'linear-gradient(135deg, #ffffff, #f0f0f0)',
-                        borderRadius: '20px',
-                        padding: '10px 20px',
-                        boxShadow: isDarkMode
-                          ? '0 4px 12px rgba(255, 255, 255, 0.1)'
-                          : '0 4px 12px rgba(0, 0, 0, 0.1)',
-                      })}
-                    >
-                      <Text
-                        variant="mediumPlus"
-                        styles={{
-                          root: {
-                            fontWeight: '700',
-                            color: isDarkMode ? colours.dark.text : colours.light.text,
-                            fontSize: '16px',
-                            fontFamily: 'Raleway, sans-serif',
-                          },
-                        }}
-                      >
-                        Date Range: {dateRange.oldest} - {dateRange.newest}
-                      </Text>
-                    </div>
-                  </div>
-                )}
-
-                {/* Redesigned Monthly Enquiry Counts Stacked Bar Chart */}
-                <div
-                  className={mergeStyles({
-                    marginTop: '40px',
-                    padding: '30px',
-                    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-                    borderRadius: '20px',
-                    boxShadow: isDarkMode
-                      ? `0 8px 24px rgba(0, 0, 0, 0.5)`
-                      : `0 8px 24px rgba(0, 0, 0, 0.2)`,
-                    position: 'relative',
-                    fontFamily: 'Raleway, sans-serif',
-                  })}
-                >
-                  <ResponsiveContainer width="100%" height={400}>
-                    <BarChart
-                      data={monthlyEnquiryCounts}
-                      margin={{ top: 20, right: 30, left: 20, bottom: 60 }}
-                      style={{ fontFamily: 'Raleway, sans-serif' }}
-                    >
-                      {/* Define subtle gradients for each area */}
-                      <defs>
-                        <linearGradient id="colorCommercial" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="rgba(0, 120, 215, 0.6)" stopOpacity={0.8} />
-                          <stop offset="95%" stopColor="rgba(0, 120, 215, 0.6)" stopOpacity={0.2} />
-                        </linearGradient>
-                        <linearGradient id="colorConstruction" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="rgba(255, 140, 0, 0.6)" stopOpacity={0.8} />
-                          <stop offset="95%" stopColor="rgba(255, 140, 0, 0.6)" stopOpacity={0.2} />
-                        </linearGradient>
-                        <linearGradient id="colorEmployment" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="rgba(255, 242, 0, 0.6)" stopOpacity={0.8} />
-                          <stop offset="95%" stopColor="rgba(255, 242, 0, 0.6)" stopOpacity={0.2} />
-                        </linearGradient>
-                        <linearGradient id="colorProperty" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="rgba(34, 177, 76, 0.6)" stopOpacity={0.8} />
-                          <stop offset="95%" stopColor="rgba(34, 177, 76, 0.6)" stopOpacity={0.2} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid
-                        strokeDasharray="3 3"
-                        stroke={isDarkMode ? colours.dark.border : colours.light.border}
-                      />
-                      <XAxis
-                        dataKey="month"
-                        stroke={isDarkMode ? colours.dark.text : colours.light.text}
-                        tick={{
-                          fontSize: 14,
-                          fontWeight: 400,
-                          fontFamily: 'Raleway, sans-serif',
-                          textAnchor: 'middle',
-                        }}
-                        height={60}
-                      />
-                      <YAxis
-                        stroke={isDarkMode ? colours.dark.text : colours.light.text}
-                        tick={{
-                          fontSize: 14,
-                          fontWeight: 400,
-                          fontFamily: 'Raleway, sans-serif',
-                        }}
-                      />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.background,
-                          border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                          color: isDarkMode ? colours.dark.text : colours.light.text,
-                          fontFamily: 'Raleway, sans-serif',
-                        }}
-                        labelStyle={{ color: isDarkMode ? colours.dark.text : colours.light.text, fontFamily: 'Raleway, sans-serif' }}
-                        itemStyle={{ color: isDarkMode ? colours.dark.text : colours.light.text, fontFamily: 'Raleway, sans-serif' }}
-                      />
-                      <Legend
-                        wrapperStyle={{ color: isDarkMode ? colours.dark.text : colours.light.text, fontFamily: 'Raleway, sans-serif' }}
-                      />
-                      <Bar
-                        dataKey="commercial"
-                        stackId="a"
-                        fill="url(#colorCommercial)"
-                        animationDuration={1500}
-                        animationEasing="ease-out"
-                      >
-                        <LabelList
-                          dataKey="commercial"
-                          position="insideTop"
-                          fill={isDarkMode ? colours.dark.text : colours.light.text}
-                          style={{ fontFamily: 'Raleway, sans-serif', fontWeight: 400 }}
-                        />
-                      </Bar>
-                      <Bar
-                        dataKey="construction"
-                        stackId="a"
-                        fill="url(#colorConstruction)"
-                        animationDuration={1500}
-                        animationEasing="ease-out"
-                      >
-                        <LabelList
-                          dataKey="construction"
-                          position="insideTop"
-                          fill={isDarkMode ? colours.dark.text : colours.light.text}
-                          style={{ fontFamily: 'Raleway, sans-serif', fontWeight: 400 }}
-                        />
-                      </Bar>
-                      <Bar
-                        dataKey="employment"
-                        stackId="a"
-                        fill="url(#colorEmployment)"
-                        animationDuration={1500}
-                        animationEasing="ease-out"
-                      >
-                        <LabelList
-                          dataKey="employment"
-                          position="insideTop"
-                          fill={isDarkMode ? colours.dark.text : colours.light.text}
-                          style={{ fontFamily: 'Raleway, sans-serif', fontWeight: 400 }}
-                        />
-                      </Bar>
-                      <Bar
-                        dataKey="property"
-                        stackId="a"
-                        fill="url(#colorProperty)"
-                        animationDuration={1500}
-                        animationEasing="ease-out"
-                      >
-                        <LabelList
-                          dataKey="property"
-                          position="insideTop"
-                          fill={isDarkMode ? colours.dark.text : colours.light.text}
-                          style={{ fontFamily: 'Raleway, sans-serif', fontWeight: 400 }}
-                        />
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </>
-            ) : activeMainTab === 'Converted' ? (
-              filteredEnquiries.length > 0 ? (
-                <div
-                  className={mergeStyles({
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(4, 1fr)',
-                    gap: '20px',
-                    '@media (max-width: 1200px)': {
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                    },
-                  })}
-                >
-                  {currentEnquiries.map((enquiry, index) => {
-                    const row = Math.floor(index / 4);
-                    const col = index % 4;
-                    const animationDelay = calculateAnimationDelay(row, col);
-                    return (
-                      <EnquiryCard
-                        key={`${enquiry.ID}-${index}-${showAll}`}
-                        enquiry={enquiry}
-                        onSelect={handleSelectEnquiry}
-                        onRate={handleRate}
-                        animationDelay={animationDelay}
-                      />
-                    );
-                  })}
-                </div>
-              ) : (
-                <Text variant="medium" styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.light.subText, fontFamily: 'Raleway, sans-serif' } }}>
-                  No enquiries found matching your criteria.
-                </Text>
-              )
-            ) : activeMainTab === 'Claimable' ? (
-              filteredEnquiries.length > 0 ? (
-                <div
-                  className={mergeStyles({
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(4, 1fr)',
-                    gap: '20px',
-                    '@media (max-width: 1200px)': {
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                    },
-                  })}
-                >
-                  {currentEnquiries.map((enquiry, index) => {
-                    const row = Math.floor(index / 4);
-                    const col = index % 4;
-                    const animationDelay = calculateAnimationDelay(row, col);
-                    return (
-                      <EnquiryCard
-                        key={`${enquiry.ID}-${index}-${showAll}`}
-                        enquiry={enquiry}
-                        onSelect={handleSelectEnquiry}
-                        onRate={handleRate}
-                        animationDelay={animationDelay}
-                      />
-                    );
-                  })}
-                </div>
-              ) : (
-                <Text variant="medium" styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.light.subText, fontFamily: 'Raleway, sans-serif' } }}>
-                  No enquiries found matching your criteria.
-                </Text>
-              )
+            {filteredEnquiries.length === 0 ? (
+              <Text variant="medium" styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.light.subText, fontFamily: 'Raleway, sans-serif' } }}>
+                No enquiries found matching your criteria.
+              </Text>
             ) : (
               <>
-                {filteredEnquiries.length === 0 ? (
-                  <Text variant="medium" styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.light.subText, fontFamily: 'Raleway, sans-serif' } }}>
-                    No enquiries found matching your criteria.
-                  </Text>
-                ) : (
-                  <>
-                    <div
-                      className={mergeStyles({
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(4, 1fr)',
-                        gap: '20px',
-                        '@media (max-width: 1200px)': {
-                          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                        },
-                      })}
-                    >
-                      {currentEnquiries.map((enquiry, index) => {
-                        const row = Math.floor(index / 4);
-                        const col = index % 4;
-                        const animationDelay = calculateAnimationDelay(row, col);
-                        return (
-                          <EnquiryCard
-                            key={`${enquiry.ID}-${index}-${showAll}`}
-                            enquiry={enquiry}
-                            onSelect={handleSelectEnquiry}
-                            onRate={handleRate}
-                            animationDelay={animationDelay}
-                          />
-                        );
-                      })}
-                    </div>
-                    {totalPages > 1 && (
-                      <CustomPagination
-                        currentPage={currentPage}
-                        totalPages={totalPages}
-                        onPageChange={handlePageChange}
+                <div
+                  className={mergeStyles({
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(4, 1fr)',
+                    gap: '20px',
+                    '@media (max-width: 1200px)': {
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                    },
+                  })}
+                >
+                  {currentEnquiries.map((enquiry, index) => {
+                    const row = Math.floor(index / 4);
+                    const col = index % 4;
+                    const animationDelay = calculateAnimationDelay(row, col);
+                    return (
+                      <EnquiryCard
+                        key={`${enquiry.ID}-${index}-${showAll}`}
+                        enquiry={enquiry}
+                        onSelect={handleSelectEnquiry}
+                        onRate={handleRate}
+                        animationDelay={animationDelay}
                       />
-                    )}
-                  </>
+                    );
+                  })}
+                </div>
+                {totalPages > 1 && (
+                  <CustomPagination
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    onPageChange={handlePageChange}
+                  />
                 )}
               </>
             )}
@@ -1210,14 +1025,7 @@ const Enquiries: React.FC<{
           <Link
             href="https://helix-law.co.uk/"
             target="_blank"
-            styles={{
-              root: {
-                color: isDarkMode ? colours.dark.subText : colours.light.subText,
-                fontSize: '12px',
-                fontFamily: 'Raleway, sans-serif',
-                textDecoration: 'none',
-              },
-            }}
+            styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.light.subText, fontSize: '12px', fontFamily: 'Raleway, sans-serif', textDecoration: 'none' } }}
             aria-label="Helix Law Website"
           >
             https://helix-law.co.uk/
@@ -1230,15 +1038,7 @@ const Enquiries: React.FC<{
             01273 761990
           </Text>
         </Text>
-        <Text
-          styles={{
-            root: {
-              fontSize: '12px',
-              fontFamily: 'Raleway, sans-serif',
-              color: isDarkMode ? colours.dark.text : colours.light.subText,
-            },
-          }}
-        >
+        <Text styles={{ root: { fontSize: '12px', fontFamily: 'Raleway, sans-serif', color: isDarkMode ? colours.dark.text : colours.light.subText } }}>
           Second Floor, Britannia House, 21 Station Street, Brighton, BN1 4DE
         </Text>
       </div>
@@ -1277,12 +1077,7 @@ const Enquiries: React.FC<{
           color: isDarkMode ? colours.dark.text : colours.light.text,
           fontFamily: 'Raleway, sans-serif',
         })}
-        styles={{
-          main: {
-            maxWidth: '600px',
-            margin: 'auto',
-          },
-        }}
+        styles={{ main: { maxWidth: '600px', margin: 'auto' } }}
         aria-labelledby="rate-enquiry-modal"
       >
         <Stack tokens={{ childrenGap: 20 }}>
