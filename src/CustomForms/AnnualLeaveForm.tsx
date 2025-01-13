@@ -32,6 +32,7 @@ interface AnnualLeaveFormProps {
   futureLeave: AnnualLeaveRecord[];
   team: TeamMember[];
   userData: any; // adjust type as needed
+  totals: { standard: number; unpaid: number; purchase: number }; // New totals property
 }
 
 interface DateRangeSelection {
@@ -182,7 +183,7 @@ function groupConsecutiveDates(dates: string[]): string[] {
   });
 }
 
-const AnnualLeaveForm: React.FC<AnnualLeaveFormProps> = ({ futureLeave, team, userData }) => {
+const AnnualLeaveForm: React.FC<AnnualLeaveFormProps> = ({ futureLeave, team, userData, totals }) => {
   const { isDarkMode } = useTheme();
   const [dateRanges, setDateRanges] = useState<DateRangeSelection[]>([]);
   const [totalDays, setTotalDays] = useState<number>(0);
@@ -212,19 +213,28 @@ const AnnualLeaveForm: React.FC<AnnualLeaveFormProps> = ({ futureLeave, team, us
   };
 
   useEffect(() => {
-    let days = 0;
+    // Calculate working days for each range, excluding weekends (Saturday=6, Sunday=0)
+    let workingDaysTotal = 0;
     dateRanges.forEach((range) => {
-      const diff = differenceInCalendarDays(range.endDate, range.startDate) + 1;
-      let adjustedDiff = diff;
-      if (range.halfDayStart) adjustedDiff -= 0.5;
-      if (range.halfDayEnd) adjustedDiff -= 0.5;
-      days += adjustedDiff;
+      const allDays = eachDayOfInterval({ start: range.startDate, end: range.endDate });
+      // Only count weekdays
+      let workingDays = allDays.filter(day => {
+        const d = day.getDay();
+        return d !== 0 && d !== 6;
+      }).length;
+      // Apply half-day adjustments only if the start/end are working days
+      if (range.halfDayStart && range.startDate.getDay() !== 0 && range.startDate.getDay() !== 6) {
+        workingDays -= 0.5;
+      }
+      if (range.halfDayEnd && range.endDate.getDay() !== 0 && range.endDate.getDay() !== 6) {
+        workingDays -= 0.5;
+      }
+      workingDaysTotal += workingDays;
     });
-    setTotalDays(days);
+    setTotalDays(workingDaysTotal);
   }, [dateRanges]);
 
   // Compute overlapping leave details using futureLeave, dateRanges, and team.
-  // Each group stores raw date ranges (in "yyyy-MM-dd" format) and a status.
   const groupedLeave = useMemo(() => {
     const groups: {
       [key: string]: {
@@ -235,26 +245,24 @@ const AnnualLeaveForm: React.FC<AnnualLeaveFormProps> = ({ futureLeave, team, us
     } = {};
     futureLeave.forEach((leave) => {
       dateRanges.forEach((range) => {
-        const overlaps = getOverlapDates(leave, range); // returns array of dates in "yyyy-MM-dd" format
+        const overlaps = getOverlapDates(leave, range);
         if (overlaps.length > 0) {
           const teamMember = team.find(
             (member) => member.Initials.toLowerCase() === leave.person.toLowerCase()
           );
           const nickname = teamMember ? teamMember.Nickname || teamMember.First : leave.person;
-          const leaveStatus = leave.status.toLowerCase(); // e.g., 'approved', 'booked', or 'requested'
+          const leaveStatus = leave.status.toLowerCase();
           const newRange = {
             start_date: overlaps[0],
             end_date: overlaps[overlaps.length - 1]
           };
           if (groups[leave.person]) {
-            // Avoid adding a duplicate range.
             const exists = groups[leave.person].dateRanges.some(
               dr => dr.start_date === newRange.start_date && dr.end_date === newRange.end_date
             );
             if (!exists) {
               groups[leave.person].dateRanges.push(newRange);
             }
-            // If differing statuses for the same person occur, default to 'requested'
             if (groups[leave.person].status !== leaveStatus) {
               groups[leave.person].status = "requested";
             }
@@ -274,17 +282,13 @@ const AnnualLeaveForm: React.FC<AnnualLeaveFormProps> = ({ futureLeave, team, us
   const handleSubmit = async (values: { [key: string]: string | number | boolean | File }) => {
     setIsSubmitting(true);
     try {
-      // Determine the fee earner initials from userData.
       const feeEarner = userData && userData.length > 0 ? userData[0].Initials : "XX";
 
-      // Convert our dateRanges to the payload format expected by the backend,
-      // each range with start_date and end_date in "YYYY-MM-DD" format.
       const formattedDateRanges = dateRanges.map(range => ({
         start_date: range.startDate.toISOString().split("T")[0],
         end_date: range.endDate.toISOString().split("T")[0],
       }));
 
-      // Build the payload.
       const payload = {
         fe: feeEarner,
         dateRanges: formattedDateRanges,
@@ -295,7 +299,6 @@ const AnnualLeaveForm: React.FC<AnnualLeaveFormProps> = ({ futureLeave, team, us
 
       console.log("Annual Leave Form Payload:", payload);
 
-      // Construct the endpoint URL using your environment variables.
       const url = `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_INSERT_ANNUAL_LEAVE_PATH}?code=${process.env.REACT_APP_INSERT_ANNUAL_LEAVE_CODE}`;
 
       const response = await fetch(url, {
@@ -310,7 +313,6 @@ const AnnualLeaveForm: React.FC<AnnualLeaveFormProps> = ({ futureLeave, team, us
 
       const result = await response.json();
       console.log("Insert Annual Leave Successful:", result);
-      // Optionally, show a success message or reset the form here.
     } catch (error) {
       console.error("Error submitting Annual Leave Form:", error);
     } finally {
@@ -324,207 +326,268 @@ const AnnualLeaveForm: React.FC<AnnualLeaveFormProps> = ({ futureLeave, team, us
 
   return (
     <Stack tokens={{ childrenGap: 20 }}>
-      <div style={{ position: 'relative', marginBottom: "20px" }}>
-        <div
-          style={{
-            ...infoBoxStyle,
-            backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.grey
-          }}
-        >
-          <Icon
-            iconName="Info"
-            style={{
-              position: 'absolute',
-              right: 10,
-              top: 10,
-              fontSize: 80,
-              opacity: 0.1,
-              color: isDarkMode ? colours.dark.text : colours.light.text
-            }}
-          />
-          <Stack tokens={{ childrenGap: 10 }}>
-            <Text style={{ ...labelStyle }}>Total Days Requested</Text>
-            <Text style={{ ...valueStyle, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-              {totalDays} {totalDays !== 1 ? 'days' : 'day'}
-            </Text>
-          </Stack>
-          {groupedLeave.length > 0 && (
-            <Stack tokens={{ childrenGap: 10 }} style={{ marginTop: 20 }}>
-              <Text style={{ ...labelStyle }}>Team Leave Conflicts</Text>
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(4, 1fr)',
-                  gap: '10px'
-                }}
-              >
-                {groupedLeave.map((item, idx) => {
-                  // For display, format each date range.
-                  // If start_date and end_date are the same, show just one day.
-                  const formattedRanges = item.dateRanges
-                    .map(dr => {
-                      const start = new Date(dr.start_date);
-                      const end = new Date(dr.end_date);
-                      return dr.start_date === dr.end_date
-                        ? format(start, 'd MMM')
-                        : `${format(start, 'd MMM')} - ${format(end, 'd MMM')}`;
-                    })
-                    .join(' | ');
-                  // Choose border color based on status:
-                  // approved => orange, booked => green, otherwise => cta (red).
-                  let borderColor = colours.cta;
-                  if (item.status === 'approved') {
-                    borderColor = colours.orange;
-                  } else if (item.status === 'booked') {
-                    borderColor = colours.green;
-                  }
-                  return (
-                    <div
-                      key={idx}
-                      className="persona-bubble"
-                      style={{
-                        animationDelay: `${idx * 0.1}s`,
-                        border: `1px solid ${borderColor}`,
-                        backgroundColor: '#ffffff',
-                        padding: '5px',
-                        borderRadius: '4px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        minWidth: '150px'
-                      }}
-                    >
-                      <div className="persona-icon-container" style={{ backgroundColor: 'transparent' }}>
-                        <img
-                          src={HelixAvatar}
-                          alt={item.nickname}
-                          style={{
-                            width: '100%',
-                            height: '100%',
-                            borderRadius: '50%'
-                          }}
-                        />
-                      </div>
-                      <div style={{ marginTop: '5px', textAlign: 'center', width: '100%' }}>
-                        <div className="persona-name-text" style={{ fontWeight: 600, fontSize: '16px', color: colours.light.text }}>
-                          {item.nickname}
-                        </div>
-                        <div
-                          className="persona-range-text"
-                          style={{
-                            fontSize: '14px',
-                            fontWeight: 400,
-                            color: colours.light.text
-                          }}
-                        >
-                          {formattedRanges}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <Text
-                style={{
-                  fontStyle: 'italic',
-                  marginTop: '10px',
-                  color: isDarkMode ? colours.dark.text : colours.light.text
-                }}
-              >
-                Please note: There are other team members scheduled for leave during the dates you've chosen. This may affect the likelihood of automatic approval for your request. You can still submit your request, and we will notify you of the outcome once a decision has been reached.
-              </Text>
-            </Stack>
-          )}
-        </div>
-      </div>
-
+      {/* BespokeForm area with date range picker on left and a side panel for totals on the right */}
       <BespokeForm
         fields={initialFormFields}
         onSubmit={handleSubmit}
         onCancel={handleCancel}
         isSubmitting={isSubmitting}
       >
-        <Stack tokens={{ childrenGap: 10 }}>
-          <Text
-            variant="mediumPlus"
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '20px' }}>
+          <Stack style={{ flex: 1 }} tokens={{ childrenGap: 10 }}>
+            {/* Date Ranges section - label removed */}
+            {dateRanges.map((range, index) => (
+              <Stack
+                key={index}
+                tokens={{ childrenGap: 5 }}
+                style={{
+                  border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                  padding: '10px',
+                  borderRadius: '4px',
+                }}
+              >
+                <DateRangePicker
+                  ranges={[
+                    {
+                      startDate: range.startDate,
+                      endDate: range.endDate,
+                      key: `selection_${index}`,
+                    },
+                  ]}
+                  onChange={(item: RangeKeyDict) => {
+                    const selection = item[`selection_${index}`] as Range;
+                    if (selection) {
+                      const newRange: DateRangeSelection = {
+                        startDate: selection.startDate || new Date(),
+                        endDate: selection.endDate || new Date(),
+                        halfDayStart: range.halfDayStart,
+                        halfDayEnd: range.halfDayEnd,
+                      };
+                      updateDateRange(index, newRange);
+                    }
+                  }}
+                  editableDateInputs
+                  moveRangeOnFirstSelection={false}
+                  months={1}
+                  direction="horizontal"
+                  rangeColors={[colours.highlight]}
+                />
+                <DefaultButton
+                  text="Remove Range"
+                  onClick={() => removeDateRange(index)}
+                  iconProps={{ iconName: 'Minus' }}
+                  styles={buttonStylesFixedWidthSecondary}
+                />
+              </Stack>
+            ))}
+            <div
+              style={{
+                border: '2px dashed #ccc',
+                borderRadius: '4px',
+                width: '100%',
+                height: '50px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+              }}
+              onClick={addDateRange}
+            >
+              <Icon iconName="Add" style={{ fontSize: 24, color: '#ccc', marginRight: 8 }} />
+              <Text style={{ color: '#ccc', fontSize: '16px' }}>Add Date Range</Text>
+            </div>
+            <TextField
+              label="Notes (Optional)"
+              placeholder="Enter any additional notes"
+              value={notes}
+              onChange={(e, newVal) => setNotes(newVal || '')}
+              styles={textFieldStyles}
+              multiline
+              rows={3}
+            />
+          </Stack>
+          {/* Side panel displaying totals */}
+          <Stack
+            tokens={{ childrenGap: 10 }}
             style={{
-              color: isDarkMode ? colours.dark.text : colours.light.text,
-              fontWeight: 600,
+              minWidth: '300px',
+              border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+              padding: '10px',
+              borderRadius: '4px',
+              backgroundColor: colours.light.grey,
             }}
           >
-            Date Ranges
-          </Text>
-          {dateRanges.map((range, index) => (
-            <Stack
-              key={index}
-              tokens={{ childrenGap: 5 }}
-              style={{
-                border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                padding: '10px',
-                borderRadius: '4px',
-              }}
-            >
-              <DateRangePicker
-                ranges={[
-                  {
-                    startDate: range.startDate,
-                    endDate: range.endDate,
-                    key: `selection_${index}`,
-                  },
-                ]}
-                onChange={(item: RangeKeyDict) => {
-                  const selection = item[`selection_${index}`] as Range;
-                  if (selection) {
-                    const newRange: DateRangeSelection = {
-                      startDate: selection.startDate || new Date(),
-                      endDate: selection.endDate || new Date(),
-                      halfDayStart: range.halfDayStart,
-                      halfDayEnd: range.halfDayEnd,
-                    };
-                    updateDateRange(index, newRange);
-                  }
-                }}
-                editableDateInputs
-                moveRangeOnFirstSelection={false}
-                months={1}
-                direction="horizontal"
-                rangeColors={[colours.highlight]}
-              />
-              <DefaultButton
-                text="Remove Range"
-                onClick={() => removeDateRange(index)}
-                iconProps={{ iconName: 'Minus' }}
-                styles={buttonStylesFixedWidthSecondary}
-              />
+            <Text variant="xLarge" style={{ color: isDarkMode ? colours.dark.text : colours.light.text }}>
+              Total Days Requested
+            </Text>
+            <Text variant="xxLarge" style={{ color: isDarkMode ? colours.dark.text : colours.light.text }}>
+              {totalDays} {totalDays !== 1 ? 'days' : 'day'}
+            </Text>
+
+            <Text variant="xLarge" style={{ color: isDarkMode ? colours.dark.text : colours.light.text }}>
+              Days Remaining
+            </Text>
+            {userData && userData[0] && userData[0].holiday_entitlement != null ? (
+              (() => {
+                const entitlement = Number(userData[0].holiday_entitlement);
+                // Days Remaining is computed as entitlement - Days Taken (from totals.standard)
+                const remaining = entitlement - totals.standard;
+                const remainingStyle = { color: remaining < 0 ? colours.cta : isDarkMode ? colours.dark.text : colours.light.text };
+                return (
+                  <Text variant="xxLarge" style={remainingStyle}>
+                    {remaining} {remaining !== 1 ? 'days' : 'day'}
+                  </Text>
+                );
+              })()
+            ) : (
+              <Text variant="xxLarge" style={{ color: isDarkMode ? colours.dark.text : colours.light.text }}>
+                N/A
+              </Text>
+            )}
+
+            {/* Separator */}
+            <div style={{ borderTop: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`, margin: '20px 0' }}></div>
+
+            <Stack tokens={{ childrenGap: 5 }}>
+              <Text style={{ ...labelStyle }}>Days Taken</Text>
+              <Text style={{ ...valueStyle, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+                {totals.standard} {totals.standard !== 1 ? 'days' : 'day'}
+              </Text>
+              <Text style={{ ...labelStyle }}>Unpaid Days Remaining</Text>
+              {(() => {
+                // Default unpaid allowance is 5; subtract totals.unpaid.
+                const unpaidRemaining = 5 - totals.unpaid;
+                const style = { color: unpaidRemaining < 0 ? colours.cta : isDarkMode ? colours.dark.text : colours.light.text };
+                return (
+                  <Text style={{ ...valueStyle, ...style }}>
+                    {unpaidRemaining} {unpaidRemaining !== 1 ? 'days' : 'day'}
+                  </Text>
+                );
+              })()}
+              <Text style={{ ...labelStyle }}>Available Days to 'Buy'</Text>
+              {(() => {
+                // Default to 5; subtract totals.purchase.
+                const buyRemaining = 5 - totals.purchase;
+                const style = { color: buyRemaining < 0 ? colours.cta : isDarkMode ? colours.dark.text : colours.light.text };
+                return (
+                  <Text style={{ ...valueStyle, ...style }}>
+                    {buyRemaining} {buyRemaining !== 1 ? 'days' : 'day'}
+                  </Text>
+                );
+              })()}
             </Stack>
-          ))}
+          </Stack>
+        </div>
+      </BespokeForm>
+
+      <Stack tokens={{ childrenGap: 20 }}>
+        {/* Team Leave Conflicts remains at the top */}
+        <div style={{ position: 'relative', marginBottom: "20px" }}>
           <div
             style={{
-              border: '2px dashed #ccc',
-              borderRadius: '4px',
-              width: '100%',
-              height: '50px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
+              ...infoBoxStyle,
+              backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.grey
             }}
-            onClick={addDateRange}
           >
-            <Icon iconName="Add" style={{ fontSize: 24, color: '#ccc', marginRight: 8 }} />
-            <Text style={{ color: '#ccc', fontSize: '16px' }}>Add Date Range</Text>
+            <Icon
+              iconName="Info"
+              style={{
+                position: 'absolute',
+                right: 10,
+                top: 10,
+                fontSize: 80,
+                opacity: 0.1,
+                color: isDarkMode ? colours.dark.text : colours.light.text
+              }}
+            />
+            <Stack tokens={{ childrenGap: 10 }}>
+              <Text style={{ ...labelStyle }}>Team Leave Conflicts</Text>
+            </Stack>
+            {groupedLeave.length > 0 && (
+              <Stack tokens={{ childrenGap: 10 }} style={{ marginTop: 20 }}>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(4, 1fr)',
+                    gap: '10px'
+                  }}
+                >
+                  {groupedLeave.map((item, idx) => {
+                    const formattedRanges = item.dateRanges
+                      .map(dr => {
+                        const start = new Date(dr.start_date);
+                        const end = new Date(dr.end_date);
+                        return dr.start_date === dr.end_date
+                          ? format(start, 'd MMM')
+                          : `${format(start, 'd MMM')} - ${format(end, 'd MMM')}`;
+                      })
+                      .join(' | ');
+                    let borderColor = colours.cta;
+                    if (item.status === 'approved') {
+                      borderColor = colours.orange;
+                    } else if (item.status === 'booked') {
+                      borderColor = colours.green;
+                    }
+                    return (
+                      <div
+                        key={idx}
+                        className="persona-bubble"
+                        style={{
+                          animationDelay: `${idx * 0.1}s`,
+                          border: `1px solid ${borderColor}`,
+                          backgroundColor: '#ffffff',
+                          padding: '5px',
+                          borderRadius: '4px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          minWidth: '150px'
+                        }}
+                      >
+                        <div className="persona-icon-container" style={{ backgroundColor: 'transparent' }}>
+                          <img
+                            src={HelixAvatar}
+                            alt={item.nickname}
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              borderRadius: '50%'
+                            }}
+                          />
+                        </div>
+                        <div style={{ marginTop: '5px', textAlign: 'center', width: '100%' }}>
+                          <div className="persona-name-text" style={{ fontWeight: 600, fontSize: '16px', color: colours.light.text }}>
+                            {item.nickname}
+                          </div>
+                          <div
+                            className="persona-range-text"
+                            style={{
+                              fontSize: '14px',
+                              fontWeight: 400,
+                              color: colours.light.text
+                            }}
+                          >
+                            {formattedRanges}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <Text
+                  style={{
+                    fontStyle: 'italic',
+                    marginTop: '10px',
+                    color: isDarkMode ? colours.dark.text : colours.light.text
+                  }}
+                >
+                  Please note: There are other team members scheduled for leave during the dates you've chosen. This may affect the likelihood of automatic approval for your request. You can still submit your request, and we will notify you of the outcome once a decision has been reached.
+                </Text>
+              </Stack>
+            )}
           </div>
-          <TextField
-            label="Notes (Optional)"
-            placeholder="Enter any additional notes"
-            value={notes}
-            onChange={(e, newVal) => setNotes(newVal || '')}
-            styles={textFieldStyles}
-            multiline
-            rows={3}
-          />
-        </Stack>
-      </BespokeForm>
+        </div>
+      </Stack>
     </Stack>
   );
 };

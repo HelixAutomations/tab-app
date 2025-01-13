@@ -49,6 +49,7 @@ export interface UserData {
   ASANAClientID?: string;
   ASANASecret?: string;
   ASANARefreshToken?: string;
+  holiday_entitlement?: number; // Add this field
 }
 
 // Define the structure for Enquiry

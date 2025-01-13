@@ -60,6 +60,8 @@ interface AnnualLeaveRecord {
   end_date: string;
   reason: string;
   status: string;
+  days_taken: number; // New field
+  leave_type: string | null; // New field
 }
 
 interface HomeProps {
@@ -309,7 +311,7 @@ const QuickActionsCardStyled: React.FC<{
     color: isDarkMode ? colours.dark.text : colours.light.text,
     padding: '20px',
     borderRadius: '12px',
-    boxShadow: '0 2px 6px rgba(0, 0, 0, 0.1)', 
+    boxShadow: '0 2px 6px rgba(0, 0, 0, 0.1)',
     display: 'flex',
     flexDirection: 'column',
     justifyContent: 'center',
@@ -342,7 +344,7 @@ const QuickActionsCardStyled: React.FC<{
   const quickActionLabelStyle = mergeStyles({
     fontWeight: '600',
     fontSize: '18px',
-    color: colours.highlight, 
+    color: colours.highlight,
     textAlign: 'center',
     zIndex: 1,
   });
@@ -552,7 +554,12 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const [isLoadingAnnualLeave, setIsLoadingAnnualLeave] = useState<boolean>(true);
   const [annualLeaveError, setAnnualLeaveError] = useState<string | null>(null);
   const [futureLeaveRecords, setFutureLeaveRecords] = useState<AnnualLeaveRecord[]>([]);
-
+  // New state for Totals
+  const [annualLeaveTotals, setAnnualLeaveTotals] = useState<{ standard: number; unpaid: number; purchase: number }>({
+    standard: 0,
+    unpaid: 0,
+    purchase: 0,
+  });
 
   // State for WIP Clio and Recovered
   const [wipClioData, setWipClioData] = useState<any>(null);
@@ -790,20 +797,27 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           const annualLeaveResponse = await fetch(
             `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_ANNUAL_LEAVE_PATH}?code=${process.env.REACT_APP_GET_ANNUAL_LEAVE_CODE}`,
             {
-              method: 'GET', 
+              method: 'POST', // Changed to POST
               headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                initials: userData[0]?.Initials || '', // Pass user's initials from userData
+              }),
             }
           );
-        
+
           if (!annualLeaveResponse.ok) throw new Error(`Failed to fetch annual leave: ${annualLeaveResponse.status}`);
           const annualLeaveData = await annualLeaveResponse.json();
-        
+
           if (annualLeaveData && Array.isArray(annualLeaveData.annual_leave)) {
             cachedAnnualLeave = annualLeaveData.annual_leave;
             setAnnualLeaveRecords(annualLeaveData.annual_leave);
-            // New: store future leave if available
+            // Store future leave if available
             if (Array.isArray(annualLeaveData.future_leave)) {
               setFutureLeaveRecords(annualLeaveData.future_leave);
+            }
+            // Store new totals if present
+            if (annualLeaveData.user_details && annualLeaveData.user_details.totals) {
+              setAnnualLeaveTotals(annualLeaveData.user_details.totals);
             }
           } else {
             throw new Error('Invalid annual leave data format.');
@@ -1363,7 +1377,13 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                   text="Request Annual Leave"
                   onClick={() => {
                     setBespokePanelContent(
-                      <AnnualLeaveForm futureLeave={futureLeaveRecords} team={teamData} userData={userData} />
+                      <AnnualLeaveForm
+                        futureLeave={futureLeaveRecords}
+                        team={teamData}
+                        userData={userData}
+                        // Pass the totals here
+                        totals={annualLeaveTotals}
+                      />
                     );
                     setBespokePanelTitle('Request Annual Leave');
                     setIsBespokePanelOpen(true);
@@ -1593,9 +1613,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         embedScript={{ key: 'QzaAr_2Q7kesClKq8g229g', formId: '109' }}
       />
 
-      {/* 
-        No longer using <HomePanel> for Annual Leave. 
-        It's now handled in the BespokePanel with <AnnualLeaveForm /> 
+      {/*
+        No longer using <HomePanel> for Annual Leave.
+        It's now handled in the BespokePanel with <AnnualLeaveForm>.
       */}
     </div>
   );
