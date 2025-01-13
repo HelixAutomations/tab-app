@@ -75,7 +75,7 @@ export const colours = {
   // Additional colors for specific areas of work
   orange: '#FF8C00', // Construction
   green: '#107c10', // Property
-  yellow: '#ffb900', // Employment
+  yellow: '#ffd54f', // Employment
   red: '#D65541', // CTA color used as red
   tagBackground: '#e1dfdd',
 

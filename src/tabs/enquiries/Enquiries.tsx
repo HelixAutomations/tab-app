@@ -14,6 +14,7 @@ import {
   Modal,
   Icon,
   SearchBox,
+  IStyle,
 } from '@fluentui/react';
 import {
   BarChart,
@@ -42,7 +43,6 @@ import { Context as TeamsContextType } from '@microsoft/teams-js';
 
 initializeIcons();
 
-// Container styles
 const containerStyle = (isDarkMode: boolean) =>
   mergeStyles({
     padding: '20px',
@@ -66,10 +66,8 @@ const footerStyle = (isDarkMode: boolean) =>
     gap: '10px',
     color: isDarkMode ? colours.dark.text : colours.light.text,
     fontSize: '14px',
-    fontFamily: 'Raleway, sans-serif',
   });
 
-// (Area color helper remains available, though for backdrop icons we use a fixed subtle grey.)
 const areaColor = (area: string) => {
   const normalizedArea = area.toLowerCase();
   switch (normalizedArea) {
@@ -126,7 +124,6 @@ const RatingIndicator: React.FC<RatingIndicatorProps> = ({ rating, isDarkMode, o
         height: '36px',
         color: 'white',
         cursor: 'pointer',
-        position: 'relative',
         transition: 'transform 0.2s',
         selectors: {
           ':hover': { transform: 'scale(1.1)' },
@@ -157,6 +154,7 @@ const Enquiries: React.FC<{
   poidData: POID[] | null;
   setPoidData: React.Dispatch<React.SetStateAction<POID[] | null>>;
 }> = ({ context, enquiries, userData, poidData, setPoidData }) => {
+  // Basic states
   const [localEnquiries, setLocalEnquiries] = useState<Enquiry[]>(enquiries || []);
   const { isDarkMode } = useTheme();
   const [selectedEnquiry, setSelectedEnquiry] = useState<Enquiry | null>(null);
@@ -169,47 +167,18 @@ const Enquiries: React.FC<{
   const [isSuccessVisible, setIsSuccessVisible] = useState<boolean>(false);
   const [showAll, setShowAll] = useState<boolean>(false);
 
-  // MAIN TYPES MENU (deselectable). "Silo" is removed.
-  // No default selection.
-  const [activeMainTab, setActiveMainTab] = useState<string>('');
+  // Hierarchy states
+  const [activeMainTab, setActiveMainTab] = useState<string>(''); // For state filter
   const [activeSubTab, setActiveSubTab] = useState<string>('Overview');
   const [convertedEnquiriesList, setConvertedEnquiriesList] = useState<Enquiry[]>([]);
   const [convertedPoidDataList, setConvertedPoidDataList] = useState<POID[]>([]);
-  // Track currently selected area-of-work from the top menu.
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<{ oldest: string; newest: string } | null>(null);
 
-  // State for search input reveal in types menu.
+  // For search input toggle (moved into menu)
   const [isSearchActive, setSearchActive] = useState<boolean>(false);
 
-  // MAIN TYPES MENU (excludes "Silo")
-  const mainTabs = [
-    { key: 'Claimed', text: 'Claimed' },
-    { key: 'Converted', text: 'Enquiry ID' },
-    { key: 'Claimable', text: 'Unclaimed' },
-    { key: 'Triaged', text: 'Triaged' },
-  ];
-
-  const subTabs = [
-    { key: 'Overview', text: 'Overview' },
-    { key: 'Pitch', text: 'Pitch' },
-    { key: 'Details', text: 'Details' },
-  ];
-
-  // Toggle type selection; deselect if clicked again.
-  const handleMainTabChange = useCallback(
-    (item?: PivotItem, ev?: React.MouseEvent<HTMLElement>) => {
-      if (item) {
-        const clickedKey = item.props.itemKey as string;
-        setActiveMainTab((prevKey) => (prevKey === clickedKey ? '' : clickedKey));
-        setCurrentPage(1);
-        setSelectedEnquiry(null);
-        setActiveSubTab('Overview');
-      }
-    },
-    []
-  );
-
+  // Callback: Change sub tab for enquiry detail view
   const handleSubTabChange = useCallback(
     (item?: PivotItem, ev?: React.MouseEvent<HTMLElement>) => {
       if (item) {
@@ -219,21 +188,41 @@ const Enquiries: React.FC<{
     []
   );
 
+  // Callback: Select an enquiry from the list
   const handleSelectEnquiry = useCallback((enquiry: Enquiry) => {
     setSelectedEnquiry(enquiry);
     setActiveSubTab('Overview');
   }, []);
 
+  // Callback: Back to enquiry list
   const handleBackToList = useCallback(() => {
     setSelectedEnquiry(null);
   }, []);
 
+  // Callback: Open rating modal
   const handleRate = useCallback((id: string) => {
     setRatingEnquiryId(id);
     setCurrentRating('');
     setIsRateModalOpen(true);
   }, []);
 
+  // Callback: Close rating modal
+  const closeRateModal = useCallback(() => {
+    setIsRateModalOpen(false);
+    setRatingEnquiryId(null);
+    setCurrentRating('');
+  }, []);
+
+  // Callback: Submit rating
+  const submitRating = useCallback(async () => {
+    if (ratingEnquiryId && currentRating) {
+      await handleEditRating(ratingEnquiryId, currentRating);
+      setIsSuccessVisible(true);
+      closeRateModal();
+    }
+  }, [ratingEnquiryId, currentRating, closeRateModal]);
+
+  // Callback: Edit rating (network request)
   const handleEditRating = useCallback(
     async (id: string, newRating: string): Promise<void> => {
       try {
@@ -263,32 +252,7 @@ const Enquiries: React.FC<{
     []
   );
 
-  const closeRateModal = useCallback(() => {
-    setIsRateModalOpen(false);
-    setRatingEnquiryId(null);
-    setCurrentRating('');
-  }, []);
-
-  const submitRating = useCallback(async () => {
-    if (ratingEnquiryId && currentRating) {
-      await handleEditRating(ratingEnquiryId, currentRating);
-      setIsSuccessVisible(true);
-      closeRateModal();
-    }
-  }, [ratingEnquiryId, currentRating, handleEditRating, closeRateModal]);
-
-  const triagedPointOfContactEmails = useMemo(
-    () =>
-      [
-        'automations@helix-law.com',
-        'commercial@helix-law.com',
-        'construction@helix-law.com',
-        'employment@helix-law.com',
-        'property@helix-law.com',
-      ].map((email) => email.toLowerCase()),
-    []
-  );
-
+  // Fetch POID data if missing
   useEffect(() => {
     (async () => {
       if (!poidData) {
@@ -315,6 +279,7 @@ const Enquiries: React.FC<{
     })();
   }, [poidData, setPoidData]);
 
+  // Update converted enquiries lists based on POID data
   useEffect(() => {
     if (poidData && localEnquiries.length > 0) {
       const converted = localEnquiries.filter((enquiry) =>
@@ -328,7 +293,7 @@ const Enquiries: React.FC<{
     }
   }, [poidData, localEnquiries]);
 
-  // Calculate date range based on enquiries.
+  // Determine enquiry date range
   useEffect(() => {
     if (localEnquiries.length > 0) {
       const validDates = localEnquiries
@@ -345,44 +310,104 @@ const Enquiries: React.FC<{
     }
   }, [localEnquiries]);
 
-  // Filtering: types menu, search term, and area-of-work.
+  // Monthly enquiry counts for chart
+  const monthlyEnquiryCounts = useMemo<MonthlyCount[]>(() => {
+    if (!localEnquiries) return [];
+    const counts: { [month: string]: MonthlyCount } = {};
+    localEnquiries.forEach((enquiry) => {
+      if (enquiry.Touchpoint_Date && enquiry.Area_of_Work) {
+        const date = parseISO(enquiry.Touchpoint_Date);
+        if (!isValid(date)) return;
+        const monthStart = startOfMonth(date);
+        const monthLabel = format(monthStart, 'MMM yyyy');
+        const area = enquiry.Area_of_Work.toLowerCase();
+        if (!counts[monthLabel]) {
+          counts[monthLabel] = {
+            month: monthLabel,
+            commercial: 0,
+            construction: 0,
+            employment: 0,
+            property: 0,
+          };
+        }
+        switch (area) {
+          case 'commercial':
+            counts[monthLabel].commercial += 1;
+            break;
+          case 'construction':
+            counts[monthLabel].construction += 1;
+            break;
+          case 'employment':
+            counts[monthLabel].employment += 1;
+            break;
+          case 'property':
+            counts[monthLabel].property += 1;
+            break;
+          default:
+            break;
+        }
+      }
+    });
+    const sortedMonths = Object.keys(counts).sort(
+      (a, b) => new Date(a).getTime() - new Date(b).getTime()
+    );
+    return sortedMonths.map((month) => counts[month]);
+  }, [localEnquiries]);
+
+  // Filter enquiries based on state, search term, and area
+  const triagedPointOfContactEmails = useMemo(
+    () =>
+      [
+        'automations@helix-law.com',
+        'commercial@helix-law.com',
+        'construction@helix-law.com',
+        'employment@helix-law.com',
+        'property@helix-law.com',
+      ].map((email) => email.toLowerCase()),
+    []
+  );
+
   const filteredEnquiries = useMemo(() => {
     let filtered: Enquiry[] = [];
-    switch (activeMainTab) {
-      case 'Claimed':
-        filtered = localEnquiries.filter(
-          (enquiry) =>
-            enquiry.Point_of_Contact?.toLowerCase() === (context?.userPrincipalName || '').toLowerCase()
-        );
-        break;
-      case 'Converted':
-        if (context && context.userPrincipalName) {
-          const userEmail = context.userPrincipalName.toLowerCase();
-          const userFilteredEnquiryIds = convertedPoidDataList
-            .filter((poid) => poid.poc?.toLowerCase() === userEmail)
-            .map((poid) => String(poid.acid));
-          filtered = convertedEnquiriesList.filter((enquiry) =>
-            userFilteredEnquiryIds.includes(enquiry.ID)
+    if (activeMainTab === 'All') {
+      filtered = localEnquiries;
+    } else {
+      switch (activeMainTab) {
+        case 'Claimed':
+          filtered = localEnquiries.filter(
+            (enquiry) =>
+              enquiry.Point_of_Contact?.toLowerCase() === (context?.userPrincipalName || '').toLowerCase()
           );
-        } else {
-          filtered = convertedEnquiriesList;
-        }
-        break;
-      case 'Claimable':
-        filtered = localEnquiries.filter(
-          (enquiry) => enquiry.Point_of_Contact?.toLowerCase() === 'team@helix-law.com'
-        );
-        break;
-      case 'Triaged':
-        filtered = localEnquiries.filter(
-          (enquiry) =>
-            enquiry.Point_of_Contact &&
-            triagedPointOfContactEmails.includes(enquiry.Point_of_Contact.toLowerCase())
-        );
-        break;
-      default:
-        filtered = localEnquiries;
-        break;
+          break;
+        case 'Converted':
+          if (context && context.userPrincipalName) {
+            const userEmail = context.userPrincipalName.toLowerCase();
+            const userFilteredEnquiryIds = convertedPoidDataList
+              .filter((poid) => poid.poc?.toLowerCase() === userEmail)
+              .map((poid) => String(poid.acid));
+            filtered = convertedEnquiriesList.filter((enquiry) =>
+              userFilteredEnquiryIds.includes(enquiry.ID)
+            );
+          } else {
+            filtered = convertedEnquiriesList;
+          }
+          break;
+        case 'Claimable':
+          filtered = localEnquiries.filter(
+            (enquiry) => enquiry.Point_of_Contact?.toLowerCase() === 'team@helix-law.com'
+          );
+          break;
+        case 'Triaged':
+          filtered = localEnquiries.filter(
+            (enquiry) =>
+              enquiry.Point_of_Contact &&
+              triagedPointOfContactEmails.includes(enquiry.Point_of_Contact.toLowerCase())
+          );
+          break;
+        default:
+          filtered = localEnquiries;
+          break;
+      }
     }
     if (searchTerm) {
       const lowerSearchTerm = searchTerm.toLowerCase();
@@ -505,12 +530,7 @@ const Enquiries: React.FC<{
           },
         }}
       >
-        <Stack
-          horizontal
-          horizontalAlign="space-between"
-          verticalAlign="center"
-          className={mergeStyles({ marginBottom: '20px' })}
-        >
+        <Stack horizontal horizontalAlign="space-between" verticalAlign="center" className={mergeStyles({ marginBottom: '20px' })}>
           <IconButton
             iconProps={{ iconName: 'Back' }}
             title="Back to Enquiries"
@@ -531,9 +551,8 @@ const Enquiries: React.FC<{
               },
             }}
           />
-          <div style={{ width: '40px' }}></div>
+          <div style={{ width: '40px' }} />
         </Stack>
-
         <Pivot
           selectedKey={activeSubTab}
           onLinkClick={handleSubTabChange}
@@ -571,224 +590,26 @@ const Enquiries: React.FC<{
     return row * delayPerRow + col * delayPerCol;
   };
 
-  // --- New Area of Work Tab Menu Styles and Options ---
-  const areaOfWorkTabs = [
-    { key: 'commercial', text: 'Commercial', icon: 'KnowledgeArticle' },
-    { key: 'construction', text: 'Construction', icon: 'ConstructionCone' },
-    { key: 'employment', text: 'Employment', icon: 'People' },
-    { key: 'property', text: 'Property', icon: 'CityNext' },
-  ];
-
-  // Each area tab now displays its icon as a subtle backdrop.
-  const areaTabStyle = (isSelected: boolean, area: string) =>
-    mergeStyles({
-      flex: 1,
-      height: '80px',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      cursor: 'pointer',
-      backgroundColor: isSelected
-        ? isDarkMode
-          ? `${areaColor(area)}20`
-          : `${areaColor(area)}20`
-        : isDarkMode
-        ? colours.dark.sectionBackground
-        : colours.light.sectionBackground,
-      borderBottom: isSelected ? `4px solid ${areaColor(area)}` : '4px solid transparent',
-      borderTopLeftRadius: '8px',
-      borderTopRightRadius: '8px',
-      boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-      marginRight: '4px',
-      transition: 'background-color 0.3s, border-bottom 0.3s, box-shadow 0.3s',
-      padding: '10px',
-      position: 'relative',
-      overflow: 'hidden',
-      selectors: {
-        ':hover': {
-          boxShadow: isDarkMode
-            ? '0 4px 12px rgba(0, 0, 0, 0.5)'
-            : '0 4px 12px rgba(0, 0, 0, 0.3)',
-          '.backdropIcon': { opacity: 0.6 },
-        },
-      },
-    });
-
-  const areaTabContainerStyle = mergeStyles({
-    display: 'flex',
-    width: '100%',
-    marginBottom: '10px',
-  });
-  // --- End of Area of Work Tab Menu ---
-
-  // --- Types Menu Search Button / Input ---
-  // For animated reveal, we animate width and opacity.
-  const searchButtonStyles = {
-    root: {
-      width: '40px',
-      height: '80px',
-      backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-      borderRadius: '0 0 8px 8px',
-      transition: 'all 0.3s ease',
-    },
-    icon: { fontSize: '20px' },
-  };
-
-  const searchInputStyles = {
-    root: {
-      width: isSearchActive ? '200px' : '0px',
-      opacity: isSearchActive ? 1 : 0,
-      border: 'none',
-      backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-      borderRadius: '0 0 8px 8px',
-      transition: 'width 0.3s ease, opacity 0.3s ease',
-      height: '80px',
-      display: 'flex',
-      alignItems: 'center',
-      padding: isSearchActive ? '0 10px' : '0px',
-      overflow: 'hidden' as 'hidden',
-    },
-    field: { border: 'none', background: 'transparent' },
-  };
-  // --- End of Search ---
-
-  // Process monthly enquiry counts stacked by area.
-  const monthlyEnquiryCounts = useMemo<MonthlyCount[]>(() => {
-    if (!localEnquiries) return [];
-    const counts: { [month: string]: MonthlyCount } = {};
-    localEnquiries.forEach((enquiry) => {
-      if (enquiry.Touchpoint_Date && enquiry.Area_of_Work) {
-        const date = parseISO(enquiry.Touchpoint_Date);
-        if (!isValid(date)) return;
-        const monthStart = startOfMonth(date);
-        const monthLabel = format(monthStart, 'MMM yyyy');
-        const area = enquiry.Area_of_Work.toLowerCase();
-        if (!counts[monthLabel]) {
-          counts[monthLabel] = {
-            month: monthLabel,
-            commercial: 0,
-            construction: 0,
-            employment: 0,
-            property: 0,
-          };
-        }
-        switch (area) {
-          case 'commercial':
-            counts[monthLabel].commercial += 1;
-            break;
-          case 'construction':
-            counts[monthLabel].construction += 1;
-            break;
-          case 'employment':
-            counts[monthLabel].employment += 1;
-            break;
-          case 'property':
-            counts[monthLabel].property += 1;
-            break;
-          default:
-            break;
-        }
-      }
-    });
-    const sortedMonths = Object.keys(counts).sort(
-      (a, b) => new Date(a).getTime() - new Date(b).getTime()
-    );
-    return sortedMonths.map((month) => counts[month]);
-  }, [localEnquiries]);
-
-  const areaCounts = useMemo(() => {
-    const counts: { [key: string]: number } = {
-      commercial: 0,
-      construction: 0,
-      employment: 0,
-      property: 0,
-    };
-    localEnquiries.forEach((enquiry) => {
-      const area = enquiry.Area_of_Work?.toLowerCase();
-      if (area && counts.hasOwnProperty(area)) {
-        counts[area]++;
-      }
-    });
-    return counts;
-  }, [localEnquiries]);
-
   return (
     <div className={containerStyle(isDarkMode)}>
       <div className={mergeStyles({ paddingTop: '0px', paddingBottom: '20px' })}>
-        {/* New Area of Work Tab Menu */}
         {!selectedEnquiry && (
           <Stack tokens={{ childrenGap: 10 }}>
-            <div className={areaTabContainerStyle}>
-              {areaOfWorkTabs.map((option) => {
-                const isSelected = selectedArea === option.key;
-                return (
-                  <div
-                    key={option.key}
-                    className={areaTabStyle(isSelected, option.key)}
-                    onClick={() => setSelectedArea(isSelected ? null : option.key)}
-                    aria-label={option.text}
-                  >
-                    <div style={{ position: 'relative', width: '100%', textAlign: 'center' }}>
-                      {/* Backdrop Icon: subtle grey, centered */}
-                      <Icon
-                        iconName={option.icon}
-                        className="backdropIcon"
-                        style={{
-                          position: 'absolute',
-                          top: '50%',
-                          left: '50%',
-                          transform: 'translate(-50%, -50%)',
-                          fontSize: '60px',
-                          opacity: 0.2,
-                          zIndex: 0,
-                          color: '#aaa',
-                          transition: 'opacity 0.3s ease',
-                        }}
-                      />
-                      <Text variant="xLarge" styles={{ root: { fontWeight: 700, position: 'relative', zIndex: 1 } }}>
-                        {option.text}
-                      </Text>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Types Menu with vertical separators and Animated Search */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-                borderRadius: '0 0 8px 8px',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-                padding: '0 10px',
+            <RedesignedCombinedMenu
+              activeArea={selectedArea}
+              setActiveArea={setSelectedArea}
+              activeState={activeMainTab}
+              setActiveState={(key) => {
+                setActiveMainTab(key);
+                setCurrentPage(1);
+                setSelectedEnquiry(null);
+                setActiveSubTab('Overview');
               }}
-            >
-              <CustomTabs
-                selectedKey={activeMainTab}
-                onLinkClick={handleMainTabChange}
-                tabs={mainTabs}
-                ariaLabel="Enquiries Main Tabs"
-              />
-              <div style={{ marginLeft: 'auto', position: 'relative', height: '80px', display: 'flex', alignItems: 'center' }}>
-                {isSearchActive ? (
-                  <SearchBox
-                    placeholder="Search enquiries..."
-                    value={searchTerm}
-                    onChange={(_, newValue) => setSearchTerm(newValue || '')}
-                    styles={searchInputStyles}
-                    onBlur={() => { if (!searchTerm) { setSearchActive(false); } }}
-                  />
-                ) : (
-                  <IconButton
-                    iconProps={{ iconName: 'Search' }}
-                    onClick={() => setSearchActive(true)}
-                    styles={searchButtonStyles}
-                  />
-                )}
-              </div>
-            </div>
+              searchTerm={searchTerm}
+              setSearchTerm={setSearchTerm}
+              isSearchActive={isSearchActive}
+              setSearchActive={setSearchActive}
+            />
           </Stack>
         )}
       </div>
@@ -805,7 +626,6 @@ const Enquiries: React.FC<{
           transition: 'background-color 0.3s',
         })}
       >
-        {/* Show chart only if no area or type is selected */}
         {!selectedEnquiry && !selectedArea && !activeMainTab ? (
           <>
             {dateRange && (
@@ -838,7 +658,6 @@ const Enquiries: React.FC<{
                 </div>
               </div>
             )}
-
             <div
               className={mergeStyles({
                 marginTop: '40px',
@@ -1031,10 +850,7 @@ const Enquiries: React.FC<{
             https://helix-law.co.uk/
           </Link>
           {' | '}
-          <Text
-            variant="small"
-            styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.light.subText, display: 'inline', fontFamily: 'Raleway, sans-serif' } }}
-          >
+          <Text variant="small" styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.light.subText, display: 'inline', fontFamily: 'Raleway, sans-serif' } }}>
             01273 761990
           </Text>
         </Text>
@@ -1099,3 +915,186 @@ const Enquiries: React.FC<{
 };
 
 export default Enquiries;
+
+//
+// Redesigned Combined Menu with Integrated Search
+//
+
+interface RedesignedCombinedMenuProps {
+  activeArea: string | null;
+  setActiveArea: React.Dispatch<React.SetStateAction<string | null>>;
+  activeState: string;
+  setActiveState: (key: string) => void;
+  searchTerm: string;
+  setSearchTerm: React.Dispatch<React.SetStateAction<string>>;
+  isSearchActive: boolean;
+  setSearchActive: React.Dispatch<React.SetStateAction<boolean>>;
+}
+
+const RedesignedCombinedMenu: React.FC<RedesignedCombinedMenuProps> = ({
+  activeArea,
+  setActiveArea,
+  activeState,
+  setActiveState,
+  searchTerm,
+  setSearchTerm,
+  isSearchActive,
+  setSearchActive,
+}) => {
+  const { isDarkMode } = useTheme();
+
+  const menuContainer = mergeStyles({
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '12px 20px',
+    borderRadius: '8px',
+    boxShadow: isDarkMode
+      ? '0px 2px 8px rgba(0,0,0,0.6)'
+      : '0px 2px 8px rgba(0,0,0,0.1)',
+    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+    marginBottom: '20px',
+  });
+
+  const areaItem = mergeStyles({
+    display: 'flex',
+    alignItems: 'center',
+    padding: '8px 12px',
+    marginRight: '12px',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    transition: 'background-color 0.3s, border 0.3s',
+    border: '2px solid transparent',
+    selectors: {
+      ':hover': {
+        backgroundColor: isDarkMode ? `${colours.dark.subText}20` : `${colours.light.subText}20`,
+      },
+    },
+  });
+
+  const activeAreaItem = mergeStyles({
+    border: `2px solid ${areaColor(activeArea || '')}`,
+    backgroundColor: `${areaColor(activeArea || '')}20`,
+  });
+
+  const areaIconStyle = {
+    marginRight: '8px',
+    fontSize: '20px',
+    color: '#aaa',
+  };
+
+  // When selected, the text should be dark.
+  const areaTextStyle = (isSelected: boolean) => ({
+    fontWeight: isSelected ? 600 : 400,
+    color: isSelected ? (isDarkMode ? colours.dark.text : '#061733') : (isDarkMode ? colours.dark.text : colours.light.text),
+  });
+
+  const stateButton = mergeStyles({
+    padding: '8px 16px',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    transition: 'background-color 0.3s, color 0.3s',
+    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+    selectors: {
+      ':hover': {
+        backgroundColor: isDarkMode ? `${colours.dark.subText}20` : `${colours.light.subText}20`,
+        color: 'white',
+      },
+    },
+  });
+
+  // Use colours.grey for selected state button fill
+  const activeStateButton = mergeStyles({
+    backgroundColor: isDarkMode ? colours.dark.grey : colours.light.grey,
+    color: 'white',
+    border: 'none',
+  });
+
+  const searchContainer = mergeStyles({
+    display: 'flex',
+    alignItems: 'center',
+    position: 'relative',
+  });
+
+  const searchBoxStyles = mergeStyles({
+    width: isSearchActive ? '180px' : '0px',
+    opacity: isSearchActive ? 1 : 0,
+    transition: 'width 0.3s, opacity 0.3s',
+    overflow: 'hidden',
+    marginLeft: '8px',
+  });
+
+  const searchIconContainer = mergeStyles({
+    cursor: 'pointer',
+  });
+
+  const areaTabs = [
+    { key: 'commercial', text: 'Commercial', icon: 'KnowledgeArticle' },
+    { key: 'construction', text: 'Construction', icon: 'ConstructionCone' },
+    { key: 'employment', text: 'Employment', icon: 'People' },
+    { key: 'property', text: 'Property', icon: 'CityNext' },
+  ];
+
+  const stateTabs = [
+    { key: 'All', text: 'All' },
+    { key: 'Claimed', text: 'Claimed' },
+    { key: 'Converted', text: 'Enquiry ID' },
+    { key: 'Claimable', text: 'Unclaimed' },
+    { key: 'Triaged', text: 'Triaged' },
+  ];
+
+  return (
+    <div className={menuContainer}>
+      <Stack horizontal tokens={{ childrenGap: 12 }} verticalAlign="center">
+        {areaTabs.map((area) => {
+          const isSelected = activeArea === area.key;
+          return (
+            <div
+              key={area.key}
+              className={mergeStyles(areaItem, isSelected && activeAreaItem)}
+              onClick={() => setActiveArea(isSelected ? null : area.key)}
+              aria-label={area.text}
+            >
+              <Icon iconName={area.icon} styles={{ root: { ...areaIconStyle } }} />
+              <Text variant="mediumPlus" styles={{ root: areaTextStyle(isSelected) as IStyle }}>
+                {area.text}
+              </Text>
+            </div>
+          );
+        })}
+      </Stack>
+      <Stack horizontal tokens={{ childrenGap: 12 }} verticalAlign="center">
+        {stateTabs.map((state) => {
+          const isSelected = activeState === state.key;
+          return (
+            <div
+              key={state.key}
+              className={mergeStyles(stateButton, isSelected && activeStateButton)}
+              onClick={() => setActiveState(isSelected ? '' : state.key)}
+              aria-label={state.text}
+            >
+              <Text variant="medium" styles={{ root: { fontWeight: isSelected ? 600 : 400 } }}>
+                {state.text}
+              </Text>
+            </div>
+          );
+        })}
+        <div className={searchIconContainer} onClick={() => setSearchActive(!isSearchActive)}>
+          {isSearchActive ? (
+            <Icon iconName="Cancel" styles={{ root: { fontSize: '20px', color: isDarkMode ? colours.dark.text : colours.light.text } }} />
+          ) : (
+            <Icon iconName="Search" styles={{ root: { fontSize: '20px', color: isDarkMode ? colours.dark.text : colours.light.text } }} />
+          )}
+        </div>
+        <div className={searchBoxStyles}>
+          <SearchBox
+            placeholder="Search enquiries..."
+            value={searchTerm}
+            onChange={(_, newValue) => setSearchTerm(newValue || '')}
+            underlined
+          />
+        </div>
+      </Stack>
+    </div>
+  );
+};
