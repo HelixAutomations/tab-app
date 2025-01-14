@@ -1,5 +1,3 @@
-// src/tabs/enquiries/EmailSignature.tsx
-
 import React from 'react';
 
 interface EmailSignatureProps {
@@ -8,7 +6,6 @@ interface EmailSignatureProps {
 }
 
 const EmailSignature: React.FC<EmailSignatureProps> = ({ bodyHtml, userData }) => {
-  // Extract user info
   const userFullName = userData?.[0]?.['Full Name'] || '';
   const userInitials = userFullName
     ? userFullName
@@ -18,10 +15,6 @@ const EmailSignature: React.FC<EmailSignatureProps> = ({ bodyHtml, userData }) =
     : 'fe'; // fallback
   const userEmail = `${userInitials}@helix-law.com`;
 
-  // "Bulletproof" signature using tables + inline styles
-  // The disclaimers are fully spelled out, inlined at 6pt or 7pt, etc.
-  // This version aims to mirror the structure from your forwarded code.
-
   const signatureHtml = `
 <!DOCTYPE html>
 <html lang="en">
@@ -29,20 +22,25 @@ const EmailSignature: React.FC<EmailSignatureProps> = ({ bodyHtml, userData }) =
   <meta charset="UTF-8" />
   <title>Helix Email</title>
 </head>
-<body style="margin:0; padding:0; font-family: Raleway, sans-serif; font-size:10pt; line-height:1.4;">
+<body style="margin:0; padding:0; font-family: Raleway, sans-serif; font-size:10pt; line-height:1.4; color:#000;">
   <!-- The main email content from PitchBuilder -->
-  <div style="margin-bottom:16px;">
+  <div style="margin-bottom:16px; font-family: Raleway, sans-serif; color:#000;">
     ${bodyHtml}
   </div>
 
   <!-- Signature Table -->
-  <table border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse; margin:0; padding:0; width:auto;">
+  <table
+    border="0"
+    cellpadding="0"
+    cellspacing="0"
+    style="border-collapse:collapse; margin:0; padding:0; width:auto; font-family: Raleway, sans-serif; color:#000;"
+  >
     <!-- Spacing -->
     <tr style="height:10px;"><td></td></tr>
 
     <!-- Logo Row -->
     <tr>
-      <td>
+      <td style="font-family: Raleway, sans-serif; color:#000;">
         <img
           src="https://helix-law.co.uk/wp-content/uploads/2025/01/Asset-2@72x.png"
           alt="Helix Law Logo"
@@ -56,55 +54,55 @@ const EmailSignature: React.FC<EmailSignatureProps> = ({ bodyHtml, userData }) =
 
     <!-- Contact Row -->
     <tr>
-      <td>
+      <td style="font-family: Raleway, sans-serif; color:#000;">
         <table border="0" cellpadding="0" cellspacing="0" style="border-collapse: collapse;">
           <tr>
             <!-- Email Icon -->
-            <td style="padding-right:4px; vertical-align:middle;">
+            <td style="padding-right:4px; vertical-align:middle; font-family: Raleway, sans-serif; color:#000;">
               <img
                 src="https://helix-law.co.uk/wp-content/uploads/2024/10/Asset-4.png"
                 alt="Email Icon"
                 style="height:12px; vertical-align:middle;"
               />
             </td>
-            <td style="padding-right:15px; vertical-align:middle;">
+            <td style="padding-right:15px; vertical-align:middle; font-family: Raleway, sans-serif; color:#000;">
               <a
                 href="mailto:${userEmail}"
-                style="color:#3690CE; text-decoration:none;"
+                style="font-family: Raleway, sans-serif; color:#3690CE; text-decoration:none;"
               >
                 ${userEmail}
               </a>
             </td>
 
             <!-- Phone Icon -->
-            <td style="padding-right:4px; vertical-align:middle;">
+            <td style="padding-right:4px; vertical-align:middle; font-family: Raleway, sans-serif; color:#000;">
               <img
                 src="https://helix-law.co.uk/wp-content/uploads/2024/10/Asset-3.png"
                 alt="Phone Icon"
                 style="height:12px; vertical-align:middle;"
               />
             </td>
-            <td style="padding-right:15px; vertical-align:middle;">
+            <td style="padding-right:15px; vertical-align:middle; font-family: Raleway, sans-serif; color:#000;">
               <a
                 href="tel:+443453142044"
-                style="color:#0D2F60; text-decoration:none;"
+                style="font-family: Raleway, sans-serif; color:#0D2F60; text-decoration:none;"
               >
                 0345 314 2044
               </a>
             </td>
 
             <!-- Website Icon -->
-            <td style="padding-right:4px; vertical-align:middle;">
+            <td style="padding-right:4px; vertical-align:middle; font-family: Raleway, sans-serif; color:#000;">
               <img
                 src="https://helix-law.co.uk/wp-content/uploads/2024/10/Asset-1.png"
                 alt="Website Icon"
                 style="height:12px; vertical-align:middle;"
               />
             </td>
-            <td style="padding-right:0; vertical-align:middle;">
+            <td style="padding-right:0; vertical-align:middle; font-family: Raleway, sans-serif; color:#000;">
               <a
                 href="https://www.helix-law.com/"
-                style="color:#3690CE; text-decoration:none;"
+                style="font-family: Raleway, sans-serif; color:#3690CE; text-decoration:none;"
               >
                 www.helix-law.com
               </a>
@@ -116,7 +114,7 @@ const EmailSignature: React.FC<EmailSignatureProps> = ({ bodyHtml, userData }) =
 
     <!-- Address Row -->
     <tr>
-      <td style="padding-top:5px;">
+      <td style="padding-top:5px; font-family: Raleway, sans-serif; color:#000;">
         <table border="0" cellpadding="0" cellspacing="0" style="border-collapse: collapse;">
           <tr>
             <!-- Location Icon -->
@@ -127,7 +125,7 @@ const EmailSignature: React.FC<EmailSignatureProps> = ({ bodyHtml, userData }) =
                 style="height:12px; vertical-align:middle;"
               />
             </td>
-            <td style="vertical-align:middle; color:#0D2F60;">
+            <td style="vertical-align:middle; color:#0D2F60; font-family: Raleway, sans-serif;">
               Helix Law Ltd, Second Floor, Britannia House, 21 Station Street, Brighton, BN1 4DE
             </td>
           </tr>
@@ -140,7 +138,7 @@ const EmailSignature: React.FC<EmailSignatureProps> = ({ bodyHtml, userData }) =
 
     <!-- Disclaimer Row -->
     <tr>
-      <td style="color:#D65541; font-size:7pt; line-height:1.5;">
+      <td style="color:#D65541; font-size:7pt; line-height:1.5; font-family: Raleway, sans-serif;">
         DISCLAIMER: Please be aware of cyber-crime. Our bank account details will NOT change during the course of a transaction.
         Helix Law Limited will not be liable if you transfer money to an incorrect account.
         We accept no responsibility or liability for malicious or fraudulent emails purportedly coming from our firm,
@@ -153,7 +151,7 @@ const EmailSignature: React.FC<EmailSignatureProps> = ({ bodyHtml, userData }) =
 
     <!-- Additional Disclaimer Text Row -->
     <tr>
-      <td style="font-style:italic; font-size:7pt; line-height:1.5; color:#444;">
+      <td style="font-style:italic; font-size:7pt; line-height:1.5; color:#444; font-family: Raleway, sans-serif;">
         Helix Law Limited is a limited liability company registered in England and Wales. Registration Number 07845461.
         A list of Directors is available for inspection at the Registered Office: Second Floor, Britannia House, 21 Station Street, Brighton, BN1 4DE.
         Authorised and regulated by the Solicitors Regulation Authority. The term partner is a reference to a Director or senior solicitor of Helix Law Limited.
