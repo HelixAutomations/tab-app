@@ -42,14 +42,25 @@ import EmailSignature from './EmailSignature';
  * Converting them into <p> ensures consistent spacing.
  */
 function convertDoubleBreaksToParagraphs(html: string): string {
-  // Wrap content in an initial <p> so we can easily "split" paragraphs
-  let wrapped = `<p>${html}</p>`;
+  // 1) Normalize line endings (optional, but helps if you have \r\n combos):
+  const normalized = html.replace(/\r\n/g, '\n');
 
-  // Replace consecutive <br> with a closing </p> and a new <p>
-  // That means every "blank line" becomes a new paragraph
-  wrapped = wrapped.replace(/(<br\s*\/?>\s*){2,}/g, '</p><p>');
+  // 2) Split on two or more consecutive newlines:
+  const paragraphs = normalized.split(/\n\s*\n/);
 
-  return wrapped;
+  // 3) Wrap each chunk in a <p> tag:
+  const wrapped = paragraphs.map((paragraph) => {
+    // Trim each paragraph just in case
+    const trimmed = paragraph.trim();
+
+    // If it’s empty, we can turn it into a single <p>&nbsp;</p> or skip it
+    return trimmed
+      ? `<p>${trimmed}</p>`
+      : `<p style="margin:0;">&nbsp;</p>`;
+  });
+
+  // 4) Join them up without extra line breaks, so the final is all <p>…</p><p>…</p>
+  return wrapped.join('');
 }
 
 interface PitchBuilderProps {
@@ -563,13 +574,23 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
     // Remove leftover placeholders
     const noPlaceholders = removeUnfilledPlaceholders(rawHtml);
 
-    // Convert multiple <br><br> lines into <p> paragraphs
-    const finalHtml = convertDoubleBreaksToParagraphs(noPlaceholders);
+  // After removing leftover placeholders/highlights in handleDraftEmail():
+  const finalHtml = convertDoubleBreaksToParagraphs(noPlaceholders);
 
-    // Render final email with your signature
-    const fullEmailHtml = ReactDOMServer.renderToStaticMarkup(
-      <EmailSignature bodyHtml={finalHtml} userData={userData} />
-    );
+  // Instead of just passing finalHtml, wrap it in a table:
+  const wrappedBody = `
+    <table width="100%" border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+      <tr>
+        <td style="padding:10px; font-family:Raleway, sans-serif; font-size:10pt; color:#000;">
+          ${finalHtml}
+        </td>
+      </tr>
+    </table>
+  `;
+
+  const fullEmailHtml = ReactDOMServer.renderToStaticMarkup(
+    <EmailSignature bodyHtml={wrappedBody} userData={userData} />
+  );
 
     const requestBody = {
       email_contents: fullEmailHtml,
