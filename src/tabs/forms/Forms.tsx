@@ -23,6 +23,7 @@ import '../../app/styles/FormCard.css';
 
 // Import Financial Forms
 import { financialForms } from './FinancialForms';
+import { UserData } from '../../app/functionality/types';
 
 // Initialize Fluent UI icons
 initializeIcons();
@@ -123,7 +124,7 @@ const footerStyle = (isDarkMode: boolean) =>
     fontFamily: 'Raleway, sans-serif',
   });
 
-const Forms: React.FC = () => {
+const Forms: React.FC<{ userData: UserData[] | null }> = ({ userData }) => {
   const { isDarkMode } = useTheme();
   const [favorites, setFavorites] = useState<FormItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -508,6 +509,7 @@ const Forms: React.FC = () => {
           link={selectedLink}
           isDarkMode={isDarkMode}
           isFinancial={selectedLink?.tags?.includes('Financial')}
+          userData={userData} // Add this line
         />
       )}
     </div>

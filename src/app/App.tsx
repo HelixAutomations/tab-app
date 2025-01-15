@@ -70,7 +70,7 @@ const App: React.FC<AppProps> = ({
       case 'home':
         return <Home context={teamsContext} userData={userData} enquiries={enquiries} />;
       case 'forms':
-        return <Forms />;
+        return <Forms userData={userData} />;
       case 'resources':
         return <Resources />;
       case 'enquiries':

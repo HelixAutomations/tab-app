@@ -13,11 +13,6 @@ import { mergeStyles } from '@fluentui/react';
 import { colours } from '../app/styles/colours';
 import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from '../app/styles/ButtonStyles';
 
-// Type Guard to check if a value is a File
-const isFile = (value: any): value is File => {
-  return value instanceof File;
-};
-
 export const INPUT_HEIGHT = 40;
 
 export const formContainerStyle = mergeStyles({
@@ -141,40 +136,6 @@ export const toggleStyle = mergeStyles({
   },
 });
 
-export const buttonStyle = mergeStyles({
-  height: `${INPUT_HEIGHT}px`,
-  padding: '0 20px',
-  borderRadius: '4px',
-  fontWeight: '600',
-  backgroundColor: colours.cta,
-  color: '#ffffff',
-  border: 'none',
-  lineHeight: `${INPUT_HEIGHT}px`,
-  selectors: {
-    ':hover': {
-      backgroundColor: colours.red,
-    },
-    ':active': {
-      backgroundColor: colours.cta,
-    },
-  },
-});
-
-export const cancelButtonStyle = mergeStyles({
-  height: `${INPUT_HEIGHT}px`,
-  padding: '0 20px',
-  borderRadius: '4px',
-  fontWeight: '600',
-  backgroundColor: colours.light.cardHover,
-  color: colours.greyText,
-  lineHeight: `${INPUT_HEIGHT}px`,
-  selectors: {
-    ':hover': {
-      backgroundColor: colours.light.cardBackground,
-    },
-  },
-});
-
 export interface FormField {
   label: string;
   name: string;
@@ -194,7 +155,7 @@ export interface FormField {
 
 export interface BespokeFormProps {
   fields: FormField[];
-  onSubmit: (values: { [key: string]: string | number | boolean | File }) => void;
+  onSubmit: (values: { [key: string]: any }) => void;
   onCancel: () => void;
   isSubmitting?: boolean;
   style?: React.CSSProperties;
@@ -209,15 +170,39 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
   style,
   children,
 }) => {
-  const [formValues, setFormValues] = React.useState<{ [key: string]: string | number | boolean | File }>({});
+  const [formValues, setFormValues] = React.useState<{ [key: string]: any }>({});
 
-  const handleInputChange = (field: string, value: string | number | boolean | File) => {
-    setFormValues((prev) => ({ ...prev, [field]: value }));
+  const convertFileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          resolve(reader.result);
+        } else {
+          reject(new Error('FileReader result was not a string'));
+        }
+      };
+      reader.onerror = (error) => reject(error);
+    });
   };
 
-  const handleFileChange = (field: string, file: File | null) => {
-    if (file) {
-      handleInputChange(field, file);
+  const handleInputChange = (fieldName: string, value: any) => {
+    setFormValues((prev) => ({ ...prev, [fieldName]: value }));
+  };
+
+  const handleFileChange = async (fieldName: string, file: File | null) => {
+    if (!file) return;
+    try {
+      const base64 = await convertFileToBase64(file);
+      handleInputChange(fieldName, {
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type,
+        base64: base64,
+      });
+    } catch (err) {
+      console.error('File read error:', err);
     }
   };
 
@@ -253,7 +238,6 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                 </Stack>
               );
             }
-
             switch (field.type) {
               case 'dropdown':
                 return (
@@ -273,7 +257,7 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                     <Toggle
                       label={field.label}
                       checked={Boolean(formValues[field.name])}
-                      onChange={(_, checked) => handleInputChange(field.name, checked || false)}
+                      onChange={(_, checked) => handleInputChange(field.name, !!checked)}
                       disabled={isSubmitting}
                       styles={{ root: toggleStyle }}
                     />
@@ -297,7 +281,13 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
               case 'currency-picker':
                 return (
                   <div key={index}>
-                    <label style={{ display: 'block', marginBottom: '5px', fontWeight: 600 }}>
+                    <label
+                      style={{
+                        display: 'block',
+                        marginBottom: '5px',
+                        fontWeight: 600,
+                      }}
+                    >
                       {field.label}
                       {field.required && ' *'}
                     </label>
@@ -319,7 +309,14 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                       />
                     </div>
                     {field.helpText && (
-                      <span style={{ color: colours.greyText, fontSize: '12px', marginTop: '10px', display: 'block' }}>
+                      <span
+                        style={{
+                          color: colours.greyText,
+                          fontSize: '12px',
+                          marginTop: '10px',
+                          display: 'block',
+                        }}
+                      >
                         {field.helpText}
                       </span>
                     )}
@@ -347,12 +344,14 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                       id={`file-input-${index}`}
                       type="file"
                       required={field.required}
-                      onChange={(e) => handleFileChange(field.name, e.target.files ? e.target.files[0] : null)}
+                      onChange={(e) =>
+                        handleFileChange(field.name, e.target.files ? e.target.files[0] : null)
+                      }
                       style={{ display: 'none' }}
                     />
-                    {isFile(fileValue) && (
+                    {fileValue?.fileName && (
                       <span style={{ marginTop: '10px', display: 'block', fontSize: '14px' }}>
-                        Selected File: {fileValue.name}
+                        Selected File: {fileValue.fileName}
                       </span>
                     )}
                     <span style={{ color: colours.greyText, fontSize: '12px', marginTop: '10px', display: 'block' }}>
@@ -387,7 +386,7 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
           <Stack horizontal tokens={{ childrenGap: 10 }}>
             <PrimaryButton
               type="submit"
-              text={isSubmitting ? "Submitting..." : "Submit"}
+              text={isSubmitting ? 'Submitting...' : 'Submit'}
               styles={sharedPrimaryButtonStyles}
               disabled={isSubmitting}
             />
@@ -395,6 +394,13 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
               type="button"
               text="Clear"
               onClick={handleClear}
+              styles={sharedDefaultButtonStyles}
+              disabled={isSubmitting}
+            />
+            <DefaultButton
+              type="button"
+              text="Cancel"
+              onClick={onCancel}
               styles={sharedDefaultButtonStyles}
               disabled={isSubmitting}
             />

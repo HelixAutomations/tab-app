@@ -1,5 +1,3 @@
-// src/tabs/forms/FormDetails.tsx
-
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Stack,
@@ -13,7 +11,7 @@ import {
   MessageBarType,
 } from '@fluentui/react';
 import { colours } from '../../app/styles/colours';
-import { FormItem } from '../../app/functionality/types';
+import { FormItem, UserData } from '../../app/functionality/types';
 import { mergeStyles } from '@fluentui/react';
 import loaderIcon from '../../assets/grey helix mark.png';
 import BespokeForm from '../../CustomForms/BespokeForms';
@@ -27,7 +25,8 @@ interface FormDetailsProps {
   isDarkMode: boolean;
   onClose: () => void;
   isOpen: boolean;
-  isFinancial?: boolean; // New prop
+  isFinancial?: boolean;
+  userData: UserData[] | null; // userData prop
 }
 
 const detailsContainerStyle = (isDarkMode: boolean) =>
@@ -71,7 +70,7 @@ const leftButtonsStyle = () =>
     gap: '10px',
   });
 
-const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose, isOpen }) => {
+const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose, isOpen, userData }) => {
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
   const [isCognitoLoaded, setIsCognitoLoaded] = useState<boolean>(false);
   const formContainerRef = useRef<HTMLDivElement>(null);
@@ -90,11 +89,9 @@ const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose, is
         resolve();
         return;
       }
-
       // Check if the script is already present
       const existingScript = document.getElementById('cognito-seamless-script');
       if (existingScript) {
-        // If the script is already present but Cognito is not ready, wait for it to load
         existingScript.addEventListener('load', () => {
           if ((window as any).Cognito) {
             resolve();
@@ -104,7 +101,6 @@ const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose, is
         });
         existingScript.addEventListener('error', () => reject(new Error('Failed to load Cognito script')));
       } else {
-        // If the script is not present, create and append it
         const script = document.createElement('script');
         script.id = 'cognito-seamless-script';
         script.src = 'https://www.cognitoforms.com/f/seamless.js';
@@ -138,16 +134,12 @@ const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose, is
   // Embed the form when the script is loaded
   useEffect(() => {
     if (isCognitoLoaded && link.embedScript && formContainerRef.current) {
-      // Clear previous content to avoid duplicate forms
       formContainerRef.current.innerHTML = '';
-
-      // Create script tag for the form
       const formScript = document.createElement('script');
       formScript.src = 'https://www.cognitoforms.com/f/seamless.js';
       formScript.async = true;
       formScript.setAttribute('data-key', link.embedScript.key);
       formScript.setAttribute('data-form', link.embedScript.formId);
-
       formContainerRef.current.appendChild(formScript);
     }
   }, [isCognitoLoaded, link.embedScript]);
@@ -168,22 +160,55 @@ const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose, is
     window.open(link.url, '_blank', 'noopener,noreferrer');
   }, [link.url]);
 
+  // Handler for financial form submission
+  const handleFinancialSubmit = useCallback(
+    async (values: any) => {
+      // Build the payload
+      const payload = {
+        formType: link.title,
+        data: values,
+        initials: userData?.[0]?.Initials || "N/A", // Only send initials
+      };
+
+      // Endpoint URL (REACT_APP_POST_FINANCIAL_TASK_PATH is set to 'postFinancialTask')
+      const endpointUrl = `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_POST_FINANCIAL_TASK_PATH}?code=${process.env.REACT_APP_POST_FINANCIAL_TASK_CODE}`;
+
+      try {
+        const response = await fetch(endpointUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          const errText = await response.text();
+          console.error("Error posting financial task:", errText);
+          // Optionally, show an error message to the user.
+        } else {
+          const result = await response.json();
+          console.log("Financial task created successfully:", result);
+          // Optionally, show a success message to the user.
+        }
+      } catch (error: any) {
+        console.error("Error in financial form submission:", error);
+      }
+    },
+    [link.title, userData]
+  );
+
   return (
     <BespokePanel
       isOpen={isOpen}
       onClose={onClose}
       title={link.title}
-      width="1000px" // Increased width by 200px (original was 800px)
+      width="1000px" // Increased width (original was 800px)
     >
-      {/* Main container with flex layout */}
+      {/* Main container */}
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         {/* Form Content */}
         <div style={{ flexGrow: 1, overflowY: 'auto', padding: '20px' }}>
           {link.embedScript ? (
-            <div
-              ref={formContainerRef}
-              style={{ flexGrow: 1 }}
-            >
+            <div ref={formContainerRef} style={{ flexGrow: 1 }}>
               {!isCognitoLoaded && (
                 <div style={loaderStyle}>
                   <img src={loaderIcon} alt="Loading..." style={{ width: '100px', height: 'auto' }} />
@@ -195,7 +220,7 @@ const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose, is
             <div style={{ flexGrow: 1 }}>
               <BespokeForm
                 fields={link.fields.map(field => ({ ...field, name: field.label }))}
-                onSubmit={(values) => console.log('Submitted Financial Form:', values)}
+                onSubmit={handleFinancialSubmit} // Custom submission handler
                 onCancel={() => console.log('Form cancelled')}
               />
             </div>
@@ -208,7 +233,6 @@ const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose, is
 
         {/* Footer: URL and Buttons */}
         <div className={detailsContainerStyle(isDarkMode)}>
-          {/* URL Section */}
           <Stack tokens={{ childrenGap: 6 }}>
             <Text variant="mediumPlus" styles={{ root: { fontWeight: 600 } }}>
               URL:
@@ -217,8 +241,6 @@ const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose, is
               {link.url}
             </Link>
           </Stack>
-
-          {/* Buttons */}
           <div className={buttonsContainerStyle(isDarkMode)}>
             <div className={leftButtonsStyle()}>
               <PrimaryButton

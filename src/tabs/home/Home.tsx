@@ -1596,6 +1596,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           onClose={() => setSelectedForm(null)}
           link={selectedForm}
           isDarkMode={isDarkMode}
+          userData={userData} // Pass userData here
         />
       )}
 
