@@ -1,7 +1,7 @@
 // src/CustomForms/AnnualLeaveForm.tsx
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Stack, Text, DefaultButton, TextField, Icon } from '@fluentui/react';
+import { Stack, Text, DefaultButton, TextField, Icon, TooltipHost } from '@fluentui/react';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';
 import BespokeForm, { FormField } from './BespokeForms';
@@ -381,17 +381,24 @@ function AnnualLeaveForm({
         />
 
         <Stack tokens={{ childrenGap: 5 }}>
-          <Text style={{ ...labelStyle }}>Days Taken</Text>
+          <Text style={{ ...labelStyle }}>Days taken so far this year</Text>
           <Text style={{ ...valueStyle, color: isDarkMode ? colours.dark.text : colours.light.text }}>
             {totals.standard} {totals.standard !== 1 ? 'days' : 'day'}
           </Text>
 
-          <Text style={{ ...labelStyle }}>Unpaid Days Remaining</Text>
+          <Text style={{ ...labelStyle }}>Days remaining this year</Text>
           <Text style={{ ...valueStyle, ...unpaidStyle }}>
             {unpaidRemaining} {unpaidRemaining !== 1 ? 'days' : 'day'}
           </Text>
 
-          <Text style={{ ...labelStyle }}>Available Days to 'Buy'</Text>
+          <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 5 }}>
+            <Text style={{ ...labelStyle }}>Available days to sell</Text>
+            <TooltipHost
+              content="Available days to sell if you wish to not take leave and be compensated per day pro rata to your salary."
+            >
+              <Icon iconName="Info" style={{ fontSize: '16px', cursor: 'default' }} />
+            </TooltipHost>
+          </Stack>
           <Text style={{ ...valueStyle, ...buyStyle }}>
             {buyRemaining} {buyRemaining !== 1 ? 'days' : 'day'}
           </Text>

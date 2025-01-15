@@ -254,9 +254,9 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
 
 [Google Review Placeholder]
 
-[First Name]
-
-[Full Name]
+[First Name]<br>
+<br>
+[Full Name]<br>
 [Position]`;
 
   // The main "body" of the editor content

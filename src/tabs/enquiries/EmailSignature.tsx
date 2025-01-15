@@ -42,7 +42,7 @@ const EmailSignature: React.FC<EmailSignatureProps> = ({ bodyHtml, userData }) =
     <tr>
       <td style="font-family: Raleway, sans-serif; color:#000;">
         <img
-          src="https://helix-law.co.uk/wp-content/uploads/2025/01/Asset-2@72x.png"
+          src="https://helix-law.co.uk/wp-content/uploads/2025/01/50px-logo.png"
           alt="Helix Law Logo"
           style="height:50px; display:block; margin:15px 0;"
         />
@@ -60,7 +60,7 @@ const EmailSignature: React.FC<EmailSignatureProps> = ({ bodyHtml, userData }) =
             <!-- Email Icon -->
             <td style="padding-right:4px; vertical-align:middle; font-family: Raleway, sans-serif; color:#000;">
               <img
-                src="https://helix-law.co.uk/wp-content/uploads/2024/10/Asset-4.png"
+                src="https://helix-law.co.uk/wp-content/uploads/2025/01/email.png"
                 alt="Email Icon"
                 style="height:12px; vertical-align:middle;"
               />
@@ -77,7 +77,7 @@ const EmailSignature: React.FC<EmailSignatureProps> = ({ bodyHtml, userData }) =
             <!-- Phone Icon -->
             <td style="padding-right:4px; vertical-align:middle; font-family: Raleway, sans-serif; color:#000;">
               <img
-                src="https://helix-law.co.uk/wp-content/uploads/2024/10/Asset-3.png"
+                src="https://helix-law.co.uk/wp-content/uploads/2025/01/phone.png"
                 alt="Phone Icon"
                 style="height:12px; vertical-align:middle;"
               />
@@ -94,7 +94,7 @@ const EmailSignature: React.FC<EmailSignatureProps> = ({ bodyHtml, userData }) =
             <!-- Website Icon -->
             <td style="padding-right:4px; vertical-align:middle; font-family: Raleway, sans-serif; color:#000;">
               <img
-                src="https://helix-law.co.uk/wp-content/uploads/2024/10/Asset-1.png"
+                src="https://helix-law.co.uk/wp-content/uploads/2025/01/website.png"
                 alt="Website Icon"
                 style="height:12px; vertical-align:middle;"
               />
@@ -120,7 +120,7 @@ const EmailSignature: React.FC<EmailSignatureProps> = ({ bodyHtml, userData }) =
             <!-- Location Icon -->
             <td style="padding-right:4px; vertical-align:middle;">
               <img
-                src="https://helix-law.co.uk/wp-content/uploads/2024/10/Asset-2.png"
+                src="https://helix-law.co.uk/wp-content/uploads/2025/01/location.png"
                 alt="Location Icon"
                 style="height:12px; vertical-align:middle;"
               />
