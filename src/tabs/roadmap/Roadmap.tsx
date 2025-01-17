@@ -45,6 +45,8 @@ let cachedRoadmapError: string | null = null;
 
 const normalizeStatus = (status: string): string => {
   switch (status.toLowerCase()) {
+    case 'completed':
+      return 'Recently Completed';
     case 'in_progress':
     case 'in progress':
       return 'In Progress';
@@ -62,6 +64,8 @@ const normalizeStatus = (status: string): string => {
 
 const getStatusIcon = (status: string) => {
   switch (status.toLowerCase()) {
+    case 'recently completed':
+      return 'Completed'; // Use an appropriate icon name for completed items
     case 'in progress':
       return 'Sync';
     case 'next':
@@ -165,10 +169,11 @@ const greyBubbleStyle = mergeStyles({
 });
 
 const statusColorMapping: { [key: string]: string } = {
-  'in progress': colours.cta, // CTA Red
-  'next': colours.highlight, // Highlight Blue at 100% opacity
-  'suggested': colours.darkBlue, // Same as 'Other' was
-  'add suggestion': colours.green, // Green for the form
+  'recently completed': colours.green, // Recently Completed now green
+  'in progress': colours.cta,
+  'next': colours.highlight,
+  'suggested': colours.darkBlue,
+  'add suggestion': colours.grey, // Changed from green to grey
 };
 
 const Roadmap: React.FC<RoadmapProps> = ({ userData }) => {
@@ -380,10 +385,25 @@ const Roadmap: React.FC<RoadmapProps> = ({ userData }) => {
   };
 
   const groupedRoadmapEntries = useMemo(() => {
-    const groups = roadmapData ? Object.entries(groupedRoadmap) : [];
+    const groupsArray = roadmapData ? Object.entries(groupedRoadmap) : [];
     // Append the form as a separate group
-    groups.push(['Add Suggestion', []]); // Empty entries array for the form
-    return groups.map(([status, entries], groupIndex) => ({
+    groupsArray.push(['Add Suggestion', []]); // Empty entries array for the form
+
+    const orderMapping: { [key: string]: number } = {
+      'Recently Completed': 1,
+      'In Progress': 2,
+      'Next': 3,
+      'Suggested': 4,
+      'Add Suggestion': 5,
+    };
+
+    groupsArray.sort((a, b) => {
+      const aOrder = orderMapping[a[0]] || 100;
+      const bOrder = orderMapping[b[0]] || 100;
+      return aOrder - bOrder;
+    });
+
+    return groupsArray.map(([status, entries], groupIndex) => ({
       status,
       entries,
       animationDelay: calculateGroupAnimationDelay(groupIndex),
@@ -427,7 +447,7 @@ const Roadmap: React.FC<RoadmapProps> = ({ userData }) => {
                         }}
                       >
                         {isFormGroup
-                          ? group.status // Just "Add Suggestion"
+                          ? group.status
                           : `${group.status} (${group.entries.length})`}
                       </Text>
                     </Stack>
@@ -439,9 +459,7 @@ const Roadmap: React.FC<RoadmapProps> = ({ userData }) => {
                           <div
                             key={entry.id}
                             className={mergeStyles({
-                              borderTop: `1px solid ${
-                                isDarkMode ? colours.dark.border : colours.light.border
-                              }`,
+                              borderTop: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                               paddingTop: '10px',
                               cursor: 'pointer',
                               display: 'flex',
@@ -540,9 +558,7 @@ const Roadmap: React.FC<RoadmapProps> = ({ userData }) => {
           maxWidth: '600px',
           padding: '30px',
           borderRadius: '12px',
-          backgroundColor: isDarkMode
-            ? colours.dark.sectionBackground
-            : colours.light.sectionBackground,
+          backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
           color: isDarkMode ? colours.dark.text : colours.light.text,
           fontFamily: 'Raleway, sans-serif',
         })}
@@ -628,7 +644,7 @@ const Roadmap: React.FC<RoadmapProps> = ({ userData }) => {
                   padding: '4px 8px',
                   borderRadius: '12px',
                   backgroundColor:
-                    statusColorMapping[normalizeStatus(selectedItem.status)] || colours.darkBlue,
+                    statusColorMapping[normalizeStatus(selectedItem.status).toLowerCase()] || colours.darkBlue,
                   color: 'white',
                   fontSize: '16px',
                   fontWeight: 'bold',

@@ -4,14 +4,10 @@ import { SecretClient } from "@azure/keyvault-secrets";
 import { Connection, Request as SqlRequest, TYPES } from "tedious";
 
 // Helper function to read and parse the HTTP request body.
-// This will handle the cases when the body is already an object, is a string, or is a ReadableStream.
 async function getRequestBody(req: HttpRequest): Promise<any> {
-  // If req.body is already an object, return it.
   if (req.body && typeof req.body === 'object' && !(req.body as any).getReader) {
     return req.body;
   }
-  
-  // If the body is a string, try to parse it.
   if (typeof req.body === 'string') {
     try {
       return JSON.parse(req.body);
@@ -19,8 +15,6 @@ async function getRequestBody(req: HttpRequest): Promise<any> {
       throw new Error("Unable to parse request body string as JSON.");
     }
   }
-  
-  // If the body is a ReadableStream, read it.
   if (req.body && typeof (req.body as any).getReader === 'function') {
     const reader = (req.body as any).getReader();
     let chunks = "";
@@ -35,8 +29,6 @@ async function getRequestBody(req: HttpRequest): Promise<any> {
       throw new Error("Unable to parse streamed request body as JSON.");
     }
   }
-  
-  // Fallback in case nothing matches.
   return {};
 }
 
@@ -48,7 +40,6 @@ export async function getAnnualLeaveHandler(req: HttpRequest, context: Invocatio
   const passwordSecretName = "sql-databaseserver-password";
   const sqlServer = "helix-database-server.database.windows.net";
   const projectDataDb = "helix-project-data";
-  // Removed team table querying per your request
 
   try {
     // 1) Retrieve SQL password from Azure Key Vault
@@ -86,17 +77,14 @@ export async function getAnnualLeaveHandler(req: HttpRequest, context: Invocatio
     }
 
     // 6) Compute the current financial year boundaries.
-    //     Financial year: April 1 to March 31.
     let fiscalStart: Date, fiscalEnd: Date;
-    const currentMonth = todayDate.getMonth(); // 0-indexed: Jan = 0, Feb = 1, ..., Dec = 11
+    const currentMonth = todayDate.getMonth(); 
     if (currentMonth < 3) {
-      // For Jan, Feb, Mar the fiscal year started on April 1 of the previous year
-      fiscalStart = new Date(todayDate.getFullYear() - 1, 3, 1); // April 1 of previous year
-      fiscalEnd = new Date(todayDate.getFullYear(), 2, 31);        // March 31 of current year
+      fiscalStart = new Date(todayDate.getFullYear() - 1, 3, 1);
+      fiscalEnd = new Date(todayDate.getFullYear(), 2, 31);
     } else {
-      // For Apr to Dec, the fiscal year starts this year
-      fiscalStart = new Date(todayDate.getFullYear(), 3, 1);       // April 1 of current year
-      fiscalEnd = new Date(todayDate.getFullYear() + 1, 2, 31);      // March 31 of next year
+      fiscalStart = new Date(todayDate.getFullYear(), 3, 1);
+      fiscalEnd = new Date(todayDate.getFullYear() + 1, 2, 31);
     }
     context.log("Fiscal Year Boundaries:", {
       fiscalStart: formatDate(fiscalStart),
@@ -427,14 +415,14 @@ async function queryUserAnnualLeave(
       sqlRequest.on("requestCompleted", () => {
         context.log("User Annual Leave Data Retrieved:", leaveEntries);
 
-        // Compute aggregates for each leave type
-        let total_standard = 0,
-          total_unpaid = 0,
-          total_purchase = 0;
+        let total_standard = 0;
+        let total_unpaid = 0;
+        let total_purchase = 0;
+
         leaveEntries.forEach(entry => {
           if (entry.leave_type && typeof entry.days_taken === "number") {
             const lt = entry.leave_type.toLowerCase();
-            if (lt === "standard") {
+            if (lt === "standard" && entry.status.toLowerCase() === "booked") {
               total_standard += entry.days_taken;
             } else if (lt === "unpaid") {
               total_unpaid += entry.days_taken;

@@ -21,7 +21,7 @@ import {
   Icon,
   PrimaryButton,
 } from '@fluentui/react';
-import { colours } from '../../app/styles/colours'; // Corrected import path
+import { colours } from '../../app/styles/colours';
 import { initializeIcons } from '@fluentui/react/lib/Icons';
 import MetricCard from './MetricCard';
 import GreyHelixMark from '../../assets/grey helix mark.png';
@@ -45,12 +45,14 @@ import ResourceDetails from '../resources/ResourceDetails';
 import HomePanel from './HomePanel';
 import { Context as TeamsContextType } from '@microsoft/teams-js';
 
-// Import the custom BespokePanel
 import BespokePanel from '../../app/functionality/BespokePanel';
 
-// ** Import the forms that use BespokeForm styling **
 import CreateTimeEntryForm from '../../CustomForms/CreateTimeEntryForm';
 import AnnualLeaveForm from '../../CustomForms/AnnualLeaveForm';
+
+// NEW: Import placeholders for approvals & bookings
+import AnnualLeaveApprovals from '../../CustomForms/AnnualLeaveApprovals';
+import AnnualLeaveBookings from '../../CustomForms/AnnualLeaveBookings';
 
 initializeIcons();
 
@@ -60,8 +62,9 @@ interface AnnualLeaveRecord {
   end_date: string;
   reason: string;
   status: string;
-  days_taken: number; // New field
-  leave_type: string | null; // New field
+  // If needed, add an id or unique identifier
+  id?: string;
+  // ...
 }
 
 interface HomeProps {
@@ -390,7 +393,6 @@ const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean; animationDel
 
   const textStyle = mergeStyles({ color: isDarkMode ? colours.dark.text : colours.light.text });
 
-  // If user is in the office
   if (person.presence === PersonaPresence.online) {
     return (
       <div className={bubbleStyle}>
@@ -409,9 +411,7 @@ const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean; animationDel
         </div>
       </div>
     );
-  }
-  // If user is on annual leave
-  else if (person.presence === PersonaPresence.busy) {
+  } else if (person.presence === PersonaPresence.busy) {
     return (
       <div className={bubbleStyle}>
         <div
@@ -435,9 +435,7 @@ const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean; animationDel
         </div>
       </div>
     );
-  }
-  // Otherwise fallback
-  else {
+  } else {
     return (
       <div className={bubbleStyle}>
         <div
@@ -472,7 +470,6 @@ let cachedTeamData: any[] | null = null;
 let cachedAnnualLeave: AnnualLeaveRecord[] | null = null;
 let cachedAnnualLeaveError: string | null = null;
 
-// Additional Caching Variables for WIP Clio and Recovered
 let cachedWipClio: any | null = null;
 let cachedWipClioError: string | null = null;
 let cachedRecovered: number | null = null;
@@ -535,8 +532,26 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
   const [isOfficeAttendancePanelOpen, setIsOfficeAttendancePanelOpen] = useState<boolean>(false);
 
-  // We no longer need isAnnualLeavePanelOpen or references to an older HomePanel for annual leave.
-  // We'll show the new AnnualLeaveForm in a BespokePanel.
+  const [annualLeaveRecords, setAnnualLeaveRecords] = useState<AnnualLeaveRecord[]>([]);
+  const [isLoadingAnnualLeave, setIsLoadingAnnualLeave] = useState<boolean>(true);
+  const [annualLeaveError, setAnnualLeaveError] = useState<string | null>(null);
+  const [futureLeaveRecords, setFutureLeaveRecords] = useState<AnnualLeaveRecord[]>([]);
+  const [annualLeaveTotals, setAnnualLeaveTotals] = useState<{
+    standard: number;
+    unpaid: number;
+    purchase: number;
+  }>({
+    standard: 0,
+    unpaid: 0,
+    purchase: 0,
+  });
+
+  const [wipClioData, setWipClioData] = useState<any>(null);
+  const [wipClioError, setWipClioError] = useState<string | null>(null);
+  const [recoveredData, setRecoveredData] = useState<number | null>(null);
+  const [recoveredError, setRecoveredError] = useState<string | null>(null);
+  const [isLoadingWipClio, setIsLoadingWipClio] = useState<boolean>(true);
+  const [isLoadingRecovered, setIsLoadingRecovered] = useState<boolean>(true);
 
   const [attendanceRecords, setAttendanceRecords] = useState<
     { name: string; confirmed: boolean; attendingToday: boolean }[]
@@ -549,34 +564,10 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const [currentUserName, setCurrentUserName] = useState<string>('User');
   const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
 
-  // Annual Leave State
-  const [annualLeaveRecords, setAnnualLeaveRecords] = useState<AnnualLeaveRecord[]>([]);
-  const [isLoadingAnnualLeave, setIsLoadingAnnualLeave] = useState<boolean>(true);
-  const [annualLeaveError, setAnnualLeaveError] = useState<string | null>(null);
-  const [futureLeaveRecords, setFutureLeaveRecords] = useState<AnnualLeaveRecord[]>([]);
-  // New state for Totals
-  const [annualLeaveTotals, setAnnualLeaveTotals] = useState<{ standard: number; unpaid: number; purchase: number }>({
-    standard: 0,
-    unpaid: 0,
-    purchase: 0,
-  });
-
-  // State for WIP Clio and Recovered
-  const [wipClioData, setWipClioData] = useState<any>(null);
-  const [wipClioError, setWipClioError] = useState<string | null>(null);
-  const [recoveredData, setRecoveredData] = useState<number | null>(null);
-  const [recoveredError, setRecoveredError] = useState<string | null>(null);
-  const [isLoadingWipClio, setIsLoadingWipClio] = useState<boolean>(true);
-  const [isLoadingRecovered, setIsLoadingRecovered] = useState<boolean>(true);
-
-  // State for the BespokePanel
   const [isBespokePanelOpen, setIsBespokePanelOpen] = useState<boolean>(false);
   const [bespokePanelContent, setBespokePanelContent] = useState<ReactNode>(null);
   const [bespokePanelTitle, setBespokePanelTitle] = useState<string>('');
 
-  const columnsForPeople = 3;
-
-  // Animations
   useEffect(() => {
     const styles = `
 @keyframes redPulse {
@@ -649,7 +640,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     };
   }, []);
 
-  // Load Favorites from LocalStorage
   useEffect(() => {
     const storedFormsFavorites = localStorage.getItem('formsFavorites');
     const storedResourcesFavorites = localStorage.getItem('resourcesFavorites');
@@ -682,7 +672,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     };
   }, []);
 
-  // Greet User
   useEffect(() => {
     if (userData && Array.isArray(userData) && userData.length > 0 && (userData[0].First || userData[0].First_Name)) {
       const firstName = userData[0].First || userData[0].First_Name || 'User';
@@ -704,7 +693,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     }
   }, [userData]);
 
-  // Calculate Enquiries
   useEffect(() => {
     if (enquiries) {
       const today = new Date();
@@ -736,7 +724,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     }
   }, [enquiries, currentUserEmail]);
 
-  // Typing effect
   useEffect(() => {
     let currentIndex = 0;
     setTypedGreeting('');
@@ -751,7 +738,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     return () => clearInterval(typingInterval);
   }, [greeting]);
 
-  // Fetch Attendance & Annual Leave
   useEffect(() => {
     if (cachedAttendance || cachedAttendanceError || cachedAnnualLeave || cachedAnnualLeaveError) {
       setAttendanceRecords(cachedAttendance || []);
@@ -767,7 +753,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           setIsLoadingAttendance(true);
           setIsLoadingAnnualLeave(true);
 
-          // Fetch Attendance
           const attendanceResponse = await fetch(
             `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_ATTENDANCE_PATH}?code=${process.env.REACT_APP_GET_ATTENDANCE_CODE}`,
             {
@@ -797,10 +782,10 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           const annualLeaveResponse = await fetch(
             `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_ANNUAL_LEAVE_PATH}?code=${process.env.REACT_APP_GET_ANNUAL_LEAVE_CODE}`,
             {
-              method: 'POST', // Changed to POST
+              method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                initials: userData[0]?.Initials || '', // Pass user's initials from userData
+                initials: userData[0]?.Initials || '',
               }),
             }
           );
@@ -811,11 +796,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           if (annualLeaveData && Array.isArray(annualLeaveData.annual_leave)) {
             cachedAnnualLeave = annualLeaveData.annual_leave;
             setAnnualLeaveRecords(annualLeaveData.annual_leave);
-            // Store future leave if available
             if (Array.isArray(annualLeaveData.future_leave)) {
               setFutureLeaveRecords(annualLeaveData.future_leave);
             }
-            // Store new totals if present
             if (annualLeaveData.user_details && annualLeaveData.user_details.totals) {
               setAnnualLeaveTotals(annualLeaveData.user_details.totals);
             }
@@ -834,9 +817,8 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
 
       fetchData();
     }
-  }, []);
+  }, [userData]);
 
-  // Fetch WIP Clio & Recovered
   useEffect(() => {
     if (cachedWipClio || cachedWipClioError || cachedRecovered || cachedRecoveredError) {
       setWipClioData(cachedWipClio);
@@ -902,7 +884,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
 
   const columns = useMemo(() => createColumnsFunction(isDarkMode), [isDarkMode]);
 
-  // Handle click on Quick Actions
   const handleActionClick = (action: QuickLink) => {
     let content: ReactNode = <div>No form available.</div>;
     let titleText: string = action.title;
@@ -947,14 +928,12 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       });
   };
 
-  // Office attendance
   const currentUserRecord = attendanceRecords.find((r) => r.name === currentUserName);
   const currentUserConfirmed = currentUserRecord ? currentUserRecord.confirmed : false;
   const officeAttendanceButtonText = currentUserConfirmed
     ? 'Update Office Attendance'
     : 'Confirm Office Attendance';
 
-  // Dates
   const today = new Date();
   const formattedToday = today.toISOString().split('T')[0];
   const day = today.getDay();
@@ -965,7 +944,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     officeSectionTitle = 'In the Office Tomorrow';
   }
 
-  // Map team
+  const columnsForPeople = 3;
   const allPeople = useMemo(() => {
     if (!teamData || teamData.length === 0) return [];
     return teamData
@@ -982,7 +961,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       });
   }, [teamData, attendanceRecords]);
 
-  // Metrics
   const metricsData = useMemo(() => {
     if (!wipClioData) {
       return [
@@ -1090,7 +1068,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     today,
   ]);
 
-  // Office Attendance Button
   const officeAttendanceButtonStyles = currentUserConfirmed
     ? {
         root: {
@@ -1140,34 +1117,140 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         },
       };
 
-  // "Request Annual Leave" button
-  const requestAnnualLeaveButtonStyles = {
-    root: {
-      backgroundColor: `${colours.light.border} !important`,
-      border: 'none !important',
-      height: '40px !important',
-      fontWeight: '600 !important',
-      borderRadius: '4px !important',
-      padding: '6px 12px !important',
-      transition: 'transform 0.3s, box-shadow 0.3s',
-    },
-    rootHovered: {
-      background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.15) 100%), ${colours.light.border} !important`,
-    },
-    rootPressed: {
-      background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.25) 100%), ${colours.light.border} !important`,
-    },
-    rootFocused: {
-      backgroundColor: `${colours.light.border} !important`,
-    },
-    label: {
-      color: isDarkMode ? colours.dark.text : colours.light.text,
-    },
-  };
+  const APPROVERS = ['AC', 'JW', 'LZ'];
+  const userInitials = userData?.[0]?.Initials || '';
+  const isApprover = APPROVERS.includes(userInitials);
 
-  const officeAttendanceIconProps = currentUserConfirmed
-    ? { iconName: 'CheckMark', styles: { root: { color: '#00a300' } } }
-    : { iconName: 'Warning', styles: { root: { color: '#ffffff' } } };
+  const approvalsNeeded = useMemo(
+    () => (isApprover ? annualLeaveRecords.filter((x) => x.status === 'requested') : []),
+    [annualLeaveRecords, isApprover]
+  );
+  const bookingsNeeded = useMemo(
+    () =>
+      annualLeaveRecords.filter(
+        (x) =>
+          (x.status === 'approved' || x.status === 'rejected') && x.person === userInitials
+      ),
+    [annualLeaveRecords, userInitials]
+  );
+
+  let manageLeaveLabel = 'Manage Annual Leave';
+  let needsAttention = false;
+  if (isApprover && approvalsNeeded.length > 0) {
+    manageLeaveLabel = 'Approve Annual Leave';
+    needsAttention = true;
+  } else if (bookingsNeeded.length > 0) {
+    manageLeaveLabel = 'Book Requested Leave';
+    needsAttention = true;
+  }
+  const manageLeaveButtonStyles = needsAttention
+    ? {
+        root: {
+          backgroundColor: `${colours.cta} !important`,
+          animation: 'redPulse 2s infinite !important',
+          border: 'none !important',
+          height: '40px !important',
+          fontWeight: '600 !important',
+          borderRadius: '4px !important',
+          padding: '6px 12px !important',
+          transition: 'box-shadow 0.3s, transform 0.3s, background 0.3s ease !important',
+          color: '#ffffff !important',
+        },
+      }
+    : {
+        root: {
+          backgroundColor: `${colours.light.border} !important`,
+          color: isDarkMode ? colours.dark.text : colours.light.text,
+          border: 'none !important',
+          height: '40px !important',
+          fontWeight: '600 !important',
+          borderRadius: '4px !important',
+          padding: '6px 12px !important',
+          transition: 'transform 0.3s, box-shadow 0.3s',
+        },
+      };
+
+  const handleManageLeaveClick = () => {
+    if (approvalsNeeded.length > 0 && bookingsNeeded.length > 0) {
+      setBespokePanelContent(
+        <Stack tokens={{ childrenGap: 30 }} style={{ padding: 20 }}>
+          <Stack tokens={{ childrenGap: 10 }}>
+            <Text variant="xLarge" styles={{ root: { fontWeight: 600 } }}>
+              Approve Annual Leave
+            </Text>
+            <AnnualLeaveApprovals
+              approvals={approvalsNeeded.map((item) => ({
+                id: item.id || `temp-${item.start_date}-${item.end_date}`,
+                person: item.person,
+                start_date: item.start_date,
+                end_date: item.end_date,
+                reason: item.reason,
+                status: item.status,
+              }))}
+              onClose={() => setIsBespokePanelOpen(false)}
+              team={teamData}
+              totals={annualLeaveTotals}
+              holidayEntitlement={userData[0]?.holiday_entitlement || 0}
+            />
+          </Stack>
+          <Stack tokens={{ childrenGap: 10 }}>
+            <Text variant="xLarge" styles={{ root: { fontWeight: 600 } }}>
+              Book Requested Leave
+            </Text>
+            <AnnualLeaveBookings
+              bookings={bookingsNeeded.map((item) => ({
+                id: item.id || `temp-${item.start_date}-${item.end_date}`,
+                person: item.person,
+                start_date: item.start_date,
+                end_date: item.end_date,
+                status: item.status,
+              }))}
+              onClose={() => setIsBespokePanelOpen(false)}
+              team={teamData}
+            />
+          </Stack>
+        </Stack>
+      );
+      setBespokePanelTitle('Manage Annual Leave');
+    } else if (isApprover && approvalsNeeded.length > 0) {
+      setBespokePanelContent(
+        <AnnualLeaveApprovals
+          approvals={approvalsNeeded.map((item) => ({
+            id: item.id || `temp-${item.start_date}-${item.end_date}`,
+            person: item.person,
+            start_date: item.start_date,
+            end_date: item.end_date,
+            reason: item.reason,
+            status: item.status,
+          }))}
+          onClose={() => setIsBespokePanelOpen(false)}
+          team={teamData}
+          totals={annualLeaveTotals}
+          holidayEntitlement={userData[0]?.holiday_entitlement || 0}
+        />
+      );
+      setBespokePanelTitle('Approve Annual Leave');
+    } else if (bookingsNeeded.length > 0) {
+      setBespokePanelContent(
+        <AnnualLeaveBookings
+          bookings={bookingsNeeded.map((item) => ({
+            id: item.id || `temp-${item.start_date}-${item.end_date}`,
+            person: item.person,
+            start_date: item.start_date,
+            end_date: item.end_date,
+            status: item.status,
+          }))}
+          onClose={() => setIsBespokePanelOpen(false)}
+          team={teamData}
+        />
+      );
+      setBespokePanelTitle('Book Requested Leave');
+    } else {
+      setBespokePanelContent(<div style={{ padding: 20 }}>No items to action.</div>);
+      setBespokePanelTitle('Manage Annual Leave');
+    }
+    setIsBespokePanelOpen(true);
+  };
 
   return (
     <div className={containerStyle(isDarkMode)}>
@@ -1176,7 +1259,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       </Stack>
 
       <Stack className={mainContentStyle} tokens={{ childrenGap: 40 }}>
-        {/* Quick Links & Metrics */}
         <div className={sectionRowStyle}>
           <div className={quickLinksStyle(isDarkMode)}>
             {quickActions.map((action: QuickLink, index: number) => {
@@ -1233,7 +1315,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           </div>
         </div>
 
-        {/* Favourites Section */}
         <div
           className={mergeStyles({
             backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
@@ -1316,9 +1397,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           )}
         </div>
 
-        {/* In the Office and Annual Leave Sections */}
         <div className={officeSectionRowStyle}>
-          {/* In the Office Today Section */}
           <div className={officeLeaveContainerStyle(isDarkMode)}>
             <Stack tokens={{ childrenGap: 20 }}>
               <Stack
@@ -1331,7 +1410,11 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                 <DefaultButton
                   text={officeAttendanceButtonText}
                   onClick={() => setIsOfficeAttendancePanelOpen(true)}
-                  iconProps={officeAttendanceIconProps}
+                  iconProps={
+                    currentUserConfirmed
+                      ? { iconName: 'CheckMark', styles: { root: { color: '#00a300' } } }
+                      : { iconName: 'Warning', styles: { root: { color: '#ffffff' } } }
+                  }
                   styles={officeAttendanceButtonStyles}
                   ariaLabel={officeAttendanceButtonText}
                 />
@@ -1362,7 +1445,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
 
           <div className={verticalPipeStyle}></div>
 
-          {/* Out or On Annual Leave Today Section */}
           <div className={officeLeaveContainerStyle(isDarkMode)}>
             <Stack tokens={{ childrenGap: 20 }}>
               <Stack
@@ -1372,26 +1454,54 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                 styles={{ root: { width: '100%' } }}
               >
                 <Text className={sectionLabelStyle(isDarkMode)}>Out or On Annual Leave Today</Text>
-                {/* Clicking this button now opens a BespokePanel with <AnnualLeaveForm /> */}
-                <DefaultButton
-                  text="Request Annual Leave"
-                  onClick={() => {
-                    setBespokePanelContent(
-                      <AnnualLeaveForm
-                        futureLeave={futureLeaveRecords}
-                        team={teamData}
-                        userData={userData}
-                        // Pass the totals here
-                        totals={annualLeaveTotals}
-                      />
-                    );
-                    setBespokePanelTitle('Request Annual Leave');
-                    setIsBespokePanelOpen(true);
-                  }}
-                  iconProps={{ iconName: 'Calendar' }}
-                  styles={requestAnnualLeaveButtonStyles}
-                  ariaLabel="Request Annual Leave"
-                />
+                <Stack horizontal tokens={{ childrenGap: 10 }}>
+                  <DefaultButton
+                    text="Request Annual Leave"
+                    onClick={() => {
+                      setBespokePanelContent(
+                        <AnnualLeaveForm
+                          futureLeave={futureLeaveRecords}
+                          team={teamData}
+                          userData={userData}
+                          totals={annualLeaveTotals}
+                        />
+                      );
+                      setBespokePanelTitle('Request Annual Leave');
+                      setIsBespokePanelOpen(true);
+                    }}
+                    iconProps={{ iconName: 'Calendar' }}
+                    styles={{
+                      root: {
+                        backgroundColor: `${colours.light.border} !important`,
+                        border: 'none !important',
+                        height: '40px !important',
+                        fontWeight: '600 !important',
+                        borderRadius: '4px !important',
+                        padding: '6px 12px !important',
+                        transition: 'transform 0.3s, box-shadow 0.3s',
+                      },
+                      rootHovered: {
+                        background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.15) 100%), ${colours.light.border} !important`,
+                      },
+                      rootPressed: {
+                        background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.25) 100%), ${colours.light.border} !important`,
+                      },
+                      rootFocused: {
+                        backgroundColor: `${colours.light.border} !important`,
+                      },
+                      label: {
+                        color: isDarkMode ? colours.dark.text : colours.light.text,
+                      },
+                    }}
+                    ariaLabel="Request Annual Leave"
+                  />
+
+                  <DefaultButton
+                    text={manageLeaveLabel}
+                    onClick={handleManageLeaveClick}
+                    styles={manageLeaveButtonStyles}
+                  />
+                </Stack>
               </Stack>
               {isLoadingAnnualLeave ? (
                 <Spinner label="Loading annual leave..." size={SpinnerSize.medium} />
@@ -1400,18 +1510,16 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
               ) : (
                 <div className={peopleGridStyle}>
                   {annualLeaveRecords.map((leave, index: number) => {
-                    // Find the corresponding team member data by initials
                     const teamMember = teamData.find(
                       (member) => member.Initials.toLowerCase() === leave.person.toLowerCase()
                     );
-
                     return (
                       <PersonBubble
                         key={`leave-${index}`}
                         person={{
                           name: leave.person,
                           initials: teamMember ? teamMember.Initials : '',
-                          presence: PersonaPresence.busy, // 'busy' = on leave
+                          presence: PersonaPresence.busy,
                           nickname: teamMember ? teamMember.Nickname : leave.person,
                         }}
                         isDarkMode={isDarkMode}
@@ -1429,7 +1537,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         </div>
       </Stack>
 
-      {/* Contexts Section */}
       <div
         className={mergeStyles({
           backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
@@ -1579,7 +1686,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
 
       <div className={versionStyle}>Version 1.1</div>
 
-      {/* BespokePanel for dynamic forms (Time Entry, Annual Leave, etc.) */}
       <BespokePanel
         isOpen={isBespokePanelOpen}
         onClose={() => setIsBespokePanelOpen(false)}
@@ -1589,14 +1695,13 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         {bespokePanelContent}
       </BespokePanel>
 
-      {/* Existing Panels (Office Attendance, etc.) */}
       {selectedForm && (
         <FormDetails
           isOpen={true}
           onClose={() => setSelectedForm(null)}
           link={selectedForm}
           isDarkMode={isDarkMode}
-          userData={userData} // Pass userData here
+          userData={userData}
         />
       )}
 
@@ -1604,7 +1709,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         <ResourceDetails resource={selectedResource} onClose={() => setSelectedResource(null)} />
       )}
 
-      {/* Office Attendance Panel */}
       <HomePanel
         isOpen={isOfficeAttendancePanelOpen}
         onClose={() => setIsOfficeAttendancePanelOpen(false)}
@@ -1613,11 +1717,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         displayUrl=""
         embedScript={{ key: 'QzaAr_2Q7kesClKq8g229g', formId: '109' }}
       />
-
-      {/*
-        No longer using <HomePanel> for Annual Leave.
-        It's now handled in the BespokePanel with <AnnualLeaveForm>.
-      */}
     </div>
   );
 };
