@@ -1178,20 +1178,28 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
             <Text variant="xLarge" styles={{ root: { fontWeight: 600 } }}>
               Approve Annual Leave
             </Text>
-            <AnnualLeaveApprovals
-              approvals={approvalsNeeded.map((item) => ({
-                id: item.id || `temp-${item.start_date}-${item.end_date}`,
-                person: item.person,
-                start_date: item.start_date,
-                end_date: item.end_date,
-                reason: item.reason,
-                status: item.status,
-              }))}
-              onClose={() => setIsBespokePanelOpen(false)}
-              team={teamData}
-              totals={annualLeaveTotals}
-              holidayEntitlement={userData[0]?.holiday_entitlement || 0}
-            />
+<AnnualLeaveApprovals
+  approvals={approvalsNeeded.map((item) => ({
+    id: item.id || `temp-${item.start_date}-${item.end_date}`,
+    person: item.person,
+    start_date: item.start_date,
+    end_date: item.end_date,
+    reason: item.reason,
+    status: item.status,
+  }))}
+  futureLeave={futureLeaveRecords.map((item) => ({
+    id: item.id || `temp-${item.start_date}-${item.end_date}`,
+    person: item.person,
+    start_date: item.start_date,
+    end_date: item.end_date,
+    reason: item.reason,
+    status: item.status,
+  }))}
+  onClose={() => setIsBespokePanelOpen(false)}
+  team={teamData}
+  totals={annualLeaveTotals}
+  holidayEntitlement={userData[0]?.holiday_entitlement || 0}
+/>
           </Stack>
           <Stack tokens={{ childrenGap: 10 }}>
             <Text variant="xLarge" styles={{ root: { fontWeight: 600 } }}>
@@ -1216,6 +1224,14 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       setBespokePanelContent(
         <AnnualLeaveApprovals
           approvals={approvalsNeeded.map((item) => ({
+            id: item.id || `temp-${item.start_date}-${item.end_date}`,
+            person: item.person,
+            start_date: item.start_date,
+            end_date: item.end_date,
+            reason: item.reason,
+            status: item.status,
+          }))}
+          futureLeave={futureLeaveRecords.map((item) => ({
             id: item.id || `temp-${item.start_date}-${item.end_date}`,
             person: item.person,
             start_date: item.start_date,

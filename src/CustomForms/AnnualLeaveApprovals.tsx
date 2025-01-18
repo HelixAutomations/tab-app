@@ -36,6 +36,7 @@ export interface TeamMember {
 
 export interface AnnualLeaveApprovalsProps {
   approvals: ApprovalEntry[];
+  futureLeave: ApprovalEntry[];
   onClose: () => void;
   team: TeamMember[];
   totals: { standard: number; unpaid: number; purchase: number };
@@ -87,6 +88,7 @@ const formatDateRange = (startStr: string, endStr: string) => {
 
 const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
   approvals,
+  futureLeave,
   onClose,
   team,
   totals,
@@ -139,6 +141,23 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
     return member?.Nickname || initials;
   };
 
+  const getAllConflicts = (currentEntry: ApprovalEntry): ApprovalEntry[] => {
+    const conflictsFromApprovals = approvals.filter(
+      other =>
+        other.id !== currentEntry.id &&
+        other.person !== currentEntry.person &&
+        new Date(currentEntry.start_date) <= new Date(other.end_date) &&
+        new Date(other.start_date) <= new Date(currentEntry.end_date)
+    );
+    const conflictsFromFuture = futureLeave.filter(
+      other =>
+        other.person !== currentEntry.person &&
+        new Date(currentEntry.start_date) <= new Date(other.end_date) &&
+        new Date(other.start_date) <= new Date(currentEntry.end_date)
+    );
+    return [...conflictsFromApprovals, ...conflictsFromFuture];
+  };
+
   const totalBookedDays = totals.standard;
 
   return (
@@ -151,6 +170,7 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
             const workingDays = calculateWorkingDays(entry.start_date, entry.end_date);
             const daysRemaining = holidayEntitlement - totalBookedDays - workingDays;
             const availableSell = 5 - totals.purchase;
+            const conflicts = getAllConflicts(entry);
             return (
               <div key={entry.id} className={containerEntryStyle}>
                 <Stack horizontal tokens={{ childrenGap: 20 }} verticalAlign="start">
@@ -225,6 +245,18 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
                           {availableSell} {availableSell !== 1 ? 'days' : 'day'}
                         </Text>
                       </Stack>
+                    </Stack>
+                    <Stack tokens={{ childrenGap: 10 }} styles={{ root: { marginTop: 10 } }}>
+                      <Label className={labelStyleText}>Team Conflicts:</Label>
+                      {conflicts.length > 0 ? (
+                        conflicts.map(conflict => (
+                          <Text key={conflict.id} className={valueStyleText}>
+                            {getNickname(conflict.person)}: {formatDateRange(conflict.start_date, conflict.end_date)}
+                          </Text>
+                        ))
+                      ) : (
+                        <Text className={valueStyleText}>No Conflicts</Text>
+                      )}
                     </Stack>
                   </Stack>
                 </Stack>
