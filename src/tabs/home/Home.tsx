@@ -9,7 +9,6 @@ import {
   MessageBar,
   MessageBarType,
   IconButton,
-  TooltipHost,
   Stack,
   DetailsList,
   IColumn,
@@ -26,6 +25,7 @@ import { initializeIcons } from '@fluentui/react/lib/Icons';
 import MetricCard from './MetricCard';
 import GreyHelixMark from '../../assets/grey helix mark.png';
 import HelixAvatar from '../../assets/helix avatar.png';
+import MarkAvatar from '../../assets/mark192colour.png'; // Custom avatar for WFH & Out
 import '../../app/styles/VerticalLabelPanel.css';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import '../../app/styles/MetricCard.css';
@@ -56,15 +56,17 @@ import AnnualLeaveBookings from '../../CustomForms/AnnualLeaveBookings';
 
 initializeIcons();
 
+//////////////////////
+// Interfaces
+//////////////////////
+
 interface AnnualLeaveRecord {
   person: string;
   start_date: string;
   end_date: string;
   reason: string;
   status: string;
-  // If needed, add an id or unique identifier
   id?: string;
-  // ...
 }
 
 interface HomeProps {
@@ -85,16 +87,23 @@ interface Person {
   nickname?: string;
 }
 
+//////////////////////
+// Quick Actions
+//////////////////////
+
 const quickActions: QuickLink[] = [
   { title: 'Create a Task', icon: 'Checklist' },
-  { title: 'Request CollabSpace', icon: 'Group' },  // Updated label and reusing the icon for demonstration
+  { title: 'Request CollabSpace', icon: 'Group' },
   { title: 'Save Telephone Note', icon: 'Comment' },
   { title: 'Save Attendance Note', icon: 'NotePinned' },
   { title: 'Request ID', icon: 'ContactInfo' },
   { title: 'Open a Matter', icon: 'FolderOpen' },
 ];
 
+//////////////////////
 // Styles
+//////////////////////
+
 const containerStyle = (isDarkMode: boolean) =>
   mergeStyles({
     backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
@@ -108,7 +117,7 @@ const headerStyle = mergeStyles({
   justifyContent: 'space-between',
   alignItems: 'center',
   width: '100%',
-  padding: '10px 0px',
+  padding: '10px 0',
 });
 
 const greetingStyle = (isDarkMode: boolean) =>
@@ -132,29 +141,6 @@ const sectionRowStyle = mergeStyles({
   width: '100%',
 });
 
-const officeSectionRowStyle = mergeStyles({
-  display: 'grid',
-  gridTemplateColumns: '2fr min-content 1fr',
-  alignItems: 'stretch',
-  width: '100%',
-  gap: '20px',
-});
-
-const verticalPipeStyle = mergeStyles({
-  backgroundColor: 'rgba(128,128,128,0.3)',
-  width: '1px',
-  height: '75%',
-  justifySelf: 'center',
-  alignSelf: 'center',
-});
-
-const sectionLabelStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    fontWeight: '600',
-    fontSize: '20px',
-    color: isDarkMode ? colours.dark.text : colours.light.text,
-  });
-
 const quickLinksStyle = (isDarkMode: boolean) =>
   mergeStyles({
     backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
@@ -164,21 +150,19 @@ const quickLinksStyle = (isDarkMode: boolean) =>
       ? `0 4px 12px ${colours.dark.border}`
       : `0 4px 12px ${colours.light.border}`,
     transition: 'background-color 0.3s, box-shadow 0.3s',
-    flex: '1',
+    flex: 1,
     display: 'grid',
     gridTemplateColumns: 'repeat(3, 1fr)',
     gridTemplateRows: 'repeat(2, 1fr)',
     gap: '20px',
   });
 
-const calculateAnimationDelay = (row: number, col: number) => {
-  return (row + col) * 0.1;
-};
+const calculateAnimationDelay = (row: number, col: number) => (row + col) * 0.1;
 
 const metricsContainerStyle = (isDarkMode: boolean) =>
   mergeStyles({
     display: 'grid',
-    gridTemplateColumns: '1fr 1fr 1fr',
+    gridTemplateColumns: 'repeat(3, 1fr)',
     gridTemplateRows: 'repeat(2, 1fr)',
     gap: '20px',
     backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
@@ -192,7 +176,7 @@ const metricsContainerStyle = (isDarkMode: boolean) =>
       ? `0 4px 12px ${colours.dark.border}`
       : `0 4px 12px ${colours.light.border}`,
     transition: 'background-color 0.3s, box-shadow 0.3s',
-    flex: '1',
+    flex: 1,
     position: 'relative',
     overflow: 'visible',
   });
@@ -222,43 +206,67 @@ const favouritesGridStyle = mergeStyles({
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
   gap: '20px',
-  '@media (min-width: 1000px)': {
-    gridTemplateColumns: 'repeat(5, 1fr)',
-  },
+  '@media (min-width: 1000px)': { gridTemplateColumns: 'repeat(5, 1fr)' },
 });
 
 const peopleGridStyle = mergeStyles({
   display: 'grid',
+  paddingLeft: '60px', // leave space for inner tab and backdrop
   gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
   gap: '20px',
   alignItems: 'center',
   width: '100%',
 });
 
-const officeLeaveContainerStyle = (isDarkMode: boolean) =>
+// A common section container style used for both Working Today and Annual Leave sections
+const sectionContainerStyle = (isDarkMode: boolean) =>
   mergeStyles({
     backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-    padding: '20px',
+    padding: '20px 20px 20px 20px',
     borderRadius: '12px',
     boxShadow: isDarkMode
       ? `0 4px 12px ${colours.dark.border}`
       : `0 4px 12px ${colours.light.border}`,
-    transition: 'background-color 0.3s, box-shadow 0.3s',
-    display: 'flex',
-    flexDirection: 'column',
+    position: 'relative',
     width: '100%',
   });
 
-// Flatten & Transform Context
+//////////////////////
+// TabLabel Component
+//////////////////////
+// Renders a left-edge label that spans the full height of its container and rotates its text –90° anticlockwise.
+const TabLabel: React.FC<{ label: string }> = ({ label }) => {
+  return (
+    <div
+      className={mergeStyles({
+        position: 'absolute',
+        left: 0,
+        top: 0,
+        bottom: 0,
+        width: '50px',
+        backgroundColor: colours.grey,
+        zIndex: 4,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      })}
+    >
+      <span style={{ transform: 'rotate(-90deg)', whiteSpace: 'nowrap' }}>{label}</span>
+    </div>
+  );
+};
+
+//////////////////////
+// Utility: Flatten & Transform Context
+//////////////////////
+
 const flattenObject = (obj: any, prefix = ''): { key: string; value: any }[] => {
   let result: { key: string; value: any }[] = [];
   for (const [k, v] of Object.entries(obj)) {
     const newKey = prefix ? `${prefix}.${k}` : k;
-    if (v && typeof v === 'object' && !Array.isArray(v)) {
+    if (v && typeof v === 'object' && !Array.isArray(v))
       result = result.concat(flattenObject(v, newKey));
-    } else {
-      result.push({ key: newKey, value: v });
-    }
+    else result.push({ key: newKey, value: v });
   }
   return result;
 };
@@ -268,7 +276,6 @@ const transformContext = (contextObj: any): { key: string; value: string }[] => 
     console.warn('Invalid context object:', contextObj);
     return [];
   }
-
   const flattened = flattenObject(contextObj);
   return flattened.map(({ key, value }) => ({
     key,
@@ -284,9 +291,7 @@ const createColumnsFunction = (isDarkMode: boolean): IColumn[] => [
     minWidth: 150,
     maxWidth: 200,
     isResizable: true,
-    styles: {
-      root: { color: isDarkMode ? colours.dark.text : colours.light.text },
-    },
+    styles: { root: { color: isDarkMode ? colours.dark.text : colours.light.text } },
   },
   {
     key: 'value',
@@ -295,13 +300,14 @@ const createColumnsFunction = (isDarkMode: boolean): IColumn[] => [
     minWidth: 300,
     maxWidth: 600,
     isResizable: true,
-    styles: {
-      root: { color: isDarkMode ? colours.dark.text : colours.light.text },
-    },
+    styles: { root: { color: isDarkMode ? colours.dark.text : colours.light.text } },
   },
 ];
 
-// QuickActions Card
+//////////////////////
+// QuickActionsCard Component
+//////////////////////
+
 const QuickActionsCardStyled: React.FC<{
   title: string;
   icon: string;
@@ -310,7 +316,7 @@ const QuickActionsCardStyled: React.FC<{
   animationDelay?: number;
 }> = ({ title, icon, isDarkMode, onClick, animationDelay = 0 }) => {
   const quickActionCardStyle = mergeStyles({
-    backgroundColor: '#ffffff', // Always white
+    backgroundColor: '#ffffff',
     color: isDarkMode ? colours.dark.text : colours.light.text,
     padding: '20px',
     borderRadius: '12px',
@@ -327,10 +333,7 @@ const QuickActionsCardStyled: React.FC<{
     animation: 'fadeInUp 0.3s ease forwards',
     animationDelay: `${animationDelay}s`,
     transition: 'transform 0.3s, box-shadow 0.3s',
-    ':hover': {
-      transform: 'translateY(-5px)',
-      boxShadow: '0 6px 20px rgba(0, 0, 0, 0.2)',
-    },
+    ':hover': { transform: 'translateY(-5px)', boxShadow: '0 6px 20px rgba(0,0,0,0.2)' },
   });
 
   const quickActionIconStyle = mergeStyles({
@@ -360,11 +363,22 @@ const QuickActionsCardStyled: React.FC<{
   );
 };
 
-// Person Bubbles
-const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean; animationDelay?: number }> = ({
+//////////////////////
+// PersonBubble Component
+//////////////////////
+
+interface PersonBubbleProps {
+  person: Person;
+  isDarkMode: boolean;
+  animationDelay?: number;
+  avatarUrlOverride?: string;
+}
+
+const PersonBubble: React.FC<PersonBubbleProps> = ({
   person,
   isDarkMode,
   animationDelay,
+  avatarUrlOverride,
 }) => {
   const bubbleStyle = mergeStyles({
     position: 'relative',
@@ -378,12 +392,12 @@ const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean; animationDel
 
   const textBubbleStyle = mergeStyles({
     position: 'absolute',
-    left: 0,
+    left: '60px', // matches container left padding
     top: '50%',
     transform: 'translateY(-50%)',
     backgroundColor: colours.grey,
     borderRadius: '12px',
-    padding: '0 10px 0 50px',
+    padding: '0 10px',
     height: '34px',
     display: 'flex',
     alignItems: 'center',
@@ -392,6 +406,10 @@ const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean; animationDel
   });
 
   const textStyle = mergeStyles({ color: isDarkMode ? colours.dark.text : colours.light.text });
+  const imageUrl =
+    person.presence === PersonaPresence.online || !avatarUrlOverride
+      ? HelixAvatar
+      : avatarUrlOverride;
 
   if (person.presence === PersonaPresence.online) {
     return (
@@ -399,7 +417,7 @@ const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean; animationDel
         <div style={{ position: 'relative', zIndex: 4 }}>
           <Persona
             text=""
-            imageUrl={HelixAvatar}
+            imageUrl={imageUrl}
             size={PersonaSize.size40}
             presence={PersonaPresence.online}
             hidePersonaDetails
@@ -416,8 +434,8 @@ const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean; animationDel
       <div className={bubbleStyle}>
         <div
           style={{
-            width: 40,
-            height: 40,
+            width: '40px',
+            height: '40px',
             borderRadius: '50%',
             backgroundColor: '#ffffff',
             border: `0.5px solid ${colours.darkBlue}`,
@@ -428,7 +446,7 @@ const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean; animationDel
             zIndex: 4,
           }}
         >
-          <Icon iconName="Airplane" styles={{ root: { color: colours.darkBlue, fontSize: 16 } }} />
+          <Icon iconName="Airplane" styles={{ root: { color: colours.darkBlue, fontSize: '16px' } }} />
         </div>
         <div className={textBubbleStyle}>
           <Text className={textStyle}>{person.nickname || person.name}</Text>
@@ -440,8 +458,8 @@ const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean; animationDel
       <div className={bubbleStyle}>
         <div
           style={{
-            width: 40,
-            height: 40,
+            width: '40px',
+            height: '40px',
             borderRadius: '50%',
             backgroundColor: '#ffffff',
             border: `0.5px solid ${colours.darkBlue}`,
@@ -452,7 +470,7 @@ const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean; animationDel
             zIndex: 4,
           }}
         >
-          <Icon iconName="Home" styles={{ root: { color: colours.darkBlue, fontSize: 16 } }} />
+          <Icon iconName="Home" styles={{ root: { color: colours.darkBlue, fontSize: '16px' } }} />
         </div>
         <div className={textBubbleStyle}>
           <Text className={textStyle}>{person.nickname || person.name}</Text>
@@ -462,7 +480,10 @@ const PersonBubble: React.FC<{ person: Person; isDarkMode: boolean; animationDel
   }
 };
 
+//////////////////////
 // Caching Variables
+//////////////////////
+
 let cachedAttendance: any[] | null = null;
 let cachedAttendanceError: string | null = null;
 let cachedTeamData: any[] | null = null;
@@ -475,31 +496,30 @@ let cachedWipClioError: string | null = null;
 let cachedRecovered: number | null = null;
 let cachedRecoveredError: string | null = null;
 
-// Updated CognitoForm for embedding Cognito forms
+//////////////////////
+// CognitoForm Component
+//////////////////////
+
 const CognitoForm: React.FC<{ dataKey: string; dataForm: string }> = ({ dataKey, dataForm }) => {
   const containerRef = React.useRef<HTMLDivElement>(null);
-
-  React.useEffect(() => {
+  useEffect(() => {
     if (containerRef.current) {
       containerRef.current.innerHTML = '';
-
       const script = document.createElement('script');
       script.src = 'https://www.cognitoforms.com/f/seamless.js';
       script.setAttribute('data-key', dataKey);
       script.setAttribute('data-form', dataForm);
       script.async = true;
       containerRef.current.appendChild(script);
-
-      return () => {
-        if (containerRef.current) {
-          containerRef.current.innerHTML = '';
-        }
-      };
+      return () => { if (containerRef.current) containerRef.current.innerHTML = ''; };
     }
   }, [dataKey, dataForm]);
-
   return <div ref={containerRef} />;
 };
+
+//////////////////////
+// Home Component
+//////////////////////
 
 const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const { isDarkMode } = useTheme();
@@ -511,165 +531,90 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const [todaysTasks, setTodaysTasks] = useState<number>(10);
   const [tasksDueThisWeek, setTasksDueThisWeek] = useState<number>(20);
   const [completedThisWeek, setCompletedThisWeek] = useState<number>(15);
-  const [recordedTime, setRecordedTime] = useState<{ hours: number; money: number }>( {
-    hours: 120,
-    money: 1000,
-  });
+  const [recordedTime, setRecordedTime] = useState<{ hours: number; money: number }>({ hours: 120, money: 1000 });
   const [prevEnquiriesToday, setPrevEnquiriesToday] = useState<number>(8);
   const [prevEnquiriesWeekToDate, setPrevEnquiriesWeekToDate] = useState<number>(18);
   const [prevEnquiriesMonthToDate, setPrevEnquiriesMonthToDate] = useState<number>(950);
   const [prevTodaysTasks, setPrevTodaysTasks] = useState<number>(12);
   const [prevTasksDueThisWeek, setPrevTasksDueThisWeek] = useState<number>(18);
   const [prevCompletedThisWeek, setPrevCompletedThisWeek] = useState<number>(17);
-  const [prevRecordedTime, setPrevRecordedTime] = useState<{ hours: number; money: number }>( {
-    hours: 110,
-    money: 900,
-  });
+  const [prevRecordedTime, setPrevRecordedTime] = useState<{ hours: number; money: number }>({ hours: 110, money: 900 });
   const [isContextsExpanded, setIsContextsExpanded] = useState<boolean>(false);
   const [formsFavorites, setFormsFavorites] = useState<FormItem[]>([]);
   const [resourcesFavorites, setResourcesFavorites] = useState<Resource[]>([]);
   const [selectedForm, setSelectedForm] = useState<FormItem | null>(null);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
   const [isOfficeAttendancePanelOpen, setIsOfficeAttendancePanelOpen] = useState<boolean>(false);
-
   const [annualLeaveRecords, setAnnualLeaveRecords] = useState<AnnualLeaveRecord[]>([]);
   const [isLoadingAnnualLeave, setIsLoadingAnnualLeave] = useState<boolean>(true);
   const [annualLeaveError, setAnnualLeaveError] = useState<string | null>(null);
   const [futureLeaveRecords, setFutureLeaveRecords] = useState<AnnualLeaveRecord[]>([]);
-  const [annualLeaveTotals, setAnnualLeaveTotals] = useState<{
-    standard: number;
-    unpaid: number;
-    purchase: number;
-  }>({
-    standard: 0,
-    unpaid: 0,
-    purchase: 0,
-  });
-
+  const [annualLeaveTotals, setAnnualLeaveTotals] = useState<{ standard: number; unpaid: number; purchase: number; }>({ standard: 0, unpaid: 0, purchase: 0 });
   const [wipClioData, setWipClioData] = useState<any>(null);
   const [wipClioError, setWipClioError] = useState<string | null>(null);
   const [recoveredData, setRecoveredData] = useState<number | null>(null);
   const [recoveredError, setRecoveredError] = useState<string | null>(null);
   const [isLoadingWipClio, setIsLoadingWipClio] = useState<boolean>(true);
   const [isLoadingRecovered, setIsLoadingRecovered] = useState<boolean>(true);
-
-  const [attendanceRecords, setAttendanceRecords] = useState<
-    { name: string; confirmed: boolean; attendingToday: boolean }[]
-  >([]);
-  const [teamData, setTeamData] = useState<
-    { First: string; Initials: string; ['Entra ID']: string; Nickname?: string }[]
-  >([]);
+  const [attendanceRecords, setAttendanceRecords] = useState<{ name: string; confirmed: boolean; attendingToday: boolean; }[]>([]);
+  const [teamData, setTeamData] = useState<{ First: string; Initials: string; ['Entra ID']: string; Nickname?: string; }[]>([]);
   const [isLoadingAttendance, setIsLoadingAttendance] = useState<boolean>(true);
   const [attendanceError, setAttendanceError] = useState<string | null>(null);
   const [currentUserName, setCurrentUserName] = useState<string>('User');
   const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
-
   const [isBespokePanelOpen, setIsBespokePanelOpen] = useState<boolean>(false);
   const [bespokePanelContent, setBespokePanelContent] = useState<ReactNode>(null);
   const [bespokePanelTitle, setBespokePanelTitle] = useState<string>('');
+  const [isContextPanelOpen, setIsContextPanelOpen] = useState<boolean>(false);
 
   useEffect(() => {
     const styles = `
 @keyframes redPulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(255, 0, 0, 0.4);
-  }
-  70% {
-    box-shadow: 0 0 0 10px rgba(255, 0, 0, 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(255, 0, 0, 0);
-  }
+  0% { box-shadow: 0 0 0 0 rgba(255,0,0,0.4); }
+  70% { box-shadow: 0 0 0 10px rgba(255,0,0,0); }
+  100% { box-shadow: 0 0 0 0 rgba(255,0,0,0); }
 }
 @keyframes fadeInUp {
-  0% {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  0% { opacity: 0; transform: translateY(20px); }
+  100% { opacity: 1; transform: translateY(0); }
 }
 @keyframes fadeInFromTopLeft {
-  0% {
-    opacity: 0;
-    transform: translate(-20px, -20px);
-  }
-  100% {
-    opacity: 1,
-    transform: translate(0, 0);
-  }
+  0% { opacity: 0; transform: translate(-20px,-20px); }
+  100% { opacity: 1; transform: translate(0,0); }
 }
 @keyframes fadeInFromTopRight {
-  0% {
-    opacity: 0;
-    transform: translate(20px, -20px);
-  }
-  100% {
-    opacity: 1,
-    transform: translate(0, 0);
-  }
+  0% { opacity: 0; transform: translate(20px,-20px); }
+  100% { opacity: 1; transform: translate(0,0); }
 }
 @keyframes fadeInFromBottomLeft {
-  0% {
-    opacity: 0;
-    transform: translate(-20px, 20px);
-  }
-  100% {
-    opacity: 1,
-    transform: translate(0, 0);
-  }
+  0% { opacity: 0; transform: translate(-20px,20px); }
+  100% { opacity: 1; transform: translate(0,0); }
 }
 @keyframes fadeInFromBottomRight {
-  0% {
-    opacity: 0;
-    transform: translate(20px, 20px);
-  }
-  100% {
-    opacity: 1,
-    transform: translate(0, 0);
-  }
+  0% { opacity: 0; transform: translate(20px,20px); }
+  100% { opacity: 1; transform: translate(0,0); }
 }`;
     const styleSheet = document.createElement('style');
     styleSheet.type = 'text/css';
     styleSheet.innerText = styles;
     document.head.appendChild(styleSheet);
-    return () => {
-      document.head.removeChild(styleSheet);
-    };
+    return () => { document.head.removeChild(styleSheet); };
   }, []);
 
   useEffect(() => {
     const storedFormsFavorites = localStorage.getItem('formsFavorites');
     const storedResourcesFavorites = localStorage.getItem('resourcesFavorites');
-
-    if (storedFormsFavorites) {
-      const parsedForms = JSON.parse(storedFormsFavorites);
-      setFormsFavorites(parsedForms);
-    }
-
-    if (storedResourcesFavorites) {
-      const parsedResources = JSON.parse(storedResourcesFavorites);
-      setResourcesFavorites(parsedResources);
-    }
+    if (storedFormsFavorites) { setFormsFavorites(JSON.parse(storedFormsFavorites)); }
+    if (storedResourcesFavorites) { setResourcesFavorites(JSON.parse(storedResourcesFavorites)); }
   }, []);
 
   useEffect(() => {
     const handleStorageChange = (event: StorageEvent) => {
-      if (event.key === 'formsFavorites' && event.newValue) {
-        setFormsFavorites(JSON.parse(event.newValue));
-      }
-      if (event.key === 'resourcesFavorites' && event.newValue) {
-        setResourcesFavorites(JSON.parse(event.newValue));
-      }
+      if (event.key === 'formsFavorites' && event.newValue) { setFormsFavorites(JSON.parse(event.newValue)); }
+      if (event.key === 'resourcesFavorites' && event.newValue) { setResourcesFavorites(JSON.parse(event.newValue)); }
     };
-
     window.addEventListener('storage', handleStorageChange);
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-    };
+    return () => { window.removeEventListener('storage', handleStorageChange); };
   }, []);
 
   useEffect(() => {
@@ -680,17 +625,11 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       setCurrentUserEmail(email);
       const currentHour = new Date().getHours();
       let timeOfDay = 'Hello';
-      if (currentHour < 12) {
-        timeOfDay = 'Good Morning';
-      } else if (currentHour < 18) {
-        timeOfDay = 'Good Afternoon';
-      } else {
-        timeOfDay = 'Good Evening';
-      }
+      if (currentHour < 12) { timeOfDay = 'Good Morning'; }
+      else if (currentHour < 18) { timeOfDay = 'Good Afternoon'; }
+      else { timeOfDay = 'Good Evening'; }
       setGreeting(`${timeOfDay}, ${firstName}.`);
-    } else {
-      setGreeting('Hello, User.');
-    }
+    } else { setGreeting('Hello, User.'); }
   }, [userData]);
 
   useEffect(() => {
@@ -699,25 +638,24 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
       const startOfWeek = new Date(today);
       startOfWeek.setDate(today.getDate() - today.getDay());
-
       const todayCount = enquiries.filter((enquiry: any) => {
         if (!enquiry.Touchpoint_Date) return false;
         const enquiryDate = new Date(enquiry.Touchpoint_Date);
-        return enquiryDate.toDateString() === today.toDateString() && enquiry.Point_of_Contact === currentUserEmail;
+        return enquiryDate.toDateString() === today.toDateString() &&
+               enquiry.Point_of_Contact === currentUserEmail;
       }).length;
-
       const weekToDateCount = enquiries.filter((enquiry: any) => {
         if (!enquiry.Touchpoint_Date) return false;
         const enquiryDate = new Date(enquiry.Touchpoint_Date);
-        return enquiryDate >= startOfWeek && enquiryDate <= today && enquiry.Point_of_Contact === currentUserEmail;
+        return enquiryDate >= startOfWeek && enquiryDate <= today &&
+               enquiry.Point_of_Contact === currentUserEmail;
       }).length;
-
       const monthToDateCount = enquiries.filter((enquiry: any) => {
         if (!enquiry.Touchpoint_Date) return false;
         const enquiryDate = new Date(enquiry.Touchpoint_Date);
-        return enquiryDate >= startOfMonth && enquiryDate <= today && enquiry.Point_of_Contact === currentUserEmail;
+        return enquiryDate >= startOfMonth && enquiryDate <= today &&
+               enquiry.Point_of_Contact === currentUserEmail;
       }).length;
-
       setEnquiriesToday(todayCount);
       setEnquiriesWeekToDate(weekToDateCount);
       setEnquiriesMonthToDate(monthToDateCount);
@@ -731,9 +669,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       if (currentIndex < greeting.length) {
         setTypedGreeting((prev) => prev + greeting[currentIndex]);
         currentIndex++;
-      } else {
-        clearInterval(typingInterval);
-      }
+      } else { clearInterval(typingInterval); }
     }, 25);
     return () => clearInterval(typingInterval);
   }, [greeting]);
@@ -752,18 +688,13 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         try {
           setIsLoadingAttendance(true);
           setIsLoadingAnnualLeave(true);
-
           const attendanceResponse = await fetch(
             `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_ATTENDANCE_PATH}?code=${process.env.REACT_APP_GET_ATTENDANCE_CODE}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-            }
+            { method: 'POST', headers: { 'Content-Type': 'application/json' } }
           );
-
-          if (!attendanceResponse.ok) throw new Error(`Failed to fetch attendance: ${attendanceResponse.status}`);
+          if (!attendanceResponse.ok)
+            throw new Error(`Failed to fetch attendance: ${attendanceResponse.status}`);
           const attendanceData = await attendanceResponse.json();
-
           cachedAttendance = attendanceData.attendance;
           cachedTeamData = attendanceData.team;
           setAttendanceRecords(attendanceData.attendance);
@@ -774,47 +705,34 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           setAttendanceError(error.message || 'Unknown error occurred.');
           setAttendanceRecords([]);
           setTeamData([]);
-        } finally {
-          setIsLoadingAttendance(false);
-        }
-
+        } finally { setIsLoadingAttendance(false); }
         try {
           const annualLeaveResponse = await fetch(
             `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_ANNUAL_LEAVE_PATH}?code=${process.env.REACT_APP_GET_ANNUAL_LEAVE_CODE}`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                initials: userData[0]?.Initials || '',
-              }),
+              body: JSON.stringify({ initials: userData[0]?.Initials || '' }),
             }
           );
-
-          if (!annualLeaveResponse.ok) throw new Error(`Failed to fetch annual leave: ${annualLeaveResponse.status}`);
+          if (!annualLeaveResponse.ok)
+            throw new Error(`Failed to fetch annual leave: ${annualLeaveResponse.status}`);
           const annualLeaveData = await annualLeaveResponse.json();
-
           if (annualLeaveData && Array.isArray(annualLeaveData.annual_leave)) {
             cachedAnnualLeave = annualLeaveData.annual_leave;
             setAnnualLeaveRecords(annualLeaveData.annual_leave);
-            if (Array.isArray(annualLeaveData.future_leave)) {
-              setFutureLeaveRecords(annualLeaveData.future_leave);
-            }
+            if (Array.isArray(annualLeaveData.future_leave)) { setFutureLeaveRecords(annualLeaveData.future_leave); }
             if (annualLeaveData.user_details && annualLeaveData.user_details.totals) {
               setAnnualLeaveTotals(annualLeaveData.user_details.totals);
             }
-          } else {
-            throw new Error('Invalid annual leave data format.');
-          }
+          } else { throw new Error('Invalid annual leave data format.'); }
         } catch (error: any) {
           console.error('Error fetching annual leave:', error);
           cachedAnnualLeaveError = error.message || 'Unknown error occurred.';
           setAnnualLeaveError(error.message || 'Unknown error occurred.');
           setAnnualLeaveRecords([]);
-        } finally {
-          setIsLoadingAnnualLeave(false);
-        }
+        } finally { setIsLoadingAnnualLeave(false); }
       };
-
       fetchData();
     }
   }, [userData]);
@@ -836,27 +754,17 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           const [wipResponse, recoveredResponse] = await Promise.all([
             fetch(
               `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_WIP_CLIO_PATH}?code=${process.env.REACT_APP_GET_WIP_CLIO_CODE}`,
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ClioID: clioID }),
-              }
+              { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ClioID: clioID }) }
             ),
             fetch(
               `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_RECOVERED_PATH}?code=${process.env.REACT_APP_GET_RECOVERED_CODE}`,
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ClioID: clioID }),
-              }
+              { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ClioID: clioID }) }
             ),
           ]);
-
           if (!wipResponse.ok) throw new Error(`Failed to fetch WIP Clio: ${wipResponse.status}`);
           const wipData = await wipResponse.json();
           cachedWipClio = wipData;
           setWipClioData(wipData);
-
           if (!recoveredResponse.ok) throw new Error(`Failed to fetch Recovered: ${recoveredResponse.status}`);
           const recoveredData = await recoveredResponse.json();
           cachedRecovered = recoveredData.totalPaymentAllocated;
@@ -877,7 +785,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           setIsLoadingRecovered(false);
         }
       };
-
       fetchWipClioAndRecovered();
     }
   }, [userData]);
@@ -887,31 +794,15 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const handleActionClick = (action: QuickLink) => {
     let content: ReactNode = <div>No form available.</div>;
     let titleText: string = action.title;
-
     switch (action.title) {
-      case 'Create a Task':
-        content = <Tasking />;
-        break;
-      case 'Save Telephone Note':
-        content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="38" />;
-        break;
-      case 'Save Attendance Note':
-        content = <TelephoneAttendance />;
-        break;
-      case 'Open a Matter':
-        content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="9" />;
-        break;
-      case 'Request CollabSpace':
-        content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="44" />;
-        break;
-      case 'Request ID':
-        content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="60" />;
-        break;
-      default:
-        content = <div>No form available.</div>;
-        break;
+      case 'Create a Task': content = <Tasking />; break;
+      case 'Save Telephone Note': content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="38" />; break;
+      case 'Save Attendance Note': content = <TelephoneAttendance />; break;
+      case 'Open a Matter': content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="9" />; break;
+      case 'Request CollabSpace': content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="44" />; break;
+      case 'Request ID': content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="60" />; break;
+      default: content = <div>No form available.</div>; break;
     }
-
     setBespokePanelContent(content);
     setBespokePanelTitle(titleText);
     setIsBespokePanelOpen(true);
@@ -920,12 +811,8 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const copyToClipboardHandler = (url: string, title: string) => {
     navigator.clipboard
       .writeText(url)
-      .then(() => {
-        console.log(`Copied '${title}' to clipboard.`);
-      })
-      .catch((err) => {
-        console.error('Failed to copy: ', err);
-      });
+      .then(() => { console.log(`Copied '${title}' to clipboard.`); })
+      .catch((err) => { console.error('Failed to copy: ', err); });
   };
 
   const currentUserRecord = attendanceRecords.find((r) => r.name === currentUserName);
@@ -936,13 +823,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
 
   const today = new Date();
   const formattedToday = today.toISOString().split('T')[0];
-  const day = today.getDay();
-  let officeSectionTitle = 'In the Office Today';
-  if (day === 6) {
-    officeSectionTitle = 'In the Office on Monday';
-  } else if (day === 0) {
-    officeSectionTitle = 'In the Office Tomorrow';
-  }
 
   const columnsForPeople = 3;
   const allPeople = useMemo(() => {
@@ -961,58 +841,26 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       });
   }, [teamData, attendanceRecords]);
 
+  // Split into two arrays for Working Today
+  const inOfficePeople = allPeople.filter((p) => p.presence === PersonaPresence.online);
+  const workFromHomePeople = allPeople.filter((p) => p.presence !== PersonaPresence.online);
+
   const metricsData = useMemo(() => {
     if (!wipClioData) {
       return [
-        {
-          title: 'Time Today',
-          isTimeMoney: true,
-          money: 0,
-          hours: 0,
-          prevMoney: 0,
-          prevHours: 0,
-        },
-        {
-          title: 'Av. Time This Week',
-          isTimeMoney: true,
-          money: 0,
-          hours: 0,
-          prevMoney: 0,
-          prevHours: 0,
-        },
-        {
-          title: 'Fees Recovered This Month',
-          isMoneyOnly: true,
-          money: '--',
-          prevMoney: 0,
-        },
-        {
-          title: 'Enquiries Today',
-          isTimeMoney: false,
-          count: enquiriesToday,
-          prevCount: prevEnquiriesToday,
-        },
-        {
-          title: 'Enquiries This Week',
-          isTimeMoney: false,
-          count: enquiriesWeekToDate,
-          prevCount: prevEnquiriesWeekToDate,
-        },
-        {
-          title: 'Enquiries This Month',
-          isTimeMoney: false,
-          count: enquiriesMonthToDate,
-          prevCount: prevEnquiriesMonthToDate,
-        },
+        { title: 'Time Today', isTimeMoney: true, money: 0, hours: 0, prevMoney: 0, prevHours: 0 },
+        { title: 'Av. Time This Week', isTimeMoney: true, money: 0, hours: 0, prevMoney: 0, prevHours: 0 },
+        { title: 'Fees Recovered This Month', isMoneyOnly: true, money: '--', prevMoney: 0 },
+        { title: 'Enquiries Today', isTimeMoney: false, count: enquiriesToday, prevCount: prevEnquiriesToday },
+        { title: 'Enquiries This Week', isTimeMoney: false, count: enquiriesWeekToDate, prevCount: prevEnquiriesWeekToDate },
+        { title: 'Enquiries This Month', isTimeMoney: false, count: enquiriesMonthToDate, prevCount: prevEnquiriesMonthToDate },
       ];
     }
-
     const currentWeekData = wipClioData.current_week?.daily_data[formattedToday];
     const lastWeekDate = new Date(today);
     lastWeekDate.setDate(today.getDate() - 7);
     const formattedLastWeekDate = lastWeekDate.toISOString().split('T')[0];
     const lastWeekData = wipClioData.last_week?.daily_data[formattedLastWeekDate];
-
     return [
       {
         title: 'Time Today',
@@ -1074,7 +922,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           backgroundColor: `${colours.light.border} !important`,
           border: 'none !important',
           height: '40px !important',
-          fontWeight: '600 !important',
+          fontWeight: "600",
           borderRadius: '4px !important',
           padding: '6px 12px !important',
           transition: 'background 0.3s ease !important',
@@ -1085,19 +933,15 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         rootPressed: {
           background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.25) 100%), ${colours.light.border} !important`,
         },
-        rootFocused: {
-          backgroundColor: `${colours.light.border} !important`,
-        },
-        label: {
-          color: isDarkMode ? colours.dark.text : colours.light.text,
-        },
+        rootFocused: { backgroundColor: `${colours.light.border} !important` },
+        label: { color: isDarkMode ? colours.dark.text : colours.light.text },
       }
     : {
         root: {
           backgroundColor: `${colours.cta} !important`,
           border: 'none !important',
           height: '40px !important',
-          fontWeight: '600 !important',
+          fontWeight: "600",
           borderRadius: '4px !important',
           padding: '6px 12px !important',
           animation: 'redPulse 2s infinite !important',
@@ -1109,40 +953,22 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         rootPressed: {
           background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.25) 100%), ${colours.cta} !important`,
         },
-        rootFocused: {
-          backgroundColor: `${colours.cta} !important`,
-        },
-        label: {
-          color: '#ffffff !important',
-        },
+        rootFocused: { backgroundColor: `${colours.cta} !important` },
+        label: { color: '#ffffff !important' },
       };
 
   const APPROVERS = ['AC', 'JW', 'LZ'];
   const userInitials = userData?.[0]?.Initials || '';
   const isApprover = APPROVERS.includes(userInitials);
-
-  const approvalsNeeded = useMemo(
-    () => (isApprover ? annualLeaveRecords.filter((x) => x.status === 'requested') : []),
-    [annualLeaveRecords, isApprover]
-  );
-  const bookingsNeeded = useMemo(
-    () =>
-      annualLeaveRecords.filter(
-        (x) =>
-          (x.status === 'approved' || x.status === 'rejected') && x.person === userInitials
-      ),
+  const approvalsNeeded = useMemo(() => (isApprover ? annualLeaveRecords.filter((x) => x.status === 'requested') : []), [annualLeaveRecords, isApprover]);
+  const bookingsNeeded = useMemo(() =>
+    annualLeaveRecords.filter((x) => (x.status === 'approved' || x.status === 'rejected') && x.person === userInitials),
     [annualLeaveRecords, userInitials]
   );
-
   let manageLeaveLabel = 'Manage Annual Leave';
   let needsAttention = false;
-  if (isApprover && approvalsNeeded.length > 0) {
-    manageLeaveLabel = 'Approve Annual Leave';
-    needsAttention = true;
-  } else if (bookingsNeeded.length > 0) {
-    manageLeaveLabel = 'Book Requested Leave';
-    needsAttention = true;
-  }
+  if (isApprover && approvalsNeeded.length > 0) { manageLeaveLabel = 'Approve Annual Leave'; needsAttention = true; }
+  else if (bookingsNeeded.length > 0) { manageLeaveLabel = 'Book Requested Leave'; needsAttention = true; }
   const manageLeaveButtonStyles = needsAttention
     ? {
         root: {
@@ -1150,7 +976,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           animation: 'redPulse 2s infinite !important',
           border: 'none !important',
           height: '40px !important',
-          fontWeight: '600 !important',
+          fontWeight: "600",
           borderRadius: '4px !important',
           padding: '6px 12px !important',
           transition: 'box-shadow 0.3s, transform 0.3s, background 0.3s ease !important',
@@ -1163,7 +989,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           color: isDarkMode ? colours.dark.text : colours.light.text,
           border: 'none !important',
           height: '40px !important',
-          fontWeight: '600 !important',
+          fontWeight: "600",
           borderRadius: '4px !important',
           padding: '6px 12px !important',
           transition: 'transform 0.3s, box-shadow 0.3s',
@@ -1175,9 +1001,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       setBespokePanelContent(
         <Stack tokens={{ childrenGap: 30 }} style={{ padding: 20 }}>
           <Stack tokens={{ childrenGap: 10 }}>
-            <Text variant="xLarge" styles={{ root: { fontWeight: 600 } }}>
-              Approve Annual Leave
-            </Text>
+            <Text variant="xLarge" styles={{ root: { fontWeight: "600" } }}>Approve Annual Leave</Text>
             <AnnualLeaveApprovals
               approvals={approvalsNeeded.map((item) => ({
                 id: item.id || `temp-${item.start_date}-${item.end_date}`,
@@ -1202,9 +1026,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
             />
           </Stack>
           <Stack tokens={{ childrenGap: 10 }}>
-            <Text variant="xLarge" styles={{ root: { fontWeight: 600 } }}>
-              Book Requested Leave
-            </Text>
+            <Text variant="xLarge" styles={{ root: { fontWeight: "600" } }}>Book Requested Leave</Text>
             <AnnualLeaveBookings
               bookings={bookingsNeeded.map((item) => ({
                 id: item.id || `temp-${item.start_date}-${item.end_date}`,
@@ -1268,6 +1090,55 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     setIsBespokePanelOpen(true);
   };
 
+  //////////////////////
+  // Render Contexts Panel Content
+  //////////////////////
+  const renderContextsPanelContent = () => (
+    <Stack tokens={{ childrenGap: 30 }} style={{ padding: 20 }}>
+      <Stack tokens={{ childrenGap: 10 }}>
+        <Text variant="xLarge" styles={{ root: { fontWeight: "600" } }}>Teams Context</Text>
+        <DetailsList
+          items={transformContext(context)}
+          columns={createColumnsFunction(isDarkMode)}
+          setKey="teamsSet"
+          layoutMode={DetailsListLayoutMode.justified}
+          isHeaderVisible={false}
+          styles={{
+            root: {
+              selectors: {
+                '.ms-DetailsRow': { padding: '8px 0', borderBottom: 'none' },
+                '.ms-DetailsHeader': { display: 'none' },
+              },
+            },
+          }}
+        />
+      </Stack>
+      <Stack tokens={{ childrenGap: 10 }}>
+        <Text variant="xLarge" styles={{ root: { fontWeight: "600" } }}>SQL Context</Text>
+        <DetailsList
+          items={transformContext(userData)}
+          columns={createColumnsFunction(isDarkMode)}
+          setKey="sqlSet"
+          layoutMode={DetailsListLayoutMode.justified}
+          isHeaderVisible={false}
+          styles={{
+            root: {
+              selectors: {
+                '.ms-DetailsRow': { padding: '8px 0', borderBottom: 'none' },
+                '.ms-DetailsHeader': { display: 'none' },
+              },
+            },
+          }}
+        />
+      </Stack>
+    </Stack>
+  );
+
+  //////////////////////
+  // Favourites
+  //////////////////////
+  const hasFavourites = formsFavorites.length > 0 || resourcesFavorites.length > 0;
+
   return (
     <div className={containerStyle(isDarkMode)}>
       <Stack horizontal horizontalAlign="space-between" verticalAlign="center" className={headerStyle}>
@@ -1291,37 +1162,17 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
               );
             })}
           </div>
-
           <div className={metricsContainerStyle(isDarkMode)}>
             {metricsData.map((metric: any, index: number) => (
-              <div
-                key={metric.title}
-                style={{
-                  gridColumn: `${(index % 3) + 1}`,
-                  gridRow: `${Math.floor(index / 3) + 1}`,
-                }}
-              >
+              <div key={metric.title} style={{ gridColumn: `${(index % 3) + 1}`, gridRow: `${Math.floor(index / 3) + 1}` }}>
                 <MetricCard
                   title={metric.title}
                   {...(
                     metric.isMoneyOnly
-                      ? {
-                          money: metric.money,
-                          prevMoney: metric.prevMoney,
-                          isMoneyOnly: metric.isMoneyOnly,
-                        }
+                      ? { money: metric.money, prevMoney: metric.prevMoney, isMoneyOnly: metric.isMoneyOnly }
                       : metric.isTimeMoney
-                      ? {
-                          money: metric.money,
-                          hours: metric.hours,
-                          prevMoney: metric.prevMoney,
-                          prevHours: metric.prevHours,
-                          isTimeMoney: metric.isTimeMoney,
-                        }
-                      : {
-                          count: metric.count,
-                          prevCount: metric.prevCount,
-                        }
+                      ? { money: metric.money, hours: metric.hours, prevMoney: metric.prevMoney, prevHours: metric.prevHours, isTimeMoney: metric.isTimeMoney }
+                      : { count: metric.count, prevCount: metric.prevCount }
                   )}
                   isDarkMode={isDarkMode}
                   animationDelay={Math.floor(index / 3) * 0.2 + (index % 3) * 0.1}
@@ -1331,378 +1182,302 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           </div>
         </div>
 
-        <div
-          className={mergeStyles({
+        {hasFavourites && (
+          <div className={mergeStyles({
             backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
             padding: '20px',
             borderRadius: '12px',
-            boxShadow: isDarkMode
-              ? `0 4px 12px ${colours.dark.border}`
-              : `0 4px 12px ${colours.light.border}`,
+            boxShadow: isDarkMode ? `0 4px 12px ${colours.dark.border}` : `0 4px 12px ${colours.light.border}`,
             transition: 'background-color 0.3s, box-shadow 0.3s',
             width: '100%',
             display: 'flex',
             flexDirection: 'column',
             gap: '20px',
-          })}
-        >
-          <Text
-            className={mergeStyles({
-              fontWeight: '700',
-              fontSize: '24px',
-              color: isDarkMode ? colours.dark.text : colours.light.text,
-            })}
-          >
-            Favourites
-          </Text>
-
-          {formsFavorites.length > 0 && (
-            <div>
-              <div className={favouritesGridStyle}>
-                {formsFavorites.map((form: FormItem, index: number) => (
-                  <FormCard
-                    key={`form-${form.title}`}
-                    link={form}
-                    isFavorite={true}
-                    onCopy={(url: string, title: string) => copyToClipboardHandler(url, title)}
-                    onSelect={() => setSelectedForm(form)}
-                    onToggleFavorite={() => {
-                      const updatedFavorites = formsFavorites.filter(
-                        (fav) => fav.title !== form.title
-                      );
-                      setFormsFavorites(updatedFavorites);
-                      localStorage.setItem('formsFavorites', JSON.stringify(updatedFavorites));
-                    }}
-                    onGoTo={() => {
-                      window.open(form.url, '_blank');
-                    }}
-                    animationDelay={index * 0.1}
-                    description={form.description}
-                  />
-                ))}
+          })}>
+            <Text className={mergeStyles({ fontWeight: '700', fontSize: '24px', color: isDarkMode ? colours.dark.text : colours.light.text })}>
+              Favourites
+            </Text>
+            {formsFavorites.length > 0 && (
+              <div>
+                <div className={favouritesGridStyle}>
+                  {formsFavorites.map((form: FormItem, index: number) => (
+                    <FormCard
+                      key={`form-${form.title}`}
+                      link={form}
+                      isFavorite
+                      onCopy={(url: string, title: string) => copyToClipboardHandler(url, title)}
+                      onSelect={() => setSelectedForm(form)}
+                      onToggleFavorite={() => {
+                        const updatedFavorites = formsFavorites.filter((fav) => fav.title !== form.title);
+                        setFormsFavorites(updatedFavorites);
+                        localStorage.setItem('formsFavorites', JSON.stringify(updatedFavorites));
+                      }}
+                      onGoTo={() => window.open(form.url, '_blank')}
+                      animationDelay={index * 0.1}
+                      description={form.description}
+                    />
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
-
-          {resourcesFavorites.length > 0 && (
-            <div>
-              <div style={{ marginBottom: '15px' }}>
-                <Text className={subLabelStyle(isDarkMode)}>Resources</Text>
+            )}
+            {resourcesFavorites.length > 0 && (
+              <div>
+                <div style={{ marginBottom: '15px' }}>
+                  <Text className={subLabelStyle(isDarkMode)}>Resources</Text>
+                </div>
+                <div className={favouritesGridStyle}>
+                  {resourcesFavorites.map((resource: Resource, index: number) => (
+                    <ResourceCard
+                      key={`resource-${resource.title}`}
+                      resource={resource}
+                      isFavorite
+                      onCopy={(url: string, title: string) => copyToClipboardHandler(url, title)}
+                      onToggleFavorite={() => {
+                        const updatedFavorites = resourcesFavorites.filter((fav) => fav.title !== resource.title);
+                        setResourcesFavorites(updatedFavorites);
+                        localStorage.setItem('resourcesFavorites', JSON.stringify(updatedFavorites));
+                      }}
+                      onGoTo={() => window.open(resource.url, '_blank')}
+                      onSelect={() => setSelectedResource(resource)}
+                      animationDelay={index * 0.1}
+                    />
+                  ))}
+                </div>
               </div>
-              <div className={favouritesGridStyle}>
-                {resourcesFavorites.map((resource: Resource, index: number) => (
-                  <ResourceCard
-                    key={`resource-${resource.title}`}
-                    resource={resource}
-                    isFavorite={true}
-                    onCopy={(url: string, title: string) => copyToClipboardHandler(url, title)}
-                    onToggleFavorite={() => {
-                      const updatedFavorites = resourcesFavorites.filter(
-                        (fav) => fav.title !== resource.title
-                      );
-                      setResourcesFavorites(updatedFavorites);
-                      localStorage.setItem('resourcesFavorites', JSON.stringify(updatedFavorites));
-                    }}
-                    onGoTo={() => window.open(resource.url, '_blank')}
-                    onSelect={() => setSelectedResource(resource)}
-                    animationDelay={index * 0.1}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
 
-        <div className={officeSectionRowStyle}>
-          <div className={officeLeaveContainerStyle(isDarkMode)}>
-            <Stack tokens={{ childrenGap: 20 }}>
-              <Stack
-                horizontal
-                verticalAlign="center"
-                horizontalAlign="space-between"
-                styles={{ root: { width: '100%' } }}
-              >
-                <Text className={sectionLabelStyle(isDarkMode)}>{officeSectionTitle}</Text>
-                <DefaultButton
-                  text={officeAttendanceButtonText}
-                  onClick={() => setIsOfficeAttendancePanelOpen(true)}
-                  iconProps={
-                    currentUserConfirmed
-                      ? { iconName: 'CheckMark', styles: { root: { color: '#00a300' } } }
-                      : { iconName: 'Warning', styles: { root: { color: '#ffffff' } } }
-                  }
-                  styles={officeAttendanceButtonStyles}
-                  ariaLabel={officeAttendanceButtonText}
+        {/* Working Today and Annual Leave Sections */}
+        <Stack tokens={{ childrenGap: 40 }} styles={{ root: { width: '100%' } }}>
+          {/* Working Today Section */}
+          <div className={sectionContainerStyle(isDarkMode)}>
+            <Stack horizontal tokens={{ childrenGap: 20 }} styles={{ root: { flex: 1 } }}>
+              {/* In-Office Container */}
+              <div className={mergeStyles({
+                flex: 1,
+                backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+                padding: '20px 20px 20px 60px',
+                borderRadius: '12px',
+                position: 'relative',
+                boxShadow: isDarkMode 
+                  ? `0 4px 12px ${colours.dark.border}` 
+                  : `0 4px 12px ${colours.light.border}`,
+              })}>
+                <TabLabel label="In Attendance" />
+                <Icon
+                  iconName="CityNext"
+                  styles={{
+                    root: {
+                      position: 'absolute',
+                      top: '50%',
+                      left: '60px',
+                      transform: 'translateY(-50%)',
+                      opacity: 0.05,
+                      fontSize: '100px',
+                      pointerEvents: 'none',
+                    },
+                  }}
                 />
-              </Stack>
-              {isLoadingAttendance ? (
-                <Spinner label="Loading attendance..." size={SpinnerSize.medium} />
-              ) : attendanceError ? (
-                <MessageBar messageBarType={MessageBarType.error}>{attendanceError}</MessageBar>
-              ) : (
                 <div className={peopleGridStyle}>
-                  {allPeople.map((person: Person, index: number) => {
-                    const row = Math.floor(index / columnsForPeople);
-                    const col = index % columnsForPeople;
-                    const delay = calculateAnimationDelay(row, col);
-                    return (
-                      <PersonBubble
-                        key={index}
-                        person={person}
-                        isDarkMode={isDarkMode}
-                        animationDelay={delay}
-                      />
-                    );
-                  })}
+                  {isLoadingAttendance ? (
+                    <Spinner label="Loading attendance..." size={SpinnerSize.medium} />
+                  ) : attendanceError ? (
+                    <MessageBar messageBarType={MessageBarType.error}>{attendanceError}</MessageBar>
+                  ) : (
+                    inOfficePeople.map((person: Person, index: number) => {
+                      const row = Math.floor(index / columnsForPeople);
+                      const col = index % columnsForPeople;
+                      const delay = calculateAnimationDelay(row, col);
+                      return <PersonBubble key={index} person={person} isDarkMode={isDarkMode} animationDelay={delay} />;
+                    })
+                  )}
                 </div>
-              )}
+              </div>
+              {/* Work From Home Container */}
+              <div className={mergeStyles({
+                flex: 1,
+                backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+                padding: '20px 20px 20px 60px',
+                borderRadius: '12px',
+                position: 'relative',
+                boxShadow: isDarkMode 
+                  ? `0 4px 12px ${colours.dark.border}` 
+                  : `0 4px 12px ${colours.light.border}`,
+              })}>
+                <TabLabel label="WFH" />
+                <Icon
+                  iconName="Home"
+                  styles={{
+                    root: {
+                      position: 'absolute',
+                      top: '50%',
+                      left: '60px',
+                      transform: 'translateY(-50%)',
+                      opacity: 0.05,
+                      fontSize: '100px',
+                      pointerEvents: 'none',
+                    },
+                  }}
+                />
+                <div className={peopleGridStyle}>
+                  {isLoadingAttendance ? (
+                    <Spinner label="Loading attendance..." size={SpinnerSize.medium} />
+                  ) : attendanceError ? (
+                    <MessageBar messageBarType={MessageBarType.error}>{attendanceError}</MessageBar>
+                  ) : (
+                    workFromHomePeople.map((person: Person, index: number) => {
+                      const row = Math.floor(index / columnsForPeople);
+                      const col = index % columnsForPeople;
+                      const delay = calculateAnimationDelay(row, col);
+                      return <PersonBubble key={index} person={person} isDarkMode={isDarkMode} animationDelay={delay} avatarUrlOverride={MarkAvatar} />;
+                    })
+                  )}
+                </div>
+              </div>
             </Stack>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
+              <DefaultButton
+                text={officeAttendanceButtonText}
+                onClick={() => setIsOfficeAttendancePanelOpen(true)}
+                iconProps={
+                  currentUserConfirmed
+                    ? { iconName: 'CheckMark', styles: { root: { color: '#00a300' } } }
+                    : { iconName: 'Warning', styles: { root: { color: '#ffffff' } } }
+                }
+                styles={officeAttendanceButtonStyles}
+                ariaLabel={officeAttendanceButtonText}
+              />
+            </div>
           </div>
 
-          <div className={verticalPipeStyle}></div>
-
-          <div className={officeLeaveContainerStyle(isDarkMode)}>
-            <Stack tokens={{ childrenGap: 20 }}>
-              <Stack
-                horizontal
-                verticalAlign="center"
-                horizontalAlign="space-between"
-                styles={{ root: { width: '100%' } }}
-              >
-                <Text className={sectionLabelStyle(isDarkMode)}>Out or On Annual Leave Today</Text>
-                <Stack horizontal tokens={{ childrenGap: 10 }}>
-                  <DefaultButton
-                    text="Request Annual Leave"
-                    onClick={() => {
-                      setBespokePanelContent(
-                        <AnnualLeaveForm
-                          futureLeave={futureLeaveRecords}
-                          team={teamData}
-                          userData={userData}
-                          totals={annualLeaveTotals}
-                        />
-                      );
-                      setBespokePanelTitle('Request Annual Leave');
-                      setIsBespokePanelOpen(true);
-                    }}
-                    iconProps={{ iconName: 'Calendar' }}
-                    styles={{
-                      root: {
-                        backgroundColor: `${colours.light.border} !important`,
-                        border: 'none !important',
-                        height: '40px !important',
-                        fontWeight: '600 !important',
-                        borderRadius: '4px !important',
-                        padding: '6px 12px !important',
-                        transition: 'transform 0.3s, box-shadow 0.3s',
-                      },
-                      rootHovered: {
-                        background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.15) 100%), ${colours.light.border} !important`,
-                      },
-                      rootPressed: {
-                        background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.25) 100%), ${colours.light.border} !important`,
-                      },
-                      rootFocused: {
-                        backgroundColor: `${colours.light.border} !important`,
-                      },
-                      label: {
-                        color: isDarkMode ? colours.dark.text : colours.light.text,
-                      },
-                    }}
-                    ariaLabel="Request Annual Leave"
-                  />
-
-                  <DefaultButton
-                    text={manageLeaveLabel}
-                    onClick={handleManageLeaveClick}
-                    styles={manageLeaveButtonStyles}
-                  />
-                </Stack>
-              </Stack>
-              {isLoadingAnnualLeave ? (
-                <Spinner label="Loading annual leave..." size={SpinnerSize.medium} />
-              ) : annualLeaveError ? (
-                <MessageBar messageBarType={MessageBarType.error}>{annualLeaveError}</MessageBar>
-              ) : (
-                <div className={peopleGridStyle}>
-                  {annualLeaveRecords
-                    .filter((leave) => leave.status === 'booked')
-                    .map((leave, index: number) => {
-                      const teamMember = teamData.find(
-                        (member) => member.Initials.toLowerCase() === leave.person.toLowerCase()
-                      );
-                      return (
-                        <PersonBubble
-                          key={`leave-${index}`}
-                          person={{
-                            name: leave.person,
-                            initials: teamMember ? teamMember.Initials : '',
-                            presence: PersonaPresence.busy,
-                            nickname: teamMember ? teamMember.Nickname : leave.person,
-                          }}
-                          isDarkMode={isDarkMode}
-                          animationDelay={calculateAnimationDelay(
-                            Math.floor(index / columnsForPeople),
-                            index % columnsForPeople
-                          )}
-                        />
-                      );
-                    })}
-                </div>
-              )}
-            </Stack>
+          {/* Annual Leave Section */}
+          <div className={sectionContainerStyle(isDarkMode)}>
+            <div
+              className={mergeStyles({
+                backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+                padding: '20px 20px 20px 60px',
+                borderRadius: '12px',
+                position: 'relative',
+                boxShadow: isDarkMode 
+                          ? `0 4px 12px ${colours.dark.border}` 
+                          : `0 4px 12px ${colours.light.border}`,
+              })}
+              style={{ maxHeight: '300px', overflow: 'auto' }}
+            >
+              <TabLabel label="Out" />
+              <Icon
+                iconName="Airplane"
+                styles={{
+                  root: {
+                    position: 'absolute',
+                    top: '50%',
+                    left: '60px',
+                    transform: 'translateY(-50%)',
+                    opacity: 0.05,
+                    fontSize: '100px',
+                    pointerEvents: 'none',
+                  },
+                }}
+              />
+              <div style={{ position: 'relative', flex: 1 }}>
+                {isLoadingAnnualLeave ? (
+                  <Spinner label="Loading annual leave..." size={SpinnerSize.medium} />
+                ) : annualLeaveError ? (
+                  <MessageBar messageBarType={MessageBarType.error}>{annualLeaveError}</MessageBar>
+                ) : (
+                  <div className={peopleGridStyle}>
+                    {annualLeaveRecords
+                      .filter((leave) => leave.status === 'booked')
+                      .map((leave, index: number) => {
+                        const teamMember = teamData.find(
+                          (member) => member.Initials.toLowerCase() === leave.person.toLowerCase()
+                        );
+                        return (
+                          <PersonBubble
+                            key={`leave-${index}`}
+                            person={{
+                              name: leave.person,
+                              initials: teamMember ? teamMember.Initials : '',
+                              presence: PersonaPresence.busy,
+                              nickname: teamMember ? teamMember.Nickname : leave.person,
+                            }}
+                            isDarkMode={isDarkMode}
+                            animationDelay={calculateAnimationDelay(Math.floor(index / columnsForPeople), index % columnsForPeople)}
+                            avatarUrlOverride={MarkAvatar}
+                          />
+                        );
+                      })}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className={mergeStyles({ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' })}>
+              <DefaultButton
+                text="Request Annual Leave"
+                onClick={() => {
+                  setBespokePanelContent(
+                    <AnnualLeaveForm
+                      futureLeave={futureLeaveRecords}
+                      team={teamData}
+                      userData={userData}
+                      totals={annualLeaveTotals}
+                    />
+                  );
+                  setBespokePanelTitle('Request Annual Leave');
+                  setIsBespokePanelOpen(true);
+                }}
+                iconProps={{ iconName: 'Calendar' }}
+                styles={{
+                  root: {
+                    backgroundColor: `${colours.light.border} !important`,
+                    border: 'none !important',
+                    height: '40px !important',
+                    fontWeight: "600",
+                    borderRadius: '4px !important',
+                    padding: '6px 12px !important',
+                    transition: 'transform 0.3s, box-shadow 0.3s',
+                  },
+                  rootHovered: {
+                    background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.15) 100%), ${colours.light.border} !important`,
+                  },
+                  rootPressed: {
+                    background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.25) 100%), ${colours.light.border} !important`,
+                  },
+                  rootFocused: { backgroundColor: `${colours.light.border} !important` },
+                  label: { color: isDarkMode ? colours.dark.text : colours.light.text },
+                }}
+                ariaLabel="Request Annual Leave"
+              />
+              <DefaultButton
+                text={manageLeaveLabel}
+                onClick={handleManageLeaveClick}
+                styles={manageLeaveButtonStyles}
+              />
+            </div>
           </div>
-        </div>
+        </Stack>
       </Stack>
 
-      <div
-        className={mergeStyles({
-          backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-          padding: '20px',
-          borderRadius: '12px',
-          boxShadow: isDarkMode
-            ? `0 4px 12px ${colours.dark.border}`
-            : `0 4px 12px ${colours.light.border}`,
-          transition: 'background-color 0.3s, box-shadow 0.3s',
-          width: '100%',
-          marginTop: '40px',
-        })}
-      >
-        <div
-          className={mergeStyles({
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'flex-start',
-            marginBottom: '15px',
-          })}
-        >
-          <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 10 }}>
-            <Text className={cardTitleStyle(isDarkMode)}>Contexts</Text>
-            <Stack horizontal tokens={{ childrenGap: 5 }}>
-              <Text style={{ color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                Teams Context
-              </Text>
-              <Text style={{ color: isDarkMode ? colours.dark.text : colours.light.text }}>|</Text>
-              <Text style={{ color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                SQL Context
-              </Text>
-            </Stack>
-          </Stack>
-          <IconButton
-            iconProps={{ iconName: isContextsExpanded ? 'ChevronUp' : 'ChevronDown' }}
-            onClick={() => setIsContextsExpanded(!isContextsExpanded)}
-            ariaLabel={isContextsExpanded ? 'Collapse Contexts' : 'Expand Contexts'}
-          />
-        </div>
-        {isContextsExpanded && (
-          <Stack
-            horizontal
-            wrap
-            tokens={{ childrenGap: 30 }}
-            styles={{ root: { width: '100%', alignItems: 'flex-start', marginTop: '20px' } }}
-          >
-            <div
-              className={mergeStyles({
-                backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
-                color: isDarkMode ? colours.dark.text : colours.light.text,
-                padding: '20px',
-                borderRadius: '12px',
-                boxShadow: isDarkMode
-                  ? `0 4px 12px ${colours.dark.border}`
-                  : `0 4px 12px ${colours.light.border}`,
-                transition: 'background-color 0.3s, box-shadow 0.3s',
-                flex: '1 1 48%',
-                minWidth: '250px',
-              })}
-            >
-              <div
-                className={mergeStyles({
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'flex-start',
-                  marginBottom: '15px',
-                })}
-              >
-                <Text className={cardTitleStyle(isDarkMode)}>Teams Context</Text>
-                <TooltipHost content="View detailed Teams context data">
-                  <IconButton iconProps={{ iconName: 'Info' }} ariaLabel="Teams Context Info" />
-                </TooltipHost>
-              </div>
-              <DetailsList
-                items={transformContext(context)}
-                columns={columns}
-                setKey="teamsSet"
-                layoutMode={DetailsListLayoutMode.justified}
-                isHeaderVisible={false}
-                styles={{
-                  root: {
-                    selectors: {
-                      '.ms-DetailsRow': {
-                        padding: '8px 0',
-                        borderBottom: 'none',
-                      },
-                      '.ms-DetailsHeader': {
-                        display: 'none',
-                      },
-                    },
-                  },
-                }}
-              />
-            </div>
-
-            <div
-              className={mergeStyles({
-                backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
-                color: isDarkMode ? colours.dark.text : colours.light.text,
-                padding: '20px',
-                borderRadius: '12px',
-                boxShadow: isDarkMode
-                  ? `0 4px 12px ${colours.dark.border}`
-                  : `0 4px 12px ${colours.light.border}`,
-                transition: 'background-color 0.3s, box-shadow 0.3s',
-                flex: '1 1 48%',
-                minWidth: '250px',
-              })}
-            >
-              <div
-                className={mergeStyles({
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'flex-start',
-                  marginBottom: '15px',
-                })}
-              >
-                <Text className={cardTitleStyle(isDarkMode)}>SQL Context</Text>
-                <TooltipHost content="View detailed SQL context data">
-                  <IconButton iconProps={{ iconName: 'Info' }} ariaLabel="SQL Context Info" />
-                </TooltipHost>
-              </div>
-              <DetailsList
-                items={transformContext(userData)}
-                columns={columns}
-                setKey="sqlSet"
-                layoutMode={DetailsListLayoutMode.justified}
-                isHeaderVisible={false}
-                styles={{
-                  root: {
-                    selectors: {
-                      '.ms-DetailsRow': {
-                        padding: '8px 0',
-                        borderBottom: 'none',
-                      },
-                      '.ms-DetailsHeader': {
-                        display: 'none',
-                      },
-                    },
-                  },
-                }}
-              />
-            </div>
-          </Stack>
-        )}
+      <div className={mergeStyles({ display: 'flex', justifyContent: 'center', alignItems: 'center', marginTop: '40px' })}>
+        <Text className={versionStyle}>Version 1.1</Text>
+        <IconButton
+          iconProps={{ iconName: 'Info' }}
+          title="Show context details"
+          ariaLabel="Show context details"
+          styles={{ root: { marginLeft: 8 }, icon: { fontSize: '16px' } }}
+          onClick={() => setIsContextPanelOpen(true)}
+        />
       </div>
 
-      <div className={versionStyle}>Version 1.1</div>
+      <BespokePanel
+        isOpen={isContextPanelOpen}
+        onClose={() => setIsContextPanelOpen(false)}
+        title="Context Details"
+        width="800px"
+      >
+        {renderContextsPanelContent()}
+      </BespokePanel>
 
       <BespokePanel
         isOpen={isBespokePanelOpen}
