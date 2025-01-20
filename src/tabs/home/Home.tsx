@@ -26,6 +26,9 @@ import MetricCard from './MetricCard';
 import GreyHelixMark from '../../assets/grey helix mark.png';
 import HelixAvatar from '../../assets/helix avatar.png';
 import MarkAvatar from '../../assets/mark192colour.png'; // Custom avatar for WFH & Out
+import InAttendanceImg from '../../assets/in_attendance.png';
+import WfhImg from '../../assets/wfh.png';
+import OutImg from '../../assets/outv2.png';
 import '../../app/styles/VerticalLabelPanel.css';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import '../../app/styles/MetricCard.css';
@@ -211,7 +214,7 @@ const favouritesGridStyle = mergeStyles({
 
 const peopleGridStyle = mergeStyles({
   display: 'grid',
-  paddingLeft: '60px', // leave space for inner tab and backdrop
+  paddingLeft: '80px', // leave space for inner tab and backdrop
   gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
   gap: '20px',
   alignItems: 'center',
@@ -392,12 +395,12 @@ const PersonBubble: React.FC<PersonBubbleProps> = ({
 
   const textBubbleStyle = mergeStyles({
     position: 'absolute',
-    left: '60px', // matches container left padding
+    left: 0,
     top: '50%',
     transform: 'translateY(-50%)',
     backgroundColor: colours.grey,
     borderRadius: '12px',
-    padding: '0 10px',
+    padding: '0 10px 0 50px',
     height: '34px',
     display: 'flex',
     alignItems: 'center',
@@ -406,10 +409,14 @@ const PersonBubble: React.FC<PersonBubbleProps> = ({
   });
 
   const textStyle = mergeStyles({ color: isDarkMode ? colours.dark.text : colours.light.text });
-  const imageUrl =
-    person.presence === PersonaPresence.online || !avatarUrlOverride
-      ? HelixAvatar
-      : avatarUrlOverride;
+
+  const personaStyles = {
+    root: {
+      zIndex: 4,
+      boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.15)', // Add shadow here
+      borderRadius: '50%', // Ensure the shadow matches the avatar's circular shape
+    },
+  };
 
   if (person.presence === PersonaPresence.online) {
     return (
@@ -417,11 +424,17 @@ const PersonBubble: React.FC<PersonBubbleProps> = ({
         <div style={{ position: 'relative', zIndex: 4 }}>
           <Persona
             text=""
-            imageUrl={imageUrl}
+            imageUrl={InAttendanceImg}
             size={PersonaSize.size40}
             presence={PersonaPresence.online}
             hidePersonaDetails
-            styles={{ root: { zIndex: 4 } }}
+            styles={{
+              root: {
+                zIndex: 4,
+                boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.15)', // Add subtle shadow
+                borderRadius: '50%', // Ensure shadow matches the avatar's circular shape
+              },
+            }}
           />
           <div className={textBubbleStyle}>
             <Text className={textStyle}>{person.nickname || person.name}</Text>
@@ -432,48 +445,48 @@ const PersonBubble: React.FC<PersonBubbleProps> = ({
   } else if (person.presence === PersonaPresence.busy) {
     return (
       <div className={bubbleStyle}>
-        <div
-          style={{
-            width: '40px',
-            height: '40px',
-            borderRadius: '50%',
-            backgroundColor: '#ffffff',
-            border: `0.5px solid ${colours.darkBlue}`,
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            position: 'relative',
-            zIndex: 4,
-          }}
-        >
-          <Icon iconName="Airplane" styles={{ root: { color: colours.darkBlue, fontSize: '16px' } }} />
-        </div>
-        <div className={textBubbleStyle}>
-          <Text className={textStyle}>{person.nickname || person.name}</Text>
+        <div style={{ position: 'relative', zIndex: 4 }}>
+          <Persona
+            text=""
+            imageUrl={OutImg}
+            size={PersonaSize.size40}
+            presence={PersonaPresence.busy}
+            hidePersonaDetails
+            styles={{
+              root: {
+                zIndex: 4,
+                boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.15)', // Add subtle shadow
+                borderRadius: '50%', // Ensure shadow matches the avatar's circular shape
+              },
+            }}
+          />
+          <div className={textBubbleStyle}>
+            <Text className={textStyle}>{person.nickname || person.name}</Text>
+          </div>
         </div>
       </div>
     );
   } else {
     return (
       <div className={bubbleStyle}>
-        <div
-          style={{
-            width: '40px',
-            height: '40px',
-            borderRadius: '50%',
-            backgroundColor: '#ffffff',
-            border: `0.5px solid ${colours.darkBlue}`,
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            position: 'relative',
-            zIndex: 4,
-          }}
-        >
-          <Icon iconName="Home" styles={{ root: { color: colours.darkBlue, fontSize: '16px' } }} />
-        </div>
-        <div className={textBubbleStyle}>
-          <Text className={textStyle}>{person.nickname || person.name}</Text>
+        <div style={{ position: 'relative', zIndex: 4 }}>
+          <Persona
+            text=""
+            imageUrl={WfhImg}
+            size={PersonaSize.size40}
+            presence={PersonaPresence.online}
+            hidePersonaDetails
+            styles={{
+              root: {
+                zIndex: 4,
+                boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.15)', // Add subtle shadow
+                borderRadius: '50%', // Ensure shadow matches the avatar's circular shape
+              },
+            }}
+          />
+          <div className={textBubbleStyle}>
+            <Text className={textStyle}>{person.nickname || person.name}</Text>
+          </div>
         </div>
       </div>
     );
@@ -1330,7 +1343,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                       const row = Math.floor(index / columnsForPeople);
                       const col = index % columnsForPeople;
                       const delay = calculateAnimationDelay(row, col);
-                      return <PersonBubble key={index} person={person} isDarkMode={isDarkMode} animationDelay={delay} avatarUrlOverride={MarkAvatar} />;
+                      return <PersonBubble key={index} person={person} isDarkMode={isDarkMode} animationDelay={delay} />;
                     })
                   )}
                 </div>
@@ -1363,7 +1376,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                           ? `0 4px 12px ${colours.dark.border}` 
                           : `0 4px 12px ${colours.light.border}`,
               })}
-              style={{ maxHeight: '300px', overflow: 'auto' }}
+              style={{ maxHeight: '300px', minHeight: '140px', overflow: 'auto' }}
             >
               <TabLabel label="Out" />
               <Icon
@@ -1404,7 +1417,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                             }}
                             isDarkMode={isDarkMode}
                             animationDelay={calculateAnimationDelay(Math.floor(index / columnsForPeople), index % columnsForPeople)}
-                            avatarUrlOverride={MarkAvatar}
                           />
                         );
                       })}
