@@ -11,7 +11,7 @@ import {
   Label
 } from '@fluentui/react';
 import { mergeStyles } from '@fluentui/react';
-import { eachDayOfInterval, isWeekend, format } from 'date-fns';
+import { eachDayOfInterval, isWeekend, format, addDays } from 'date-fns';
 import { colours } from '../app/styles/colours';
 import { formContainerStyle, inputFieldStyle } from './BespokeForms';
 import { sharedDefaultButtonStyles } from '../app/styles/ButtonStyles';
@@ -83,8 +83,33 @@ const calculateWorkingDays = (startStr: string, endStr: string): number => {
 const formatDateRange = (startStr: string, endStr: string) => {
   const start = new Date(startStr);
   const end = new Date(endStr);
-  return `${format(start, 'd MMM yyyy')} - ${format(end, 'd MMM yyyy')}`;
+  if (start.getFullYear() === end.getFullYear()) {
+    return `${format(start, 'd MMM')} - ${format(end, 'd MMM yyyy')}`;
+  } else {
+    return `${format(start, 'd MMM yyyy')} - ${format(end, 'd MMM yyyy')}`;
+  }
 };
+
+function consolidateRanges(ranges: { start_date: string; end_date: string }[]): { start_date: string; end_date: string }[] {
+  if (!ranges.length) return [];
+  const sorted = ranges
+    .slice()
+    .sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime());
+  const result = [sorted[0]];
+  for (let i = 1; i < sorted.length; i++) {
+    const last = result[result.length - 1];
+    const curr = sorted[i];
+    // If current range starts the day after or earlier than last end, merge
+    if (new Date(curr.start_date) <= addDays(new Date(last.end_date), 1)) {
+      if (new Date(curr.end_date) > new Date(last.end_date)) {
+        last.end_date = curr.end_date;
+      }
+    } else {
+      result.push(curr);
+    }
+  }
+  return result;
+}
 
 const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
   approvals,
@@ -171,6 +196,35 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
             const daysRemaining = holidayEntitlement - totalBookedDays - workingDays;
             const availableSell = 5 - totals.purchase;
             const conflicts = getAllConflicts(entry);
+
+            // Group conflicts by person with status handling
+            const conflictsGrouped: {
+              [person: string]: {
+                nickname: string;
+                dateRanges: { start_date: string; end_date: string }[];
+                status: string;
+              }
+            } = {};
+            conflicts.forEach(conflict => {
+              const person = conflict.person;
+              if (!conflictsGrouped[person]) {
+                conflictsGrouped[person] = {
+                  nickname: getNickname(person),
+                  dateRanges: [],
+                  status: conflict.status.toLowerCase(),
+                };
+              } else {
+                if (conflictsGrouped[person].status !== conflict.status.toLowerCase()) {
+                  conflictsGrouped[person].status = 'requested';
+                }
+              }
+              conflictsGrouped[person].dateRanges.push({
+                start_date: conflict.start_date,
+                end_date: conflict.end_date,
+              });
+            });
+            const groupedArray = Object.values(conflictsGrouped);
+
             return (
               <div key={entry.id} className={containerEntryStyle}>
                 <Stack horizontal tokens={{ childrenGap: 20 }} verticalAlign="start">
@@ -249,11 +303,57 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
                     <Stack tokens={{ childrenGap: 10 }} styles={{ root: { marginTop: 10 } }}>
                       <Label className={labelStyleText}>Team Conflicts:</Label>
                       {conflicts.length > 0 ? (
-                        conflicts.map(conflict => (
-                          <Text key={conflict.id} className={valueStyleText}>
-                            {getNickname(conflict.person)}: {formatDateRange(conflict.start_date, conflict.end_date)}
-                          </Text>
-                        ))
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
+                          {groupedArray.map((item, idx) => {
+                            const consolidated = consolidateRanges(item.dateRanges);
+                            let borderColor = colours.cta;
+                            if (item.status === 'approved') {
+                              borderColor = colours.orange;
+                            } else if (item.status === 'booked') {
+                              borderColor = colours.green;
+                            }
+                            
+                            return (
+                              <div
+                                key={idx}
+                                className="persona-bubble"
+                                style={{
+                                  border: `1px solid ${borderColor}`,
+                                  backgroundColor: '#ffffff',
+                                  padding: '5px',
+                                  borderRadius: '4px',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  alignItems: 'center',
+                                  minWidth: '150px',
+                                }}
+                              >
+                                <div className="persona-icon-container" style={{ backgroundColor: 'transparent' }}>
+                                  <Persona
+                                    imageUrl={HelixAvatar}
+                                    text={item.nickname}
+                                    size={PersonaSize.size48}
+                                    styles={{ primaryText: { fontWeight: 'bold', fontSize: '16px' } }}
+                                  />
+                                </div>
+                                <div style={{ marginTop: '5px', textAlign: 'center', width: '100%' }}>
+                                  <div style={{ fontWeight: 600, fontSize: '16px', color: colours.light.text }}>
+                                    {item.nickname}
+                                  </div>
+                                  <div style={{ fontSize: '14px', fontWeight: 400, color: colours.light.text }}>
+                                    {consolidated.map((dr, index) =>
+                                      dr.start_date === dr.end_date
+                                        ? format(new Date(dr.start_date), 'd MMM')
+                                        : `${format(new Date(dr.start_date), 'd MMM')} - ${format(new Date(dr.end_date), 'd MMM')}`
+                                    ).map((line, index) => (
+                                      <div key={index}>{line}</div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
                       ) : (
                         <Text className={valueStyleText}>No Conflicts</Text>
                       )}

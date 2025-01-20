@@ -87,7 +87,7 @@ interface Person {
 
 const quickActions: QuickLink[] = [
   { title: 'Create a Task', icon: 'Checklist' },
-  { title: 'Create a Time Entry', icon: 'Clock' },
+  { title: 'Request CollabSpace', icon: 'Group' },  // Updated label and reusing the icon for demonstration
   { title: 'Save Telephone Note', icon: 'Comment' },
   { title: 'Save Attendance Note', icon: 'NotePinned' },
   { title: 'Request ID', icon: 'ContactInfo' },
@@ -511,7 +511,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const [todaysTasks, setTodaysTasks] = useState<number>(10);
   const [tasksDueThisWeek, setTasksDueThisWeek] = useState<number>(20);
   const [completedThisWeek, setCompletedThisWeek] = useState<number>(15);
-  const [recordedTime, setRecordedTime] = useState<{ hours: number; money: number }>({
+  const [recordedTime, setRecordedTime] = useState<{ hours: number; money: number }>( {
     hours: 120,
     money: 1000,
   });
@@ -521,7 +521,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const [prevTodaysTasks, setPrevTodaysTasks] = useState<number>(12);
   const [prevTasksDueThisWeek, setPrevTasksDueThisWeek] = useState<number>(18);
   const [prevCompletedThisWeek, setPrevCompletedThisWeek] = useState<number>(17);
-  const [prevRecordedTime, setPrevRecordedTime] = useState<{ hours: number; money: number }>({
+  const [prevRecordedTime, setPrevRecordedTime] = useState<{ hours: number; money: number }>( {
     hours: 110,
     money: 900,
   });
@@ -901,8 +901,8 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       case 'Open a Matter':
         content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="9" />;
         break;
-      case 'Create a Time Entry':
-        content = <CreateTimeEntryForm />;
+      case 'Request CollabSpace':
+        content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="44" />;
         break;
       case 'Request ID':
         content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="60" />;
@@ -1178,28 +1178,28 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
             <Text variant="xLarge" styles={{ root: { fontWeight: 600 } }}>
               Approve Annual Leave
             </Text>
-<AnnualLeaveApprovals
-  approvals={approvalsNeeded.map((item) => ({
-    id: item.id || `temp-${item.start_date}-${item.end_date}`,
-    person: item.person,
-    start_date: item.start_date,
-    end_date: item.end_date,
-    reason: item.reason,
-    status: item.status,
-  }))}
-  futureLeave={futureLeaveRecords.map((item) => ({
-    id: item.id || `temp-${item.start_date}-${item.end_date}`,
-    person: item.person,
-    start_date: item.start_date,
-    end_date: item.end_date,
-    reason: item.reason,
-    status: item.status,
-  }))}
-  onClose={() => setIsBespokePanelOpen(false)}
-  team={teamData}
-  totals={annualLeaveTotals}
-  holidayEntitlement={userData[0]?.holiday_entitlement || 0}
-/>
+            <AnnualLeaveApprovals
+              approvals={approvalsNeeded.map((item) => ({
+                id: item.id || `temp-${item.start_date}-${item.end_date}`,
+                person: item.person,
+                start_date: item.start_date,
+                end_date: item.end_date,
+                reason: item.reason,
+                status: item.status,
+              }))}
+              futureLeave={futureLeaveRecords.map((item) => ({
+                id: item.id || `temp-${item.start_date}-${item.end_date}`,
+                person: item.person,
+                start_date: item.start_date,
+                end_date: item.end_date,
+                reason: item.reason,
+                status: item.status,
+              }))}
+              onClose={() => setIsBespokePanelOpen(false)}
+              team={teamData}
+              totals={annualLeaveTotals}
+              holidayEntitlement={userData[0]?.holiday_entitlement || 0}
+            />
           </Stack>
           <Stack tokens={{ childrenGap: 10 }}>
             <Text variant="xLarge" styles={{ root: { fontWeight: 600 } }}>
@@ -1525,27 +1525,29 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                 <MessageBar messageBarType={MessageBarType.error}>{annualLeaveError}</MessageBar>
               ) : (
                 <div className={peopleGridStyle}>
-                  {annualLeaveRecords.map((leave, index: number) => {
-                    const teamMember = teamData.find(
-                      (member) => member.Initials.toLowerCase() === leave.person.toLowerCase()
-                    );
-                    return (
-                      <PersonBubble
-                        key={`leave-${index}`}
-                        person={{
-                          name: leave.person,
-                          initials: teamMember ? teamMember.Initials : '',
-                          presence: PersonaPresence.busy,
-                          nickname: teamMember ? teamMember.Nickname : leave.person,
-                        }}
-                        isDarkMode={isDarkMode}
-                        animationDelay={calculateAnimationDelay(
-                          Math.floor(index / columnsForPeople),
-                          index % columnsForPeople
-                        )}
-                      />
-                    );
-                  })}
+                  {annualLeaveRecords
+                    .filter((leave) => leave.status === 'booked')
+                    .map((leave, index: number) => {
+                      const teamMember = teamData.find(
+                        (member) => member.Initials.toLowerCase() === leave.person.toLowerCase()
+                      );
+                      return (
+                        <PersonBubble
+                          key={`leave-${index}`}
+                          person={{
+                            name: leave.person,
+                            initials: teamMember ? teamMember.Initials : '',
+                            presence: PersonaPresence.busy,
+                            nickname: teamMember ? teamMember.Nickname : leave.person,
+                          }}
+                          isDarkMode={isDarkMode}
+                          animationDelay={calculateAnimationDelay(
+                            Math.floor(index / columnsForPeople),
+                            index % columnsForPeople
+                          )}
+                        />
+                      );
+                    })}
                 </div>
               )}
             </Stack>

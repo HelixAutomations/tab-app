@@ -7,12 +7,13 @@ import {
   DefaultButton,
   Icon,
   Persona,
-  PersonaSize
+  PersonaSize,
+  Label
 } from '@fluentui/react';
 import { mergeStyles } from '@fluentui/react';
-import { format } from 'date-fns';
+import { eachDayOfInterval, isWeekend, format, addDays } from 'date-fns';
 import { colours } from '../app/styles/colours';
-import { formContainerStyle } from './BespokeForms';
+import { formContainerStyle, inputFieldStyle } from './BespokeForms';
 import { sharedDefaultButtonStyles } from '../app/styles/ButtonStyles';
 import HelixAvatar from '../assets/helix avatar.png';
 
@@ -70,6 +71,42 @@ const rejectedBackdropStyle = mergeStyles({
   gap: '10px',
   marginBottom: '15px',
 });
+
+const formatDateRange = (startStr: string, endStr: string) => {
+  const start = new Date(startStr);
+  const end = new Date(endStr);
+  if (start.getFullYear() === end.getFullYear()) {
+    return `${format(start, 'd MMM')} - ${format(end, 'd MMM yyyy')}`;
+  } else {
+    return `${format(start, 'd MMM yyyy')} - ${format(end, 'd MMM yyyy')}`;
+  }
+};
+
+/**
+ * Consolidates overlapping or consecutive date ranges.
+ * If two ranges touch (e.g., end of first is one day before start of second),
+ * they are merged into a single range.
+ */
+function consolidateRanges(ranges: { start_date: string; end_date: string }[]): { start_date: string; end_date: string }[] {
+  if (!ranges.length) return [];
+  const sorted = ranges
+    .slice()
+    .sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime());
+  const result = [sorted[0]];
+  for (let i = 1; i < sorted.length; i++) {
+    const last = result[result.length - 1];
+    const curr = sorted[i];
+    // If current range starts the day after or earlier than last end, merge
+    if (new Date(curr.start_date) <= addDays(new Date(last.end_date), 1)) {
+      if (new Date(curr.end_date) > new Date(last.end_date)) {
+        last.end_date = curr.end_date;
+      }
+    } else {
+      result.push(curr);
+    }
+  }
+  return result;
+}
 
 const AnnualLeaveBookings: React.FC<AnnualLeaveBookingsProps> = ({ bookings, onClose, team }) => {
   const updateAnnualLeave = async (
@@ -172,8 +209,7 @@ const AnnualLeaveBookings: React.FC<AnnualLeaveBookingsProps> = ({ bookings, onC
                             {isRejected ? 'Rejected Dates:' : 'Approved Dates:'}
                           </Text>
                           <Text className={valueStyleText}>
-                            {format(new Date(entry.start_date), 'd MMM yyyy')} -{' '}
-                            {format(new Date(entry.end_date), 'd MMM yyyy')}
+                            {formatDateRange(entry.start_date, entry.end_date)}
                           </Text>
                         </Stack>
                       </Stack>
@@ -185,7 +221,10 @@ const AnnualLeaveBookings: React.FC<AnnualLeaveBookingsProps> = ({ bookings, onC
                   text={isRejected ? 'Acknowledge' : 'Book'}
                   onClick={() => handleAction(entry.id, entry.status)}
                   styles={sharedDefaultButtonStyles}
-                  iconProps={{ iconName: 'CompletedSolid', styles: { root: { color: '#009900' } } }}
+                  iconProps={{
+                    iconName: isRejected ? 'Acknowledge' : 'CompletedSolid',
+                    styles: { root: { color: isRejected ? '#0000FF' : '#009900' } } // Blue for Acknowledge, Green for Book
+                  }}
                   style={{ alignSelf: 'flex-start', maxWidth: 'auto' }}
                 />
               </Stack>
