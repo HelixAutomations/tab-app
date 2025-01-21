@@ -119,6 +119,7 @@ async function queryAnnualLeave(
   config: any,
   context: InvocationContext
 ): Promise<{ 
+  request_id: number;
   person: string; 
   start_date: string; 
   end_date: string; 
@@ -146,6 +147,7 @@ async function queryAnnualLeave(
 
       const query = `
         SELECT 
+          [request_id],
           [fe] AS person, 
           [start_date], 
           [end_date], 
@@ -170,6 +172,7 @@ async function queryAnnualLeave(
       });
 
       const annualLeaveList: { 
+        request_id: number;
         person: string; 
         start_date: string; 
         end_date: string; 
@@ -189,6 +192,7 @@ async function queryAnnualLeave(
         const formattedEndDate = entry.end_date ? new Date(entry.end_date).toISOString().split('T')[0] : "";
 
         annualLeaveList.push({
+          request_id: entry.request_id,
           person: entry.person || "",
           start_date: formattedStartDate,
           end_date: formattedEndDate,
@@ -220,6 +224,7 @@ async function queryFutureLeave(
   config: any,
   context: InvocationContext
 ): Promise<{ 
+  request_id: number;
   person: string; 
   start_date: string; 
   end_date: string; 
@@ -247,6 +252,7 @@ async function queryFutureLeave(
 
       const query = `
         SELECT 
+          [request_id],
           [fe] AS person, 
           [start_date], 
           [end_date], 
@@ -271,6 +277,7 @@ async function queryFutureLeave(
       });
 
       const futureLeaveList: { 
+        request_id: number;
         person: string; 
         start_date: string; 
         end_date: string; 
@@ -290,6 +297,7 @@ async function queryFutureLeave(
         const formattedEndDate = entry.end_date ? new Date(entry.end_date).toISOString().split('T')[0] : "";
 
         futureLeaveList.push({
+          request_id: entry.request_id,
           person: entry.person || "",
           start_date: formattedStartDate,
           end_date: formattedEndDate,
@@ -325,6 +333,7 @@ async function queryUserAnnualLeave(
   context: InvocationContext
 ): Promise<{
   leaveEntries: {
+    request_id: number;
     person: string;
     start_date: string;
     end_date: string;
@@ -358,6 +367,7 @@ async function queryUserAnnualLeave(
 
       const query = `
         SELECT 
+          [request_id],
           [fe] AS person,
           [start_date],
           [end_date],
@@ -383,6 +393,7 @@ async function queryUserAnnualLeave(
       });
 
       const leaveEntries: {
+        request_id: number;
         person: string;
         start_date: string;
         end_date: string;
@@ -402,6 +413,7 @@ async function queryUserAnnualLeave(
         const formattedEndDate = entry.end_date ? new Date(entry.end_date).toISOString().split('T')[0] : "";
 
         leaveEntries.push({
+          request_id: entry.request_id,
           person: entry.person || "",
           start_date: formattedStartDate,
           end_date: formattedEndDate,

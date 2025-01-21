@@ -1,5 +1,3 @@
-// src/CustomForms/AnnualLeaveBookings.tsx
-
 import React from 'react';
 import {
   Stack,
@@ -18,7 +16,9 @@ import { sharedDefaultButtonStyles } from '../app/styles/ButtonStyles';
 import HelixAvatar from '../assets/helix avatar.png';
 
 export interface BookingEntry {
+  // The backend now returns a numeric request_id. If that exists, use it.
   id: string;
+  request_id?: number;
   person: string; // holds initials
   start_date: string;
   end_date: string;
@@ -154,14 +154,13 @@ const AnnualLeaveBookings: React.FC<AnnualLeaveBookingsProps> = ({ bookings, onC
           </Text>
         ) : (
           bookings.map(entry => {
-            const statusLower = entry.status.toLowerCase();
-            const isApproved = statusLower === 'approved';
-            const isRejected = statusLower === 'rejected';
+            // Use record's request_id if available (converted to string), otherwise fallback to entry.id.
+            const recordId = entry.request_id ? String(entry.request_id) : entry.id;
 
             return (
-              <Stack key={entry.id} tokens={{ childrenGap: 15 }}>
-                <div className={isApproved ? approvedBackdropStyle : rejectedBackdropStyle}>
-                  {isApproved ? (
+              <Stack key={recordId} tokens={{ childrenGap: 15 }}>
+                <div className={entry.status.toLowerCase() === 'approved' ? approvedBackdropStyle : rejectedBackdropStyle}>
+                  {entry.status.toLowerCase() === 'approved' ? (
                     <>
                       <Icon
                         iconName="CompletedSolid"
@@ -206,7 +205,7 @@ const AnnualLeaveBookings: React.FC<AnnualLeaveBookingsProps> = ({ bookings, onC
                       <Stack horizontal tokens={{ childrenGap: 40 }}>
                         <Stack>
                           <Text className={labelStyleText}>
-                            {isRejected ? 'Rejected Dates:' : 'Approved Dates:'}
+                            {entry.status.toLowerCase() === 'rejected' ? 'Rejected Dates:' : 'Approved Dates:'}
                           </Text>
                           <Text className={valueStyleText}>
                             {formatDateRange(entry.start_date, entry.end_date)}
@@ -218,12 +217,12 @@ const AnnualLeaveBookings: React.FC<AnnualLeaveBookingsProps> = ({ bookings, onC
                 </Stack>
 
                 <DefaultButton
-                  text={isRejected ? 'Acknowledge' : 'Book'}
-                  onClick={() => handleAction(entry.id, entry.status)}
+                  text={entry.status.toLowerCase() === 'rejected' ? 'Acknowledge' : 'Book'}
+                  onClick={() => handleAction(recordId, entry.status)}
                   styles={sharedDefaultButtonStyles}
                   iconProps={{
-                    iconName: isRejected ? 'Acknowledge' : 'CompletedSolid',
-                    styles: { root: { color: isRejected ? '#0000FF' : '#009900' } } // Blue for Acknowledge, Green for Book
+                    iconName: entry.status.toLowerCase() === 'rejected' ? 'Acknowledge' : 'CompletedSolid',
+                    styles: { root: { color: entry.status.toLowerCase() === 'rejected' ? '#0000FF' : '#009900' } } // Blue for Acknowledge, Green for Book
                   }}
                   style={{ alignSelf: 'flex-start', maxWidth: 'auto' }}
                 />

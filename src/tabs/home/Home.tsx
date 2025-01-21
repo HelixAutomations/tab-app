@@ -732,13 +732,27 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
             throw new Error(`Failed to fetch annual leave: ${annualLeaveResponse.status}`);
           const annualLeaveData = await annualLeaveResponse.json();
           if (annualLeaveData && Array.isArray(annualLeaveData.annual_leave)) {
-            cachedAnnualLeave = annualLeaveData.annual_leave;
-            setAnnualLeaveRecords(annualLeaveData.annual_leave);
-            if (Array.isArray(annualLeaveData.future_leave)) { setFutureLeaveRecords(annualLeaveData.future_leave); }
+            // Map each annual leave record so that the 'id' property uses the proper 'request_id'
+            const mappedAnnualLeave = annualLeaveData.annual_leave.map((rec: any) => ({
+              ...rec,
+              id: rec.request_id ? String(rec.request_id) : (rec.id || `temp-${rec.start_date}-${rec.end_date}`)
+            }));
+            cachedAnnualLeave = mappedAnnualLeave;
+            setAnnualLeaveRecords(mappedAnnualLeave);
+          
+            if (Array.isArray(annualLeaveData.future_leave)) {
+              const mappedFutureLeave = annualLeaveData.future_leave.map((rec: any) => ({
+                ...rec,
+                id: rec.request_id ? String(rec.request_id) : (rec.id || `temp-${rec.start_date}-${rec.end_date}`)
+              }));
+              setFutureLeaveRecords(mappedFutureLeave);
+            }
             if (annualLeaveData.user_details && annualLeaveData.user_details.totals) {
               setAnnualLeaveTotals(annualLeaveData.user_details.totals);
             }
-          } else { throw new Error('Invalid annual leave data format.'); }
+          } else { 
+            throw new Error('Invalid annual leave data format.'); 
+          }
         } catch (error: any) {
           console.error('Error fetching annual leave:', error);
           cachedAnnualLeaveError = error.message || 'Unknown error occurred.';

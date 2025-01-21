@@ -1,5 +1,3 @@
-// src/CustomForms/AnnualLeaveApprovals.tsx
-
 import React, { useState } from 'react';
 import {
   Stack,
@@ -18,7 +16,11 @@ import { sharedDefaultButtonStyles } from '../app/styles/ButtonStyles';
 import HelixAvatar from '../assets/helix avatar.png';
 
 export interface ApprovalEntry {
+  // The data coming from the backend should now include a request_id.
+  // We keep the interface with "id" for compatibility; if a proper request_id exists,
+  // we will use that.
   id: string;
+  request_id?: number;
   person: string; // holds initials
   start_date: string;
   end_date: string;
@@ -192,6 +194,9 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
       ) : (
         <Stack tokens={{ childrenGap: 20 }}>
           {approvals.map(entry => {
+            // Use request_id if present. Otherwise fall back to entry.id.
+            const recordId = entry.request_id ? String(entry.request_id) : entry.id;
+
             const workingDays = calculateWorkingDays(entry.start_date, entry.end_date);
             const daysRemaining = holidayEntitlement - totalBookedDays - workingDays;
             const availableSell = 5 - totals.purchase;
@@ -226,7 +231,7 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
             const groupedArray = Object.values(conflictsGrouped);
 
             return (
-              <div key={entry.id} className={containerEntryStyle}>
+              <div key={recordId} className={containerEntryStyle}>
                 <Stack horizontal tokens={{ childrenGap: 20 }} verticalAlign="start">
                   <Persona
                     imageUrl={HelixAvatar}
@@ -378,21 +383,21 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
                 <Stack horizontal tokens={{ childrenGap: 10 }} styles={{ root: { marginTop: 10, paddingBottom: 10 } }}>
                   <DefaultButton
                     text="Approve"
-                    onClick={() => handleApprove(entry.id)}
+                    onClick={() => handleApprove(recordId)}
                     styles={sharedDefaultButtonStyles}
                     iconProps={{ iconName: 'CompletedSolid', styles: { root: { color: '#009900' } } }}
                   />
                   <DefaultButton
                     text="Reject"
-                    onClick={() => handleReject(entry.id)}
+                    onClick={() => handleReject(recordId)}
                     styles={sharedDefaultButtonStyles}
                     iconProps={{ iconName: 'Cancel', styles: { root: { color: '#cc0000' } } }}
                   />
                 </Stack>
                 <TextField
                   placeholder="Enter rejection notes"
-                  value={rejectionReason[entry.id] || ''}
-                  onChange={(e, val) => handleRejectionReasonChange(entry.id, val || '')}
+                  value={rejectionReason[recordId] || ''}
+                  onChange={(e, val) => handleRejectionReasonChange(recordId, val || '')}
                   styles={{ fieldGroup: inputFieldStyle }}
                   multiline
                   rows={3}

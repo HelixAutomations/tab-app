@@ -1,5 +1,3 @@
-// D:\helix projects\workspace\tab apps\helix hub v1\api\src\functions\updateAnnualLeave.ts
-
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { DefaultAzureCredential } from "@azure/identity";
 import { SecretClient } from "@azure/keyvault-secrets";
@@ -163,22 +161,12 @@ async function updateAnnualLeaveRecord(
 
       context.log("Connected to SQL. Updating annual leave record...");
 
-      // Example SQL that updates 'status' and overrides 'reason' 
-      // only if a new reason is provided. 
-      // Adjust the WHERE clause if you want to limit transitions.
-      //
-      // E.g., restrict transitions:
-      //   WHERE id=@ID AND (
-      //       (status='requested' AND @NewStatus='approved') 
-      //    OR (status='approved' AND @NewStatus='booked')
-      //   )
-      //
-      // For a simple open update, do:
+      // Updated SQL to reference the correct column [request_id]
       const query = `
         UPDATE [dbo].[annualLeave]
            SET [status] = @NewStatus,
                [reason] = CASE WHEN @Reason IS NULL OR @Reason = '' THEN [reason] ELSE @Reason END
-         WHERE [id] = @ID;
+         WHERE [request_id] = @ID;
       `;
 
       const request = new SqlRequest(query, (sqlErr, rowCount) => {
