@@ -3,10 +3,10 @@ import {
   Stack,
   Text,
   DefaultButton,
-  TextField,
   Persona,
   PersonaSize,
-  Label
+  Label,
+  TextField
 } from '@fluentui/react';
 import { mergeStyles } from '@fluentui/react';
 import { eachDayOfInterval, isWeekend, format, addDays } from 'date-fns';
@@ -187,224 +187,248 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
 
   const totalBookedDays = totals.standard;
 
+  const ApprovalCard: React.FC<{ entry: ApprovalEntry }> = ({ entry }) => {
+    const recordId = entry.request_id ? String(entry.request_id) : entry.id;
+    const [updated, setUpdated] = useState(false);
+    const [confirmationMessage, setConfirmationMessage] = useState('');
+    const [localRejection, setLocalRejection] = useState('');
+
+    const workingDays = calculateWorkingDays(entry.start_date, entry.end_date);
+    const daysRemaining = holidayEntitlement - totalBookedDays - workingDays;
+    const availableSell = 5 - totals.purchase;
+    const conflicts = getAllConflicts(entry);
+
+    const conflictsGrouped: {
+      [person: string]: {
+        nickname: string;
+        dateRanges: { start_date: string; end_date: string }[];
+        status: string;
+      }
+    } = {};
+    conflicts.forEach(conflict => {
+      const person = conflict.person;
+      if (!conflictsGrouped[person]) {
+        conflictsGrouped[person] = {
+          nickname: getNickname(person),
+          dateRanges: [],
+          status: conflict.status.toLowerCase(),
+        };
+      } else {
+        if (conflictsGrouped[person].status !== conflict.status.toLowerCase()) {
+          conflictsGrouped[person].status = 'requested';
+        }
+      }
+      conflictsGrouped[person].dateRanges.push({
+        start_date: conflict.start_date,
+        end_date: conflict.end_date,
+      });
+    });
+    const groupedArray = Object.values(conflictsGrouped);
+
+    const localHandleApprove = async () => {
+      try {
+        await updateAnnualLeave(recordId, 'approved', null);
+        setUpdated(true);
+        setConfirmationMessage('Approved successfully');
+      } catch (error) {
+        console.error(error);
+      }
+    };
+
+    const localHandleReject = async () => {
+      try {
+        await updateAnnualLeave(recordId, 'rejected', localRejection);
+        setUpdated(true);
+        setConfirmationMessage('Rejected successfully');
+      } catch (error) {
+        console.error(error);
+      }
+    };
+
+    return (
+      <div className={mergeStyles(containerEntryStyle, updated && { backgroundColor: '#f0f0f0', border: '2px solid #009900' })}>
+        <Stack horizontal tokens={{ childrenGap: 20 }} verticalAlign="start">
+          <Persona
+            imageUrl={HelixAvatar}
+            text={getNickname(entry.person)}
+            size={PersonaSize.size48}
+            styles={{ primaryText: { fontWeight: 'bold', fontSize: '18px' } }}
+          />
+          <Stack tokens={{ childrenGap: 20 }} styles={{ root: { flex: 1 } }}>
+            <Stack
+              tokens={{ childrenGap: 10 }}
+              styles={{
+                root: {
+                  border: `1px solid ${colours.light.border}`,
+                  borderRadius: '4px',
+                  padding: '12px',
+                  backgroundColor: colours.light.grey,
+                },
+              }}
+            >
+              <Stack horizontal tokens={{ childrenGap: 40 }}>
+                <Stack>
+                  <Label className={labelStyleText}>Requested Dates:</Label>
+                  <Text className={valueStyleText}>
+                    {formatDateRange(entry.start_date, entry.end_date)}
+                  </Text>
+                </Stack>
+                <Stack>
+                  <Label className={labelStyleText}>Total Number of Days Requested:</Label>
+                  <Text className={valueStyleText}>
+                    {workingDays} {workingDays !== 1 ? 'days' : 'day'}
+                  </Text>
+                </Stack>
+              </Stack>
+              <Stack>
+                <Label className={labelStyleText}>Notes:</Label>
+                <Text className={valueStyleText}>
+                  {entry.reason && entry.reason.trim() !== ''
+                    ? entry.reason
+                    : `${getNickname(entry.person)} hasn't left a note.`}
+                </Text>
+              </Stack>
+            </Stack>
+            <Stack
+              horizontal
+              tokens={{ childrenGap: 40 }}
+              styles={{
+                root: {
+                  border: `1px solid ${colours.light.border}`,
+                  borderRadius: '4px',
+                  padding: '12px',
+                  backgroundColor: colours.light.grey,
+                },
+              }}
+            >
+              <Stack>
+                <Label className={labelStyleText}>Days taken so far this year:</Label>
+                <Text className={valueStyleText}>
+                  {totalBookedDays} {totalBookedDays !== 1 ? 'days' : 'day'}
+                </Text>
+              </Stack>
+              <Stack>
+                <Label className={labelStyleText}>Days remaining this year:</Label>
+                <Text className={valueStyleText}>
+                  {daysRemaining} {daysRemaining !== 1 ? 'days' : 'day'}
+                </Text>
+              </Stack>
+              <Stack>
+                <Label className={labelStyleText}>Available days to sell:</Label>
+                <Text className={valueStyleText}>
+                  {availableSell} {availableSell !== 1 ? 'days' : 'day'}
+                </Text>
+              </Stack>
+            </Stack>
+            <Stack tokens={{ childrenGap: 10 }} styles={{ root: { marginTop: 10 } }}>
+              <Label className={labelStyleText}>Team Conflicts:</Label>
+              {conflicts.length > 0 ? (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
+                  {groupedArray.map((item, idx) => {
+                    const consolidated = consolidateRanges(item.dateRanges);
+                    let borderColor = colours.cta;
+                    if (item.status === 'approved') {
+                      borderColor = colours.orange;
+                    } else if (item.status === 'booked') {
+                      borderColor = colours.green;
+                    }
+                    
+                    return (
+                      <div
+                        key={idx}
+                        className="persona-bubble"
+                        style={{
+                          border: `1px solid ${borderColor}`,
+                          backgroundColor: '#ffffff',
+                          padding: '5px',
+                          borderRadius: '4px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          minWidth: '150px',
+                        }}
+                      >
+                        <div className="persona-icon-container" style={{ backgroundColor: 'transparent' }}>
+                          <Persona
+                            imageUrl={HelixAvatar}
+                            text={item.nickname}
+                            size={PersonaSize.size48}
+                            styles={{ primaryText: { fontWeight: 'bold', fontSize: '16px' } }}
+                          />
+                        </div>
+                        <div style={{ marginTop: '5px', textAlign: 'center', width: '100%' }}>
+                          <div style={{ fontWeight: 600, fontSize: '16px', color: colours.light.text }}>
+                            {item.nickname}
+                          </div>
+                          <div style={{ fontSize: '14px', fontWeight: 400, color: colours.light.text }}>
+                            {consolidated.map((dr, index) =>
+                              dr.start_date === dr.end_date
+                                ? format(new Date(dr.start_date), 'd MMM')
+                                : `${format(new Date(dr.start_date), 'd MMM')} - ${format(new Date(dr.end_date), 'd MMM')}`
+                            ).map((line, index) => (
+                              <div key={index}>{line}</div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <Text className={valueStyleText}>No Conflicts</Text>
+              )}
+            </Stack>
+          </Stack>
+        </Stack>
+        <Stack horizontal tokens={{ childrenGap: 10 }} styles={{ root: { marginTop: 10, alignItems: 'center' } }}>
+          {entry.status.toLowerCase() === 'approved' ? (
+            <Badge badgeStyle={{ backgroundColor: '#e6ffe6', color: '#009900' }}>
+              Approved
+            </Badge>
+          ) : entry.status.toLowerCase() === 'rejected' ? (
+            <Badge badgeStyle={{ backgroundColor: '#fff9e6', color: '#cc0000' }}>
+              Rejected
+            </Badge>
+          ) : null}
+        </Stack>
+        <Stack horizontal tokens={{ childrenGap: 10 }} styles={{ root: { marginTop: 10, paddingBottom: 10 } }}>
+          <DefaultButton
+            text="Approve"
+            onClick={localHandleApprove}
+            styles={sharedDefaultButtonStyles}
+            iconProps={{ iconName: 'CompletedSolid', styles: { root: { color: '#009900' } } }}
+          />
+          <DefaultButton
+            text="Reject"
+            onClick={localHandleReject}
+            styles={sharedDefaultButtonStyles}
+            iconProps={{ iconName: 'Cancel', styles: { root: { color: '#cc0000' } } }}
+          />
+        </Stack>
+        <TextField
+          placeholder="Enter rejection notes"
+          value={localRejection}
+          onChange={(e, val) => setLocalRejection(val || '')}
+          styles={{ fieldGroup: inputFieldStyle }}
+          multiline
+          rows={3}
+        />
+        {confirmationMessage && (
+          <Text style={{ marginTop: 10, fontWeight: 'bold', color: '#009900' }}>{confirmationMessage}</Text>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className={formContainerStyle}>
       {approvals.length === 0 ? (
         <Text style={{ fontSize: 20, color: colours.light.text }}>No items to approve.</Text>
       ) : (
         <Stack tokens={{ childrenGap: 20 }}>
-          {approvals.map(entry => {
-            // Use request_id if present. Otherwise fall back to entry.id.
-            const recordId = entry.request_id ? String(entry.request_id) : entry.id;
-
-            const workingDays = calculateWorkingDays(entry.start_date, entry.end_date);
-            const daysRemaining = holidayEntitlement - totalBookedDays - workingDays;
-            const availableSell = 5 - totals.purchase;
-            const conflicts = getAllConflicts(entry);
-
-            // Group conflicts by person with status handling
-            const conflictsGrouped: {
-              [person: string]: {
-                nickname: string;
-                dateRanges: { start_date: string; end_date: string }[];
-                status: string;
-              }
-            } = {};
-            conflicts.forEach(conflict => {
-              const person = conflict.person;
-              if (!conflictsGrouped[person]) {
-                conflictsGrouped[person] = {
-                  nickname: getNickname(person),
-                  dateRanges: [],
-                  status: conflict.status.toLowerCase(),
-                };
-              } else {
-                if (conflictsGrouped[person].status !== conflict.status.toLowerCase()) {
-                  conflictsGrouped[person].status = 'requested';
-                }
-              }
-              conflictsGrouped[person].dateRanges.push({
-                start_date: conflict.start_date,
-                end_date: conflict.end_date,
-              });
-            });
-            const groupedArray = Object.values(conflictsGrouped);
-
-            return (
-              <div key={recordId} className={containerEntryStyle}>
-                <Stack horizontal tokens={{ childrenGap: 20 }} verticalAlign="start">
-                  <Persona
-                    imageUrl={HelixAvatar}
-                    text={getNickname(entry.person)}
-                    size={PersonaSize.size48}
-                    styles={{ primaryText: { fontWeight: 'bold', fontSize: '18px' } }}
-                  />
-                  <Stack tokens={{ childrenGap: 20 }} styles={{ root: { flex: 1 } }}>
-                    <Stack
-                      tokens={{ childrenGap: 10 }}
-                      styles={{
-                        root: {
-                          border: `1px solid ${colours.light.border}`,
-                          borderRadius: '4px',
-                          padding: '12px',
-                          backgroundColor: colours.light.grey,
-                        },
-                      }}
-                    >
-                      <Stack horizontal tokens={{ childrenGap: 40 }}>
-                        <Stack>
-                          <Label className={labelStyleText}>Requested Dates:</Label>
-                          <Text className={valueStyleText}>
-                            {formatDateRange(entry.start_date, entry.end_date)}
-                          </Text>
-                        </Stack>
-                        <Stack>
-                          <Label className={labelStyleText}>Total Number of Days Requested:</Label>
-                          <Text className={valueStyleText}>
-                            {workingDays} {workingDays !== 1 ? 'days' : 'day'}
-                          </Text>
-                        </Stack>
-                      </Stack>
-                      <Stack>
-                        <Label className={labelStyleText}>Notes:</Label>
-                        <Text className={valueStyleText}>
-                          {entry.reason && entry.reason.trim() !== ''
-                            ? entry.reason
-                            : `${getNickname(entry.person)} hasn't left a note.`}
-                        </Text>
-                      </Stack>
-                    </Stack>
-                    <Stack
-                      horizontal
-                      tokens={{ childrenGap: 40 }}
-                      styles={{
-                        root: {
-                          border: `1px solid ${colours.light.border}`,
-                          borderRadius: '4px',
-                          padding: '12px',
-                          backgroundColor: colours.light.grey,
-                        },
-                      }}
-                    >
-                      <Stack>
-                        <Label className={labelStyleText}>Days taken so far this year:</Label>
-                        <Text className={valueStyleText}>
-                          {totalBookedDays} {totalBookedDays !== 1 ? 'days' : 'day'}
-                        </Text>
-                      </Stack>
-                      <Stack>
-                        <Label className={labelStyleText}>Days remaining this year:</Label>
-                        <Text className={valueStyleText}>
-                          {daysRemaining} {daysRemaining !== 1 ? 'days' : 'day'}
-                        </Text>
-                      </Stack>
-                      <Stack>
-                        <Label className={labelStyleText}>Available days to sell:</Label>
-                        <Text className={valueStyleText}>
-                          {availableSell} {availableSell !== 1 ? 'days' : 'day'}
-                        </Text>
-                      </Stack>
-                    </Stack>
-                    <Stack tokens={{ childrenGap: 10 }} styles={{ root: { marginTop: 10 } }}>
-                      <Label className={labelStyleText}>Team Conflicts:</Label>
-                      {conflicts.length > 0 ? (
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
-                          {groupedArray.map((item, idx) => {
-                            const consolidated = consolidateRanges(item.dateRanges);
-                            let borderColor = colours.cta;
-                            if (item.status === 'approved') {
-                              borderColor = colours.orange;
-                            } else if (item.status === 'booked') {
-                              borderColor = colours.green;
-                            }
-                            
-                            return (
-                              <div
-                                key={idx}
-                                className="persona-bubble"
-                                style={{
-                                  border: `1px solid ${borderColor}`,
-                                  backgroundColor: '#ffffff',
-                                  padding: '5px',
-                                  borderRadius: '4px',
-                                  display: 'flex',
-                                  flexDirection: 'column',
-                                  alignItems: 'center',
-                                  minWidth: '150px',
-                                }}
-                              >
-                                <div className="persona-icon-container" style={{ backgroundColor: 'transparent' }}>
-                                  <Persona
-                                    imageUrl={HelixAvatar}
-                                    text={item.nickname}
-                                    size={PersonaSize.size48}
-                                    styles={{ primaryText: { fontWeight: 'bold', fontSize: '16px' } }}
-                                  />
-                                </div>
-                                <div style={{ marginTop: '5px', textAlign: 'center', width: '100%' }}>
-                                  <div style={{ fontWeight: 600, fontSize: '16px', color: colours.light.text }}>
-                                    {item.nickname}
-                                  </div>
-                                  <div style={{ fontSize: '14px', fontWeight: 400, color: colours.light.text }}>
-                                    {consolidated.map((dr, index) =>
-                                      dr.start_date === dr.end_date
-                                        ? format(new Date(dr.start_date), 'd MMM')
-                                        : `${format(new Date(dr.start_date), 'd MMM')} - ${format(new Date(dr.end_date), 'd MMM')}`
-                                    ).map((line, index) => (
-                                      <div key={index}>{line}</div>
-                                    ))}
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <Text className={valueStyleText}>No Conflicts</Text>
-                      )}
-                    </Stack>
-                  </Stack>
-                </Stack>
-                <Stack
-                  horizontal
-                  tokens={{ childrenGap: 10 }}
-                  styles={{ root: { marginTop: 10, alignItems: 'center' } }}
-                >
-                  {entry.status.toLowerCase() === 'approved' ? (
-                    <Badge badgeStyle={{ backgroundColor: '#e6ffe6', color: '#009900' }}>
-                      Approved
-                    </Badge>
-                  ) : entry.status.toLowerCase() === 'rejected' ? (
-                    <Badge badgeStyle={{ backgroundColor: '#fff9e6', color: '#cc0000' }}>
-                      Rejected
-                    </Badge>
-                  ) : null}
-                </Stack>
-                <Stack horizontal tokens={{ childrenGap: 10 }} styles={{ root: { marginTop: 10, paddingBottom: 10 } }}>
-                  <DefaultButton
-                    text="Approve"
-                    onClick={() => handleApprove(recordId)}
-                    styles={sharedDefaultButtonStyles}
-                    iconProps={{ iconName: 'CompletedSolid', styles: { root: { color: '#009900' } } }}
-                  />
-                  <DefaultButton
-                    text="Reject"
-                    onClick={() => handleReject(recordId)}
-                    styles={sharedDefaultButtonStyles}
-                    iconProps={{ iconName: 'Cancel', styles: { root: { color: '#cc0000' } } }}
-                  />
-                </Stack>
-                <TextField
-                  placeholder="Enter rejection notes"
-                  value={rejectionReason[recordId] || ''}
-                  onChange={(e, val) => handleRejectionReasonChange(recordId, val || '')}
-                  styles={{ fieldGroup: inputFieldStyle }}
-                  multiline
-                  rows={3}
-                />
-              </div>
-            );
-          })}
+          {approvals.map(entry => (
+            <ApprovalCard key={entry.request_id ? String(entry.request_id) : entry.id} entry={entry} />
+          ))}
         </Stack>
       )}
     </div>

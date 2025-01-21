@@ -96,15 +96,15 @@ const infoBoxStyle: React.CSSProperties = {
 };
 
 const labelStyle: React.CSSProperties = {
-  fontSize: '20px',
+  fontSize: '14px',
   fontWeight: 600,
   marginBottom: '5px',
   color: colours.highlight,
 };
 
 const valueStyle: React.CSSProperties = {
-  fontSize: '24px',
-  fontWeight: 700,
+  fontSize: '18px',
+  fontWeight: 400,
   color: colours.light.text,
 };
 
@@ -352,22 +352,22 @@ function AnnualLeaveForm({
           backgroundColor: colours.light.grey,
         }}
       >
-        <Text variant="xLarge" style={{ color: isDarkMode ? colours.dark.text : colours.light.text }}>
+        <Text style={{ fontSize: '14px', fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
           Total Days Requested
         </Text>
-        <Text variant="xxLarge" style={{ color: isDarkMode ? colours.dark.text : colours.light.text }}>
+        <Text style={{ fontSize: '18px', fontWeight: 400, color: isDarkMode ? colours.dark.text : colours.light.text }}>
           {totalDays} {totalDays !== 1 ? 'days' : 'day'}
         </Text>
 
-        <Text variant="xLarge" style={{ color: isDarkMode ? colours.dark.text : colours.light.text }}>
+        <Text style={{ fontSize: '14px', fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
           Days Remaining
         </Text>
         {userData?.[0]?.holiday_entitlement != null ? (
-          <Text variant="xxLarge" style={effectiveRemainingStyle}>
+          <Text style={{ fontSize: '18px', fontWeight: 400, ...effectiveRemainingStyle }}>
             {effectiveRemaining} {effectiveRemaining !== 1 ? 'days' : 'day'}
           </Text>
         ) : (
-          <Text variant="xxLarge" style={{ color: isDarkMode ? colours.dark.text : colours.light.text }}>
+          <Text style={{ fontSize: '18px', fontWeight: 400, color: isDarkMode ? colours.dark.text : colours.light.text }}>
             N/A
           </Text>
         )}
@@ -507,120 +507,149 @@ function AnnualLeaveForm({
   }
 
   return (
-    <Stack tokens={{ childrenGap: 20 }}>
-      <BespokeForm
-        fields={initialFormFields}
-        onSubmit={handleSubmit}
-        onCancel={handleCancel}
-        isSubmitting={isSubmitting}
-      >
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '20px' }}>
-          {/* Left side: the Date Ranges (no label) */}
-          <Stack style={{ flex: 1 }} tokens={{ childrenGap: 10 }}>
-            {dateRanges.map((range, index) => (
-              <Stack
-                key={index}
-                tokens={{ childrenGap: 5 }}
-                style={{
-                  border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                  padding: '10px',
-                  borderRadius: '4px',
-                }}
-              >
-                <DateRangePicker
-                  ranges={[
-                    {
-                      startDate: range.startDate,
-                      endDate: range.endDate,
-                      key: `selection_${index}`,
-                    },
-                  ]}
-                  onChange={(item: RangeKeyDict) => {
-                    const selection = item[`selection_${index}`] as Range;
-                    if (selection) {
-                      const newRange: DateRangeSelection = {
-                        startDate: selection.startDate || new Date(),
-                        endDate: selection.endDate || new Date(),
-                        halfDayStart: range.halfDayStart,
-                        halfDayEnd: range.halfDayEnd,
-                      };
-                      handleUpdateDateRange(index, newRange);
-                    }
-                  }}
-                  editableDateInputs
-                  moveRangeOnFirstSelection={false}
-                  months={1}
-                  direction="horizontal"
-                  rangeColors={[colours.highlight]}
-                />
-                <DefaultButton
-                  text="Remove Range"
-                  onClick={() => handleRemoveDateRange(index)}
-                  iconProps={{ iconName: 'Minus' }}
-                  styles={buttonStylesFixedWidthSecondary}
-                />
-              </Stack>
-            ))}
-            {/* Add Range Button */}
-            <div
-              style={{
-                border: '2px dashed #ccc',
-                borderRadius: '4px',
-                width: '100%',
-                height: '50px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-              }}
-              onClick={handleAddDateRange}
-            >
-              <Icon iconName="Add" style={{ fontSize: 24, color: '#ccc', marginRight: 8 }} />
-              <Text style={{ color: '#ccc', fontSize: '16px' }}>Add Date Range</Text>
-            </div>
-            {/* Notes Field */}
-            <TextField
-              label="Notes (Optional)"
-              placeholder="Enter any additional notes"
-              value={notes}
-              onChange={(e, newVal) => setNotes(newVal || '')}
-              styles={textFieldStyles}
-              multiline
-              rows={3}
-            />
-          </Stack>
-
-          {/* Right side: The side panel with totals */}
-          {renderSidePanel()}
-        </div>
-      </BespokeForm>
-
-      {/* Team Leave Conflicts */}
-      <div style={{ position: 'relative', marginBottom: '20px' }}>
-        <div
-          style={{
-            ...infoBoxStyle,
-            backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.grey,
-          }}
+    <>
+      {/* Inline CSS for animations */}
+      <style>
+        {`
+          @keyframes fadeIn {
+            from {
+              opacity: 0;
+              transform: translateY(-10px);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0);
+            }
+          }
+          @keyframes dropIn {
+            from {
+              opacity: 0;
+              transform: translateY(-20px);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0);
+            }
+          }
+        `}
+      </style>
+      <Stack tokens={{ childrenGap: 20 }}>
+        <BespokeForm
+          fields={initialFormFields}
+          onSubmit={handleSubmit}
+          onCancel={handleCancel}
+          isSubmitting={isSubmitting}
         >
-          <Icon
-            iconName="Info"
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '20px' }}>
+            {/* Left side: the Date Ranges */}
+            <Stack style={{ flex: 1 }} tokens={{ childrenGap: 10 }}>
+              {dateRanges.map((range, index) => (
+                <Stack
+                  key={index}
+                  tokens={{ childrenGap: 5 }}
+                  // Animate each new date range container using fadeIn
+                  style={{
+                    animation: 'fadeIn 0.5s ease forwards',
+                    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                    padding: '10px',
+                    borderRadius: '4px',
+                  }}
+                >
+                  <DateRangePicker
+                    ranges={[
+                      {
+                        startDate: range.startDate,
+                        endDate: range.endDate,
+                        key: `selection_${index}`,
+                      },
+                    ]}
+                    onChange={(item: RangeKeyDict) => {
+                      const selection = item[`selection_${index}`] as Range;
+                      if (selection) {
+                        const newRange: DateRangeSelection = {
+                          startDate: selection.startDate || new Date(),
+                          endDate: selection.endDate || new Date(),
+                          halfDayStart: range.halfDayStart,
+                          halfDayEnd: range.halfDayEnd,
+                        };
+                        handleUpdateDateRange(index, newRange);
+                      }
+                    }}
+                    editableDateInputs
+                    moveRangeOnFirstSelection={false}
+                    months={1}
+                    direction="horizontal"
+                    rangeColors={[colours.highlight]}
+                  />
+                  <DefaultButton
+                    text="Remove Range"
+                    onClick={() => handleRemoveDateRange(index)}
+                    iconProps={{ iconName: 'Minus' }}
+                    styles={buttonStylesFixedWidthSecondary}
+                  />
+                </Stack>
+              ))}
+              {/* Updated Add Holiday Button */}
+              <div
+                style={{
+                  border: '2px dashed #ccc',
+                  borderRadius: '4px',
+                  width: '100%',
+                  height: '50px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                }}
+                onClick={handleAddDateRange}
+              >
+                <Icon iconName="Add" style={{ fontSize: 24, color: '#ccc', marginRight: 8 }} />
+                <Text style={{ color: '#ccc', fontSize: '16px' }}>
+                  {dateRanges.length === 0 ? 'Add Holiday' : 'Add Another Holiday'}
+                </Text>
+              </div>
+              {/* Notes Field */}
+              <TextField
+                label="Notes (Optional)"
+                placeholder="Enter any additional notes"
+                value={notes}
+                onChange={(e, newVal) => setNotes(newVal || '')}
+                styles={textFieldStyles}
+                multiline
+                rows={3}
+              />
+            </Stack>
+            {/* Right side: The side panel with totals */}
+            {renderSidePanel()}
+          </div>
+        </BespokeForm>
+        {/* Team Leave Conflicts */}
+        <div style={{ position: 'relative', marginBottom: '20px' }}>
+          <div
             style={{
-              position: 'absolute',
-              right: 10,
-              top: 10,
-              fontSize: 80,
-              opacity: 0.1,
-              color: isDarkMode ? colours.dark.text : colours.light.text,
+              ...infoBoxStyle,
+              backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.grey,
             }}
-          />
-          <Stack tokens={{ childrenGap: 10 }}>
-            <Text style={{ ...labelStyle }}>Team Leave Conflicts</Text>
-          </Stack>
-          {renderTeamLeaveConflicts()}
+          >
+            <Icon
+              iconName="Info"
+              style={{
+                position: 'absolute',
+                right: 10,
+                top: 10,
+                fontSize: 50,
+                opacity: 0.1,
+                color: isDarkMode ? colours.dark.text : colours.light.text,
+              }}
+            />
+            <Stack tokens={{ childrenGap: 10 }}>
+              <Text style={{ ...labelStyle }}>Team Leave Conflicts</Text>
+            </Stack>
+            {renderTeamLeaveConflicts()}
+          </div>
         </div>
-      </div>
-    </Stack>
+      </Stack>
+    </>
   );
 }
 
