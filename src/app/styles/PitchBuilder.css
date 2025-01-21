@@ -1,35 +1,67 @@
 /* src/tabs/enquiries/PitchBuilder.css */
 
+/* General editor styles */
+
 /* Dark mode styles */
 .dark-mode .ql-toolbar.ql-snow {
-    background-color: #2d2d2d;
-    border: 1px solid #444;
-  }
-  
-  .dark-mode .ql-toolbar.ql-snow .ql-stroke {
-    stroke: #ffffff;
-  }
-  
-  .dark-mode .ql-container.ql-snow {
-    background-color: #1e1e1e;
-    color: #ffffff;
-    border: 1px solid #444;
-  }
-  
-  /* Light mode styles */
-  .ql-toolbar.ql-snow {
-    background-color: #f3f2f1;
-    border: 1px solid #ccc;
-  }
-  
-  .ql-container.ql-snow {
-    background-color: #ffffff;
-    color: #000000;
-    border: 1px solid #ccc;
-  }
-  
-  /* Custom Placeholder Button */
-  .ql-insertPlaceholder::before {
-    content: '📄'; /* You can use an emoji or an icon */
-  }
-  
+  background-color: #2d2d2d;
+  border: 1px solid #444;
+}
+
+.dark-mode .ql-toolbar.ql-snow .ql-stroke {
+  stroke: #ffffff;
+}
+
+.dark-mode .ql-container.ql-snow {
+  background-color: #1e1e1e;
+  color: #ffffff;
+  border: 1px solid #444;
+}
+
+/* Light mode styles */
+.ql-toolbar.ql-snow {
+  background-color: #f3f2f1;
+  border: 1px solid #ccc;
+}
+
+.ql-container.ql-snow {
+  background-color: #ffffff;
+  color: #000000;
+  border: 1px solid #ccc;
+}
+
+/* Custom Placeholder Button */
+.ql-insertPlaceholder::before {
+  content: '📄'; /* You can use an emoji or an icon */
+}
+
+/* CTA Red Bullets */
+.cta-red ul {
+  color: #D65541; /* CTA red from colours.js */
+  list-style-type: disc;
+  padding-left: 20px; /* Space for bullets */
+  margin: 0; /* Remove additional top/bottom margin */
+}
+
+.cta-red ul li {
+  margin: 4px 0; /* Reduce spacing between bullet points */
+  line-height: 1.4; /* Adjust line spacing for better readability */
+}
+
+/* Styling for unordered lists within template blocks */
+ul {
+  margin: 0; /* Remove default top and bottom margin */
+  padding-left: 20px; /* Add left padding for bullets */
+}
+
+ul li {
+  margin-bottom: 4px; /* Reduce spacing between list items */
+}
+
+p + ul {
+  margin-top: 0; /* Remove margin if the list follows a paragraph */
+}
+
+ul + p {
+  margin-top: 10px; /* Add a small margin if the paragraph follows the list */
+}

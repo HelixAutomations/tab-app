@@ -11,6 +11,8 @@ import 'react-date-range/dist/styles.css';
 import 'react-date-range/dist/theme/default.css';
 import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from '../app/styles/ButtonStyles';
 import HelixAvatar from '../assets/helix avatar.png';
+// The grey helix mark is imported but not used in this version.
+import GreyHelixMark from '../assets/grey helix mark.png';
 import '../app/styles/personas.css';
 
 interface TeamMember {
@@ -115,16 +117,12 @@ const valueStyle: React.CSSProperties = {
 function calculateWorkingDays(range: DateRangeSelection): number {
   const allDays = eachDayOfInterval({ start: range.startDate, end: range.endDate });
   let workingDays = 0;
-
   allDays.forEach((day) => {
     const dayOfWeek = day.getDay();
-    // If it's a weekday, increment by 1
     if (dayOfWeek !== 0 && dayOfWeek !== 6) {
       workingDays += 1;
     }
   });
-
-  // Apply half-day adjustments only if the respective start/end is a weekday
   if (range.halfDayStart) {
     const dayOfWeek = range.startDate.getDay();
     if (dayOfWeek !== 0 && dayOfWeek !== 6) {
@@ -137,7 +135,6 @@ function calculateWorkingDays(range: DateRangeSelection): number {
       workingDays -= 0.5;
     }
   }
-
   return workingDays;
 }
 
@@ -150,14 +147,9 @@ function getOverlapDates(leave: AnnualLeaveRecord, range: DateRangeSelection): s
   const selEnd = range.endDate;
   const leaveStart = new Date(leave.start_date);
   const leaveEnd = new Date(leave.end_date);
-
-  // later of the two starts
   const overlapStart = leaveStart < selStart ? selStart : leaveStart;
-  // earlier of the two ends
   const overlapEnd = leaveEnd > selEnd ? selEnd : leaveEnd;
-
   if (overlapStart > overlapEnd) return [];
-
   return eachDayOfInterval({ start: overlapStart, end: overlapEnd }).map((d) =>
     format(d, 'yyyy-MM-dd')
   );
@@ -175,6 +167,15 @@ function AnnualLeaveForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [notes, setNotes] = useState<string>('');
 
+  // Recalculate total days when dateRanges change.
+  useEffect(() => {
+    let total = 0;
+    dateRanges.forEach((range) => {
+      total += calculateWorkingDays(range);
+    });
+    setTotalDays(total);
+  }, [dateRanges]);
+
   const handleAddDateRange = () => {
     setDateRanges((prev) => [
       ...prev,
@@ -185,6 +186,7 @@ function AnnualLeaveForm({
     ]);
   };
 
+  // Allow removal of each date range.
   const handleRemoveDateRange = (index: number) => {
     setDateRanges((prev) => {
       const newRanges = [...prev];
@@ -193,29 +195,22 @@ function AnnualLeaveForm({
     });
   };
 
-  const handleUpdateDateRange = (index: number, newRange: DateRangeSelection) => {
-    setDateRanges((prev) => {
-      const newRanges = [...prev];
-      newRanges[index] = newRange;
-      return newRanges;
-    });
+  // Clear button handler: resets date ranges and notes.
+  const handleClear = () => {
+    setDateRanges([]);
+    setNotes('');
   };
 
-  /**
-   * Recalculate totalDays each time dateRanges changes,
-   * excluding weekends and respecting halfDay flags.
-   */
-  useEffect(() => {
-    let total = 0;
-    dateRanges.forEach((range) => {
-      total += calculateWorkingDays(range);
-    });
-    setTotalDays(total);
-  }, [dateRanges]);
+  // Compute effective remaining leave.
+  const holidayEntitlement = Number(userData?.[0]?.holiday_entitlement ?? 0);
+  const effectiveRemaining = holidayEntitlement - totals.standard - totalDays;
+
+  // Change: lock submit button if remaining days are 0 or negative.
+  const isSubmitDisabled = effectiveRemaining <= 0;
 
   /**
-   * Group "futureLeave" records that overlap with any of our chosen dateRanges.
-   * We'll present them as "Team Leave Conflicts."
+   * Group "futureLeave" records that overlap with any chosen date ranges.
+   * These will be shown as "Team Leave Conflicts."
    */
   const groupedLeave = useMemo(() => {
     const groups: Record<
@@ -226,7 +221,6 @@ function AnnualLeaveForm({
         status: string;
       }
     > = {};
-
     futureLeave.forEach((leave) => {
       dateRanges.forEach((range) => {
         const overlaps = getOverlapDates(leave, range);
@@ -240,7 +234,6 @@ function AnnualLeaveForm({
             start_date: overlaps[0],
             end_date: overlaps[overlaps.length - 1],
           };
-
           if (!groups[leave.person]) {
             groups[leave.person] = {
               nickname,
@@ -248,9 +241,10 @@ function AnnualLeaveForm({
               status: leaveStatus,
             };
           } else {
-            // Check if we already have the same range
             const alreadyExists = groups[leave.person].dateRanges.some(
-              (dr) => dr.start_date === newRange.start_date && dr.end_date === newRange.end_date
+              (dr) =>
+                dr.start_date === newRange.start_date &&
+                dr.end_date === newRange.end_date
             );
             if (!alreadyExists) {
               groups[leave.person].dateRanges.push(newRange);
@@ -266,9 +260,11 @@ function AnnualLeaveForm({
   }, [futureLeave, dateRanges, team]);
 
   /** 
-   * Submits the chosen date ranges plus any notes.
+   * Submits the form.
+   * If the remaining leave is negative or zero, submission is prevented.
    */
   const handleSubmit = async (values: { [key: string]: string | number | boolean | File }) => {
+    if (isSubmitDisabled) return;
     setIsSubmitting(true);
     try {
       const feeEarner = userData?.[0]?.Initials || 'XX';
@@ -276,7 +272,6 @@ function AnnualLeaveForm({
         start_date: range.startDate.toISOString().split('T')[0],
         end_date: range.endDate.toISOString().split('T')[0],
       }));
-
       const payload = {
         fe: feeEarner,
         dateRanges: formattedDateRanges,
@@ -284,20 +279,16 @@ function AnnualLeaveForm({
         days_taken: totalDays,
         overlapDetails: groupedLeave,
       };
-
       console.log('Annual Leave Form Payload:', payload);
-
       const url = `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_INSERT_ANNUAL_LEAVE_PATH}?code=${process.env.REACT_APP_INSERT_ANNUAL_LEAVE_CODE}`;
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-
       if (!response.ok) {
         throw new Error(`Request failed with status ${response.status}`);
       }
-
       const result = await response.json();
       console.log('Insert Annual Leave Successful:', result);
     } catch (error) {
@@ -307,34 +298,18 @@ function AnnualLeaveForm({
     }
   };
 
-  const handleCancel = () => {
-    console.log('Annual Leave Form Cancelled');
-  };
-
   /**
-   * Renders the side panel on the right with the user’s day counts.
-   * 
-   * - totalDays: the new selection (weekdays only)
-   * - Days Taken: `totals.standard` (existing from DB)
-   * - *Effective Days Remaining* = `holiday_entitlement - totals.standard - totalDays`
+   * Renders the side panel showing leave totals.
    */
   function renderSidePanel() {
-    const holidayEntitlement = Number(userData?.[0]?.holiday_entitlement ?? 0);
-
-    // Subtract both `totals.standard` (already used) and the newly selected `totalDays`
-    const effectiveRemaining = holidayEntitlement - totals.standard - totalDays;
     const effectiveRemainingStyle = {
       color: effectiveRemaining < 0 ? colours.cta : isDarkMode ? colours.dark.text : colours.light.text,
     };
-
-    // Unpaid Days Remaining
     const defaultUnpaid = 5;
     const unpaidRemaining = defaultUnpaid - totals.unpaid;
     const unpaidStyle = {
       color: unpaidRemaining < 0 ? colours.cta : isDarkMode ? colours.dark.text : colours.light.text,
     };
-
-    // Available Days to 'Buy'
     const defaultBuy = 5;
     const buyRemaining = defaultBuy - totals.purchase;
     const buyStyle = {
@@ -349,7 +324,7 @@ function AnnualLeaveForm({
           border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
           padding: '10px',
           borderRadius: '4px',
-          backgroundColor: colours.light.grey,
+          backgroundColor: 'transparent',
         }}
       >
         <Text style={{ fontSize: '14px', fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
@@ -372,7 +347,6 @@ function AnnualLeaveForm({
           </Text>
         )}
 
-        {/* Separator */}
         <div
           style={{
             borderTop: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
@@ -381,18 +355,18 @@ function AnnualLeaveForm({
         />
 
         <Stack tokens={{ childrenGap: 5 }}>
-          <Text style={{ ...labelStyle }}>Days taken so far this year</Text>
+          <Text style={labelStyle}>Days taken so far this year</Text>
           <Text style={{ ...valueStyle, color: isDarkMode ? colours.dark.text : colours.light.text }}>
             {totals.standard} {totals.standard !== 1 ? 'days' : 'day'}
           </Text>
 
-          <Text style={{ ...labelStyle }}>Days remaining this year</Text>
+          <Text style={labelStyle}>Days remaining this year</Text>
           <Text style={{ ...valueStyle, ...unpaidStyle }}>
             {unpaidRemaining} {unpaidRemaining !== 1 ? 'days' : 'day'}
           </Text>
 
           <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 5 }}>
-            <Text style={{ ...labelStyle }}>Available days to sell</Text>
+            <Text style={labelStyle}>Available days to sell</Text>
             <TooltipHost
               content="Available days to sell if you wish to not take leave and be compensated per day pro rata to your salary."
             >
@@ -422,7 +396,6 @@ function AnnualLeaveForm({
           }}
         >
           {groupedLeave.map((item, idx) => {
-            // Format each range as d MMM or d MMM - d MMM
             const formattedRanges = item.dateRanges
               .map((dr) => {
                 const start = new Date(dr.start_date);
@@ -433,15 +406,12 @@ function AnnualLeaveForm({
                   : `${format(start, 'd MMM')} - ${format(end, 'd MMM')}`;
               })
               .join(' | ');
-
-            // Set border color by item.status
-            let borderColor = colours.cta; // default red
+            let borderColor = colours.cta;
             if (item.status === 'approved') {
               borderColor = colours.orange;
             } else if (item.status === 'booked') {
               borderColor = colours.green;
             }
-
             return (
               <div
                 key={idx}
@@ -499,8 +469,8 @@ function AnnualLeaveForm({
           }}
         >
           Please note: There are other team members scheduled for leave during the dates you've chosen.
-          This may affect the likelihood of automatic approval for your request. You can still submit
-          your request, and we will notify you of the outcome once a decision has been reached.
+          This may affect the likelihood of automatic approval for your request. You can still submit your
+          request, and we will notify you of the outcome once a decision has been reached.
         </Text>
       </Stack>
     );
@@ -508,146 +478,166 @@ function AnnualLeaveForm({
 
   return (
     <>
-      {/* Inline CSS for animations */}
+      {/* Inline CSS for animations and to hide the Cancel and default Submit button from BespokeForm */}
       <style>
         {`
           @keyframes fadeIn {
-            from {
-              opacity: 0;
-              transform: translateY(-10px);
-            }
-            to {
-              opacity: 1;
-              transform: translateY(0);
-            }
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
           }
           @keyframes dropIn {
-            from {
-              opacity: 0;
-              transform: translateY(-20px);
-            }
-            to {
-              opacity: 1;
-              transform: translateY(0);
-            }
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+          }
+          /* Hide the last button (assumed to be Cancel) within our BespokeForm container */
+          .bespokeFormContainer button.ms-Button.ms-Button--default:last-child {
+            display: none !important;
+          }
+          /* Hide the built-in submit button so we can use our custom one */
+          .bespokeFormContainer button.ms-Button.ms-Button--primary {
+            display: none !important;
           }
         `}
       </style>
       <Stack tokens={{ childrenGap: 20 }}>
-        <BespokeForm
-          fields={initialFormFields}
-          onSubmit={handleSubmit}
-          onCancel={handleCancel}
-          isSubmitting={isSubmitting}
-        >
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '20px' }}>
-            {/* Left side: the Date Ranges */}
-            <Stack style={{ flex: 1 }} tokens={{ childrenGap: 10 }}>
-              {dateRanges.map((range, index) => (
-                <Stack
-                  key={index}
-                  tokens={{ childrenGap: 5 }}
-                  // Animate each new date range container using fadeIn
-                  style={{
-                    animation: 'fadeIn 0.5s ease forwards',
-                    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                    padding: '10px',
-                    borderRadius: '4px',
-                  }}
-                >
-                  <DateRangePicker
-                    ranges={[
-                      {
-                        startDate: range.startDate,
-                        endDate: range.endDate,
-                        key: `selection_${index}`,
-                      },
-                    ]}
-                    onChange={(item: RangeKeyDict) => {
-                      const selection = item[`selection_${index}`] as Range;
-                      if (selection) {
-                        const newRange: DateRangeSelection = {
-                          startDate: selection.startDate || new Date(),
-                          endDate: selection.endDate || new Date(),
-                          halfDayStart: range.halfDayStart,
-                          halfDayEnd: range.halfDayEnd,
-                        };
-                        handleUpdateDateRange(index, newRange);
-                      }
-                    }}
-                    editableDateInputs
-                    moveRangeOnFirstSelection={false}
-                    months={1}
-                    direction="horizontal"
-                    rangeColors={[colours.highlight]}
-                  />
-                  <DefaultButton
-                    text="Remove Range"
-                    onClick={() => handleRemoveDateRange(index)}
-                    iconProps={{ iconName: 'Minus' }}
-                    styles={buttonStylesFixedWidthSecondary}
-                  />
-                </Stack>
-              ))}
-              {/* Updated Add Holiday Button */}
-              <div
-                style={{
-                  border: '2px dashed #ccc',
-                  borderRadius: '4px',
-                  width: '100%',
-                  height: '50px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                }}
-                onClick={handleAddDateRange}
-              >
-                <Icon iconName="Add" style={{ fontSize: 24, color: '#ccc', marginRight: 8 }} />
-                <Text style={{ color: '#ccc', fontSize: '16px' }}>
-                  {dateRanges.length === 0 ? 'Add Holiday' : 'Add Another Holiday'}
-                </Text>
-              </div>
-              {/* Notes Field */}
-              <TextField
-                label="Notes (Optional)"
-                placeholder="Enter any additional notes"
-                value={notes}
-                onChange={(e, newVal) => setNotes(newVal || '')}
-                styles={textFieldStyles}
-                multiline
-                rows={3}
-              />
-            </Stack>
-            {/* Right side: The side panel with totals */}
-            {renderSidePanel()}
-          </div>
-        </BespokeForm>
-        {/* Team Leave Conflicts */}
-        <div style={{ position: 'relative', marginBottom: '20px' }}>
-          <div
-            style={{
-              ...infoBoxStyle,
-              backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.grey,
-            }}
+        <div className="bespokeFormContainer">
+          <BespokeForm
+            fields={initialFormFields}
+            onSubmit={handleSubmit}
+            onCancel={() => {}}
+            isSubmitting={isSubmitting}
           >
-            <Icon
-              iconName="Info"
-              style={{
-                position: 'absolute',
-                right: 10,
-                top: 10,
-                fontSize: 50,
-                opacity: 0.1,
-                color: isDarkMode ? colours.dark.text : colours.light.text,
-              }}
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '20px' }}>
+              {/* Left side: Date Ranges and Notes */}
+              <Stack style={{ flex: 1 }} tokens={{ childrenGap: 10 }}>
+                {dateRanges.map((range, index) => (
+                  <Stack
+                    key={index}
+                    tokens={{ childrenGap: 5 }}
+                    style={{
+                      animation: 'fadeIn 0.5s ease forwards',
+                      border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                      padding: '10px',
+                      borderRadius: '4px',
+                    }}
+                  >
+                    <DateRangePicker
+                      ranges={[
+                        {
+                          startDate: range.startDate,
+                          endDate: range.endDate,
+                          key: `selection_${index}`,
+                        },
+                      ]}
+                      onChange={(item: RangeKeyDict) => {
+                        const selection = item[`selection_${index}`] as Range;
+                        if (selection) {
+                          const newRange: DateRangeSelection = {
+                            startDate: selection.startDate || new Date(),
+                            endDate: selection.endDate || new Date(),
+                            halfDayStart: range.halfDayStart,
+                            halfDayEnd: range.halfDayEnd,
+                          };
+                          // Update this date range.
+                          const updatedRanges = [...dateRanges];
+                          updatedRanges[index] = newRange;
+                          setDateRanges(updatedRanges);
+                        }
+                      }}
+                      editableDateInputs
+                      moveRangeOnFirstSelection={false}
+                      months={1}
+                      direction="horizontal"
+                      rangeColors={[colours.highlight]}
+                    />
+                    {/* Allow removal of each date range */}
+                    <DefaultButton
+                      text="Remove Range"
+                      onClick={() => handleRemoveDateRange(index)}
+                      iconProps={{ iconName: 'Minus' }}
+                      styles={buttonStylesFixedWidthSecondary}
+                    />
+                  </Stack>
+                ))}
+                {/* Add Holiday Button */}
+                <div
+                  style={{
+                    border: '2px dashed #ccc',
+                    borderRadius: '4px',
+                    width: '100%',
+                    height: '50px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                  }}
+                  onClick={handleAddDateRange}
+                >
+                  <Icon iconName="Add" style={{ fontSize: 24, color: '#ccc', marginRight: 8 }} />
+                  <Text style={{ color: '#ccc', fontSize: '16px' }}>
+                    {dateRanges.length === 0 ? 'Add Holiday' : 'Add Another Holiday'}
+                  </Text>
+                </div>
+                {/* Notes Field */}
+                <TextField
+                  label="Notes (Optional)"
+                  placeholder="Enter any additional notes"
+                  value={notes}
+                  onChange={(e, newVal) => setNotes(newVal || '')}
+                  styles={textFieldStyles}
+                  multiline
+                  rows={3}
+                />
+                {/* Clear Button (will reset notes and date ranges) */}
+                <DefaultButton
+                  text="Clear"
+                  onClick={handleClear}
+                  styles={buttonStylesFixedWidthSecondary}
+                />
+              </Stack>
+              {/* Right side: Totals side panel */}
+              {renderSidePanel()}
+            </div>
+          </BespokeForm>
+          {/* Custom Submit Button */}
+          <div style={{ marginTop: '20px', textAlign: 'right' }}>
+            <DefaultButton
+              text={isSubmitDisabled ? 'Submit' : 'Submit'}
+              disabled={isSubmitDisabled || isSubmitting}
+              // Add a padlock icon if submission is locked.
+              iconProps={isSubmitDisabled ? { iconName: 'Lock' } : {}}
+              styles={buttonStylesFixedWidth}
+              onClick={() => handleSubmit({})}
             />
-            <Stack tokens={{ childrenGap: 10 }}>
-              <Text style={{ ...labelStyle }}>Team Leave Conflicts</Text>
-            </Stack>
-            {renderTeamLeaveConflicts()}
           </div>
         </div>
+        {/* Team Leave Conflicts (only shown if conflicts exist) */}
+        {groupedLeave.length > 0 && (
+          <div style={{ position: 'relative', marginBottom: '20px' }}>
+            <div
+              style={{
+                ...infoBoxStyle,
+                backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.grey,
+              }}
+            >
+              <Icon
+                iconName="Info"
+                style={{
+                  position: 'absolute',
+                  right: 10,
+                  top: 10,
+                  fontSize: 40,
+                  opacity: 0.1,
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                }}
+              />
+              <Stack tokens={{ childrenGap: 10 }}>
+                <Text style={labelStyle}>Team Leave Conflicts</Text>
+              </Stack>
+              {renderTeamLeaveConflicts()}
+            </div>
+          </div>
+        )}
       </Stack>
     </>
   );
