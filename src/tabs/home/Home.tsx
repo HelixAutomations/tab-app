@@ -232,7 +232,7 @@ const sectionContainerStyle = (isDarkMode: boolean) =>
       : `0 4px 12px ${colours.light.border}`,
     position: 'relative',
     width: '100%',
-  });
+});
 
 //////////////////////
 // TabLabel Component
@@ -410,14 +410,6 @@ const PersonBubble: React.FC<PersonBubbleProps> = ({
 
   const textStyle = mergeStyles({ color: isDarkMode ? colours.dark.text : colours.light.text });
 
-  const personaStyles = {
-    root: {
-      zIndex: 4,
-      boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.15)', // Add shadow here
-      borderRadius: '50%', // Ensure the shadow matches the avatar's circular shape
-    },
-  };
-
   if (person.presence === PersonaPresence.online) {
     return (
       <div className={bubbleStyle}>
@@ -431,8 +423,8 @@ const PersonBubble: React.FC<PersonBubbleProps> = ({
             styles={{
               root: {
                 zIndex: 4,
-                boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.15)', // Add subtle shadow
-                borderRadius: '50%', // Ensure shadow matches the avatar's circular shape
+                boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.15)',
+                borderRadius: '50%',
               },
             }}
           />
@@ -455,8 +447,8 @@ const PersonBubble: React.FC<PersonBubbleProps> = ({
             styles={{
               root: {
                 zIndex: 4,
-                boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.15)', // Add subtle shadow
-                borderRadius: '50%', // Ensure shadow matches the avatar's circular shape
+                boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.15)',
+                borderRadius: '50%',
               },
             }}
           />
@@ -479,8 +471,8 @@ const PersonBubble: React.FC<PersonBubbleProps> = ({
             styles={{
               root: {
                 zIndex: 4,
-                boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.15)', // Add subtle shadow
-                borderRadius: '50%', // Ensure shadow matches the avatar's circular shape
+                boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.15)',
+                borderRadius: '50%',
               },
             }}
           />
@@ -524,7 +516,9 @@ const CognitoForm: React.FC<{ dataKey: string; dataForm: string }> = ({ dataKey,
       script.setAttribute('data-form', dataForm);
       script.async = true;
       containerRef.current.appendChild(script);
-      return () => { if (containerRef.current) containerRef.current.innerHTML = ''; };
+      return () => {
+        if (containerRef.current) containerRef.current.innerHTML = '';
+      };
     }
   }, [dataKey, dataForm]);
   return <div ref={containerRef} />;
@@ -580,6 +574,34 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const [bespokePanelTitle, setBespokePanelTitle] = useState<string>('');
   const [isContextPanelOpen, setIsContextPanelOpen] = useState<boolean>(false);
 
+  // NEW: Store bank holidays
+  const [bankHolidays, setBankHolidays] = useState<Set<string>>(new Set());
+
+  // Fetch bank holidays in the background
+  useEffect(() => {
+    const fetchBankHolidays = async () => {
+      try {
+        const response = await fetch('https://www.gov.uk/bank-holidays.json');
+        if (!response.ok) {
+          throw new Error(`Failed to fetch bank holidays: ${response.status}`);
+        }
+        const data = await response.json();
+        const currentYear = new Date().getFullYear();
+
+        const englandAndWalesEvents = data['england-and-wales'].events || [];
+        const holidaysThisYear = englandAndWalesEvents
+          .filter((event: { date: string }) => new Date(event.date).getFullYear() === currentYear)
+          .map((event: { date: string }) => event.date);
+
+        setBankHolidays(new Set(holidaysThisYear));
+      } catch (error) {
+        console.error('Error fetching bank holidays:', error);
+        // We'll just leave bankHolidays empty on failure
+      }
+    };
+    fetchBankHolidays();
+  }, []);
+
   useEffect(() => {
     const styles = `
 @keyframes redPulse {
@@ -611,23 +633,35 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     styleSheet.type = 'text/css';
     styleSheet.innerText = styles;
     document.head.appendChild(styleSheet);
-    return () => { document.head.removeChild(styleSheet); };
+    return () => {
+      document.head.removeChild(styleSheet);
+    };
   }, []);
 
   useEffect(() => {
     const storedFormsFavorites = localStorage.getItem('formsFavorites');
     const storedResourcesFavorites = localStorage.getItem('resourcesFavorites');
-    if (storedFormsFavorites) { setFormsFavorites(JSON.parse(storedFormsFavorites)); }
-    if (storedResourcesFavorites) { setResourcesFavorites(JSON.parse(storedResourcesFavorites)); }
+    if (storedFormsFavorites) {
+      setFormsFavorites(JSON.parse(storedFormsFavorites));
+    }
+    if (storedResourcesFavorites) {
+      setResourcesFavorites(JSON.parse(storedResourcesFavorites));
+    }
   }, []);
 
   useEffect(() => {
     const handleStorageChange = (event: StorageEvent) => {
-      if (event.key === 'formsFavorites' && event.newValue) { setFormsFavorites(JSON.parse(event.newValue)); }
-      if (event.key === 'resourcesFavorites' && event.newValue) { setResourcesFavorites(JSON.parse(event.newValue)); }
+      if (event.key === 'formsFavorites' && event.newValue) {
+        setFormsFavorites(JSON.parse(event.newValue));
+      }
+      if (event.key === 'resourcesFavorites' && event.newValue) {
+        setResourcesFavorites(JSON.parse(event.newValue));
+      }
     };
     window.addEventListener('storage', handleStorageChange);
-    return () => { window.removeEventListener('storage', handleStorageChange); };
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
   }, []);
 
   useEffect(() => {
@@ -638,11 +672,17 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       setCurrentUserEmail(email);
       const currentHour = new Date().getHours();
       let timeOfDay = 'Hello';
-      if (currentHour < 12) { timeOfDay = 'Good Morning'; }
-      else if (currentHour < 18) { timeOfDay = 'Good Afternoon'; }
-      else { timeOfDay = 'Good Evening'; }
+      if (currentHour < 12) {
+        timeOfDay = 'Good Morning';
+      } else if (currentHour < 18) {
+        timeOfDay = 'Good Afternoon';
+      } else {
+        timeOfDay = 'Good Evening';
+      }
       setGreeting(`${timeOfDay}, ${firstName}.`);
-    } else { setGreeting('Hello, User.'); }
+    } else {
+      setGreeting('Hello, User.');
+    }
   }, [userData]);
 
   useEffect(() => {
@@ -654,20 +694,28 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       const todayCount = enquiries.filter((enquiry: any) => {
         if (!enquiry.Touchpoint_Date) return false;
         const enquiryDate = new Date(enquiry.Touchpoint_Date);
-        return enquiryDate.toDateString() === today.toDateString() &&
-               enquiry.Point_of_Contact === currentUserEmail;
+        return (
+          enquiryDate.toDateString() === today.toDateString() &&
+          enquiry.Point_of_Contact === currentUserEmail
+        );
       }).length;
       const weekToDateCount = enquiries.filter((enquiry: any) => {
         if (!enquiry.Touchpoint_Date) return false;
         const enquiryDate = new Date(enquiry.Touchpoint_Date);
-        return enquiryDate >= startOfWeek && enquiryDate <= today &&
-               enquiry.Point_of_Contact === currentUserEmail;
+        return (
+          enquiryDate >= startOfWeek &&
+          enquiryDate <= today &&
+          enquiry.Point_of_Contact === currentUserEmail
+        );
       }).length;
       const monthToDateCount = enquiries.filter((enquiry: any) => {
         if (!enquiry.Touchpoint_Date) return false;
         const enquiryDate = new Date(enquiry.Touchpoint_Date);
-        return enquiryDate >= startOfMonth && enquiryDate <= today &&
-               enquiry.Point_of_Contact === currentUserEmail;
+        return (
+          enquiryDate >= startOfMonth &&
+          enquiryDate <= today &&
+          enquiry.Point_of_Contact === currentUserEmail
+        );
       }).length;
       setEnquiriesToday(todayCount);
       setEnquiriesWeekToDate(weekToDateCount);
@@ -682,7 +730,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       if (currentIndex < greeting.length) {
         setTypedGreeting((prev) => prev + greeting[currentIndex]);
         currentIndex++;
-      } else { clearInterval(typingInterval); }
+      } else {
+        clearInterval(typingInterval);
+      }
     }, 25);
     return () => clearInterval(typingInterval);
   }, [greeting]);
@@ -718,7 +768,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           setAttendanceError(error.message || 'Unknown error occurred.');
           setAttendanceRecords([]);
           setTeamData([]);
-        } finally { setIsLoadingAttendance(false); }
+        } finally {
+          setIsLoadingAttendance(false);
+        }
         try {
           const annualLeaveResponse = await fetch(
             `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_ANNUAL_LEAVE_PATH}?code=${process.env.REACT_APP_GET_ANNUAL_LEAVE_CODE}`,
@@ -739,7 +791,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
             }));
             cachedAnnualLeave = mappedAnnualLeave;
             setAnnualLeaveRecords(mappedAnnualLeave);
-          
+            
             if (Array.isArray(annualLeaveData.future_leave)) {
               const mappedFutureLeave = annualLeaveData.future_leave.map((rec: any) => ({
                 ...rec,
@@ -750,15 +802,17 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
             if (annualLeaveData.user_details && annualLeaveData.user_details.totals) {
               setAnnualLeaveTotals(annualLeaveData.user_details.totals);
             }
-          } else { 
-            throw new Error('Invalid annual leave data format.'); 
+          } else {
+            throw new Error('Invalid annual leave data format.');
           }
         } catch (error: any) {
           console.error('Error fetching annual leave:', error);
           cachedAnnualLeaveError = error.message || 'Unknown error occurred.';
           setAnnualLeaveError(error.message || 'Unknown error occurred.');
           setAnnualLeaveRecords([]);
-        } finally { setIsLoadingAnnualLeave(false); }
+        } finally {
+          setIsLoadingAnnualLeave(false);
+        }
       };
       fetchData();
     }
@@ -822,13 +876,27 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     let content: ReactNode = <div>No form available.</div>;
     let titleText: string = action.title;
     switch (action.title) {
-      case 'Create a Task': content = <Tasking />; break;
-      case 'Save Telephone Note': content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="38" />; break;
-      case 'Save Attendance Note': content = <TelephoneAttendance />; break;
-      case 'Open a Matter': content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="9" />; break;
-      case 'Request CollabSpace': content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="44" />; break;
-      case 'Request ID': content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="60" />; break;
-      default: content = <div>No form available.</div>; break;
+      case 'Create a Task':
+        content = <Tasking />;
+        break;
+      case 'Save Telephone Note':
+        content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="38" />;
+        break;
+      case 'Save Attendance Note':
+        content = <TelephoneAttendance />;
+        break;
+      case 'Open a Matter':
+        content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="9" />;
+        break;
+      case 'Request CollabSpace':
+        content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="44" />;
+        break;
+      case 'Request ID':
+        content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="60" />;
+        break;
+      default:
+        content = <div>No form available.</div>;
+        break;
     }
     setBespokePanelContent(content);
     setBespokePanelTitle(titleText);
@@ -838,8 +906,12 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const copyToClipboardHandler = (url: string, title: string) => {
     navigator.clipboard
       .writeText(url)
-      .then(() => { console.log(`Copied '${title}' to clipboard.`); })
-      .catch((err) => { console.error('Failed to copy: ', err); });
+      .then(() => {
+        console.log(`Copied '${title}' to clipboard.`);
+      })
+      .catch((err) => {
+        console.error('Failed to copy: ', err);
+      });
   };
 
   const currentUserRecord = attendanceRecords.find((r) => r.name === currentUserName);
@@ -872,6 +944,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const inOfficePeople = allPeople.filter((p) => p.presence === PersonaPresence.online);
   const workFromHomePeople = allPeople.filter((p) => p.presence !== PersonaPresence.online);
 
+  // If you are displaying "WIP Clio" data in some metrics, configure them here:
   const metricsData = useMemo(() => {
     if (!wipClioData) {
       return [
@@ -949,7 +1022,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           backgroundColor: `${colours.light.border} !important`,
           border: 'none !important',
           height: '40px !important',
-          fontWeight: "600",
+          fontWeight: '600',
           borderRadius: '4px !important',
           padding: '6px 12px !important',
           transition: 'background 0.3s ease !important',
@@ -968,7 +1041,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           backgroundColor: `${colours.cta} !important`,
           border: 'none !important',
           height: '40px !important',
-          fontWeight: "600",
+          fontWeight: '600',
           borderRadius: '4px !important',
           padding: '6px 12px !important',
           animation: 'redPulse 2s infinite !important',
@@ -1003,7 +1076,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           animation: 'redPulse 2s infinite !important',
           border: 'none !important',
           height: '40px !important',
-          fontWeight: "600",
+          fontWeight: '600',
           borderRadius: '4px !important',
           padding: '6px 12px !important',
           transition: 'box-shadow 0.3s, transform 0.3s, background 0.3s ease !important',
@@ -1016,7 +1089,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           color: isDarkMode ? colours.dark.text : colours.light.text,
           border: 'none !important',
           height: '40px !important',
-          fontWeight: "600",
+          fontWeight: '600',
           borderRadius: '4px !important',
           padding: '6px 12px !important',
           transition: 'transform 0.3s, box-shadow 0.3s',
@@ -1028,7 +1101,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       setBespokePanelContent(
         <Stack tokens={{ childrenGap: 30 }} style={{ padding: 20 }}>
           <Stack tokens={{ childrenGap: 10 }}>
-            <Text variant="xLarge" styles={{ root: { fontWeight: "600" } }}>Approve Annual Leave</Text>
+            <Text variant="xLarge" styles={{ root: { fontWeight: '600' } }}>Approve Annual Leave</Text>
             <AnnualLeaveApprovals
               approvals={approvalsNeeded.map((item) => ({
                 id: item.id || `temp-${item.start_date}-${item.end_date}`,
@@ -1053,7 +1126,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
             />
           </Stack>
           <Stack tokens={{ childrenGap: 10 }}>
-            <Text variant="xLarge" styles={{ root: { fontWeight: "600" } }}>Book Requested Leave</Text>
+            <Text variant="xLarge" styles={{ root: { fontWeight: '600' } }}>Book Requested Leave</Text>
             <AnnualLeaveBookings
               bookings={bookingsNeeded.map((item) => ({
                 id: item.id || `temp-${item.start_date}-${item.end_date}`,
@@ -1123,7 +1196,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const renderContextsPanelContent = () => (
     <Stack tokens={{ childrenGap: 30 }} style={{ padding: 20 }}>
       <Stack tokens={{ childrenGap: 10 }}>
-        <Text variant="xLarge" styles={{ root: { fontWeight: "600" } }}>Teams Context</Text>
+        <Text variant="xLarge" styles={{ root: { fontWeight: '600' } }}>Teams Context</Text>
         <DetailsList
           items={transformContext(context)}
           columns={createColumnsFunction(isDarkMode)}
@@ -1141,7 +1214,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         />
       </Stack>
       <Stack tokens={{ childrenGap: 10 }}>
-        <Text variant="xLarge" styles={{ root: { fontWeight: "600" } }}>SQL Context</Text>
+        <Text variant="xLarge" styles={{ root: { fontWeight: '600' } }}>SQL Context</Text>
         <DetailsList
           items={transformContext(userData)}
           columns={createColumnsFunction(isDarkMode)}
@@ -1210,18 +1283,22 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         </div>
 
         {hasFavourites && (
-          <div className={mergeStyles({
-            backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-            padding: '20px',
-            borderRadius: '12px',
-            boxShadow: isDarkMode ? `0 4px 12px ${colours.dark.border}` : `0 4px 12px ${colours.light.border}`,
-            transition: 'background-color 0.3s, box-shadow 0.3s',
-            width: '100%',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '20px',
-          })}>
-            <Text className={mergeStyles({ fontWeight: '700', fontSize: '24px', color: isDarkMode ? colours.dark.text : colours.light.text })}>
+          <div
+            className={mergeStyles({
+              backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+              padding: '20px',
+              borderRadius: '12px',
+              boxShadow: isDarkMode ? `0 4px 12px ${colours.dark.border}` : `0 4px 12px ${colours.light.border}`,
+              transition: 'background-color 0.3s, box-shadow 0.3s',
+              width: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '20px',
+            })}
+          >
+            <Text
+              className={mergeStyles({ fontWeight: '700', fontSize: '24px', color: isDarkMode ? colours.dark.text : colours.light.text })}
+            >
               Favourites
             </Text>
             {formsFavorites.length > 0 && (
@@ -1281,16 +1358,18 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           <div className={sectionContainerStyle(isDarkMode)}>
             <Stack horizontal tokens={{ childrenGap: 20 }} styles={{ root: { flex: 1 } }}>
               {/* In-Office Container */}
-              <div className={mergeStyles({
-                flex: 1,
-                backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-                padding: '20px 20px 20px 60px',
-                borderRadius: '12px',
-                position: 'relative',
-                boxShadow: isDarkMode 
-                  ? `0 4px 12px ${colours.dark.border}` 
-                  : `0 4px 12px ${colours.light.border}`,
-              })}>
+              <div
+                className={mergeStyles({
+                  flex: 1,
+                  backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+                  padding: '20px 20px 20px 60px',
+                  borderRadius: '12px',
+                  position: 'relative',
+                  boxShadow: isDarkMode
+                    ? `0 4px 12px ${colours.dark.border}`
+                    : `0 4px 12px ${colours.light.border}`,
+                })}
+              >
                 <TabLabel label="In Attendance" />
                 <Icon
                   iconName="CityNext"
@@ -1322,16 +1401,18 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                 </div>
               </div>
               {/* Work From Home Container */}
-              <div className={mergeStyles({
-                flex: 1,
-                backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-                padding: '20px 20px 20px 60px',
-                borderRadius: '12px',
-                position: 'relative',
-                boxShadow: isDarkMode 
-                  ? `0 4px 12px ${colours.dark.border}` 
-                  : `0 4px 12px ${colours.light.border}`,
-              })}>
+              <div
+                className={mergeStyles({
+                  flex: 1,
+                  backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+                  padding: '20px 20px 20px 60px',
+                  borderRadius: '12px',
+                  position: 'relative',
+                  boxShadow: isDarkMode
+                    ? `0 4px 12px ${colours.dark.border}`
+                    : `0 4px 12px ${colours.light.border}`,
+                })}
+              >
                 <TabLabel label="WFH" />
                 <Icon
                   iconName="Home"
@@ -1386,9 +1467,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                 padding: '20px 20px 20px 60px',
                 borderRadius: '12px',
                 position: 'relative',
-                boxShadow: isDarkMode 
-                          ? `0 4px 12px ${colours.dark.border}` 
-                          : `0 4px 12px ${colours.light.border}`,
+                boxShadow: isDarkMode
+                  ? `0 4px 12px ${colours.dark.border}`
+                  : `0 4px 12px ${colours.light.border}`,
               })}
               style={{ maxHeight: '300px', minHeight: '140px', overflow: 'auto' }}
             >
@@ -1430,7 +1511,10 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                               nickname: teamMember ? teamMember.Nickname : leave.person,
                             }}
                             isDarkMode={isDarkMode}
-                            animationDelay={calculateAnimationDelay(Math.floor(index / columnsForPeople), index % columnsForPeople)}
+                            animationDelay={calculateAnimationDelay(
+                              Math.floor(index / columnsForPeople),
+                              index % columnsForPeople
+                            )}
                           />
                         );
                       })}
@@ -1448,6 +1532,8 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                       team={teamData}
                       userData={userData}
                       totals={annualLeaveTotals}
+                      // PASS THE BANK HOLIDAYS TO THE FORM HERE:
+                      bankHolidays={bankHolidays}
                     />
                   );
                   setBespokePanelTitle('Request Annual Leave');
@@ -1459,7 +1545,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                     backgroundColor: `${colours.light.border} !important`,
                     border: 'none !important',
                     height: '40px !important',
-                    fontWeight: "600",
+                    fontWeight: '600',
                     borderRadius: '4px !important',
                     padding: '6px 12px !important',
                     transition: 'transform 0.3s, box-shadow 0.3s',
@@ -1485,7 +1571,14 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         </Stack>
       </Stack>
 
-      <div className={mergeStyles({ display: 'flex', justifyContent: 'center', alignItems: 'center', marginTop: '40px' })}>
+      <div
+        className={mergeStyles({
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          marginTop: '40px',
+        })}
+      >
         <Text className={versionStyle}>Version 1.1</Text>
         <IconButton
           iconProps={{ iconName: 'Info' }}

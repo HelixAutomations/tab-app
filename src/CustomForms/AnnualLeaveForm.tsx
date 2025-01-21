@@ -11,8 +11,7 @@ import 'react-date-range/dist/styles.css';
 import 'react-date-range/dist/theme/default.css';
 import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from '../app/styles/ButtonStyles';
 import HelixAvatar from '../assets/helix avatar.png';
-// The grey helix mark is imported but not used in this version.
-import GreyHelixMark from '../assets/grey helix mark.png';
+import GreyHelixMark from '../assets/grey helix mark.png'; // Not currently used
 import '../app/styles/personas.css';
 
 interface TeamMember {
@@ -30,11 +29,13 @@ export interface AnnualLeaveRecord {
   status: string;
 }
 
+// NEW: Add optional bankHolidays prop to exclude them from the day count
 interface AnnualLeaveFormProps {
   futureLeave: AnnualLeaveRecord[];
   team: TeamMember[];
   userData: any; // adjust type as needed
-  totals: { standard: number; unpaid: number; purchase: number }; // Days already taken from DB
+  totals: { standard: number; unpaid: number; purchase: number };
+  bankHolidays?: Set<string>; // <-- Only addition to the props
 }
 
 interface DateRangeSelection {
@@ -111,35 +112,47 @@ const valueStyle: React.CSSProperties = {
 };
 
 /**
- * Filters out weekends (Sat=6, Sun=0). Also accounts for halfDayStart and halfDayEnd,
- * reducing by 0.5 if those days are weekdays.
+ * Filters out weekends (Sat=6, Sun=0). Also accounts for halfDayStart / halfDayEnd,
+ * reducing by 0.5 if those days are weekdays. NEW: Skips bank holiday dates too.
  */
-function calculateWorkingDays(range: DateRangeSelection): number {
+function calculateWorkingDays(range: DateRangeSelection, bankHolidays?: Set<string>): number {
   const allDays = eachDayOfInterval({ start: range.startDate, end: range.endDate });
   let workingDays = 0;
+
   allDays.forEach((day) => {
     const dayOfWeek = day.getDay();
-    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+    // Use day string to check against the bankHolidays set
+    const dayStr = format(day, 'yyyy-MM-dd');
+
+    // Skip if weekend OR bank holiday
+    if (dayOfWeek !== 0 && dayOfWeek !== 6 && !bankHolidays?.has(dayStr)) {
       workingDays += 1;
     }
   });
+
+  // Subtract half-day if start date is a weekday and not a bank holiday
   if (range.halfDayStart) {
     const dayOfWeek = range.startDate.getDay();
-    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+    const startStr = format(range.startDate, 'yyyy-MM-dd');
+    if (dayOfWeek !== 0 && dayOfWeek !== 6 && !bankHolidays?.has(startStr)) {
       workingDays -= 0.5;
     }
   }
+
+  // Subtract half-day if end date is a weekday and not a bank holiday
   if (range.halfDayEnd) {
     const dayOfWeek = range.endDate.getDay();
-    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+    const endStr = format(range.endDate, 'yyyy-MM-dd');
+    if (dayOfWeek !== 0 && dayOfWeek !== 6 && !bankHolidays?.has(endStr)) {
       workingDays -= 0.5;
     }
   }
+
   return workingDays;
 }
 
-/** 
- * Determines if an interval has overlap with an annual leave record's interval 
+/**
+ * Determines if an interval has overlap with an annual leave record's interval
  * and returns the set of overlapping days.
  */
 function getOverlapDates(leave: AnnualLeaveRecord, range: DateRangeSelection): string[] {
@@ -160,6 +173,7 @@ function AnnualLeaveForm({
   team,
   userData,
   totals,
+  bankHolidays, // <-- Just passed to the local calc
 }: AnnualLeaveFormProps) {
   const { isDarkMode } = useTheme();
   const [dateRanges, setDateRanges] = useState<DateRangeSelection[]>([]);
@@ -167,14 +181,14 @@ function AnnualLeaveForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [notes, setNotes] = useState<string>('');
 
-  // Recalculate total days when dateRanges change.
+  // Recalculate total days whenever the dateRanges OR bankHolidays change
   useEffect(() => {
     let total = 0;
     dateRanges.forEach((range) => {
-      total += calculateWorkingDays(range);
+      total += calculateWorkingDays(range, bankHolidays);
     });
     setTotalDays(total);
-  }, [dateRanges]);
+  }, [dateRanges, bankHolidays]);
 
   const handleAddDateRange = () => {
     setDateRanges((prev) => [
@@ -205,12 +219,11 @@ function AnnualLeaveForm({
   const holidayEntitlement = Number(userData?.[0]?.holiday_entitlement ?? 0);
   const effectiveRemaining = holidayEntitlement - totals.standard - totalDays;
 
-  // Change: lock submit button if remaining days are 0 or negative.
+  // Lock submit button if remaining days are 0 or negative.
   const isSubmitDisabled = effectiveRemaining <= 0;
 
   /**
    * Group "futureLeave" records that overlap with any chosen date ranges.
-   * These will be shown as "Team Leave Conflicts."
    */
   const groupedLeave = useMemo(() => {
     const groups: Record<
@@ -242,9 +255,7 @@ function AnnualLeaveForm({
             };
           } else {
             const alreadyExists = groups[leave.person].dateRanges.some(
-              (dr) =>
-                dr.start_date === newRange.start_date &&
-                dr.end_date === newRange.end_date
+              (dr) => dr.start_date === newRange.start_date && dr.end_date === newRange.end_date
             );
             if (!alreadyExists) {
               groups[leave.person].dateRanges.push(newRange);
@@ -259,9 +270,8 @@ function AnnualLeaveForm({
     return Object.values(groups);
   }, [futureLeave, dateRanges, team]);
 
-  /** 
-   * Submits the form.
-   * If the remaining leave is negative or zero, submission is prevented.
+  /**
+   * Submits the form (POST to server).
    */
   const handleSubmit = async (values: { [key: string]: string | number | boolean | File }) => {
     if (isSubmitDisabled) return;
@@ -272,6 +282,7 @@ function AnnualLeaveForm({
         start_date: range.startDate.toISOString().split('T')[0],
         end_date: range.endDate.toISOString().split('T')[0],
       }));
+
       const payload = {
         fe: feeEarner,
         dateRanges: formattedDateRanges,
@@ -280,6 +291,7 @@ function AnnualLeaveForm({
         overlapDetails: groupedLeave,
       };
       console.log('Annual Leave Form Payload:', payload);
+
       const url = `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_INSERT_ANNUAL_LEAVE_PATH}?code=${process.env.REACT_APP_INSERT_ANNUAL_LEAVE_CODE}`;
       const response = await fetch(url, {
         method: 'POST',
@@ -303,12 +315,14 @@ function AnnualLeaveForm({
    */
   function renderSidePanel() {
     const effectiveRemainingStyle = {
-      color: effectiveRemaining < 0 ? colours.cta : isDarkMode ? colours.dark.text : colours.light.text,
+      color:
+        effectiveRemaining < 0 ? colours.cta : isDarkMode ? colours.dark.text : colours.light.text,
     };
     const defaultUnpaid = 5;
     const unpaidRemaining = defaultUnpaid - totals.unpaid;
     const unpaidStyle = {
-      color: unpaidRemaining < 0 ? colours.cta : isDarkMode ? colours.dark.text : colours.light.text,
+      color:
+        unpaidRemaining < 0 ? colours.cta : isDarkMode ? colours.dark.text : colours.light.text,
     };
     const defaultBuy = 5;
     const buyRemaining = defaultBuy - totals.purchase;
@@ -327,14 +341,32 @@ function AnnualLeaveForm({
           backgroundColor: 'transparent',
         }}
       >
-        <Text style={{ fontSize: '14px', fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+        <Text
+          style={{
+            fontSize: '14px',
+            fontWeight: 600,
+            color: isDarkMode ? colours.dark.text : colours.light.text,
+          }}
+        >
           Total Days Requested
         </Text>
-        <Text style={{ fontSize: '18px', fontWeight: 400, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+        <Text
+          style={{
+            fontSize: '18px',
+            fontWeight: 400,
+            color: isDarkMode ? colours.dark.text : colours.light.text,
+          }}
+        >
           {totalDays} {totalDays !== 1 ? 'days' : 'day'}
         </Text>
 
-        <Text style={{ fontSize: '14px', fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+        <Text
+          style={{
+            fontSize: '14px',
+            fontWeight: 600,
+            color: isDarkMode ? colours.dark.text : colours.light.text,
+          }}
+        >
           Days Remaining
         </Text>
         {userData?.[0]?.holiday_entitlement != null ? (
@@ -342,7 +374,13 @@ function AnnualLeaveForm({
             {effectiveRemaining} {effectiveRemaining !== 1 ? 'days' : 'day'}
           </Text>
         ) : (
-          <Text style={{ fontSize: '18px', fontWeight: 400, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+          <Text
+            style={{
+              fontSize: '18px',
+              fontWeight: 400,
+              color: isDarkMode ? colours.dark.text : colours.light.text,
+            }}
+          >
             N/A
           </Text>
         )}
@@ -356,7 +394,12 @@ function AnnualLeaveForm({
 
         <Stack tokens={{ childrenGap: 5 }}>
           <Text style={labelStyle}>Days taken so far this year</Text>
-          <Text style={{ ...valueStyle, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+          <Text
+            style={{
+              ...valueStyle,
+              color: isDarkMode ? colours.dark.text : colours.light.text,
+            }}
+          >
             {totals.standard} {totals.standard !== 1 ? 'days' : 'day'}
           </Text>
 
@@ -367,9 +410,7 @@ function AnnualLeaveForm({
 
           <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 5 }}>
             <Text style={labelStyle}>Available days to sell</Text>
-            <TooltipHost
-              content="Available days to sell if you wish to not take leave and be compensated per day pro rata to your salary."
-            >
+            <TooltipHost content="Available days to sell if you wish to not take leave and be compensated per day pro rata to your salary.">
               <Icon iconName="Info" style={{ fontSize: '16px', cursor: 'default' }} />
             </TooltipHost>
           </Stack>
@@ -516,7 +557,9 @@ function AnnualLeaveForm({
                     tokens={{ childrenGap: 5 }}
                     style={{
                       animation: 'fadeIn 0.5s ease forwards',
-                      border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                      border: `1px solid ${
+                        isDarkMode ? colours.dark.border : colours.light.border
+                      }`,
                       padding: '10px',
                       borderRadius: '4px',
                     }}

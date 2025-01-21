@@ -23,7 +23,7 @@ const EmailSignature: React.FC<EmailSignatureProps> = ({ bodyHtml, userData }) =
   <title>Helix Email</title>
 </head>
 <body style="margin:0; padding:0; font-family: Raleway, sans-serif; font-size:10pt; line-height:1.4; color:#000;">
-  <!-- The main email content from PitchBuilder (reduced bottom margin to minimize gap) -->
+  <!-- The main email content from PitchBuilder -->
   <div style="margin-bottom:4px; font-family: Raleway, sans-serif; color:#000;">
     ${bodyHtml}
   </div>
@@ -35,6 +35,8 @@ const EmailSignature: React.FC<EmailSignatureProps> = ({ bodyHtml, userData }) =
     cellspacing="0"
     style="border-collapse:collapse; margin:0; padding:0; width:auto; font-family: Raleway, sans-serif; color:#000;"
   >
+    <!-- Removed the first spacer row to reduce extra gap -->
+
     <!-- Logo Row -->
     <tr>
       <td style="font-family: Raleway, sans-serif; color:#000;">
@@ -45,9 +47,6 @@ const EmailSignature: React.FC<EmailSignatureProps> = ({ bodyHtml, userData }) =
         />
       </td>
     </tr>
-
-    <!-- Spacer between Logo and Contact Details (minimal gap) -->
-    <tr style="height:4px;"><td></td></tr>
 
     <!-- Contact Row -->
     <tr>
@@ -130,9 +129,6 @@ const EmailSignature: React.FC<EmailSignatureProps> = ({ bodyHtml, userData }) =
       </td>
     </tr>
 
-    <!-- Spacer between Address and Disclaimer (minimal gap) -->
-    <tr style="height:4px;"><td></td></tr>
-
     <!-- Disclaimer Row -->
     <tr>
       <td style="color:#D65541; font-size:7pt; line-height:1.5; font-family: Raleway, sans-serif;">
@@ -143,7 +139,7 @@ const EmailSignature: React.FC<EmailSignatureProps> = ({ bodyHtml, userData }) =
       </td>
     </tr>
 
-    <!-- Additional Disclaimer Row -->
+    <!-- Additional Disclaimer Text Row -->
     <tr>
       <td style="font-style:italic; font-size:7pt; line-height:1.5; color:#444; font-family: Raleway, sans-serif;">
         Helix Law Limited is a limited liability company registered in England and Wales. Registration Number 07845461.

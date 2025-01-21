@@ -143,20 +143,20 @@ export const templateBlocks: TemplateBlock[] = [
       {
         label: 'Confirm Instructions, Payment & Document Submission',
         previewText: 
-          `<p style="margin:0 0 10px 0;">To confirm my instructions and to enable us to open a file and move this forwards please take the steps below:</p>` +
-          `<p style="margin:0 0 10px 0;">We are required to verify your identity. Please complete the identity form below with your personal details. We will try to verify you electronically initially;</p>` +
-          `<p style="margin:0 0 10px 0;">https://helix-law.co.uk/proof-of-identity/</p>` +
-          `<p style="margin:0 0 10px 0;">We work with funds on account of costs at all times. Please pay £1800 on account of costs, using our account details below:</p>` +
-          `<ul type="disc" style="padding-left:20px; margin:0 0 10px 20px;">` +
+          `To confirm my instructions and to enable us to open a file and move this forwards please take the steps below:\n\n` +
+          `We are required to verify your identity. Please complete the identity form below with your personal details. We will try to verify you electronically initially;\n\n` +
+          `https://helix-law.co.uk/proof-of-identity/\n\n` +
+          `We work with funds on account of costs at all times. Please pay £1800 on account of costs, using our account details below:\n\n` +
+          `<ul type="disc" style="padding-left:20px; margin:0 0 0 20px;">` +
             `<li>Helix Law General Client Account</li>` +
             `<li>Barclays Bank</li>` +
             `<li>Account Number: 93472434</li>` +
             `<li>Sort Code: 20-27-91</li>` +
             `<li>Reference: FE [NAME] // [ACID]</li>` +
-          `</ul>` +
-          `<p style="margin:0 0 10px 0;">Please ensure to quote the above reference so that we promptly identify your payment.</p>` +
-          `<p style="margin:0 0 10px 0;">I have mentioned above some specific documents that will assist me at this stage. Please put these together and email them to me.</p>` +
-          `<p style="margin:0;">If the file sizes or volume are significant please let me know and we can arrange a document sharing facility for you to send these to us. Alternatively please send the files to me via WeTransfer or Dropbox—both are free services.</p>`
+          `</ul>\n` +
+          `Please ensure to quote the above reference so that we promptly identify your payment.\n\n` +
+          `I have mentioned above some specific documents that will assist me at this stage. Please put these together and email them to me.\n\n` +
+          `If the file sizes or volume are significant please let me know and we can arrange a document sharing facility for you to send these to us. Alternatively please send the files to me via WeTransfer or Dropbox—both are free services.`,
       },
     ],
   },  
