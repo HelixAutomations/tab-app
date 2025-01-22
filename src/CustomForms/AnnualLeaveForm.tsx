@@ -327,7 +327,8 @@ function AnnualLeaveForm({
     const defaultBuy = 5;
     const buyRemaining = defaultBuy - totals.purchase;
     const buyStyle = {
-      color: buyRemaining < 0 ? colours.cta : isDarkMode ? colours.dark.text : colours.light.text,
+      color:
+        buyRemaining < 0 ? colours.cta : isDarkMode ? colours.dark.text : colours.light.text,
     };
 
     return (
@@ -341,6 +342,7 @@ function AnnualLeaveForm({
           backgroundColor: 'transparent',
         }}
       >
+        {/* Top Section */}
         <Text
           style={{
             fontSize: '14px',
@@ -360,30 +362,40 @@ function AnnualLeaveForm({
           {totalDays} {totalDays !== 1 ? 'days' : 'day'}
         </Text>
 
-        <Text
+        {/* Separator */}
+        <div
           style={{
-            fontSize: '14px',
-            fontWeight: 600,
-            color: isDarkMode ? colours.dark.text : colours.light.text,
+            borderTop: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+            margin: '20px 0',
           }}
-        >
-          Days Remaining
-        </Text>
-        {userData?.[0]?.holiday_entitlement != null ? (
-          <Text style={{ fontSize: '18px', fontWeight: 400, ...effectiveRemainingStyle }}>
+        />
+
+        {/* Bottom Section */}
+        <Stack tokens={{ childrenGap: 5 }}>
+          <Text style={labelStyle}>Annual Holiday Entitlement</Text>
+          {userData?.[0]?.holiday_entitlement != null ? (
+            <Text style={{ ...valueStyle, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+              {userData[0].holiday_entitlement} {userData[0].holiday_entitlement !== 1 ? 'days' : 'day'}
+            </Text>
+          ) : (
+            <Text style={{ ...valueStyle, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+              N/A
+            </Text>
+          )}
+
+          <Text style={labelStyle}>Days taken so far this year</Text>
+          <Text style={{ ...valueStyle, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+            {totals.standard} {totals.standard !== 1 ? 'days' : 'day'}
+          </Text>
+
+          <Text style={labelStyle}>Days Remaining</Text>
+          <Text style={{ ...valueStyle, ...effectiveRemainingStyle }}>
             {effectiveRemaining} {effectiveRemaining !== 1 ? 'days' : 'day'}
           </Text>
-        ) : (
-          <Text
-            style={{
-              fontSize: '18px',
-              fontWeight: 400,
-              color: isDarkMode ? colours.dark.text : colours.light.text,
-            }}
-          >
-            N/A
-          </Text>
-        )}
+        </Stack>
+
+        {/*
+        The following block is hidden but retained for future use.
 
         <div
           style={{
@@ -393,16 +405,6 @@ function AnnualLeaveForm({
         />
 
         <Stack tokens={{ childrenGap: 5 }}>
-          <Text style={labelStyle}>Days taken so far this year</Text>
-          <Text
-            style={{
-              ...valueStyle,
-              color: isDarkMode ? colours.dark.text : colours.light.text,
-            }}
-          >
-            {totals.standard} {totals.standard !== 1 ? 'days' : 'day'}
-          </Text>
-
           <Text style={labelStyle}>Days remaining this year</Text>
           <Text style={{ ...valueStyle, ...unpaidStyle }}>
             {unpaidRemaining} {unpaidRemaining !== 1 ? 'days' : 'day'}
@@ -418,6 +420,7 @@ function AnnualLeaveForm({
             {buyRemaining} {buyRemaining !== 1 ? 'days' : 'day'}
           </Text>
         </Stack>
+        */}
       </Stack>
     );
   }

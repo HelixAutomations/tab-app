@@ -453,6 +453,7 @@ function isDateInRange(dateStr: string, startDate: Date, endDate: Date): boolean
 
 /**
  * Calculates the daily average of total_hours, considering only Monday-Friday and excluding days with no data.
+ * Rounds each day's total hours to the ceiling of the next tenth before averaging.
  * @param dailyData - An object containing daily WIP data.
  * @param weekStart - The start date of the week.
  * @param weekEnd - The end date of the week.
@@ -470,7 +471,8 @@ function calculateDailyAverage(
         const dayOfWeek = d.getDay();
         const dateStr = formatDateForClio(d); // Ensure 'YYYY-MM-DD' format
         if (dailyData[dateStr]) {
-            total += dailyData[dateStr].total_hours;
+            const roundedHours = Math.ceil(dailyData[dateStr].total_hours * 10) / 10;
+            total += roundedHours;
             if (dayOfWeek >= 1 && dayOfWeek <= 5) { // Monday to Friday
                 count += 1;
             }

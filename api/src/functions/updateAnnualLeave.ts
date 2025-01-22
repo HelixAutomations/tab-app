@@ -161,11 +161,14 @@ async function updateAnnualLeaveRecord(
 
       context.log("Connected to SQL. Updating annual leave record...");
 
-      // Updated SQL to reference the correct column [request_id]
+      // Update query now sets [rejection_notes] when the status is 'rejected'
       const query = `
         UPDATE [dbo].[annualLeave]
            SET [status] = @NewStatus,
-               [reason] = CASE WHEN @Reason IS NULL OR @Reason = '' THEN [reason] ELSE @Reason END
+               [rejection_notes] = CASE WHEN @NewStatus = 'rejected' AND (@Reason IS NOT NULL AND @Reason <> '')
+                                         THEN @Reason 
+                                         ELSE [rejection_notes] 
+                                    END
          WHERE [request_id] = @ID;
       `;
 

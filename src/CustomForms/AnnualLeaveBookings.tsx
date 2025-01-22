@@ -23,6 +23,7 @@ export interface BookingEntry {
   end_date: string;
   status: string; // "approved" or "rejected"
   days_taken?: number;
+  reason?: string; // Rejection notes (if applicable)
 }
 
 export interface TeamMember {
@@ -127,6 +128,17 @@ const AnnualLeaveBookings: React.FC<AnnualLeaveBookingsProps> = ({ bookings, onC
       }
     };
 
+    const localHandleDiscardAction = async () => {
+      try {
+        await updateAnnualLeave(recordId, 'discarded', null);
+        setUpdated(true);
+        setConfirmationMessage('Request discarded successfully');
+        console.log(`Leave ${recordId} discarded.`);
+      } catch (error) {
+        console.error(`Error discarding leave ${recordId}:`, error);
+      }
+    };
+
     return (
       <Stack key={recordId} tokens={{ childrenGap: 15 }}>
         <div className={mergeStyles(
@@ -189,18 +201,42 @@ const AnnualLeaveBookings: React.FC<AnnualLeaveBookingsProps> = ({ bookings, onC
           </Stack>
         </Stack>
 
-        <DefaultButton
-          text={entry.status.toLowerCase() === 'rejected' ? 'Acknowledge' : 'Book'}
-          onClick={localHandleAction}
-          styles={sharedDefaultButtonStyles}
-          iconProps={{
-            iconName: entry.status.toLowerCase() === 'rejected' ? 'Acknowledge' : 'CompletedSolid',
-            styles: { root: { color: entry.status.toLowerCase() === 'rejected' ? '#0000FF' : '#009900' } }
-          }}
-          style={{ alignSelf: 'flex-start', maxWidth: 'auto' }}
-        />
+        <Stack horizontal tokens={{ childrenGap: 10 }}>
+          <DefaultButton
+            text={entry.status.toLowerCase() === 'rejected' ? 'Acknowledge' : 'Book to Confirm'}
+            onClick={localHandleAction}
+            styles={sharedDefaultButtonStyles}
+            iconProps={{
+              iconName: entry.status.toLowerCase() === 'rejected' ? 'Check' : 'CompletedSolid',
+              styles: { root: { color: entry.status.toLowerCase() === 'rejected' ? '#0000FF' : '#009900' } }
+            }}
+            style={{ alignSelf: 'flex-start', maxWidth: 'auto' }}
+          />
+          {entry.status.toLowerCase() !== 'rejected' && (
+            <DefaultButton
+              text="No Longer Needed"
+              onClick={localHandleDiscardAction}
+              styles={sharedDefaultButtonStyles}
+              iconProps={{
+                iconName: 'Cancel',
+                styles: { root: { color: '#cc0000' } }
+              }}
+              style={{ alignSelf: 'flex-start', maxWidth: 'auto' }}
+            />
+          )}
+        </Stack>
         {confirmationMessage && (
           <Text style={{ marginTop: 10, fontWeight: 'bold', color: '#009900' }}>{confirmationMessage}</Text>
+        )}
+        {entry.status.toLowerCase() === 'rejected' && entry.reason && (
+          <Stack tokens={{ childrenGap: 5 }} styles={{ root: { marginTop: 10 } }}>
+            <Text style={{ fontWeight: 600, color: colours.light.text }}>
+              Rejection Notes:
+            </Text>
+            <Text style={{ color: colours.light.text }}>
+              {entry.reason}
+            </Text>
+          </Stack>
         )}
       </Stack>
     );
