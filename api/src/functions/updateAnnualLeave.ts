@@ -1,3 +1,5 @@
+// src/functions/updateAnnualLeave/index.ts
+
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { DefaultAzureCredential } from "@azure/identity";
 import { SecretClient } from "@azure/keyvault-secrets";
@@ -8,9 +10,9 @@ import { Connection, Request as SqlRequest, TYPES } from "tedious";
  * OR what's passed into the named function from your React code.
  */
 export interface UpdateAnnualLeaveRequest {
-  id: string;        // the record ID in the [annualLeave] table
-  newStatus: string; // e.g. 'requested', 'approved', 'booked', 'rejected'
-  reason?: string;   // optional - for rejections or notes
+  id: string;               // The record ID in the [annualLeave] table
+  newStatus: string;        // e.g., 'requested', 'approved', 'booked', 'rejected'
+  rejection_notes?: string; // Optional - for rejections
 }
 
 /**
@@ -23,17 +25,16 @@ export interface UpdateAnnualLeaveRequest {
 export async function UpdateAnnualLeave(
   leaveId: string,
   newStatus: string,
-  reason: string | null = null
+  rejectionNotes: string | null = null // Renamed parameter
 ): Promise<void> {
-  // Build the payload that matches what the Azure Function's handler expects
+  // Build the payload that matches the updated Azure Function's handler
   const payload: UpdateAnnualLeaveRequest = { 
     id: leaveId, 
     newStatus, 
-    reason: reason || '' 
+    rejection_notes: rejectionNotes || '' // Map to rejection_notes
   };
 
   // Construct your environment-based URL (the Azure Function endpoint)
-  // The below environment variables are placeholders — adjust as needed
   const url = `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_UPDATE_ANNUAL_LEAVE_PATH}?code=${process.env.REACT_APP_UPDATE_ANNUAL_LEAVE_CODE}`;
 
   const response = await fetch(url, {
@@ -55,7 +56,7 @@ export async function UpdateAnnualLeave(
 
 /**
  * Azure Function Handler (default export):
- * 1) Reads a JSON body with { id, newStatus, reason? }
+ * 1) Reads a JSON body with { id, newStatus, rejection_notes? }
  * 2) Connects to SQL
  * 3) Updates the record if it exists
  * 4) Returns success or error
@@ -83,7 +84,7 @@ export async function updateAnnualLeaveHandler(
     return { status: 400, body: "Invalid JSON body." };
   }
 
-  const { id, newStatus, reason } = body;
+  const { id, newStatus, rejection_notes } = body;
   if (!id || !newStatus) {
     return {
       status: 400,
@@ -91,15 +92,24 @@ export async function updateAnnualLeaveHandler(
     };
   }
 
+  // Optional: Validate newStatus
+  const allowedStatuses = ['requested', 'approved', 'booked', 'rejected', 'acknowledged', 'discarded'];
+  if (!allowedStatuses.includes(newStatus.toLowerCase())) {
+    return {
+      status: 400,
+      body: `Invalid 'newStatus'. Allowed statuses are: ${allowedStatuses.join(', ')}.`,
+    };
+  }
+
   try {
     // Perform the actual update in SQL
-    const rowsAffected = await updateAnnualLeaveRecord(id, newStatus, reason, context);
+    const rowsAffected = await updateAnnualLeaveRecord(id, newStatus, rejection_notes, context);
     context.log(`Rows affected: ${rowsAffected}`);
 
     if (rowsAffected === 0) {
       return {
         status: 404,
-        body: `No record found or the status cannot be changed to '${newStatus}'.`,
+        body: `No record found with ID ${id}, or the status transition is invalid.`,
       };
     }
 
@@ -126,7 +136,7 @@ export async function updateAnnualLeaveHandler(
 async function updateAnnualLeaveRecord(
   id: string,
   newStatus: string,
-  reason: string | undefined,
+  rejectionNotes: string | undefined, // Renamed parameter
   context: InvocationContext
 ): Promise<number> {
   const kvUri = "https://helix-keys.vault.azure.net/";
@@ -155,7 +165,7 @@ async function updateAnnualLeaveRecord(
     connection.on("connect", (err) => {
       if (err) {
         context.error("SQL Connection Error on connect:", err);
-        reject(err);
+        reject("Failed to connect to SQL database.");
         return;
       }
 
@@ -165,10 +175,11 @@ async function updateAnnualLeaveRecord(
       const query = `
         UPDATE [dbo].[annualLeave]
            SET [status] = @NewStatus,
-               [rejection_notes] = CASE WHEN @NewStatus = 'rejected' AND (@Reason IS NOT NULL AND @Reason <> '')
-                                         THEN @Reason 
-                                         ELSE [rejection_notes] 
-                                    END
+               [rejection_notes] = CASE 
+                                     WHEN @NewStatus = 'rejected' AND (@RejectionNotes IS NOT NULL AND @RejectionNotes <> '')
+                                     THEN @RejectionNotes 
+                                     ELSE [rejection_notes] 
+                                   END
          WHERE [request_id] = @ID;
       `;
 
@@ -186,12 +197,12 @@ async function updateAnnualLeaveRecord(
       // Bind parameters
       request.addParameter("ID", TYPES.Int, parseInt(id, 10));
       request.addParameter("NewStatus", TYPES.NVarChar, newStatus);
-      request.addParameter("Reason", TYPES.NVarChar, reason || "");
+      request.addParameter("RejectionNotes", TYPES.NVarChar, rejectionNotes || "");
 
       context.log("Executing SQL query with parameters:", {
         ID: id,
         NewStatus: newStatus,
-        Reason: reason,
+        RejectionNotes: rejectionNotes,
       });
 
       connection.execSql(request);

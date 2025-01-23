@@ -1,3 +1,5 @@
+// src/functions/getAnnualLeave/index.ts
+
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { DefaultAzureCredential } from "@azure/identity";
 import { SecretClient } from "@azure/keyvault-secrets";
@@ -30,6 +32,41 @@ async function getRequestBody(req: HttpRequest): Promise<any> {
     }
   }
   return {};
+}
+
+// Interfaces
+interface AnnualLeaveRecord {
+  request_id: number;
+  person: string;
+  start_date: string;
+  end_date: string;
+  reason: string;
+  status: string;
+  days_taken: number;
+  leave_type: string | null;
+  rejection_notes: string | null; // Added rejection_notes
+}
+
+interface UserDetails {
+  leaveEntries: AnnualLeaveRecord[];
+  totals: {
+    standard: number;
+    unpaid: number;
+    purchase: number;
+    rejected: number;
+  };
+}
+
+interface AnnualLeaveResponse {
+  annual_leave: AnnualLeaveRecord[];
+  future_leave: AnnualLeaveRecord[];
+  user_details: UserDetails;
+}
+
+interface HomeProps {
+  context: any; // Adjusted based on your actual context type
+  userData: any;
+  enquiries: any[] | null;
 }
 
 // Handler for the getAnnualLeave Azure Function
@@ -100,7 +137,7 @@ export async function getAnnualLeaveHandler(req: HttpRequest, context: Invocatio
         annual_leave: annualLeaveEntries,
         future_leave: futureLeaveEntries,
         user_details: userDetails
-      })
+      } as AnnualLeaveResponse)
     };
   } catch (error) {
     context.error("Error retrieving annual leave data:", error);
@@ -118,16 +155,7 @@ async function queryAnnualLeave(
   today: Date,
   config: any,
   context: InvocationContext
-): Promise<{ 
-  request_id: number;
-  person: string; 
-  start_date: string; 
-  end_date: string; 
-  reason: string; 
-  status: string; 
-  days_taken: number; 
-  leave_type: string | null; 
-}[]> {
+): Promise<AnnualLeaveRecord[]> {
   return new Promise((resolve, reject) => {
     const connection = new Connection(config);
 
@@ -154,7 +182,8 @@ async function queryAnnualLeave(
           [reason], 
           [status], 
           [days_taken], 
-          [leave_type]
+          [leave_type],
+          [rejection_notes]
         FROM [dbo].[annualLeave]
         WHERE 
           @Today BETWEEN [start_date] AND [end_date];
@@ -171,16 +200,7 @@ async function queryAnnualLeave(
         context.log(`SQL query executed successfully (AnnualLeave). Rows returned: ${rowCount}`);
       });
 
-      const annualLeaveList: { 
-        request_id: number;
-        person: string; 
-        start_date: string; 
-        end_date: string; 
-        reason: string; 
-        status: string; 
-        days_taken: number; 
-        leave_type: string | null; 
-      }[] = [];
+      const annualLeaveList: AnnualLeaveRecord[] = [];
 
       sqlRequest.on("row", (columns) => {
         const entry: any = {};
@@ -199,7 +219,8 @@ async function queryAnnualLeave(
           reason: entry.reason || "",
           status: entry.status || "",
           days_taken: entry.days_taken || 0,
-          leave_type: entry.leave_type || null
+          leave_type: entry.leave_type || null,
+          rejection_notes: entry.rejection_notes || null, // Mapped rejection_notes
         });
       });
 
@@ -223,16 +244,7 @@ async function queryFutureLeave(
   today: Date,
   config: any,
   context: InvocationContext
-): Promise<{ 
-  request_id: number;
-  person: string; 
-  start_date: string; 
-  end_date: string; 
-  reason: string; 
-  status: string; 
-  days_taken: number; 
-  leave_type: string | null;
-}[]> {
+): Promise<AnnualLeaveRecord[]> {
   return new Promise((resolve, reject) => {
     const connection = new Connection(config);
 
@@ -259,7 +271,8 @@ async function queryFutureLeave(
           [reason], 
           [status], 
           [days_taken], 
-          [leave_type]
+          [leave_type],
+          [rejection_notes]
         FROM [dbo].[annualLeave]
         WHERE 
           [start_date] >= @Today;
@@ -276,16 +289,7 @@ async function queryFutureLeave(
         context.log(`SQL query executed successfully (FutureLeave). Rows returned: ${rowCount}`);
       });
 
-      const futureLeaveList: { 
-        request_id: number;
-        person: string; 
-        start_date: string; 
-        end_date: string; 
-        reason: string; 
-        status: string; 
-        days_taken: number; 
-        leave_type: string | null;
-      }[] = [];
+      const futureLeaveList: AnnualLeaveRecord[] = [];
 
       sqlRequest.on("row", (columns) => {
         const entry: any = {};
@@ -304,7 +308,8 @@ async function queryFutureLeave(
           reason: entry.reason || "",
           status: entry.status || "",
           days_taken: entry.days_taken || 0,
-          leave_type: entry.leave_type || null
+          leave_type: entry.leave_type || null,
+          rejection_notes: entry.rejection_notes || null, // Mapped rejection_notes
         });
       });
 
@@ -331,23 +336,7 @@ async function queryUserAnnualLeave(
   fiscalEnd: Date,
   config: any,
   context: InvocationContext
-): Promise<{
-  leaveEntries: {
-    request_id: number;
-    person: string;
-    start_date: string;
-    end_date: string;
-    reason: string;
-    status: string;
-    days_taken: number;
-    leave_type: string | null;
-  }[];
-  totals: {
-    standard: number;
-    unpaid: number;
-    purchase: number;
-  };
-}> {
+): Promise<UserDetails> {
   return new Promise((resolve, reject) => {
     const connection = new Connection(config);
 
@@ -374,7 +363,8 @@ async function queryUserAnnualLeave(
           [reason],
           [status],
           [days_taken],
-          [leave_type]
+          [leave_type],
+          [rejection_notes]
         FROM [dbo].[annualLeave]
         WHERE [fe] = @Initials
           AND [start_date] >= @FiscalStart
@@ -392,16 +382,7 @@ async function queryUserAnnualLeave(
         context.log(`SQL query executed successfully (UserAnnualLeave). Rows returned: ${rowCount}`);
       });
 
-      const leaveEntries: {
-        request_id: number;
-        person: string;
-        start_date: string;
-        end_date: string;
-        reason: string;
-        status: string;
-        days_taken: number;
-        leave_type: string | null;
-      }[] = [];
+      const leaveEntries: AnnualLeaveRecord[] = [];
 
       sqlRequest.on("row", (columns) => {
         const entry: any = {};
@@ -420,7 +401,8 @@ async function queryUserAnnualLeave(
           reason: entry.reason || "",
           status: entry.status || "",
           days_taken: entry.days_taken || 0,
-          leave_type: entry.leave_type || null
+          leave_type: entry.leave_type || null,
+          rejection_notes: entry.rejection_notes || null, // Mapped rejection_notes
         });
       });
 
@@ -430,6 +412,7 @@ async function queryUserAnnualLeave(
         let total_standard = 0;
         let total_unpaid = 0;
         let total_purchase = 0;
+        let total_rejected = 0; // To track rejected leave days
 
         leaveEntries.forEach(entry => {
           if (entry.leave_type && typeof entry.days_taken === "number") {
@@ -441,6 +424,11 @@ async function queryUserAnnualLeave(
             } else if (lt === "purchase") {
               total_purchase += entry.days_taken;
             }
+
+            // Account for rejection notes if the leave was rejected
+            if (entry.status.toLowerCase() === "rejected" && entry.rejection_notes) {
+              total_rejected += entry.days_taken;
+            }
           }
         });
 
@@ -449,7 +437,8 @@ async function queryUserAnnualLeave(
           totals: {
             standard: total_standard,
             unpaid: total_unpaid,
-            purchase: total_purchase
+            purchase: total_purchase,
+            rejected: total_rejected,
           }
         });
         connection.close();

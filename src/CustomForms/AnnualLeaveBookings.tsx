@@ -8,22 +8,22 @@ import {
   PersonaSize
 } from '@fluentui/react';
 import { mergeStyles } from '@fluentui/react';
-import { eachDayOfInterval, isWeekend, format, addDays } from 'date-fns';
+import { format } from 'date-fns';
 import { colours } from '../app/styles/colours';
-import { formContainerStyle, inputFieldStyle } from './BespokeForms';
+import { formContainerStyle } from './BespokeForms';
 import { sharedDefaultButtonStyles } from '../app/styles/ButtonStyles';
 import HelixAvatar from '../assets/helix avatar.png';
 
 export interface BookingEntry {
-  // The backend now returns a numeric request_id. If that exists, use it.
   id: string;
   request_id?: number;
-  person: string; // holds initials
+  person: string;
   start_date: string;
   end_date: string;
-  status: string; // "approved" or "rejected"
+  status: string; // "approved", "rejected", "booked", "discarded", etc.
   days_taken?: number;
-  reason?: string; // Rejection notes (if applicable)
+  reason?: string; // General reason for leave
+  rejection_notes?: string; // Specific rejection notes
 }
 
 export interface TeamMember {
@@ -112,12 +112,14 @@ const AnnualLeaveBookings: React.FC<AnnualLeaveBookingsProps> = ({ bookings, onC
 
     const localHandleAction = async () => {
       try {
+        // If status is 'rejected', allow user to 'Acknowledge'
         if (entry.status.toLowerCase() === 'rejected') {
           await updateAnnualLeave(recordId, 'acknowledged', null);
           setUpdated(true);
           setConfirmationMessage('Acknowledged successfully');
           console.log(`Leave ${recordId} acknowledged after rejection.`);
         } else {
+          // Otherwise, if 'approved' or other "approvable" statuses, set it to 'booked'
           await updateAnnualLeave(recordId, 'booked', null);
           setUpdated(true);
           setConfirmationMessage('Booked successfully');
@@ -139,33 +141,27 @@ const AnnualLeaveBookings: React.FC<AnnualLeaveBookingsProps> = ({ bookings, onC
       }
     };
 
+    // If it’s rejected, show the rejected-style backdrop; otherwise, show approved style
+    const isRejected = entry.status.toLowerCase() === 'rejected';
+    const backdropStyle = isRejected ? rejectedBackdropStyle : approvedBackdropStyle;
+
     return (
       <Stack key={recordId} tokens={{ childrenGap: 15 }}>
-        <div className={mergeStyles(
-          entry.status.toLowerCase() === 'approved' ? approvedBackdropStyle : rejectedBackdropStyle,
-          updated && { backgroundColor: '#f0f0f0', border: '2px solid #009900' }
-        )}>
-          {entry.status.toLowerCase() === 'approved' ? (
-            <>
-              <Icon
-                iconName="CompletedSolid"
-                styles={{ root: { fontSize: 24, color: '#009900' } }}
-              />
-              <Text style={{ fontSize: 20, fontWeight: 700, color: colours.light.text }}>
-                Your Annual Leave Request has been Approved
-              </Text>
-            </>
-          ) : (
-            <>
-              <Icon
-                iconName="Cancel"
-                styles={{ root: { fontSize: 24, color: '#cc0000' } }}
-              />
-              <Text style={{ fontSize: 20, fontWeight: 700, color: colours.light.text }}>
-                Your Annual Leave Request has been Rejected
-              </Text>
-            </>
+        <div
+          className={mergeStyles(
+            backdropStyle,
+            updated && { backgroundColor: '#f0f0f0', border: '2px solid #009900' }
           )}
+        >
+          <Icon
+            iconName={isRejected ? 'Cancel' : 'CompletedSolid'}
+            styles={{ root: { fontSize: 24, color: isRejected ? '#cc0000' : '#009900' } }}
+          />
+          <Text style={{ fontSize: 20, fontWeight: 700, color: colours.light.text }}>
+            {isRejected
+              ? 'Your Annual Leave Request has been Rejected'
+              : 'Your Annual Leave Request has been Approved'}
+          </Text>
         </div>
 
         <Stack horizontal tokens={{ childrenGap: 15 }} verticalAlign="center">
@@ -190,7 +186,7 @@ const AnnualLeaveBookings: React.FC<AnnualLeaveBookingsProps> = ({ bookings, onC
               <Stack horizontal tokens={{ childrenGap: 40 }}>
                 <Stack>
                   <Text className={labelStyleText}>
-                    {entry.status.toLowerCase() === 'rejected' ? 'Rejected Dates:' : 'Approved Dates:'}
+                    {isRejected ? 'Rejected Dates:' : 'Approved Dates:'}
                   </Text>
                   <Text className={valueStyleText}>
                     {formatDateRange(entry.start_date, entry.end_date)}
@@ -203,16 +199,20 @@ const AnnualLeaveBookings: React.FC<AnnualLeaveBookingsProps> = ({ bookings, onC
 
         <Stack horizontal tokens={{ childrenGap: 10 }}>
           <DefaultButton
-            text={entry.status.toLowerCase() === 'rejected' ? 'Acknowledge' : 'Book to Confirm'}
+            text={isRejected ? 'Acknowledge' : 'Book to Confirm'}
             onClick={localHandleAction}
             styles={sharedDefaultButtonStyles}
             iconProps={{
-              iconName: entry.status.toLowerCase() === 'rejected' ? 'Check' : 'CompletedSolid',
-              styles: { root: { color: entry.status.toLowerCase() === 'rejected' ? '#0000FF' : '#009900' } }
+              iconName: isRejected ? 'Check' : 'CompletedSolid',
+              styles: {
+                root: {
+                  color: isRejected ? '#0000FF' : '#009900'
+                }
+              }
             }}
             style={{ alignSelf: 'flex-start', maxWidth: 'auto' }}
           />
-          {entry.status.toLowerCase() !== 'rejected' && (
+          {!isRejected && (
             <DefaultButton
               text="No Longer Needed"
               onClick={localHandleDiscardAction}
@@ -225,16 +225,22 @@ const AnnualLeaveBookings: React.FC<AnnualLeaveBookingsProps> = ({ bookings, onC
             />
           )}
         </Stack>
+
+        {/* Show a confirmation message once the user takes an action */}
         {confirmationMessage && (
-          <Text style={{ marginTop: 10, fontWeight: 'bold', color: '#009900' }}>{confirmationMessage}</Text>
+          <Text style={{ marginTop: 10, fontWeight: 'bold', color: '#009900' }}>
+            {confirmationMessage}
+          </Text>
         )}
-        {entry.status.toLowerCase() === 'rejected' && entry.reason && (
+
+        {/* Only display rejection_notes if status is "rejected" and there's a value */}
+        {isRejected && entry.rejection_notes && (
           <Stack tokens={{ childrenGap: 5 }} styles={{ root: { marginTop: 10 } }}>
             <Text style={{ fontWeight: 600, color: colours.light.text }}>
               Rejection Notes:
             </Text>
             <Text style={{ color: colours.light.text }}>
-              {entry.reason}
+              {entry.rejection_notes}
             </Text>
           </Stack>
         )}
@@ -251,7 +257,10 @@ const AnnualLeaveBookings: React.FC<AnnualLeaveBookingsProps> = ({ bookings, onC
           </Text>
         ) : (
           bookings.map(entry => (
-            <BookingCard key={entry.request_id ? String(entry.request_id) : entry.id} entry={entry} />
+            <BookingCard
+              key={entry.request_id ? String(entry.request_id) : entry.id}
+              entry={entry}
+            />
           ))
         )}
       </Stack>

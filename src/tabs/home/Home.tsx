@@ -18,14 +18,11 @@ import {
   PersonaPresence,
   DefaultButton,
   Icon,
-  PrimaryButton,
 } from '@fluentui/react';
 import { colours } from '../../app/styles/colours';
 import { initializeIcons } from '@fluentui/react/lib/Icons';
 import MetricCard from './MetricCard';
 import GreyHelixMark from '../../assets/grey helix mark.png';
-import HelixAvatar from '../../assets/helix avatar.png';
-import MarkAvatar from '../../assets/mark192colour.png'; // Custom avatar for WFH & Out
 import InAttendanceImg from '../../assets/in_attendance.png';
 import WfhImg from '../../assets/wfh.png';
 import OutImg from '../../assets/outv2.png';
@@ -57,6 +54,8 @@ import AnnualLeaveForm from '../../CustomForms/AnnualLeaveForm';
 import AnnualLeaveApprovals from '../../CustomForms/AnnualLeaveApprovals';
 import AnnualLeaveBookings from '../../CustomForms/AnnualLeaveBookings';
 
+import ActionSection from './ActionSection';
+
 initializeIcons();
 
 //////////////////////
@@ -70,6 +69,7 @@ interface AnnualLeaveRecord {
   reason: string;
   status: string;
   id?: string;
+  rejection_notes?: string;
 }
 
 interface HomeProps {
@@ -118,9 +118,10 @@ const containerStyle = (isDarkMode: boolean) =>
 const headerStyle = mergeStyles({
   display: 'flex',
   justifyContent: 'space-between',
-  alignItems: 'center',
+  alignItems: 'flex-start',
   width: '100%',
   padding: '10px 0',
+  gap: '20px', // Added gap between greeting section and actions
 });
 
 const greetingStyle = (isDarkMode: boolean) =>
@@ -128,6 +129,13 @@ const greetingStyle = (isDarkMode: boolean) =>
     fontWeight: '600',
     fontSize: '32px',
     whiteSpace: 'nowrap',
+    color: isDarkMode ? colours.dark.text : colours.light.text,
+  });
+
+const reviewMessageStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    fontWeight: '600',
+    fontSize: '24px', // Increased font size
     color: isDarkMode ? colours.dark.text : colours.light.text,
   });
 
@@ -232,7 +240,17 @@ const sectionContainerStyle = (isDarkMode: boolean) =>
       : `0 4px 12px ${colours.light.border}`,
     position: 'relative',
     width: '100%',
-});
+  });
+
+// Style for ActionSection container to limit its width
+const actionSectionStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    maxWidth: '300px', // Adjust as needed
+    width: '100%',
+    '@media (max-width: 600px)': {
+      maxWidth: '100%',
+    },
+  });
 
 //////////////////////
 // TabLabel Component
@@ -333,7 +351,7 @@ const QuickActionsCardStyled: React.FC<{
     position: 'relative',
     opacity: 0,
     transform: 'translateY(20px)',
-    animation: 'fadeInUp 0.3s ease forwards',
+    animation: `fadeInUp 0.3s ease forwards`,
     animationDelay: `${animationDelay}s`,
     transition: 'transform 0.3s, box-shadow 0.3s',
     ':hover': { transform: 'translateY(-5px)', boxShadow: '0 6px 20px rgba(0,0,0,0.2)' },
@@ -389,7 +407,7 @@ const PersonBubble: React.FC<PersonBubbleProps> = ({
     alignItems: 'center',
     opacity: 0,
     transform: 'translateY(20px)',
-    animation: 'fadeInUp 0.3s ease forwards',
+    animation: `fadeInUp 0.3s ease forwards`,
     animationDelay: `${animationDelay}s`,
   });
 
@@ -530,6 +548,8 @@ const CognitoForm: React.FC<{ dataKey: string; dataForm: string }> = ({ dataKey,
 
 const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const { isDarkMode } = useTheme();
+
+  // Declare all missing state variables with appropriate types
   const [greeting, setGreeting] = useState<string>('');
   const [typedGreeting, setTypedGreeting] = useState<string>('');
   const [enquiriesToday, setEnquiriesToday] = useState<number>(0);
@@ -551,24 +571,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const [resourcesFavorites, setResourcesFavorites] = useState<Resource[]>([]);
   const [selectedForm, setSelectedForm] = useState<FormItem | null>(null);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
-  const [isOfficeAttendancePanelOpen, setIsOfficeAttendancePanelOpen] = useState<boolean>(false);
-  const [annualLeaveRecords, setAnnualLeaveRecords] = useState<AnnualLeaveRecord[]>([]);
-  const [isLoadingAnnualLeave, setIsLoadingAnnualLeave] = useState<boolean>(true);
-  const [annualLeaveError, setAnnualLeaveError] = useState<string | null>(null);
-  const [futureLeaveRecords, setFutureLeaveRecords] = useState<AnnualLeaveRecord[]>([]);
-  const [annualLeaveTotals, setAnnualLeaveTotals] = useState<{ standard: number; unpaid: number; purchase: number; }>({ standard: 0, unpaid: 0, purchase: 0 });
-  const [wipClioData, setWipClioData] = useState<any>(null);
-  const [wipClioError, setWipClioError] = useState<string | null>(null);
-  const [recoveredData, setRecoveredData] = useState<number | null>(null);
-  const [recoveredError, setRecoveredError] = useState<string | null>(null);
-  const [isLoadingWipClio, setIsLoadingWipClio] = useState<boolean>(true);
-  const [isLoadingRecovered, setIsLoadingRecovered] = useState<boolean>(true);
-  const [attendanceRecords, setAttendanceRecords] = useState<{ name: string; confirmed: boolean; attendingToday: boolean; }[]>([]);
-  const [teamData, setTeamData] = useState<{ First: string; Initials: string; ['Entra ID']: string; Nickname?: string; }[]>([]);
-  const [isLoadingAttendance, setIsLoadingAttendance] = useState<boolean>(true);
-  const [attendanceError, setAttendanceError] = useState<string | null>(null);
-  const [currentUserName, setCurrentUserName] = useState<string>('User');
-  const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
   const [isBespokePanelOpen, setIsBespokePanelOpen] = useState<boolean>(false);
   const [bespokePanelContent, setBespokePanelContent] = useState<ReactNode>(null);
   const [bespokePanelTitle, setBespokePanelTitle] = useState<string>('');
@@ -576,6 +578,25 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
 
   // NEW: Store bank holidays
   const [bankHolidays, setBankHolidays] = useState<Set<string>>(new Set());
+
+  // Declare missing state variables related to attendance and annual leave
+  const [currentUserName, setCurrentUserName] = useState<string>('');
+  const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
+  const [attendanceRecords, setAttendanceRecords] = useState<any[]>([]);
+  const [teamData, setTeamData] = useState<any[]>([]);
+  const [attendanceError, setAttendanceError] = useState<string | null>(null);
+  const [annualLeaveRecords, setAnnualLeaveRecords] = useState<AnnualLeaveRecord[]>([]);
+  const [annualLeaveError, setAnnualLeaveError] = useState<string | null>(null);
+  const [isLoadingAttendance, setIsLoadingAttendance] = useState<boolean>(false);
+  const [isLoadingAnnualLeave, setIsLoadingAnnualLeave] = useState<boolean>(false);
+  const [wipClioData, setWipClioData] = useState<any | null>(null);
+  const [wipClioError, setWipClioError] = useState<string | null>(null);
+  const [recoveredData, setRecoveredData] = useState<number | null>(null);
+  const [recoveredError, setRecoveredError] = useState<string | null>(null);
+  const [isLoadingWipClio, setIsLoadingWipClio] = useState<boolean>(false);
+  const [isLoadingRecovered, setIsLoadingRecovered] = useState<boolean>(false);
+  const [futureLeaveRecords, setFutureLeaveRecords] = useState<AnnualLeaveRecord[]>([]);
+  const [annualLeaveTotals, setAnnualLeaveTotals] = useState<any>(null);
 
   // Fetch bank holidays in the background
   useEffect(() => {
@@ -602,6 +623,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     fetchBankHolidays();
   }, []);
 
+  // Inject keyframe animations
   useEffect(() => {
     const styles = `
 @keyframes redPulse {
@@ -638,6 +660,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     };
   }, []);
 
+  // Load favorites from localStorage
   useEffect(() => {
     const storedFormsFavorites = localStorage.getItem('formsFavorites');
     const storedResourcesFavorites = localStorage.getItem('resourcesFavorites');
@@ -649,6 +672,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     }
   }, []);
 
+  // Listen for localStorage changes
   useEffect(() => {
     const handleStorageChange = (event: StorageEvent) => {
       if (event.key === 'formsFavorites' && event.newValue) {
@@ -664,8 +688,14 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     };
   }, []);
 
+  // Set greeting based on user data and time of day
   useEffect(() => {
-    if (userData && Array.isArray(userData) && userData.length > 0 && (userData[0].First || userData[0].First_Name)) {
+    if (
+      userData &&
+      Array.isArray(userData) &&
+      userData.length > 0 &&
+      (userData[0].First || userData[0].First_Name)
+    ) {
       const firstName = userData[0].First || userData[0].First_Name || 'User';
       setCurrentUserName(firstName);
       const email = userData[0].Email || '';
@@ -685,8 +715,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     }
   }, [userData]);
 
+  // Calculate enquiries counts
   useEffect(() => {
-    if (enquiries) {
+    if (enquiries && currentUserEmail) {
       const today = new Date();
       const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
       const startOfWeek = new Date(today);
@@ -723,6 +754,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     }
   }, [enquiries, currentUserEmail]);
 
+  // Typing animation for greeting
   useEffect(() => {
     let currentIndex = 0;
     setTypedGreeting('');
@@ -737,8 +769,14 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     return () => clearInterval(typingInterval);
   }, [greeting]);
 
+  // Fetch Attendance and Annual Leave Data with Caching
   useEffect(() => {
-    if (cachedAttendance || cachedAttendanceError || cachedAnnualLeave || cachedAnnualLeaveError) {
+    if (
+      cachedAttendance ||
+      cachedAttendanceError ||
+      cachedAnnualLeave ||
+      cachedAnnualLeaveError
+    ) {
       setAttendanceRecords(cachedAttendance || []);
       setTeamData(cachedTeamData || []);
       setAttendanceError(cachedAttendanceError);
@@ -787,19 +825,26 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
             // Map each annual leave record so that the 'id' property uses the proper 'request_id'
             const mappedAnnualLeave = annualLeaveData.annual_leave.map((rec: any) => ({
               ...rec,
-              id: rec.request_id ? String(rec.request_id) : (rec.id || `temp-${rec.start_date}-${rec.end_date}`)
+              id: rec.request_id
+                ? String(rec.request_id)
+                : rec.id || `temp-${rec.start_date}-${rec.end_date}`,
             }));
             cachedAnnualLeave = mappedAnnualLeave;
             setAnnualLeaveRecords(mappedAnnualLeave);
-            
+
             if (Array.isArray(annualLeaveData.future_leave)) {
               const mappedFutureLeave = annualLeaveData.future_leave.map((rec: any) => ({
                 ...rec,
-                id: rec.request_id ? String(rec.request_id) : (rec.id || `temp-${rec.start_date}-${rec.end_date}`)
+                id: rec.request_id
+                  ? String(rec.request_id)
+                  : rec.id || `temp-${rec.start_date}-${rec.end_date}`,
               }));
               setFutureLeaveRecords(mappedFutureLeave);
             }
-            if (annualLeaveData.user_details && annualLeaveData.user_details.totals) {
+            if (
+              annualLeaveData.user_details &&
+              annualLeaveData.user_details.totals
+            ) {
               setAnnualLeaveTotals(annualLeaveData.user_details.totals);
             }
           } else {
@@ -818,8 +863,14 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     }
   }, [userData]);
 
+  // Fetch WIP Clio and Recovered Data with Caching
   useEffect(() => {
-    if (cachedWipClio || cachedWipClioError || cachedRecovered || cachedRecoveredError) {
+    if (
+      cachedWipClio ||
+      cachedWipClioError ||
+      cachedRecovered ||
+      cachedRecoveredError
+    ) {
       setWipClioData(cachedWipClio);
       setWipClioError(cachedWipClioError);
       setRecoveredData(cachedRecovered);
@@ -835,18 +886,28 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           const [wipResponse, recoveredResponse] = await Promise.all([
             fetch(
               `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_WIP_CLIO_PATH}?code=${process.env.REACT_APP_GET_WIP_CLIO_CODE}`,
-              { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ClioID: clioID }) }
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ClioID: clioID }),
+              }
             ),
             fetch(
               `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_RECOVERED_PATH}?code=${process.env.REACT_APP_GET_RECOVERED_CODE}`,
-              { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ClioID: clioID }) }
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ClioID: clioID }),
+              }
             ),
           ]);
-          if (!wipResponse.ok) throw new Error(`Failed to fetch WIP Clio: ${wipResponse.status}`);
+          if (!wipResponse.ok)
+            throw new Error(`Failed to fetch WIP Clio: ${wipResponse.status}`);
           const wipData = await wipResponse.json();
           cachedWipClio = wipData;
           setWipClioData(wipData);
-          if (!recoveredResponse.ok) throw new Error(`Failed to fetch Recovered: ${recoveredResponse.status}`);
+          if (!recoveredResponse.ok)
+            throw new Error(`Failed to fetch Recovered: ${recoveredResponse.status}`);
           const recoveredData = await recoveredResponse.json();
           cachedRecovered = recoveredData.totalPaymentAllocated;
           setRecoveredData(recoveredData.totalPaymentAllocated);
@@ -914,7 +975,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       });
   };
 
-  const currentUserRecord = attendanceRecords.find((r) => r.name === currentUserName);
+  const currentUserRecord = attendanceRecords.find(
+    (r) => r.name === currentUserName
+  );
   const currentUserConfirmed = currentUserRecord ? currentUserRecord.confirmed : false;
   const officeAttendanceButtonText = currentUserConfirmed
     ? 'Update Office Attendance'
@@ -929,7 +992,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     return teamData
       .sort((a, b) => a.First.localeCompare(b.First))
       .map((t) => {
-        const att = attendanceRecords.find((a) => a.name.toLowerCase() === t.First.toLowerCase());
+        const att = attendanceRecords.find(
+          (a) => a.name.toLowerCase() === t.First.toLowerCase()
+        );
         const attending = att ? att.attendingToday : false;
         return {
           name: t.First,
@@ -1016,6 +1081,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     today,
   ]);
 
+  // Define button styles to prevent text wrapping
   const officeAttendanceButtonStyles = currentUserConfirmed
     ? {
         root: {
@@ -1026,6 +1092,8 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           borderRadius: '4px !important',
           padding: '6px 12px !important',
           transition: 'background 0.3s ease !important',
+          whiteSpace: 'nowrap',
+          width: 'auto',
         },
         rootHovered: {
           background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.15) 100%), ${colours.light.border} !important`,
@@ -1044,8 +1112,10 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           fontWeight: '600',
           borderRadius: '4px !important',
           padding: '6px 12px !important',
-          animation: 'redPulse 2s infinite !important',
+          animation: `redPulse 2s infinite !important`,
           transition: 'box-shadow 0.3s, transform 0.3s, background 0.3s ease !important',
+          whiteSpace: 'nowrap',
+          width: 'auto',
         },
         rootHovered: {
           background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.15) 100%), ${colours.cta} !important`,
@@ -1060,26 +1130,44 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const APPROVERS = ['AC', 'JW', 'LZ'];
   const userInitials = userData?.[0]?.Initials || '';
   const isApprover = APPROVERS.includes(userInitials);
-  const approvalsNeeded = useMemo(() => (isApprover ? annualLeaveRecords.filter((x) => x.status === 'requested') : []), [annualLeaveRecords, isApprover]);
-  const bookingsNeeded = useMemo(() =>
-    annualLeaveRecords.filter((x) => (x.status === 'approved' || x.status === 'rejected') && x.person === userInitials),
+  const approvalsNeeded = useMemo(
+    () =>
+      isApprover
+        ? annualLeaveRecords.filter((x) => x.status === 'requested')
+        : [],
+    [annualLeaveRecords, isApprover]
+  );
+  const bookingsNeeded = useMemo(
+    () =>
+      annualLeaveRecords.filter(
+        (x) =>
+          (x.status === 'approved' || x.status === 'rejected') &&
+          x.person === userInitials
+      ),
     [annualLeaveRecords, userInitials]
   );
   let manageLeaveLabel = 'Manage Annual Leave';
   let needsAttention = false;
-  if (isApprover && approvalsNeeded.length > 0) { manageLeaveLabel = 'Approve Annual Leave'; needsAttention = true; }
-  else if (bookingsNeeded.length > 0) { manageLeaveLabel = 'Book Requested Leave'; needsAttention = true; }
+  if (isApprover && approvalsNeeded.length > 0) {
+    manageLeaveLabel = 'Approve Annual Leave';
+    needsAttention = true;
+  } else if (bookingsNeeded.length > 0) {
+    manageLeaveLabel = 'Book Requested Leave';
+    needsAttention = true;
+  }
   const manageLeaveButtonStyles = needsAttention
     ? {
         root: {
           backgroundColor: `${colours.cta} !important`,
-          animation: 'redPulse 2s infinite !important',
+          animation: `redPulse 2s infinite !important`,
           border: 'none !important',
           height: '40px !important',
           fontWeight: '600',
           borderRadius: '4px !important',
           padding: '6px 12px !important',
           transition: 'box-shadow 0.3s, transform 0.3s, background 0.3s ease !important',
+          whiteSpace: 'nowrap',
+          width: 'auto',
           color: '#ffffff !important',
         },
       }
@@ -1093,6 +1181,8 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           borderRadius: '4px !important',
           padding: '6px 12px !important',
           transition: 'transform 0.3s, box-shadow 0.3s',
+          whiteSpace: 'nowrap', // Prevent text wrapping
+          width: 'auto',
         },
       };
 
@@ -1101,7 +1191,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       setBespokePanelContent(
         <Stack tokens={{ childrenGap: 30 }} style={{ padding: 20 }}>
           <Stack tokens={{ childrenGap: 10 }}>
-            <Text variant="xLarge" styles={{ root: { fontWeight: '600' } }}>Approve Annual Leave</Text>
+            <Text variant="xLarge" styles={{ root: { fontWeight: '600' } }}>
+              Approve Annual Leave
+            </Text>
             <AnnualLeaveApprovals
               approvals={approvalsNeeded.map((item) => ({
                 id: item.id || `temp-${item.start_date}-${item.end_date}`,
@@ -1126,7 +1218,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
             />
           </Stack>
           <Stack tokens={{ childrenGap: 10 }}>
-            <Text variant="xLarge" styles={{ root: { fontWeight: '600' } }}>Book Requested Leave</Text>
+            <Text variant="xLarge" styles={{ root: { fontWeight: '600' } }}>
+              Book Requested Leave
+            </Text>
             <AnnualLeaveBookings
               bookings={bookingsNeeded.map((item) => ({
                 id: item.id || `temp-${item.start_date}-${item.end_date}`,
@@ -1134,6 +1228,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                 start_date: item.start_date,
                 end_date: item.end_date,
                 status: item.status,
+                rejection_notes: item.rejection_notes,
               }))}
               onClose={() => setIsBespokePanelOpen(false)}
               team={teamData}
@@ -1177,6 +1272,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
             start_date: item.start_date,
             end_date: item.end_date,
             status: item.status,
+            rejection_notes: item.rejection_notes,
           }))}
           onClose={() => setIsBespokePanelOpen(false)}
           team={teamData}
@@ -1196,7 +1292,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const renderContextsPanelContent = () => (
     <Stack tokens={{ childrenGap: 30 }} style={{ padding: 20 }}>
       <Stack tokens={{ childrenGap: 10 }}>
-        <Text variant="xLarge" styles={{ root: { fontWeight: '600' } }}>Teams Context</Text>
+        <Text variant="xLarge" styles={{ root: { fontWeight: '600' } }}>
+          Teams Context
+        </Text>
         <DetailsList
           items={transformContext(context)}
           columns={createColumnsFunction(isDarkMode)}
@@ -1214,7 +1312,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         />
       </Stack>
       <Stack tokens={{ childrenGap: 10 }}>
-        <Text variant="xLarge" styles={{ root: { fontWeight: '600' } }}>SQL Context</Text>
+        <Text variant="xLarge" styles={{ root: { fontWeight: '600' } }}>
+          SQL Context
+        </Text>
         <DetailsList
           items={transformContext(userData)}
           columns={createColumnsFunction(isDarkMode)}
@@ -1239,13 +1339,108 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   //////////////////////
   const hasFavourites = formsFavorites.length > 0 || resourcesFavorites.length > 0;
 
+  //////////////////////
+  // Immediate Actions Section
+  //////////////////////
+  // Determine if there are immediate actions to review
+  const immediateActions = useMemo(() => {
+    const actions: { title: string; onClick: () => void; styles?: any }[] = [];
+
+    // Confirm Attendance if not yet confirmed
+    if (!currentUserConfirmed) {
+      actions.push({
+        title: 'Confirm Attendance',
+        onClick: () => {
+          setBespokePanelContent(
+            <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="109" />
+          );
+          setBespokePanelTitle('Confirm Attendance');
+          setIsBespokePanelOpen(true);
+        },
+        styles: {
+          root: {
+            backgroundColor: `${colours.cta} !important`,
+            border: 'none !important',
+            height: '40px !important',
+            fontWeight: '600',
+            borderRadius: '4px !important',
+            padding: '6px 12px !important',
+            animation: `redPulse 2s infinite !important`,
+            transition: 'box-shadow 0.3s, transform 0.3s, background 0.3s ease !important',
+            whiteSpace: 'nowrap',
+            width: 'auto',
+            color: '#ffffff !important',
+          },
+          rootHovered: {
+            background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.15) 100%), ${colours.cta} !important`,
+          },
+          rootPressed: {
+            background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.25) 100%), ${colours.cta} !important`,
+          },
+          rootFocused: { backgroundColor: `${colours.cta} !important` },
+          label: { color: '#ffffff !important' },
+        },
+      });
+    }
+
+    // Approve Annual Leave if user is an approver and has approvals
+    if (isApprover && approvalsNeeded.length > 0) {
+      actions.push({
+        title: 'Approve Annual Leave',
+        onClick: handleManageLeaveClick,
+        styles: manageLeaveButtonStyles,
+      });
+    }
+
+    // Book Requested Leave if user has bookings
+    if (bookingsNeeded.length > 0) {
+      actions.push({
+        title: 'Book Requested Leave',
+        onClick: handleManageLeaveClick,
+        styles: manageLeaveButtonStyles,
+      });
+    }
+
+    return actions;
+  }, [
+    currentUserConfirmed,
+    isApprover,
+    approvalsNeeded,
+    bookingsNeeded,
+    handleManageLeaveClick,
+    manageLeaveButtonStyles,
+  ]);
+
+  const needsReview = immediateActions.length > 0;
+
+  const groupedActions: { category: string; title: string; onClick: () => void }[] = immediateActions.map((action) => ({
+    category: 'Immediate Actions',
+    title: action.title,
+    onClick: action.onClick,
+  }));
+
   return (
     <div className={containerStyle(isDarkMode)}>
-      <Stack horizontal horizontalAlign="space-between" verticalAlign="center" className={headerStyle}>
-        <Text className={greetingStyle(isDarkMode)}>{typedGreeting}</Text>
+      {/* Header: Greeting and Action Section */}
+      <Stack horizontal horizontalAlign="space-between" verticalAlign="start" className={headerStyle}>
+        <Stack verticalAlign="start" tokens={{ childrenGap: 8 }}>
+          <Text className={greetingStyle(isDarkMode)}>{typedGreeting}</Text>
+          {needsReview && (
+            <Text className={reviewMessageStyle(isDarkMode)}>
+              You have items to review.
+            </Text>
+          )}
+        </Stack>
+        {needsReview && (
+          <div className={actionSectionStyle(isDarkMode)}>
+            <ActionSection actions={groupedActions} isDarkMode={isDarkMode} />
+          </div>
+        )}
       </Stack>
 
+      {/* Main Content */}
       <Stack className={mainContentStyle} tokens={{ childrenGap: 40 }}>
+        {/* Quick Actions and Metrics */}
         <div className={sectionRowStyle}>
           <div className={quickLinksStyle(isDarkMode)}>
             {quickActions.map((action: QuickLink, index: number) => {
@@ -1282,6 +1477,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           </div>
         </div>
 
+        {/* Favourites Section */}
         {hasFavourites && (
           <div
             className={mergeStyles({
@@ -1444,18 +1640,20 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                 </div>
               </div>
             </Stack>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
-              <DefaultButton
-                text={officeAttendanceButtonText}
-                onClick={() => setIsOfficeAttendancePanelOpen(true)}
-                iconProps={
-                  currentUserConfirmed
-                    ? { iconName: 'CheckMark', styles: { root: { color: '#00a300' } } }
-                    : { iconName: 'Warning', styles: { root: { color: '#ffffff' } } }
-                }
-                styles={officeAttendanceButtonStyles}
-                ariaLabel={officeAttendanceButtonText}
-              />
+            {/* Removed the "Confirm Attendance" button from the bottom section */}
+            {/* Instead, display attendance status if needed */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px', gap: '10px' }}>
+              {!currentUserConfirmed ? null : (
+                // Display a confirmation status if attendance is already confirmed
+                <Text
+                  className={mergeStyles({
+                    color: isDarkMode ? colours.dark.text : colours.light.text,
+                    fontWeight: '600',
+                  })}
+                >
+                  Attendance Confirmed
+                </Text>
+              )}
             </div>
           </div>
 
@@ -1522,55 +1720,12 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                 )}
               </div>
             </div>
-            <div className={mergeStyles({ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' })}>
-              <DefaultButton
-                text="Request Annual Leave"
-                onClick={() => {
-                  setBespokePanelContent(
-                    <AnnualLeaveForm
-                      futureLeave={futureLeaveRecords}
-                      team={teamData}
-                      userData={userData}
-                      totals={annualLeaveTotals}
-                      // PASS THE BANK HOLIDAYS TO THE FORM HERE:
-                      bankHolidays={bankHolidays}
-                    />
-                  );
-                  setBespokePanelTitle('Request Annual Leave');
-                  setIsBespokePanelOpen(true);
-                }}
-                iconProps={{ iconName: 'Calendar' }}
-                styles={{
-                  root: {
-                    backgroundColor: `${colours.light.border} !important`,
-                    border: 'none !important',
-                    height: '40px !important',
-                    fontWeight: '600',
-                    borderRadius: '4px !important',
-                    padding: '6px 12px !important',
-                    transition: 'transform 0.3s, box-shadow 0.3s',
-                  },
-                  rootHovered: {
-                    background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.15) 100%), ${colours.light.border} !important`,
-                  },
-                  rootPressed: {
-                    background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.25) 100%), ${colours.light.border} !important`,
-                  },
-                  rootFocused: { backgroundColor: `${colours.light.border} !important` },
-                  label: { color: isDarkMode ? colours.dark.text : colours.light.text },
-                }}
-                ariaLabel="Request Annual Leave"
-              />
-              <DefaultButton
-                text={manageLeaveLabel}
-                onClick={handleManageLeaveClick}
-                styles={manageLeaveButtonStyles}
-              />
-            </div>
+            {/* Removed the duplicate Approve Annual Leave button */}
           </div>
         </Stack>
       </Stack>
 
+      {/* Footer */}
       <div
         className={mergeStyles({
           display: 'flex',
@@ -1589,6 +1744,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         />
       </div>
 
+      {/* Contexts Panel */}
       <BespokePanel
         isOpen={isContextPanelOpen}
         onClose={() => setIsContextPanelOpen(false)}
@@ -1598,6 +1754,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         {renderContextsPanelContent()}
       </BespokePanel>
 
+      {/* Bespoke Panel for other actions */}
       <BespokePanel
         isOpen={isBespokePanelOpen}
         onClose={() => setIsBespokePanelOpen(false)}
@@ -1607,6 +1764,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         {bespokePanelContent}
       </BespokePanel>
 
+      {/* Selected Form Details */}
       {selectedForm && (
         <FormDetails
           isOpen={true}
@@ -1617,18 +1775,10 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         />
       )}
 
+      {/* Selected Resource Details */}
       {selectedResource && (
         <ResourceDetails resource={selectedResource} onClose={() => setSelectedResource(null)} />
       )}
-
-      <HomePanel
-        isOpen={isOfficeAttendancePanelOpen}
-        onClose={() => setIsOfficeAttendancePanelOpen(false)}
-        title="Office Attendance"
-        isDarkMode={isDarkMode}
-        displayUrl=""
-        embedScript={{ key: 'QzaAr_2Q7kesClKq8g229g', formId: '109' }}
-      />
     </div>
   );
 };
