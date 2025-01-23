@@ -103,7 +103,7 @@ const ActionSection: React.FC<ActionSectionProps> = ({ actions, isDarkMode }) =>
       <Stack tokens={{ childrenGap: 20 }}>
         {Object.entries(groupedActions).map(([category, actionsArray]) => (
           <div key={category}>
-            <Text className={categoryHeaderStyle(isDarkMode)}>{category}</Text>
+            {/* Removed the category header */}
             <div className={actionsGridStyle}>
               {actionsArray.map((action, index) => (
                 <div key={index} className={actionItemStyle(isDarkMode)}>

@@ -1030,9 +1030,9 @@ const RedesignedCombinedMenu: React.FC<RedesignedCombinedMenuProps> = ({
 
   const areaTabs = [
     { key: 'commercial', text: 'Commercial', icon: 'KnowledgeArticle' },
+    { key: 'property', text: 'Property', icon: 'CityNext' }, // Moved "Property" here
     { key: 'construction', text: 'Construction', icon: 'ConstructionCone' },
     { key: 'employment', text: 'Employment', icon: 'People' },
-    { key: 'property', text: 'Property', icon: 'CityNext' },
   ];
 
   const stateTabs = [
