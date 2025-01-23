@@ -121,7 +121,7 @@ const headerStyle = mergeStyles({
   alignItems: 'flex-start',
   width: '100%',
   padding: '10px 0',
-  gap: '20px', // Added gap between greeting section and actions
+  gap: '20px',
 });
 
 const greetingStyle = (isDarkMode: boolean) =>
@@ -135,7 +135,7 @@ const greetingStyle = (isDarkMode: boolean) =>
 const reviewMessageStyle = (isDarkMode: boolean) =>
   mergeStyles({
     fontWeight: '600',
-    fontSize: '24px', // Increased font size
+    fontSize: '24px',
     color: isDarkMode ? colours.dark.text : colours.light.text,
   });
 
@@ -222,14 +222,13 @@ const favouritesGridStyle = mergeStyles({
 
 const peopleGridStyle = mergeStyles({
   display: 'grid',
-  paddingLeft: '80px', // leave space for inner tab and backdrop
+  paddingLeft: '80px',
   gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
   gap: '20px',
   alignItems: 'center',
   width: '100%',
 });
 
-// A common section container style used for both Working Today and Annual Leave sections
 const sectionContainerStyle = (isDarkMode: boolean) =>
   mergeStyles({
     backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
@@ -242,15 +241,18 @@ const sectionContainerStyle = (isDarkMode: boolean) =>
     width: '100%',
   });
 
-// Style for ActionSection container to limit its width
 const actionSectionStyle = (isDarkMode: boolean) =>
   mergeStyles({
-    maxWidth: '300px', // Adjust as needed
+    maxWidth: '300px',
     width: '100%',
     '@media (max-width: 600px)': {
       maxWidth: '100%',
     },
   });
+
+const fadeInAnimationStyle = mergeStyles({
+  animation: 'fadeIn 0.5s ease-in-out',
+});
 
 //////////////////////
 // TabLabel Component
@@ -408,7 +410,7 @@ const PersonBubble: React.FC<PersonBubbleProps> = ({
     opacity: 0,
     transform: 'translateY(20px)',
     animation: `fadeInUp 0.3s ease forwards`,
-    animationDelay: `${animationDelay}s`,
+    animationDelay: animationDelay ? `${animationDelay}s` : '0s',
   });
 
   const textBubbleStyle = mergeStyles({
@@ -598,6 +600,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const [futureLeaveRecords, setFutureLeaveRecords] = useState<AnnualLeaveRecord[]>([]);
   const [annualLeaveTotals, setAnnualLeaveTotals] = useState<any>(null);
 
+  // New state to manage actions loading
+  const [isActionsLoading, setIsActionsLoading] = useState<boolean>(true);
+
   // Fetch bank holidays in the background
   useEffect(() => {
     const fetchBankHolidays = async () => {
@@ -617,7 +622,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         setBankHolidays(new Set(holidaysThisYear));
       } catch (error) {
         console.error('Error fetching bank holidays:', error);
-        // We'll just leave bankHolidays empty on failure
       }
     };
     fetchBankHolidays();
@@ -650,6 +654,10 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
 @keyframes fadeInFromBottomRight {
   0% { opacity: 0; transform: translate(20px,20px); }
   100% { opacity: 1; transform: translate(0,0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }`;
     const styleSheet = document.createElement('style');
     styleSheet.type = 'text/css';
@@ -784,6 +792,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       setAnnualLeaveError(cachedAnnualLeaveError);
       setIsLoadingAttendance(false);
       setIsLoadingAnnualLeave(false);
+      setIsActionsLoading(false);
     } else {
       const fetchData = async () => {
         try {
@@ -857,6 +866,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           setAnnualLeaveRecords([]);
         } finally {
           setIsLoadingAnnualLeave(false);
+          setIsActionsLoading(false);
         }
       };
       fetchData();
@@ -1181,7 +1191,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           borderRadius: '4px !important',
           padding: '6px 12px !important',
           transition: 'transform 0.3s, box-shadow 0.3s',
-          whiteSpace: 'nowrap', // Prevent text wrapping
+          whiteSpace: 'nowrap',
           width: 'auto',
         },
       };
@@ -1425,14 +1435,14 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       <Stack horizontal horizontalAlign="space-between" verticalAlign="start" className={headerStyle}>
         <Stack verticalAlign="start" tokens={{ childrenGap: 8 }}>
           <Text className={greetingStyle(isDarkMode)}>{typedGreeting}</Text>
-          {needsReview && (
-            <Text className={reviewMessageStyle(isDarkMode)}>
+          {!isActionsLoading && needsReview && (
+            <Text className={`${reviewMessageStyle(isDarkMode)} ${fadeInAnimationStyle}`}>
               You have items to review.
             </Text>
           )}
         </Stack>
-        {needsReview && (
-          <div className={actionSectionStyle(isDarkMode)}>
+        {isActionsLoading ? null : needsReview && (
+          <div className={`${actionSectionStyle(isDarkMode)} ${fadeInAnimationStyle}`}>
             <ActionSection actions={groupedActions} isDarkMode={isDarkMode} />
           </div>
         )}
