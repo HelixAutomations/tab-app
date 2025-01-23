@@ -34,6 +34,10 @@ export const colours = {
     buttonBackground: '#0078d4', // Using 'cta' color for buttons in dark mode
     buttonText: '#ffffff',        // White text for buttons in dark mode
     hoverBackground: '#005a9e',    // Darker shade for hover in dark mode
+
+    // **Newly Added Properties:**
+    disabledBackground: '#3a3a3a', // Using existing 'grey' for disabled background in dark mode
+    borderColor: '#6B6B6B',        // Using existing 'greyText' for border in dark mode
   },
 
   light: {
@@ -55,6 +59,10 @@ export const colours = {
     buttonBackground: '#0078d4', // Using 'cta' color for buttons in light mode
     buttonText: '#ffffff',        // White text for buttons in light mode
     hoverBackground: '#005a9e',    // Darker shade for hover in light mode
+
+    // **Newly Added Properties:**
+    disabledBackground: '#F4F4F6', // Using existing 'grey' for disabled background in light mode
+    borderColor: '#6B6B6B',        // Using existing 'greyText' for border in light mode
   },
 
   highContrast: {
@@ -70,6 +78,10 @@ export const colours = {
     previewBackground: '#1a1a1a',
     highlight: '#ffff00', // Yellow highlight
     cta: '#ff0000', // Bright red for CTA
+
+    // **Newly Added Properties:**
+    disabledBackground: '#1a1a1a', // Blackish for high contrast
+    borderColor: '#ffffff',        // White border
   },
 
   // Additional colors for specific areas of work

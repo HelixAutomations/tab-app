@@ -572,7 +572,7 @@ const Enquiries: React.FC<{
           <PivotItem headerText="Overview" itemKey="Overview">
             <EnquiryOverview enquiry={enquiry} onEditRating={handleRate} onEditNotes={() => {}} />
           </PivotItem>
-          <PivotItem headerText="Pitch" itemKey="Pitch">
+          <PivotItem headerText="Pitch Builder" itemKey="Pitch">
             <PitchBuilder enquiry={enquiry} userData={userData} />
           </PivotItem>
           <PivotItem headerText="Details" itemKey="Details">

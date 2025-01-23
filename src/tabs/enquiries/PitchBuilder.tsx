@@ -473,14 +473,13 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
 
   function getFilteredAttachments(): AttachmentOption[] {
     // Show only attachments relevant to the selected practice area
+    const practiceArea = Object.keys(PracticeAreaPitch).find(
+      (k) => PracticeAreaPitch[k as keyof PracticeAreaPitchType]
+    ) || '';
     return availableAttachments.filter(
       (attachment) =>
         !attachment.applicableTo ||
-        attachment.applicableTo.includes(
-          Object.keys(PracticeAreaPitch).find(
-            (k) => PracticeAreaPitch[k as keyof PracticeAreaPitchType]
-          ) || ''
-        )
+        attachment.applicableTo.includes(practiceArea)
     );
   }
 
@@ -940,6 +939,30 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
     },
   });
 
+  // New style for greyed-out attachment bubbles
+  const attachmentBubbleStyle = mergeStyles({
+    padding: '8px 12px',
+    borderRadius: '20px',
+    backgroundColor: isDarkMode
+      ? colours.dark.disabledBackground
+      : colours.light.disabledBackground,
+    color: colours.greyText,
+    cursor: 'default',
+    textAlign: 'center',
+    whiteSpace: 'nowrap',
+    userSelect: 'none',
+    flexShrink: 0, // Prevent bubbles from shrinking
+    width: 'auto', // Allow bubbles to expand based on content
+    border: `1px solid ${
+      isDarkMode ? colours.dark.borderColor : colours.light.borderColor
+    }`,
+    ':hover': {
+      backgroundColor: isDarkMode
+        ? colours.dark.disabledBackground
+        : colours.light.disabledBackground,
+    },
+  });
+
   const fullName = `${enquiry.First_Name || ''} ${enquiry.Last_Name || ''}`.trim();
 
   /**
@@ -958,125 +981,112 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
     }
   }
 
+  const filteredAttachments = getFilteredAttachments();
+
   return (
     <Stack className={containerStyle}>
       {/* Row: Left (Form Fields) and Right (Initial Notes) */}
       <Stack horizontal tokens={{ childrenGap: 20 }} verticalAlign="stretch">
-        {/* Left container: To, CC, BCC, Subject */}
+        {/* Left Column: To, CC, BCC, Subject Line */}
         <Stack style={{ width: '50%' }} className={formContainerStyle} tokens={{ childrenGap: 20 }}>
-          <Text
-            variant="xLarge"
-            styles={{ root: { fontWeight: '700', color: colours.highlight } }}
-          >
-            Pitch Builder
-          </Text>
-
-          <Stack tokens={{ childrenGap: 20 }}>
-            <Stack horizontal tokens={{ childrenGap: 10 }} verticalAlign="start">
-              <Stack tokens={{ childrenGap: 6 }} style={{ flex: 1 }}>
-                <Label className={labelStyle}>To</Label>
-                <BubbleTextField
-                  value={to}
-                  onChange={(
-                    _: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>,
-                    newValue?: string
-                  ) => setTo(newValue || '')}
-                  placeholder="Enter recipient addresses, separated by commas"
-                  ariaLabel="To Addresses"
-                  isDarkMode={isDarkMode}
-                  style={{ borderRadius: '8px' }}
-                />
-              </Stack>
-              <Stack tokens={{ childrenGap: 6 }} style={{ flex: 1 }}>
-                <Label className={labelStyle}>CC</Label>
-                <BubbleTextField
-                  value={cc}
-                  onChange={(
-                    _: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>,
-                    newValue?: string
-                  ) => setCc(newValue || '')}
-                  placeholder="Enter CC addresses, separated by commas"
-                  ariaLabel="CC Addresses"
-                  isDarkMode={isDarkMode}
-                  style={{ borderRadius: '8px' }}
-                />
-              </Stack>
-              <Stack tokens={{ childrenGap: 6 }} style={{ flex: 1 }}>
-                <Label className={labelStyle}>BCC</Label>
-                <BubbleTextField
-                  value={bcc}
-                  onChange={(
-                    _: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>,
-                    newValue?: string
-                  ) => setBcc(newValue || '')}
-                  placeholder="Enter BCC addresses, separated by commas"
-                  ariaLabel="BCC Addresses"
-                  isDarkMode={isDarkMode}
-                  style={{ borderRadius: '8px' }}
-                />
-              </Stack>
-            </Stack>
-
-            <Stack tokens={{ childrenGap: 6 }}>
-              <Label className={labelStyle}>Subject Line</Label>
+          {/* Labels and Inputs */}
+          {/* First Row: To, CC, BCC */}
+          <Stack horizontal tokens={{ childrenGap: 10 }} verticalAlign="start">
+            <Stack tokens={{ childrenGap: 6 }} style={{ flex: 1 }}>
+              <Label className={labelStyle}>To</Label>
               <BubbleTextField
-                value={subject}
+                value={to}
                 onChange={(
                   _: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>,
                   newValue?: string
-                ) => setSubject(newValue || '')}
-                placeholder="Enter email subject"
-                ariaLabel="Email Subject"
+                ) => setTo(newValue || '')}
+                placeholder="Enter recipient addresses, separated by commas"
+                ariaLabel="To Addresses"
+                isDarkMode={isDarkMode}
+                style={{ borderRadius: '8px' }}
+              />
+            </Stack>
+            <Stack tokens={{ childrenGap: 6 }} style={{ flex: 1 }}>
+              <Label className={labelStyle}>CC</Label>
+              <BubbleTextField
+                value={cc}
+                onChange={(
+                  _: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>,
+                  newValue?: string
+                ) => setCc(newValue || '')}
+                placeholder="Enter CC addresses, separated by commas"
+                ariaLabel="CC Addresses"
+                isDarkMode={isDarkMode}
+                style={{ borderRadius: '8px' }}
+              />
+            </Stack>
+            <Stack tokens={{ childrenGap: 6 }} style={{ flex: 1 }}>
+              <Label className={labelStyle}>BCC</Label>
+              <BubbleTextField
+                value={bcc}
+                onChange={(
+                  _: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>,
+                  newValue?: string
+                ) => setBcc(newValue || '')}
+                placeholder="Enter BCC addresses, separated by commas"
+                ariaLabel="BCC Addresses"
                 isDarkMode={isDarkMode}
                 style={{ borderRadius: '8px' }}
               />
             </Stack>
           </Stack>
+
+          {/* Second Row: Subject Line */}
+          <Stack tokens={{ childrenGap: 6 }}>
+            <Label className={labelStyle}>Subject Line</Label>
+            <BubbleTextField
+              value={subject}
+              onChange={(
+                _: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>,
+                newValue?: string
+              ) => setSubject(newValue || '')}
+              placeholder="Enter email subject"
+              ariaLabel="Email Subject"
+              isDarkMode={isDarkMode}
+              style={{ borderRadius: '8px' }}
+            />
+          </Stack>
         </Stack>
 
-        {/* Right container: Initial First Call Notes (if any) */}
-        {enquiry.Initial_first_call_notes && (
-          <Stack
-            style={{
-              width: '50%',
-              backgroundColor: isDarkMode
-                ? colours.dark.sectionBackground
-                : colours.light.sectionBackground,
-              padding: '15px',
-              borderRadius: '8px',
-              boxShadow: isDarkMode
-                ? '0 2px 5px rgba(255,255,255,0.1)'
-                : '0 2px 5px rgba(0, 0, 0, 0.1)',
-              overflowY: 'auto',
-              maxHeight: '240px',
-            }}
-            tokens={{ childrenGap: 6 }}
-          >
-            <Text
-              variant="mediumPlus"
-              styles={{
-                root: {
-                  fontWeight: '600',
-                  color: isDarkMode ? colours.dark.text : colours.light.text,
-                  marginBottom: '10px',
-                },
+        {/* Right Column: Enquiry Notes or Message */}
+        <Stack style={{ width: '50%', height: '100%' }} className={formContainerStyle} tokens={{ childrenGap: 6 }}>
+          {/* Label: Enquiry Notes or Message */}
+          <Label className={labelStyle}>Enquiry Notes or Message</Label>
+          {/* Notes Box */}
+          {enquiry.Initial_first_call_notes && (
+            <div
+              style={{
+                backgroundColor: isDarkMode
+                  ? colours.dark.sectionBackground
+                  : colours.light.sectionBackground,
+                padding: '10px',
+                borderRadius: '8px',
+                boxShadow: isDarkMode
+                  ? '0 2px 5px rgba(255,255,255,0.1)'
+                  : '0 2px 5px rgba(0, 0, 0, 0.1)',
+                overflowY: 'auto',
+                height: '100%',
               }}
             >
-              Enquiry Notes or Message
-            </Text>
-            <Text
-              variant="small"
-              styles={{
-                root: {
-                  color: isDarkMode ? colours.dark.text : colours.light.text,
-                  whiteSpace: 'pre-wrap',
-                },
-              }}
-            >
-              {enquiry.Initial_first_call_notes}
-            </Text>
-          </Stack>
-        )}
+              <Text
+                variant="small"
+                styles={{
+                  root: {
+                    color: isDarkMode ? colours.dark.text : colours.light.text,
+                    whiteSpace: 'pre-wrap',
+                  },
+                }}
+              >
+                {enquiry.Initial_first_call_notes}
+              </Text>
+            </div>
+          )}
+        </Stack>
       </Stack>
 
       {/* Row: Email Body and Template Blocks */}
@@ -1139,6 +1149,29 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
                   onKeyUp={saveSelection}
                 />
               </Stack>
+            </Stack>
+
+            {/* Attachments Section Below Email Body Editor */}
+            <Stack tokens={{ childrenGap: 6 }}>
+              <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 5 }}>
+                <Label className={labelStyle}>Attachments</Label>
+                <Text variant="small" styles={{ root: { color: colours.greyText } }}>
+                  (Available soon)
+                </Text>
+              </Stack>
+              <div className={bubblesContainerStyle}>
+                {filteredAttachments.map((attachment) => (
+                  <div
+                    key={`attachment-${attachment.key}`}
+                    className={attachmentBubbleStyle}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Attachment ${attachment.text} (Coming Soon)`}
+                  >
+                    {attachment.text}
+                  </div>
+                ))}
+              </div>
             </Stack>
 
             {isErrorVisible && (

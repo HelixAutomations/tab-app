@@ -18,6 +18,7 @@ import {
   PersonaPresence,
   DefaultButton,
   Icon,
+  ThemeSettingName,
 } from '@fluentui/react';
 import { colours } from '../../app/styles/colours';
 import { initializeIcons } from '@fluentui/react/lib/Icons';
