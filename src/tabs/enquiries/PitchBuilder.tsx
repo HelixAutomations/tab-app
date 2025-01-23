@@ -28,6 +28,7 @@ import { availableAttachments, AttachmentOption } from '../../app/customisation/
 import {
   sharedPrimaryButtonStyles,
   sharedDefaultButtonStyles,
+  sharedDraftConfirmedButtonStyles, // **Import the new style**
 } from '../../app/styles/ButtonStyles';
 import {
   sharedEditorStyle,
@@ -274,6 +275,9 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
   const [isErrorVisible, setIsErrorVisible] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
 
+  // **New State: Confirmation State for Draft Email Button**
+  const [isDraftConfirmed, setIsDraftConfirmed] = useState<boolean>(false);
+
   // Tracks selected template options for each block
   const [selectedTemplateOptions, setSelectedTemplateOptions] = useState<{
     [key: string]: string | string[];
@@ -508,6 +512,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
     setErrorMessage('');
     setSelectedTemplateOptions({});
     setInsertedBlocks({});
+    setIsDraftConfirmed(false); // **Reset confirmation state**
   }
 
   /**
@@ -613,6 +618,11 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
         throw new Error(errorText || 'Failed to draft email.');
       }
       setIsSuccessVisible(true);
+      setIsDraftConfirmed(true); // **Set confirmation state**
+      // Revert the confirmation state after 3 seconds
+      setTimeout(() => {
+        setIsDraftConfirmed(false);
+      }, 3000);
     } catch (error: any) {
       console.error('Error drafting email:', error);
       setErrorMessage(error.message || 'An unknown error occurred.');
@@ -1415,9 +1425,9 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
               isMultiline={false}
               onDismiss={() => setIsSuccessVisible(false)}
               dismissButtonAriaLabel="Close"
-              styles={{ root: { borderRadius: '4px' } }}
+              styles={{ root: { borderRadius: '4px', marginTop: '10px' } }} // **Moved and styled the message**
             >
-              Email sent successfully!
+              Email drafted successfully!
             </MessageBar>
           )}
 
@@ -1518,12 +1528,14 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
             ariaLabel="Send Email"
             iconProps={{ iconName: 'Mail' }}
           />
+          {/* **Modified Draft Email Button with Confirmation State** */}
           <DefaultButton
-            text="Draft Email"
+            text={isDraftConfirmed ? 'Drafted' : 'Draft Email'}
             onClick={handleDraftEmail}
-            styles={sharedDefaultButtonStyles}
-            ariaLabel="Draft Email"
-            iconProps={{ iconName: 'Edit' }}
+            styles={isDraftConfirmed ? sharedDraftConfirmedButtonStyles : sharedDefaultButtonStyles} // **Apply conditional styles**
+            ariaLabel={isDraftConfirmed ? 'Email Drafted' : 'Draft Email'}
+            iconProps={{ iconName: isDraftConfirmed ? 'CheckMark' : 'Edit' }} // **Change icon based on state**
+            disabled={isDraftConfirmed} // **Optional: Disable button while in confirmed state**
           />
         </Stack>
       </Panel>

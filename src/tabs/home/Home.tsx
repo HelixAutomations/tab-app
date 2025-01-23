@@ -69,8 +69,9 @@ interface AnnualLeaveRecord {
   end_date: string;
   reason: string;
   status: string;
-  id?: string;
+  id: string; // Required property for unique identification
   rejection_notes?: string;
+  approvers?: string[]; // Add this property to fix the error
 }
 
 interface HomeProps {
@@ -85,6 +86,7 @@ interface QuickLink {
 }
 
 interface Person {
+  id: string; // Add this property to fix the error
   name: string;
   initials: string;
   presence: PersonaPresence;
@@ -431,79 +433,40 @@ const PersonBubble: React.FC<PersonBubbleProps> = ({
 
   const textStyle = mergeStyles({ color: isDarkMode ? colours.dark.text : colours.light.text });
 
+  let imageUrl = WfhImg; // Default image
+  let presence = PersonaPresence.none;
+
   if (person.presence === PersonaPresence.online) {
-    return (
-      <div className={bubbleStyle}>
-        <div style={{ position: 'relative', zIndex: 4 }}>
-          <Persona
-            text=""
-            imageUrl={InAttendanceImg}
-            size={PersonaSize.size40}
-            presence={PersonaPresence.online}
-            hidePersonaDetails
-            styles={{
-              root: {
-                zIndex: 4,
-                boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.15)',
-                borderRadius: '50%',
-              },
-            }}
-          />
-          <div className={textBubbleStyle}>
-            <Text className={textStyle}>{person.nickname || person.name}</Text>
-          </div>
-        </div>
-      </div>
-    );
+    imageUrl = InAttendanceImg;
+    presence = PersonaPresence.online;
   } else if (person.presence === PersonaPresence.busy) {
-    return (
-      <div className={bubbleStyle}>
-        <div style={{ position: 'relative', zIndex: 4 }}>
-          <Persona
-            text=""
-            imageUrl={OutImg}
-            size={PersonaSize.size40}
-            presence={PersonaPresence.busy}
-            hidePersonaDetails
-            styles={{
-              root: {
-                zIndex: 4,
-                boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.15)',
-                borderRadius: '50%',
-              },
-            }}
-          />
-          <div className={textBubbleStyle}>
-            <Text className={textStyle}>{person.nickname || person.name}</Text>
-          </div>
-        </div>
-      </div>
-    );
-  } else {
-    return (
-      <div className={bubbleStyle}>
-        <div style={{ position: 'relative', zIndex: 4 }}>
-          <Persona
-            text=""
-            imageUrl={WfhImg}
-            size={PersonaSize.size40}
-            presence={PersonaPresence.online}
-            hidePersonaDetails
-            styles={{
-              root: {
-                zIndex: 4,
-                boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.15)',
-                borderRadius: '50%',
-              },
-            }}
-          />
-          <div className={textBubbleStyle}>
-            <Text className={textStyle}>{person.nickname || person.name}</Text>
-          </div>
-        </div>
-      </div>
-    );
+    imageUrl = OutImg;
+    presence = PersonaPresence.busy;
   }
+
+  return (
+    <div className={bubbleStyle}>
+      <div style={{ position: 'relative', zIndex: 4 }}>
+        <Persona
+          text=""
+          imageUrl={avatarUrlOverride || imageUrl}
+          size={PersonaSize.size40}
+          presence={presence}
+          hidePersonaDetails
+          styles={{
+            root: {
+              zIndex: 4,
+              boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.15)',
+              borderRadius: '50%',
+            },
+          }}
+        />
+        <div className={textBubbleStyle}>
+          <Text className={textStyle}>{person.nickname || person.name}</Text>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 //////////////////////
@@ -832,25 +795,38 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
             throw new Error(`Failed to fetch annual leave: ${annualLeaveResponse.status}`);
           const annualLeaveData = await annualLeaveResponse.json();
           if (annualLeaveData && Array.isArray(annualLeaveData.annual_leave)) {
-            // Map each annual leave record so that the 'id' property uses the proper 'request_id'
-            const mappedAnnualLeave = annualLeaveData.annual_leave.map((rec: any) => ({
-              ...rec,
+            // Map each annual leave record ensuring 'id' and 'approvers' are assigned
+            const mappedAnnualLeave: AnnualLeaveRecord[] = annualLeaveData.annual_leave.map((rec: any) => ({
+              person: rec.person,
+              start_date: rec.start_date,
+              end_date: rec.end_date,
+              reason: rec.reason,
+              status: rec.status,
               id: rec.request_id
                 ? String(rec.request_id)
                 : rec.id || `temp-${rec.start_date}-${rec.end_date}`,
+              rejection_notes: rec.rejection_notes || undefined,
+              approvers: rec.approvers || [], // Ensure approvers are included
             }));
             cachedAnnualLeave = mappedAnnualLeave;
             setAnnualLeaveRecords(mappedAnnualLeave);
 
             if (Array.isArray(annualLeaveData.future_leave)) {
-              const mappedFutureLeave = annualLeaveData.future_leave.map((rec: any) => ({
-                ...rec,
+              const mappedFutureLeave: AnnualLeaveRecord[] = annualLeaveData.future_leave.map((rec: any) => ({
+                person: rec.person,
+                start_date: rec.start_date,
+                end_date: rec.end_date,
+                reason: rec.reason,
+                status: rec.status,
                 id: rec.request_id
                   ? String(rec.request_id)
                   : rec.id || `temp-${rec.start_date}-${rec.end_date}`,
+                rejection_notes: rec.rejection_notes || undefined,
+                approvers: rec.approvers || [], // Ensure approvers are included
               }));
               setFutureLeaveRecords(mappedFutureLeave);
             }
+
             if (
               annualLeaveData.user_details &&
               annualLeaveData.user_details.totals
@@ -1008,6 +984,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         );
         const attending = att ? att.attendingToday : false;
         return {
+          id: t.Initials, // Ensure id is included
           name: t.First,
           initials: t.Initials,
           presence: attending ? PersonaPresence.online : PersonaPresence.none,
@@ -1127,6 +1104,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           transition: 'box-shadow 0.3s, transform 0.3s, background 0.3s ease !important',
           whiteSpace: 'nowrap',
           width: 'auto',
+          color: '#ffffff !important',
         },
         rootHovered: {
           background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.15) 100%), ${colours.cta} !important`,
@@ -1138,16 +1116,20 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
         label: { color: '#ffffff !important' },
       };
 
+  // Define approvers and filter approvalsNeeded based on 'approvers' field
   const APPROVERS = ['AC', 'JW', 'LZ'];
   const userInitials = userData?.[0]?.Initials || '';
   const isApprover = APPROVERS.includes(userInitials);
   const approvalsNeeded = useMemo(
     () =>
       isApprover
-        ? annualLeaveRecords.filter((x) => x.status === 'requested')
+        ? annualLeaveRecords.filter(
+            (x) => x.status === 'requested' && x.approvers?.includes(userInitials)
+          )
         : [],
-    [annualLeaveRecords, isApprover]
+    [annualLeaveRecords, isApprover, userInitials]
   );
+
   const bookingsNeeded = useMemo(
     () =>
       annualLeaveRecords.filter(
@@ -1157,6 +1139,12 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       ),
     [annualLeaveRecords, userInitials]
   );
+
+  // Debugging: Log approvalsNeeded to verify
+  useEffect(() => {
+    console.log('Approvals Needed:', approvalsNeeded);
+  }, [approvalsNeeded]);
+
   let manageLeaveLabel = 'Manage Annual Leave';
   let needsAttention = false;
   if (isApprover && approvalsNeeded.length > 0) {
@@ -1207,7 +1195,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
             </Text>
             <AnnualLeaveApprovals
               approvals={approvalsNeeded.map((item) => ({
-                id: item.id || `temp-${item.start_date}-${item.end_date}`,
+                id: item.id,
                 person: item.person,
                 start_date: item.start_date,
                 end_date: item.end_date,
@@ -1215,7 +1203,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                 status: item.status,
               }))}
               futureLeave={futureLeaveRecords.map((item) => ({
-                id: item.id || `temp-${item.start_date}-${item.end_date}`,
+                id: item.id,
                 person: item.person,
                 start_date: item.start_date,
                 end_date: item.end_date,
@@ -1234,7 +1222,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
             </Text>
             <AnnualLeaveBookings
               bookings={bookingsNeeded.map((item) => ({
-                id: item.id || `temp-${item.start_date}-${item.end_date}`,
+                id: item.id,
                 person: item.person,
                 start_date: item.start_date,
                 end_date: item.end_date,
@@ -1252,7 +1240,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       setBespokePanelContent(
         <AnnualLeaveApprovals
           approvals={approvalsNeeded.map((item) => ({
-            id: item.id || `temp-${item.start_date}-${item.end_date}`,
+            id: item.id,
             person: item.person,
             start_date: item.start_date,
             end_date: item.end_date,
@@ -1260,7 +1248,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
             status: item.status,
           }))}
           futureLeave={futureLeaveRecords.map((item) => ({
-            id: item.id || `temp-${item.start_date}-${item.end_date}`,
+            id: item.id,
             person: item.person,
             start_date: item.start_date,
             end_date: item.end_date,
@@ -1278,7 +1266,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
       setBespokePanelContent(
         <AnnualLeaveBookings
           bookings={bookingsNeeded.map((item) => ({
-            id: item.id || `temp-${item.start_date}-${item.end_date}`,
+            id: item.id,
             person: item.person,
             start_date: item.start_date,
             end_date: item.end_date,
@@ -1602,7 +1590,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                       const row = Math.floor(index / columnsForPeople);
                       const col = index % columnsForPeople;
                       const delay = calculateAnimationDelay(row, col);
-                      return <PersonBubble key={index} person={person} isDarkMode={isDarkMode} animationDelay={delay} />;
+                      return <PersonBubble key={person.id} person={person} isDarkMode={isDarkMode} animationDelay={delay} />;
                     })
                   )}
                 </div>
@@ -1645,14 +1633,13 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                       const row = Math.floor(index / columnsForPeople);
                       const col = index % columnsForPeople;
                       const delay = calculateAnimationDelay(row, col);
-                      return <PersonBubble key={index} person={person} isDarkMode={isDarkMode} animationDelay={delay} />;
+                      return <PersonBubble key={person.id} person={person} isDarkMode={isDarkMode} animationDelay={delay} />;
                     })
                   )}
                 </div>
               </div>
             </Stack>
-            {/* Removed the "Confirm Attendance" button from the bottom section */}
-            {/* Instead, display attendance status if needed */}
+            {/* Display attendance status if needed */}
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px', gap: '10px' }}>
               {!currentUserConfirmed ? null : (
                 // Display a confirmation status if attendance is already confirmed
@@ -1712,8 +1699,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                         );
                         return (
                           <PersonBubble
-                            key={`leave-${index}`}
+                            key={leave.id} // Use 'id' as key
                             person={{
+                              id: leave.id,
                               name: leave.person,
                               initials: teamMember ? teamMember.Initials : '',
                               presence: PersonaPresence.busy,
@@ -1731,7 +1719,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                 )}
               </div>
             </div>
-            {/* Removed the duplicate Approve Annual Leave button */}
+            {/* No duplicate Approve Annual Leave button */}
           </div>
         </Stack>
       </Stack>
