@@ -42,17 +42,6 @@ interface TeamData {
     AOW: string | null;
 }
 
-// Caching Variables
-let cachedAnnualLeave: AnnualLeaveRecord[] | null = null;
-let cachedAnnualLeaveError: string | null = null;
-let cachedFutureLeave: AnnualLeaveRecord[] | null = null;
-let cachedFutureLeaveError: string | null = null;
-let cachedUserDetails: UserDetails | null = null;
-let cachedUserDetailsError: string | null = null;
-
-let cachedTeamAowMap: Map<string, string | null> | null = null;
-let cachedTeamAowError: string | null = null;
-
 // Helper function to read and parse the HTTP request body.
 async function getRequestBody(req: HttpRequest): Promise<any> {
     if (req.body && typeof req.body === 'object' && !(req.body as any).getReader) {
@@ -111,24 +100,6 @@ export async function getAnnualLeaveHandler(req: HttpRequest, context: Invocatio
 
     context.log(`Received initials: ${userInitials}`);
 
-    // Check if data is already cached
-    if (
-        cachedAnnualLeave &&
-        cachedFutureLeave &&
-        cachedUserDetails &&
-        cachedTeamAowMap
-    ) {
-        context.log("Returning cached data.");
-        return {
-            status: 200,
-            body: JSON.stringify({
-                annual_leave: cachedAnnualLeave,
-                future_leave: cachedFutureLeave,
-                user_details: cachedUserDetails
-            } as AnnualLeaveResponse)
-        };
-    }
-
     try {
         // Step 1: Retrieve SQL password from Azure Key Vault
         const kvUri = "https://helix-keys.vault.azure.net/";
@@ -152,21 +123,14 @@ export async function getAnnualLeaveHandler(req: HttpRequest, context: Invocatio
         const configCoreData = parseConnectionString(connectionStringCoreData, context);
 
         // Step 3: Fetch Team Data (Initials and AOW)
-        let teamAowMap: Map<string, string | null> = new Map();
-        if (cachedTeamAowMap) {
-            teamAowMap = cachedTeamAowMap;
-            context.log("Using cached team AOW data.");
-        } else {
-            teamAowMap = await queryTeamDataFromSQL(configCoreData, context);
-            cachedTeamAowMap = teamAowMap; // Cache the team AOW data
-            context.log("Fetched and cached team AOW data.");
-        }
+        const teamAowMap = await queryTeamDataFromSQL(configCoreData, context);
+        context.log("Fetched team AOW data.");
 
         // Step 4: Fetch Annual Leave Data
         const [annualLeaveEntries, futureLeaveEntries, userDetails] = await Promise.all([
             queryAnnualLeave(configProjectData, context),
             queryFutureLeave(configProjectData, context),
-            queryUserAnnualLeave(userInitials, configProjectData, context)
+            queryUserAnnualLeave(userInitials, configProjectData, context, teamAowMap)
         ]);
 
         // Step 5: Enhance leave entries with AOW and Approvers
@@ -191,12 +155,7 @@ export async function getAnnualLeaveHandler(req: HttpRequest, context: Invocatio
             }
         };
 
-        // Step 7: Cache the data
-        cachedAnnualLeave = enhancedAnnualLeave;
-        cachedFutureLeave = enhancedFutureLeave;
-        cachedUserDetails = enhancedUserDetails;
-
-        // Step 8: Construct the response
+        // Step 7: Construct the response
         const response: AnnualLeaveResponse = {
             annual_leave: enhancedAnnualLeave,
             future_leave: enhancedFutureLeave,
@@ -469,9 +428,10 @@ async function queryFutureLeave(config: any, context: InvocationContext): Promis
  * @param initials User's initials.
  * @param config SQL connection configuration for helix-project-data.
  * @param context Invocation context for logging.
+ * @param teamAowMap Map of team initials to AOW.
  * @returns UserDetails object containing leave entries and totals.
  */
-async function queryUserAnnualLeave(initials: string, config: any, context: InvocationContext): Promise<UserDetails> {
+async function queryUserAnnualLeave(initials: string, config: any, context: InvocationContext, teamAowMap: Map<string, string | null>): Promise<UserDetails> {
     context.log("Starting SQL query to fetch user-specific annual leave data.");
 
     return new Promise<UserDetails>((resolve, reject) => {
@@ -576,7 +536,7 @@ async function queryUserAnnualLeave(initials: string, config: any, context: Invo
                     }
                 });
 
-                const userAow = cachedTeamAowMap?.get(initials) || null;
+                const userAow = teamAowMap.get(initials) || null;
 
                 resolve({
                     leaveEntries,

@@ -10,6 +10,7 @@ export const colours = {
   grey: '#F4F4F6', // Grey color
   greyText: '#6B6B6B', // Grey text color
   sectionBackground: '#FFFFFF', // Background for sections
+  inactiveTrackLight: '#CCCCCC',
 
   // **Highlight colors**
   highlightYellow: '#ffefc1', // Yellow highlight for inserted text
@@ -21,6 +22,7 @@ export const colours = {
     text: '#ffffff',
     subText: '#3690CE',
     border: '#F4F4F6',
+    footerBackground: '#2b2b2b', // Added
     cardBackground: '#2e2e2e',
     cardHover: '#3a3a3a',
     iconColor: '#ffffff',
@@ -46,6 +48,7 @@ export const colours = {
     text: '#061733',
     subText: '#3690CE',
     border: '#F4F4F6',
+    footerBackground: '#f5f5f5', // Added
     cardBackground: '#ffffff',
     cardHover: '#f9f9f9',
     iconColor: '#061733',
