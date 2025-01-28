@@ -267,33 +267,52 @@ const RedesignedCombinedMenu: React.FC<RedesignedCombinedMenuProps> = ({
   );
 };
 
-const CustomLabel = (props: any) => {
-  const { x, y, width, height, value, dataKey } = props;
-  if (!dataKey) return null;
-  if (!value) return null;
-  const color = areaColor(dataKey);
-  const rectWidth = 80;
-  const rectHeight = 25;
-  const rectX = x + width / 2 - rectWidth / 2;
-  const rectY = y + height / 2 - rectHeight / 2;
+// CustomLabel Component
+interface CustomLabelProps {
+  x?: number | string;
+  y?: number | string;
+  width?: number | string;
+  height?: number | string;
+  value?: number;
+  dataKey: string;
+  isDarkMode: boolean;
+}
+
+const CustomLabel: React.FC<CustomLabelProps> = ({ x, y, width, height, value, dataKey, isDarkMode }) => {
+  // Ensure all necessary props are numbers
+  if (
+    typeof x !== 'number' ||
+    typeof y !== 'number' ||
+    typeof width !== 'number' ||
+    typeof height !== 'number' ||
+    typeof value !== 'number'
+  ) {
+    return null;
+  }
+
+  const color = areaColor(dataKey); // Get color based on the area of work
+  const bubbleWidth = 50;
+  const bubbleHeight = 25;
+  const bubbleX = x + width / 2 - bubbleWidth / 2;
+  const bubbleY = y + height / 2 - bubbleHeight / 2;
+
   return (
     <g>
       <rect
-        x={rectX}
-        y={rectY}
-        width={rectWidth}
-        height={rectHeight}
+        x={bubbleX}
+        y={bubbleY}
+        width={bubbleWidth}
+        height={bubbleHeight}
         fill={color}
-        rx={5}
-        ry={5}
+        rx={8}
+        ry={8}
       />
       <text
         x={x + width / 2}
         y={y + height / 2 + 5}
         textAnchor="middle"
-        dominantBaseline="middle"
         fill="#fff"
-        fontSize={12}
+        fontSize="12"
         fontFamily="Raleway, sans-serif"
       >
         {value}
@@ -578,6 +597,7 @@ const Enquiries: React.FC<{
   const filteredEnquiries = useMemo(() => {
     let filtered: Enquiry[] = enquiriesInSliderRange;
     if (activeMainTab === 'All') {
+      // No additional filtering
     } else {
       switch (activeMainTab) {
         case 'Claimed':
@@ -1023,6 +1043,15 @@ const Enquiries: React.FC<{
                 margin={{ top: 20, right: 30, left: 20, bottom: 40 }}
                 style={{ fontFamily: 'Raleway, sans-serif' }}
               >
+                {/* Define the shadow filter */}
+                <defs>
+                  <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+                    <feOffset result="offOut" in="SourceGraphic" dx="0" dy="4" />
+                    <feGaussianBlur result="blurOut" in="offOut" stdDeviation="2" />
+                    <feBlend in="SourceGraphic" in2="blurOut" mode="normal" />
+                  </filter>
+                </defs>
+
                 <CartesianGrid
                   strokeDasharray="3 3"
                   stroke={isDarkMode ? colours.dark.border : '#e0e0e0'}
@@ -1059,41 +1088,74 @@ const Enquiries: React.FC<{
                 <Legend
                   wrapperStyle={{ color: isDarkMode ? colours.dark.text : colours.light.text, fontFamily: 'Raleway, sans-serif' }}
                 />
+                {/* All bars are grey with borders to separate segments */}
                 <Bar
                   dataKey="commercial"
-                  fill="#b0b0b0"
+                  fill={colours.grey}
                   stackId="a"
                   animationDuration={1500}
                   animationEasing="ease-out"
+                  stroke={isDarkMode ? colours.dark.grey : colours.greyText}
+                  strokeWidth={1}
                 >
-                  <LabelList dataKey="commercial" content={<CustomLabel />} />
+                  <LabelList
+                    dataKey="commercial"
+                    content={(props) => {
+                      const { value, ...rest } = props;
+                      return <CustomLabel {...rest} value={typeof value === 'number' ? value : undefined} isDarkMode={isDarkMode} dataKey="commercial" />;
+                    }}
+                  />
                 </Bar>
                 <Bar
                   dataKey="property"
-                  fill="#a0a0a0"
+                  fill={colours.grey}
                   stackId="a"
                   animationDuration={1500}
                   animationEasing="ease-out"
+                  stroke={isDarkMode ? colours.dark.grey : colours.greyText}
+                  strokeWidth={1}
                 >
-                  <LabelList dataKey="property" content={<CustomLabel />} />
+                  <LabelList
+                    dataKey="property"
+                    content={(props) => {
+                      const { value, ...rest } = props;
+                      return <CustomLabel {...rest} value={typeof value === 'number' ? value : undefined} isDarkMode={isDarkMode} dataKey="property" />;
+                    }}
+                  />
                 </Bar>
                 <Bar
                   dataKey="construction"
-                  fill="#909090"
+                  fill={colours.grey}
                   stackId="a"
                   animationDuration={1500}
                   animationEasing="ease-out"
+                  stroke={isDarkMode ? colours.dark.grey : colours.greyText}
+                  strokeWidth={1}
                 >
-                  <LabelList dataKey="construction" content={<CustomLabel />} />
+                  <LabelList
+                    dataKey="construction"
+                    content={(props) => {
+                      const { value, ...rest } = props;
+                      return <CustomLabel {...rest} value={typeof value === 'number' ? value : undefined} isDarkMode={isDarkMode} dataKey="construction" />;
+                    }}
+                  />
                 </Bar>
                 <Bar
                   dataKey="employment"
-                  fill="#808080"
+                  fill={colours.grey}
                   stackId="a"
                   animationDuration={1500}
                   animationEasing="ease-out"
+                  stroke={isDarkMode ? colours.dark.grey : colours.greyText}
+                  strokeWidth={1}
                 >
-                  <LabelList dataKey="employment" content={<CustomLabel />} />
+                  <LabelList
+                    dataKey="employment"
+                    content={(props) => {
+                      const { value, ...rest } = props;
+                      return <CustomLabel {...rest} value={typeof value === 'number' ? value : undefined} isDarkMode={isDarkMode} dataKey="employment" />;
+                    }}
+                  />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
