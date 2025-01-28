@@ -11,7 +11,11 @@ import {
 } from '@fluentui/react';
 import { mergeStyles } from '@fluentui/react';
 import { colours } from '../app/styles/colours';
-import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from '../app/styles/ButtonStyles';
+import {
+  sharedPrimaryButtonStyles,
+  sharedDefaultButtonStyles,
+  sharedDraftConfirmedButtonStyles,
+} from '../app/styles/ButtonStyles';
 
 export const INPUT_HEIGHT = 40;
 
@@ -40,7 +44,7 @@ export const inputFieldStyle = mergeStyles({
     ':focus': {
       borderColor: colours.light.cta,
     },
-    'input': {
+    input: {
       padding: '0 5px',
     },
   },
@@ -121,7 +125,7 @@ export const amountInputStyle = (hasPrefix: boolean) =>
       ':focus': {
         borderColor: colours.light.cta,
       },
-      'input': {
+      input: {
         padding: '0 5px',
       },
     },
@@ -139,7 +143,14 @@ export const toggleStyle = mergeStyles({
 export interface FormField {
   label: string;
   name: string;
-  type: 'text' | 'number' | 'textarea' | 'dropdown' | 'toggle' | 'currency-picker' | 'file';
+  type:
+    | 'text'
+    | 'number'
+    | 'textarea'
+    | 'dropdown'
+    | 'toggle'
+    | 'currency-picker'
+    | 'file';
   options?: string[];
   step?: number;
   min?: number;
@@ -170,7 +181,9 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
   style,
   children,
 }) => {
-  const [formValues, setFormValues] = React.useState<{ [key: string]: any }>({});
+  const [formValues, setFormValues] = React.useState<{ [key: string]: any }>(
+    {}
+  );
 
   const convertFileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -244,8 +257,13 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                   <Dropdown
                     key={index}
                     label={field.label}
-                    options={(field.options || []).map((opt) => ({ key: opt, text: opt }))}
-                    onChange={(_, option) => handleInputChange(field.name, option?.key || '')}
+                    options={(field.options || []).map((opt) => ({
+                      key: opt,
+                      text: opt,
+                    }))}
+                    onChange={(_, option) =>
+                      handleInputChange(field.name, option?.key || '')
+                    }
                     required={field.required}
                     disabled={isSubmitting}
                     styles={{ dropdown: dropdownStyle }}
@@ -257,7 +275,9 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                     <Toggle
                       label={field.label}
                       checked={Boolean(formValues[field.name])}
-                      onChange={(_, checked) => handleInputChange(field.name, !!checked)}
+                      onChange={(_, checked) =>
+                        handleInputChange(field.name, !!checked)
+                      }
                       disabled={isSubmitting}
                       styles={{ root: toggleStyle }}
                     />
@@ -272,7 +292,9 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                     rows={3}
                     required={field.required}
                     value={formValues[field.name]?.toString() || ''}
-                    onChange={(e, value) => handleInputChange(field.name, value || '')}
+                    onChange={(e, value) =>
+                      handleInputChange(field.name, value || '')
+                    }
                     disabled={isSubmitting}
                     styles={{ fieldGroup: inputFieldStyle }}
                   />
@@ -292,12 +314,18 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                       {field.required && ' *'}
                     </label>
                     <div className={amountContainerStyle}>
-                      {field.prefix && <span className={prefixStyle}>{field.prefix}</span>}
+                      {field.prefix && (
+                        <span className={prefixStyle}>{field.prefix}</span>
+                      )}
                       <TextField
                         required={field.required}
                         value={formValues[field.name]?.toString() || ''}
-                        onChange={(e, value) => handleInputChange(field.name, value || '')}
-                        type={field.type === 'currency-picker' ? 'text' : 'number'}
+                        onChange={(e, value) =>
+                          handleInputChange(field.name, value || '')
+                        }
+                        type={
+                          field.type === 'currency-picker' ? 'text' : 'number'
+                        }
                         disabled={isSubmitting}
                         styles={{
                           fieldGroup: amountInputStyle(!!field.prefix),
@@ -326,7 +354,13 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                 const fileValue = formValues[field.name];
                 return (
                   <div key={index} style={{ marginBottom: '15px' }}>
-                    <label style={{ display: 'block', marginBottom: '5px', fontWeight: 600 }}>
+                    <label
+                      style={{
+                        display: 'block',
+                        marginBottom: '5px',
+                        fontWeight: 600,
+                      }}
+                    >
                       {field.label}
                       {field.required && ' *'}
                     </label>
@@ -345,20 +379,43 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                       type="file"
                       required={field.required}
                       onChange={(e) =>
-                        handleFileChange(field.name, e.target.files ? e.target.files[0] : null)
+                        handleFileChange(
+                          field.name,
+                          e.target.files ? e.target.files[0] : null
+                        )
                       }
                       style={{ display: 'none' }}
                     />
                     {fileValue?.fileName && (
-                      <span style={{ marginTop: '10px', display: 'block', fontSize: '14px' }}>
+                      <span
+                        style={{
+                          marginTop: '10px',
+                          display: 'block',
+                          fontSize: '14px',
+                        }}
+                      >
                         Selected File: {fileValue.fileName}
                       </span>
                     )}
-                    <span style={{ color: colours.greyText, fontSize: '12px', marginTop: '10px', display: 'block' }}>
+                    <span
+                      style={{
+                        color: colours.greyText,
+                        fontSize: '12px',
+                        marginTop: '10px',
+                        display: 'block',
+                      }}
+                    >
                       Drag and drop a file or click to select one.
                     </span>
                     {field.helpText && (
-                      <span style={{ color: colours.greyText, fontSize: '12px', display: 'block', marginTop: '5px' }}>
+                      <span
+                        style={{
+                          color: colours.greyText,
+                          fontSize: '12px',
+                          display: 'block',
+                          marginTop: '5px',
+                        }}
+                      >
                         {field.helpText}
                       </span>
                     )}
@@ -371,7 +428,9 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                     label={field.label}
                     required={field.required}
                     value={formValues[field.name]?.toString() || ''}
-                    onChange={(e, value) => handleInputChange(field.name, value || '')}
+                    onChange={(e, value) =>
+                      handleInputChange(field.name, value || '')
+                    }
                     type={field.type}
                     disabled={isSubmitting}
                     styles={{
@@ -386,8 +445,12 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
           <Stack horizontal tokens={{ childrenGap: 10 }}>
             <PrimaryButton
               type="submit"
-              text={isSubmitting ? 'Submitting...' : 'Submit'}
-              styles={sharedPrimaryButtonStyles}
+              text={isSubmitting ? 'Submitted' : 'Submit'}
+              styles={
+                isSubmitting
+                  ? sharedDraftConfirmedButtonStyles
+                  : sharedPrimaryButtonStyles
+              }
               disabled={isSubmitting}
             />
             <DefaultButton

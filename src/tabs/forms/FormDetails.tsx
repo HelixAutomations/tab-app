@@ -1,12 +1,12 @@
+// src/tabs/forms/FormDetails.tsx
+
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Stack,
   Text,
   Link,
-  TooltipHost,
   PrimaryButton,
   DefaultButton,
-  Icon,
   MessageBar,
   MessageBarType,
 } from '@fluentui/react';
@@ -15,9 +15,10 @@ import { FormItem, UserData } from '../../app/functionality/types';
 import { mergeStyles } from '@fluentui/react';
 import loaderIcon from '../../assets/grey helix mark.png';
 import BespokeForm from '../../CustomForms/BespokeForms';
-import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from '../../app/styles/ButtonStyles';
-
-// Import the custom BespokePanel
+import {
+  sharedPrimaryButtonStyles,
+  sharedDefaultButtonStyles,
+} from '../../app/styles/ButtonStyles';
 import BespokePanel from '../../app/functionality/BespokePanel';
 
 interface FormDetailsProps {
@@ -26,7 +27,7 @@ interface FormDetailsProps {
   onClose: () => void;
   isOpen: boolean;
   isFinancial?: boolean;
-  userData: UserData[] | null; // userData prop
+  userData: UserData[] | null;
 }
 
 const detailsContainerStyle = (isDarkMode: boolean) =>
@@ -37,24 +38,6 @@ const detailsContainerStyle = (isDarkMode: boolean) =>
     display: 'flex',
     flexDirection: 'column',
     gap: '10px',
-  });
-
-const headerContainerStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    display: 'flex',
-    alignItems: 'flex-start',
-    padding: '16px 24px',
-    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-    borderBottom: 'none',
-  });
-
-const titleStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    marginLeft: '10px',
-    color: isDarkMode ? colours.dark.text : colours.light.text,
-    fontSize: '20px',
-    fontWeight: 700,
-    alignSelf: 'flex-start',
   });
 
 const buttonsContainerStyle = (isDarkMode: boolean) =>
@@ -70,26 +53,34 @@ const leftButtonsStyle = () =>
     gap: '10px',
   });
 
-const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose, isOpen, userData }) => {
+const loaderStyle = {
+  display: 'flex',
+  justifyContent: 'center',
+  alignItems: 'center',
+  height: '100%',
+};
+
+const FormDetails: React.FC<FormDetailsProps> = ({
+  link,
+  isDarkMode,
+  onClose,
+  isOpen,
+  userData,
+}) => {
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
   const [isCognitoLoaded, setIsCognitoLoaded] = useState<boolean>(false);
   const formContainerRef = useRef<HTMLDivElement>(null);
-  const loaderStyle = {
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-    height: '100%',
-  };
 
-  // Function to load the Cognito seamless script
+  const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
+  const [submissionSuccess, setSubmissionSuccess] = useState<string | null>(null);
+  const [formKey, setFormKey] = useState<number>(() => Date.now());
+
   const loadCognitoScript = useCallback((): Promise<void> => {
     return new Promise<void>((resolve, reject) => {
-      // Check if Cognito is already available
       if ((window as any).Cognito) {
         resolve();
         return;
       }
-      // Check if the script is already present
       const existingScript = document.getElementById('cognito-seamless-script');
       if (existingScript) {
         existingScript.addEventListener('load', () => {
@@ -99,7 +90,9 @@ const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose, is
             reject(new Error('Cognito script loaded but Cognito is not available'));
           }
         });
-        existingScript.addEventListener('error', () => reject(new Error('Failed to load Cognito script')));
+        existingScript.addEventListener('error', () =>
+          reject(new Error('Failed to load Cognito script'))
+        );
       } else {
         const script = document.createElement('script');
         script.id = 'cognito-seamless-script';
@@ -118,7 +111,6 @@ const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose, is
     });
   }, []);
 
-  // Load the Cognito script when the panel opens
   useEffect(() => {
     if (isOpen) {
       loadCognitoScript()
@@ -131,7 +123,6 @@ const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose, is
     }
   }, [loadCognitoScript, isOpen]);
 
-  // Embed the form when the script is loaded
   useEffect(() => {
     if (isCognitoLoaded && link.embedScript && formContainerRef.current) {
       formContainerRef.current.innerHTML = '';
@@ -160,68 +151,84 @@ const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose, is
     window.open(link.url, '_blank', 'noopener,noreferrer');
   }, [link.url]);
 
-  // Handler for financial form submission
   const handleFinancialSubmit = useCallback(
     async (values: any) => {
-      // Build the payload
       const payload = {
         formType: link.title,
         data: values,
-        initials: userData?.[0]?.Initials || "N/A", // Only send initials
+        initials: userData?.[0]?.Initials || 'N/A',
       };
-
-      // Endpoint URL (REACT_APP_POST_FINANCIAL_TASK_PATH is set to 'postFinancialTask')
       const endpointUrl = `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_POST_FINANCIAL_TASK_PATH}?code=${process.env.REACT_APP_POST_FINANCIAL_TASK_CODE}`;
-
       try {
         const response = await fetch(endpointUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
         });
-
         if (!response.ok) {
           const errText = await response.text();
-          console.error("Error posting financial task:", errText);
-          // Optionally, show an error message to the user.
+          console.error('Error posting financial task:', errText);
+          setSubmissionSuccess(null);
         } else {
           const result = await response.json();
-          console.log("Financial task created successfully:", result);
-          // Optionally, show a success message to the user.
+          console.log('Financial task created successfully:', result);
+          setIsSubmitted(true);
+          setSubmissionSuccess('Financial form submitted successfully!');
+          setTimeout(() => {
+            setIsSubmitted(false);
+            setSubmissionSuccess(null);
+            setFormKey(Date.now());
+          }, 3000);
         }
       } catch (error: any) {
-        console.error("Error in financial form submission:", error);
+        console.error('Error in financial form submission:', error);
+        setSubmissionSuccess(null);
       }
     },
     [link.title, userData]
   );
 
   return (
-    <BespokePanel
-      isOpen={isOpen}
-      onClose={onClose}
-      title={link.title}
-      width="1000px" // Increased width (original was 800px)
-    >
-      {/* Main container */}
+    <BespokePanel isOpen={isOpen} onClose={onClose} title={link.title} width="1000px">
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-        {/* Form Content */}
+        {submissionSuccess && (
+          <MessageBar
+            messageBarType={MessageBarType.success}
+            isMultiline={false}
+            onDismiss={() => setSubmissionSuccess(null)}
+            dismissButtonAriaLabel="Close"
+            styles={{
+              root: {
+                marginBottom: '10px',
+                borderRadius: '4px',
+              },
+            }}
+          >
+            {submissionSuccess}
+          </MessageBar>
+        )}
+
         <div style={{ flexGrow: 1, overflowY: 'auto', padding: '20px' }}>
           {link.embedScript ? (
             <div ref={formContainerRef} style={{ flexGrow: 1 }}>
               {!isCognitoLoaded && (
                 <div style={loaderStyle}>
-                  <img src={loaderIcon} alt="Loading..." style={{ width: '100px', height: 'auto' }} />
+                  <img
+                    src={loaderIcon}
+                    alt="Loading..."
+                    style={{ width: '100px', height: 'auto' }}
+                  />
                 </div>
               )}
-              {/* Cognito form will be injected here */}
             </div>
           ) : link.fields ? (
             <div style={{ flexGrow: 1 }}>
               <BespokeForm
-                fields={link.fields.map(field => ({ ...field, name: field.label }))}
-                onSubmit={handleFinancialSubmit} // Custom submission handler
+                key={formKey}
+                fields={link.fields.map((field) => ({ ...field, name: field.label }))}
+                onSubmit={handleFinancialSubmit}
                 onCancel={() => console.log('Form cancelled')}
+                isSubmitting={isSubmitted}
               />
             </div>
           ) : (
@@ -231,15 +238,48 @@ const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose, is
           )}
         </div>
 
-        {/* Footer: URL and Buttons */}
         <div className={detailsContainerStyle(isDarkMode)}>
           <Stack tokens={{ childrenGap: 6 }}>
-            <Text variant="mediumPlus" styles={{ root: { fontWeight: 600 } }}>
-              URL:
+            <Text>
+              <Link
+                href="https://helix-law.co.uk/"
+                target="_blank"
+                styles={{
+                  root: {
+                    color: isDarkMode ? colours.dark.subText : colours.light.subText,
+                    fontSize: '12px',
+                    fontFamily: 'Raleway, sans-serif',
+                    textDecoration: 'none',
+                  },
+                }}
+                aria-label="Helix Law Website"
+              >
+                https://helix-law.co.uk/
+              </Link>{' '}
+              |{' '}
+              <Text
+                variant="small"
+                styles={{
+                  root: {
+                    color: isDarkMode ? colours.dark.text : colours.light.text,
+                    display: 'inline',
+                  },
+                }}
+              >
+                01273 761990
+              </Text>
             </Text>
-            <Link href={link.url} target="_blank" rel="noopener noreferrer">
-              {link.url}
-            </Link>
+            <Text
+              styles={{
+                root: {
+                  fontSize: '12px',
+                  fontFamily: 'Raleway, sans-serif',
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                },
+              }}
+            >
+              Second Floor, Britannia House, 21 Station Street, Brighton, BN1 4DE
+            </Text>
           </Stack>
           <div className={buttonsContainerStyle(isDarkMode)}>
             <div className={leftButtonsStyle()}>
@@ -248,14 +288,12 @@ const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose, is
                 onClick={copyToClipboard}
                 styles={sharedPrimaryButtonStyles}
                 ariaLabel="Copy URL to clipboard"
-                iconProps={{ iconName: 'Copy' }}
               />
               <PrimaryButton
                 text="Go To"
                 onClick={goToLink}
                 styles={sharedPrimaryButtonStyles}
                 ariaLabel="Go to URL"
-                iconProps={{ iconName: 'NavigateExternalInline' }}
               />
             </div>
             <DefaultButton
@@ -263,13 +301,11 @@ const FormDetails: React.FC<FormDetailsProps> = ({ link, isDarkMode, onClose, is
               onClick={onClose}
               styles={sharedDefaultButtonStyles}
               ariaLabel="Close Details"
-              iconProps={{ iconName: 'Cancel' }}
             />
           </div>
         </div>
       </div>
 
-      {/* Copy Confirmation Message */}
       {copySuccess && (
         <MessageBar
           messageBarType={MessageBarType.success}
