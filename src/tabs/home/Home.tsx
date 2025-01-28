@@ -56,6 +56,7 @@ import AnnualLeaveApprovals from '../../CustomForms/AnnualLeaveApprovals';
 import AnnualLeaveBookings from '../../CustomForms/AnnualLeaveBookings';
 
 import ActionSection from './ActionSection';
+import { sharedDefaultButtonStyles } from '../../app/styles/ButtonStyles';
 
 initializeIcons();
 
@@ -1719,7 +1720,29 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                 )}
               </div>
             </div>
-            {/* No duplicate Approve Annual Leave button */}
+            
+            {/* Request Annual Leave Button */}
+            <div style={{ marginTop: '16px' }}>
+              <DefaultButton
+                text="Request Annual Leave"
+                onClick={() => {
+                  setBespokePanelContent(
+                    <AnnualLeaveForm
+                      futureLeave={futureLeaveRecords}
+                      team={teamData}
+                      userData={userData}
+                      totals={annualLeaveTotals}
+                      bankHolidays={bankHolidays}
+                    />
+                  );
+                  setBespokePanelTitle('Request Annual Leave');
+                  setIsBespokePanelOpen(true);
+                }}
+                iconProps={{ iconName: 'Calendar' }}
+                styles={sharedDefaultButtonStyles}
+                ariaLabel="Request Annual Leave"
+              />
+            </div>
           </div>
         </Stack>
       </Stack>
