@@ -140,7 +140,9 @@ const reviewMessageStyle = (isDarkMode: boolean) =>
   mergeStyles({
     fontWeight: '600',
     fontSize: '24px',
-    color: isDarkMode ? colours.dark.text : colours.light.text,
+    color: isDarkMode ? colours.cta : colours.cta, // Use 'cta' color
+    display: 'flex', // Enable flex layout for horizontal alignment
+    alignItems: 'center', // Vertically center the items
   });
 
 const mainContentStyle = mergeStyles({
@@ -245,14 +247,23 @@ const sectionContainerStyle = (isDarkMode: boolean) =>
     width: '100%',
   });
 
-const actionSectionStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    maxWidth: '300px',
-    width: '100%',
-    '@media (max-width: 600px)': {
-      maxWidth: '100%',
-    },
-  });
+  const actionSectionStyle = (isDarkMode: boolean) =>
+    mergeStyles({
+      display: 'inline-block', // Ensures it encapsulates its content
+      width: 'auto', // Allows the container to grow/shrink with its contents
+      maxWidth: '100%', // Keeps responsiveness intact
+      padding: '10px', // Optional: add padding for better aesthetics
+      backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+      borderRadius: '12px', // Optional: keeps it visually consistent
+      boxShadow: isDarkMode
+        ? `0 4px 12px ${colours.dark.border}`
+        : `0 4px 12px ${colours.light.border}`,
+      transition: 'background-color 0.3s, box-shadow 0.3s',
+      '@media (max-width: 600px)': {
+        width: '100%', // Adjusts to fit smaller screens
+        padding: '8px',
+      },
+    });
 
 const fadeInAnimationStyle = mergeStyles({
   animation: 'fadeIn 0.5s ease-in-out',
@@ -1427,7 +1438,17 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
           <Text className={greetingStyle(isDarkMode)}>{typedGreeting}</Text>
           {!isActionsLoading && needsReview && (
             <Text className={`${reviewMessageStyle(isDarkMode)} ${fadeInAnimationStyle}`}>
-              You have items to review.
+              You have items to review
+              <Icon
+                iconName="ChevronRight"
+                aria-hidden="true"
+                styles={{
+                  root: {
+                    marginLeft: '8px',
+                    color: isDarkMode ? colours.cta : colours.cta,
+                  },
+                }}
+              />
             </Text>
           )}
         </Stack>

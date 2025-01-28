@@ -227,7 +227,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
   // Default recipient fields
   const [to, setTo] = useState<string>(enquiry.Email || '');
   const [cc, setCc] = useState<string>('');
-  const [bcc, setBcc] = useState<string>('2day@followupthen.com');
+  const [bcc, setBcc] = useState<string>('1day@followupthen.com');
 
   // Basic template that includes placeholders
   const BASE_TEMPLATE = `Dear [Enquiry.First_Name],
