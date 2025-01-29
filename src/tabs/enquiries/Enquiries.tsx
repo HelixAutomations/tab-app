@@ -1251,7 +1251,7 @@ const Enquiries: React.FC<{
                 {/* A filter for subtle shadow on each bar */}
                 <defs>
                   <filter id="barShadow" x="-10%" y="-10%" width="130%" height="130%">
-                    <feOffset dx="0" dy="1" in="SourceAlpha" result="shadowOffsetOuter" />
+                    <feOffset dx="0" dy="0" in="SourceAlpha" result="shadowOffsetOuter" /> {/* Removed dy=1 */}
                     <feGaussianBlur stdDeviation="2" in="shadowOffsetOuter" result="shadowBlurOuter" />
                     <feComposite
                       in="shadowBlurOuter"
@@ -1270,17 +1270,7 @@ const Enquiries: React.FC<{
                 </defs>
 
                 <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? colours.dark.border : '#e0e0e0'} />
-                <XAxis
-                  dataKey="month"
-                  stroke={isDarkMode ? colours.dark.text : colours.light.text}
-                  tick={{
-                    fontSize: 14,
-                    fontWeight: 400,
-                    fontFamily: 'Raleway, sans-serif',
-                    textAnchor: 'middle',
-                  }}
-                  height={50}
-                />
+
                 <YAxis
                   stroke={isDarkMode ? colours.dark.text : colours.light.text}
                   tick={{
@@ -1289,6 +1279,7 @@ const Enquiries: React.FC<{
                     fontFamily: 'Raleway, sans-serif',
                   }}
                 />
+
                 <Tooltip
                   contentStyle={{
                     backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.background,
@@ -1300,6 +1291,8 @@ const Enquiries: React.FC<{
                   itemStyle={{ color: isDarkMode ? colours.dark.text : colours.light.text, fontFamily: 'Raleway, sans-serif' }}
                 />
                 <Legend content={renderCustomLegend} />
+
+                {/* Bars */}
                 <Bar
                   dataKey="commercial"
                   shape={<CustomBarShape />}
@@ -1390,6 +1383,19 @@ const Enquiries: React.FC<{
                     )}
                   />
                 </Bar>
+
+                {/* Moved XAxis here, after Bars */}
+                <XAxis
+                  dataKey="month"
+                  stroke={isDarkMode ? colours.dark.text : colours.light.text}
+                  tick={{
+                    fontSize: 14,
+                    fontWeight: 400,
+                    fontFamily: 'Raleway, sans-serif',
+                    textAnchor: 'middle',
+                  }}
+                  height={50}
+                />
               </BarChart>
             </ResponsiveContainer>
           </div>
