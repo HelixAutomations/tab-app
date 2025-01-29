@@ -6,7 +6,7 @@ import { ThemeProvider } from './functionality/ThemeContext';
 import { colours } from './styles/colours';
 import * as microsoftTeams from '@microsoft/teams-js';
 import { Context as TeamsContextType } from '@microsoft/teams-js';
-import { Matter, UserData, Enquiry } from './functionality/types';
+import { Matter, UserData, Enquiry, Tab } from './functionality/types'; // Import Tab
 
 // Lazy load components
 const Home = lazy(() => import('../tabs/home/Home'));
@@ -15,6 +15,9 @@ const Resources = lazy(() => import('../tabs/resources/Resources'));
 const Enquiries = lazy(() => import('../tabs/enquiries/Enquiries'));
 const Matters = lazy(() => import('../tabs/matters/Matters'));
 const Roadmap = lazy(() => import('../tabs/roadmap/Roadmap')); // Import Roadmap
+
+// Optionally, you can also lazy load Reporting if needed in the future
+// const Reporting = lazy(() => import('../tabs/reporting/Reporting'));
 
 interface AppProps {
   teamsContext: TeamsContextType | null;
@@ -54,14 +57,15 @@ const App: React.FC<AppProps> = ({
     }
   }, [teamsContext, userData, enquiries, matters]);
 
-  // Define tabs including the new Roadmap tab
-  const tabs = [
+  // Define tabs including the new Reporting tab as disabled
+  const tabs: Tab[] = [
     { key: 'home', text: 'Home' },
     { key: 'forms', text: 'Forms' },
     { key: 'resources', text: 'Resources' },
     { key: 'enquiries', text: 'Enquiries' },
     { key: 'matters', text: 'Matters' },
-    { key: 'roadmap', text: 'Roadmap' }, // New Roadmap tab
+    { key: 'roadmap', text: 'Roadmap' },
+    { key: 'reporting', text: 'Reporting', disabled: true }, // New Reporting tab
   ];
 
   // Function to render content based on the active tab
@@ -93,8 +97,11 @@ const App: React.FC<AppProps> = ({
             userData={userData}
           />
         );
-      case 'roadmap': // Ensure userData is passed to the Roadmap tab
+      case 'roadmap':
         return <Roadmap userData={userData} />;
+      // Optionally, handle Reporting content if it's ever enabled
+      // case 'reporting':
+      //   return <Reporting />;
       default:
         return <Home context={teamsContext} userData={userData} enquiries={enquiries} />;
     }

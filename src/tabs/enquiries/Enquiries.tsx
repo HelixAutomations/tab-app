@@ -290,8 +290,8 @@ interface CustomLabelProps {
 }
 
 /**
- * CustomLabel now uses no fill, only stroke color for the shape.
- * The text color is set to the same stroke color for visibility.
+ * We'll keep the same approach for the label outline,
+ * but lighten the text color in light mode to keep it readable.
  */
 const CustomLabel: React.FC<CustomLabelProps> = ({ x, y, width, height, value, dataKey, isDarkMode }) => {
   if (
@@ -310,6 +310,9 @@ const CustomLabel: React.FC<CustomLabelProps> = ({ x, y, width, height, value, d
   const bubbleX = x + width / 2 - bubbleWidth / 2;
   const bubbleY = y + height / 2 - bubbleHeight / 2;
 
+  // Lightening the text color in light mode for contrast inside the outlined bubble
+  const textFill = isDarkMode ? '#fff' : '#333';
+
   return (
     <g>
       <rect
@@ -327,13 +330,31 @@ const CustomLabel: React.FC<CustomLabelProps> = ({ x, y, width, height, value, d
         x={x + width / 2}
         y={y + height / 2 + 5}
         textAnchor="middle"
-        fill={isDarkMode ? '#fff' : '#000'}
+        fill={textFill}
         fontSize="12"
         fontFamily="Raleway, sans-serif"
       >
         {value}
       </text>
     </g>
+  );
+};
+
+/**
+ * Custom shape for bars to add a subtle inner/outer shadow using a filter.
+ * We'll define a filter in <defs> and reference it here.
+ */
+const CustomBarShape: React.FC<any> = (props) => {
+  const { x, y, width, height } = props;
+  return (
+    <rect
+      x={x}
+      y={y}
+      width={width}
+      height={height}
+      fill={colours.grey} // fill is the Helix "grey"
+      filter="url(#barShadow)"
+    />
   );
 };
 
@@ -470,6 +491,7 @@ const Enquiries: React.FC<{
     []
   );
 
+  // Fetch POID data if not loaded
   useEffect(() => {
     (async () => {
       if (!poidData) {
@@ -496,6 +518,7 @@ const Enquiries: React.FC<{
     })();
   }, [poidData, setPoidData]);
 
+  // Figure out converted enquiries
   useEffect(() => {
     if (poidData && localEnquiries.length > 0) {
       const converted = localEnquiries.filter((enq) =>
@@ -509,6 +532,7 @@ const Enquiries: React.FC<{
     }
   }, [poidData, localEnquiries]);
 
+  // Determine date range for the slider
   useEffect(() => {
     if (localEnquiries.length > 0) {
       const validDates = localEnquiries
@@ -527,6 +551,7 @@ const Enquiries: React.FC<{
     }
   }, [localEnquiries]);
 
+  // Sort local enquiries
   const sortedEnquiries = useMemo(() => {
     return [...localEnquiries].sort((a, b) => {
       const dateA = parseISO(a.Touchpoint_Date || '');
@@ -535,20 +560,24 @@ const Enquiries: React.FC<{
     });
   }, [localEnquiries]);
 
+  // Filter out invalid dates
   const sortedValidEnquiries = useMemo(() => {
     return sortedEnquiries.filter((enq) => enq.Touchpoint_Date && isValid(parseISO(enq.Touchpoint_Date)));
   }, [sortedEnquiries]);
 
+  // Adjust slider end if we have valid enquiries
   useEffect(() => {
     if (sortedValidEnquiries.length > 0) {
       setCurrentSliderEnd(sortedValidEnquiries.length - 1);
     }
   }, [sortedValidEnquiries.length]);
 
+  // Slice enquiries based on slider range
   const enquiriesInSliderRange = useMemo(() => {
     return sortedValidEnquiries.slice(currentSliderStart, currentSliderEnd + 1);
   }, [sortedValidEnquiries, currentSliderStart, currentSliderEnd]);
 
+  // Tally monthly counts for chart
   const monthlyEnquiryCounts = useMemo(() => {
     const counts: { [month: string]: MonthlyCount } = {};
     enquiriesInSliderRange.forEach((enq) => {
@@ -603,6 +632,7 @@ const Enquiries: React.FC<{
     []
   );
 
+  // Filtering logic
   const filteredEnquiries = useMemo(() => {
     let filtered = enquiriesInSliderRange;
     if (activeMainTab === 'All') {
@@ -678,6 +708,7 @@ const Enquiries: React.FC<{
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
+  // rating radio
   const ratingOptions = [
     {
       key: 'Good',
@@ -831,6 +862,7 @@ const Enquiries: React.FC<{
     return row * delayPerRow + col * delayPerCol;
   };
 
+  // No user gating for these score cards, so remove the AC/JW/LZ check
   const enquiriesCountPerMember = useMemo(() => {
     if (!enquiriesInSliderRange || !teamData) return [];
     const grouped: { [email: string]: number } = {};
@@ -1107,66 +1139,60 @@ const Enquiries: React.FC<{
                 ))}
               </Stack>
 
-              {['AC', 'JW', 'LZ'].includes(loggedInUserInitials) && enquiriesCountPerMember.length > 0 && (
-                <Stack
-                  horizontal
-                  horizontalAlign="start"
-                  wrap
-                  styles={{ root: { width: '100%' } }}
-                >
-                  {enquiriesCountPerMember.map((member, idx) => (
-                    <React.Fragment key={member.initials}>
-                      <Stack
-                        horizontalAlign="start"
+              <Stack horizontal horizontalAlign="center" wrap styles={{ root: { width: '100%' } }}>
+                {enquiriesCountPerMember.map((member, idx) => (
+                  <React.Fragment key={member.initials}>
+                    <Stack
+                      horizontalAlign="center"
+                      styles={{
+                        root: {
+                          minWidth: '80px', // Ensures consistent spacing
+                          textAlign: 'center',
+                        },
+                      }}
+                    >
+                      <Text
+                        variant="xLarge"
                         styles={{
                           root: {
-                            margin: '0 10px 20px 0', // spacing around each card
+                            fontWeight: 600,
+                            color: colours.highlight,
                             fontFamily: 'Raleway, sans-serif',
-                            minWidth: '80px', // give some minimum width
                           },
                         }}
                       >
-                        <Text
-                          variant="xLarge"
-                          styles={{
-                            root: {
-                              fontWeight: 600,
-                              color: colours.highlight,
-                              fontFamily: 'Raleway, sans-serif',
-                            },
-                          }}
-                        >
-                          {member.count}
-                        </Text>
-                        <Text
-                          variant="small"
-                          styles={{
-                            root: {
-                              fontWeight: 400,
-                              marginTop: '4px',
-                              color: isDarkMode ? colours.dark.text : colours.light.text,
-                              fontFamily: 'Raleway, sans-serif',
-                            },
-                          }}
-                        >
-                          {member.initials}
-                        </Text>
-                      </Stack>
-                      {idx < enquiriesCountPerMember.length - 1 && (
-                        <div
-                          style={{
-                            width: '2px',
-                            backgroundColor: isDarkMode ? colours.dark.border : '#ccc',
-                            height: '45px',
-                            alignSelf: 'center',
-                            marginRight: '10px',
-                          }}
-                        />
-                      )}
-                    </React.Fragment>
-                  ))}
-                </Stack>
-              )}
+                        {member.count}
+                      </Text>
+                      <Text
+                        variant="small"
+                        styles={{
+                          root: {
+                            fontWeight: 400,
+                            marginTop: '4px',
+                            color: isDarkMode ? colours.dark.text : colours.light.text,
+                            fontFamily: 'Raleway, sans-serif',
+                          },
+                        }}
+                      >
+                        {member.initials}
+                      </Text>
+                    </Stack>
+
+                    {idx < enquiriesCountPerMember.length - 1 && (
+                      <div
+                        style={{
+                          width: '2px',
+                          backgroundColor: isDarkMode ? colours.dark.border : '#ccc',
+                          height: '50px', // Makes pipes taller
+                          alignSelf: 'center',
+                          margin: '0 20px',
+                        }}
+                      />
+                    )}
+                  </React.Fragment>
+                ))}
+              </Stack>
+
             </>
           )}
           {teamData && enquiriesCountPerMember.length === 0 && (
@@ -1197,6 +1223,7 @@ const Enquiries: React.FC<{
           transition: 'background-color 0.3s',
         })}
       >
+        {/* Main Chart Container with Extra Height */}
         {!selectedEnquiry && !selectedArea && !activeMainTab ? (
           <div
             className={mergeStyles({
@@ -1215,17 +1242,30 @@ const Enquiries: React.FC<{
               justifyContent: 'center',
             })}
           >
-            <ResponsiveContainer width="100%" height={350}>
+            <ResponsiveContainer width="100%" height={500}>
               <BarChart
                 data={monthlyEnquiryCounts}
                 margin={{ top: 20, right: 30, left: 20, bottom: 40 }}
                 style={{ fontFamily: 'Raleway, sans-serif' }}
               >
+                {/* A filter for subtle shadow on each bar */}
                 <defs>
-                  <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-                    <feOffset result="offOut" in="SourceGraphic" dx="0" dy="4" />
-                    <feGaussianBlur result="blurOut" in="offOut" stdDeviation="2" />
-                    <feBlend in="SourceGraphic" in2="blurOut" mode="normal" />
+                  <filter id="barShadow" x="-10%" y="-10%" width="130%" height="130%">
+                    <feOffset dx="0" dy="1" in="SourceAlpha" result="shadowOffsetOuter" />
+                    <feGaussianBlur stdDeviation="2" in="shadowOffsetOuter" result="shadowBlurOuter" />
+                    <feComposite
+                      in="shadowBlurOuter"
+                      in2="SourceAlpha"
+                      operator="out"
+                      result="shadowBlurOuter"
+                    />
+                    <feColorMatrix
+                      in="shadowBlurOuter"
+                      type="matrix"
+                      values="0 0 0 0 0   0 0 0 0 0   0 0 0 0 0   0 0 0 0.3 0"
+                      result="shadowBlurOuter"
+                    />
+                    <feComposite in="shadowBlurOuter" in2="SourceGraphic" operator="over" />
                   </filter>
                 </defs>
 
@@ -1262,12 +1302,9 @@ const Enquiries: React.FC<{
                 <Legend content={renderCustomLegend} />
                 <Bar
                   dataKey="commercial"
-                  fill={colours.grey}
-                  stackId="a"
+                  shape={<CustomBarShape />}
                   animationDuration={1500}
                   animationEasing="ease-out"
-                  stroke={isDarkMode ? colours.dark.grey : colours.greyText}
-                  strokeWidth={1}
                 >
                   <LabelList
                     dataKey="commercial"
@@ -1283,12 +1320,9 @@ const Enquiries: React.FC<{
                 </Bar>
                 <Bar
                   dataKey="property"
-                  fill={colours.grey}
-                  stackId="a"
+                  shape={<CustomBarShape />}
                   animationDuration={1500}
                   animationEasing="ease-out"
-                  stroke={isDarkMode ? colours.dark.grey : colours.greyText}
-                  strokeWidth={1}
                 >
                   <LabelList
                     dataKey="property"
@@ -1304,12 +1338,9 @@ const Enquiries: React.FC<{
                 </Bar>
                 <Bar
                   dataKey="construction"
-                  fill={colours.grey}
-                  stackId="a"
+                  shape={<CustomBarShape />}
                   animationDuration={1500}
                   animationEasing="ease-out"
-                  stroke={isDarkMode ? colours.dark.grey : colours.greyText}
-                  strokeWidth={1}
                 >
                   <LabelList
                     dataKey="construction"
@@ -1325,12 +1356,9 @@ const Enquiries: React.FC<{
                 </Bar>
                 <Bar
                   dataKey="employment"
-                  fill={colours.grey}
-                  stackId="a"
+                  shape={<CustomBarShape />}
                   animationDuration={1500}
                   animationEasing="ease-out"
-                  stroke={isDarkMode ? colours.dark.grey : colours.greyText}
-                  strokeWidth={1}
                 >
                   <LabelList
                     dataKey="employment"
@@ -1346,12 +1374,9 @@ const Enquiries: React.FC<{
                 </Bar>
                 <Bar
                   dataKey="otherUnsure"
-                  fill={colours.grey}
-                  stackId="a"
+                  shape={<CustomBarShape />}
                   animationDuration={1500}
                   animationEasing="ease-out"
-                  stroke={isDarkMode ? colours.dark.grey : colours.greyText}
-                  strokeWidth={1}
                 >
                   <LabelList
                     dataKey="otherUnsure"
@@ -1422,50 +1447,6 @@ const Enquiries: React.FC<{
             )}
           </>
         )}
-      </div>
-
-      <div className={footerStyle(isDarkMode)}>
-        <Text>
-          <Link
-            href="https://helix-law.co.uk/"
-            target="_blank"
-            styles={{
-              root: {
-                color: isDarkMode ? colours.dark.subText : colours.light.subText,
-                fontSize: '12px',
-                fontFamily: 'Raleway, sans-serif',
-                textDecoration: 'none',
-              },
-            }}
-            aria-label="Helix Law Website"
-          >
-            https://helix-law.co.uk/
-          </Link>
-          {' | '}
-          <Text
-            variant="small"
-            styles={{
-              root: {
-                color: isDarkMode ? colours.dark.subText : colours.light.subText,
-                display: 'inline',
-                fontFamily: 'Raleway, sans-serif',
-              },
-            }}
-          >
-            01273 761990
-          </Text>
-        </Text>
-        <Text
-          styles={{
-            root: {
-              fontSize: '12px',
-              fontFamily: 'Raleway, sans-serif',
-              color: isDarkMode ? colours.dark.text : colours.light.subText,
-            },
-          }}
-        >
-          Second Floor, Britannia House, 21 Station Street, Brighton, BN1 4DE
-        </Text>
       </div>
 
       {isSuccessVisible && (
@@ -1552,19 +1533,6 @@ const Enquiries: React.FC<{
       minHeight: '100vh',
       fontFamily: 'Raleway, sans-serif',
       paddingBottom: '100px',
-    });
-  }
-
-  function footerStyle(dark: boolean) {
-    return mergeStyles({
-      padding: '20px',
-      backgroundColor: dark ? colours.dark.footerBackground : colours.light.footerBackground,
-      textAlign: 'center',
-      borderTop: `1px solid ${dark ? colours.dark.border : colours.light.border}`,
-      position: 'fixed',
-      bottom: 0,
-      width: '100%',
-      fontFamily: 'Raleway, sans-serif',
     });
   }
 };

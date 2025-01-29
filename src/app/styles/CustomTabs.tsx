@@ -1,15 +1,18 @@
 // src/app/styles/CustomTabs.tsx
 
 import React from 'react';
-import { Pivot, PivotItem, IPivotStyles } from '@fluentui/react';
+import { Pivot, PivotItem, IPivotStyles, initializeIcons } from '@fluentui/react';
 import { colours } from './colours';
 import './CustomTabs.css'; // Import the CSS file for custom styles
-import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme
+import { useTheme } from '../../app/functionality/ThemeContext';
+import { Tab } from '../functionality/types'; // Import from shared types
+
+initializeIcons(); // Initialize Fluent UI icons
 
 interface CustomTabsProps {
   selectedKey: string;
   onLinkClick: (item?: PivotItem, ev?: React.MouseEvent<HTMLElement>) => void;
-  tabs: { key: string; text: string }[];
+  tabs: Tab[]; // Use the shared Tab interface
   ariaLabel?: string;
 }
 
@@ -67,20 +70,35 @@ const customPivotStyles = (isDarkMode: boolean): Partial<IPivotStyles> => ({
 const CustomTabs: React.FC<CustomTabsProps> = ({ selectedKey, onLinkClick, tabs, ariaLabel }) => {
   const { isDarkMode } = useTheme(); // Access isDarkMode from Theme Context
 
+  // Handle link clicks, preventing disabled tabs from being selected
+  const handleLinkClick = (item?: PivotItem, ev?: React.MouseEvent<HTMLElement>) => {
+    const clickedTab = tabs.find(tab => tab.key === item?.props.itemKey);
+    if (clickedTab?.disabled) {
+      ev?.preventDefault(); // Prevent the default action
+      return;
+    }
+    onLinkClick(item, ev);
+  };
+
   return (
     <Pivot
       selectedKey={selectedKey}
-      onLinkClick={onLinkClick}
+      onLinkClick={handleLinkClick} // Use the custom handler
       aria-label={ariaLabel || 'Custom Tabs'}
       styles={customPivotStyles(isDarkMode)}
       className="customPivot" // Add custom class here
     >
-      {tabs.map((tab) => (
+      {tabs.map((tab, index) => (
         <PivotItem
-          headerText={tab.text}
           itemKey={tab.key}
           key={tab.key}
-          // Removed inline styles for animation
+          headerText={tab.text}
+          itemIcon={tab.key === 'reporting' ? 'Lock' : undefined} // Add lock icon only for "Reporting"
+          headerButtonProps={{
+            className: tab.disabled ? 'disabledTab' : '', // Apply disabled class
+            style: { '--animation-delay': `${index * 0.1}s` } as React.CSSProperties, // Dynamic delay
+            'aria-disabled': tab.disabled ? 'true' : undefined, // Accessibility
+          }}
         />
       ))}
     </Pivot>

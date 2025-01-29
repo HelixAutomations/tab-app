@@ -2,6 +2,12 @@
 
 export type SectionName = 'Favorites' | 'General_Processes' | 'Operations' | 'Financial';
 
+export interface Tab {
+  key: string;
+  text: string;
+  disabled?: boolean;
+}
+
 export interface FormItem {
   title: string;
   url: string;

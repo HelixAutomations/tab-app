@@ -1,5 +1,16 @@
 /* src/app/styles/CustomTabs.css */
 
+/* Grey out the disabled tab and change the cursor */
+.customPivot .disabledTab {
+  color: grey !important; /* Override existing color */
+  cursor: not-allowed !important; /* Change cursor to indicate it's not clickable */
+}
+
+/* Optional: Adjust the position or style of the lock icon if necessary */
+.customPivot .ms-Pivot-link .ms-Pivot-icon {
+  margin-right: 8px; /* Space between icon and text */
+}
+
 /* Keyframe animation for a 'drop-in' effect */
 @keyframes dropIn {
   from {
