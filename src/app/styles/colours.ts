@@ -3,18 +3,16 @@
 export const colours = {
   websiteBlue: '#000319',
   darkBlue: '#061733',
-  blue: '#3690CE', // Blue color
-  highlight: '#3690CE', // Highlight color set to blue
+  blue: '#3690CE',
+  highlight: '#3690CE',
   accent: '#87F3F3',
-  cta: '#D65541', // Call to Action color (used as red)
-  grey: '#F4F4F6', // Grey color
-  greyText: '#6B6B6B', // Grey text color
-  sectionBackground: '#FFFFFF', // Background for sections
+  cta: '#D65541',
+  grey: '#F4F4F6',
+  greyText: '#6B6B6B',
+  sectionBackground: '#FFFFFF',
   inactiveTrackLight: '#CCCCCC',
-
-  // **Highlight colors**
-  highlightYellow: '#ffefc1', // Yellow highlight for inserted text
-  highlightBlue: '#d6e8ff',   // Light blue highlight for placeholders
+  highlightYellow: '#ffefc1',
+  highlightBlue: '#d6e8ff',
 
   dark: {
     background: '#1e1e1e',
@@ -87,7 +85,6 @@ export const colours = {
     borderColor: '#ffffff',        // White border
   },
 
-  // Additional colors for specific areas of work
   orange: '#FF8C00', // Construction
   green: '#107c10', // Property
   yellow: '#ffd54f', // Employment
@@ -98,4 +95,15 @@ export const colours = {
   secondaryButtonBackground: '#F4F4F6', // Reusing existing grey color
   secondaryButtonBorder: '#6B6B6B', // Reusing existing greyText color
   secondaryButtonHoverBackground: '#D6D6D6', // Added a lighter grey for hover
+
+  // **Reporting Colors** (Newly Added)
+  reporting: {
+    text: '#6B6B6B', // Grey text color
+    border: '#6B6B6B', // Grey border color
+    hoverRowBackground: '#d6e8ff', // Light blue for hover effects
+    tableHeaderBackground: '#F4F4F6', // Table header background
+    tableHeaderText: '#061733', // Table header text color
+    tableEvenRowBackground: '#F4F4F6', // Even row background
+    tableHoverRowBackground: '#d6e8ff', // Hover row background
+  },
 };

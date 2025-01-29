@@ -20,6 +20,8 @@ import {
 import {
   BarChart,
   Bar,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -1049,6 +1051,7 @@ const Enquiries: React.FC<{
                 style={{ marginBottom: '20px' }}
               >
                 <Stack tokens={{ childrenGap: 5 }} verticalAlign="center" style={{ fontFamily: 'Raleway, sans-serif' }}>
+                  {/* Show Dates Above Slider */}
                   <Text
                     variant="mediumPlus"
                     styles={{
@@ -1056,20 +1059,30 @@ const Enquiries: React.FC<{
                         color: isDarkMode ? colours.dark.text : colours.light.text,
                         fontFamily: 'Raleway, sans-serif',
                         fontWeight: 600,
+                        textAlign: 'center', // Ensure center alignment
+                        width: '100%', // Match slider width
                       },
                     }}
                   >
-                    Select Date Range:
+                    {sortedValidEnquiries[currentSliderEnd]?.Touchpoint_Date
+                      ? format(parseISO(sortedValidEnquiries[currentSliderEnd].Touchpoint_Date), 'dd MMM yyyy')
+                      : ''}
+                    {' - '}
+                    {sortedValidEnquiries[currentSliderStart]?.Touchpoint_Date
+                      ? format(parseISO(sortedValidEnquiries[currentSliderStart].Touchpoint_Date), 'dd MMM yyyy')
+                      : ''}
                   </Text>
+
+                  {/* Reverse the slider scale so that oldest is on the left, newest on the right */}
                   <Slider
                     range
-                    min={0}
-                    max={sortedValidEnquiries.length - 1}
-                    value={[currentSliderStart, currentSliderEnd]}
+                    min={0} // Newest date (reversed)
+                    max={sortedValidEnquiries.length - 1} // Oldest date (reversed)
+                    value={[sortedValidEnquiries.length - 1 - currentSliderEnd, sortedValidEnquiries.length - 1 - currentSliderStart]}
                     onChange={(value) => {
                       if (Array.isArray(value)) {
-                        setCurrentSliderStart(value[0]);
-                        setCurrentSliderEnd(value[1]);
+                        setCurrentSliderStart(sortedValidEnquiries.length - 1 - value[1]); // Reverse mapping
+                        setCurrentSliderEnd(sortedValidEnquiries.length - 1 - value[0]); // Reverse mapping
                       }
                     }}
                     trackStyle={[{ backgroundColor: colours.highlight, height: 8 }]}
@@ -1079,16 +1092,14 @@ const Enquiries: React.FC<{
                         borderColor: colours.highlight,
                         height: 20,
                         width: 20,
-                        marginLeft: -10,
-                        marginTop: -6,
+                        transform: 'translateX(-50%)', // Keep handle centers aligned
                       },
                       {
                         backgroundColor: colours.highlight,
                         borderColor: colours.highlight,
                         height: 20,
                         width: 20,
-                        marginLeft: -10,
-                        marginTop: -6,
+                        transform: 'translateX(-50%)', // Keep handle centers aligned
                       },
                     ]}
                     railStyle={{
@@ -1097,24 +1108,8 @@ const Enquiries: React.FC<{
                     }}
                     style={{ width: 500, margin: '0 auto' }}
                   />
-                  <Text
-                    variant="small"
-                    styles={{
-                      root: {
-                        color: isDarkMode ? colours.dark.text : colours.light.text,
-                        fontFamily: 'Raleway, sans-serif',
-                      },
-                    }}
-                  >
-                    {sortedValidEnquiries[currentSliderStart]?.Touchpoint_Date
-                      ? format(parseISO(sortedValidEnquiries[currentSliderStart].Touchpoint_Date), 'dd MMM yyyy')
-                      : ''}
-                    {' - '}
-                    {sortedValidEnquiries[currentSliderEnd]?.Touchpoint_Date
-                      ? format(parseISO(sortedValidEnquiries[currentSliderEnd].Touchpoint_Date), 'dd MMM yyyy')
-                      : ''}
-                  </Text>
                 </Stack>
+
               </Stack>
 
               <Stack

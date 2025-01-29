@@ -4,7 +4,7 @@ import React from 'react';
 import { Text, Icon } from '@fluentui/react';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { colours } from '../../app/styles/colours';
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import { useTheme } from '../../app/functionality/ThemeContext';
 
 interface MonthlyCount {
@@ -89,9 +89,17 @@ const AreaCountCard: React.FC<AreaCountCardProps> = ({
     >
       <div className={chartContainerClass}>
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={safeMonthlyCounts}>
+          <LineChart data={safeMonthlyCounts} margin={{ top: 25, right: 25, left: 25, bottom: 25 }}>
+            
+            {/* Remove CartesianGrid to eliminate background grid lines */}
+            
             <XAxis dataKey="month" hide />
-            <YAxis hide />
+            
+            <YAxis 
+              hide 
+              domain={['auto', 'auto']} 
+            />
+            
             <Tooltip
               contentStyle={{
                 backgroundColor: isDarkMode ? colours.dark.sectionBackground : '#fff',
@@ -100,8 +108,17 @@ const AreaCountCard: React.FC<AreaCountCardProps> = ({
                 fontFamily: 'Raleway, sans-serif',
               }}
             />
-            <Bar dataKey="count" fill={count > 0 ? colours.grey : '#e0e0e0'} />
-          </BarChart>
+            
+            <Line 
+              type="monotone" 
+              dataKey="count" 
+              stroke={colours.grey} 
+              strokeWidth={3}  // Thicker stroke for better visibility
+              opacity={1}  // Ensure full opacity
+              dot={{ fill: colours.grey, r: 2 }}  // Slightly bigger dots for clarity
+              activeDot={{ r: 6 }}  // Highlight dot on hover
+            />
+          </LineChart>
         </ResponsiveContainer>
       </div>
       <div style={{ zIndex: 2, display: 'flex', alignItems: 'center' }}>

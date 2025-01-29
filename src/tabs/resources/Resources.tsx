@@ -231,6 +231,11 @@ const Resources: React.FC<ResourcesProps> = () => {
           url: 'https://www.gov.uk/government/organisations/companies-house',
           icon: 'CityNext', // Retaining Fluent UI icon
         },
+        {
+          title: 'CC-Filing',
+          url: 'https://efile.cefile-app.com/login?referer=%2F',
+          icon: thompsonReutersIcon,
+        },
       ],
       Favorites: [], // Will be populated based on favorites
     };
