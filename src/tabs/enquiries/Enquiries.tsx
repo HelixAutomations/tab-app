@@ -1,4 +1,4 @@
-// src/tabs/enquiries/Enquiries.tsx
+// D:/helix projects/workspace/tab apps/helix hub v1/src/tabs/enquiries/Enquiries.tsx
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
@@ -15,7 +15,6 @@ import {
   Icon,
   SearchBox,
   IStyle,
-  Slider,
   initializeIcons,
 } from '@fluentui/react';
 import {
@@ -40,7 +39,9 @@ import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { Pivot, PivotItem } from '@fluentui/react';
 import { Context as TeamsContextType } from '@microsoft/teams-js';
-import ScoreCard from './ScoreCard'; // Corrected import path
+import AreaCountCard from './AreaCountCard';
+import 'rc-slider/assets/index.css';
+import Slider from 'rc-slider';
 
 initializeIcons();
 
@@ -66,6 +67,7 @@ interface MonthlyCount {
   construction: number;
   employment: number;
   property: number;
+  otherUnsure: number;
 }
 
 interface RedesignedCombinedMenuProps {
@@ -111,6 +113,7 @@ const RedesignedCombinedMenu: React.FC<RedesignedCombinedMenuProps> = ({
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
+    width: '100%',
     padding: '12px 20px',
     borderRadius: '8px',
     boxShadow: isDarkMode
@@ -156,6 +159,7 @@ const RedesignedCombinedMenu: React.FC<RedesignedCombinedMenuProps> = ({
       : isDarkMode
       ? colours.dark.text
       : colours.light.text,
+    fontFamily: 'Raleway, sans-serif',
   });
 
   const stateButton = mergeStyles({
@@ -170,6 +174,7 @@ const RedesignedCombinedMenu: React.FC<RedesignedCombinedMenuProps> = ({
         color: 'white',
       },
     },
+    fontFamily: 'Raleway, sans-serif',
   });
 
   const activeStateButton = mergeStyles({
@@ -249,17 +254,24 @@ const RedesignedCombinedMenu: React.FC<RedesignedCombinedMenuProps> = ({
         })}
         <div className={searchIconContainer} onClick={() => setSearchActive(!isSearchActive)}>
           {isSearchActive ? (
-            <Icon iconName="Cancel" styles={{ root: { fontSize: '20px', color: isDarkMode ? colours.dark.text : colours.light.text } }} />
+            <Icon
+              iconName="Cancel"
+              styles={{ root: { fontSize: '20px', color: isDarkMode ? colours.dark.text : colours.light.text } }}
+            />
           ) : (
-            <Icon iconName="Search" styles={{ root: { fontSize: '20px', color: isDarkMode ? colours.dark.text : colours.light.text } }} />
+            <Icon
+              iconName="Search"
+              styles={{ root: { fontSize: '20px', color: isDarkMode ? colours.dark.text : colours.light.text } }}
+            />
           )}
         </div>
         <div className={searchBoxStyles}>
           <SearchBox
-            placeholder="Search enquiries..."
+            placeholder="Search..."
             value={searchTerm}
             onChange={(_, newValue) => setSearchTerm(newValue || '')}
             underlined
+            styles={{ root: { fontFamily: 'Raleway, sans-serif' } }}
           />
         </div>
       </Stack>
@@ -267,7 +279,6 @@ const RedesignedCombinedMenu: React.FC<RedesignedCombinedMenuProps> = ({
   );
 };
 
-// CustomLabel Component
 interface CustomLabelProps {
   x?: number | string;
   y?: number | string;
@@ -278,8 +289,11 @@ interface CustomLabelProps {
   isDarkMode: boolean;
 }
 
+/**
+ * CustomLabel now uses no fill, only stroke color for the shape.
+ * The text color is set to the same stroke color for visibility.
+ */
 const CustomLabel: React.FC<CustomLabelProps> = ({ x, y, width, height, value, dataKey, isDarkMode }) => {
-  // Ensure all necessary props are numbers
   if (
     typeof x !== 'number' ||
     typeof y !== 'number' ||
@@ -290,7 +304,7 @@ const CustomLabel: React.FC<CustomLabelProps> = ({ x, y, width, height, value, d
     return null;
   }
 
-  const color = areaColor(dataKey); // Get color based on the area of work
+  const color = areaColor(dataKey);
   const bubbleWidth = 50;
   const bubbleHeight = 25;
   const bubbleX = x + width / 2 - bubbleWidth / 2;
@@ -303,7 +317,9 @@ const CustomLabel: React.FC<CustomLabelProps> = ({ x, y, width, height, value, d
         y={bubbleY}
         width={bubbleWidth}
         height={bubbleHeight}
-        fill={color}
+        fill="none"
+        stroke={color}
+        strokeWidth={2}
         rx={8}
         ry={8}
       />
@@ -311,7 +327,7 @@ const CustomLabel: React.FC<CustomLabelProps> = ({ x, y, width, height, value, d
         x={x + width / 2}
         y={y + height / 2 + 5}
         textAnchor="middle"
-        fill="#fff"
+        fill={isDarkMode ? '#fff' : '#000'}
         fontSize="12"
         fontFamily="Raleway, sans-serif"
       >
@@ -381,7 +397,6 @@ const Enquiries: React.FC<{
       const data = await fetchTeamData();
       if (data) {
         setTeamData(data);
-        console.log('Team data fetched successfully:', data);
       } else {
         setTeamDataError('Failed to fetch team data.');
       }
@@ -391,7 +406,7 @@ const Enquiries: React.FC<{
   }, []);
 
   const handleSubTabChange = useCallback(
-    (item?: PivotItem, ev?: React.MouseEvent<HTMLElement>) => {
+    (item?: PivotItem) => {
       if (item) {
         setActiveSubTab(item.props.itemKey as string);
       }
@@ -429,7 +444,7 @@ const Enquiries: React.FC<{
   }, [ratingEnquiryId, currentRating, closeRateModal]);
 
   const handleEditRating = useCallback(
-    async (id: string, newRating: string): Promise<void> => {
+    async (id: string, newRating: string) => {
       try {
         const response = await fetch(
           `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_UPDATE_RATING_PATH}?code=${process.env.REACT_APP_UPDATE_RATING_CODE}`,
@@ -440,10 +455,8 @@ const Enquiries: React.FC<{
           }
         );
         if (response.ok) {
-          setLocalEnquiries((prevEnquiries) =>
-            prevEnquiries.map((enquiry) =>
-              enquiry.ID === id ? { ...enquiry, Rating: newRating as Enquiry['Rating'] } : enquiry
-            )
+          setLocalEnquiries((prev) =>
+            prev.map((enq) => (enq.ID === id ? { ...enq, Rating: newRating as Enquiry['Rating'] } : enq))
           );
           setIsSuccessVisible(true);
         } else {
@@ -485,12 +498,12 @@ const Enquiries: React.FC<{
 
   useEffect(() => {
     if (poidData && localEnquiries.length > 0) {
-      const converted = localEnquiries.filter((enquiry) =>
-        poidData.some((poid) => String(poid.acid) === enquiry.ID)
+      const converted = localEnquiries.filter((enq) =>
+        poidData.some((poid) => String(poid.acid) === enq.ID)
       );
       setConvertedEnquiriesList(converted);
       const convertedPoid = poidData.filter((poid) =>
-        localEnquiries.some((enquiry) => enquiry.ID === String(poid.acid))
+        localEnquiries.some((enq) => enq.ID === String(poid.acid))
       );
       setConvertedPoidDataList(convertedPoid);
     }
@@ -499,9 +512,9 @@ const Enquiries: React.FC<{
   useEffect(() => {
     if (localEnquiries.length > 0) {
       const validDates = localEnquiries
-        .map((enquiry) => enquiry.Touchpoint_Date)
-        .filter((dateStr): dateStr is string => typeof dateStr === 'string' && isValid(parseISO(dateStr)))
-        .map((dateStr) => parseISO(dateStr));
+        .map((enq) => enq.Touchpoint_Date)
+        .filter((d): d is string => typeof d === 'string' && isValid(parseISO(d)))
+        .map((d) => parseISO(d));
       if (validDates.length > 0) {
         const oldestDate = new Date(Math.min(...validDates.map((date) => date.getTime())));
         const newestDate = new Date(Math.max(...validDates.map((date) => date.getTime())));
@@ -514,18 +527,16 @@ const Enquiries: React.FC<{
     }
   }, [localEnquiries]);
 
-  const sortedEnquiries = useMemo<Enquiry[]>(() => {
+  const sortedEnquiries = useMemo(() => {
     return [...localEnquiries].sort((a, b) => {
       const dateA = parseISO(a.Touchpoint_Date || '');
       const dateB = parseISO(b.Touchpoint_Date || '');
-      return dateA.getTime() - dateB.getTime();
+      return dateB.getTime() - dateA.getTime();
     });
   }, [localEnquiries]);
 
-  const sortedValidEnquiries = useMemo<Enquiry[]>(() => {
-    return sortedEnquiries.filter(
-      (enquiry) => enquiry.Touchpoint_Date && isValid(parseISO(enquiry.Touchpoint_Date))
-    );
+  const sortedValidEnquiries = useMemo(() => {
+    return sortedEnquiries.filter((enq) => enq.Touchpoint_Date && isValid(parseISO(enq.Touchpoint_Date)));
   }, [sortedEnquiries]);
 
   useEffect(() => {
@@ -534,21 +545,19 @@ const Enquiries: React.FC<{
     }
   }, [sortedValidEnquiries.length]);
 
-  const enquiriesInSliderRange = useMemo<Enquiry[]>(() => {
+  const enquiriesInSliderRange = useMemo(() => {
     return sortedValidEnquiries.slice(currentSliderStart, currentSliderEnd + 1);
   }, [sortedValidEnquiries, currentSliderStart, currentSliderEnd]);
 
-  const monthlyEnquiryCounts = useMemo<MonthlyCount[]>(() => {
-    const enquiries = enquiriesInSliderRange;
-    if (!enquiries) return [];
+  const monthlyEnquiryCounts = useMemo(() => {
     const counts: { [month: string]: MonthlyCount } = {};
-    enquiries.forEach((enquiry) => {
-      if (enquiry.Touchpoint_Date && enquiry.Area_of_Work) {
-        const date = parseISO(enquiry.Touchpoint_Date);
+    enquiriesInSliderRange.forEach((enq) => {
+      if (enq.Touchpoint_Date && enq.Area_of_Work) {
+        const date = parseISO(enq.Touchpoint_Date);
         if (!isValid(date)) return;
         const monthStart = startOfMonth(date);
         const monthLabel = format(monthStart, 'MMM yyyy');
-        const area = enquiry.Area_of_Work.toLowerCase();
+        const area = enq.Area_of_Work.toLowerCase();
         if (!counts[monthLabel]) {
           counts[monthLabel] = {
             month: monthLabel,
@@ -556,6 +565,7 @@ const Enquiries: React.FC<{
             construction: 0,
             employment: 0,
             property: 0,
+            otherUnsure: 0,
           };
         }
         switch (area) {
@@ -572,14 +582,13 @@ const Enquiries: React.FC<{
             counts[monthLabel].property += 1;
             break;
           default:
+            counts[monthLabel].otherUnsure += 1;
             break;
         }
       }
     });
-    const sortedMonths = Object.keys(counts).sort(
-      (a, b) => new Date(a).getTime() - new Date(b).getTime()
-    );
-    return sortedMonths.map((month) => counts[month]);
+    const sortedMonths = Object.keys(counts).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+    return sortedMonths.map((m) => counts[m]);
   }, [enquiriesInSliderRange]);
 
   const triagedPointOfContactEmails = useMemo(
@@ -590,45 +599,39 @@ const Enquiries: React.FC<{
         'construction@helix-law.com',
         'employment@helix-law.com',
         'property@helix-law.com',
-      ].map((email) => email.toLowerCase()),
+      ].map((e) => e.toLowerCase()),
     []
   );
 
   const filteredEnquiries = useMemo(() => {
-    let filtered: Enquiry[] = enquiriesInSliderRange;
+    let filtered = enquiriesInSliderRange;
     if (activeMainTab === 'All') {
-      // No additional filtering
+      // do nothing
     } else {
       switch (activeMainTab) {
         case 'Claimed':
           filtered = filtered.filter(
-            (enquiry) =>
-              enquiry.Point_of_Contact?.toLowerCase() === (context?.userPrincipalName || '').toLowerCase()
+            (e) => e.Point_of_Contact?.toLowerCase() === (context?.userPrincipalName || '').toLowerCase()
           );
           break;
         case 'Converted':
           if (context && context.userPrincipalName) {
             const userEmail = context.userPrincipalName.toLowerCase();
             const userFilteredEnquiryIds = convertedPoidDataList
-              .filter((poid) => poid.poc?.toLowerCase() === userEmail)
-              .map((poid) => String(poid.acid));
-            filtered = convertedEnquiriesList.filter((enquiry) =>
-              userFilteredEnquiryIds.includes(enquiry.ID)
-            );
+              .filter((p) => p.poc?.toLowerCase() === userEmail)
+              .map((p) => String(p.acid));
+            filtered = convertedEnquiriesList.filter((enq) => userFilteredEnquiryIds.includes(enq.ID));
           } else {
             filtered = convertedEnquiriesList;
           }
           break;
         case 'Claimable':
-          filtered = filtered.filter(
-            (enquiry) => enquiry.Point_of_Contact?.toLowerCase() === 'team@helix-law.com'
-          );
+          filtered = filtered.filter((enq) => enq.Point_of_Contact?.toLowerCase() === 'team@helix-law.com');
           break;
         case 'Triaged':
           filtered = filtered.filter(
-            (enquiry) =>
-              enquiry.Point_of_Contact &&
-              triagedPointOfContactEmails.includes(enquiry.Point_of_Contact.toLowerCase())
+            (enq) =>
+              enq.Point_of_Contact && triagedPointOfContactEmails.includes(enq.Point_of_Contact.toLowerCase())
           );
           break;
         default:
@@ -638,17 +641,15 @@ const Enquiries: React.FC<{
     if (searchTerm) {
       const lowerSearchTerm = searchTerm.toLowerCase();
       filtered = filtered.filter(
-        (enquiry) =>
-          `${enquiry.First_Name} ${enquiry.Last_Name}`.toLowerCase().includes(lowerSearchTerm) ||
-          enquiry.Email?.toLowerCase().includes(lowerSearchTerm) ||
-          (enquiry.Company && enquiry.Company.toLowerCase().includes(lowerSearchTerm))
+        (en) =>
+          `${en.First_Name} ${en.Last_Name}`.toLowerCase().includes(lowerSearchTerm) ||
+          en.Email?.toLowerCase().includes(lowerSearchTerm) ||
+          (en.Company && en.Company.toLowerCase().includes(lowerSearchTerm))
       );
     }
     if (selectedArea) {
       filtered = filtered.filter(
-        (enquiry) =>
-          enquiry.Area_of_Work &&
-          enquiry.Area_of_Work.toLowerCase() === selectedArea.toLowerCase()
+        (enq) => enq.Area_of_Work && enq.Area_of_Work.toLowerCase() === selectedArea.toLowerCase()
       );
     }
     return filtered;
@@ -665,19 +666,17 @@ const Enquiries: React.FC<{
 
   const indexOfLastEnquiry = currentPage * enquiriesPerPage;
   const indexOfFirstEnquiry = indexOfLastEnquiry - enquiriesPerPage;
-  const currentEnquiries = useMemo(
-    () => filteredEnquiries.slice(indexOfFirstEnquiry, indexOfLastEnquiry),
-    [filteredEnquiries, indexOfFirstEnquiry, indexOfLastEnquiry]
-  );
+  const currentEnquiries = useMemo(() => filteredEnquiries.slice(indexOfFirstEnquiry, indexOfLastEnquiry), [
+    filteredEnquiries,
+    indexOfFirstEnquiry,
+    indexOfLastEnquiry,
+  ]);
   const totalPages = Math.ceil(filteredEnquiries.length / enquiriesPerPage);
 
-  const handlePageChange = useCallback(
-    (page: number) => {
-      setCurrentPage(page);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    },
-    []
-  );
+  const handlePageChange = useCallback((page: number) => {
+    setCurrentPage(page);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
 
   const ratingOptions = [
     {
@@ -690,13 +689,13 @@ const Enquiries: React.FC<{
       key: 'Neutral',
       text: 'Neutral',
       description:
-        'Ok enquiry, matter or person/prospect possibly of interest but not an ideal fit. Uncertain will instruct us.',
+        'Ok contact, matter or person/prospect possibly of interest but not an ideal fit. Uncertain will instruct us.',
     },
     {
       key: 'Poor',
       text: 'Poor',
       description:
-        'Poor quality enquiry. Very unlikely to ever instruct us. Prospect or matter not a good fit. Time waster or irrelevant issue.',
+        'Poor quality. Very unlikely to instruct us. Prospect or matter not a good fit. Time waster or irrelevant issue.',
     },
   ];
 
@@ -715,14 +714,27 @@ const Enquiries: React.FC<{
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCurrentRating(e.target.value)}
                 style={{ marginRight: '12px', width: '18px', height: '18px' }}
               />
-              <Text variant="medium" styles={{ root: { fontWeight: '700', color: colours.highlight } }}>
+              <Text
+                variant="mediumPlus"
+                styles={{
+                  root: {
+                    fontWeight: 600,
+                    color: colours.highlight,
+                    fontFamily: 'Raleway, sans-serif',
+                  },
+                }}
+              >
                 {option.text}
               </Text>
             </label>
             <Text
               variant="small"
               styles={{
-                root: { marginLeft: '30px', color: isDarkMode ? colours.dark.text : colours.light.text },
+                root: {
+                  marginLeft: '30px',
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                  fontFamily: 'Raleway, sans-serif',
+                },
               }}
             >
               {option.description}
@@ -736,10 +748,8 @@ const Enquiries: React.FC<{
 
   const handleUpdateEnquiry = useCallback(
     (updatedEnquiry: Enquiry) => {
-      setLocalEnquiries((prevEnquiries: Enquiry[]) =>
-        prevEnquiries.map((enquiry: Enquiry) =>
-          enquiry.ID === updatedEnquiry.ID ? updatedEnquiry : enquiry
-        )
+      setLocalEnquiries((prev) =>
+        prev.map((enq) => (enq.ID === updatedEnquiry.ID ? updatedEnquiry : enq))
       );
     },
     []
@@ -756,14 +766,15 @@ const Enquiries: React.FC<{
             boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
             padding: '20px',
             position: 'relative',
+            fontFamily: 'Raleway, sans-serif',
           },
         }}
       >
         <Stack horizontal horizontalAlign="space-between" verticalAlign="center" className={mergeStyles({ marginBottom: '20px' })}>
           <IconButton
             iconProps={{ iconName: 'Back' }}
-            title="Back to Enquiries"
-            ariaLabel="Back to Enquiries"
+            title="Back"
+            ariaLabel="Back"
             onClick={handleBackToList}
             styles={{
               root: {
@@ -793,10 +804,11 @@ const Enquiries: React.FC<{
               padding: '10px',
               margin: '0 5px',
               color: isDarkMode ? colours.dark.text : colours.light.text,
+              fontFamily: 'Raleway, sans-serif',
             },
             linkIsSelected: { borderBottom: 'none' },
           }}
-          aria-label="Enquiry Detail Sub-Tabs"
+          aria-label="Detail Sub-Tabs"
         >
           <PivotItem headerText="Overview" itemKey="Overview">
             <EnquiryOverview enquiry={enquiry} onEditRating={handleRate} onEditNotes={() => {}} />
@@ -819,30 +831,23 @@ const Enquiries: React.FC<{
     return row * delayPerRow + col * delayPerCol;
   };
 
-  const getTeamMemberByEntraId = useCallback(
-    (entraId: string): TeamData | undefined => {
-      return teamData?.find((member) => member['Entra ID'] === entraId);
-    },
-    [teamData]
-  );
-
   const enquiriesCountPerMember = useMemo(() => {
     if (!enquiriesInSliderRange || !teamData) return [];
-    const groupedEnquiries: { [email: string]: number } = {};
-    enquiriesInSliderRange.forEach((enquiry) => {
-      const pocEmail = enquiry.Point_of_Contact?.toLowerCase();
+    const grouped: { [email: string]: number } = {};
+    enquiriesInSliderRange.forEach((enq) => {
+      const pocEmail = enq.Point_of_Contact?.toLowerCase();
       if (pocEmail) {
-        groupedEnquiries[pocEmail] = (groupedEnquiries[pocEmail] || 0) + 1;
+        grouped[pocEmail] = (grouped[pocEmail] || 0) + 1;
       }
     });
     const counts: { initials: string; count: number }[] = [];
     teamData.forEach((member) => {
       const memberEmail = member['Email']?.toLowerCase();
       const memberRole = member['Role']?.toLowerCase();
-      if (memberEmail && groupedEnquiries[memberEmail] && memberRole !== 'non-solicitor') {
+      if (memberEmail && grouped[memberEmail] && memberRole !== 'non-solicitor') {
         counts.push({
           initials: member['Initials'] || '',
-          count: groupedEnquiries[memberEmail],
+          count: grouped[memberEmail],
         });
       }
     });
@@ -850,31 +855,150 @@ const Enquiries: React.FC<{
     return counts;
   }, [enquiriesInSliderRange, teamData]);
 
+  const enquiriesCountPerArea = useMemo(() => {
+    const c: { [key: string]: number } = {
+      Commercial: 0,
+      Property: 0,
+      Construction: 0,
+      Employment: 0,
+      'Other/Unsure': 0,
+    };
+    enquiriesInSliderRange.forEach((enq) => {
+      const area = enq.Area_of_Work?.toLowerCase();
+      if (area === 'commercial') {
+        c.Commercial += 1;
+      } else if (area === 'property') {
+        c.Property += 1;
+      } else if (area === 'construction') {
+        c.Construction += 1;
+      } else if (area === 'employment') {
+        c.Employment += 1;
+      } else {
+        c['Other/Unsure'] += 1;
+      }
+    });
+    return c;
+  }, [enquiriesInSliderRange]);
+
+  const loggedInUserInitials = useMemo(() => {
+    if (userData && userData.length > 0) {
+      return userData[0].Initials || '';
+    }
+    return '';
+  }, [userData]);
+
+  const getMonthlyCountByArea = (monthData: MonthlyCount, area: string): number => {
+    switch (area.toLowerCase()) {
+      case 'commercial':
+        return monthData.commercial;
+      case 'property':
+        return monthData.property;
+      case 'construction':
+        return monthData.construction;
+      case 'employment':
+        return monthData.employment;
+      case 'other/unsure':
+        return monthData.otherUnsure;
+      default:
+        return 0;
+    }
+  };
+
+  function getAreaIcon(area: string): string {
+    switch (area.toLowerCase()) {
+      case 'commercial':
+        return 'KnowledgeArticle';
+      case 'property':
+        return 'CityNext';
+      case 'construction':
+        return 'ConstructionCone';
+      case 'employment':
+        return 'People';
+      case 'other/unsure':
+        return 'Help';
+      default:
+        return 'Question';
+    }
+  }
+
+  function getAreaColor(area: string): string {
+    switch (area.toLowerCase()) {
+      case 'commercial':
+        return colours.blue;
+      case 'construction':
+        return colours.orange;
+      case 'property':
+        return colours.green;
+      case 'employment':
+        return colours.yellow;
+      case 'other/unsure':
+        return '#E53935';
+      default:
+        return colours.cta;
+    }
+  }
+
+  const renderCustomLegend = (props: any) => {
+    const { payload } = props;
+    return (
+      <div style={{ display: 'flex', flexWrap: 'wrap', fontFamily: 'Raleway, sans-serif' }}>
+        {payload.map((entry: any, index: number) => (
+          <div key={`legend-item-${index}`} style={{ display: 'flex', alignItems: 'center', marginRight: 20 }}>
+            <div
+              style={{
+                width: 12,
+                height: 12,
+                backgroundColor: areaColor(entry.value),
+                marginRight: 8,
+              }}
+            />
+            <span style={{ color: isDarkMode ? colours.dark.text : colours.light.text, fontWeight: 500 }}>
+              {entry.value.charAt(0).toUpperCase() + entry.value.slice(1)}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   return (
     <div className={containerStyle(isDarkMode)}>
-      <div className={mergeStyles({ paddingTop: '0px', paddingBottom: '20px' })}>
+      <div className={mergeStyles({ width: '100%' })}>
         {!selectedEnquiry && (
-          <Stack tokens={{ childrenGap: 10 }}>
-            <RedesignedCombinedMenu
-              activeArea={selectedArea}
-              setActiveArea={setSelectedArea}
-              activeState={activeMainTab}
-              setActiveState={(key) => {
-                setActiveMainTab(key);
-                setCurrentPage(1);
-                setSelectedEnquiry(null);
-                setActiveSubTab('Overview');
-              }}
-              searchTerm={searchTerm}
-              setSearchTerm={setSearchTerm}
-              isSearchActive={isSearchActive}
-              setSearchActive={setSearchActive}
-            />
-          </Stack>
+          <RedesignedCombinedMenu
+            activeArea={selectedArea}
+            setActiveArea={setSelectedArea}
+            activeState={activeMainTab}
+            setActiveState={(key) => {
+              setActiveMainTab(key);
+              setCurrentPage(1);
+              setSelectedEnquiry(null);
+              setActiveSubTab('Overview');
+            }}
+            searchTerm={searchTerm}
+            setSearchTerm={setSearchTerm}
+            isSearchActive={isSearchActive}
+            setSearchActive={setSearchActive}
+          />
         )}
       </div>
+
       {!selectedEnquiry && !selectedArea && !activeMainTab && (
-        <div className={mergeStyles({ marginBottom: '20px' })}>
+        <Stack
+          tokens={{ childrenGap: 20 }}
+          styles={{
+            root: {
+              backgroundColor: isDarkMode ? colours.dark.sectionBackground : '#fff',
+              padding: '30px',
+              borderRadius: '12px',
+              boxShadow: isDarkMode
+                ? '0 4px 16px rgba(0, 0, 0, 0.6)'
+                : '0 4px 16px rgba(0, 0, 0, 0.1)',
+              marginBottom: '20px',
+              fontFamily: 'Raleway, sans-serif',
+            },
+          }}
+        >
           {isTeamDataLoading && (
             <MessageBar messageBarType={MessageBarType.info}>
               Loading team data...
@@ -888,108 +1012,161 @@ const Enquiries: React.FC<{
           {teamData && enquiriesCountPerMember.length > 0 && (
             <>
               <Stack
-                horizontal
-                tokens={{ childrenGap: 40 }}
-                wrap
-                className={mergeStyles({ marginBottom: '20px' })}
+                horizontalAlign="center"
+                tokens={{ childrenGap: 20 }}
+                style={{ marginBottom: '20px' }}
               >
-                <Stack tokens={{ childrenGap: 5 }} verticalAlign="start">
+                <Stack tokens={{ childrenGap: 5 }} verticalAlign="center" style={{ fontFamily: 'Raleway, sans-serif' }}>
                   <Text
-                    variant="medium"
+                    variant="mediumPlus"
                     styles={{
                       root: {
                         color: isDarkMode ? colours.dark.text : colours.light.text,
                         fontFamily: 'Raleway, sans-serif',
+                        fontWeight: 600,
                       },
                     }}
                   >
-                    Select Start Date:
+                    Select Date Range:
                   </Text>
                   <Slider
+                    range
                     min={0}
                     max={sortedValidEnquiries.length - 1}
-                    step={1}
-                    value={currentSliderStart}
+                    value={[currentSliderStart, currentSliderEnd]}
                     onChange={(value) => {
-                      if (value <= currentSliderEnd) {
-                        setCurrentSliderStart(value);
+                      if (Array.isArray(value)) {
+                        setCurrentSliderStart(value[0]);
+                        setCurrentSliderEnd(value[1]);
                       }
                     }}
-                    showValue={false}
-                    styles={{
-                      root: { width: '300px' },
-                      activeSection: { backgroundColor: colours.highlight },
-                      line: { backgroundColor: isDarkMode ? colours.dark.border : colours.inactiveTrackLight },
-                      thumb: { backgroundColor: colours.highlight },
+                    trackStyle={[{ backgroundColor: colours.highlight, height: 8 }]}
+                    handleStyle={[
+                      {
+                        backgroundColor: colours.highlight,
+                        borderColor: colours.highlight,
+                        height: 20,
+                        width: 20,
+                        marginLeft: -10,
+                        marginTop: -6,
+                      },
+                      {
+                        backgroundColor: colours.highlight,
+                        borderColor: colours.highlight,
+                        height: 20,
+                        width: 20,
+                        marginLeft: -10,
+                        marginTop: -6,
+                      },
+                    ]}
+                    railStyle={{
+                      backgroundColor: isDarkMode ? colours.dark.border : colours.inactiveTrackLight,
+                      height: 8,
                     }}
+                    style={{ width: 500, margin: '0 auto' }}
                   />
                   <Text
                     variant="small"
                     styles={{
                       root: {
                         color: isDarkMode ? colours.dark.text : colours.light.text,
+                        fontFamily: 'Raleway, sans-serif',
                       },
                     }}
                   >
                     {sortedValidEnquiries[currentSliderStart]?.Touchpoint_Date
                       ? format(parseISO(sortedValidEnquiries[currentSliderStart].Touchpoint_Date), 'dd MMM yyyy')
                       : ''}
-                  </Text>
-                </Stack>
-                <Stack tokens={{ childrenGap: 5 }} verticalAlign="start">
-                  <Text
-                    variant="medium"
-                    styles={{
-                      root: {
-                        color: isDarkMode ? colours.dark.text : colours.light.text,
-                        fontFamily: 'Raleway, sans-serif',
-                      },
-                    }}
-                  >
-                    Select End Date:
-                  </Text>
-                  <Slider
-                    min={0}
-                    max={sortedValidEnquiries.length - 1}
-                    step={1}
-                    value={currentSliderEnd}
-                    onChange={(value) => {
-                      if (value >= currentSliderStart) {
-                        setCurrentSliderEnd(value);
-                      }
-                    }}
-                    showValue={false}
-                    styles={{
-                      root: { width: '300px' },
-                      activeSection: { backgroundColor: colours.highlight },
-                      inactiveSection: { backgroundColor: isDarkMode ? colours.dark.border : colours.inactiveTrackLight },
-                      thumb: { backgroundColor: colours.highlight },
-                    }}
-                  />
-                  <Text
-                    variant="small"
-                    styles={{
-                      root: {
-                        color: isDarkMode ? colours.dark.text : colours.light.text,
-                      },
-                    }}
-                  >
+                    {' - '}
                     {sortedValidEnquiries[currentSliderEnd]?.Touchpoint_Date
                       ? format(parseISO(sortedValidEnquiries[currentSliderEnd].Touchpoint_Date), 'dd MMM yyyy')
                       : ''}
                   </Text>
                 </Stack>
               </Stack>
-              <Stack horizontal tokens={{ childrenGap: 20 }} wrap>
-                {enquiriesCountPerMember.map((member, index) => (
-                  <ScoreCard
-                    key={index}
-                    initials={member.initials}
-                    count={member.count}
-                    isDarkMode={isDarkMode}
+
+              <Stack
+                horizontal
+                horizontalAlign="stretch"
+                tokens={{ childrenGap: 20 }}
+                style={{ width: '100%', marginBottom: '20px' }}
+              >
+                {['Commercial', 'Property', 'Construction', 'Employment', 'Other/Unsure'].map((area) => (
+                  <AreaCountCard
+                    key={area}
+                    area={area}
+                    count={enquiriesCountPerArea[area]}
+                    monthlyCounts={monthlyEnquiryCounts.map((m) => ({
+                      month: m.month,
+                      count: getMonthlyCountByArea(m, area),
+                    }))}
+                    icon={getAreaIcon(area)}
+                    color={getAreaColor(area)}
+                    animationDelay={0.2}
                   />
                 ))}
               </Stack>
+
+              {['AC', 'JW', 'LZ'].includes(loggedInUserInitials) && enquiriesCountPerMember.length > 0 && (
+                <Stack
+                  horizontal
+                  horizontalAlign="start"
+                  wrap
+                  styles={{ root: { width: '100%' } }}
+                >
+                  {enquiriesCountPerMember.map((member, idx) => (
+                    <React.Fragment key={member.initials}>
+                      <Stack
+                        horizontalAlign="start"
+                        styles={{
+                          root: {
+                            margin: '0 10px 20px 0', // spacing around each card
+                            fontFamily: 'Raleway, sans-serif',
+                            minWidth: '80px', // give some minimum width
+                          },
+                        }}
+                      >
+                        <Text
+                          variant="xLarge"
+                          styles={{
+                            root: {
+                              fontWeight: 600,
+                              color: colours.highlight,
+                              fontFamily: 'Raleway, sans-serif',
+                            },
+                          }}
+                        >
+                          {member.count}
+                        </Text>
+                        <Text
+                          variant="small"
+                          styles={{
+                            root: {
+                              fontWeight: 400,
+                              marginTop: '4px',
+                              color: isDarkMode ? colours.dark.text : colours.light.text,
+                              fontFamily: 'Raleway, sans-serif',
+                            },
+                          }}
+                        >
+                          {member.initials}
+                        </Text>
+                      </Stack>
+                      {idx < enquiriesCountPerMember.length - 1 && (
+                        <div
+                          style={{
+                            width: '2px',
+                            backgroundColor: isDarkMode ? colours.dark.border : '#ccc',
+                            height: '45px',
+                            alignSelf: 'center',
+                            marginRight: '10px',
+                          }}
+                        />
+                      )}
+                    </React.Fragment>
+                  ))}
+                </Stack>
+              )}
             </>
           )}
           {teamData && enquiriesCountPerMember.length === 0 && (
@@ -1002,11 +1179,12 @@ const Enquiries: React.FC<{
                 },
               }}
             >
-              No enquiries found for any team member.
+              No results found for any team member.
             </Text>
           )}
-        </div>
+        </Stack>
       )}
+
       <div
         key={activeMainTab}
         className={mergeStyles({
@@ -1043,7 +1221,6 @@ const Enquiries: React.FC<{
                 margin={{ top: 20, right: 30, left: 20, bottom: 40 }}
                 style={{ fontFamily: 'Raleway, sans-serif' }}
               >
-                {/* Define the shadow filter */}
                 <defs>
                   <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
                     <feOffset result="offOut" in="SourceGraphic" dx="0" dy="4" />
@@ -1052,10 +1229,7 @@ const Enquiries: React.FC<{
                   </filter>
                 </defs>
 
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke={isDarkMode ? colours.dark.border : '#e0e0e0'}
-                />
+                <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? colours.dark.border : '#e0e0e0'} />
                 <XAxis
                   dataKey="month"
                   stroke={isDarkMode ? colours.dark.text : colours.light.text}
@@ -1085,10 +1259,7 @@ const Enquiries: React.FC<{
                   labelStyle={{ color: isDarkMode ? colours.dark.text : colours.light.text, fontFamily: 'Raleway, sans-serif' }}
                   itemStyle={{ color: isDarkMode ? colours.dark.text : colours.light.text, fontFamily: 'Raleway, sans-serif' }}
                 />
-                <Legend
-                  wrapperStyle={{ color: isDarkMode ? colours.dark.text : colours.light.text, fontFamily: 'Raleway, sans-serif' }}
-                />
-                {/* All bars are grey with borders to separate segments */}
+                <Legend content={renderCustomLegend} />
                 <Bar
                   dataKey="commercial"
                   fill={colours.grey}
@@ -1100,10 +1271,14 @@ const Enquiries: React.FC<{
                 >
                   <LabelList
                     dataKey="commercial"
-                    content={(props) => {
-                      const { value, ...rest } = props;
-                      return <CustomLabel {...rest} value={typeof value === 'number' ? value : undefined} isDarkMode={isDarkMode} dataKey="commercial" />;
-                    }}
+                    content={(props) => (
+                      <CustomLabel
+                        {...props}
+                        value={typeof props.value === 'number' ? props.value : undefined}
+                        isDarkMode={isDarkMode}
+                        dataKey="commercial"
+                      />
+                    )}
                   />
                 </Bar>
                 <Bar
@@ -1117,10 +1292,14 @@ const Enquiries: React.FC<{
                 >
                   <LabelList
                     dataKey="property"
-                    content={(props) => {
-                      const { value, ...rest } = props;
-                      return <CustomLabel {...rest} value={typeof value === 'number' ? value : undefined} isDarkMode={isDarkMode} dataKey="property" />;
-                    }}
+                    content={(props) => (
+                      <CustomLabel
+                        {...props}
+                        value={typeof props.value === 'number' ? props.value : undefined}
+                        isDarkMode={isDarkMode}
+                        dataKey="property"
+                      />
+                    )}
                   />
                 </Bar>
                 <Bar
@@ -1134,10 +1313,14 @@ const Enquiries: React.FC<{
                 >
                   <LabelList
                     dataKey="construction"
-                    content={(props) => {
-                      const { value, ...rest } = props;
-                      return <CustomLabel {...rest} value={typeof value === 'number' ? value : undefined} isDarkMode={isDarkMode} dataKey="construction" />;
-                    }}
+                    content={(props) => (
+                      <CustomLabel
+                        {...props}
+                        value={typeof props.value === 'number' ? props.value : undefined}
+                        isDarkMode={isDarkMode}
+                        dataKey="construction"
+                      />
+                    )}
                   />
                 </Bar>
                 <Bar
@@ -1151,10 +1334,35 @@ const Enquiries: React.FC<{
                 >
                   <LabelList
                     dataKey="employment"
-                    content={(props) => {
-                      const { value, ...rest } = props;
-                      return <CustomLabel {...rest} value={typeof value === 'number' ? value : undefined} isDarkMode={isDarkMode} dataKey="employment" />;
-                    }}
+                    content={(props) => (
+                      <CustomLabel
+                        {...props}
+                        value={typeof props.value === 'number' ? props.value : undefined}
+                        isDarkMode={isDarkMode}
+                        dataKey="employment"
+                      />
+                    )}
+                  />
+                </Bar>
+                <Bar
+                  dataKey="otherUnsure"
+                  fill={colours.grey}
+                  stackId="a"
+                  animationDuration={1500}
+                  animationEasing="ease-out"
+                  stroke={isDarkMode ? colours.dark.grey : colours.greyText}
+                  strokeWidth={1}
+                >
+                  <LabelList
+                    dataKey="otherUnsure"
+                    content={(props) => (
+                      <CustomLabel
+                        {...props}
+                        value={typeof props.value === 'number' ? props.value : undefined}
+                        isDarkMode={isDarkMode}
+                        dataKey="otherUnsure"
+                      />
+                    )}
                   />
                 </Bar>
               </BarChart>
@@ -1174,7 +1382,7 @@ const Enquiries: React.FC<{
                   },
                 }}
               >
-                No enquiries found matching your criteria.
+                No results found matching your criteria.
               </Text>
             ) : (
               <>
@@ -1215,6 +1423,7 @@ const Enquiries: React.FC<{
           </>
         )}
       </div>
+
       <div className={footerStyle(isDarkMode)}>
         <Text>
           <Link
@@ -1258,6 +1467,7 @@ const Enquiries: React.FC<{
           Second Floor, Britannia House, 21 Station Street, Brighton, BN1 4DE
         </Text>
       </div>
+
       {isSuccessVisible && (
         <MessageBar
           messageBarType={MessageBarType.success}
@@ -1279,6 +1489,7 @@ const Enquiries: React.FC<{
           Rating submitted successfully!
         </MessageBar>
       )}
+
       <Modal
         isOpen={isRateModalOpen}
         onDismiss={closeRateModal}
@@ -1292,7 +1503,7 @@ const Enquiries: React.FC<{
           fontFamily: 'Raleway, sans-serif',
         })}
         styles={{ main: { maxWidth: '600px', margin: 'auto' } }}
-        aria-labelledby="rate-enquiry-modal"
+        aria-labelledby="rate-modal"
       >
         <Stack tokens={{ childrenGap: 20 }}>
           <Text
@@ -1305,7 +1516,7 @@ const Enquiries: React.FC<{
               },
             }}
           >
-            Rate Enquiry
+            Rate
           </Text>
           <Text
             variant="medium"
@@ -1316,37 +1527,44 @@ const Enquiries: React.FC<{
               },
             }}
           >
-            Please select a rating for this enquiry:
+            Please select a rating:
           </Text>
           {renderRatingOptions()}
           <Stack horizontal tokens={{ childrenGap: 15 }} horizontalAlign="end">
-            <PrimaryButton text="Submit" onClick={submitRating} disabled={!currentRating} />
-            <DefaultButton text="Cancel" onClick={closeRateModal} />
+            <PrimaryButton
+              text="Submit"
+              onClick={submitRating}
+              disabled={!currentRating}
+              styles={{ root: { fontFamily: 'Raleway, sans-serif' } }}
+            />
+            <DefaultButton text="Cancel" onClick={closeRateModal} styles={{ root: { fontFamily: 'Raleway, sans-serif' } }} />
           </Stack>
         </Stack>
       </Modal>
     </div>
   );
 
-  function containerStyle(isDarkMode: boolean) {
+  function containerStyle(dark: boolean) {
     return mergeStyles({
+      width: '100%',
       padding: '20px',
-      backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
+      backgroundColor: dark ? colours.dark.background : colours.light.background,
       minHeight: '100vh',
       fontFamily: 'Raleway, sans-serif',
       paddingBottom: '100px',
     });
   }
 
-  function footerStyle(isDarkMode: boolean) {
+  function footerStyle(dark: boolean) {
     return mergeStyles({
       padding: '20px',
-      backgroundColor: isDarkMode ? colours.dark.footerBackground : colours.light.footerBackground,
+      backgroundColor: dark ? colours.dark.footerBackground : colours.light.footerBackground,
       textAlign: 'center',
-      borderTop: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+      borderTop: `1px solid ${dark ? colours.dark.border : colours.light.border}`,
       position: 'fixed',
       bottom: 0,
       width: '100%',
+      fontFamily: 'Raleway, sans-serif',
     });
   }
 };
