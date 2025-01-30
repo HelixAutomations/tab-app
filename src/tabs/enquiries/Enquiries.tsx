@@ -1,6 +1,6 @@
 // D:/helix projects/workspace/tab apps/helix hub v1/src/tabs/enquiries/Enquiries.tsx
 
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   Stack,
   Text,
@@ -174,27 +174,27 @@ const RedesignedCombinedMenu: React.FC<RedesignedCombinedMenuProps> = ({
     border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
     color: isDarkMode ? colours.dark.text : colours.light.text,
     fontFamily: 'Raleway, sans-serif',
-  
+
     selectors: {
       ':hover': {
-        backgroundColor: `${colours.light.subText}20`, // ✅ Light blue as per Area of Work buttons
+        backgroundColor: `${colours.light.subText}20`,
         color: isDarkMode ? colours.dark.text : colours.light.text,
       },
       ':active, :active span': {
-        backgroundColor: colours.blue,  // ✅ Pressed state uses full "blue" color
-        color: '#ffffff !important',    // ✅ Force white text on button and text inside it
+        backgroundColor: colours.blue,
+        color: '#ffffff !important',
       },
     },
   });
   
   const activeStateButton = mergeStyles({
-    backgroundColor: colours.highlight, // ✅ Uses highlight for selected
-    color: '#ffffff !important',        // ✅ Force white text
+    backgroundColor: colours.highlight,
+    color: '#ffffff !important',
     border: 'none',
-  
+
     selectors: {
       'span': {
-        color: '#ffffff !important',   // ✅ Ensure text inside button turns white
+        color: '#ffffff !important',
       },
     },
   });
@@ -401,8 +401,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const { isDarkMode } = useTheme();
   const [selectedEnquiry, setSelectedEnquiry] = useState<Enquiry | null>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
-  const [currentPage, setCurrentPage] = useState<number>(1);
-  const enquiriesPerPage = 12;
+  // Removed pagination states
+  // const [currentPage, setCurrentPage] = useState<number>(1);
+  // const enquiriesPerPage = 12;
 
   const [isRateModalOpen, setIsRateModalOpen] = useState<boolean>(false);
   const [currentRating, setCurrentRating] = useState<string>('');
@@ -419,6 +420,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   const [currentSliderStart, setCurrentSliderStart] = useState<number>(0);
   const [currentSliderEnd, setCurrentSliderEnd] = useState<number>(0);
+
+  // Added for infinite scroll
+  const [itemsToShow, setItemsToShow] = useState<number>(20);
+  const loader = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (localEnquiries.length > 0) {
@@ -445,7 +450,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     return [...localEnquiries].sort((a, b) => {
       const dateA = parseISO(a.Touchpoint_Date || '');
       const dateB = parseISO(b.Touchpoint_Date || '');
-      return dateB.getTime() - dateA.getTime();
+      return dateA.getTime() - dateB.getTime();
     });
   }, [localEnquiries]);
 
@@ -691,18 +696,50 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     selectedArea,
   ]);
 
-  const indexOfLastEnquiry = currentPage * enquiriesPerPage;
-  const indexOfFirstEnquiry = indexOfLastEnquiry - enquiriesPerPage;
-  const currentEnquiries = useMemo(
-    () => filteredEnquiries.slice(indexOfFirstEnquiry, indexOfLastEnquiry),
-    [filteredEnquiries, indexOfFirstEnquiry, indexOfLastEnquiry]
-  );
-  const totalPages = Math.ceil(filteredEnquiries.length / enquiriesPerPage);
+  // Removed pagination logic
+  // const indexOfLastEnquiry = currentPage * enquiriesPerPage;
+  // const indexOfFirstEnquiry = indexOfLastEnquiry - enquiriesPerPage;
+  // const currentEnquiries = useMemo(
+  //   () => filteredEnquiries.slice(indexOfFirstEnquiry, indexOfLastEnquiry),
+  //   [filteredEnquiries, indexOfFirstEnquiry, indexOfLastEnquiry]
+  // );
+  // const totalPages = Math.ceil(filteredEnquiries.length / enquiriesPerPage);
 
-  const handlePageChange = useCallback((page: number) => {
-    setCurrentPage(page);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, []);
+  // Added for infinite scroll
+  const displayedEnquiries = useMemo(() => filteredEnquiries.slice(0, itemsToShow), [filteredEnquiries, itemsToShow]);
+
+  const handleLoadMore = useCallback(() => {
+    setItemsToShow((prev) => Math.min(prev + 20, filteredEnquiries.length));
+  }, [filteredEnquiries.length]);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setItemsToShow((prev) => Math.min(prev + 20, filteredEnquiries.length));
+        }
+      },
+      {
+        root: null,
+        rootMargin: '200px', // Increased margin to trigger earlier
+        threshold: 0.1, // Trigger as soon as the loader is slightly visible
+      }
+    );
+  
+    // Delay observer setup slightly to allow state updates
+    const timeoutId = setTimeout(() => {
+      if (loader.current) {
+        observer.observe(loader.current);
+      }
+    }, 100); // Small delay ensures `filteredEnquiries` is set before attaching
+  
+    return () => {
+      clearTimeout(timeoutId);
+      if (loader.current) {
+        observer.unobserve(loader.current);
+      }
+    };
+  }, [filteredEnquiries, itemsToShow]);
 
   const ratingOptions = [
     {
@@ -1008,9 +1045,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             activeState={activeMainTab}
             setActiveState={(key) => {
               setActiveMainTab(key);
-              setCurrentPage(1);
-              setSelectedEnquiry(null);
               setActiveSubTab('Overview');
+              setItemsToShow(20); // Reset to initial batch
+            
+              // Ensure Intersection Observer starts fresh
+              setTimeout(() => {
+                setItemsToShow((prev) => Math.min(prev + 40, filteredEnquiries.length)); // Ensure enough items are loaded
+              }, 200);
             }}
             searchTerm={searchTerm}
             setSearchTerm={setSearchTerm}
@@ -1434,7 +1475,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                     },
                   })}
                 >
-                  {currentEnquiries.map((enquiry, index) => {
+                  {displayedEnquiries.map((enquiry, index) => {
                     const row = Math.floor(index / 4);
                     const col = index % 4;
                     const animationDelay = calculateAnimationDelay(row, col);
@@ -1445,18 +1486,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                         onSelect={handleSelectEnquiry}
                         onRate={handleRate}
                         animationDelay={animationDelay}
-                        teamData={teamData}  // ✅ Pass teamData here
+                        teamData={teamData}
                       />
                     );
                   })}
                 </div>
-                {totalPages > 1 && (
-                  <CustomPagination
-                    currentPage={currentPage}
-                    totalPages={totalPages}
-                    onPageChange={handlePageChange}
-                  />
-                )}
+                <div ref={loader} />
               </>
             )}
           </>
