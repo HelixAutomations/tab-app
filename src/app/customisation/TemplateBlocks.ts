@@ -159,7 +159,7 @@ export const templateBlocks: TemplateBlock[] = [
                 "<div>Barclays Bank</div>" +
                 "<div>Account Number: 93472434</div>" +
                 "<div>Sort Code: 20-27-91</div>" +
-                "<div>Reference: FE [NAME] // [ACID]</div>" +
+                "<div>Reference: [FE] - [ACID]</div>" +
                 "</div>" +
                 "</li>" +
 

@@ -706,7 +706,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // const totalPages = Math.ceil(filteredEnquiries.length / enquiriesPerPage);
 
   // Added for infinite scroll
-  const displayedEnquiries = useMemo(() => filteredEnquiries.slice(0, itemsToShow), [filteredEnquiries, itemsToShow]);
+  const displayedEnquiries = useMemo(() => {
+          return [...filteredEnquiries].reverse().slice(0, itemsToShow);
+    }, [filteredEnquiries, itemsToShow]);
 
   const handleLoadMore = useCallback(() => {
     setItemsToShow((prev) => Math.min(prev + 20, filteredEnquiries.length));

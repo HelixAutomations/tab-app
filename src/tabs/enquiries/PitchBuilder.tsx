@@ -205,6 +205,22 @@ function replacePlaceholders(
     );
 }
 
+/**
+ * Helper function to replace [FE] and [ACID] with dynamic values.
+ */
+function applyDynamicSubstitutions(
+  text: string,
+  userData: any,
+  enquiry: Enquiry
+): string {
+  const userInitials = userData?.[0]?.['Initials'] || 'XX';
+  const enquiryID = enquiry?.ID || '0000';
+
+  return text
+    .replace(/\[FE\]/g, userInitials)
+    .replace(/\[ACID\]/g, enquiryID);
+}
+
 const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
   const { isDarkMode } = useTheme();
 
@@ -391,6 +407,9 @@ Kind Regards,<br>
       // Convert newlines to <br>
       replacementText = replacementText.replace(/\n/g, '<br />');
     }
+
+    // **Apply dynamic substitutions for [FE] and [ACID]**
+    replacementText = applyDynamicSubstitutions(replacementText, userData, enquiry);
 
     // Highlight the inserted block
     const highlightedReplacement = `<span style="background-color: ${
