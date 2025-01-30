@@ -672,11 +672,11 @@ const Roadmap: React.FC<RoadmapProps> = ({ userData }) => {
     groupsArray.push(['Add Suggestion', []]);
 
     const orderMapping: { [key: string]: number } = {
-      'Recently Completed': 1,
-      'In Progress': 2,
-      'Next': 3,
-      'Suggested': 4,
-      'Add Suggestion': 5,
+      'In Progress': 1,
+      'Next': 2,
+      'Suggested': 3,
+      'Add Suggestion': 4,
+      'Recently Completed': 5, // Moved to the bottom by assigning the highest order
     };
 
     // Sort groups based on predefined order
