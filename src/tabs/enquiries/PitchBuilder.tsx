@@ -252,8 +252,10 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
 
 [Google Review Placeholder]
 
+Kind Regards,<br>
+
 [First Name]<br>
-<br>
+
 [Full Name]<br>
 [Position]`;
 
