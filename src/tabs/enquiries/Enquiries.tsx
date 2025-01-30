@@ -507,7 +507,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     });
 
     const sortedMonths = Object.keys(counts).sort(
-      (a, b) => new Date(b).getTime() - new Date(a).getTime()
+      (a, b) => new Date(a).getTime() - new Date(b).getTime()
     );
     return sortedMonths.map((m) => counts[m]);
   }, [enquiriesInSliderRange]);
