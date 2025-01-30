@@ -1,19 +1,66 @@
 /* src/app/styles/EnquiryCard.css */
 
+/* Animation */
 @keyframes dropIn {
-    from {
-      transform: translateY(-20px);
-      opacity: 0;
-    }
-    to {
-      transform: translateY(0);
-      opacity: 1;
-    }
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
   }
-  
-  .enquiryCard {
-    opacity: 0; /* Initially invisible */
-    animation: dropIn 0.3s ease forwards;
-    animation-delay: var(--animation-delay, 0s);
+  to {
+    transform: translateY(0);
+    opacity: 1;
   }
-  
+}
+
+.enquiryCard {
+  opacity: 0; /* Initially invisible */
+  animation: dropIn 0.3s ease forwards;
+  animation-delay: var(--animation-delay, 0s);
+}
+
+/* MAIN AREA BACKGROUND IMAGES */
+
+/*
+  - "claimedBg" => check.png @ 15% opacity, grayscale, 80px width (smaller)
+  - "unclaimedBg" => grey helix mark @ 100% (full) opacity, 175px width (bigger, pushed further right)
+*/
+
+.mainArea {
+  position: relative;
+}
+
+/* Use ::before to display the background image on the main area */
+.mainArea::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0; /* Default right alignment */
+  bottom: 0;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Claimed (Smaller) */
+.mainArea.claimedBg::before {
+  background-image: url("D:\\helix projects\\workspace\\tab apps\\helix hub v1\\src\\assets\\check.png");
+  opacity: 0.15; /* 15% opacity */
+  filter: grayscale(100%); /* Make it greyscale */
+  width: 80px; /* Smaller */
+}
+
+/* Unclaimed (Bigger & More to the Right) */
+.mainArea.unclaimedBg::before {
+  background-image: url("D:\\helix projects\\workspace\\tab apps\\helix hub v1\\src\\assets\\grey helix mark.png");
+  opacity: 1.0; /* Full opacity */
+  width: 150px; /* Bigger */
+  right: -35px; /* Move further right */
+}
+
+/* Ensure the content is above the pseudo-element */
+.mainArea > * {
+  position: relative;
+  z-index: 1;
+}

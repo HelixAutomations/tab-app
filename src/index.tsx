@@ -7,7 +7,7 @@ import App from './app/App';
 import { createTheme, ThemeProvider } from '@fluentui/react';
 import { colours } from './app/styles/colours';
 import * as microsoftTeams from '@microsoft/teams-js';
-import { Matter, UserData, Enquiry } from './app/functionality/types';
+import { Matter, UserData, Enquiry, TeamData } from './app/functionality/types';
 
 // Define the custom Fluent UI theme
 const customTheme = createTheme({
@@ -31,22 +31,11 @@ const customTheme = createTheme({
 // Helper function to calculate the date range (6 months)
 const getDateRange = () => {
   const now = new Date();
-
-  // Calculate 6 months ago from the current month
-  const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, 1); // Subtract 6 months
-
-  // Ensure the start date is the 1st of the month
+  const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, 1);
   const startDate = new Date(sixMonthsAgo.getFullYear(), sixMonthsAgo.getMonth(), 1);
-
-  // Today's date remains as the end date
   const endDate = now;
-
-  // Format dates to YYYY-MM-DD
   const formattedStartDate = startDate.toISOString().split('T')[0];
   const formattedEndDate = endDate.toISOString().split('T')[0];
-
-  console.log('Calculated Date Range:', { formattedStartDate, formattedEndDate }); // Temporary log for verification
-
   return {
     dateFrom: formattedStartDate,
     dateTo: formattedEndDate,
@@ -54,7 +43,7 @@ const getDateRange = () => {
 };
 
 // Fetch functions
-const fetchUserData = async (objectId: string): Promise<UserData[]> => {
+async function fetchUserData(objectId: string): Promise<UserData[]> {
   const response = await fetch(
     `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_USER_DATA_PATH}?code=${process.env.REACT_APP_GET_USER_DATA_CODE}`,
     {
@@ -65,9 +54,9 @@ const fetchUserData = async (objectId: string): Promise<UserData[]> => {
   );
   if (!response.ok) throw new Error(`Failed to fetch user data: ${response.status}`);
   return response.json();
-};
+}
 
-const fetchEnquiries = async (email: string, dateFrom: string, dateTo: string): Promise<Enquiry[]> => {
+async function fetchEnquiries(email: string, dateFrom: string, dateTo: string): Promise<Enquiry[]> {
   const response = await fetch(
     `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_ENQUIRIES_PATH}?code=${process.env.REACT_APP_GET_ENQUIRIES_CODE}`,
     {
@@ -78,9 +67,9 @@ const fetchEnquiries = async (email: string, dateFrom: string, dateTo: string): 
   );
   if (!response.ok) throw new Error(`Failed to fetch enquiries: ${response.status}`);
   return response.json();
-};
+}
 
-const fetchMatters = async (fullName: string): Promise<Matter[]> => {
+async function fetchMatters(fullName: string): Promise<Matter[]> {
   const response = await fetch(
     `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_MATTERS_PATH}?code=${process.env.REACT_APP_GET_MATTERS_CODE}`,
     {
@@ -91,34 +80,34 @@ const fetchMatters = async (fullName: string): Promise<Matter[]> => {
   );
   if (!response.ok) throw new Error(`Failed to fetch matters: ${response.status}`);
   const data = await response.json();
-  
+
   const mapData = (items: any[]): Matter[] => {
     return items.map((item) => ({
-      DisplayNumber: item["Display Number"] || '',
-      OpenDate: item["Open Date"] || '',
-      MonthYear: item["MonthYear"] || '',
-      YearMonthNumeric: item["YearMonthNumeric"] || 0,
-      ClientID: item["Client ID"] || '',
-      ClientName: item["Client Name"] || '',
-      ClientPhone: item["Client Phone"] || '',
-      ClientEmail: item["Client Email"] || '',
-      Status: item["Status"] || '',
-      UniqueID: item["Unique ID"] || '',
-      Description: item["Description"] || '',
-      PracticeArea: item["Practice Area"] || '',
-      Source: item["Source"] || '',
-      Referrer: item["Referrer"] || '',
-      ResponsibleSolicitor: item["Responsible Solicitor"] || '',
-      OriginatingSolicitor: item["Originating Solicitor"] || '',
-      SupervisingPartner: item["Supervising Partner"] || '',
-      Opponent: item["Opponent"] || '',
-      OpponentSolicitor: item["Opponent Solicitor"] || '',
-      CloseDate: item["Close Date"] || '',
-      ApproxValue: item["Approx. Value"] || '',
-      mod_stamp: item["mod_stamp"] || '',
-      method_of_contact: item["method_of_contact"] || '',
-      CCL_date: item["CCL_date"] || null,
-      Rating: item["Rating"] as 'Good' | 'Neutral' | 'Poor' | undefined,
+      DisplayNumber: item['Display Number'] || '',
+      OpenDate: item['Open Date'] || '',
+      MonthYear: item['MonthYear'] || '',
+      YearMonthNumeric: item['YearMonthNumeric'] || 0,
+      ClientID: item['Client ID'] || '',
+      ClientName: item['Client Name'] || '',
+      ClientPhone: item['Client Phone'] || '',
+      ClientEmail: item['Client Email'] || '',
+      Status: item['Status'] || '',
+      UniqueID: item['Unique ID'] || '',
+      Description: item['Description'] || '',
+      PracticeArea: item['Practice Area'] || '',
+      Source: item['Source'] || '',
+      Referrer: item['Referrer'] || '',
+      ResponsibleSolicitor: item['Responsible Solicitor'] || '',
+      OriginatingSolicitor: item['Originating Solicitor'] || '',
+      SupervisingPartner: item['Supervising Partner'] || '',
+      Opponent: item['Opponent'] || '',
+      OpponentSolicitor: item['Opponent Solicitor'] || '',
+      CloseDate: item['Close Date'] || '',
+      ApproxValue: item['Approx. Value'] || '',
+      mod_stamp: item['mod_stamp'] || '',
+      method_of_contact: item['method_of_contact'] || '',
+      CCL_date: item['CCL_date'] || null,
+      Rating: item['Rating'] as 'Good' | 'Neutral' | 'Poor' | undefined,
     }));
   };
 
@@ -131,9 +120,28 @@ const fetchMatters = async (fullName: string): Promise<Matter[]> => {
   } else {
     console.warn('Unexpected data format:', data);
   }
-
   return fetchedMatters;
-};
+}
+
+async function fetchTeamData(): Promise<TeamData[] | null> {
+  try {
+    const response = await fetch(
+      `${process.env.REACT_APP_PROXY_BASE_URL}/getTeamData?code=${process.env.REACT_APP_GET_TEAM_DATA_CODE}`,
+      {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to fetch team data: ${response.statusText}`);
+    }
+    const data: TeamData[] = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error fetching team data:', error);
+    return null;
+  }
+}
 
 // Main component
 const AppWithContext: React.FC = () => {
@@ -141,14 +149,13 @@ const AppWithContext: React.FC = () => {
   const [userData, setUserData] = useState<UserData[] | null>(null);
   const [enquiries, setEnquiries] = useState<Enquiry[] | null>(null);
   const [matters, setMatters] = useState<Matter[] | null>(null);
+  const [teamData, setTeamData] = useState<TeamData[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [fetchMattersError, setFetchMattersError] = useState<string | null>(null);
 
   useEffect(() => {
     const initializeTeamsAndFetchData = async () => {
       try {
-        // Initialize Teams SDK and fetch context
         microsoftTeams.initialize();
         microsoftTeams.getContext(async (ctx) => {
           setTeamsContext(ctx);
@@ -158,23 +165,28 @@ const AppWithContext: React.FC = () => {
 
           const { dateFrom, dateTo } = getDateRange();
 
-          // Fetch user data
-          const userDataResponse = await fetchUserData(objectId);
-          setUserData(userDataResponse);
+          // 1. Fetch user data first to get full name
+          const userDataRes = await fetchUserData(objectId);
+          setUserData(userDataRes);
 
-          // Fetch enquiries
-          const enquiriesResponse = await fetchEnquiries('anyone', dateFrom, dateTo);
-          setEnquiries(enquiriesResponse);
+          const fullName = `${userDataRes[0]?.First} ${userDataRes[0]?.Last}`.trim() || '';
 
-          // Fetch matters (using full name from user data if available)
-          const fullName = `${userDataResponse[0]?.First} ${userDataResponse[0]?.Last}`;
-          const mattersResponse = await fetchMatters(fullName);
-          setMatters(mattersResponse);
+          // 2. In parallel, fetch enquiries, matters, and team data
+          const [enquiriesRes, mattersRes, teamDataRes] = await Promise.all([
+            fetchEnquiries('anyone', dateFrom, dateTo),
+            fetchMatters(fullName),
+            fetchTeamData(),
+          ]);
+
+          setEnquiries(enquiriesRes);
+          setMatters(mattersRes);
+          setTeamData(teamDataRes);
+
+          setLoading(false);
         });
-      } catch (error: any) {
-        console.error('Error initializing or fetching data:', error);
-        setError(error.message || 'Unknown error occurred.');
-      } finally {
+      } catch (err: any) {
+        console.error('Error initializing or fetching data:', err);
+        setError(err.message || 'Unknown error occurred.');
         setLoading(false);
       }
     };
@@ -191,11 +203,11 @@ const AppWithContext: React.FC = () => {
       fetchMatters={fetchMatters}
       isLoading={loading}
       error={error}
+      teamData={teamData}
     />
   );
 };
 
-// Render the app
 ReactDOM.render(
   <React.StrictMode>
     <ThemeProvider theme={customTheme}>

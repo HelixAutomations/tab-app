@@ -10,12 +10,36 @@ import {
   IButtonStyles,
 } from '@fluentui/react';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
-import { Enquiry } from '../../app/functionality/types'; // Correct import
+import { Enquiry } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
 import RatingIndicator from './RatingIndicator';
 import { cleanNotes } from '../../app/functionality/textUtils';
-import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme
-import '../../app/styles/EnquiryCard.css'; // Import the CSS file
+import { useTheme } from '../../app/functionality/ThemeContext';
+import '../../app/styles/EnquiryCard.css';
+
+interface TeamData {
+  'Created Date'?: string;
+  'Created Time'?: string;
+  'Full Name'?: string;
+  'Last'?: string;
+  'First'?: string;
+  'Nickname'?: string;
+  'Initials'?: string;
+  'Email'?: string;
+  'Entra ID'?: string;
+  'Clio ID'?: string;
+  'Rate'?: number;
+  'Role'?: string;
+  'AOW'?: string;
+}
+
+interface EnquiryCardProps {
+  enquiry: Enquiry;
+  onSelect: (enquiry: Enquiry) => void;
+  onRate: (enquiryId: string) => void;
+  animationDelay?: number;
+  teamData?: TeamData[] | null;
+}
 
 const iconButtonStyles = (iconColor: string): IButtonStyles => ({
   root: {
@@ -46,9 +70,7 @@ const iconButtonStyles = (iconColor: string): IButtonStyles => ({
 });
 
 const leftBorderColor = (areaOfWork: string) => {
-  // Normalize the input to lowercase
-  const normalizedArea = areaOfWork?.toLowerCase(); // Handle null/undefined safely
-
+  const normalizedArea = areaOfWork?.toLowerCase();
   switch (normalizedArea) {
     case 'commercial':
       return colours.blue;
@@ -59,11 +81,10 @@ const leftBorderColor = (areaOfWork: string) => {
     case 'employment':
       return colours.yellow;
     default:
-      return colours.cta; // Default colour
+      return colours.cta;
   }
 };
 
-// Updated separator style to ensure it's not affected by content size
 const separatorStyle = (isDarkMode: boolean) =>
   mergeStyles({
     width: '1px',
@@ -76,8 +97,8 @@ const cardStyle = (isDarkMode: boolean, areaOfWork: string) =>
   mergeStyles({
     display: 'flex',
     flexDirection: 'column',
-    justifyContent: 'space-between', // Ensure proper spacing between sections
-    height: 'auto', // Allow content to adjust within the card
+    justifyContent: 'space-between',
+    height: 'auto',
     padding: '20px',
     backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
     color: isDarkMode ? colours.dark.text : colours.light.text,
@@ -95,25 +116,17 @@ const cardStyle = (isDarkMode: boolean, areaOfWork: string) =>
         : '0 4px 16px rgba(0,0,0,0.2)',
       backgroundColor: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
     },
-    overflow: 'hidden', // Prevent overflow from breaking layout
+    overflow: 'hidden',
   });
 
-// New style for truncated text (3-4 lines)
 const truncatedTextStyle = mergeStyles({
   display: '-webkit-box',
-  WebkitLineClamp: 3, // Limit to 3 lines
+  WebkitLineClamp: 3,
   WebkitBoxOrient: 'vertical',
   overflow: 'hidden',
-  textOverflow: 'ellipsis', // Add ellipsis
-  whiteSpace: 'normal', // Ensure wrapping works for multiple lines
+  textOverflow: 'ellipsis',
+  whiteSpace: 'normal',
 });
-
-interface EnquiryCardProps {
-  enquiry: Enquiry;
-  onSelect: (enquiry: Enquiry) => void;
-  onRate: (enquiryId: string) => void;
-  animationDelay?: number; // Add this prop
-}
 
 const formatCurrency = (value: string): string => {
   const regex = /(?:£)?(\d{1,3}(?:,\d{3})*)(?: to £?(\d{1,3}(?:,\d{3})*))?/;
@@ -124,27 +137,58 @@ const formatCurrency = (value: string): string => {
     .slice(1)
     .filter(Boolean)
     .map((num) =>
-      num.includes("£")
-        ? num.replace(/(\d)(?=(\d{3})+(?!\d))/g, "$1,")
+      num.includes('£')
+        ? num.replace(/(\d)(?=(\d{3})+(?!\d))/g, '$1,')
         : `£${parseInt(num.replace(/,/g, ''), 10).toLocaleString()}`
     )
-    .join(" to ");
+    .join(' to ');
 };
 
-const EnquiryCard: React.FC<EnquiryCardProps> = ({ enquiry, onSelect, onRate, animationDelay = 0 }) => {
-  const { isDarkMode } = useTheme(); // Access isDarkMode from Theme Context
+const EnquiryCard: React.FC<EnquiryCardProps> = ({
+  enquiry,
+  onSelect,
+  onRate,
+  animationDelay = 0,
+  teamData,
+}) => {
+  const { isDarkMode } = useTheme();
+
+  // Check if claimed
+  const lowerPOC = enquiry.Point_of_Contact?.toLowerCase() || '';
+  const isClaimed =
+    lowerPOC &&
+    ![
+      'team@helix-law.com',
+      'property@helix-law.com',
+      'commercial@helix-law.com',
+      'construction@helix-law.com',
+      'employment@helix-law.com',
+      'automations@helix-law.com',
+    ].includes(lowerPOC);
+
+  // Get claimer info
+  const claimer = isClaimed
+    ? teamData?.find((t) => t.Email?.toLowerCase() === lowerPOC)
+    : undefined;
+  const claimerInitials = claimer?.Initials || '';
 
   const handleCardClick = () => {
     onSelect(enquiry);
   };
 
+  // Basic info to display
   const enquiryDetailsTop = [
     { label: 'Value', value: formatCurrency(enquiry.Value || 'N/A') },
     { label: 'Initial Notes', value: enquiry.Initial_first_call_notes || 'N/A' },
   ];
 
   const enquiryDetailsBottom = [
-    { label: '', value: new Date(enquiry.Touchpoint_Date).toLocaleDateString() },
+    {
+      label: '',
+      value: enquiry.Touchpoint_Date
+        ? new Date(enquiry.Touchpoint_Date).toLocaleDateString()
+        : '',
+    },
     { label: '', value: enquiry.ID },
   ];
 
@@ -162,124 +206,139 @@ const EnquiryCard: React.FC<EnquiryCardProps> = ({ enquiry, onSelect, onRate, an
       }}
       aria-label={`View details for enquiry ${enquiry.ID}`}
     >
-      <Stack horizontal tokens={{ childrenGap: 20 }} verticalAlign="stretch" styles={{ root: { flexGrow: 1 } }}>
-        {/* Left Side: Main Content */}
-        <Stack tokens={{ childrenGap: 8 }} styles={{ root: { flex: 1, paddingRight: '10px' } }}>
-          {/* Prospect Name and Company with Icon */}
-          <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
-            <Icon
-              iconName="Contact"
-              styles={{
-                root: {
-                  fontSize: 20,
-                  color: isDarkMode ? colours.dark.text : colours.light.text,
-                },
-              }}
-            />
-            <Text
-              variant="mediumPlus"
-              styles={{
-                root: {
-                  fontWeight: 'bold',
-                  color: isDarkMode ? colours.dark.text : colours.light.text,
-                  cursor: 'pointer',
-                },
-              }}
-            >
-              {`${enquiry.First_Name} ${enquiry.Last_Name}`}
-            </Text>
-            {enquiry.Company && (
+      <Stack
+        horizontal
+        tokens={{ childrenGap: 20 }}
+        verticalAlign="stretch"
+        styles={{ root: { flexGrow: 1 } }}
+      >
+        {/* LEFT (MAIN) AREA */}
+        <div
+          className={`mainArea ${isClaimed ? 'claimedBg' : 'unclaimedBg'}`}
+          style={{ position: 'relative', flex: 1 }}
+        >
+          <Stack
+            tokens={{ childrenGap: 8 }}
+            styles={{ root: { flex: 1, paddingRight: '10px' } }}
+          >
+            {/* Prospect Name and Company with Icon */}
+            <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
+              <Icon
+                iconName="Contact"
+                styles={{
+                  root: {
+                    fontSize: 20,
+                    color: isDarkMode ? colours.dark.text : colours.light.text,
+                  },
+                }}
+              />
               <Text
                 variant="mediumPlus"
                 styles={{
                   root: {
-                    fontWeight: 'normal',
+                    fontWeight: 'bold',
                     color: isDarkMode ? colours.dark.text : colours.light.text,
+                    cursor: 'pointer',
                   },
                 }}
               >
-                - {enquiry.Company}
+                {`${enquiry.First_Name} ${enquiry.Last_Name}`}
               </Text>
-            )}
-          </Stack>
+              {enquiry.Company && (
+                <Text
+                  variant="mediumPlus"
+                  styles={{
+                    root: {
+                      fontWeight: 'normal',
+                      color: isDarkMode ? colours.dark.text : colours.light.text,
+                    },
+                  }}
+                >
+                  - {enquiry.Company}
+                </Text>
+              )}
+            </Stack>
 
-          {/* Spacer for increased spacing */}
-          <div style={{ height: '12px' }} />
+            <div style={{ height: '12px' }} />
 
-          {/* Top Details List */}
-          <Stack tokens={{ childrenGap: 8 }}>
-            {enquiryDetailsTop.map((item, index) => (
-              item.value && (
-                <Stack key={index} tokens={{ childrenGap: 4 }}>
-                  <Text
-                    variant="small"
-                    styles={{
-                      root: {
-                        color: colours.highlight,
-                        fontWeight: 'bold',
-                      },
-                    }}
-                  >
-                    {item.label}
-                  </Text>
-                  <div>
+            {/* Top Details */}
+            <Stack tokens={{ childrenGap: 8 }}>
+              {enquiryDetailsTop.map(
+                (item, index) =>
+                  item.value && (
+                    <Stack key={index} tokens={{ childrenGap: 4 }}>
+                      <Text
+                        variant="small"
+                        styles={{
+                          root: {
+                            color: colours.highlight,
+                            fontWeight: 'bold',
+                          },
+                        }}
+                      >
+                        {item.label}
+                      </Text>
+                      <div>
+                        <Text
+                          variant="small"
+                          styles={{
+                            root: {
+                              color: isDarkMode ? colours.dark.text : colours.light.text,
+                            },
+                          }}
+                          className={truncatedTextStyle}
+                        >
+                          {cleanNotes(item.value)}
+                        </Text>
+                      </div>
+                    </Stack>
+                  )
+              )}
+            </Stack>
+
+            <div style={{ height: '12px' }} />
+
+            {/* Bottom Details */}
+            <Stack tokens={{ childrenGap: 8 }}>
+              {enquiryDetailsBottom.map(
+                (item, index) =>
+                  item.value && (
                     <Text
+                      key={index}
                       variant="small"
                       styles={{
                         root: {
                           color: isDarkMode ? colours.dark.text : colours.light.text,
+                          fontWeight: 'normal',
                         },
                       }}
-                      className={truncatedTextStyle}
                     >
-                      {cleanNotes(item.value)} {/* Use the cleanNotes function here */}
+                      {item.value}
                     </Text>
-                  </div>
-                </Stack>
-              )
-            ))}
+                  )
+              )}
+            </Stack>
           </Stack>
+        </div>
 
-          {/* Spacer for separation between top and bottom details */}
-          <div style={{ height: '12px' }} />
-
-          {/* Bottom Details List */}
-          <Stack tokens={{ childrenGap: 8 }}>
-            {enquiryDetailsBottom.map((item, index) => (
-              item.value && (
-                <Text
-                  key={index}
-                  variant="small"
-                  styles={{
-                    root: {
-                      color: isDarkMode ? colours.dark.text : colours.light.text,
-                      fontWeight: 'normal',
-                    },
-                  }}
-                >
-                  {item.value}
-                </Text>
-              )
-            ))}
-          </Stack>
-        </Stack>
-
-        {/* Vertical Separator */}
+        {/* VERTICAL SEPARATOR */}
         <div className={separatorStyle(isDarkMode)} />
 
-        {/* Right Side: Action Buttons Vertically Aligned */}
+        {/* RIGHT (ACTIONS) AREA */}
         <Stack
           tokens={{ childrenGap: 8 }}
           styles={{
             root: {
               display: 'flex',
               flexDirection: 'column',
-              justifyContent: 'space-between',
-              height: '60px', // Ensure action buttons have fixed space
+              justifyContent: 'flex-start',
+              alignItems: 'center',
+              height: '100%',
+              position: 'relative',
+              paddingBottom: '30px', // extra space so the badge doesn't overlap icons
             },
           }}
         >
-          {/* Top Section: Call and Email Icons */}
           <Stack tokens={{ childrenGap: 8 }}>
             <TooltipHost content="Call Client">
               <IconButton
@@ -288,7 +347,9 @@ const EnquiryCard: React.FC<EnquiryCardProps> = ({ enquiry, onSelect, onRate, an
                 ariaLabel="Call Client"
                 onClick={(e) => {
                   e.stopPropagation();
-                  window.location.href = enquiry.Phone_Number ? `tel:${enquiry.Phone_Number}` : '#';
+                  window.location.href = enquiry.Phone_Number
+                    ? `tel:${enquiry.Phone_Number}`
+                    : '#';
                 }}
                 styles={iconButtonStyles(colours.cta)}
               />
@@ -307,13 +368,32 @@ const EnquiryCard: React.FC<EnquiryCardProps> = ({ enquiry, onSelect, onRate, an
             </TooltipHost>
           </Stack>
 
-          {/* Bottom Section: Rate Icon */}
           <TooltipHost content={enquiry.Rating ? `Rating: ${enquiry.Rating}` : 'Rate Enquiry'}>
-            <RatingIndicator
-              rating={enquiry.Rating} // Pass only the rating
-              onClick={() => onRate(enquiry.ID)}
-            />
+            <RatingIndicator rating={enquiry.Rating} onClick={() => onRate(enquiry.ID)} />
           </TooltipHost>
+
+          {/* Claimed Badge: bottom center of the right actions area */}
+          {claimer && (
+            <div
+              style={{
+                position: 'absolute',
+                bottom: '0px',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                padding: '4px 12px',
+                borderRadius: '20px',
+                backgroundColor: colours.green,
+                color: '#ffffff',
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                fontFamily: 'Raleway, sans-serif',
+                opacity: 0.5, // 50% opacity
+              }}
+              aria-label={`Claimed by ${claimerInitials}`}
+            >
+              {claimerInitials}
+            </div>
+          )}
         </Stack>
       </Stack>
     </div>

@@ -189,3 +189,19 @@ export interface POID {
   risk_assessor?: string;
   risk_assessment_date?: string; // ISO format for date
 }
+
+export interface TeamData {
+  "Created Date"?: string;
+  "Created Time"?: string;
+  "Full Name"?: string;
+  "Last"?: string;
+  "First"?: string;
+  "Nickname"?: string;
+  "Initials"?: string;
+  "Email"?: string;
+  "Entra ID"?: string;
+  "Clio ID"?: string;
+  "Rate"?: number;
+  "Role"?: string;
+  "AOW"?: string;
+}

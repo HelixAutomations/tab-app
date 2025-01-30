@@ -6,16 +6,15 @@ import { ThemeProvider } from './functionality/ThemeContext';
 import { colours } from './styles/colours';
 import * as microsoftTeams from '@microsoft/teams-js';
 import { Context as TeamsContextType } from '@microsoft/teams-js';
-import { Matter, UserData, Enquiry, Tab } from './functionality/types';
+import { Matter, UserData, Enquiry, Tab, TeamData } from './functionality/types';
 
-// Lazy load components
 const Home = lazy(() => import('../tabs/home/Home'));
 const Forms = lazy(() => import('../tabs/forms/Forms'));
 const Resources = lazy(() => import('../tabs/resources/Resources'));
 const Enquiries = lazy(() => import('../tabs/enquiries/Enquiries'));
 const Matters = lazy(() => import('../tabs/matters/Matters'));
 const Roadmap = lazy(() => import('../tabs/roadmap/Roadmap'));
-const ReportingCode = lazy(() => import('../tabs/Reporting/ReportingCode')); // Import ReportingCode
+const ReportingCode = lazy(() => import('../tabs/Reporting/ReportingCode'));
 
 interface AppProps {
   teamsContext: TeamsContextType | null;
@@ -25,6 +24,7 @@ interface AppProps {
   fetchMatters: (fullName: string) => Promise<Matter[]>;
   isLoading: boolean;
   error: string | null;
+  teamData?: TeamData[] | null;
 }
 
 const App: React.FC<AppProps> = ({
@@ -35,6 +35,7 @@ const App: React.FC<AppProps> = ({
   fetchMatters,
   isLoading,
   error,
+  teamData,
 }) => {
   const [activeTab, setActiveTab] = useState('home');
   const isDarkMode = teamsContext?.theme === 'dark';
@@ -55,7 +56,6 @@ const App: React.FC<AppProps> = ({
     }
   }, [teamsContext, userData, enquiries, matters]);
 
-  // Define tabs
   const tabs: Tab[] = [
     { key: 'home', text: 'Home' },
     { key: 'forms', text: 'Forms' },
@@ -66,7 +66,6 @@ const App: React.FC<AppProps> = ({
     { key: 'reporting', text: 'Reports' },
   ];
 
-  // Function to render content based on the active tab
   const renderContent = () => {
     switch (activeTab) {
       case 'home':
@@ -83,6 +82,7 @@ const App: React.FC<AppProps> = ({
             enquiries={enquiries}
             poidData={poidData}
             setPoidData={setPoidData}
+            teamData={teamData}
           />
         );
       case 'matters':
@@ -98,13 +98,12 @@ const App: React.FC<AppProps> = ({
       case 'roadmap':
         return <Roadmap userData={userData} />;
       case 'reporting':
-        return <ReportingCode />; // Render ReportingCode component
+        return <ReportingCode />;
       default:
         return <Home context={teamsContext} userData={userData} enquiries={enquiries} />;
     }
   };
 
-  // Render loading or error state
   if (!teamsContext || !userData || !enquiries || !matters) {
     return <div>Loading or Error...</div>;
   }

@@ -20,15 +20,13 @@ import {
 import {
   BarChart,
   Bar,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
   Legend,
   LabelList,
+  XAxis,
+  YAxis,
 } from 'recharts';
 import { parseISO, startOfMonth, format, isValid } from 'date-fns';
 import { Enquiry, UserData, POID } from '../../app/functionality/types';
@@ -48,19 +46,19 @@ import Slider from 'rc-slider';
 initializeIcons();
 
 interface TeamData {
-  "Created Date"?: string;
-  "Created Time"?: string;
-  "Full Name"?: string;
-  "Last"?: string;
-  "First"?: string;
-  "Nickname"?: string;
-  "Initials"?: string;
-  "Email"?: string;
-  "Entra ID"?: string;
-  "Clio ID"?: string;
-  "Rate"?: number;
-  "Role"?: string;
-  "AOW"?: string;
+  'Created Date'?: string;
+  'Created Time'?: string;
+  'Full Name'?: string;
+  'Last'?: string;
+  'First'?: string;
+  'Nickname'?: string;
+  'Initials'?: string;
+  'Email'?: string;
+  'Entra ID'?: string;
+  'Clio ID'?: string;
+  'Rate'?: number;
+  'Role'?: string;
+  'AOW'?: string;
 }
 
 interface MonthlyCount {
@@ -121,7 +119,9 @@ const RedesignedCombinedMenu: React.FC<RedesignedCombinedMenuProps> = ({
     boxShadow: isDarkMode
       ? '0px 2px 8px rgba(0,0,0,0.6)'
       : '0px 2px 8px rgba(0,0,0,0.1)',
-    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+    backgroundColor: isDarkMode
+      ? colours.dark.sectionBackground
+      : colours.light.sectionBackground,
     marginBottom: '20px',
   });
 
@@ -136,7 +136,9 @@ const RedesignedCombinedMenu: React.FC<RedesignedCombinedMenuProps> = ({
     border: '2px solid transparent',
     selectors: {
       ':hover': {
-        backgroundColor: isDarkMode ? `${colours.dark.subText}20` : `${colours.light.subText}20`,
+        backgroundColor: isDarkMode
+          ? `${colours.dark.subText}20`
+          : `${colours.light.subText}20`,
       },
     },
   });
@@ -170,25 +172,31 @@ const RedesignedCombinedMenu: React.FC<RedesignedCombinedMenuProps> = ({
     cursor: 'pointer',
     transition: 'background-color 0.3s, color 0.3s',
     border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+    color: isDarkMode ? colours.dark.text : colours.light.text,
+    fontFamily: 'Raleway, sans-serif',
+  
     selectors: {
       ':hover': {
-        backgroundColor: isDarkMode ? `${colours.dark.subText}20` : `${colours.light.subText}20`,
-        color: 'white',
+        backgroundColor: `${colours.light.subText}20`, // ✅ Light blue as per Area of Work buttons
+        color: isDarkMode ? colours.dark.text : colours.light.text,
+      },
+      ':active, :active span': {
+        backgroundColor: colours.blue,  // ✅ Pressed state uses full "blue" color
+        color: '#ffffff !important',    // ✅ Force white text on button and text inside it
       },
     },
-    fontFamily: 'Raleway, sans-serif',
   });
-
+  
   const activeStateButton = mergeStyles({
-    backgroundColor: isDarkMode ? colours.dark.hoverBackground : colours.light.hoverBackground,
-    color: 'white',
+    backgroundColor: colours.highlight, // ✅ Uses highlight for selected
+    color: '#ffffff !important',        // ✅ Force white text
     border: 'none',
-  });
-
-  const searchContainer = mergeStyles({
-    display: 'flex',
-    alignItems: 'center',
-    position: 'relative',
+  
+    selectors: {
+      'span': {
+        color: '#ffffff !important',   // ✅ Ensure text inside button turns white
+      },
+    },
   });
 
   const searchBoxStyles = mergeStyles({
@@ -254,16 +262,29 @@ const RedesignedCombinedMenu: React.FC<RedesignedCombinedMenuProps> = ({
             </div>
           );
         })}
-        <div className={searchIconContainer} onClick={() => setSearchActive(!isSearchActive)}>
+        <div
+          className={searchIconContainer}
+          onClick={() => setSearchActive(!isSearchActive)}
+        >
           {isSearchActive ? (
             <Icon
               iconName="Cancel"
-              styles={{ root: { fontSize: '20px', color: isDarkMode ? colours.dark.text : colours.light.text } }}
+              styles={{
+                root: {
+                  fontSize: '20px',
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                },
+              }}
             />
           ) : (
             <Icon
               iconName="Search"
-              styles={{ root: { fontSize: '20px', color: isDarkMode ? colours.dark.text : colours.light.text } }}
+              styles={{
+                root: {
+                  fontSize: '20px',
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                },
+              }}
             />
           )}
         </div>
@@ -291,11 +312,15 @@ interface CustomLabelProps {
   isDarkMode: boolean;
 }
 
-/**
- * We'll keep the same approach for the label outline,
- * but lighten the text color in light mode to keep it readable.
- */
-const CustomLabel: React.FC<CustomLabelProps> = ({ x, y, width, height, value, dataKey, isDarkMode }) => {
+const CustomLabel: React.FC<CustomLabelProps> = ({
+  x,
+  y,
+  width,
+  height,
+  value,
+  dataKey,
+  isDarkMode,
+}) => {
   if (
     typeof x !== 'number' ||
     typeof y !== 'number' ||
@@ -312,7 +337,6 @@ const CustomLabel: React.FC<CustomLabelProps> = ({ x, y, width, height, value, d
   const bubbleX = x + width / 2 - bubbleWidth / 2;
   const bubbleY = y + height / 2 - bubbleHeight / 2;
 
-  // Lightening the text color in light mode for contrast inside the outlined bubble
   const textFill = isDarkMode ? '#fff' : '#333';
 
   return (
@@ -342,10 +366,6 @@ const CustomLabel: React.FC<CustomLabelProps> = ({ x, y, width, height, value, d
   );
 };
 
-/**
- * Custom shape for bars to add a subtle inner/outer shadow using a filter.
- * We'll define a filter in <defs> and reference it here.
- */
 const CustomBarShape: React.FC<any> = (props) => {
   const { x, y, width, height } = props;
   return (
@@ -354,25 +374,36 @@ const CustomBarShape: React.FC<any> = (props) => {
       y={y}
       width={width}
       height={height}
-      fill={colours.grey} // fill is the Helix "grey"
+      fill={colours.grey}
       filter="url(#barShadow)"
     />
   );
 };
 
-const Enquiries: React.FC<{
+interface EnquiriesProps {
   context: TeamsContextType | null;
   enquiries: Enquiry[] | null;
   userData: UserData[] | null;
   poidData: POID[] | null;
   setPoidData: React.Dispatch<React.SetStateAction<POID[] | null>>;
-}> = ({ context, enquiries, userData, poidData, setPoidData }) => {
+  teamData?: TeamData[] | null;
+}
+
+const Enquiries: React.FC<EnquiriesProps> = ({
+  context,
+  enquiries,
+  userData,
+  poidData,
+  setPoidData,
+  teamData,
+}) => {
   const [localEnquiries, setLocalEnquiries] = useState<Enquiry[]>(enquiries || []);
   const { isDarkMode } = useTheme();
   const [selectedEnquiry, setSelectedEnquiry] = useState<Enquiry | null>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [currentPage, setCurrentPage] = useState<number>(1);
   const enquiriesPerPage = 12;
+
   const [isRateModalOpen, setIsRateModalOpen] = useState<boolean>(false);
   const [currentRating, setCurrentRating] = useState<string>('');
   const [ratingEnquiryId, setRatingEnquiryId] = useState<string | null>(null);
@@ -385,57 +416,121 @@ const Enquiries: React.FC<{
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<{ oldest: string; newest: string } | null>(null);
   const [isSearchActive, setSearchActive] = useState<boolean>(false);
-  const [teamData, setTeamData] = useState<TeamData[] | null>(null);
-  const [isTeamDataLoading, setIsTeamDataLoading] = useState<boolean>(false);
-  const [teamDataError, setTeamDataError] = useState<string | null>(null);
+
   const [currentSliderStart, setCurrentSliderStart] = useState<number>(0);
   const [currentSliderEnd, setCurrentSliderEnd] = useState<number>(0);
 
-  const fetchTeamData = async (): Promise<TeamData[] | null> => {
-    try {
-      const response = await fetch(
-        `${process.env.REACT_APP_PROXY_BASE_URL}/getTeamData?code=${process.env.REACT_APP_GET_TEAM_DATA_CODE}`,
-        {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-      if (!response.ok) {
-        throw new Error(`Failed to fetch team data: ${response.statusText}`);
+  useEffect(() => {
+    if (localEnquiries.length > 0) {
+      const validDates = localEnquiries
+        .map((enq) => enq.Touchpoint_Date)
+        .filter((d): d is string => typeof d === 'string' && isValid(parseISO(d)))
+        .map((d) => parseISO(d));
+      if (validDates.length > 0) {
+        const oldestDate = new Date(Math.min(...validDates.map((date) => date.getTime())));
+        const newestDate = new Date(Math.max(...validDates.map((date) => date.getTime())));
+        setDateRange({
+          oldest: format(oldestDate, 'dd MMM yyyy'),
+          newest: format(newestDate, 'dd MMM yyyy'),
+        });
+        setCurrentSliderStart(0);
+        setCurrentSliderEnd(validDates.length - 1);
       }
-      const data: TeamData[] = await response.json();
-      return data;
-    } catch (error) {
-      console.error('Error fetching team data:', error);
-      return null;
+    } else {
+      setDateRange(null);
     }
-  };
+  }, [localEnquiries]);
+
+  const sortedEnquiries = useMemo(() => {
+    return [...localEnquiries].sort((a, b) => {
+      const dateA = parseISO(a.Touchpoint_Date || '');
+      const dateB = parseISO(b.Touchpoint_Date || '');
+      return dateB.getTime() - dateA.getTime();
+    });
+  }, [localEnquiries]);
+
+  const sortedValidEnquiries = useMemo(() => {
+    return sortedEnquiries.filter(
+      (enq) => enq.Touchpoint_Date && isValid(parseISO(enq.Touchpoint_Date))
+    );
+  }, [sortedEnquiries]);
 
   useEffect(() => {
-    async function loadTeamData() {
-      setIsTeamDataLoading(true);
-      setTeamDataError(null);
-      const data = await fetchTeamData();
-      if (data) {
-        setTeamData(data);
-      } else {
-        setTeamDataError('Failed to fetch team data.');
-      }
-      setIsTeamDataLoading(false);
+    if (sortedValidEnquiries.length > 0) {
+      setCurrentSliderEnd(sortedValidEnquiries.length - 1);
     }
-    loadTeamData();
-  }, []);
+  }, [sortedValidEnquiries.length]);
 
-  const handleSubTabChange = useCallback(
-    (item?: PivotItem) => {
-      if (item) {
-        setActiveSubTab(item.props.itemKey as string);
+  const enquiriesInSliderRange = useMemo(() => {
+    return sortedValidEnquiries.slice(currentSliderStart, currentSliderEnd + 1);
+  }, [sortedValidEnquiries, currentSliderStart, currentSliderEnd]);
+
+  const monthlyEnquiryCounts = useMemo(() => {
+    const counts: { [month: string]: MonthlyCount } = {};
+    enquiriesInSliderRange.forEach((enq) => {
+      if (enq.Touchpoint_Date && enq.Area_of_Work) {
+        const date = parseISO(enq.Touchpoint_Date);
+        if (!isValid(date)) return;
+        const monthStart = startOfMonth(date);
+        const monthLabel = format(monthStart, 'MMM yyyy');
+        const area = enq.Area_of_Work.toLowerCase();
+
+        if (!counts[monthLabel]) {
+          counts[monthLabel] = {
+            month: monthLabel,
+            commercial: 0,
+            construction: 0,
+            employment: 0,
+            property: 0,
+            otherUnsure: 0,
+          };
+        }
+
+        switch (area) {
+          case 'commercial':
+            counts[monthLabel].commercial += 1;
+            break;
+          case 'construction':
+            counts[monthLabel].construction += 1;
+            break;
+          case 'employment':
+            counts[monthLabel].employment += 1;
+            break;
+          case 'property':
+            counts[monthLabel].property += 1;
+            break;
+          default:
+            counts[monthLabel].otherUnsure += 1;
+            break;
+        }
       }
-    },
-    []
-  );
+    });
+
+    const sortedMonths = Object.keys(counts).sort(
+      (a, b) => new Date(b).getTime() - new Date(a).getTime()
+    );
+    return sortedMonths.map((m) => counts[m]);
+  }, [enquiriesInSliderRange]);
+
+  useEffect(() => {
+    if (poidData && localEnquiries.length > 0) {
+      const converted = localEnquiries.filter((enq) =>
+        poidData.some((poid) => String(poid.acid) === enq.ID)
+      );
+      setConvertedEnquiriesList(converted);
+
+      const convertedPoid = poidData.filter((poid) =>
+        localEnquiries.some((enq) => enq.ID === String(poid.acid))
+      );
+      setConvertedPoidDataList(convertedPoid);
+    }
+  }, [poidData, localEnquiries]);
+
+  const handleSubTabChange = useCallback((item?: PivotItem) => {
+    if (item) {
+      setActiveSubTab(item.props.itemKey as string);
+    }
+  }, []);
 
   const handleSelectEnquiry = useCallback((enquiry: Enquiry) => {
     setSelectedEnquiry(enquiry);
@@ -458,42 +553,40 @@ const Enquiries: React.FC<{
     setCurrentRating('');
   }, []);
 
+  const handleEditRating = useCallback(async (id: string, newRating: string) => {
+    try {
+      const response = await fetch(
+        `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_UPDATE_RATING_PATH}?code=${process.env.REACT_APP_UPDATE_RATING_CODE}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ID: id, Rating: newRating }),
+        }
+      );
+      if (response.ok) {
+        setLocalEnquiries((prev) =>
+          prev.map((enq) =>
+            enq.ID === id ? { ...enq, Rating: newRating as Enquiry['Rating'] } : enq
+          )
+        );
+        setIsSuccessVisible(true);
+      } else {
+        const errorText = await response.text();
+        console.error('Failed to update rating:', errorText);
+      }
+    } catch (error) {
+      console.error('Error updating rating:', error);
+    }
+  }, []);
+
   const submitRating = useCallback(async () => {
     if (ratingEnquiryId && currentRating) {
       await handleEditRating(ratingEnquiryId, currentRating);
       setIsSuccessVisible(true);
       closeRateModal();
     }
-  }, [ratingEnquiryId, currentRating, closeRateModal]);
+  }, [ratingEnquiryId, currentRating, handleEditRating, closeRateModal]);
 
-  const handleEditRating = useCallback(
-    async (id: string, newRating: string) => {
-      try {
-        const response = await fetch(
-          `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_UPDATE_RATING_PATH}?code=${process.env.REACT_APP_UPDATE_RATING_CODE}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ID: id, Rating: newRating }),
-          }
-        );
-        if (response.ok) {
-          setLocalEnquiries((prev) =>
-            prev.map((enq) => (enq.ID === id ? { ...enq, Rating: newRating as Enquiry['Rating'] } : enq))
-          );
-          setIsSuccessVisible(true);
-        } else {
-          const errorText = await response.text();
-          console.error('Failed to update rating:', errorText);
-        }
-      } catch (error) {
-        console.error('Error updating rating:', error);
-      }
-    },
-    []
-  );
-
-  // Fetch POID data if not loaded
   useEffect(() => {
     (async () => {
       if (!poidData) {
@@ -520,108 +613,6 @@ const Enquiries: React.FC<{
     })();
   }, [poidData, setPoidData]);
 
-  // Figure out converted enquiries
-  useEffect(() => {
-    if (poidData && localEnquiries.length > 0) {
-      const converted = localEnquiries.filter((enq) =>
-        poidData.some((poid) => String(poid.acid) === enq.ID)
-      );
-      setConvertedEnquiriesList(converted);
-      const convertedPoid = poidData.filter((poid) =>
-        localEnquiries.some((enq) => enq.ID === String(poid.acid))
-      );
-      setConvertedPoidDataList(convertedPoid);
-    }
-  }, [poidData, localEnquiries]);
-
-  // Determine date range for the slider
-  useEffect(() => {
-    if (localEnquiries.length > 0) {
-      const validDates = localEnquiries
-        .map((enq) => enq.Touchpoint_Date)
-        .filter((d): d is string => typeof d === 'string' && isValid(parseISO(d)))
-        .map((d) => parseISO(d));
-      if (validDates.length > 0) {
-        const oldestDate = new Date(Math.min(...validDates.map((date) => date.getTime())));
-        const newestDate = new Date(Math.max(...validDates.map((date) => date.getTime())));
-        setDateRange({ oldest: format(oldestDate, 'dd MMM yyyy'), newest: format(newestDate, 'dd MMM yyyy') });
-        setCurrentSliderStart(0);
-        setCurrentSliderEnd(validDates.length - 1);
-      }
-    } else {
-      setDateRange(null);
-    }
-  }, [localEnquiries]);
-
-  // Sort local enquiries
-  const sortedEnquiries = useMemo(() => {
-    return [...localEnquiries].sort((a, b) => {
-      const dateA = parseISO(a.Touchpoint_Date || '');
-      const dateB = parseISO(b.Touchpoint_Date || '');
-      return dateB.getTime() - dateA.getTime();
-    });
-  }, [localEnquiries]);
-
-  // Filter out invalid dates
-  const sortedValidEnquiries = useMemo(() => {
-    return sortedEnquiries.filter((enq) => enq.Touchpoint_Date && isValid(parseISO(enq.Touchpoint_Date)));
-  }, [sortedEnquiries]);
-
-  // Adjust slider end if we have valid enquiries
-  useEffect(() => {
-    if (sortedValidEnquiries.length > 0) {
-      setCurrentSliderEnd(sortedValidEnquiries.length - 1);
-    }
-  }, [sortedValidEnquiries.length]);
-
-  // Slice enquiries based on slider range
-  const enquiriesInSliderRange = useMemo(() => {
-    return sortedValidEnquiries.slice(currentSliderStart, currentSliderEnd + 1);
-  }, [sortedValidEnquiries, currentSliderStart, currentSliderEnd]);
-
-  // Tally monthly counts for chart
-  const monthlyEnquiryCounts = useMemo(() => {
-    const counts: { [month: string]: MonthlyCount } = {};
-    enquiriesInSliderRange.forEach((enq) => {
-      if (enq.Touchpoint_Date && enq.Area_of_Work) {
-        const date = parseISO(enq.Touchpoint_Date);
-        if (!isValid(date)) return;
-        const monthStart = startOfMonth(date);
-        const monthLabel = format(monthStart, 'MMM yyyy');
-        const area = enq.Area_of_Work.toLowerCase();
-        if (!counts[monthLabel]) {
-          counts[monthLabel] = {
-            month: monthLabel,
-            commercial: 0,
-            construction: 0,
-            employment: 0,
-            property: 0,
-            otherUnsure: 0,
-          };
-        }
-        switch (area) {
-          case 'commercial':
-            counts[monthLabel].commercial += 1;
-            break;
-          case 'construction':
-            counts[monthLabel].construction += 1;
-            break;
-          case 'employment':
-            counts[monthLabel].employment += 1;
-            break;
-          case 'property':
-            counts[monthLabel].property += 1;
-            break;
-          default:
-            counts[monthLabel].otherUnsure += 1;
-            break;
-        }
-      }
-    });
-    const sortedMonths = Object.keys(counts).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
-    return sortedMonths.map((m) => counts[m]);
-  }, [enquiriesInSliderRange]);
-
   const triagedPointOfContactEmails = useMemo(
     () =>
       [
@@ -634,7 +625,6 @@ const Enquiries: React.FC<{
     []
   );
 
-  // Filtering logic
   const filteredEnquiries = useMemo(() => {
     let filtered = enquiriesInSliderRange;
     if (activeMainTab === 'All') {
@@ -652,18 +642,23 @@ const Enquiries: React.FC<{
             const userFilteredEnquiryIds = convertedPoidDataList
               .filter((p) => p.poc?.toLowerCase() === userEmail)
               .map((p) => String(p.acid));
-            filtered = convertedEnquiriesList.filter((enq) => userFilteredEnquiryIds.includes(enq.ID));
+            filtered = convertedEnquiriesList.filter((enq) =>
+              userFilteredEnquiryIds.includes(enq.ID)
+            );
           } else {
             filtered = convertedEnquiriesList;
           }
           break;
         case 'Claimable':
-          filtered = filtered.filter((enq) => enq.Point_of_Contact?.toLowerCase() === 'team@helix-law.com');
+          filtered = filtered.filter(
+            (enq) => enq.Point_of_Contact?.toLowerCase() === 'team@helix-law.com'
+          );
           break;
         case 'Triaged':
           filtered = filtered.filter(
             (enq) =>
-              enq.Point_of_Contact && triagedPointOfContactEmails.includes(enq.Point_of_Contact.toLowerCase())
+              enq.Point_of_Contact &&
+              triagedPointOfContactEmails.includes(enq.Point_of_Contact.toLowerCase())
           );
           break;
         default:
@@ -698,11 +693,10 @@ const Enquiries: React.FC<{
 
   const indexOfLastEnquiry = currentPage * enquiriesPerPage;
   const indexOfFirstEnquiry = indexOfLastEnquiry - enquiriesPerPage;
-  const currentEnquiries = useMemo(() => filteredEnquiries.slice(indexOfFirstEnquiry, indexOfLastEnquiry), [
-    filteredEnquiries,
-    indexOfFirstEnquiry,
-    indexOfLastEnquiry,
-  ]);
+  const currentEnquiries = useMemo(
+    () => filteredEnquiries.slice(indexOfFirstEnquiry, indexOfLastEnquiry),
+    [filteredEnquiries, indexOfFirstEnquiry, indexOfLastEnquiry]
+  );
   const totalPages = Math.ceil(filteredEnquiries.length / enquiriesPerPage);
 
   const handlePageChange = useCallback((page: number) => {
@@ -710,7 +704,6 @@ const Enquiries: React.FC<{
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
-  // rating radio
   const ratingOptions = [
     {
       key: 'Good',
@@ -732,8 +725,8 @@ const Enquiries: React.FC<{
     },
   ];
 
-  const renderRatingOptions = useCallback(
-    () => (
+  const renderRatingOptions = useCallback(() => {
+    return (
       <Stack tokens={{ childrenGap: 15 }}>
         {ratingOptions.map((option) => (
           <Stack key={option.key} tokens={{ childrenGap: 5 }}>
@@ -744,7 +737,7 @@ const Enquiries: React.FC<{
                 name="rating"
                 value={option.key}
                 checked={currentRating === option.key}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCurrentRating(e.target.value)}
+                onChange={(e) => setCurrentRating(e.target.value)}
                 style={{ marginRight: '12px', width: '18px', height: '18px' }}
               />
               <Text
@@ -775,18 +768,14 @@ const Enquiries: React.FC<{
           </Stack>
         ))}
       </Stack>
-    ),
-    [currentRating, isDarkMode, ratingOptions]
-  );
+    );
+  }, [currentRating, isDarkMode, ratingOptions]);
 
-  const handleUpdateEnquiry = useCallback(
-    (updatedEnquiry: Enquiry) => {
-      setLocalEnquiries((prev) =>
-        prev.map((enq) => (enq.ID === updatedEnquiry.ID ? updatedEnquiry : enq))
-      );
-    },
-    []
-  );
+  const handleUpdateEnquiry = useCallback((updatedEnquiry: Enquiry) => {
+    setLocalEnquiries((prev) =>
+      prev.map((enq) => (enq.ID === updatedEnquiry.ID ? updatedEnquiry : enq))
+    );
+  }, []);
 
   const renderDetailView = useCallback(
     (enquiry: Enquiry) => (
@@ -803,7 +792,12 @@ const Enquiries: React.FC<{
           },
         }}
       >
-        <Stack horizontal horizontalAlign="space-between" verticalAlign="center" className={mergeStyles({ marginBottom: '20px' })}>
+        <Stack
+          horizontal
+          horizontalAlign="space-between"
+          verticalAlign="center"
+          className={mergeStyles({ marginBottom: '20px' })}
+        >
           <IconButton
             iconProps={{ iconName: 'Back' }}
             title="Back"
@@ -818,7 +812,9 @@ const Enquiries: React.FC<{
                 height: '40px',
                 selectors: {
                   ':hover': {
-                    backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
+                    backgroundColor: isDarkMode
+                      ? colours.dark.background
+                      : colours.light.background,
                   },
                 },
               },
@@ -864,7 +860,6 @@ const Enquiries: React.FC<{
     return row * delayPerRow + col * delayPerCol;
   };
 
-  // No user gating for these score cards, so remove the AC/JW/LZ check
   const enquiriesCountPerMember = useMemo(() => {
     if (!enquiriesInSliderRange || !teamData) return [];
     const grouped: { [email: string]: number } = {};
@@ -876,11 +871,11 @@ const Enquiries: React.FC<{
     });
     const counts: { initials: string; count: number }[] = [];
     teamData.forEach((member) => {
-      const memberEmail = member['Email']?.toLowerCase();
-      const memberRole = member['Role']?.toLowerCase();
+      const memberEmail = member.Email?.toLowerCase();
+      const memberRole = member.Role?.toLowerCase();
       if (memberEmail && grouped[memberEmail] && memberRole !== 'non-solicitor') {
         counts.push({
-          initials: member['Initials'] || '',
+          initials: member.Initials || '',
           count: grouped[memberEmail],
         });
       }
@@ -977,7 +972,10 @@ const Enquiries: React.FC<{
     return (
       <div style={{ display: 'flex', flexWrap: 'wrap', fontFamily: 'Raleway, sans-serif' }}>
         {payload.map((entry: any, index: number) => (
-          <div key={`legend-item-${index}`} style={{ display: 'flex', alignItems: 'center', marginRight: 20 }}>
+          <div
+            key={`legend-item-${index}`}
+            style={{ display: 'flex', alignItems: 'center', marginRight: 20 }}
+          >
             <div
               style={{
                 width: 12,
@@ -986,7 +984,12 @@ const Enquiries: React.FC<{
                 marginRight: 8,
               }}
             />
-            <span style={{ color: isDarkMode ? colours.dark.text : colours.light.text, fontWeight: 500 }}>
+            <span
+              style={{
+                color: isDarkMode ? colours.dark.text : colours.light.text,
+                fontWeight: 500,
+              }}
+            >
               {entry.value.charAt(0).toUpperCase() + entry.value.slice(1)}
             </span>
           </div>
@@ -1033,16 +1036,6 @@ const Enquiries: React.FC<{
             },
           }}
         >
-          {isTeamDataLoading && (
-            <MessageBar messageBarType={MessageBarType.info}>
-              Loading team data...
-            </MessageBar>
-          )}
-          {teamDataError && (
-            <MessageBar messageBarType={MessageBarType.error}>
-              {teamDataError}
-            </MessageBar>
-          )}
           {teamData && enquiriesCountPerMember.length > 0 && (
             <>
               <Stack
@@ -1050,8 +1043,11 @@ const Enquiries: React.FC<{
                 tokens={{ childrenGap: 20 }}
                 style={{ marginBottom: '20px' }}
               >
-                <Stack tokens={{ childrenGap: 5 }} verticalAlign="center" style={{ fontFamily: 'Raleway, sans-serif' }}>
-                  {/* Show Dates Above Slider */}
+                <Stack
+                  tokens={{ childrenGap: 5 }}
+                  verticalAlign="center"
+                  style={{ fontFamily: 'Raleway, sans-serif' }}
+                >
                   <Text
                     variant="mediumPlus"
                     styles={{
@@ -1059,30 +1055,37 @@ const Enquiries: React.FC<{
                         color: isDarkMode ? colours.dark.text : colours.light.text,
                         fontFamily: 'Raleway, sans-serif',
                         fontWeight: 600,
-                        textAlign: 'center', // Ensure center alignment
-                        width: '100%', // Match slider width
+                        textAlign: 'center',
+                        width: '100%',
                       },
                     }}
                   >
                     {sortedValidEnquiries[currentSliderEnd]?.Touchpoint_Date
-                      ? format(parseISO(sortedValidEnquiries[currentSliderEnd].Touchpoint_Date), 'dd MMM yyyy')
+                      ? format(
+                          parseISO(sortedValidEnquiries[currentSliderEnd].Touchpoint_Date),
+                          'dd MMM yyyy'
+                        )
                       : ''}
                     {' - '}
                     {sortedValidEnquiries[currentSliderStart]?.Touchpoint_Date
-                      ? format(parseISO(sortedValidEnquiries[currentSliderStart].Touchpoint_Date), 'dd MMM yyyy')
+                      ? format(
+                          parseISO(sortedValidEnquiries[currentSliderStart].Touchpoint_Date),
+                          'dd MMM yyyy'
+                        )
                       : ''}
                   </Text>
-
-                  {/* Reverse the slider scale so that oldest is on the left, newest on the right */}
                   <Slider
                     range
-                    min={0} // Newest date (reversed)
-                    max={sortedValidEnquiries.length - 1} // Oldest date (reversed)
-                    value={[sortedValidEnquiries.length - 1 - currentSliderEnd, sortedValidEnquiries.length - 1 - currentSliderStart]}
+                    min={0}
+                    max={sortedValidEnquiries.length - 1}
+                    value={[
+                      sortedValidEnquiries.length - 1 - currentSliderEnd,
+                      sortedValidEnquiries.length - 1 - currentSliderStart,
+                    ]}
                     onChange={(value) => {
                       if (Array.isArray(value)) {
-                        setCurrentSliderStart(sortedValidEnquiries.length - 1 - value[1]); // Reverse mapping
-                        setCurrentSliderEnd(sortedValidEnquiries.length - 1 - value[0]); // Reverse mapping
+                        setCurrentSliderStart(sortedValidEnquiries.length - 1 - value[1]);
+                        setCurrentSliderEnd(sortedValidEnquiries.length - 1 - value[0]);
                       }
                     }}
                     trackStyle={[{ backgroundColor: colours.highlight, height: 8 }]}
@@ -1092,24 +1095,25 @@ const Enquiries: React.FC<{
                         borderColor: colours.highlight,
                         height: 20,
                         width: 20,
-                        transform: 'translateX(-50%)', // Keep handle centers aligned
+                        transform: 'translateX(-50%)',
                       },
                       {
                         backgroundColor: colours.highlight,
                         borderColor: colours.highlight,
                         height: 20,
                         width: 20,
-                        transform: 'translateX(-50%)', // Keep handle centers aligned
+                        transform: 'translateX(-50%)',
                       },
                     ]}
                     railStyle={{
-                      backgroundColor: isDarkMode ? colours.dark.border : colours.inactiveTrackLight,
+                      backgroundColor: isDarkMode
+                        ? colours.dark.border
+                        : colours.inactiveTrackLight,
                       height: 8,
                     }}
                     style={{ width: 500, margin: '0 auto' }}
                   />
                 </Stack>
-
               </Stack>
 
               <Stack
@@ -1118,20 +1122,22 @@ const Enquiries: React.FC<{
                 tokens={{ childrenGap: 20 }}
                 style={{ width: '100%', marginBottom: '20px' }}
               >
-                {['Commercial', 'Property', 'Construction', 'Employment', 'Other/Unsure'].map((area) => (
-                  <AreaCountCard
-                    key={area}
-                    area={area}
-                    count={enquiriesCountPerArea[area]}
-                    monthlyCounts={monthlyEnquiryCounts.map((m) => ({
-                      month: m.month,
-                      count: getMonthlyCountByArea(m, area),
-                    }))}
-                    icon={getAreaIcon(area)}
-                    color={getAreaColor(area)}
-                    animationDelay={0.2}
-                  />
-                ))}
+                {['Commercial', 'Property', 'Construction', 'Employment', 'Other/Unsure'].map(
+                  (area) => (
+                    <AreaCountCard
+                      key={area}
+                      area={area}
+                      count={enquiriesCountPerArea[area]}
+                      monthlyCounts={monthlyEnquiryCounts.map((m) => ({
+                        month: m.month,
+                        count: getMonthlyCountByArea(m, area),
+                      }))}
+                      icon={getAreaIcon(area)}
+                      color={getAreaColor(area)}
+                      animationDelay={0.2}
+                    />
+                  )
+                )}
               </Stack>
 
               <Stack horizontal horizontalAlign="center" wrap styles={{ root: { width: '100%' } }}>
@@ -1141,7 +1147,7 @@ const Enquiries: React.FC<{
                       horizontalAlign="center"
                       styles={{
                         root: {
-                          minWidth: '80px', // Ensures consistent spacing
+                          minWidth: '80px',
                           textAlign: 'center',
                         },
                       }}
@@ -1178,7 +1184,7 @@ const Enquiries: React.FC<{
                         style={{
                           width: '2px',
                           backgroundColor: isDarkMode ? colours.dark.border : '#ccc',
-                          height: '50px', // Makes pipes taller
+                          height: '50px',
                           alignSelf: 'center',
                           margin: '0 20px',
                         }}
@@ -1187,7 +1193,6 @@ const Enquiries: React.FC<{
                   </React.Fragment>
                 ))}
               </Stack>
-
             </>
           )}
           {teamData && enquiriesCountPerMember.length === 0 && (
@@ -1218,17 +1223,18 @@ const Enquiries: React.FC<{
           transition: 'background-color 0.3s',
         })}
       >
-        {/* Main Chart Container with Extra Height */}
         {!selectedEnquiry && !selectedArea && !activeMainTab ? (
           <div
             className={mergeStyles({
               marginTop: '40px',
               padding: '30px',
-              backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+              backgroundColor: isDarkMode
+                ? colours.dark.sectionBackground
+                : colours.light.sectionBackground,
               borderRadius: '20px',
               boxShadow: isDarkMode
-                ? `0 8px 24px rgba(0, 0, 0, 0.5)`
-                : `0 8px 24px rgba(0, 0, 0, 0.2)`,
+                ? '0 8px 24px rgba(0, 0, 0, 0.5)'
+                : '0 8px 24px rgba(0, 0, 0, 0.2)',
               position: 'relative',
               fontFamily: 'Raleway, sans-serif',
               height: '100%',
@@ -1243,10 +1249,9 @@ const Enquiries: React.FC<{
                 margin={{ top: 20, right: 30, left: 20, bottom: 40 }}
                 style={{ fontFamily: 'Raleway, sans-serif' }}
               >
-                {/* A filter for subtle shadow on each bar */}
                 <defs>
                   <filter id="barShadow" x="-10%" y="-10%" width="130%" height="130%">
-                    <feOffset dx="0" dy="0" in="SourceAlpha" result="shadowOffsetOuter" /> {/* Removed dy=1 */}
+                    <feOffset dx="0" dy="0" in="SourceAlpha" result="shadowOffsetOuter" />
                     <feGaussianBlur stdDeviation="2" in="shadowOffsetOuter" result="shadowBlurOuter" />
                     <feComposite
                       in="shadowBlurOuter"
@@ -1264,8 +1269,10 @@ const Enquiries: React.FC<{
                   </filter>
                 </defs>
 
-                <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? colours.dark.border : '#e0e0e0'} />
-
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke={isDarkMode ? colours.dark.border : '#e0e0e0'}
+                />
                 <YAxis
                   stroke={isDarkMode ? colours.dark.text : colours.light.text}
                   tick={{
@@ -1274,20 +1281,27 @@ const Enquiries: React.FC<{
                     fontFamily: 'Raleway, sans-serif',
                   }}
                 />
-
                 <Tooltip
                   contentStyle={{
-                    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.background,
-                    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                    backgroundColor: isDarkMode
+                      ? colours.dark.sectionBackground
+                      : colours.light.background,
+                    border: `1px solid ${
+                      isDarkMode ? colours.dark.border : colours.light.border
+                    }`,
                     color: isDarkMode ? colours.dark.text : colours.light.text,
                     fontFamily: 'Raleway, sans-serif',
                   }}
-                  labelStyle={{ color: isDarkMode ? colours.dark.text : colours.light.text, fontFamily: 'Raleway, sans-serif' }}
-                  itemStyle={{ color: isDarkMode ? colours.dark.text : colours.light.text, fontFamily: 'Raleway, sans-serif' }}
+                  labelStyle={{
+                    color: isDarkMode ? colours.dark.text : colours.light.text,
+                    fontFamily: 'Raleway, sans-serif',
+                  }}
+                  itemStyle={{
+                    color: isDarkMode ? colours.dark.text : colours.light.text,
+                    fontFamily: 'Raleway, sans-serif',
+                  }}
                 />
                 <Legend content={renderCustomLegend} />
-
-                {/* Bars */}
                 <Bar
                   dataKey="commercial"
                   shape={<CustomBarShape />}
@@ -1378,8 +1392,6 @@ const Enquiries: React.FC<{
                     )}
                   />
                 </Bar>
-
-                {/* Moved XAxis here, after Bars */}
                 <XAxis
                   dataKey="month"
                   stroke={isDarkMode ? colours.dark.text : colours.light.text}
@@ -1433,6 +1445,7 @@ const Enquiries: React.FC<{
                         onSelect={handleSelectEnquiry}
                         onRate={handleRate}
                         animationDelay={animationDelay}
+                        teamData={teamData}  // ✅ Pass teamData here
                       />
                     );
                   })}
@@ -1480,7 +1493,9 @@ const Enquiries: React.FC<{
           maxWidth: 600,
           padding: '30px',
           borderRadius: '12px',
-          backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+          backgroundColor: isDarkMode
+            ? colours.dark.sectionBackground
+            : colours.light.sectionBackground,
           color: isDarkMode ? colours.dark.text : colours.light.text,
           fontFamily: 'Raleway, sans-serif',
         })}
@@ -1519,7 +1534,11 @@ const Enquiries: React.FC<{
               disabled={!currentRating}
               styles={{ root: { fontFamily: 'Raleway, sans-serif' } }}
             />
-            <DefaultButton text="Cancel" onClick={closeRateModal} styles={{ root: { fontFamily: 'Raleway, sans-serif' } }} />
+            <DefaultButton
+              text="Cancel"
+              onClick={closeRateModal}
+              styles={{ root: { fontFamily: 'Raleway, sans-serif' } }}
+            />
           </Stack>
         </Stack>
       </Modal>
