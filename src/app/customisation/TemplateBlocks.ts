@@ -135,31 +135,42 @@ export const templateBlocks: TemplateBlock[] = [
     },
   },
   {
-    title: 'Next Steps',
-    description: 'Define clear next steps for the client.',
-    placeholder: '[Follow-Up Instructions Placeholder]',
-    isMultiSelect: true,
-    options: [
-      {
-        label: 'Confirm Instructions, Payment & Document Submission',
-        previewText: 
-          `To confirm my instructions and to enable us to open a file and move this forwards please take the steps below:\n\n` +
-          `We are required to verify your identity. Please complete the identity form below with your personal details. We will try to verify you electronically initially;\n\n` +
-          `https://helix-law.co.uk/proof-of-identity/\n\n` +
-          `We work with funds on account of costs at all times. Please pay £1800 on account of costs, using our account details below:\n\n` +
-          `<ul type="disc" style="padding-left:20px; margin:0 0 0 20px;">` +
-            `<li>Helix Law General Client Account</li>` +
-            `<li>Barclays Bank</li>` +
-            `<li>Account Number: 93472434</li>` +
-            `<li>Sort Code: 20-27-91</li>` +
-            `<li>Reference: FE [NAME] // [ACID]</li>` +
-          `</ul>\n` +
-          `Please ensure to quote the above reference so that we promptly identify your payment.\n\n` +
-          `I have mentioned above some specific documents that will assist me at this stage. Please put these together and email them to me.\n\n` +
-          `If the file sizes or volume are significant please let me know and we can arrange a document sharing facility for you to send these to us. Alternatively please send the files to me via WeTransfer or Dropbox—both are free services.`,
-      },
-    ],
-  },  
+    "title": "Next Steps",
+    "description": "Define clear next steps for the client.",
+    "placeholder": "[Follow-Up Instructions Placeholder]",
+    "isMultiSelect": true,
+    "options": [
+        {
+            "label": "Confirm Instructions, Payment & Document Submission",
+            "previewText": 
+                "To confirm my instructions and to enable us to open a file and move this forwards please take the steps below:<br><br>" +
+                "<ol>" +
+
+                "<li>" +
+                "We are required to verify your identity. Please complete the identity form below with your personal details. We will try to verify you electronically initially; " +
+                "<a href=\"https://helix-law.co.uk/proof-of-identity/\" target=\"_blank\">https://helix-law.co.uk/proof-of-identity/</a>" +
+                "</li>" +
+
+                "<li>" +
+                "Please pay £1800 on account of costs, using our account details below:<br><br>" +
+                "Helix Law General Client Account<br>" +
+                "Barclays Bank<br>" +
+                "Account Number: 93472434<br>" +
+                "Sort Code: 20-27-91<br>" +
+                "Reference: FE [NAME] // [ACID]" +
+                "</li>" +
+
+                "</ol><br>" +
+
+                "Please ensure to quote the above reference so that we promptly identify your payment.<br><br>" +
+
+                "I have mentioned above some specific documents that will assist me at this stage. Please put these together and email them to me.<br><br>" +
+                
+                "If the file sizes or volume are significant, please let me know and we can arrange a document-sharing facility for you to send these to us. " +
+                "Alternatively, please send the files to me via WeTransfer or Dropbox—both are free services."
+        }
+    ]
+},  
 
   // Separate Block for Meeting Link
   {
