@@ -143,31 +143,34 @@ export const templateBlocks: TemplateBlock[] = [
         {
             "label": "Confirm Instructions, Payment & Document Submission",
             "previewText": 
-                "To confirm my instructions and to enable us to open a file and move this forwards please take the steps below:<br><br>" +
-                "<ol>" +
+                "To confirm my instructions and to enable us to open a file and move this forwards, please take the steps below:<p></p>" +
 
-                "<li>" +
-                "We are required to verify your identity. Please complete the identity form below with your personal details. We will try to verify you electronically initially; " +
-                "<a href=\"https://helix-law.co.uk/proof-of-identity/\" target=\"_blank\">https://helix-law.co.uk/proof-of-identity/</a>" +
+                "<ol style='margin:0; padding-left: 20px;'>" +
+
+                "<li style='margin-bottom: 10px;'>" +
+                "We are required to verify your identity. Please complete the identity form below with your personal details. We will try to verify you electronically initially.<br>" +
+                "<a href=\"https://helix-law.co.uk/proof-of-identity/\" target=\"_blank\" style='color:#3690CE; text-decoration:none;'>https://helix-law.co.uk/proof-of-identity/</a>" +
                 "</li>" +
 
-                "<li>" +
+                "<li style='margin-bottom: 10px;'>" +
                 "Please pay £1800 on account of costs, using our account details below:<br><br>" +
-                "Helix Law General Client Account<br>" +
-                "Barclays Bank<br>" +
-                "Account Number: 93472434<br>" +
-                "Sort Code: 20-27-91<br>" +
-                "Reference: FE [NAME] // [ACID]" +
+                "<div style='margin-left: 30px;'>" +
+                "<div>Helix Law General Client Account</div>" +
+                "<div>Barclays Bank</div>" +
+                "<div>Account Number: 93472434</div>" +
+                "<div>Sort Code: 20-27-91</div>" +
+                "<div>Reference: FE [NAME] // [ACID]</div>" +
+                "</div>" +
                 "</li>" +
 
-                "</ol><br>" +
+                "</ol><p></p>" +
 
-                "Please ensure to quote the above reference so that we promptly identify your payment.<br><br>" +
+                "<p>Please ensure to quote the above reference so that we promptly identify your payment.</p>" +
 
-                "I have mentioned above some specific documents that will assist me at this stage. Please put these together and email them to me.<br><br>" +
-                
-                "If the file sizes or volume are significant, please let me know and we can arrange a document-sharing facility for you to send these to us. " +
-                "Alternatively, please send the files to me via WeTransfer or Dropbox—both are free services."
+                "<p>I have mentioned above some specific documents that will assist me at this stage. Please put these together and email them to me.</p>" +
+
+                "<p>If the file sizes or volume are significant, please let me know and we can arrange a document-sharing facility for you to send these to us. " +
+                "Alternatively, please send the files to me via WeTransfer or Dropbox—both are free services.</p>"
         }
     ]
 },  
