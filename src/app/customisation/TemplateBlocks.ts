@@ -153,7 +153,7 @@ export const templateBlocks: TemplateBlock[] = [
                 "</li>" +
 
                 "<li style='margin-bottom: 10px;'>" +
-                "Please pay £1800 on account of costs, using our account details below:<br><br>" +
+                "Please pay £1,800 on account of costs, using our account details below:<br><br>" +
                 "<div style='margin-left: 30px;'>" +
                 "<div>Helix Law General Client Account</div>" +
                 "<div>Barclays Bank</div>" +
