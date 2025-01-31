@@ -1,6 +1,6 @@
 // src/tabs/matters/Matters.tsx
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   Stack,
   Text,
@@ -21,13 +21,6 @@ import { initializeIcons } from '@fluentui/react/lib/Icons';
 import CustomPagination from '../../app/styles/CustomPagination';
 import MatterCard from './MatterCard';
 import { colours } from '../../app/styles/colours';
-import { 
-  sharedSearchBoxContainerStyle,
-  sharedSearchBoxStyle,
-  sharedDropdownContainerStyle,
-  sharedDropdownStyles,
-  sharedControlsContainerStyle,
-} from '../../app/styles/FilterStyles';
 import { useTheme } from '../../app/functionality/ThemeContext';
 
 initializeIcons();
@@ -113,9 +106,11 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [filterRole, setFilterRole] = useState<string>('All');
   const [filterStatus, setFilterStatus] = useState<string>('All');
-  const [currentPage, setCurrentPage] = useState<number>(1);
-  const mattersPerPage = 16;
   const [isSuccessVisible, setIsSuccessVisible] = useState<boolean>(false);
+
+  // Added for infinite scroll
+  const [itemsToShow, setItemsToShow] = useState<number>(20);
+  const loader = useRef<HTMLDivElement | null>(null);
 
   // Search and filter matters
   const filteredMatters = useMemo(() => {
@@ -157,23 +152,53 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
     return filtered;
   }, [matters, searchTerm, filterRole, filterStatus, userData]);
 
-  // Pagination calculations
-  const indexOfLastMatter = currentPage * mattersPerPage;
-  const indexOfFirstMatter = indexOfLastMatter - mattersPerPage;
-  const currentMatters = useMemo(() => {
-    return filteredMatters.slice(indexOfFirstMatter, indexOfLastMatter);
-  }, [filteredMatters, indexOfFirstMatter, indexOfLastMatter]);
+  // Infinite scroll calculations
+  const displayedMatters = useMemo(() => {
+    return filteredMatters.slice(0, itemsToShow);
+  }, [filteredMatters, itemsToShow]);
 
-  const totalPages = Math.ceil(filteredMatters.length / mattersPerPage);
+  const handleLoadMore = useCallback(() => {
+    setItemsToShow((prev) => Math.min(prev + 20, filteredMatters.length));
+  }, [filteredMatters.length]);
 
-  // Handler for page change
-  const handlePageChange = useCallback(
-    (page: number) => {
-      setCurrentPage(page);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    },
-    []
-  );
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          handleLoadMore();
+        }
+      },
+      {
+        root: null,
+        rootMargin: '200px', // Increased margin to trigger earlier
+        threshold: 0.1, // Trigger as soon as the loader is slightly visible
+      }
+    );
+
+    // Delay observer setup slightly to allow state updates
+    const timeoutId = setTimeout(() => {
+      if (loader.current) {
+        observer.observe(loader.current);
+      }
+    }, 100); // Small delay ensures `filteredMatters` is set before attaching
+
+    return () => {
+      clearTimeout(timeoutId);
+      if (loader.current) {
+        observer.unobserve(loader.current);
+      }
+    };
+  }, [filteredMatters, handleLoadMore]);
+
+  // Handler to select a matter
+  const handleSelectMatter = useCallback((matter: Matter) => {
+    setSelectedMatter(matter);
+  }, []);
+
+  // Handler to go back to the list
+  const handleBackToList = useCallback(() => {
+    setSelectedMatter(null);
+  }, []);
 
   // Define filter options for Role
   const roleOptions: IDropdownOption[] = [
@@ -191,21 +216,11 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
     // Add more statuses as needed
   ];
 
-  // Handler to select a matter
-  const handleSelectMatter = useCallback((matter: Matter) => {
-    setSelectedMatter(matter);
-  }, []);
-
-  // Handler to go back to the list
-  const handleBackToList = useCallback(() => {
-    setSelectedMatter(null);
-  }, []);
-
   // Render Detail View
   const renderDetailView = useCallback(
     (matter: Matter) => (
       <Stack
-        tokens={{ childrenGap: 15 }}
+        tokens={{ childrenGap: 20 }}
         styles={{
           root: {
             backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
@@ -235,8 +250,10 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
                 borderRadius: '50%',
                 width: '40px',
                 height: '40px',
-                ':hover': {
-                  backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
+                selectors: {
+                  ':hover': {
+                    backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
+                  },
                 },
               },
             }}
@@ -263,56 +280,95 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
     [handleBackToList, isDarkMode]
   );
 
-  // Calculate animation delays based on index
   const calculateAnimationDelay = (index: number) => {
-    const row = Math.floor(index / 5); // Assuming 5 columns per row
-    const col = index % 5;
-    return row * 0.2 + col * 0.1; // Adjust delays as needed
+    const row = Math.floor(index / 4);
+    const col = index % 4;
+    return row * 0.2 + col * 0.1;
   };
 
   return (
     <div className={containerStyle(isDarkMode)}>
       {/* Header: Search and Filter Controls */}
       <div className={headerStyle(isDarkMode)}>
-        <div className={sharedControlsContainerStyle}>
+        <Stack horizontal tokens={{ childrenGap: 12 }} verticalAlign="center">
           {/* Search Box */}
-          <div className={sharedSearchBoxContainerStyle(isDarkMode)}>
+          <div
+            className={mergeStyles({
+              flexGrow: 1,
+              marginRight: '12px',
+            })}
+          >
             <SearchBox
               placeholder="Search matters..."
               value={searchTerm}
               onChange={(e, newValue) => setSearchTerm(newValue || '')}
-              styles={sharedSearchBoxStyle(isDarkMode)}
-              aria-label="Search Matters"
+              styles={{
+                root: {
+                  width: '100%',
+                  backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
+                  borderColor: isDarkMode ? colours.dark.border : colours.light.border,
+                  borderRadius: '4px',
+                },
+                field: {
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                },
+              }}
+              ariaLabel="Search Matters"
             />
           </div>
 
           {/* Role Filter Dropdown */}
-          <div className={sharedDropdownContainerStyle(isDarkMode)}>
+          <div>
             <Dropdown
               placeholder="Filter by Role"
               options={roleOptions}
               selectedKey={filterRole}
               onChange={(event, option) => setFilterRole(option?.key as string)}
-              styles={sharedDropdownStyles(isDarkMode)}
+              styles={{
+                root: {
+                  width: 200,
+                },
+                dropdown: {
+                  backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
+                  borderColor: isDarkMode ? colours.dark.border : colours.light.border,
+                },
+                title: {
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                },
+                caretDown: {
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                },
+              }}
               ariaLabel="Filter Matters by Role"
             />
           </div>
 
           {/* Status Filter Dropdown */}
-          <div className={sharedDropdownContainerStyle(isDarkMode)}>
+          <div>
             <Dropdown
               placeholder="Filter by Status"
               options={statusOptions}
               selectedKey={filterStatus}
               onChange={(event, option) => setFilterStatus(option?.key as string)}
-              styles={sharedDropdownStyles(isDarkMode)}
+              styles={{
+                root: {
+                  width: 200,
+                },
+                dropdown: {
+                  backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
+                  borderColor: isDarkMode ? colours.dark.border : colours.light.border,
+                },
+                title: {
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                },
+                caretDown: {
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                },
+              }}
               ariaLabel="Filter Matters by Status"
             />
           </div>
-        </div>
-
-        {/* Right Side: Dark Mode Toggle */}
-        {/* Removed the local dark mode toggle */}
+        </Stack>
       </div>
 
       {/* Main Content */}
@@ -327,13 +383,21 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
           renderDetailView(selectedMatter)
         ) : (
           <>
-            {/* Matters Grid */}
             {filteredMatters.length === 0 ? (
-              <Text variant="medium" styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.light.subText } }}>
+              <Text
+                variant="medium"
+                styles={{
+                  root: {
+                    color: isDarkMode ? colours.dark.subText : colours.light.subText,
+                    fontFamily: 'Raleway, sans-serif',
+                  },
+                }}
+              >
                 No matters found matching your criteria.
               </Text>
             ) : (
               <>
+                {/* Matters Grid */}
                 <div
                   className={mergeStyles({
                     display: 'grid',
@@ -348,7 +412,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
                     },
                   })}
                 >
-                  {currentMatters.map((matter, index) => {
+                  {displayedMatters.map((matter, index) => {
                     const animationDelay = calculateAnimationDelay(index);
                     return (
                       <MatterCard
@@ -360,15 +424,8 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
                     );
                   })}
                 </div>
-
-                {/* Pagination Controls */}
-                {totalPages > 1 && (
-                  <CustomPagination
-                    currentPage={currentPage}
-                    totalPages={totalPages}
-                    onPageChange={handlePageChange}
-                  />
-                )}
+                {/* Loader for Infinite Scroll */}
+                <div ref={loader} />
               </>
             )}
           </>
@@ -388,7 +445,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
                 fontFamily: 'Raleway, sans-serif',
               },
             }}
-            aria-label="Helix Law Website"
+            ariaLabel="Helix Law Website"
           >
             https://helix-law.co.uk/
           </Link>
@@ -425,6 +482,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
               maxWidth: '300px',
               zIndex: 1000,
               borderRadius: '4px',
+              fontFamily: 'Raleway, sans-serif',
             },
           }}
         >

@@ -8,7 +8,7 @@ import {
   MessageBar,
   MessageBarType,
   SearchBox,
-  Link,
+  Link as FluentLink, // Renamed to avoid confusion with resource Link
 } from '@fluentui/react';
 import { initializeIcons } from '@fluentui/react/lib/Icons';
 import { colours } from '../../app/styles/colours';
@@ -35,7 +35,7 @@ import landRegistryIcon from '../../assets/land-registry.svg';
 initializeIcons();
 
 // Define types for sections and resources
-export type SectionName = 'Favorites' | 'Internal' | 'External';
+export type SectionName = 'Favorites' | 'WithIcons' | 'WithoutIcons';
 
 export interface Resource {
   title: string;
@@ -47,8 +47,8 @@ export interface Resource {
 
 interface ResourcesSections {
   Favorites: Resource[];
-  Internal: Resource[];
-  External: Resource[];
+  WithIcons: Resource[];
+  WithoutIcons: Resource[];
 }
 
 // Styles
@@ -168,7 +168,8 @@ const Resources: React.FC<ResourcesProps> = () => {
   // Initialize resources with hard-coded data
   const resourcesSections: ResourcesSections = useMemo(() => {
     const initialSections: ResourcesSections = {
-      Internal: [
+      Favorites: [], // Will be populated based on favorites
+      WithIcons: [
         {
           title: 'Asana',
           url: 'https://app.asana.com/',
@@ -204,8 +205,6 @@ const Resources: React.FC<ResourcesProps> = () => {
           url: 'https://www.leapsome.com/app/#/dashboard?init=true',
           icon: leapsomeIcon,
         },
-      ],
-      External: [
         {
           title: 'Harvey',
           url: 'https://www.harvey.ai/',
@@ -227,17 +226,58 @@ const Resources: React.FC<ResourcesProps> = () => {
           icon: landRegistryIcon,
         },
         {
-          title: 'Companies House',
-          url: 'https://www.gov.uk/government/organisations/companies-house',
-          icon: 'CityNext', // Retaining Fluent UI icon
-        },
-        {
           title: 'CC-Filing',
           url: 'https://efile.cefile-app.com/login?referer=%2F',
           icon: thompsonReutersIcon,
         },
       ],
-      Favorites: [], // Will be populated based on favorites
+      WithoutIcons: [
+        {
+          title: 'Companies House',
+          url: 'https://www.gov.uk/government/organisations/companies-house',
+          icon: 'Link', // Changed to 'Link' icon
+        },
+        {
+          title: 'Azure',
+          url: 'https://portal.azure.com/#home',
+          icon: 'Link', // Temporary Fluent UI icon
+        },
+        {
+          title: 'Power Automate',
+          url: 'https://make.powerautomate.com/',
+          icon: 'Link', // Temporary Fluent UI icon
+        },
+        {
+          title: 'Cognito',
+          url: 'https://www.cognitoforms.com/helix1',
+          icon: 'Link', // Temporary Fluent UI icon
+        },
+        {
+          title: 'Power BI',
+          url: 'https://app.powerbi.com/home',
+          icon: 'Link', // Temporary Fluent UI icon
+        },
+        {
+          title: 'Postman',
+          url: 'https://identity.getpostman.com/',
+          icon: 'Link', // Temporary Fluent UI icon
+        },
+        {
+          title: 'Miro',
+          url: 'https://miro.com/login/',
+          icon: 'Link', // Temporary Fluent UI icon
+        },
+        {
+          title: 'Psychometric Testing',
+          url: 'https://links.helix-law.co.uk/assessment',
+          icon: 'Link', // Temporary Fluent UI icon
+        },
+        {
+          title: 'GitHub',
+          url: 'https://github.com/',
+          icon: 'Link', // Temporary Fluent UI icon
+        },
+      ],
     };
 
     return initialSections;
@@ -294,7 +334,7 @@ const Resources: React.FC<ResourcesProps> = () => {
     window.open(url, '_blank', 'noopener,noreferrer');
   }, []);
 
-  // Filtered Sections based on search query and excluding favorites from Internal/External
+  // Filtered Sections based on search query and excluding favorites from WithIcons/WithoutIcons
   const filteredSections: ResourcesSections = useMemo(() => {
     const filterResources = (resources: Resource[]) =>
       resources.filter(
@@ -305,7 +345,8 @@ const Resources: React.FC<ResourcesProps> = () => {
 
     const sortResources = (resources: Resource[]) => {
       const sorted = [...resources];
-      // Optional: Implement sorting if needed
+      // Sort alphabetically by title
+      sorted.sort((a, b) => a.title.localeCompare(b.title));
       return sorted;
     };
 
@@ -316,8 +357,8 @@ const Resources: React.FC<ResourcesProps> = () => {
 
     return {
       Favorites: sortResources(favoriteResources),
-      Internal: sortResources(filterResources(resourcesSections.Internal)),
-      External: sortResources(filterResources(resourcesSections.External)),
+      WithIcons: sortResources(filterResources(resourcesSections.WithIcons)),
+      WithoutIcons: sortResources(filterResources(resourcesSections.WithoutIcons)),
     };
   }, [favorites, resourcesSections, searchQuery]);
 
@@ -330,7 +371,7 @@ const Resources: React.FC<ResourcesProps> = () => {
 
   // Flatten the resources into a single list to calculate row and column
   const flatResources = useMemo(() => {
-    const sections = ['Favorites', 'Internal', 'External'] as SectionName[];
+    const sections = ['Favorites', 'WithIcons', 'WithoutIcons'] as SectionName[];
     let flatList: Resource[] = [];
     sections.forEach((section) => {
       flatList = flatList.concat(filteredSections[section]);
@@ -391,49 +432,81 @@ const Resources: React.FC<ResourcesProps> = () => {
           </section>
         )}
 
-        {/* Render Other Sections */}
-        {(['Internal', 'External'] as SectionName[]).map(
-          (sectionName) =>
-            filteredSections[sectionName].length > 0 && (
-              <section key={sectionName} className={sectionStyle(isDarkMode)}>
-                <Text variant="large" className={sectionHeaderStyleCustom(isDarkMode)}>
-                  {sectionName}
-                </Text>
-                <div className={resourceGridStyle}>
-                  {filteredSections[sectionName].map((resource: Resource, index: number) => {
-                    const globalIndex = flatResources.findIndex((res) => res.title === resource.title);
+        {/* Render With Icons Section */}
+        {filteredSections.WithIcons.length > 0 && (
+          <section key="WithIcons" className={sectionStyle(isDarkMode)}>
+            <Text variant="large" className={sectionHeaderStyleCustom(isDarkMode)}>
+              Resources
+            </Text>
+            <div className={resourceGridStyle}>
+              {filteredSections.WithIcons.map((resource: Resource, index: number) => {
+                const globalIndex = flatResources.findIndex((res) => res.title === resource.title);
 
-                    if (globalIndex === -1) {
-                      console.warn(`Resource titled "${resource.title}" not found in flatResources.`);
-                      return null;
-                    }
+                if (globalIndex === -1) {
+                  console.warn(`Resource titled "${resource.title}" not found in flatResources.`);
+                  return null;
+                }
 
-                    const row = Math.floor(globalIndex / columnsPerRow);
-                    const col = globalIndex % columnsPerRow;
-                    const animationDelay = calculateAnimationDelay(row, col);
-                    return (
-                      <ResourceCard
-                        key={resource.title}
-                        resource={resource}
-                        isFavorite={favorites.some((fav) => fav.title === resource.title)}
-                        onCopy={copyToClipboard}
-                        onToggleFavorite={toggleFavorite}
-                        onGoTo={goToResource}
-                        onSelect={() => setSelectedResource(resource)}
-                        animationDelay={animationDelay}
-                      />
-                    );
-                  })}
-                </div>
-              </section>
-            )
+                const row = Math.floor(globalIndex / columnsPerRow);
+                const col = globalIndex % columnsPerRow;
+                const animationDelay = calculateAnimationDelay(row, col);
+                return (
+                  <ResourceCard
+                    key={resource.title}
+                    resource={resource}
+                    isFavorite={favorites.some((fav) => fav.title === resource.title)}
+                    onCopy={copyToClipboard}
+                    onToggleFavorite={toggleFavorite}
+                    onGoTo={goToResource}
+                    onSelect={() => setSelectedResource(resource)}
+                    animationDelay={animationDelay}
+                  />
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* Render Without Icons Section */}
+        {filteredSections.WithoutIcons.length > 0 && (
+          <section key="WithoutIcons" className={sectionStyle(isDarkMode)}>
+            <Text variant="large" className={sectionHeaderStyleCustom(isDarkMode)}>
+              Drafts
+            </Text>
+            <div className={resourceGridStyle}>
+              {filteredSections.WithoutIcons.map((resource: Resource, index: number) => {
+                const globalIndex = flatResources.findIndex((res) => res.title === resource.title);
+
+                if (globalIndex === -1) {
+                  console.warn(`Resource titled "${resource.title}" not found in flatResources.`);
+                  return null;
+                }
+
+                const row = Math.floor(globalIndex / columnsPerRow);
+                const col = globalIndex % columnsPerRow;
+                const animationDelay = calculateAnimationDelay(row, col);
+                return (
+                  <ResourceCard
+                    key={resource.title}
+                    resource={resource}
+                    isFavorite={favorites.some((fav) => fav.title === resource.title)}
+                    onCopy={copyToClipboard}
+                    onToggleFavorite={toggleFavorite}
+                    onGoTo={goToResource}
+                    onSelect={() => setSelectedResource(resource)}
+                    animationDelay={animationDelay}
+                  />
+                );
+              })}
+            </div>
+          </section>
         )}
       </main>
 
       {/* Footer */}
       <footer className={footerStyle(isDarkMode)}>
         <Text>
-          <Link
+          <FluentLink
             href="https://helix-law.co.uk/"
             target="_blank"
             styles={{
@@ -447,7 +520,7 @@ const Resources: React.FC<ResourcesProps> = () => {
             aria-label="Helix Law Website"
           >
             https://helix-law.co.uk/
-          </Link>
+          </FluentLink>
           {' | '}
           <Text
             variant="small"
