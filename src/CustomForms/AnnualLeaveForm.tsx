@@ -219,9 +219,6 @@ function AnnualLeaveForm({
   const holidayEntitlement = Number(userData?.[0]?.holiday_entitlement ?? 0);
   const effectiveRemaining = holidayEntitlement - totals.standard - totalDays;
 
-  // Lock submit button if remaining days are 0 or negative.
-  const isSubmitDisabled = effectiveRemaining <= 0;
-
   /**
    * Group "futureLeave" records that overlap with any chosen date ranges.
    */
@@ -273,8 +270,18 @@ function AnnualLeaveForm({
   /**
    * Submits the form (POST to server).
    */
-  const handleSubmit = async (values: { [key: string]: string | number | boolean | File }) => {
-    if (isSubmitDisabled) return;
+  const handleSubmit = async () => {
+    // Client-side validation to ensure required fields are present
+    if (dateRanges.length === 0) {
+      alert("Please add at least one date range for your leave.");
+      return;
+    }
+
+    if (!notes.trim()) {
+      // Set a default reason if empty
+      setNotes("No additional reason provided.");
+    }
+
     setIsSubmitting(true);
     try {
       const feeEarner = userData?.[0]?.Initials || 'XX';
@@ -286,8 +293,9 @@ function AnnualLeaveForm({
       const payload = {
         fe: feeEarner,
         dateRanges: formattedDateRanges,
-        reason: notes,
+        reason: notes || "No additional reason provided.", // Ensure 'reason' is not empty
         days_taken: totalDays,
+        leave_type: "standard", // Added 'leave_type' field with default value
         overlapDetails: groupedLeave,
       };
       console.log('Annual Leave Form Payload:', payload);
@@ -299,12 +307,17 @@ function AnnualLeaveForm({
         body: JSON.stringify(payload),
       });
       if (!response.ok) {
-        throw new Error(`Request failed with status ${response.status}`);
+        const errorText = await response.text();
+        throw new Error(`Request failed with status ${response.status}: ${errorText}`);
       }
       const result = await response.json();
       console.log('Insert Annual Leave Successful:', result);
+      alert("Your annual leave request has been submitted successfully.");
+      // Optionally, reset the form after successful submission
+      handleClear();
     } catch (error) {
       console.error('Error submitting Annual Leave Form:', error);
+      alert(`Error submitting your request: ${error}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -541,6 +554,12 @@ function AnnualLeaveForm({
           .bespokeFormContainer button.ms-Button.ms-Button--primary {
             display: none !important;
           }
+          /* Ensure custom Submit button is visible */
+          .custom-submit-button {
+            display: inline-block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+          }
         `}
       </style>
       <Stack tokens={{ childrenGap: 20 }}>
@@ -634,28 +653,27 @@ function AnnualLeaveForm({
                   multiline
                   rows={3}
                 />
-                {/* Clear Button (will reset notes and date ranges) */}
-                <DefaultButton
-                  text="Clear"
-                  onClick={handleClear}
-                  styles={buttonStylesFixedWidthSecondary}
-                />
+                {/* Clear and Submit Buttons Side by Side */}
+                <Stack horizontal tokens={{ childrenGap: 10 }}>
+                  <DefaultButton
+                    text="Clear"
+                    onClick={handleClear}
+                    styles={buttonStylesFixedWidthSecondary}
+                  />
+                  <DefaultButton
+                    text="Submit"
+                    className="custom-submit-button"
+                    styles={buttonStylesFixedWidth}
+                    onClick={handleSubmit}
+                    disabled={isSubmitting} // Optionally disable while submitting
+                    // You can remove the disabled prop if you want it always enabled
+                  />
+                </Stack>
               </Stack>
               {/* Right side: Totals side panel */}
               {renderSidePanel()}
             </div>
           </BespokeForm>
-          {/* Custom Submit Button */}
-          <div style={{ marginTop: '20px', textAlign: 'right' }}>
-            <DefaultButton
-              text={isSubmitDisabled ? 'Submit' : 'Submit'}
-              disabled={isSubmitDisabled || isSubmitting}
-              // Add a padlock icon if submission is locked.
-              iconProps={isSubmitDisabled ? { iconName: 'Lock' } : {}}
-              styles={buttonStylesFixedWidth}
-              onClick={() => handleSubmit({})}
-            />
-          </div>
         </div>
         {/* Team Leave Conflicts (only shown if conflicts exist) */}
         {groupedLeave.length > 0 && (

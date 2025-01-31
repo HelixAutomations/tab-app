@@ -74,6 +74,7 @@ const FormDetails: React.FC<FormDetailsProps> = ({
   const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
   const [submissionSuccess, setSubmissionSuccess] = useState<string | null>(null);
   const [formKey, setFormKey] = useState<number>(() => Date.now());
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   const loadCognitoScript = useCallback((): Promise<void> => {
     return new Promise<void>((resolve, reject) => {
@@ -153,18 +154,24 @@ const FormDetails: React.FC<FormDetailsProps> = ({
 
   const handleFinancialSubmit = useCallback(
     async (values: any) => {
+      if (isSubmitting) return; // Prevent multiple submissions
+
+      setIsSubmitting(true); // Disable the button
+
       const payload = {
         formType: link.title,
         data: values,
         initials: userData?.[0]?.Initials || 'N/A',
       };
       const endpointUrl = `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_POST_FINANCIAL_TASK_PATH}?code=${process.env.REACT_APP_POST_FINANCIAL_TASK_CODE}`;
+
       try {
         const response = await fetch(endpointUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
+
         if (!response.ok) {
           const errText = await response.text();
           console.error('Error posting financial task:', errText);
@@ -174,6 +181,7 @@ const FormDetails: React.FC<FormDetailsProps> = ({
           console.log('Financial task created successfully:', result);
           setIsSubmitted(true);
           setSubmissionSuccess('Financial form submitted successfully!');
+
           setTimeout(() => {
             setIsSubmitted(false);
             setSubmissionSuccess(null);
@@ -183,9 +191,11 @@ const FormDetails: React.FC<FormDetailsProps> = ({
       } catch (error: any) {
         console.error('Error in financial form submission:', error);
         setSubmissionSuccess(null);
+      } finally {
+        setIsSubmitting(false); // Re-enable the button after response
       }
     },
-    [link.title, userData]
+    [link.title, userData, isSubmitting]
   );
 
   return (
@@ -228,7 +238,7 @@ const FormDetails: React.FC<FormDetailsProps> = ({
                 fields={link.fields.map((field) => ({ ...field, name: field.label }))}
                 onSubmit={handleFinancialSubmit}
                 onCancel={() => console.log('Form cancelled')}
-                isSubmitting={isSubmitted}
+                isSubmitting={isSubmitting}
               />
             </div>
           ) : (

@@ -18,7 +18,6 @@ import {
   PersonaPresence,
   DefaultButton,
   Icon,
-  ThemeSettingName,
 } from '@fluentui/react';
 import { colours } from '../../app/styles/colours';
 import { initializeIcons } from '@fluentui/react/lib/Icons';
@@ -37,7 +36,7 @@ import TelephoneAttendance from '../../CustomForms/TelephoneAttendance';
 import FormCard from '../forms/FormCard';
 import ResourceCard from '../resources/ResourceCard';
 
-import { FormItem } from '../forms/Forms';
+import { FormItem, Matter } from '../../app/functionality/types'; // Note: Matter type is imported here
 import { Resource } from '../resources/Resources';
 
 import FormDetails from '../forms/FormDetails';
@@ -79,6 +78,8 @@ interface HomeProps {
   context: TeamsContextType | null;
   userData: any;
   enquiries: any[] | null;
+  // NEW: Callback to pass the results of getAllMatters up to App:
+  onAllMattersFetched?: (matters: Matter[]) => void;
 }
 
 interface QuickLink {
@@ -247,23 +248,23 @@ const sectionContainerStyle = (isDarkMode: boolean) =>
     width: '100%',
   });
 
-  const actionSectionStyle = (isDarkMode: boolean) =>
-    mergeStyles({
-      display: 'inline-block', // Ensures it encapsulates its content
-      width: 'auto', // Allows the container to grow/shrink with its contents
-      maxWidth: '100%', // Keeps responsiveness intact
-      padding: '10px', // Optional: add padding for better aesthetics
-      backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-      borderRadius: '12px', // Optional: keeps it visually consistent
-      boxShadow: isDarkMode
-        ? `0 4px 12px ${colours.dark.border}`
-        : `0 4px 12px ${colours.light.border}`,
-      transition: 'background-color 0.3s, box-shadow 0.3s',
-      '@media (max-width: 600px)': {
-        width: '100%', // Adjusts to fit smaller screens
-        padding: '8px',
-      },
-    });
+const actionSectionStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    display: 'inline-block', // Ensures it encapsulates its content
+    width: 'auto', // Allows the container to grow/shrink with its contents
+    maxWidth: '100%', // Keeps responsiveness intact
+    padding: '10px', // Optional: add padding for better aesthetics
+    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+    borderRadius: '12px', // Optional: keeps it visually consistent
+    boxShadow: isDarkMode
+      ? `0 4px 12px ${colours.dark.border}`
+      : `0 4px 12px ${colours.light.border}`,
+    transition: 'background-color 0.3s, box-shadow 0.3s',
+    '@media (max-width: 600px)': {
+      width: '100%', // Adjusts to fit smaller screens
+      padding: '8px',
+    },
+  });
 
 const fadeInAnimationStyle = mergeStyles({
   animation: 'fadeIn 0.5s ease-in-out',
@@ -272,7 +273,6 @@ const fadeInAnimationStyle = mergeStyles({
 //////////////////////
 // TabLabel Component
 //////////////////////
-// Renders a left-edge label that spans the full height of its container and rotates its text –90° anticlockwise.
 const TabLabel: React.FC<{ label: string }> = ({ label }) => {
   return (
     <div
@@ -343,7 +343,7 @@ const createColumnsFunction = (isDarkMode: boolean): IColumn[] => [
 ];
 
 //////////////////////
-// QuickActionsCard Component
+// QuickActionsCardStyled Component
 //////////////////////
 
 const QuickActionsCardStyled: React.FC<{
@@ -482,7 +482,7 @@ const PersonBubble: React.FC<PersonBubbleProps> = ({
 };
 
 //////////////////////
-// Caching Variables
+// Caching Variables (module-level)
 //////////////////////
 
 let cachedAttendance: any[] | null = null;
@@ -496,6 +496,10 @@ let cachedWipClio: any | null = null;
 let cachedWipClioError: string | null = null;
 let cachedRecovered: number | null = null;
 let cachedRecoveredError: string | null = null;
+
+// NEW: Add caching for "getAllMatters"
+let cachedAllMatters: Matter[] | null = null;
+let cachedAllMattersError: string | null = null;
 
 //////////////////////
 // CognitoForm Component
@@ -524,7 +528,7 @@ const CognitoForm: React.FC<{ dataKey: string; dataForm: string }> = ({ dataKey,
 // Home Component
 //////////////////////
 
-const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
+const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersFetched }) => {
   const { isDarkMode } = useTheme();
 
   // Declare all missing state variables with appropriate types
@@ -557,7 +561,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   // NEW: Store bank holidays
   const [bankHolidays, setBankHolidays] = useState<Set<string>>(new Set());
 
-  // Declare missing state variables related to attendance and annual leave
+  // Attendance & Annual Leave states
   const [currentUserName, setCurrentUserName] = useState<string>('');
   const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
   const [attendanceRecords, setAttendanceRecords] = useState<any[]>([]);
@@ -578,6 +582,11 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
 
   // New state to manage actions loading
   const [isActionsLoading, setIsActionsLoading] = useState<boolean>(true);
+
+  // NEW: Add local state for All Matters
+  const [allMatters, setAllMatters] = useState<Matter[] | null>(null);
+  const [allMattersError, setAllMattersError] = useState<string | null>(null);
+  const [isLoadingAllMatters, setIsLoadingAllMatters] = useState<boolean>(false);
 
   // Fetch bank holidays in the background
   useEffect(() => {
@@ -634,7 +643,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
-}`;
+};`;
     const styleSheet = document.createElement('style');
     styleSheet.type = 'text/css';
     styleSheet.innerText = styles;
@@ -930,6 +939,90 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     }
   }, [userData]);
 
+  // NEW: Fetch All Matters with Caching (GET request)
+  useEffect(() => {
+    if (cachedAllMatters || cachedAllMattersError) {
+      // Already fetched or in error
+      setAllMatters(cachedAllMatters || []);
+      setAllMattersError(cachedAllMattersError);
+      setIsLoadingAllMatters(false);
+    } else {
+      const fetchAllMattersData = async () => {
+        try {
+          setIsLoadingAllMatters(true);
+          const response = await fetch(
+            `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_ALL_MATTERS_PATH}?code=${process.env.REACT_APP_GET_ALL_MATTERS_CODE}`,
+            {
+              method: 'GET',
+            }
+          );
+          if (!response.ok) {
+            throw new Error(`Failed to fetch all matters: ${response.status}`);
+          }
+          const rawData = await response.json();
+
+          // The existing "Matters" call in index.tsx transforms raw rows, so do it similarly:
+          const mapData = (items: any[]): Matter[] => {
+            return items.map((item) => ({
+              DisplayNumber: item['Display Number'] || '',
+              OpenDate: item['Open Date'] || '',
+              MonthYear: item['MonthYear'] || '',
+              YearMonthNumeric: item['YearMonthNumeric'] || 0,
+              ClientID: item['Client ID'] || '',
+              ClientName: item['Client Name'] || '',
+              ClientPhone: item['Client Phone'] || '',
+              ClientEmail: item['Client Email'] || '',
+              Status: item['Status'] || '',
+              UniqueID: item['Unique ID'] || '',
+              Description: item['Description'] || '',
+              PracticeArea: item['Practice Area'] || '',
+              Source: item['Source'] || '',
+              Referrer: item['Referrer'] || '',
+              ResponsibleSolicitor: item['Responsible Solicitor'] || '',
+              OriginatingSolicitor: item['Originating Solicitor'] || '',
+              SupervisingPartner: item['Supervising Partner'] || '',
+              Opponent: item['Opponent'] || '',
+              OpponentSolicitor: item['Opponent Solicitor'] || '',
+              CloseDate: item['Close Date'] || '',
+              ApproxValue: item['Approx. Value'] || '',
+              mod_stamp: item['mod_stamp'] || '',
+              method_of_contact: item['method_of_contact'] || '',
+              CCL_date: item['CCL_date'] || null,
+              Rating: item['Rating'] as 'Good' | 'Neutral' | 'Poor' | undefined,
+            }));
+          };
+
+          let mappedMatters: Matter[] = [];
+          if (Array.isArray(rawData)) {
+            mappedMatters = mapData(rawData);
+          } else {
+            // Just in case the function returns an object with `matters`
+            if (Array.isArray(rawData.matters)) {
+              mappedMatters = mapData(rawData.matters);
+            } else {
+              console.warn('Unexpected data format for getAllMatters:', rawData);
+            }
+          }
+
+          cachedAllMatters = mappedMatters;
+          setAllMatters(mappedMatters);
+          // If a parent App callback is provided, pass these matters up:
+          if (onAllMattersFetched) {
+            onAllMattersFetched(mappedMatters);
+          }
+        } catch (error: any) {
+          console.error('Error fetching all matters:', error);
+          cachedAllMattersError = error.message;
+          setAllMattersError(error.message);
+          setAllMatters([]);
+        } finally {
+          setIsLoadingAllMatters(false);
+        }
+      };
+      fetchAllMattersData();
+    }
+  }, [onAllMattersFetched]);
+
   const columns = useMemo(() => createColumnsFunction(isDarkMode), [isDarkMode]);
 
   const handleActionClick = (action: QuickLink) => {
@@ -989,10 +1082,10 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   const allPeople = useMemo(() => {
     if (!teamData || teamData.length === 0) return [];
     return teamData
-      .sort((a, b) => a.First.localeCompare(b.First))
-      .map((t) => {
+      .sort((a: any, b: any) => a.First.localeCompare(b.First))
+      .map((t: any) => {
         const att = attendanceRecords.find(
-          (a) => a.name.toLowerCase() === t.First.toLowerCase()
+          (a: any) => a.name.toLowerCase() === t.First.toLowerCase()
         );
         const attending = att ? att.attendingToday : false;
         return {
@@ -1152,7 +1245,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
     [annualLeaveRecords, userInitials]
   );
 
-  // Debugging: Log approvalsNeeded to verify
   useEffect(() => {
     console.log('Approvals Needed:', approvalsNeeded);
   }, [approvalsNeeded]);
@@ -1353,7 +1445,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
   //////////////////////
   // Immediate Actions Section
   //////////////////////
-  // Determine if there are immediate actions to review
   const immediateActions = useMemo(() => {
     const actions: { title: string; onClick: () => void; styles?: any }[] = [];
 
@@ -1717,7 +1808,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries }) => {
                       .filter((leave) => leave.status === 'booked')
                       .map((leave, index: number) => {
                         const teamMember = teamData.find(
-                          (member) => member.Initials.toLowerCase() === leave.person.toLowerCase()
+                          (member: any) => member.Initials.toLowerCase() === leave.person.toLowerCase()
                         );
                         return (
                           <PersonBubble

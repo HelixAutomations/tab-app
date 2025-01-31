@@ -1,0 +1,161 @@
+// src/app/components/RedesignedCombinedMenu.tsx
+
+import React from 'react';
+import {
+  Stack,
+  Text,
+  mergeStyles,
+  Icon,
+  SearchBox,
+  IStyle,
+} from '@fluentui/react';
+import { colours } from '../styles/colours';
+import { useTheme } from '../functionality/ThemeContext';
+
+interface RedesignedCombinedMenuProps {
+  activeArea: string | null;
+  setActiveArea: React.Dispatch<React.SetStateAction<string | null>>;
+  activeSolicitor: string | null;
+  setActiveSolicitor: React.Dispatch<React.SetStateAction<string | null>>;
+  searchTerm: string;
+  setSearchTerm: React.Dispatch<React.SetStateAction<string>>;
+  isSearchActive: boolean;
+  setSearchActive: React.Dispatch<React.SetStateAction<boolean>>;
+  practiceAreas: string[];
+  solicitors: string[];
+}
+
+const RedesignedCombinedMenu: React.FC<RedesignedCombinedMenuProps> = ({
+  activeArea,
+  setActiveArea,
+  activeSolicitor,
+  setActiveSolicitor,
+  searchTerm,
+  setSearchTerm,
+  isSearchActive,
+  setSearchActive,
+  practiceAreas,
+  solicitors,
+}) => {
+  const { isDarkMode } = useTheme();
+
+  const menuContainer = mergeStyles({
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+    padding: '12px 20px',
+    borderRadius: '8px',
+    boxShadow: isDarkMode
+      ? '0px 2px 8px rgba(0,0,0,0.6)'
+      : '0px 2px 8px rgba(0,0,0,0.1)',
+    backgroundColor: isDarkMode
+      ? colours.dark.sectionBackground
+      : colours.light.sectionBackground,
+    marginBottom: '20px',
+  });
+
+  const filterItem = mergeStyles({
+    display: 'flex',
+    alignItems: 'center',
+    padding: '8px 12px',
+    marginRight: '12px',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    transition: 'background-color 0.3s, border 0.3s',
+    border: '2px solid transparent',
+    selectors: {
+      ':hover': {
+        backgroundColor: isDarkMode
+          ? `${colours.dark.subText}20`
+          : `${colours.light.subText}20`,
+      },
+    },
+  });
+
+  const activeFilterItem = mergeStyles({
+    border: `2px solid ${activeArea ? colours.blue : colours.cta}`,
+    backgroundColor: `${activeArea ? colours.blue : colours.cta}20`,
+  });
+
+  const searchBoxStyles = mergeStyles({
+    width: isSearchActive ? '180px' : '0px',
+    opacity: isSearchActive ? 1 : 0,
+    transition: 'width 0.3s, opacity 0.3s',
+    overflow: 'hidden',
+    marginLeft: '8px',
+  });
+
+  const searchIconContainer = mergeStyles({
+    cursor: 'pointer',
+  });
+
+  return (
+    <div className={menuContainer}>
+      <Stack horizontal tokens={{ childrenGap: 12 }} verticalAlign="center">
+        {/* Practice Area Filters */}
+        {practiceAreas.map((area) => {
+          const isSelected = activeArea === area;
+          return (
+            <div
+              key={area}
+              className={mergeStyles(filterItem, isSelected && activeFilterItem)}
+              onClick={() => setActiveArea(isSelected ? null : area)}
+              aria-label={`Filter by ${area}`}
+            >
+              <Icon iconName="Filter" styles={{ root: { marginRight: '8px' } }} />
+              <Text variant="mediumPlus" styles={{ root: { fontWeight: isSelected ? 600 : 400 } }}>
+                {area}
+              </Text>
+            </div>
+          );
+        })}
+      </Stack>
+      <Stack horizontal tokens={{ childrenGap: 12 }} verticalAlign="center">
+        {/* Originating Solicitor Filters */}
+        {solicitors.map((solicitor) => {
+          const isSelected = activeSolicitor === solicitor;
+          return (
+            <div
+              key={solicitor}
+              className={mergeStyles(filterItem, isSelected && activeFilterItem)}
+              onClick={() => setActiveSolicitor(isSelected ? null : solicitor)}
+              aria-label={`Filter by Solicitor ${solicitor}`}
+            >
+              <Icon iconName="Contact" styles={{ root: { marginRight: '8px' } }} />
+              <Text variant="mediumPlus" styles={{ root: { fontWeight: isSelected ? 600 : 400 } }}>
+                {solicitor}
+              </Text>
+            </div>
+          );
+        })}
+        {/* Search Icon and SearchBox */}
+        <div
+          className={searchIconContainer}
+          onClick={() => setSearchActive(!isSearchActive)}
+        >
+          <Icon
+            iconName={isSearchActive ? 'Cancel' : 'Search'}
+            styles={{
+              root: {
+                fontSize: '20px',
+                color: isDarkMode ? colours.dark.text : colours.light.text,
+              },
+            }}
+          />
+        </div>
+        <div className={searchBoxStyles}>
+          <SearchBox
+            placeholder="Search..."
+            value={searchTerm}
+            onChange={(_, newValue) => setSearchTerm(newValue || '')}
+            underlined
+            styles={{ root: { fontFamily: 'Raleway, sans-serif' } }}
+          />
+        </div>
+      </Stack>
+    </div>
+  );
+};
+
+export default RedesignedCombinedMenu;

@@ -1,3 +1,5 @@
+// insertAnnualLeaveHandler.ts
+
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { DefaultAzureCredential } from "@azure/identity";
 import { SecretClient } from "@azure/keyvault-secrets";
@@ -9,12 +11,13 @@ interface DateRange {
   end_date: string;   // Expected format: "YYYY-MM-DD"
 }
 
-// Define the interface for the request body (extended to include days_taken)
+// Define the interface for the request body (extended to include days_taken and leave_type)
 interface InsertAnnualLeaveRequest {
   fe: string; // Fee earner initials
   dateRanges: DateRange[]; // One or more date ranges submitted by the form
-  reason: string;
+  reason?: string; // Made optional
   days_taken: number;
+  leave_type: string; // Added 'leave_type' field
   // overlapDetails is included in the JSON payload but not used in the SQL insert yet.
   overlapDetails: any;
 }
@@ -58,13 +61,14 @@ export async function insertAnnualLeaveHandler(
     };
   }
 
-  const { fe, dateRanges, reason, days_taken } = requestBody;
+  const { fe, dateRanges, reason, days_taken, leave_type } = requestBody;
 
-  if (!fe || !reason || !Array.isArray(dateRanges) || dateRanges.length === 0) {
-    context.warn("Missing or invalid 'fe', 'reason', or 'dateRanges' in request body.");
+  // Validate required fields
+  if (!fe || !Array.isArray(dateRanges) || dateRanges.length === 0 || !leave_type) {
+    context.warn("Missing or invalid 'fe', 'leave_type', or 'dateRanges' in request body.");
     return {
       status: 400,
-      body: "Missing or invalid 'fe', 'reason', or 'dateRanges' in request body.",
+      body: "Missing or invalid 'fe', 'leave_type', or 'dateRanges' in request body.",
     };
   }
 
@@ -72,7 +76,7 @@ export async function insertAnnualLeaveHandler(
     context.log("Initiating SQL insert operation for Annual Leave entries.");
 
     // Insert the annual leave entries into SQL
-    const insertResult = await insertAnnualLeaveEntries(fe, dateRanges, reason, days_taken, context);
+    const insertResult = await insertAnnualLeaveEntries(fe, dateRanges, reason || "No reason provided.", days_taken, leave_type, context);
     context.log("Successfully inserted annual leave entries into SQL database.", insertResult);
 
     return {
@@ -100,6 +104,7 @@ export async function insertAnnualLeaveHandler(
  * @param dateRanges - An array of date ranges.
  * @param reason - The reason (notes) for the leave.
  * @param days_taken - Total number of days taken for the leave.
+ * @param leave_type - The type of leave.
  * @param context - The InvocationContext for logging.
  * @returns A Promise with the insert result.
  */
@@ -108,6 +113,7 @@ async function insertAnnualLeaveEntries(
   dateRanges: DateRange[],
   reason: string,
   days_taken: number,
+  leave_type: string,
   context: InvocationContext
 ): Promise<InsertResult> {
   const kvUri = "https://helix-keys.vault.azure.net/";
@@ -147,9 +153,9 @@ async function insertAnnualLeaveEntries(
         return new Promise<number>((resolveEntry, rejectEntry) => {
           const query = `
             INSERT INTO [dbo].[annualLeave] 
-              ([fe], [start_date], [end_date], [reason], [status], [days_taken])
+              ([fe], [start_date], [end_date], [reason], [status], [days_taken], [leave_type])
             VALUES 
-              (@FE, @StartDate, @EndDate, @Reason, @Status, @DaysTaken);
+              (@FE, @StartDate, @EndDate, @Reason, @Status, @DaysTaken, @LeaveType);
             SELECT SCOPE_IDENTITY() AS InsertedId;
           `;
 
@@ -187,6 +193,7 @@ async function insertAnnualLeaveEntries(
           sqlRequest.addParameter("Reason", TYPES.NVarChar, reason);
           sqlRequest.addParameter("Status", TYPES.NVarChar, "requested");
           sqlRequest.addParameter("DaysTaken", TYPES.Float, days_taken);
+          sqlRequest.addParameter("LeaveType", TYPES.NVarChar, leave_type); // Bind 'leave_type' parameter
 
           context.log("Executing SQL query with parameters (insertAnnualLeave):", {
             FE: fe,
@@ -194,7 +201,8 @@ async function insertAnnualLeaveEntries(
             EndDate: range.end_date,
             Reason: reason,
             Status: "requested",
-            DaysTaken: days_taken
+            DaysTaken: days_taken,
+            LeaveType: leave_type
           });
 
           connection.execSql(sqlRequest);

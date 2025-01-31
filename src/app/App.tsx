@@ -41,6 +41,14 @@ const App: React.FC<AppProps> = ({
   const isDarkMode = teamsContext?.theme === 'dark';
   const [poidData, setPoidData] = useState<any[] | null>(null);
 
+  // NEW: Store the "all matters" that Home fetches
+  const [allMattersFromHome, setAllMattersFromHome] = useState<Matter[] | null>(null);
+
+  // Callback that Home can call to pass us the new "all matters"
+  const handleAllMattersFetched = (fetchedMatters: Matter[]) => {
+    setAllMattersFromHome(fetchedMatters);
+  };
+
   useEffect(() => {
     const closeLoadingScreen = () => {
       const loadingScreen = document.getElementById('loading-screen');
@@ -51,6 +59,7 @@ const App: React.FC<AppProps> = ({
       }
     };
 
+    // Once we have the main pieces of data, hide the custom loading screen
     if (teamsContext && userData && enquiries && matters) {
       closeLoadingScreen();
     }
@@ -69,7 +78,15 @@ const App: React.FC<AppProps> = ({
   const renderContent = () => {
     switch (activeTab) {
       case 'home':
-        return <Home context={teamsContext} userData={userData} enquiries={enquiries} />;
+        return (
+          <Home
+            context={teamsContext}
+            userData={userData}
+            enquiries={enquiries}
+            // Pass the callback down so Home can forward the "all matters" data here:
+            onAllMattersFetched={handleAllMattersFetched}
+          />
+        );
       case 'forms':
         return <Forms userData={userData} />;
       case 'resources':
@@ -100,7 +117,14 @@ const App: React.FC<AppProps> = ({
       case 'reporting':
         return <ReportingCode />;
       default:
-        return <Home context={teamsContext} userData={userData} enquiries={enquiries} />;
+        return (
+          <Home
+            context={teamsContext}
+            userData={userData}
+            enquiries={enquiries}
+            onAllMattersFetched={handleAllMattersFetched}
+          />
+        );
     }
   };
 
