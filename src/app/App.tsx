@@ -20,7 +20,7 @@ interface AppProps {
   teamsContext: TeamsContextType | null;
   userData: UserData[] | null;
   enquiries: Enquiry[] | null;
-  matters: Matter[] | null;
+  matters: Matter[] | null;  // User-specific matters from index.tsx
   fetchMatters: (fullName: string) => Promise<Matter[]>;
   isLoading: boolean;
   error: string | null;
@@ -83,7 +83,7 @@ const App: React.FC<AppProps> = ({
             context={teamsContext}
             userData={userData}
             enquiries={enquiries}
-            // Pass the callback down so Home can forward the "all matters" data here:
+            // Pass the callback so Home can forward the "all matters" data here
             onAllMattersFetched={handleAllMattersFetched}
           />
         );
@@ -103,13 +103,15 @@ const App: React.FC<AppProps> = ({
           />
         );
       case 'matters':
+        // Use the allMattersFromHome here instead of user-specific matters
         return (
           <Matters
-            matters={matters || []}
+            matters={allMattersFromHome || []}
             fetchMatters={fetchMatters}
             isLoading={isLoading}
             error={error}
             userData={userData}
+            teamData={teamData}
           />
         );
       case 'roadmap':
