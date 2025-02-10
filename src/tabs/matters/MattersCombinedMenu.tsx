@@ -54,7 +54,6 @@ const practiceAreaMappings: { [group: string]: string[] } = {
     "Breach of Lease Advice",
     "Terminal Dilapidations Advice",
     "Investment Sale and Ownership - Advice",
-    "Miscellaneous (None of the above)",
     "Trespass",
     "Right of Way",
   ],
@@ -95,8 +94,8 @@ interface MattersCombinedMenuProps {
   activeGroupedArea: string | null;
   setActiveGroupedArea: React.Dispatch<React.SetStateAction<string | null>>;
   practiceAreas: string[];
-  activePracticeArea: string | null;
-  setActivePracticeArea: React.Dispatch<React.SetStateAction<string | null>>;
+  activePracticeAreas: string[]; // Now an array for multiple selections
+  setActivePracticeAreas: React.Dispatch<React.SetStateAction<string[]>>;
   activeState: string;
   setActiveState: (status: string) => void;
   searchTerm: string;
@@ -144,13 +143,12 @@ const rightColumnStyle = mergeStyles({
 });
 
 // Grouped area tab style uses the group's own colour when selected.
-// Modified version to match enquiries styling: changed padding and added marginRight.
 const groupTabStyle = (isSelected: boolean, isDarkMode: boolean, groupKey: string): string =>
   mergeStyles({
     display: 'flex',
     alignItems: 'center',
-    padding: '8px 12px',         // Changed horizontal padding from 16px to 12px
-    marginRight: '12px',         // Added right margin to space out the tabs
+    padding: '8px 12px',
+    marginRight: '12px',
     borderRadius: '6px',
     cursor: 'pointer',
     transition: 'background-color 0.3s, border 0.3s',
@@ -239,16 +237,63 @@ const practiceAreaButtonStyle = (isSelected: boolean, isDarkMode: boolean, group
 
 const practiceAreaTextStyle = (isSelected: boolean, isDarkMode: boolean): IStyle => ({
   fontWeight: isSelected ? '600' : '400',
-  color: isSelected ? '#333333' : (isDarkMode ? '#333333' : '#333333'),
+  color: isDarkMode ? '#333333' : '#333333',
   fontFamily: 'Raleway, sans-serif',
 });
+
+// ---------------------------------------------------------------------------
+// Custom Fee Earner Toggle Bubble Component
+// This control shows both "Originating" and "Responsible" values within a single bubble.
+// Only the selected half is highlighted, and clicking the selected option again clears the selection.
+interface FeeEarnerToggleProps {
+  feeEarnerType: "Originating" | "Responsible" | null;
+  setFeeEarnerType: React.Dispatch<React.SetStateAction<"Originating" | "Responsible" | null>>;
+  isDarkMode: boolean;
+}
+const FeeEarnerToggle: React.FC<FeeEarnerToggleProps> = ({ feeEarnerType, setFeeEarnerType, isDarkMode }) => {
+  const container = mergeStyles({
+    display: 'flex',
+    border: `2px solid ${colours.highlight}`,
+    borderRadius: '8px',
+    overflow: 'hidden',
+    cursor: 'pointer',
+  });
+  const halfStyle = (selected: boolean) =>
+    mergeStyles({
+      padding: '8px 16px',
+      backgroundColor: selected ? colours.highlight : isDarkMode ? '#f3f2f1' : '#fff',
+      color: selected ? '#fff' : isDarkMode ? '#cccccc' : '#333333',
+      fontWeight: selected ? 600 : 400,
+      fontFamily: 'Raleway, sans-serif',
+      transition: 'background-color 0.3s, color 0.3s',
+    });
+  return (
+    <div className={container}>
+      <div
+        className={halfStyle(feeEarnerType === "Originating")}
+        onClick={() => setFeeEarnerType(feeEarnerType === "Originating" ? null : "Originating")}
+        aria-label="Originating"
+      >
+        Originating
+      </div>
+      <div
+        className={halfStyle(feeEarnerType === "Responsible")}
+        onClick={() => setFeeEarnerType(feeEarnerType === "Responsible" ? null : "Responsible")}
+        aria-label="Responsible"
+      >
+        Responsible
+      </div>
+    </div>
+  );
+};
+// ---------------------------------------------------------------------------
 
 const MattersCombinedMenu: React.FC<MattersCombinedMenuProps> = ({
   activeGroupedArea,
   setActiveGroupedArea,
   practiceAreas,
-  activePracticeArea,
-  setActivePracticeArea,
+  activePracticeAreas, // multiple selection array
+  setActivePracticeAreas,
   activeState,
   setActiveState,
   searchTerm,
@@ -269,7 +314,7 @@ const MattersCombinedMenu: React.FC<MattersCombinedMenuProps> = ({
     { key: 'property', text: 'Property', icon: 'CityNext' },
     { key: 'construction', text: 'Construction', icon: 'ConstructionCone' },
     { key: 'employment', text: 'Employment', icon: 'People' },
-    { key: 'misc', text: 'Misc', icon: 'Help' },
+    { key: 'miscellaneous', text: 'Miscellaneous', icon: 'Help' },
   ];
 
   const states = [
@@ -277,11 +322,12 @@ const MattersCombinedMenu: React.FC<MattersCombinedMenuProps> = ({
     { key: 'Mine', text: 'Mine' },
   ];
 
+  // UPDATED: Use only Full Name for fee earner options.
   const feeEarnerOptions: IDropdownOption[] = [
     { key: '', text: 'All Fee Earners' },
     ...(teamData
       ? teamData.map((member) => ({
-          key: member.Email || member['Full Name'] || '',
+          key: member['Full Name'] || '',
           text: member['Full Name'] || '',
         }))
       : []),
@@ -293,6 +339,26 @@ const MattersCombinedMenu: React.FC<MattersCombinedMenuProps> = ({
     : '';
   const practiceAreasForGroup: string[] = practiceAreaMappings[groupKey] || [];
   const groupColor = groupKey ? getGroupColor(groupKey) : colours.highlight;
+
+  // New: function to clear all filters.
+  const clearFilters = () => {
+    setActiveGroupedArea(null);
+    setActivePracticeAreas([]);
+    setActiveState('');
+    setSearchTerm('');
+    setSearchActive(false);
+    setActiveFeeEarner(null);
+    setFeeEarnerType(null);
+  };
+
+  // New: determine if any filter is active.
+  const anyFiltersActive =
+    activeGroupedArea ||
+    activePracticeAreas.length > 0 ||
+    activeState ||
+    searchTerm ||
+    activeFeeEarner ||
+    feeEarnerType;
 
   return (
     <div className={containerStyle(isDarkMode)}>
@@ -309,7 +375,8 @@ const MattersCombinedMenu: React.FC<MattersCombinedMenuProps> = ({
                   className={groupTabStyle(isSelected, isDarkMode, g.text)}
                   onClick={() => {
                     setActiveGroupedArea(isSelected ? null : g.key);
-                    setActivePracticeArea(null);
+                    // Reset selected practice areas when changing grouped areas
+                    setActivePracticeAreas([]);
                   }}
                   aria-label={g.text}
                 >
@@ -334,7 +401,7 @@ const MattersCombinedMenu: React.FC<MattersCombinedMenuProps> = ({
           </Stack>
         </div>
 
-        {/* Right column: All/Mine and Fee Earner toggles + dropdown & Search */}
+        {/* Right column: All/Mine, Fee Earner Toggle + Dropdown, Search & Clear Icon */}
         <div className={rightColumnStyle}>
           <Stack horizontal tokens={{ childrenGap: 12 }} verticalAlign="center">
             {states.map((s) => {
@@ -360,49 +427,29 @@ const MattersCombinedMenu: React.FC<MattersCombinedMenuProps> = ({
               );
             })}
 
-            {/* Fee Earner Type Toggle: show only if "Mine" is not selected */}
+            {/* Fee Earner Toggle Bubble and Dropdown (shown only when "Mine" is not selected) */}
             {activeState !== 'Mine' && (
               <Stack horizontal tokens={{ childrenGap: 8 }} verticalAlign="center">
-                <div
-                  className={mergeStyles(
-                    stateButtonStyle(isDarkMode),
-                    feeEarnerType === "Originating" && activeStateButtonStyle
-                  )}
-                  onClick={() => setFeeEarnerType(feeEarnerType === "Originating" ? null : "Originating")}
-                  aria-label="Originating"
-                >
-                  <Text variant="medium" styles={{ root: { fontWeight: feeEarnerType === "Originating" ? '600' : '400', color: feeEarnerType === "Originating" ? '#ffffff' : undefined } }}>
-                    Originating
-                  </Text>
-                </div>
-                <div
-                  className={mergeStyles(
-                    stateButtonStyle(isDarkMode),
-                    feeEarnerType === "Responsible" && activeStateButtonStyle
-                  )}
-                  onClick={() => setFeeEarnerType(feeEarnerType === "Responsible" ? null : "Responsible")}
-                  aria-label="Responsible"
-                >
-                  <Text variant="medium" styles={{ root: { fontWeight: feeEarnerType === "Responsible" ? '600' : '400', color: feeEarnerType === "Responsible" ? '#ffffff' : undefined } }}>
-                    Responsible
-                  </Text>
-                </div>
+                <FeeEarnerToggle
+                  feeEarnerType={feeEarnerType}
+                  setFeeEarnerType={setFeeEarnerType}
+                  isDarkMode={isDarkMode}
+                />
+                {feeEarnerType && (
+                  <Dropdown
+                    placeholder={feeEarnerType === "Originating" ? "Originating Fee Earner" : "Responsible Fee Earner"}
+                    options={feeEarnerOptions}
+                    selectedKey={activeFeeEarner || ''}
+                    onChange={(e, option) =>
+                      setActiveFeeEarner(option && option.key !== '' ? (option.key as string) : null)
+                    }
+                    styles={{ dropdown: dropdownStyles }}
+                  />
+                )}
               </Stack>
             )}
 
-            {/* Fee Earner Dropdown: only when a fee earner type is selected */}
-            {feeEarnerType && (
-              <Dropdown
-                placeholder={feeEarnerType === "Originating" ? "Originating Fee Earner" : "Responsible Fee Earner"}
-                options={feeEarnerOptions}
-                selectedKey={activeFeeEarner || ''}
-                onChange={(e, option) =>
-                  setActiveFeeEarner(option && option.key !== '' ? (option.key as string) : null)
-                }
-                styles={{ dropdown: dropdownStyles }}
-              />
-            )}
-
+            {/* Search container with search icon, search box, and new Clear (X) icon */}
             <div className={searchContainerStyle}>
               <div className={searchIconStyle} onClick={() => setSearchActive(!isSearchActive)}>
                 <Icon
@@ -424,6 +471,24 @@ const MattersCombinedMenu: React.FC<MattersCombinedMenuProps> = ({
                   styles={{ root: { fontFamily: 'Raleway, sans-serif' } }}
                 />
               </div>
+              {/* New: Clear icon to the right of the search bar; only show if any filter is active */}
+              {anyFiltersActive && (
+                <div
+                  className={mergeStyles({ cursor: 'pointer', padding: '8px' })}
+                  onClick={clearFilters}
+                  aria-label="Clear all filters"
+                >
+                  <Icon
+                    iconName="Clear"
+                    styles={{
+                      root: {
+                        fontSize: '20px',
+                        color: isDarkMode ? '#ffffff' : '#333333',
+                      },
+                    }}
+                  />
+                </div>
+              )}
             </div>
           </Stack>
         </div>
@@ -434,12 +499,19 @@ const MattersCombinedMenu: React.FC<MattersCombinedMenuProps> = ({
         <div className={practiceAreaContainerStyle(isDarkMode)}>
           <Stack horizontal tokens={{ childrenGap: 12 }} verticalAlign="center">
             {practiceAreasForGroup.map((pa) => {
-              const isSelected = activePracticeArea === pa;
+              const isSelected = activePracticeAreas.includes(pa);
               return (
                 <div
                   key={pa}
                   className={mergeStyles(practiceAreaButtonStyle(isSelected, isDarkMode, groupColor))}
-                  onClick={() => setActivePracticeArea(isSelected ? null : pa)}
+                  onClick={() => {
+                    // Toggle the practice area: add if not present, remove if already selected.
+                    if (activePracticeAreas.includes(pa)) {
+                      setActivePracticeAreas((prev) => prev.filter((item) => item !== pa));
+                    } else {
+                      setActivePracticeAreas((prev) => [...prev, pa]);
+                    }
+                  }}
                   aria-label={pa}
                 >
                   <Text variant="mediumPlus" styles={{ root: practiceAreaTextStyle(isSelected, isDarkMode) }}>

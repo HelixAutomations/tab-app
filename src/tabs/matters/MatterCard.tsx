@@ -14,6 +14,7 @@ interface MatterCardProps {
   animationDelay?: number;
 }
 
+// --- Action Button Style ---
 const actionButtonStyle = {
   root: {
     marginBottom: '4px',
@@ -29,6 +30,7 @@ const actionButtonStyle = {
   },
 };
 
+// --- Separator Style ---
 const separatorStyle = (isDarkMode: boolean) =>
   mergeStyles({
     width: '1px',
@@ -37,6 +39,7 @@ const separatorStyle = (isDarkMode: boolean) =>
     alignSelf: 'stretch',
   });
 
+// --- Card Style ---
 const cardStyle = (isDarkMode: boolean) =>
   mergeStyles({
     padding: '20px',
@@ -58,6 +61,104 @@ const cardStyle = (isDarkMode: boolean) =>
     overflow: 'hidden',
   });
 
+// --- Helper: Compute Initials ---
+const getInitials = (name: string): string => {
+  return name
+    .split(' ')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join('');
+};
+
+// --- Practice Area Mappings ---
+const practiceAreaMappings: { [group: string]: string[] } = {
+  Commercial: [
+    "Director Rights & Dispute Advice",
+    "Shareholder Rights & Dispute Advice",
+    "Civil/Commercial Fraud Advice",
+    "Partnership Advice",
+    "Business Contract Dispute",
+    "Unpaid Loan Recovery",
+    "Contentious Probate",
+    "Statutory Demand – Drafting",
+    "Statutory Demand – Advising",
+    "Winding Up Petition Advice",
+    "Bankruptcy Petition Advice",
+    "Injunction Advice",
+    "Intellectual Property",
+    "Professional Negligence",
+    "Unpaid Invoice/Debt Dispute",
+    "Commercial Contract – Drafting",
+    "Company Restoration",
+    "Small Claim Advice",
+    "Trust Advice",
+    "Terms and Conditions – Drafting",
+  ],
+  Construction: [
+    "Final Account Recovery",
+    "Retention Recovery Advice",
+    "Adjudication Advice & Dispute",
+    "Construction Contract Advice",
+    "Interim Payment Recovery",
+    "Contract Dispute",
+  ],
+  Property: [
+    "Landlord & Tenant - Commercial Dispute",
+    "Landlord & Tenant - Residential Dispute",
+    "Boundary and Nuisance Advice",
+    "Trust of Land (TOLATA) Advice",
+    "Service Charge Recovery & Dispute Advice",
+    "Breach of Lease Advice",
+    "Terminal Dilapidations Advice",
+    "Investment Sale and Ownership - Advice",
+    "Trespass",
+    "Right of Way",
+  ],
+  Employment: [
+    "Employment Contract - Drafting",
+    "Employment Retainer Instruction",
+    "Settlement Agreement - Drafting",
+    "Settlement Agreement - Advising",
+    "Handbook - Drafting",
+    "Policy - Drafting",
+    "Redundancy - Advising",
+    "Sick Leave - Advising",
+    "Disciplinary - Advising",
+    "Restrictive Covenant Advice",
+    "Post Termination Dispute",
+    "Employment Tribunal Claim - Advising",
+  ],
+};
+
+// --- Helper: Get Group Color ---
+const getGroupColor = (group: string): string => {
+  switch (group) {
+    case 'Commercial':
+      return colours.blue;
+    case 'Construction':
+      return colours.orange;
+    case 'Property':
+      return colours.green;
+    case 'Employment':
+      return colours.yellow;
+    case 'Miscellaneous':
+    default:
+      return colours.cta;
+  }
+};
+
+// --- Helper: Determine the Practice Area Group ---
+const getPracticeAreaGroup = (area: string): string => {
+  const lowerArea = area.trim().toLowerCase();
+  for (const group in practiceAreaMappings) {
+    if (practiceAreaMappings[group].some(a => a.trim().toLowerCase() === lowerArea)) {
+      return group;
+    }
+  }
+  return "Miscellaneous";
+};
+
+// --- Detail Row ---
 interface DetailRowProps {
   label: string;
   value: string;
@@ -90,9 +191,31 @@ const DetailRow: React.FC<DetailRowProps> = ({ label, value, isDarkMode }) => (
   </Stack>
 );
 
+// --- Badge Styles ---
+const badgeStyle: React.CSSProperties = {
+  padding: '4px 12px',
+  borderRadius: '20px',
+  backgroundColor: colours.green,
+  color: '#ffffff',
+  fontSize: '0.8rem',
+  fontWeight: 600,
+  fontFamily: 'Raleway, sans-serif',
+  opacity: 0.5,
+};
+
+const badgeStyleResponsible: React.CSSProperties = {
+  padding: '4px 12px',
+  borderRadius: '20px',
+  backgroundColor: '#ffffff',
+  border: `1px solid ${colours.green}`,
+  color: colours.green,
+  fontSize: '0.8rem',
+  fontWeight: 600,
+  fontFamily: 'Raleway, sans-serif',
+};
+
 const MatterCard: React.FC<MatterCardProps> = ({ matter, onSelect, animationDelay = 0 }) => {
   const { isDarkMode } = useTheme();
-  console.log('Rendering MatterCard:', matter); // Debugging
 
   const handleCardClick = () => {
     onSelect(matter);
@@ -104,9 +227,51 @@ const MatterCard: React.FC<MatterCardProps> = ({ matter, onSelect, animationDela
     { label: 'Description', value: matter.Description },
   ];
 
+  // Retrieve solicitor names from the matter object.
+  const originating = matter.OriginatingSolicitor?.trim() || '';
+  const responsible = matter.ResponsibleSolicitor?.trim() || '';
+
+  // Compute initials if available.
+  const orgInitials = originating ? getInitials(originating) : '';
+  const respInitials = responsible ? getInitials(responsible) : '';
+
+  // Prepare badge(s): if both exist and are different, show two badges; otherwise, a single badge.
+  let badges: { content: JSX.Element; style: React.CSSProperties; aria: string }[] = [];
+  if (orgInitials && respInitials) {
+    if (orgInitials.toLowerCase() === respInitials.toLowerCase()) {
+      badges.push({
+        content: <span>{orgInitials}</span>,
+        style: badgeStyle,
+        aria: `Solicitor: ${orgInitials}`,
+      });
+    } else {
+      badges.push({
+        content: <span>{orgInitials}</span>,
+        style: badgeStyle,
+        aria: `Originating: ${orgInitials}`,
+      });
+      badges.push({
+        content: <span>{respInitials}</span>,
+        style: badgeStyleResponsible,
+        aria: `Responsible: ${respInitials}`,
+      });
+    }
+  } else if (orgInitials || respInitials) {
+    badges.push({
+      content: <span>{orgInitials || respInitials}</span>,
+      style: badgeStyle,
+      aria: `Solicitor: ${orgInitials || respInitials}`,
+    });
+  }
+
+  // Determine the left border color based on the matter's practice area.
+  const borderColor = getGroupColor(getPracticeAreaGroup(matter.PracticeArea));
+
   return (
     <div
-      className={`matterCard ${cardStyle(isDarkMode)}`}
+      className={mergeStyles(cardStyle(isDarkMode), {
+        borderLeft: `4px solid ${borderColor}`,
+      })}
       style={{ '--animation-delay': `${animationDelay}s` } as React.CSSProperties}
       onClick={handleCardClick}
       role="button"
@@ -158,7 +323,7 @@ const MatterCard: React.FC<MatterCardProps> = ({ matter, onSelect, animationDela
             </Text>
           </Stack>
 
-          {/* Spacer for increased spacing */}
+          {/* Spacer */}
           <div style={{ height: '12px' }} />
 
           {/* Details List */}
@@ -168,10 +333,10 @@ const MatterCard: React.FC<MatterCardProps> = ({ matter, onSelect, animationDela
             ))}
           </Stack>
 
-          {/* Spacer for bottom separation */}
+          {/* Spacer */}
           <div style={{ height: '12px' }} />
 
-          {/* Open Date at the bottom without label */}
+          {/* Open Date */}
           <Text
             variant="small"
             styles={{
@@ -187,33 +352,55 @@ const MatterCard: React.FC<MatterCardProps> = ({ matter, onSelect, animationDela
         {/* Vertical Separator */}
         <div className={separatorStyle(isDarkMode)} />
 
-        {/* Right Side: Action Buttons Vertically Aligned */}
-        <Stack tokens={{ childrenGap: 8 }} verticalAlign="start">
-          <TooltipHost content="Call Client">
-            <IconButton
-              iconProps={{ iconName: 'Phone' }}
-              title="Call Client"
-              ariaLabel="Call Client"
-              onClick={(e) => {
-                e.stopPropagation();
-                window.location.href = matter.ClientPhone ? `tel:${matter.ClientPhone}` : '#';
+        {/* Right Side: Actions Area with relative positioning */}
+        <div style={{ position: 'relative' }}>
+          <Stack tokens={{ childrenGap: 8 }} verticalAlign="start">
+            <TooltipHost content="Call Client">
+              <IconButton
+                iconProps={{ iconName: 'Phone' }}
+                title="Call Client"
+                ariaLabel="Call Client"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  window.location.href = matter.ClientPhone ? `tel:${matter.ClientPhone}` : '#';
+                }}
+                styles={actionButtonStyle}
+              />
+            </TooltipHost>
+            <TooltipHost content="Email Client">
+              <IconButton
+                iconProps={{ iconName: 'Mail' }}
+                title="Email Client"
+                ariaLabel="Email Client"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  window.location.href = matter.ClientEmail ? `mailto:${matter.ClientEmail}` : '#';
+                }}
+                styles={actionButtonStyle}
+              />
+            </TooltipHost>
+          </Stack>
+          {/* Badge Container in the Actions Area */}
+          {badges.length > 0 && (
+            <div
+              style={{
+                position: 'absolute',
+                bottom: '8px',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '4px',
               }}
-              styles={actionButtonStyle}
-            />
-          </TooltipHost>
-          <TooltipHost content="Email Client">
-            <IconButton
-              iconProps={{ iconName: 'Mail' }}
-              title="Email Client"
-              ariaLabel="Email Client"
-              onClick={(e) => {
-                e.stopPropagation();
-                window.location.href = matter.ClientEmail ? `mailto:${matter.ClientEmail}` : '#';
-              }}
-              styles={actionButtonStyle}
-            />
-          </TooltipHost>
-        </Stack>
+            >
+              {badges.map((badge, idx) => (
+                <div key={idx} style={badge.style} aria-label={badge.aria}>
+                  {badge.content}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </Stack>
     </div>
   );

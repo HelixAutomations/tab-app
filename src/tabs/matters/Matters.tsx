@@ -50,19 +50,19 @@ function groupPracticeArea(practiceArea: string): string {
     'business contract dispute',
     'unpaid loan recovery',
     'contentious probate',
-    'statutory demand – drafting',
-    'statutory demand – advising',
+    'statutory demand - drafting',
+    'statutory demand - advising',
     'winding up petition advice',
     'bankruptcy petition advice',
     'injunction advice',
     'intellectual property',
     'professional negligence',
     'unpaid invoice/debt dispute',
-    'commercial contract – drafting',
+    'commercial contract - drafting',
     'company restoration',
     'small claim advice',
     'trust advice',
-    'terms and conditions – drafting',
+    'terms and conditions - drafting',
   ];
   if (commercialGroup.includes(p)) return 'Commercial';
 
@@ -80,6 +80,7 @@ function groupPracticeArea(practiceArea: string): string {
     'landlord & tenant - commercial dispute',
     'landlord & tenant - residential dispute',
     'boundary and nuisance advice',
+    'boundary & nuisance advice',
     'trust of land (tolata) advice',
     'service charge recovery & dispute advice',
     'breach of lease advice',
@@ -265,7 +266,8 @@ const Matters: React.FC<MattersProps> = ({
 
   // ---------- Filter States ----------
   const [activeGroupedArea, setActiveGroupedArea] = useState<string | null>(null);
-  const [activePracticeArea, setActivePracticeArea] = useState<string | null>(null);
+  // Replace the single activePracticeArea state with multiple selection:
+  const [activePracticeAreas, setActivePracticeAreas] = useState<string[]>([]);
   const [activeState, setActiveState] = useState<string>(''); // Default: none selected.
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [isSearchActive, setSearchActive] = useState<boolean>(false);
@@ -321,27 +323,35 @@ const Matters: React.FC<MattersProps> = ({
   // ---------- Filtering (applied on top of the date range) ----------
   const filteredMatters = useMemo(() => {
     let final = mattersInDateRange;
+    
     if (activeGroupedArea) {
       final = final.filter(
         (m) =>
-          groupPracticeArea(m.PracticeArea).toLowerCase() === activeGroupedArea.toLowerCase()
+          groupPracticeArea(m.PracticeArea).toLowerCase() ===
+          activeGroupedArea.toLowerCase()
       );
     }
-    if (activePracticeArea) {
-      final = final.filter((m) => m.PracticeArea === activePracticeArea);
+    // Use multiple selection for practice areas:
+    if (activePracticeAreas.length > 0) {
+      final = final.filter((m) => activePracticeAreas.includes(m.PracticeArea));
     }
     if (activeState === 'Mine' && userData?.length) {
       const fullName = `${userData[0].First} ${userData[0].Last}`.trim();
       final = final.filter((m) => m.OriginatingSolicitor === fullName);
     }
+    // NEW: Filter by Fee Earner if one is selected
     if (activeFeeEarner) {
       if (feeEarnerType === "Originating") {
         final = final.filter(
-          (m) => m.OriginatingSolicitor.toLowerCase() === activeFeeEarner.toLowerCase()
+          (m) =>
+            m.OriginatingSolicitor.toLowerCase() ===
+            activeFeeEarner.toLowerCase()
         );
-      } else {
+      } else if (feeEarnerType === "Responsible") {
         final = final.filter(
-          (m) => m.ResponsibleSolicitor && m.ResponsibleSolicitor.toLowerCase() === activeFeeEarner.toLowerCase()
+          (m) =>
+            m.ResponsibleSolicitor &&
+            m.ResponsibleSolicitor.toLowerCase() === activeFeeEarner.toLowerCase()
         );
       }
     }
@@ -355,7 +365,16 @@ const Matters: React.FC<MattersProps> = ({
       );
     }
     return final;
-  }, [mattersInDateRange, activeGroupedArea, activePracticeArea, activeState, activeFeeEarner, feeEarnerType, searchTerm, userData]);
+  }, [
+    mattersInDateRange,
+    activeGroupedArea,
+    activePracticeAreas,
+    activeState,
+    activeFeeEarner,
+    feeEarnerType,
+    searchTerm,
+    userData,
+  ]);  
 
   // Display matters as most recent first (reverse the filtered order) without affecting slider/chart.
   const displayedMatters = useMemo(
@@ -380,7 +399,7 @@ const Matters: React.FC<MattersProps> = ({
     return () => observer.disconnect();
   }, [handleLoadMore]);
 
-  const showOverview = !activeGroupedArea && !activePracticeArea && !activeState && !searchTerm;
+  const showOverview = !activeGroupedArea && activePracticeAreas.length === 0 && !activeState && !searchTerm;
 
   const groupedCounts = useMemo(() => {
     const counts: { [group: string]: number } = {};
@@ -460,8 +479,8 @@ const Matters: React.FC<MattersProps> = ({
         activeGroupedArea={activeGroupedArea}
         setActiveGroupedArea={setActiveGroupedArea}
         practiceAreas={Array.from(new Set(matters.map((m) => m.PracticeArea as string))).sort()}
-        activePracticeArea={activePracticeArea}
-        setActivePracticeArea={setActivePracticeArea}
+        activePracticeAreas={activePracticeAreas}
+        setActivePracticeAreas={setActivePracticeAreas}
         activeState={activeState}
         setActiveState={setActiveState}
         searchTerm={searchTerm}
@@ -502,20 +521,22 @@ const Matters: React.FC<MattersProps> = ({
                           }
                         }}
                         trackStyle={[{ backgroundColor: colours.highlight, height: 8 }]}
-                        handleStyle={[{
-                          backgroundColor: colours.highlight,
-                          borderColor: colours.highlight,
-                          height: 20,
-                          width: 20,
-                          transform: 'translateX(-50%)',
-                        },
-                        {
-                          backgroundColor: colours.highlight,
-                          borderColor: colours.highlight,
-                          height: 20,
-                          width: 20,
-                          transform: 'translateX(-50%)',
-                        }]}
+                        handleStyle={[
+                          {
+                            backgroundColor: colours.highlight,
+                            borderColor: colours.highlight,
+                            height: 20,
+                            width: 20,
+                            transform: 'translateX(-50%)',
+                          },
+                          {
+                            backgroundColor: colours.highlight,
+                            borderColor: colours.highlight,
+                            height: 20,
+                            width: 20,
+                            transform: 'translateX(-50%)',
+                          },
+                        ]}
                         railStyle={{
                           backgroundColor: isDarkMode ? colours.dark.border : colours.inactiveTrackLight,
                           height: 8,
@@ -531,7 +552,7 @@ const Matters: React.FC<MattersProps> = ({
                     horizontal
                     wrap
                     tokens={{ childrenGap: 20 }}
-                    style={{ marginBottom: '20px' }} // ← add this
+                    style={{ marginBottom: '20px' }}
                   >
                     {['Commercial', 'Property', 'Construction', 'Employment', 'Miscellaneous'].map((group) => {
                       const count = groupedCounts[group] || 0;
