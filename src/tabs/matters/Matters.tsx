@@ -1,5 +1,3 @@
-// src/tabs/matters/Matters.tsx
-
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   Stack,
@@ -36,15 +34,11 @@ import MattersCombinedMenu from './MattersCombinedMenu';
 import AreaCountCard from '../enquiries/AreaCountCard';
 import ScoreCard from '../enquiries/ScoreCard';
 
-//
-// --- Types ---
 interface MonthlyData {
   month: string;
   [key: string]: string | number;
 }
 
-//
-// --- Helper: Group practice areas into one of five groups ---
 function groupPracticeArea(practiceArea: string): string {
   const p = practiceArea.trim().toLowerCase();
   const commercialGroup = [
@@ -115,8 +109,6 @@ function groupPracticeArea(practiceArea: string): string {
   return 'Miscellaneous';
 }
 
-//
-// --- Helper: Get a color for a given group (used for labels and legend) ---
 function getGroupColor(group: string): string {
   switch (group) {
     case 'Commercial':
@@ -133,8 +125,6 @@ function getGroupColor(group: string): string {
   }
 }
 
-//
-// --- Helper: Get an icon for a given group ---
 function getGroupIcon(group: string): string {
   switch (group) {
     case 'Commercial':
@@ -151,24 +141,18 @@ function getGroupIcon(group: string): string {
   }
 }
 
-//
-// --- Helper: Correct display names for specific team members ---
 const nameCorrections: { [fullName: string]: string } = {
   'Bianca ODonnell': "Bianca O'Donnell",
   'Samuel Packwood': 'Sam Packwood',
   'Luke Zemanek': 'Lukasz Zemanek',
 };
 
-//
-// --- List of team members who left (to be rendered in grey italics) ---
 const leftTeam: string[] = [
   'Candice Quarcoo',
   'Luara Locateli',
   'Tristan Makin',
 ];
 
-//
-// --- Styled Containers ---
 const containerStyle = (isDarkMode: boolean) =>
   mergeStyles({
     padding: '20px',
@@ -183,7 +167,6 @@ const mainContentStyle = (isDarkMode: boolean) =>
     paddingBottom: '40px',
   });
 
-// White box that encapsulates the date slider and the count/score cards
 const overviewCardStyle = mergeStyles({
   backgroundColor: '#ffffff',
   borderRadius: '12px',
@@ -192,7 +175,6 @@ const overviewCardStyle = mergeStyles({
   marginBottom: '20px',
 });
 
-// White box for the chart (placed separately below the overview section)
 const chartContainerStyle = mergeStyles({
   backgroundColor: '#ffffff',
   borderRadius: '12px',
@@ -202,7 +184,6 @@ const chartContainerStyle = mergeStyles({
   height: '500px',
 });
 
-// Container for the date slider row
 const dateSliderContainerStyle = mergeStyles({
   marginBottom: '20px',
   display: 'flex',
@@ -210,8 +191,6 @@ const dateSliderContainerStyle = mergeStyles({
   alignItems: 'center',
 });
 
-//
-// --- Custom Legend for Chart ---
 const renderCustomLegend = (props: any) => {
   const { payload } = props;
   return (
@@ -235,10 +214,6 @@ const renderCustomLegend = (props: any) => {
   );
 };
 
-//
-// --- Custom Label for Bars ---
-// This component now converts any incoming x, y, width, height, or value (if provided as a string)
-// to a number using Number(). If the conversion fails (NaN), it returns null.
 interface CustomLabelProps {
   x?: number | string;
   y?: number | string;
@@ -269,8 +244,6 @@ const CustomLabel: React.FC<CustomLabelProps> = ({ x, y, width, height, value, d
   );
 };
 
-//
-// --- Main Component ---
 interface MattersProps {
   matters: Matter[];
   isLoading: boolean;
@@ -293,9 +266,12 @@ const Matters: React.FC<MattersProps> = ({
   // ---------- Filter States ----------
   const [activeGroupedArea, setActiveGroupedArea] = useState<string | null>(null);
   const [activePracticeArea, setActivePracticeArea] = useState<string | null>(null);
-  const [activeState, setActiveState] = useState<string>(''); // 'Mine' or ''
+  const [activeState, setActiveState] = useState<string>(''); // Default: none selected.
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [isSearchActive, setSearchActive] = useState<boolean>(false);
+  // NEW: Fee Earner Filter State and Fee Earner Type (null means none selected)
+  const [activeFeeEarner, setActiveFeeEarner] = useState<string | null>(null);
+  const [feeEarnerType, setFeeEarnerType] = useState<"Originating" | "Responsible" | null>(null);
 
   // ---------- Modal State ----------
   const [selectedMatter, setSelectedMatter] = useState<Matter | null>(null);
@@ -313,7 +289,6 @@ const Matters: React.FC<MattersProps> = ({
     });
   }, [matters]);
 
-  // Only include matters with an OpenDate on or after January 1, 2022
   const minDate = new Date('2022-01-01');
   const mattersAfterMinDate = useMemo(() => {
     return sortedMatters.filter((m) => {
@@ -322,7 +297,6 @@ const Matters: React.FC<MattersProps> = ({
     });
   }, [sortedMatters, minDate]);
 
-  // Get valid dates for the slider
   const validDates = useMemo(() => {
     return mattersAfterMinDate
       .map((m) => m.OpenDate)
@@ -348,7 +322,10 @@ const Matters: React.FC<MattersProps> = ({
   const filteredMatters = useMemo(() => {
     let final = mattersInDateRange;
     if (activeGroupedArea) {
-      final = final.filter((m) => groupPracticeArea(m.PracticeArea) === activeGroupedArea);
+      final = final.filter(
+        (m) =>
+          groupPracticeArea(m.PracticeArea).toLowerCase() === activeGroupedArea.toLowerCase()
+      );
     }
     if (activePracticeArea) {
       final = final.filter((m) => m.PracticeArea === activePracticeArea);
@@ -356,6 +333,17 @@ const Matters: React.FC<MattersProps> = ({
     if (activeState === 'Mine' && userData?.length) {
       const fullName = `${userData[0].First} ${userData[0].Last}`.trim();
       final = final.filter((m) => m.OriginatingSolicitor === fullName);
+    }
+    if (activeFeeEarner) {
+      if (feeEarnerType === "Originating") {
+        final = final.filter(
+          (m) => m.OriginatingSolicitor.toLowerCase() === activeFeeEarner.toLowerCase()
+        );
+      } else {
+        final = final.filter(
+          (m) => m.ResponsibleSolicitor && m.ResponsibleSolicitor.toLowerCase() === activeFeeEarner.toLowerCase()
+        );
+      }
     }
     if (searchTerm) {
       const lower = searchTerm.toLowerCase();
@@ -367,9 +355,13 @@ const Matters: React.FC<MattersProps> = ({
       );
     }
     return final;
-  }, [mattersInDateRange, activeGroupedArea, activePracticeArea, activeState, searchTerm, userData]);
+  }, [mattersInDateRange, activeGroupedArea, activePracticeArea, activeState, activeFeeEarner, feeEarnerType, searchTerm, userData]);
 
-  const displayedMatters = useMemo(() => filteredMatters.slice(0, itemsToShow), [filteredMatters, itemsToShow]);
+  // Display matters as most recent first (reverse the filtered order) without affecting slider/chart.
+  const displayedMatters = useMemo(
+    () => [...filteredMatters].reverse().slice(0, itemsToShow),
+    [filteredMatters, itemsToShow]
+  );
 
   // ---------- Infinite Scroll Effect ----------
   const handleLoadMore = useCallback(() => {
@@ -388,10 +380,8 @@ const Matters: React.FC<MattersProps> = ({
     return () => observer.disconnect();
   }, [handleLoadMore]);
 
-  // ---------- Overview Mode ----------
   const showOverview = !activeGroupedArea && !activePracticeArea && !activeState && !searchTerm;
 
-  // ---------- Grouped Counts for Count Cards (based on filtered matters) ----------
   const groupedCounts = useMemo(() => {
     const counts: { [group: string]: number } = {};
     filteredMatters.forEach((m) => {
@@ -401,7 +391,6 @@ const Matters: React.FC<MattersProps> = ({
     return counts;
   }, [filteredMatters]);
 
-  // ---------- Monthly Chart Data (based on filtered matters) ----------
   const monthlyGroupedCounts: MonthlyData[] = useMemo(() => {
     const counts: { [month: string]: { [group: string]: number } } = {};
     filteredMatters.forEach((m) => {
@@ -420,7 +409,6 @@ const Matters: React.FC<MattersProps> = ({
     return sortedMonths.map((month) => ({ month, ...counts[month] }));
   }, [filteredMatters]);
 
-  // ---------- Originating Solicitor Score Cards (using initials) ----------
   const originatingArray = useMemo(() => {
     const rawEntries = Object.entries(
       filteredMatters.reduce((acc, m) => {
@@ -445,11 +433,9 @@ const Matters: React.FC<MattersProps> = ({
         displayName = fullName;
       }
       const isLeft = leftTeam.some((n) => n.toLowerCase() === fullName.toLowerCase());
-      // Compute initials from displayName
       const initials = displayName.split(' ').map((part) => part.charAt(0)).join('');
       return { initials, count, isLeft, fullName };
     });
-    // Combine duplicates by initials
     const combined = transformed.reduce((acc, curr) => {
       if (acc[curr.initials]) {
         acc[curr.initials].count += curr.count;
@@ -460,21 +446,16 @@ const Matters: React.FC<MattersProps> = ({
       return acc;
     }, {} as { [initials: string]: { initials: string; count: number; isLeft: boolean; fullName: string } });
     const combinedArray = Object.values(combined);
-    // Separate non-left and left entries
     const nonLeft = combinedArray.filter((item) => !item.isLeft);
     const left = combinedArray.filter((item) => item.isLeft);
     nonLeft.sort((a, b) => b.count - a.count);
-    // Force fixed order for left ones using leftTeam order
     const leftOrdered = left.sort((a, b) => leftTeam.indexOf(a.fullName) - leftTeam.indexOf(b.fullName));
-    // Exclude specific initials
     const excludeInitials = ['LZ', 'KW', 'JWS', 'BL'];
     return [...nonLeft, ...leftOrdered].filter((item) => !excludeInitials.includes(item.initials));
   }, [filteredMatters, teamData]);
 
-  // ---------- Rendering ----------
   return (
     <div className={containerStyle(isDarkMode)}>
-      {/* Combined Menu – passes both grouped and specific practice area filters */}
       <MattersCombinedMenu
         activeGroupedArea={activeGroupedArea}
         setActiveGroupedArea={setActiveGroupedArea}
@@ -487,6 +468,11 @@ const Matters: React.FC<MattersProps> = ({
         setSearchTerm={setSearchTerm}
         isSearchActive={isSearchActive}
         setSearchActive={setSearchActive}
+        activeFeeEarner={activeFeeEarner}
+        setActiveFeeEarner={setActiveFeeEarner}
+        feeEarnerType={feeEarnerType}
+        setFeeEarnerType={setFeeEarnerType}
+        teamData={teamData}
       />
 
       {isLoading ? (
@@ -497,9 +483,7 @@ const Matters: React.FC<MattersProps> = ({
         <>
           {showOverview ? (
             <>
-              {/* Overview Section: White Box for Date Slider + Count/Score Cards */}
               <Stack tokens={{ childrenGap: 20 }} className={overviewCardStyle}>
-                {/* Date Slider Row */}
                 <div className={dateSliderContainerStyle}>
                   {validDates.length > 0 && (
                     <>
@@ -518,38 +502,38 @@ const Matters: React.FC<MattersProps> = ({
                           }
                         }}
                         trackStyle={[{ backgroundColor: colours.highlight, height: 8 }]}
-                        handleStyle={[
-                          {
-                            backgroundColor: colours.highlight,
-                            borderColor: colours.highlight,
-                            height: 20,
-                            width: 20,
-                            transform: 'translateX(-50%)', // FIXED from translate(-50%, -50%)
-                          },
-                          {
-                            backgroundColor: colours.highlight,
-                            borderColor: colours.highlight,
-                            height: 20,
-                            width: 20,
-                            transform: 'translateX(-50%)', // FIXED from translate(-50%, -50%)
-                          },
-                        ]}
+                        handleStyle={[{
+                          backgroundColor: colours.highlight,
+                          borderColor: colours.highlight,
+                          height: 20,
+                          width: 20,
+                          transform: 'translateX(-50%)',
+                        },
+                        {
+                          backgroundColor: colours.highlight,
+                          borderColor: colours.highlight,
+                          height: 20,
+                          width: 20,
+                          transform: 'translateX(-50%)',
+                        }]}
                         railStyle={{
                           backgroundColor: isDarkMode ? colours.dark.border : colours.inactiveTrackLight,
                           height: 8,
                         }}
                         style={{ width: 500, margin: '0 auto' }}
                       />
-
                     </>
                   )}
                 </div>
 
-                {/* Count Cards & Score Cards Section */}
                 <Stack tokens={{ childrenGap: 20 }}>
-                  {/* Count Cards: Grouped Counts */}
-                  <Stack horizontal wrap tokens={{ childrenGap: 20 }}>
-                    {['Commercial', 'Construction', 'Property', 'Employment', 'Miscellaneous'].map((group) => {
+                  <Stack
+                    horizontal
+                    wrap
+                    tokens={{ childrenGap: 20 }}
+                    style={{ marginBottom: '20px' }} // ← add this
+                  >
+                    {['Commercial', 'Property', 'Construction', 'Employment', 'Miscellaneous'].map((group) => {
                       const count = groupedCounts[group] || 0;
                       const monthlyArr = monthlyGroupedCounts.map((mm) => ({
                         month: mm.month,
@@ -569,8 +553,14 @@ const Matters: React.FC<MattersProps> = ({
                     })}
                   </Stack>
 
-                  {/* Score Cards Row – Render sorted entries with pipes */}
-                  <Stack horizontal wrap verticalAlign="center" styles={{ root: { width: '100%' } }} tokens={{ childrenGap: 10 }}>
+                  <Stack
+                    horizontal
+                    horizontalAlign="center"
+                    wrap
+                    verticalAlign="center"
+                    styles={{ root: { width: '100%' } }}
+                    tokens={{ childrenGap: 10 }}
+                  >
                     {originatingArray.map((item, idx, arr) => (
                       <React.Fragment key={item.fullName}>
                         <Stack horizontalAlign="center" styles={{ root: { minWidth: '80px', textAlign: 'center' } }}>
@@ -619,7 +609,6 @@ const Matters: React.FC<MattersProps> = ({
                 </Stack>
               </Stack>
 
-              {/* Chart Section: White Box with grey bars and colour-coded labels/legend */}
               {monthlyGroupedCounts.length > 0 && (
                 <div className={chartContainerStyle}>
                   <ResponsiveContainer width="100%" height="100%">
@@ -629,11 +618,11 @@ const Matters: React.FC<MattersProps> = ({
                       <YAxis stroke={isDarkMode ? '#fff' : '#333'} />
                       <Tooltip contentStyle={{ backgroundColor: isDarkMode ? '#333' : '#fff' }} />
                       <Legend content={renderCustomLegend} />
-                      {['Commercial', 'Construction', 'Property', 'Employment', 'Miscellaneous'].map((group) => (
+                      {['Commercial', 'Property', 'Construction', 'Employment', 'Miscellaneous'].map((group) => (
                         <Bar
                           key={group}
                           dataKey={group}
-                          fill={colours.grey}  // Use grey from colours file
+                          fill={colours.grey}
                           animationDuration={1500}
                         >
                           <LabelList
@@ -651,7 +640,6 @@ const Matters: React.FC<MattersProps> = ({
               )}
             </>
           ) : (
-            // Filtered Mode: Grid of Matter Cards
             <main className={mainContentStyle(isDarkMode)}>
               {filteredMatters.length === 0 ? (
                 <Text>No matters found matching your criteria.</Text>
@@ -659,7 +647,7 @@ const Matters: React.FC<MattersProps> = ({
                 <div
                   className={mergeStyles({
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
+                    gridTemplateColumns: 'repeat(4, 1fr)',
                     gap: '20px',
                     marginTop: '20px',
                   })}
@@ -685,7 +673,6 @@ const Matters: React.FC<MattersProps> = ({
         </>
       )}
 
-      {/* Modal for Single Matter */}
       {selectedMatter && (
         <Modal
           isOpen={!!selectedMatter}

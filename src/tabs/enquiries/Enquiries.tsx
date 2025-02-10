@@ -1183,17 +1183,18 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                 )}
               </Stack>
 
-              <Stack horizontal horizontalAlign="center" wrap styles={{ root: { width: '100%' } }}>
+              <Stack
+                horizontal
+                wrap
+                horizontalAlign="center"
+                verticalAlign="center"     // <-- Make sure to center vertically
+                styles={{ root: { width: '100%' } }}
+              >
                 {enquiriesCountPerMember.map((member, idx) => (
                   <React.Fragment key={member.initials}>
                     <Stack
                       horizontalAlign="center"
-                      styles={{
-                        root: {
-                          minWidth: '80px',
-                          textAlign: 'center',
-                        },
-                      }}
+                      styles={{ root: { minWidth: '80px', textAlign: 'center' } }}
                     >
                       <Text
                         variant="xLarge"
@@ -1222,16 +1223,20 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                       </Text>
                     </Stack>
 
+                    {/** Replace the vertical bar <div/> with a pipe in a <Text> */}
                     {idx < enquiriesCountPerMember.length - 1 && (
-                      <div
-                        style={{
-                          width: '2px',
-                          backgroundColor: isDarkMode ? colours.dark.border : '#ccc',
-                          height: '50px',
-                          alignSelf: 'center',
-                          margin: '0 20px',
+                      <Text
+                        styles={{
+                          root: {
+                            margin: '0 10px',
+                            color: isDarkMode ? '#fff' : '#333',
+                            // optional: force the pipe to center if needed
+                            alignSelf: 'center',
+                          },
                         }}
-                      />
+                      >
+                        |
+                      </Text>
                     )}
                   </React.Fragment>
                 ))}
@@ -1269,7 +1274,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         {!selectedEnquiry && !selectedArea && !activeMainTab ? (
           <div
             className={mergeStyles({
-              marginTop: '40px',
               padding: '30px',
               backgroundColor: isDarkMode
                 ? colours.dark.sectionBackground
