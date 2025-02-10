@@ -78,7 +78,7 @@ const normalizeStatus = (status: string): string => {
 const getStatusIcon = (status: string) => {
   switch (status.toLowerCase()) {
     case 'recently completed':
-      return 'Completed'; // Replace with actual icon name if different
+      return 'Completed';
     case 'in progress':
       return 'Sync';
     case 'next':
@@ -502,7 +502,7 @@ const AddSuggestionForm: React.FC = () => {
         onSubmit={handleSuggestSubmit}
         onCancel={() => {}}
         isSubmitting={isSubmitting}
-        style={{ width: '100%' }}
+        matters={[]}
       />
     </Stack>
   );
@@ -676,7 +676,7 @@ const Roadmap: React.FC<RoadmapProps> = ({ userData }) => {
       'Next': 2,
       'Suggested': 3,
       'Add Suggestion': 4,
-      'Recently Completed': 5, // Moved to the bottom by assigning the highest order
+      'Recently Completed': 5,
     };
 
     // Sort groups based on predefined order
@@ -821,10 +821,7 @@ const Roadmap: React.FC<RoadmapProps> = ({ userData }) => {
                   },
                 }}
               >
-                <Icon
-                  iconName={getStatusIcon(normalizeStatus(selectedItem.status))}
-                  style={{ marginRight: '6px' }}
-                />
+                <Icon iconName={getStatusIcon(normalizeStatus(selectedItem.status))} style={{ marginRight: '6px' }} />
                 {normalizeStatus(selectedItem.status)}
               </Text>
               <Stack horizontal tokens={{ childrenGap: 15 }} horizontalAlign="end">

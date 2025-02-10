@@ -8,6 +8,9 @@ import {
   PrimaryButton,
   DefaultButton,
   TextField,
+  ComboBox,
+  IComboBoxOption,
+  IComboBoxStyles,
 } from '@fluentui/react';
 import { mergeStyles } from '@fluentui/react';
 import { colours } from '../app/styles/colours';
@@ -16,6 +19,7 @@ import {
   sharedDefaultButtonStyles,
   sharedDraftConfirmedButtonStyles,
 } from '../app/styles/ButtonStyles';
+import { Matter } from '../app/functionality/types'; // Import your Matter type
 
 export const INPUT_HEIGHT = 40;
 
@@ -164,6 +168,7 @@ export interface FormField {
   group?: string;
 }
 
+// Update the BespokeFormProps interface to include a matters prop.
 export interface BespokeFormProps {
   fields: FormField[];
   onSubmit: (values: { [key: string]: any }) => void;
@@ -171,7 +176,36 @@ export interface BespokeFormProps {
   isSubmitting?: boolean;
   style?: React.CSSProperties;
   children?: React.ReactNode;
+  matters: Matter[]; // Pass matters data for Matter Reference dropdowns
 }
+
+// Create a partial style object that merges your existing input styles
+// with ComboBox-specific overrides (to keep a single-field look).
+const matterComboBoxStyles: Partial<IComboBoxStyles> = {
+  root: [
+    inputFieldStyle,
+    {
+      // Remove extra padding so it doesn't look "nested"
+      padding: 0,
+      // Keep the same height
+      height: `${INPUT_HEIGHT}px`,
+    },
+  ],
+  input: {
+    // Force the input to fill entire space
+    height: '100%',
+    border: 'none',
+    outline: 'none',
+    padding: '0 5px',
+  },
+  callout: {
+    // You can adjust open/close animation or timing here if needed
+  },
+  optionsContainer: {
+    boxShadow: '0 2px 5px rgba(0, 0, 0, 0.2)',
+    borderRadius: 4,
+  },
+};
 
 const BespokeForm: React.FC<BespokeFormProps> = ({
   fields,
@@ -180,10 +214,25 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
   isSubmitting = false,
   style,
   children,
+  matters,
 }) => {
-  const [formValues, setFormValues] = React.useState<{ [key: string]: any }>(
-    {}
-  );
+  const [formValues, setFormValues] = React.useState<{ [key: string]: any }>({});
+  const [matterOptions, setMatterOptions] = React.useState<IComboBoxOption[]>([]);
+
+  // Prepare initial sorted matter options
+  React.useEffect(() => {
+    if (matters?.length) {
+      const sorted = [...matters].sort(
+        (a, b) => new Date(b.OpenDate).getTime() - new Date(a.OpenDate).getTime()
+      );
+      setMatterOptions(
+        sorted.map((m) => ({
+          key: m.DisplayNumber,
+          text: m.DisplayNumber,
+        }))
+      );
+    }
+  }, [matters]);
 
   const convertFileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -219,6 +268,32 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
     }
   };
 
+  // Real-time filtering for matter references
+  const onMatterInputValueChange = (_: any, newInput?: string) => {
+    if (!newInput) {
+      // If no input, show them all again (sorted)
+      const sorted = [...matters].sort(
+        (a, b) => new Date(b.OpenDate).getTime() - new Date(a.OpenDate).getTime()
+      );
+      setMatterOptions(
+        sorted.map((m) => ({ key: m.DisplayNumber, text: m.DisplayNumber }))
+      );
+      return;
+    }
+
+    // Filter the list as user types
+    const filtered = matters
+      .filter((m) =>
+        m.DisplayNumber.toLowerCase().includes(newInput.toLowerCase())
+      )
+      .sort(
+        (a, b) => new Date(b.OpenDate).getTime() - new Date(a.OpenDate).getTime()
+      )
+      .map((m) => ({ key: m.DisplayNumber, text: m.DisplayNumber }));
+
+    setMatterOptions(filtered);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSubmit(formValues);
@@ -233,6 +308,40 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
       <div className={formContainerStyle}>
         <Stack tokens={{ childrenGap: 20 }}>
           {fields.map((field, index) => {
+            // For Matter Reference fields, we use a single-field styled ComboBox
+            if (
+              field.label === 'Matter Reference' ||
+              field.label === 'Matter Reference (if applicable)'
+            ) {
+              return (
+                <ComboBox
+                  key={index}
+                  label={field.label}
+                  placeholder="Select or type a Matter Reference"
+                  required={field.required}
+                  // Use the local matterOptions from state
+                  options={matterOptions}
+                  // Let user type a custom value if they wish
+                  allowFreeform
+                  autoComplete="on"
+                  // Real-time filtering
+                  onInputValueChange={onMatterInputValueChange}
+                  // Store the final selected/typed value in formValues
+                  onChange={(_, option, __, value) => {
+                    // If the user chose from the list, use option.key
+                    // Otherwise use the typed value
+                    const chosenValue = option ? option.key : value;
+                    handleInputChange(field.name, chosenValue);
+                  }}
+                  // Open dropdown on focus for a faster reveal
+                  openOnKeyboardFocus
+                  disabled={isSubmitting}
+                  // Style to match your single text field
+                  styles={matterComboBoxStyles}
+                />
+              );
+            }
+
             if (field.group === 'dateRange') {
               return (
                 <Stack horizontal tokens={{ childrenGap: 10 }} key={index}>
@@ -251,6 +360,7 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                 </Stack>
               );
             }
+
             switch (field.type) {
               case 'dropdown':
                 return (
@@ -292,9 +402,7 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                     rows={3}
                     required={field.required}
                     value={formValues[field.name]?.toString() || ''}
-                    onChange={(e, value) =>
-                      handleInputChange(field.name, value || '')
-                    }
+                    onChange={(e, value) => handleInputChange(field.name, value || '')}
                     disabled={isSubmitting}
                     styles={{ fieldGroup: inputFieldStyle }}
                   />
@@ -323,9 +431,7 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                         onChange={(e, value) =>
                           handleInputChange(field.name, value || '')
                         }
-                        type={
-                          field.type === 'currency-picker' ? 'text' : 'number'
-                        }
+                        type={field.type === 'currency-picker' ? 'text' : 'number'}
                         disabled={isSubmitting}
                         styles={{
                           fieldGroup: amountInputStyle(!!field.prefix),
@@ -350,7 +456,7 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                     )}
                   </div>
                 );
-              case 'file':
+              case 'file': {
                 const fileValue = formValues[field.name];
                 return (
                   <div key={index} style={{ marginBottom: '15px' }}>
@@ -421,6 +527,7 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                     )}
                   </div>
                 );
+              }
               default:
                 return (
                   <TextField
@@ -441,7 +548,9 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                 );
             }
           })}
+
           {children}
+
           <Stack horizontal tokens={{ childrenGap: 10 }}>
             <PrimaryButton
               type="submit"

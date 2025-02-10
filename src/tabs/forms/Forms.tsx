@@ -1,6 +1,6 @@
 // src/tabs/forms/Forms.tsx
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import {
   Stack,
   Text,
@@ -23,7 +23,8 @@ import '../../app/styles/FormCard.css';
 
 // Import Financial Forms
 import { financialForms } from './FinancialForms';
-import { UserData } from '../../app/functionality/types';
+// Import types – note that FormItem is imported from your types file now
+import { Matter, FormItem, UserData } from '../../app/functionality/types';
 
 // Initialize Fluent UI icons
 initializeIcons();
@@ -31,13 +32,12 @@ initializeIcons();
 // Define types for sections and links
 export type SectionName = 'Favorites' | 'Financial' | 'General_Processes' | 'Operations';
 
-export interface FormItem {
-  title: string;
-  url: string;
-  icon: string;
-  tags?: string[];
-  description?: string;
-  embedScript?: { key: string; formId: string };
+// (Removed local FormItem declaration because it's imported above)
+
+// Update the Forms component's prop types so it can receive these matters.
+interface FormsProps {
+  userData: UserData[] | null;
+  matters: Matter[];
 }
 
 // Styles
@@ -84,7 +84,6 @@ const sectionStyle = (isDarkMode: boolean) =>
       : '0 4px 12px rgba(0, 0, 0, 0.1)',
     transition: 'background-color 0.3s, border 0.3s, box-shadow 0.3s',
     marginBottom: '40px',
-
     selectors: {
       '&:last-child': {
         marginBottom: '0px',
@@ -124,7 +123,7 @@ const footerStyle = (isDarkMode: boolean) =>
     fontFamily: 'Raleway, sans-serif',
   });
 
-const Forms: React.FC<{ userData: UserData[] | null }> = ({ userData }) => {
+const Forms: React.FC<FormsProps> = ({ userData, matters }) => {
   const { isDarkMode } = useTheme();
   const [favorites, setFavorites] = useState<FormItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -217,7 +216,7 @@ const Forms: React.FC<{ userData: UserData[] | null }> = ({ userData }) => {
       Operations: operations,              // Embedded forms
       Financial: financialForms,           // Imported financial forms
     };
-  }, [financialForms]); // Ensure to include financialForms in dependencies
+  }, [financialForms]);
 
   // Load stored favorites from localStorage
   useEffect(() => {
@@ -313,7 +312,6 @@ const Forms: React.FC<{ userData: UserData[] | null }> = ({ userData }) => {
     <div className={containerStyle(isDarkMode)}>
       {/* Header */}
       <header className={headerStyle(isDarkMode)}>
-        {/* Search Box */}
         <div className={sharedSearchBoxContainerStyle(isDarkMode)}>
           <SearchBox
             placeholder="Search forms..."
@@ -353,7 +351,6 @@ const Forms: React.FC<{ userData: UserData[] | null }> = ({ userData }) => {
           </section>
         )}
 
-        {/* Financial Section */}
         {filteredSections.Financial.length > 0 && (
           <section key="Financial" className={sectionStyle(isDarkMode)}>
             <Text variant="large" className={sectionHeaderStyleCustom(isDarkMode)}>
@@ -380,7 +377,6 @@ const Forms: React.FC<{ userData: UserData[] | null }> = ({ userData }) => {
           </section>
         )}
 
-        {/* General Processes Section */}
         {filteredSections.General_Processes.length > 0 && (
           <section key="General_Processes" className={sectionStyle(isDarkMode)}>
             <Text variant="large" className={sectionHeaderStyleCustom(isDarkMode)}>
@@ -407,7 +403,6 @@ const Forms: React.FC<{ userData: UserData[] | null }> = ({ userData }) => {
           </section>
         )}
 
-        {/* Operations Section */}
         {filteredSections.Operations.length > 0 && (
           <section key="Operations" className={sectionStyle(isDarkMode)}>
             <Text variant="large" className={sectionHeaderStyleCustom(isDarkMode)}>
@@ -509,7 +504,8 @@ const Forms: React.FC<{ userData: UserData[] | null }> = ({ userData }) => {
           link={selectedLink}
           isDarkMode={isDarkMode}
           isFinancial={selectedLink?.tags?.includes('Financial')}
-          userData={userData} // Add this line
+          userData={userData}
+          matters={matters} // Pass the matters array to FormDetails
         />
       )}
     </div>

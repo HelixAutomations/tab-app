@@ -11,7 +11,7 @@ import {
   MessageBarType,
 } from '@fluentui/react';
 import { colours } from '../../app/styles/colours';
-import { FormItem, UserData } from '../../app/functionality/types';
+import { FormItem, UserData, Matter } from '../../app/functionality/types';
 import { mergeStyles } from '@fluentui/react';
 import loaderIcon from '../../assets/grey helix mark.png';
 import BespokeForm from '../../CustomForms/BespokeForms';
@@ -28,6 +28,7 @@ interface FormDetailsProps {
   isOpen: boolean;
   isFinancial?: boolean;
   userData: UserData[] | null;
+  matters: Matter[]; // NEW: Added matters prop to receive the matter data
 }
 
 const detailsContainerStyle = (isDarkMode: boolean) =>
@@ -66,6 +67,7 @@ const FormDetails: React.FC<FormDetailsProps> = ({
   onClose,
   isOpen,
   userData,
+  matters,
 }) => {
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
   const [isCognitoLoaded, setIsCognitoLoaded] = useState<boolean>(false);
@@ -239,6 +241,7 @@ const FormDetails: React.FC<FormDetailsProps> = ({
                 onSubmit={handleFinancialSubmit}
                 onCancel={() => console.log('Form cancelled')}
                 isSubmitting={isSubmitting}
+                matters={matters} // Pass matters down so the form can render a Matter Reference dropdown
               />
             </div>
           ) : (

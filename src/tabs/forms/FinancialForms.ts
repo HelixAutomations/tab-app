@@ -9,7 +9,7 @@ export const financialForms: FormItem[] = [
     url: 'https://form.asana.com/?k=ujtixxpHA7C-flR-UZyF0Q&d=1203336123398249', // Added a valid URL
     icon: 'Switch',
     description: 'Submit a transfer request form.',
-    tags: ['Financial'], // Ensure tags are present
+    tags: ['Financial'],
     fields: [
       {
         label: 'Transfer Type',
@@ -19,7 +19,8 @@ export const financialForms: FormItem[] = [
       },
       {
         label: 'Matter Reference',
-        type: 'text',
+        // Changed type from "text" to "dropdown" so that a matter reference dropdown is rendered.
+        type: 'dropdown',
         required: true,
       },
       {
@@ -28,7 +29,7 @@ export const financialForms: FormItem[] = [
         step: 250,
         editable: true,
         required: true,
-        prefix: '£', // Add this to display the non-removable £
+        prefix: '£', // Display the non-removable £
       },
       {
         label: 'Narrative',
@@ -53,7 +54,8 @@ export const financialForms: FormItem[] = [
     fields: [
       {
         label: 'Matter Reference',
-        type: 'text',
+        // Changed type from "text" to "dropdown"
+        type: 'dropdown',
         required: true,
       },
       {
@@ -65,7 +67,7 @@ export const financialForms: FormItem[] = [
       {
         label: 'Amount',
         type: 'number',
-        prefix: '£', // Add this to display the non-removable £
+        prefix: '£', // Display the non-removable £
         required: true,
       },
       {
@@ -87,7 +89,8 @@ export const financialForms: FormItem[] = [
         label: 'Payment Reference',
         type: 'text',
         required: true,
-        helpText: 'Please note this cannot be longer than 18 characters due to Barclays limit.',
+        helpText:
+          'Please note this cannot be longer than 18 characters due to Barclays limit.',
       },
       {
         label: 'Narrative',
@@ -112,7 +115,8 @@ export const financialForms: FormItem[] = [
         type: 'toggle',
         required: true,
         defaultValue: false,
-        helpText: 'Disbursements will automatically be raised at time of posting onto the matter.',
+        helpText:
+          'Disbursements will automatically be raised at time of posting onto the matter.',
       },
       {
         label: 'Should accounts make the client to office transfer as well?',
@@ -121,7 +125,7 @@ export const financialForms: FormItem[] = [
         defaultValue: false,
       },
       {
-        label: 'Disbursement Upload', // New Field Added
+        label: 'Disbursement Upload',
         type: 'file',
         required: false,
         helpText: 'Upload related disbursement documents.',
@@ -138,9 +142,9 @@ export const financialForms: FormItem[] = [
   {
     title: 'General Query',
     url: 'https://form.asana.com/?k=CYnw28rLCHDrNboUrgmdaQ&d=1203336123398249',
-    icon: 'Help', // Valid Fluent UI icon
+    icon: 'Help',
     description: 'Submit a general query form.',
-    tags: ['Financial'], // Added tag
+    tags: ['Financial'],
     fields: [
       {
         label: 'Query',
@@ -150,25 +154,27 @@ export const financialForms: FormItem[] = [
       },
       {
         label: 'Matter Reference (if applicable)',
-        type: 'text',
+        // Changed type from "text" to "dropdown"
+        type: 'dropdown',
         required: false,
-        helpText: 'Provide the matter reference if it is related to an existing matter.',
+        helpText:
+          'Provide the matter reference if it is related to an existing matter.',
       },
       {
         label: 'Attachments',
-        type: 'file', // Now a valid type
+        type: 'file',
         required: false,
         helpText: 'Upload any relevant documents or files.',
-        placeholder: 'Drag and drop a file or click to select one.', // Placeholder text
+        placeholder: 'Drag and drop a file or click to select one.',
       },
     ],
   },
   {
     title: 'Supplier Payment/Helix Expense',
     url: 'https://form.asana.com/?k=N3UONR0R0PXYlSqQjcCv9w&d=1203336123398249',
-    icon: 'AccountActivity', // Replaced 'Financial' with 'AccountActivity'
+    icon: 'AccountActivity',
     description: 'Submit a nominal supplier payment or Helix expense form.',
-    tags: ['Financial'], // Added tag
+    tags: ['Financial'],
     fields: [
       {
         label: 'Supplier Name',
@@ -227,7 +233,8 @@ export const financialForms: FormItem[] = [
         label: 'Payment Reference',
         type: 'text',
         required: true,
-        helpText: 'Please note this cannot be longer than 18 characters due to Barclays limit.',
+        helpText:
+          'Please note this cannot be longer than 18 characters due to Barclays limit.',
       },
       {
         label: 'Expense Name',

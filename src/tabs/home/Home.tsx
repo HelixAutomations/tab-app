@@ -1906,6 +1906,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
           link={selectedForm}
           isDarkMode={isDarkMode}
           userData={userData}
+          matters={allMatters || []}  // <-- Added this line
         />
       )}
 

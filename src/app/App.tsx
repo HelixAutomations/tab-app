@@ -88,7 +88,8 @@ const App: React.FC<AppProps> = ({
           />
         );
       case 'forms':
-        return <Forms userData={userData} />;
+        // Here we pass matters from allMattersFromHome (or an empty array if not yet available)
+        return <Forms userData={userData} matters={allMattersFromHome || []} />;
       case 'resources':
         return <Resources />;
       case 'enquiries':

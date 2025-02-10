@@ -12,7 +12,7 @@ import {
   MessageBar,
   MessageBarType,
   Icon,
-  TextField, // Added TextField import
+  TextField,
 } from '@fluentui/react';
 import { colours } from '../../app/styles/colours';
 import { mergeStyles } from '@fluentui/react';
@@ -322,7 +322,7 @@ const HomePanel: React.FC<HomePanelProps> = ({
                   })}
               </Stack>
             ) : bespokeFormFields ? (
-              <div style={{ flexGrow: 1, padding: '20px' }}> {/* Second padding for BespokeForm */}
+              <div style={{ flexGrow: 1, padding: '20px' }}>
                 <BespokeForm
                   fields={bespokeFormFields}
                   onSubmit={(values) => {
@@ -330,17 +330,18 @@ const HomePanel: React.FC<HomePanelProps> = ({
                     onClose();
                   }}
                   onCancel={onClose}
+                  // Pass an empty array for matters here (or replace [] with matter data if available)
+                  matters={[]}
                 />
               </div>
             ) : (
-              <div style={{ padding: '20px' }}> {/* Padding for placeholder message */}
+              <div style={{ padding: '20px' }}>
                 <Text>No form available for this item.</Text>
               </div>
             )}
           </>
         )}
       </div>
-
 
       {/* Content aligned to the bottom */}
       <div className={detailsContainerStyle(isDarkMode)}>
@@ -358,33 +359,33 @@ const HomePanel: React.FC<HomePanelProps> = ({
 
         {/* Buttons */}
         <div className={buttonsContainerStyle(isDarkMode)}>
-        <div className={leftButtonsStyle()}>
+          <div className={leftButtonsStyle()}>
             {displayUrl && (
-            <>
+              <>
                 <PrimaryButton
-                text="Copy"
-                onClick={copyToClipboard}
-                styles={sharedPrimaryButtonStyles}
-                ariaLabel="Copy URL to clipboard"
-                iconProps={{ iconName: 'Copy' }}
+                  text="Copy"
+                  onClick={copyToClipboard}
+                  styles={sharedPrimaryButtonStyles}
+                  ariaLabel="Copy URL to clipboard"
+                  iconProps={{ iconName: 'Copy' }}
                 />
                 <PrimaryButton
-                text="Go To"
-                onClick={goToLink}
-                styles={sharedPrimaryButtonStyles}
-                ariaLabel="Go to URL"
-                iconProps={{ iconName: 'NavigateExternalInline' }}
+                  text="Go To"
+                  onClick={goToLink}
+                  styles={sharedPrimaryButtonStyles}
+                  ariaLabel="Go to URL"
+                  iconProps={{ iconName: 'NavigateExternalInline' }}
                 />
-            </>
+              </>
             )}
-        </div>
-        <DefaultButton
+          </div>
+          <DefaultButton
             text="Close"
             onClick={onClose}
             styles={sharedDefaultButtonStyles}
             ariaLabel="Close Details"
             iconProps={{ iconName: 'Cancel' }}
-        />
+          />
         </div>
       </div>
 

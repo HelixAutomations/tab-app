@@ -250,6 +250,7 @@ const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) 
                           setSelectedAction(null);
                           setActionInputs({});
                         }}
+                        matters={[]}  // Pass an empty array for matters
                       />
                     </div>
                   </CSSTransition>

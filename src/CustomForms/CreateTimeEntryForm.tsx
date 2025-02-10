@@ -1,3 +1,5 @@
+// src/CustomForms/CreateTimeEntryForm.tsx
+
 import React, { useState } from 'react';
 import { Text, MessageBar, MessageBarType } from '@fluentui/react';
 import { useTheme } from '../app/functionality/ThemeContext';
@@ -88,7 +90,7 @@ const CreateTimeEntryForm: React.FC = () => {
       required: true,
       placeholder: 'Enter hours',
       step: 1,
-      min: 0, // No error now
+      min: 0,
     },
     {
       label: 'Minutes',
@@ -97,7 +99,7 @@ const CreateTimeEntryForm: React.FC = () => {
       required: true,
       placeholder: 'Enter minutes',
       step: 1,
-      min: 0, // No error now
+      min: 0,
       max: 59,
     },
     {
@@ -138,6 +140,7 @@ const CreateTimeEntryForm: React.FC = () => {
         onSubmit={handleSubmit}
         onCancel={handleCancel}
         isSubmitting={isSubmitting}
+        matters={[]}
       />
       {error && (
         <MessageBar

@@ -293,9 +293,9 @@ function AnnualLeaveForm({
       const payload = {
         fe: feeEarner,
         dateRanges: formattedDateRanges,
-        reason: notes || "No additional reason provided.", // Ensure 'reason' is not empty
+        reason: notes || "No additional reason provided.",
         days_taken: totalDays,
-        leave_type: "standard", // Added 'leave_type' field with default value
+        leave_type: "standard",
         overlapDetails: groupedLeave,
       };
       console.log('Annual Leave Form Payload:', payload);
@@ -355,7 +355,6 @@ function AnnualLeaveForm({
           backgroundColor: 'transparent',
         }}
       >
-        {/* Top Section */}
         <Text
           style={{
             fontSize: '14px',
@@ -374,16 +373,12 @@ function AnnualLeaveForm({
         >
           {totalDays} {totalDays !== 1 ? 'days' : 'day'}
         </Text>
-
-        {/* Separator */}
         <div
           style={{
             borderTop: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
             margin: '20px 0',
           }}
         />
-
-        {/* Bottom Section */}
         <Stack tokens={{ childrenGap: 5 }}>
           <Text style={labelStyle}>Annual Holiday Entitlement</Text>
           {userData?.[0]?.holiday_entitlement != null ? (
@@ -395,45 +390,15 @@ function AnnualLeaveForm({
               N/A
             </Text>
           )}
-
           <Text style={labelStyle}>Days taken so far this year</Text>
           <Text style={{ ...valueStyle, color: isDarkMode ? colours.dark.text : colours.light.text }}>
             {totals.standard} {totals.standard !== 1 ? 'days' : 'day'}
           </Text>
-
           <Text style={labelStyle}>Days Remaining</Text>
           <Text style={{ ...valueStyle, ...effectiveRemainingStyle }}>
             {effectiveRemaining} {effectiveRemaining !== 1 ? 'days' : 'day'}
           </Text>
         </Stack>
-
-        {/*
-        The following block is hidden but retained for future use.
-
-        <div
-          style={{
-            borderTop: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-            margin: '20px 0',
-          }}
-        />
-
-        <Stack tokens={{ childrenGap: 5 }}>
-          <Text style={labelStyle}>Days remaining this year</Text>
-          <Text style={{ ...valueStyle, ...unpaidStyle }}>
-            {unpaidRemaining} {unpaidRemaining !== 1 ? 'days' : 'day'}
-          </Text>
-
-          <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 5 }}>
-            <Text style={labelStyle}>Available days to sell</Text>
-            <TooltipHost content="Available days to sell if you wish to not take leave and be compensated per day pro rata to your salary.">
-              <Icon iconName="Info" style={{ fontSize: '16px', cursor: 'default' }} />
-            </TooltipHost>
-          </Stack>
-          <Text style={{ ...valueStyle, ...buyStyle }}>
-            {buyRemaining} {buyRemaining !== 1 ? 'days' : 'day'}
-          </Text>
-        </Stack>
-        */}
       </Stack>
     );
   }
@@ -535,7 +500,6 @@ function AnnualLeaveForm({
 
   return (
     <>
-      {/* Inline CSS for animations and to hide the Cancel and default Submit button from BespokeForm */}
       <style>
         {`
           @keyframes fadeIn {
@@ -546,15 +510,12 @@ function AnnualLeaveForm({
             from { opacity: 0; transform: translateY(-20px); }
             to { opacity: 1; transform: translateY(0); }
           }
-          /* Hide the last button (assumed to be Cancel) within our BespokeForm container */
           .bespokeFormContainer button.ms-Button.ms-Button--default:last-child {
             display: none !important;
           }
-          /* Hide the built-in submit button so we can use our custom one */
           .bespokeFormContainer button.ms-Button.ms-Button--primary {
             display: none !important;
           }
-          /* Ensure custom Submit button is visible */
           .custom-submit-button {
             display: inline-block !important;
             visibility: visible !important;
@@ -569,9 +530,10 @@ function AnnualLeaveForm({
             onSubmit={handleSubmit}
             onCancel={() => {}}
             isSubmitting={isSubmitting}
+            // IMPORTANT: Pass an empty array for matters (or replace [] with matter data if available)
+            matters={[]}
           >
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '20px' }}>
-              {/* Left side: Date Ranges and Notes */}
               <Stack style={{ flex: 1 }} tokens={{ childrenGap: 10 }}>
                 {dateRanges.map((range, index) => (
                   <Stack
@@ -579,9 +541,7 @@ function AnnualLeaveForm({
                     tokens={{ childrenGap: 5 }}
                     style={{
                       animation: 'fadeIn 0.5s ease forwards',
-                      border: `1px solid ${
-                        isDarkMode ? colours.dark.border : colours.light.border
-                      }`,
+                      border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                       padding: '10px',
                       borderRadius: '4px',
                     }}
@@ -603,7 +563,6 @@ function AnnualLeaveForm({
                             halfDayStart: range.halfDayStart,
                             halfDayEnd: range.halfDayEnd,
                           };
-                          // Update this date range.
                           const updatedRanges = [...dateRanges];
                           updatedRanges[index] = newRange;
                           setDateRanges(updatedRanges);
@@ -615,7 +574,6 @@ function AnnualLeaveForm({
                       direction="horizontal"
                       rangeColors={[colours.highlight]}
                     />
-                    {/* Allow removal of each date range */}
                     <DefaultButton
                       text="Remove Range"
                       onClick={() => handleRemoveDateRange(index)}
@@ -624,7 +582,6 @@ function AnnualLeaveForm({
                     />
                   </Stack>
                 ))}
-                {/* Add Holiday Button */}
                 <div
                   style={{
                     border: '2px dashed #ccc',
@@ -643,7 +600,6 @@ function AnnualLeaveForm({
                     {dateRanges.length === 0 ? 'Add Holiday' : 'Add Another Holiday'}
                   </Text>
                 </div>
-                {/* Notes Field */}
                 <TextField
                   label="Notes (Optional)"
                   placeholder="Enter any additional notes"
@@ -653,7 +609,6 @@ function AnnualLeaveForm({
                   multiline
                   rows={3}
                 />
-                {/* Clear and Submit Buttons Side by Side */}
                 <Stack horizontal tokens={{ childrenGap: 10 }}>
                   <DefaultButton
                     text="Clear"
@@ -665,17 +620,14 @@ function AnnualLeaveForm({
                     className="custom-submit-button"
                     styles={buttonStylesFixedWidth}
                     onClick={handleSubmit}
-                    disabled={isSubmitting} // Optionally disable while submitting
-                    // You can remove the disabled prop if you want it always enabled
+                    disabled={isSubmitting}
                   />
                 </Stack>
               </Stack>
-              {/* Right side: Totals side panel */}
               {renderSidePanel()}
             </div>
           </BespokeForm>
         </div>
-        {/* Team Leave Conflicts (only shown if conflicts exist) */}
         {groupedLeave.length > 0 && (
           <div style={{ position: 'relative', marginBottom: '20px' }}>
             <div
