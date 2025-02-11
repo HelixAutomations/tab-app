@@ -1,16 +1,14 @@
-// src/tabs/home/QuickActionsCard.tsx
-
 import React from 'react';
-import { mergeStyles, Icon, IconButton, Text } from '@fluentui/react';
+import { mergeStyles, Icon, Text } from '@fluentui/react';
 import { colours } from '../../app/styles/colours';
-import '../../app/styles/QuickActionsCard.css'; // Import the CSS file
+import '../../app/styles/QuickActionsCard.css';
 
 interface QuickActionsCardProps {
   title: string;
   icon: string;
   isDarkMode: boolean;
   onClick: () => void;
-  iconColor: string;
+  iconColor?: string;
 }
 
 const QuickActionsCard: React.FC<QuickActionsCardProps> = ({
@@ -20,47 +18,41 @@ const QuickActionsCard: React.FC<QuickActionsCardProps> = ({
   onClick,
   iconColor,
 }) => {
-  // Define styles for the card
+  // Compact card style for a horizontal bar without circular icon backgrounds
   const cardStyle = mergeStyles({
     backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
     color: isDarkMode ? colours.dark.text : colours.light.text,
-    padding: '15px 20px',
-    borderRadius: '8px',
+    padding: '6px 10px',
+    borderRadius: '4px',
     display: 'flex',
     alignItems: 'center',
-    gap: '15px',
+    gap: '6px',
     boxShadow: isDarkMode
-      ? `0 4px 12px ${colours.dark.border}`
-      : `0 4px 12px ${colours.light.border}`,
+      ? `0 2px 4px ${colours.dark.border}`
+      : `0 2px 4px ${colours.light.border}`,
     cursor: 'pointer',
     transition: 'background-color 0.3s, box-shadow 0.3s',
-    ':hover': {
-      backgroundColor: colours.highlight, // Fill with blue on hover
-      boxShadow: isDarkMode
-        ? `0 6px 16px ${colours.dark.border}`
-        : `0 6px 16px ${colours.light.border}`,
+    selectors: {
+      ':hover': {
+        backgroundColor: colours.highlight,
+        boxShadow: isDarkMode
+          ? `0 2px 4px ${colours.dark.border}`
+          : `0 2px 4px ${colours.light.border}`,
+      },
     },
   });
 
-  // Define styles for the icon bubble
-  const iconBubbleStyle = mergeStyles({
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-    width: '40px',
-    height: '40px',
-    borderRadius: '50%',
-    border: `2px solid ${colours.highlight}`, // Blue outline
-    backgroundColor: 'transparent',
-    color: colours.highlight, // Blue icon initially
-    flexShrink: 0,
-    transition: 'background-color 0.3s, color 0.3s',
-    selectors: {
-      ':hover &': {
-        backgroundColor: colours.highlight, // Fill blue on hover
-        color: '#ffffff', // Icon turns white on hover
-      },
-    },
+  // Now simply style the icon inline
+  const iconStyle = mergeStyles({
+    fontSize: '16px',
+    color: iconColor || colours.highlight,
+    marginRight: '4px',
+  });
+
+  const textStyle = mergeStyles({
+    fontWeight: 600,
+    fontSize: '12px',
+    whiteSpace: 'nowrap',
   });
 
   return (
@@ -75,29 +67,10 @@ const QuickActionsCard: React.FC<QuickActionsCardProps> = ({
         }
       }}
     >
-      <div className={iconBubbleStyle}>
-        <Icon iconName={icon} />
-      </div>
-      <Text variant="mediumPlus" styles={{ root: { fontWeight: 600 } }}>
+      <Icon iconName={icon} className={iconStyle} />
+      <Text variant="small" styles={{ root: textStyle }}>
         {title}
       </Text>
-      <IconButton
-        iconProps={{ iconName: 'ChevronRight' }}
-        ariaLabel="Go to action"
-        styles={{
-          root: {
-            marginLeft: 'auto',
-            color: isDarkMode ? colours.dark.text : colours.light.text,
-          },
-          icon: {
-            fontSize: 16,
-          },
-        }}
-        onClick={(e) => {
-          e.stopPropagation();
-          onClick();
-        }}
-      />
     </div>
   );
 };
