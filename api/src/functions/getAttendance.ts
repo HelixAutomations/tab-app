@@ -255,7 +255,12 @@ async function queryTeamData(config: any, context: InvocationContext): Promise<{
 
             context.log("Successfully connected to SQL database (Team).");
 
-            const query = "SELECT [First], [Initials], [Entra ID], [Nickname] FROM [dbo].[team];";
+            // Updated query to filter out inactive team members
+            const query = `
+                SELECT [First], [Initials], [Entra ID], [Nickname] 
+                FROM [dbo].[team] 
+                WHERE [status] <> 'inactive';
+            `;
             context.log("SQL Query (Team):", query);
 
             const sqlRequest = new SqlRequest(query, (err, rowCount) => {

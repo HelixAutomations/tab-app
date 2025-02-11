@@ -180,6 +180,8 @@ function AnnualLeaveForm({
   const [totalDays, setTotalDays] = useState<number>(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [notes, setNotes] = useState<string>('');
+  // New state for displaying a confirmation message after submission
+  const [confirmationMessage, setConfirmationMessage] = useState<string>('');
 
   // Recalculate total days whenever the dateRanges OR bankHolidays change
   useEffect(() => {
@@ -312,7 +314,8 @@ function AnnualLeaveForm({
       }
       const result = await response.json();
       console.log('Insert Annual Leave Successful:', result);
-      alert("Your annual leave request has been submitted successfully.");
+      // Set a confirmation message instead of using alert
+      setConfirmationMessage("Your annual leave request has been submitted successfully.");
       // Optionally, reset the form after successful submission
       handleClear();
     } catch (error) {
@@ -510,9 +513,6 @@ function AnnualLeaveForm({
             from { opacity: 0; transform: translateY(-20px); }
             to { opacity: 1; transform: translateY(0); }
           }
-          .bespokeFormContainer button.ms-Button.ms-Button--default:last-child {
-            display: none !important;
-          }
           .bespokeFormContainer button.ms-Button.ms-Button--primary {
             display: none !important;
           }
@@ -623,6 +623,11 @@ function AnnualLeaveForm({
                     disabled={isSubmitting}
                   />
                 </Stack>
+                {confirmationMessage && (
+                  <Text style={{ marginTop: 10, fontWeight: 'bold', color: '#009900' }}>
+                    {confirmationMessage}
+                  </Text>
+                )}
               </Stack>
               {renderSidePanel()}
             </div>
