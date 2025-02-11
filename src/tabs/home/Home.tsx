@@ -172,35 +172,6 @@ const quickLinksStyle = (isDarkMode: boolean) =>
 
 const calculateAnimationDelay = (row: number, col: number) => (row + col) * 0.1;
 
-const metricsContainerStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    display: 'grid',
-    gridTemplateColumns: 'repeat(3, 1fr)',
-    gridTemplateRows: 'repeat(2, 1fr)',
-    gap: '20px',
-    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-    backgroundImage: `url(${GreyHelixMark})`,
-    backgroundPosition: 'top right',
-    backgroundRepeat: 'no-repeat',
-    backgroundSize: 'auto 100%',
-    padding: '20px',
-    borderRadius: '12px',
-    boxShadow: isDarkMode
-      ? `0 4px 12px ${colours.dark.border}`
-      : `0 4px 12px ${colours.light.border}`,
-    transition: 'background-color 0.3s, box-shadow 0.3s',
-    flex: 1,
-    position: 'relative',
-    overflow: 'visible',
-  });
-
-const cardTitleStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    fontWeight: '400',
-    fontSize: '24px',
-    color: isDarkMode ? colours.dark.text : colours.light.text,
-  });
-
 const versionStyle = mergeStyles({
   textAlign: 'center',
   fontSize: '14px',
@@ -466,7 +437,6 @@ const CognitoForm: React.FC<{ dataKey: string; dataForm: string }> = ({ dataKey,
 const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersFetched }) => {
   const { isDarkMode } = useTheme();
 
-  // Define renderContextsPanelContent inside the component so that context and userData are in scope
   const renderContextsPanelContent = () => (
     <Stack tokens={{ childrenGap: 30 }} style={{ padding: 20 }}>
       <Stack tokens={{ childrenGap: 10 }}>
@@ -512,6 +482,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
     </Stack>
   );
 
+  // State declarations
   const [greeting, setGreeting] = useState<string>('');
   const [typedGreeting, setTypedGreeting] = useState<string>('');
   const [enquiriesToday, setEnquiriesToday] = useState<number>(0);
@@ -909,9 +880,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
           setIsLoadingAllMatters(true);
           const response = await fetch(
             `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_ALL_MATTERS_PATH}?code=${process.env.REACT_APP_GET_ALL_MATTERS_CODE}`,
-            {
-              method: 'GET',
-            }
+            { method: 'GET' }
           );
           if (!response.ok) {
             throw new Error(`Failed to fetch all matters: ${response.status}`);
@@ -1070,15 +1039,36 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
     (p) => p.presence !== PersonaPresence.online && !isPersonOutToday(p)
   );
 
+  // --- Updated metricsData useMemo ---
   const metricsData = useMemo(() => {
+    // Compute Matters Opened this month using allMatters and the current user's full name.
+    const currentDate = new Date();
+    const currentMonth = currentDate.getMonth();
+    const currentYear = currentDate.getFullYear();
+    const userFullName =
+      userData?.[0]?.FullName ||
+      `${userData?.[0]?.First || ''} ${userData?.[0]?.Last || ''}`.trim();
+    const mattersOpenedCount = allMatters
+      ? allMatters.filter((m) => {
+          const openDate = new Date(m.OpenDate);
+          return (
+            openDate.getMonth() === currentMonth &&
+            openDate.getFullYear() === currentYear &&
+            m.OriginatingSolicitor.toLowerCase() === userFullName.toLowerCase()
+          );
+        }).length
+      : 0;
+
     if (!wipClioData) {
       return [
-        { title: 'Time Today', isTimeMoney: true, money: 0, hours: 0, prevMoney: 0, prevHours: 0 },
-        { title: 'Av. Time This Week', isTimeMoney: true, money: 0, hours: 0, prevMoney: 0, prevHours: 0 },
-        { title: 'Fees Recovered This Month', isMoneyOnly: true, money: '--', prevMoney: 0 },
+        { title: 'Time Today', isTimeMoney: true, money: 0, hours: 0, prevMoney: 0, prevHours: 0, showDial: true, dialTarget: 6 },
+        { title: 'Av. Time This Week', isTimeMoney: true, money: 0, hours: 0, prevMoney: 0, prevHours: 0, showDial: true, dialTarget: 6 },
+        { title: 'Time This Week', isTimeMoney: true, money: 0, hours: 0, prevMoney: 0, prevHours: 0, showDial: true, dialTarget: 30 },
+        { title: 'Fees Recovered This Month', isMoneyOnly: true, money: 0, prevMoney: 0 },
         { title: 'Enquiries Today', isTimeMoney: false, count: enquiriesToday, prevCount: prevEnquiriesToday },
         { title: 'Enquiries This Week', isTimeMoney: false, count: enquiriesWeekToDate, prevCount: prevEnquiriesWeekToDate },
         { title: 'Enquiries This Month', isTimeMoney: false, count: enquiriesMonthToDate, prevCount: prevEnquiriesMonthToDate },
+        { title: 'Matters Opened', isTimeMoney: false, count: mattersOpenedCount, prevCount: 0 },
       ];
     }
     const currentWeekData = wipClioData.current_week?.daily_data[formattedToday];
@@ -1086,6 +1076,47 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
     lastWeekDate.setDate(today.getDate() - 7);
     const formattedLastWeekDate = lastWeekDate.toISOString().split('T')[0];
     const lastWeekData = wipClioData.last_week?.daily_data[formattedLastWeekDate];
+
+    let totalTimeThisWeek = 0;
+    if (wipClioData.current_week && wipClioData.current_week.daily_data) {
+      Object.values(wipClioData.current_week.daily_data).forEach((dayData: any) => {
+        totalTimeThisWeek += dayData.total_hours || 0;
+      });
+    }
+
+    const getWorkWeekDays = (): Date[] => {
+      const now = new Date();
+      const dayOfWeek = now.getDay();
+      const diff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+      const monday = new Date(now);
+      monday.setDate(now.getDate() + diff);
+      const days: Date[] = [];
+      for (let i = 0; i < 5; i++) {
+        const d = new Date(monday);
+        d.setDate(monday.getDate() + i);
+        days.push(d);
+      }
+      return days;
+    };
+    const workWeekDays = getWorkWeekDays();
+    const userInitials = userData?.[0]?.Initials || '';
+    let leaveDays = 0;
+    workWeekDays.forEach(day => {
+      const dayString = day.toISOString().split('T')[0];
+      if (
+        annualLeaveRecords.some(
+          rec =>
+            rec.status === 'booked' &&
+            rec.person.toLowerCase() === userInitials.toLowerCase() &&
+            dayString >= rec.start_date &&
+            dayString <= rec.end_date
+        )
+      ) {
+        leaveDays++;
+      }
+    });
+    const adjustedTarget = (5 - leaveDays) * 6;
+
     return [
       {
         title: 'Time Today',
@@ -1094,6 +1125,8 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
         hours: currentWeekData ? currentWeekData.total_hours : 0,
         prevMoney: lastWeekData ? lastWeekData.total_amount : 0,
         prevHours: lastWeekData ? lastWeekData.total_hours : 0,
+        showDial: true,
+        dialTarget: 6,
       },
       {
         title: 'Av. Time This Week',
@@ -1102,11 +1135,23 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
         hours: wipClioData.current_week.daily_average_hours,
         prevMoney: wipClioData.last_week.daily_average_amount,
         prevHours: wipClioData.last_week.daily_average_hours,
+        showDial: true,
+        dialTarget: 6,
+      },
+      {
+        title: 'Time This Week',
+        isTimeMoney: true,
+        money: 0,
+        hours: totalTimeThisWeek,
+        prevMoney: 0,
+        prevHours: 0,
+        showDial: true,
+        dialTarget: adjustedTarget,
       },
       {
         title: 'Fees Recovered This Month',
         isMoneyOnly: true,
-        money: recoveredData ? recoveredData : '--',
+        money: recoveredData ? recoveredData : 0,
         prevMoney: 0,
       },
       {
@@ -1127,6 +1172,12 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
         count: enquiriesMonthToDate,
         prevCount: prevEnquiriesMonthToDate,
       },
+      {
+        title: 'Matters Opened',
+        isTimeMoney: false,
+        count: mattersOpenedCount,
+        prevCount: 0,
+      },
     ];
   }, [
     wipClioData,
@@ -1139,7 +1190,12 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
     enquiriesMonthToDate,
     prevEnquiriesMonthToDate,
     today,
+    annualLeaveRecords,
+    userData,
+    allMatters,
   ]);
+  const timeMetrics = metricsData.slice(0, 4);
+  const enquiryMetrics = metricsData.slice(4);
 
   const officeAttendanceButtonStyles = currentUserConfirmed
     ? {
@@ -1458,7 +1514,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
 
       {/* Main Content */}
       <Stack className={mainContentStyle} tokens={{ childrenGap: 40 }}>
-        {/* Quick Actions Bar (new location above the metrics) */}
+        {/* Quick Actions Bar */}
         <div className={quickLinksStyle(isDarkMode)}>
           {quickActions.map((action: QuickLink) => (
             <QuickActionsCard
@@ -1471,24 +1527,86 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
             />
           ))}
         </div>
-        {/* Metrics Section now takes full width */}
-        <div className={metricsContainerStyle(isDarkMode)}>
-          {metricsData.map((metric: any, index: number) => (
-            <div key={metric.title} style={{ gridColumn: `${(index % 3) + 1}`, gridRow: `${Math.floor(index / 3) + 1}` }}>
+
+        {/* Metrics Section split into two sub-sections */}
+        <div className={mergeStyles({ marginBottom: '40px' })}>
+          <Text
+            variant="xLarge"
+            styles={{
+              root: {
+                fontWeight: '700',
+                marginBottom: '20px',
+                color: isDarkMode ? colours.dark.text : colours.light.text,
+              },
+            }}
+          >
+            Time Metrics
+          </Text>
+          <div
+            className={mergeStyles({
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+              gap: '20px',
+            })}
+          >
+            {timeMetrics.map((metric, index) => (
               <MetricCard
+                key={metric.title}
                 title={metric.title}
-                {...(
-                  metric.isMoneyOnly
-                    ? { money: metric.money, prevMoney: metric.prevMoney, isMoneyOnly: metric.isMoneyOnly }
-                    : metric.isTimeMoney
-                    ? { money: metric.money, hours: metric.hours, prevMoney: metric.prevMoney, prevHours: metric.prevHours, isTimeMoney: metric.isTimeMoney }
-                    : { count: metric.count, prevCount: metric.prevCount }
-                )}
+                {...(metric.isMoneyOnly
+                  ? { money: metric.money, prevMoney: metric.prevMoney, isMoneyOnly: metric.isMoneyOnly }
+                  : metric.isTimeMoney
+                  ? {
+                      money: metric.money,
+                      hours: metric.hours,
+                      prevMoney: metric.prevMoney,
+                      prevHours: metric.prevHours,
+                      isTimeMoney: metric.isTimeMoney,
+                      showDial: metric.showDial,
+                      dialTarget: metric.dialTarget,
+                    }
+                  : { count: metric.count, prevCount: metric.prevCount })}
                 isDarkMode={isDarkMode}
-                animationDelay={Math.floor(index / 3) * 0.2 + (index % 3) * 0.1}
+                animationDelay={index * 0.1}
               />
-            </div>
-          ))}
+            ))}
+          </div>
+        </div>
+
+        <div className={mergeStyles({ marginBottom: '40px' })}>
+          <Text
+            variant="xLarge"
+            styles={{
+              root: {
+                fontWeight: '700',
+                marginBottom: '20px',
+                color: isDarkMode ? colours.dark.text : colours.light.text,
+              },
+            }}
+          >
+            Enquiry Metrics
+          </Text>
+          <div
+            className={mergeStyles({
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+              gap: '20px',
+            })}
+          >
+            {enquiryMetrics.map((metric, index) => (
+              <MetricCard
+                key={metric.title}
+                title={metric.title}
+                {...(metric.isMoneyOnly
+                  ? { money: metric.money, prevMoney: metric.prevMoney, isMoneyOnly: metric.isMoneyOnly }
+                  : metric.isTimeMoney
+                  ? { money: metric.money, hours: metric.hours, prevMoney: metric.prevMoney, prevHours: metric.prevHours, isTimeMoney: metric.isTimeMoney }
+                  : { count: metric.count, prevCount: metric.prevCount })}
+                isDarkMode={isDarkMode}
+                animationDelay={index * 0.1}
+              />
+            ))}
+          </div>
         </div>
 
         {/* Favourites Section */}
