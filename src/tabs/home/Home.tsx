@@ -1079,6 +1079,19 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
   const formattedToday = today.toISOString().split('T')[0];
 
   const columnsForPeople = 3;
+
+  // Helper function: check if a person is on annual leave (i.e. “out”) today
+  const isPersonOutToday = (person: Person): boolean => {
+    const now = new Date();
+    return annualLeaveRecords.some((leave) => {
+      if (leave.status !== 'booked') return false;
+      if (leave.person.toLowerCase() !== person.initials.toLowerCase()) return false;
+      const startDate = new Date(leave.start_date);
+      const endDate = new Date(leave.end_date);
+      return now >= startDate && now <= endDate;
+    });
+  };
+
   const allPeople = useMemo(() => {
     if (!teamData || teamData.length === 0) return [];
     return teamData
@@ -1098,9 +1111,13 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
       });
   }, [teamData, attendanceRecords]);
 
-  // Split into two arrays for Working Today
-  const inOfficePeople = allPeople.filter((p) => p.presence === PersonaPresence.online);
-  const workFromHomePeople = allPeople.filter((p) => p.presence !== PersonaPresence.online);
+  // Split into two arrays for Working Today while excluding anyone who is on leave today.
+  const inOfficePeople = allPeople.filter(
+    (p) => p.presence === PersonaPresence.online && !isPersonOutToday(p)
+  );
+  const workFromHomePeople = allPeople.filter(
+    (p) => p.presence !== PersonaPresence.online && !isPersonOutToday(p)
+  );
 
   // If you are displaying "WIP Clio" data in some metrics, configure them here:
   const metricsData = useMemo(() => {

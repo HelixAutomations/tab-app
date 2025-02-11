@@ -1,5 +1,3 @@
-// src/tabs/forms/FinancialForms.ts
-
 import { FormItem } from '../../app/functionality/types'; // Adjust the path if necessary
 
 // Define Financial Form Items
@@ -260,6 +258,46 @@ export const financialForms: FormItem[] = [
         type: 'toggle',
         defaultValue: false,
         required: false,
+      },
+    ],
+  },
+  {
+    title: 'Write off/ Credit Note Request or Void invoice',
+    url: 'https://form.asana.com/?k=Ry8nWaXaZf9t9nyDWShwsQ&d=1203336123398249',
+    icon: 'Warning',
+    description:
+      'Submit a request for writing off, issuing a credit note, or voiding an invoice.',
+    tags: ['Financial'],
+    fields: [
+      {
+        label: 'Type',
+        type: 'dropdown',
+        options: ['Write off', 'Credit Note', 'Void Invoice'],
+        required: true,
+      },
+      {
+        label: 'Matter Reference',
+        type: 'dropdown',
+        required: true,
+      },
+      {
+        label: 'Invoice Number',
+        type: 'text',
+        required: true,
+      },
+      {
+        label: 'Amount to credit / write off',
+        type: 'number',
+        step: 250,
+        editable: true,
+        required: true,
+        prefix: '£',
+      },
+      {
+        label: 'Has this been approved by Alex or Jonathan?',
+        type: 'toggle',
+        defaultValue: true,
+        required: true,
       },
     ],
   },
