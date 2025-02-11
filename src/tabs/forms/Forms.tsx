@@ -430,50 +430,6 @@ const Forms: React.FC<FormsProps> = ({ userData, matters }) => {
         )}
       </main>
 
-      {/* Footer */}
-      <footer className={footerStyle(isDarkMode)}>
-        <Text>
-          <Link
-            href="https://helix-law.co.uk/"
-            target="_blank"
-            styles={{
-              root: {
-                color: isDarkMode ? colours.dark.subText : colours.light.subText,
-                fontSize: '12px',
-                fontFamily: 'Raleway, sans-serif',
-                textDecoration: 'none',
-              },
-            }}
-            aria-label="Helix Law Website"
-          >
-            https://helix-law.co.uk/
-          </Link>
-          {' | '}
-          <Text
-            variant="small"
-            styles={{
-              root: {
-                color: isDarkMode ? colours.dark.text : colours.light.text,
-                display: 'inline',
-              },
-            }}
-          >
-            01273 761990
-          </Text>
-        </Text>
-        <Text
-          styles={{
-            root: {
-              fontSize: '12px',
-              fontFamily: 'Raleway, sans-serif',
-              color: isDarkMode ? colours.dark.text : colours.light.text,
-            },
-          }}
-        >
-          Second Floor, Britannia House, 21 Station Street, Brighton, BN1 4DE
-        </Text>
-      </footer>
-
       {/* Copy Confirmation Message */}
       {copySuccess && (
         <MessageBar
