@@ -18,15 +18,16 @@ const QuickActionsCard: React.FC<QuickActionsCardProps> = ({
   onClick,
   iconColor,
 }) => {
-  // Compact card style for a horizontal bar without circular icon backgrounds
+  // Compact card style for a horizontal bar without circular icon backgrounds,
+  // with increased size (approx. 20% larger)
   const cardStyle = mergeStyles({
     backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
     color: isDarkMode ? colours.dark.text : colours.light.text,
-    padding: '6px 10px',
+    padding: '7px 12px', // increased from '6px 10px'
     borderRadius: '4px',
     display: 'flex',
     alignItems: 'center',
-    gap: '6px',
+    gap: '7px', // increased from '6px'
     boxShadow: isDarkMode
       ? `0 2px 4px ${colours.dark.border}`
       : `0 2px 4px ${colours.light.border}`,
@@ -42,16 +43,17 @@ const QuickActionsCard: React.FC<QuickActionsCardProps> = ({
     },
   });
 
-  // Now simply style the icon inline
+  // Icon style with increased size
   const iconStyle = mergeStyles({
-    fontSize: '16px',
+    fontSize: '19px', // increased from 16px
     color: iconColor || colours.highlight,
     marginRight: '4px',
   });
 
+  // Text style with increased size
   const textStyle = mergeStyles({
     fontWeight: 600,
-    fontSize: '12px',
+    fontSize: '14px', // increased from 12px
     whiteSpace: 'nowrap',
   });
 

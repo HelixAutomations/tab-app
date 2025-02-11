@@ -31,8 +31,8 @@ const customTheme = createTheme({
 // Helper function to calculate the date range (6 months)
 const getDateRange = () => {
   const now = new Date();
-  const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, 1);
-  const startDate = new Date(sixMonthsAgo.getFullYear(), sixMonthsAgo.getMonth(), 1);
+  const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 12, 1); // Increase range
+  const startDate = new Date(twelveMonthsAgo.getFullYear(), twelveMonthsAgo.getMonth(), 1);
   const endDate = now;
   const formattedStartDate = startDate.toISOString().split('T')[0];
   const formattedEndDate = endDate.toISOString().split('T')[0];

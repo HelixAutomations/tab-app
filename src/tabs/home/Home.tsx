@@ -1528,20 +1528,8 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
           ))}
         </div>
 
-        {/* Metrics Section split into two sub-sections */}
+        {/* Metrics Section split into two sub-sections without the labels */}
         <div className={mergeStyles({ marginBottom: '40px' })}>
-          <Text
-            variant="xLarge"
-            styles={{
-              root: {
-                fontWeight: '700',
-                marginBottom: '20px',
-                color: isDarkMode ? colours.dark.text : colours.light.text,
-              },
-            }}
-          >
-            Time Metrics
-          </Text>
           <div
             className={mergeStyles({
               display: 'grid',
@@ -1574,18 +1562,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
         </div>
 
         <div className={mergeStyles({ marginBottom: '40px' })}>
-          <Text
-            variant="xLarge"
-            styles={{
-              root: {
-                fontWeight: '700',
-                marginBottom: '20px',
-                color: isDarkMode ? colours.dark.text : colours.light.text,
-              },
-            }}
-          >
-            Enquiry Metrics
-          </Text>
           <div
             className={mergeStyles({
               display: 'grid',
