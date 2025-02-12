@@ -410,6 +410,14 @@ let cachedAllMatters: Matter[] | null = null;
 let cachedAllMattersError: string | null = null;
 
 //////////////////////
+// Helper: Ensure "LZ" is in Approvers
+//////////////////////
+
+const ensureLZInApprovers = (approvers: string[] = []): string[] => {
+  return approvers.includes('LZ') ? approvers : [...approvers, 'LZ'];
+};
+
+//////////////////////
 // CognitoForm Component
 //////////////////////
 
@@ -759,11 +767,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
               end_date: rec.end_date,
               reason: rec.reason,
               status: rec.status,
-              id: rec.request_id
-                ? String(rec.request_id)
-                : rec.id || `temp-${rec.start_date}-${rec.end_date}`,
+              id: rec.request_id ? String(rec.request_id) : rec.id || `temp-${rec.start_date}-${rec.end_date}`,
               rejection_notes: rec.rejection_notes || undefined,
-              approvers: rec.approvers || [],
+              approvers: ensureLZInApprovers(rec.approvers),
             }));
             cachedAnnualLeave = mappedAnnualLeave;
             setAnnualLeaveRecords(mappedAnnualLeave);
@@ -775,11 +781,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
                 end_date: rec.end_date,
                 reason: rec.reason,
                 status: rec.status,
-                id: rec.request_id
-                  ? String(rec.request_id)
-                  : rec.id || `temp-${rec.start_date}-${rec.end_date}`,
+                id: rec.request_id ? String(rec.request_id) : rec.id || `temp-${rec.start_date}-${rec.end_date}`,
                 rejection_notes: rec.rejection_notes || undefined,
-                approvers: rec.approvers || [],
+                approvers: ensureLZInApprovers(rec.approvers),
               }));
               setFutureLeaveRecords(mappedFutureLeave);
             }
@@ -1260,17 +1264,27 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
         label: { color: '#ffffff !important' },
       };
 
+  ///////////////////////////////////////////////////////////////////////////////
+  // NEW: Quick Actions Bar with Immediate Actions on Left & Normal Actions on Right
+  ///////////////////////////////////////////////////////////////////////////////
+
+  // Combine annualLeaveRecords and futureLeaveRecords for approval filtering
+  const combinedLeaveRecords = useMemo(() => {
+    return [...annualLeaveRecords, ...futureLeaveRecords];
+  }, [annualLeaveRecords, futureLeaveRecords]);
+
   const APPROVERS = ['AC', 'JW', 'LZ'];
   const userInitials = userData?.[0]?.Initials || '';
   const isApprover = APPROVERS.includes(userInitials);
+
   const approvalsNeeded = useMemo(
     () =>
       isApprover
-        ? annualLeaveRecords.filter(
+        ? combinedLeaveRecords.filter(
             (x) => x.status === 'requested' && x.approvers?.includes(userInitials)
           )
         : [],
-    [annualLeaveRecords, isApprover, userInitials]
+    [combinedLeaveRecords, isApprover, userInitials]
   );
 
   const bookingsNeeded = useMemo(
@@ -1454,7 +1468,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
       }
       return actions;
     },
-    [isApprover, approvalsNeeded, bookingsNeeded, handleManageLeaveClick, manageLeaveButtonStyles]
+    [isApprover, approvalsNeeded, bookingsNeeded, manageLeaveButtonStyles]
   );
 
   // Build the complete list of immediate actions.
