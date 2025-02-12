@@ -102,12 +102,14 @@ interface Person {
 //////////////////////
 
 const quickActions: QuickLink[] = [
+  { title: 'Confirm Attendance', icon: 'Accept' }, // This will appear as "Confirm Attendance" or "Update Attendance" based on state
   { title: 'Create a Task', icon: 'Checklist' },
   { title: 'Request CollabSpace', icon: 'Group' },
   { title: 'Save Telephone Note', icon: 'Comment' },
   { title: 'Save Attendance Note', icon: 'NotePinned' },
   { title: 'Request ID', icon: 'ContactInfo' },
   { title: 'Open a Matter', icon: 'FolderOpen' },
+  { title: 'Request Annual Leave', icon: 'Calendar' }, // Only shown as normal action if no immediate annual leave actions exist
 ];
 
 //////////////////////
@@ -557,9 +559,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
   useEffect(() => {
     const styles = `
 @keyframes redPulse {
-  0% { box-shadow: 0 0 0 0 rgba(255,0,0,0.4); }
-  70% { box-shadow: 0 0 0 10px rgba(255,0,0,0); }
-  100% { box-shadow: 0 0 0 0 rgba(255,0,0,0); }
+  0% { box-shadow: inset 0 0 0 0 rgba(255,0,0,0.4); }
+  70% { box-shadow: inset 0 0 0 10px rgba(255,0,0,0); }
+  100% { box-shadow: inset 0 0 0 0 rgba(255,0,0,0); }
 }
 @keyframes fadeInUp {
   0% { opacity: 0; transform: translateY(20px); }
@@ -969,6 +971,20 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
       case 'Request ID':
         content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="60" />;
         break;
+      case 'Request Annual Leave':  // Normal quick action for annual leave
+        content = (
+          <AnnualLeaveForm
+            futureLeave={futureLeaveRecords}
+            team={teamData}
+            userData={userData}
+            totals={annualLeaveTotals}
+            bankHolidays={bankHolidays}
+          />
+        );
+        break;
+      case 'Confirm Attendance':  // For attendance action, handled based on confirmation state
+        content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="109" />;
+        break;
       default:
         content = <div>No form available.</div>;
         break;
@@ -993,9 +1009,10 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
     (r) => r.name === currentUserName
   );
   const currentUserConfirmed = currentUserRecord ? currentUserRecord.confirmed : false;
+  // For normal quick action, when confirmed, the label should show "Update Attendance"
   const officeAttendanceButtonText = currentUserConfirmed
-    ? 'Update Office Attendance'
-    : 'Confirm Office Attendance';
+    ? 'Update Attendance'
+    : 'Confirm Attendance';
 
   const today = new Date();
   const formattedToday = today.toISOString().split('T')[0];
@@ -1410,78 +1427,71 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
     setIsBespokePanelOpen(true);
   };
 
-  const immediateActions = useMemo(() => {
-    const actions: { title: string; onClick: () => void; styles?: any }[] = [];
+  ///////////////////////////////////////////////////////////////////////////////
+  // NEW: Quick Actions Bar with Immediate Actions on Left & Normal Actions on Right
+  ///////////////////////////////////////////////////////////////////////////////
 
-    if (!currentUserConfirmed) {
-      actions.push({
-        title: 'Confirm Attendance',
-        onClick: () => {
-          setBespokePanelContent(
-            <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="109" />
-          );
-          setBespokePanelTitle('Confirm Attendance');
-          setIsBespokePanelOpen(true);
-        },
-        styles: {
-          root: {
-            backgroundColor: `${colours.cta} !important`,
-            border: 'none !important',
-            height: '40px !important',
-            fontWeight: '600',
-            borderRadius: '4px !important',
-            padding: '6px 12px !important',
-            animation: `redPulse 2s infinite !important`,
-            transition: 'box-shadow 0.3s, transform 0.3s, background 0.3s ease !important',
-            whiteSpace: 'nowrap',
-            width: 'auto',
-            color: '#ffffff !important',
-          },
-          rootHovered: {
-            background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.15) 100%), ${colours.cta} !important`,
-          },
-          rootPressed: {
-            background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.25) 100%), ${colours.cta} !important`,
-          },
-          rootFocused: { backgroundColor: `${colours.cta} !important` },
-          label: { color: '#ffffff !important' },
-        },
-      });
-    }
+  // Compute immediate actions for quick actions bar.
+  // Start with annual leave immediate actions.
+  const immediateALActions = useMemo(
+    () => {
+      const actions: { title: string; onClick: () => void; icon?: string; styles?: any }[] = [];
+      if (isApprover && approvalsNeeded.length > 0) {
+        actions.push({
+          title: 'Approve Annual Leave',
+          onClick: handleManageLeaveClick,
+          icon: 'Accept',
+          styles: manageLeaveButtonStyles,
+        });
+      }
+      if (bookingsNeeded.length > 0) {
+        actions.push({
+          title: 'Book Requested Leave',
+          onClick: handleManageLeaveClick,
+          icon: 'Clock',
+          styles: manageLeaveButtonStyles,
+        });
+      }
+      return actions;
+    },
+    [isApprover, approvalsNeeded, bookingsNeeded, handleManageLeaveClick, manageLeaveButtonStyles]
+  );
 
-    if (isApprover && approvalsNeeded.length > 0) {
-      actions.push({
-        title: 'Approve Annual Leave',
-        onClick: handleManageLeaveClick,
-        styles: manageLeaveButtonStyles,
-      });
-    }
+  // Build the complete list of immediate actions.
+  // For attendance: if not confirmed, show "Confirm Attendance" as immediate action.
+  const immediateActionsList: { title: string; onClick: () => void; icon?: string }[] = [];
+  if (!currentUserConfirmed) {
+    immediateActionsList.push({
+      title: 'Confirm Attendance',
+      icon: 'Cancel',
+      onClick: () => handleActionClick({ title: 'Confirm Attendance', icon: 'Accept' }),
+    });
+  }
+  immediateActionsList.push(...immediateALActions);
 
-    if (bookingsNeeded.length > 0) {
-      actions.push({
-        title: 'Book Requested Leave',
-        onClick: handleManageLeaveClick,
-        styles: manageLeaveButtonStyles,
-      });
-    }
+  // Compute normal quick actions.
+  // Exclude "Confirm Attendance" if not confirmed (since it appears as immediate action),
+  // and exclude "Request Annual Leave" if there are immediate annual leave actions.
+  const normalQuickActions = quickActions
+    .filter((action) => {
+      if (action.title === 'Confirm Attendance') {
+        return currentUserConfirmed;
+      }
+      if (action.title === 'Request Annual Leave') {
+        return approvalsNeeded.length === 0 && bookingsNeeded.length === 0;
+      }
+      return true;
+    })
+    .map((action) => {
+      if (action.title === 'Confirm Attendance') {
+        return { ...action, title: 'Update Attendance' };
+      }
+      return action;
+    });
 
-    return actions;
-  }, [
-    currentUserConfirmed,
-    isApprover,
-    approvalsNeeded,
-    bookingsNeeded,
-    handleManageLeaveClick,
-    manageLeaveButtonStyles,
-  ]);
-
-  const needsReview = immediateActions.length > 0;
-
-  const groupedActions: { category: string; title: string; onClick: () => void }[] = immediateActions.map((action) => ({
-    category: 'Immediate Actions',
-    title: action.title,
-    onClick: action.onClick,
-  }));
+  ///////////////////////////////////////////////////////////////////////////////
+  // End Quick Actions Bar Computation
+  ///////////////////////////////////////////////////////////////////////////////
 
   return (
     <div className={containerStyle(isDarkMode)}>
@@ -1489,7 +1499,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
       <Stack horizontal horizontalAlign="space-between" verticalAlign="start" className={headerStyle}>
         <Stack verticalAlign="start" tokens={{ childrenGap: 8 }}>
           <Text className={greetingStyle(isDarkMode)}>{typedGreeting}</Text>
-          {!isActionsLoading && needsReview && (
+          {!isActionsLoading && (approvalsNeeded.length > 0 || bookingsNeeded.length > 0) && (
             <Text className={`${reviewMessageStyle(isDarkMode)} ${fadeInAnimationStyle}`}>
               You have items to review
               <Icon
@@ -1505,261 +1515,180 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
             </Text>
           )}
         </Stack>
-        {isActionsLoading ? null : needsReview && (
+        {isActionsLoading ? null : (approvalsNeeded.length > 0 || bookingsNeeded.length > 0) && (
           <div className={`${actionSectionStyle(isDarkMode)} ${fadeInAnimationStyle}`}>
-            <ActionSection actions={groupedActions} isDarkMode={isDarkMode} />
+            <ActionSection actions={[{ category: 'Immediate Actions', title: manageLeaveLabel, onClick: handleManageLeaveClick }]} isDarkMode={isDarkMode} />
           </div>
         )}
       </Stack>
 
-      {/* Main Content */}
-      <Stack className={mainContentStyle} tokens={{ childrenGap: 40 }}>
-        {/* Quick Actions Bar */}
-        <div className={quickLinksStyle(isDarkMode)}>
-          {quickActions.map((action: QuickLink) => (
+      {/* Quick Actions Bar */}
+      <div
+        className={quickLinksStyle(isDarkMode)}
+        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+      >
+        {/* Immediate Actions aligned left */}
+        <div style={{ display: 'flex', gap: '10px' }}>
+          {immediateActionsList.map((action) => (
             <QuickActionsCard
               key={action.title}
               title={action.title}
-              icon={action.icon}
+              icon={action.icon || ''}
               isDarkMode={isDarkMode}
-              onClick={() => handleActionClick(action)}
+              onClick={action.onClick}
               iconColor={colours.highlight}
             />
           ))}
         </div>
-
-        {/* Metrics Section split into two sub-sections without the labels */}
-        <div className={mergeStyles({ marginBottom: '40px' })}>
-          <div
-            className={mergeStyles({
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
-              gap: '20px',
-            })}
-          >
-            {timeMetrics.map((metric, index) => (
-              <MetricCard
-                key={metric.title}
-                title={metric.title}
-                {...(metric.isMoneyOnly
-                  ? { money: metric.money, prevMoney: metric.prevMoney, isMoneyOnly: metric.isMoneyOnly }
-                  : metric.isTimeMoney
-                  ? {
-                      money: metric.money,
-                      hours: metric.hours,
-                      prevMoney: metric.prevMoney,
-                      prevHours: metric.prevHours,
-                      isTimeMoney: metric.isTimeMoney,
-                      showDial: metric.showDial,
-                      dialTarget: metric.dialTarget,
-                    }
-                  : { count: metric.count, prevCount: metric.prevCount })}
-                isDarkMode={isDarkMode}
-                animationDelay={index * 0.1}
-              />
-            ))}
-          </div>
+        {/* Normal Quick Actions aligned right */}
+        <div style={{ display: 'flex', gap: '10px' }}>
+          {normalQuickActions.map((action) => (
+            <QuickActionsCard
+              key={action.title}
+              title={action.title === 'Confirm Attendance' ? 'Update Attendance' : action.title}
+              icon={action.icon}
+              isDarkMode={isDarkMode}
+              onClick={() => handleActionClick(action)}
+              iconColor={colours.highlight}
+              {...(action.title === 'Confirm Attendance' ? { confirmed: currentUserConfirmed } : {})}
+            />
+          ))}
         </div>
+      </div>
 
-        <div className={mergeStyles({ marginBottom: '40px' })}>
-          <div
-            className={mergeStyles({
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
-              gap: '20px',
-            })}
-          >
-            {enquiryMetrics.map((metric, index) => (
-              <MetricCard
-                key={metric.title}
-                title={metric.title}
-                {...(metric.isMoneyOnly
-                  ? { money: metric.money, prevMoney: metric.prevMoney, isMoneyOnly: metric.isMoneyOnly }
-                  : metric.isTimeMoney
-                  ? { money: metric.money, hours: metric.hours, prevMoney: metric.prevMoney, prevHours: metric.prevHours, isTimeMoney: metric.isTimeMoney }
-                  : { count: metric.count, prevCount: metric.prevCount })}
-                isDarkMode={isDarkMode}
-                animationDelay={index * 0.1}
-              />
-            ))}
-          </div>
+      {/* Metrics Section split into two sub-sections without the labels */}
+      <div className={mergeStyles({ marginBottom: '40px' })}>
+        <div
+          className={mergeStyles({
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+            gap: '20px',
+          })}
+        >
+          {timeMetrics.map((metric, index) => (
+            <MetricCard
+              key={metric.title}
+              title={metric.title}
+              {...(metric.isMoneyOnly
+                ? { money: metric.money, prevMoney: metric.prevMoney, isMoneyOnly: metric.isMoneyOnly }
+                : metric.isTimeMoney
+                ? {
+                    money: metric.money,
+                    hours: metric.hours,
+                    prevMoney: metric.prevMoney,
+                    prevHours: metric.prevHours,
+                    isTimeMoney: metric.isTimeMoney,
+                    showDial: metric.showDial,
+                    dialTarget: metric.dialTarget,
+                  }
+                : { count: metric.count, prevCount: metric.prevCount })}
+              isDarkMode={isDarkMode}
+              animationDelay={index * 0.1}
+            />
+          ))}
         </div>
+      </div>
 
-        {/* Favourites Section */}
-        {(formsFavorites.length > 0 || resourcesFavorites.length > 0) && (
-          <div
-            className={mergeStyles({
-              backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-              padding: '20px',
-              borderRadius: '12px',
-              boxShadow: isDarkMode ? `0 4px 12px ${colours.dark.border}` : `0 4px 12px ${colours.light.border}`,
-              transition: 'background-color 0.3s, box-shadow 0.3s',
-              width: '100%',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '20px',
-            })}
-          >
-            <Text className={mergeStyles({ fontWeight: '700', fontSize: '24px', color: isDarkMode ? colours.dark.text : colours.light.text })}>
-              Favourites
-            </Text>
-            {formsFavorites.length > 0 && (
-              <div>
-                <div className={favouritesGridStyle}>
-                  {formsFavorites.map((form: FormItem, index: number) => (
-                    <FormCard
-                      key={`form-${form.title}`}
-                      link={form}
-                      isFavorite
-                      onCopy={(url: string, title: string) => copyToClipboardHandler(url, title)}
-                      onSelect={() => setSelectedForm(form)}
-                      onToggleFavorite={() => {
-                        const updatedFavorites = formsFavorites.filter((fav) => fav.title !== form.title);
-                        setFormsFavorites(updatedFavorites);
-                        localStorage.setItem('formsFavorites', JSON.stringify(updatedFavorites));
-                      }}
-                      onGoTo={() => window.open(form.url, '_blank')}
-                      animationDelay={index * 0.1}
-                      description={form.description}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-            {resourcesFavorites.length > 0 && (
-              <div>
-                <div style={{ marginBottom: '15px' }}>
-                  <Text className={subLabelStyle(isDarkMode)}>Resources</Text>
-                </div>
-                <div className={favouritesGridStyle}>
-                  {resourcesFavorites.map((resource: Resource, index: number) => (
-                    <ResourceCard
-                      key={`resource-${resource.title}`}
-                      resource={resource}
-                      isFavorite
-                      onCopy={(url: string, title: string) => copyToClipboardHandler(url, title)}
-                      onToggleFavorite={() => {
-                        const updatedFavorites = resourcesFavorites.filter((fav) => fav.title !== resource.title);
-                        setResourcesFavorites(updatedFavorites);
-                        localStorage.setItem('resourcesFavorites', JSON.stringify(updatedFavorites));
-                      }}
-                      onGoTo={() => window.open(resource.url, '_blank')}
-                      onSelect={() => setSelectedResource(resource)}
-                      animationDelay={index * 0.1}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+      <div className={mergeStyles({ marginBottom: '40px' })}>
+        <div
+          className={mergeStyles({
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+            gap: '20px',
+          })}
+        >
+          {enquiryMetrics.map((metric, index) => (
+            <MetricCard
+              key={metric.title}
+              title={metric.title}
+              {...(metric.isMoneyOnly
+                ? { money: metric.money, prevMoney: metric.prevMoney, isMoneyOnly: metric.isMoneyOnly }
+                : metric.isTimeMoney
+                ? { money: metric.money, hours: metric.hours, prevMoney: metric.prevMoney, prevHours: metric.prevHours, isTimeMoney: metric.isTimeMoney }
+                : { count: metric.count, prevCount: metric.prevCount })}
+              isDarkMode={isDarkMode}
+              animationDelay={index * 0.1}
+            />
+          ))}
+        </div>
+      </div>
 
-        {/* Working Today and Annual Leave Sections */}
-        <Stack tokens={{ childrenGap: 40 }} styles={{ root: { width: '100%' } }}>
-          <div className={sectionContainerStyle(isDarkMode)}>
-            <Stack horizontal tokens={{ childrenGap: 20 }} styles={{ root: { flex: 1 } }}>
-              <div
-                className={mergeStyles({
-                  flex: 1,
-                  backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-                  padding: '20px 20px 20px 60px',
-                  borderRadius: '12px',
-                  position: 'relative',
-                  boxShadow: isDarkMode
-                    ? `0 4px 12px ${colours.dark.border}`
-                    : `0 4px 12px ${colours.light.border}`,
-                })}
-              >
-                <TabLabel label="In Attendance" />
-                <Icon
-                  iconName="CityNext"
-                  styles={{
-                    root: {
-                      position: 'absolute',
-                      top: '50%',
-                      left: '60px',
-                      transform: 'translateY(-50%)',
-                      opacity: 0.05,
-                      fontSize: '100px',
-                      pointerEvents: 'none',
-                    },
-                  }}
-                />
-                <div className={peopleGridStyle}>
-                  {isLoadingAttendance ? (
-                    <Spinner label="Loading attendance..." size={SpinnerSize.medium} />
-                  ) : attendanceError ? (
-                    <MessageBar messageBarType={MessageBarType.error}>{attendanceError}</MessageBar>
-                  ) : (
-                    inOfficePeople.map((person: Person, index: number) => {
-                      const row = Math.floor(index / columnsForPeople);
-                      const col = index % columnsForPeople;
-                      const delay = calculateAnimationDelay(row, col);
-                      return <PersonBubble key={person.id} person={person} isDarkMode={isDarkMode} animationDelay={delay} />;
-                    })
-                  )}
-                </div>
+      {/* Favourites Section */}
+      {(formsFavorites.length > 0 || resourcesFavorites.length > 0) && (
+        <div
+          className={mergeStyles({
+            backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+            padding: '20px',
+            borderRadius: '12px',
+            boxShadow: isDarkMode ? `0 4px 12px ${colours.dark.border}` : `0 4px 12px ${colours.light.border}`,
+            transition: 'background-color 0.3s, box-shadow 0.3s',
+            width: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '20px',
+          })}
+        >
+          <Text className={mergeStyles({ fontWeight: '700', fontSize: '24px', color: isDarkMode ? colours.dark.text : colours.light.text })}>
+            Favourites
+          </Text>
+          {formsFavorites.length > 0 && (
+            <div>
+              <div className={favouritesGridStyle}>
+                {formsFavorites.map((form: FormItem, index: number) => (
+                  <FormCard
+                    key={`form-${form.title}`}
+                    link={form}
+                    isFavorite
+                    onCopy={(url: string, title: string) => copyToClipboardHandler(url, title)}
+                    onSelect={() => setSelectedForm(form)}
+                    onToggleFavorite={() => {
+                      const updatedFavorites = formsFavorites.filter((fav) => fav.title !== form.title);
+                      setFormsFavorites(updatedFavorites);
+                      localStorage.setItem('formsFavorites', JSON.stringify(updatedFavorites));
+                    }}
+                    onGoTo={() => window.open(form.url, '_blank')}
+                    animationDelay={index * 0.1}
+                    description={form.description}
+                  />
+                ))}
               </div>
-              <div
-                className={mergeStyles({
-                  flex: 1,
-                  backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-                  padding: '20px 20px 20px 60px',
-                  borderRadius: '12px',
-                  position: 'relative',
-                  boxShadow: isDarkMode
-                    ? `0 4px 12px ${colours.dark.border}`
-                    : `0 4px 12px ${colours.light.border}`,
-                })}
-              >
-                <TabLabel label="WFH" />
-                <Icon
-                  iconName="Home"
-                  styles={{
-                    root: {
-                      position: 'absolute',
-                      top: '50%',
-                      left: '60px',
-                      transform: 'translateY(-50%)',
-                      opacity: 0.05,
-                      fontSize: '100px',
-                      pointerEvents: 'none',
-                    },
-                  }}
-                />
-                <div className={peopleGridStyle}>
-                  {isLoadingAttendance ? (
-                    <Spinner label="Loading attendance..." size={SpinnerSize.medium} />
-                  ) : attendanceError ? (
-                    <MessageBar messageBarType={MessageBarType.error}>{attendanceError}</MessageBar>
-                  ) : (
-                    workFromHomePeople.map((person: Person, index: number) => {
-                      const row = Math.floor(index / columnsForPeople);
-                      const col = index % columnsForPeople;
-                      const delay = calculateAnimationDelay(row, col);
-                      return <PersonBubble key={person.id} person={person} isDarkMode={isDarkMode} animationDelay={delay} />;
-                    })
-                  )}
-                </div>
-              </div>
-            </Stack>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px', gap: '10px' }}>
-              {!currentUserConfirmed ? null : (
-                <Text
-                  className={mergeStyles({
-                    color: isDarkMode ? colours.dark.text : colours.light.text,
-                    fontWeight: '600',
-                  })}
-                >
-                  Attendance Confirmed
-                </Text>
-              )}
             </div>
-          </div>
+          )}
+          {resourcesFavorites.length > 0 && (
+            <div>
+              <div style={{ marginBottom: '15px' }}>
+                <Text className={subLabelStyle(isDarkMode)}>Resources</Text>
+              </div>
+              <div className={favouritesGridStyle}>
+                {resourcesFavorites.map((resource: Resource, index: number) => (
+                  <ResourceCard
+                    key={`resource-${resource.title}`}
+                    resource={resource}
+                    isFavorite
+                    onCopy={(url: string, title: string) => copyToClipboardHandler(url, title)}
+                    onToggleFavorite={() => {
+                      const updatedFavorites = resourcesFavorites.filter((fav) => fav.title !== resource.title);
+                      setResourcesFavorites(updatedFavorites);
+                      localStorage.setItem('resourcesFavorites', JSON.stringify(updatedFavorites));
+                    }}
+                    onGoTo={() => window.open(resource.url, '_blank')}
+                    onSelect={() => setSelectedResource(resource)}
+                    animationDelay={index * 0.1}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
-          <div className={sectionContainerStyle(isDarkMode)}>
+      {/* Working Today and Annual Leave Sections */}
+      <Stack tokens={{ childrenGap: 40 }} styles={{ root: { width: '100%' } }}>
+        <div className={sectionContainerStyle(isDarkMode)}>
+          <Stack horizontal tokens={{ childrenGap: 20 }} styles={{ root: { flex: 1 } }}>
             <div
               className={mergeStyles({
+                flex: 1,
                 backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
                 padding: '20px 20px 20px 60px',
                 borderRadius: '12px',
@@ -1768,11 +1697,10 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
                   ? `0 4px 12px ${colours.dark.border}`
                   : `0 4px 12px ${colours.light.border}`,
               })}
-              style={{ maxHeight: '300px', minHeight: '140px', overflow: 'auto' }}
             >
-              <TabLabel label="Out" />
+              <TabLabel label="In Attendance" />
               <Icon
-                iconName="Airplane"
+                iconName="CityNext"
                 styles={{
                   root: {
                     position: 'absolute',
@@ -1785,61 +1713,139 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
                   },
                 }}
               />
-              <div style={{ position: 'relative', flex: 1 }}>
-                {isLoadingAnnualLeave ? (
-                  <Spinner label="Loading annual leave..." size={SpinnerSize.medium} />
-                ) : annualLeaveError ? (
-                  <MessageBar messageBarType={MessageBarType.error}>{annualLeaveError}</MessageBar>
+              <div className={peopleGridStyle}>
+                {isLoadingAttendance ? (
+                  <Spinner label="Loading attendance..." size={SpinnerSize.medium} />
+                ) : attendanceError ? (
+                  <MessageBar messageBarType={MessageBarType.error}>{attendanceError}</MessageBar>
                 ) : (
-                  <div className={peopleGridStyle}>
-                    {annualLeaveRecords
-                      .filter((leave) => leave.status === 'booked')
-                      .map((leave, index: number) => {
-                        const teamMember = teamData.find(
-                          (member: any) => member.Initials.toLowerCase() === leave.person.toLowerCase()
-                        );
-                        return (
-                          <PersonBubble
-                            key={leave.id}
-                            person={{
-                              id: leave.id,
-                              name: leave.person,
-                              initials: teamMember ? teamMember.Initials : '',
-                              presence: PersonaPresence.busy,
-                              nickname: teamMember ? teamMember.Nickname : leave.person,
-                            }}
-                            isDarkMode={isDarkMode}
-                            animationDelay={calculateAnimationDelay(Math.floor(index / columnsForPeople), index % columnsForPeople)}
-                          />
-                        );
-                      })}
-                  </div>
+                  inOfficePeople.map((person: Person, index: number) => {
+                    const row = Math.floor(index / columnsForPeople);
+                    const col = index % columnsForPeople;
+                    const delay = calculateAnimationDelay(row, col);
+                    return <PersonBubble key={person.id} person={person} isDarkMode={isDarkMode} animationDelay={delay} />;
+                  })
                 )}
               </div>
             </div>
-            <div style={{ marginTop: '16px' }}>
-              <DefaultButton
-                text="Request Annual Leave"
-                onClick={() => {
-                  setBespokePanelContent(
-                    <AnnualLeaveForm
-                      futureLeave={futureLeaveRecords}
-                      team={teamData}
-                      userData={userData}
-                      totals={annualLeaveTotals}
-                      bankHolidays={bankHolidays}
-                    />
-                  );
-                  setBespokePanelTitle('Request Annual Leave');
-                  setIsBespokePanelOpen(true);
+            <div
+              className={mergeStyles({
+                flex: 1,
+                backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+                padding: '20px 20px 20px 60px',
+                borderRadius: '12px',
+                position: 'relative',
+                boxShadow: isDarkMode
+                  ? `0 4px 12px ${colours.dark.border}`
+                  : `0 4px 12px ${colours.light.border}`,
+              })}
+            >
+              <TabLabel label="WFH" />
+              <Icon
+                iconName="Home"
+                styles={{
+                  root: {
+                    position: 'absolute',
+                    top: '50%',
+                    left: '60px',
+                    transform: 'translateY(-50%)',
+                    opacity: 0.05,
+                    fontSize: '100px',
+                    pointerEvents: 'none',
+                  },
                 }}
-                iconProps={{ iconName: 'Calendar' }}
-                styles={sharedDefaultButtonStyles}
-                ariaLabel="Request Annual Leave"
               />
+              <div className={peopleGridStyle}>
+                {isLoadingAttendance ? (
+                  <Spinner label="Loading attendance..." size={SpinnerSize.medium} />
+                ) : attendanceError ? (
+                  <MessageBar messageBarType={MessageBarType.error}>{attendanceError}</MessageBar>
+                ) : (
+                  workFromHomePeople.map((person: Person, index: number) => {
+                    const row = Math.floor(index / columnsForPeople);
+                    const col = index % columnsForPeople;
+                    const delay = calculateAnimationDelay(row, col);
+                    return <PersonBubble key={person.id} person={person} isDarkMode={isDarkMode} animationDelay={delay} />;
+                  })
+                )}
+              </div>
+            </div>
+          </Stack>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px', gap: '10px' }}>
+            {!currentUserConfirmed ? null : (
+              <Text
+                className={mergeStyles({
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                  fontWeight: '600',
+                })}
+              >
+                Attendance Confirmed
+              </Text>
+            )}
+          </div>
+        </div>
+
+        <div className={sectionContainerStyle(isDarkMode)}>
+          <div
+            className={mergeStyles({
+              backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+              padding: '20px 20px 20px 60px',
+              borderRadius: '12px',
+              position: 'relative',
+              boxShadow: isDarkMode
+                ? `0 4px 12px ${colours.dark.border}`
+                : `0 4px 12px ${colours.light.border}`,
+            })}
+            style={{ maxHeight: '300px', minHeight: '140px', overflow: 'auto' }}
+          >
+            <TabLabel label="Out" />
+            <Icon
+              iconName="Airplane"
+              styles={{
+                root: {
+                  position: 'absolute',
+                  top: '50%',
+                  left: '60px',
+                  transform: 'translateY(-50%)',
+                  opacity: 0.05,
+                  fontSize: '100px',
+                  pointerEvents: 'none',
+                },
+              }}
+            />
+            <div style={{ position: 'relative', flex: 1 }}>
+              {isLoadingAnnualLeave ? (
+                <Spinner label="Loading annual leave..." size={SpinnerSize.medium} />
+              ) : annualLeaveError ? (
+                <MessageBar messageBarType={MessageBarType.error}>{annualLeaveError}</MessageBar>
+              ) : (
+                <div className={peopleGridStyle}>
+                  {annualLeaveRecords
+                    .filter((leave) => leave.status === 'booked')
+                    .map((leave, index: number) => {
+                      const teamMember = teamData.find(
+                        (member: any) => member.Initials.toLowerCase() === leave.person.toLowerCase()
+                      );
+                      return (
+                        <PersonBubble
+                          key={leave.id}
+                          person={{
+                            id: leave.id,
+                            name: leave.person,
+                            initials: teamMember ? teamMember.Initials : '',
+                            presence: PersonaPresence.busy,
+                            nickname: teamMember ? teamMember.Nickname : leave.person,
+                          }}
+                          isDarkMode={isDarkMode}
+                          animationDelay={calculateAnimationDelay(Math.floor(index / columnsForPeople), index % columnsForPeople)}
+                        />
+                      );
+                    })}
+                </div>
+              )}
             </div>
           </div>
-        </Stack>
+        </div>
       </Stack>
 
       <div

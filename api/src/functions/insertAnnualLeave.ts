@@ -76,7 +76,14 @@ export async function insertAnnualLeaveHandler(
     context.log("Initiating SQL insert operation for Annual Leave entries.");
 
     // Insert the annual leave entries into SQL
-    const insertResult = await insertAnnualLeaveEntries(fe, dateRanges, reason || "No reason provided.", days_taken, leave_type, context);
+    const insertResult = await insertAnnualLeaveEntries(
+      fe,
+      dateRanges,
+      reason || "No reason provided.",
+      days_taken,
+      leave_type,
+      context
+    );
     context.log("Successfully inserted annual leave entries into SQL database.", insertResult);
 
     return {
@@ -103,7 +110,7 @@ export async function insertAnnualLeaveHandler(
  * @param fe - The fee earner initials.
  * @param dateRanges - An array of date ranges.
  * @param reason - The reason (notes) for the leave.
- * @param days_taken - Total number of days taken for the leave.
+ * @param days_taken - Total number of days taken for the leave (not used for per-range calculation).
  * @param leave_type - The type of leave.
  * @param context - The InvocationContext for logging.
  * @returns A Promise with the insert result.
@@ -186,14 +193,20 @@ async function insertAnnualLeaveEntries(
             }
           });
 
+          // Calculate days taken based on the individual date range (inclusive)
+          const start = new Date(range.start_date);
+          const end = new Date(range.end_date);
+          const msPerDay = 1000 * 60 * 60 * 24;
+          const computedDays = Math.round((end.getTime() - start.getTime()) / msPerDay) + 1;
+
           // Bind parameters
           sqlRequest.addParameter("FE", TYPES.NVarChar, fe);
           sqlRequest.addParameter("StartDate", TYPES.Date, range.start_date);
           sqlRequest.addParameter("EndDate", TYPES.Date, range.end_date);
           sqlRequest.addParameter("Reason", TYPES.NVarChar, reason);
           sqlRequest.addParameter("Status", TYPES.NVarChar, "requested");
-          sqlRequest.addParameter("DaysTaken", TYPES.Float, days_taken);
-          sqlRequest.addParameter("LeaveType", TYPES.NVarChar, leave_type); // Bind 'leave_type' parameter
+          sqlRequest.addParameter("DaysTaken", TYPES.Float, computedDays);
+          sqlRequest.addParameter("LeaveType", TYPES.NVarChar, leave_type);
 
           context.log("Executing SQL query with parameters (insertAnnualLeave):", {
             FE: fe,
@@ -201,7 +214,7 @@ async function insertAnnualLeaveEntries(
             EndDate: range.end_date,
             Reason: reason,
             Status: "requested",
-            DaysTaken: days_taken,
+            DaysTaken: computedDays,
             LeaveType: leave_type
           });
 
