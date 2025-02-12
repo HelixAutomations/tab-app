@@ -216,24 +216,7 @@ const sectionContainerStyle = (isDarkMode: boolean) =>
     width: '100%',
   });
 
-const actionSectionStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    display: 'inline-block',
-    width: 'auto',
-    maxWidth: '100%',
-    padding: '10px',
-    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-    borderRadius: '12px',
-    boxShadow: isDarkMode
-      ? `0 4px 12px ${colours.dark.border}`
-      : `0 4px 12px ${colours.light.border}`,
-    transition: 'background-color 0.3s, box-shadow 0.3s',
-    '@media (max-width: 600px)': {
-      width: '100%',
-      padding: '8px',
-    },
-  });
-
+// The old ActionSection style is no longer needed since we remove that section.
 const fadeInAnimationStyle = mergeStyles({
   animation: 'fadeIn 0.5s ease-in-out',
 });
@@ -594,7 +577,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
-};`;
+}`;
     const styleSheet = document.createElement('style');
     styleSheet.type = 'text/css';
     styleSheet.innerText = styles;
@@ -953,84 +936,29 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
 
   const columns = useMemo(() => createColumnsFunction(isDarkMode), [isDarkMode]);
 
-  const handleActionClick = (action: QuickLink) => {
-    let content: ReactNode = <div>No form available.</div>;
-    let titleText: string = action.title;
-    switch (action.title) {
-      case 'Create a Task':
-        content = <Tasking />;
-        break;
-      case 'Save Telephone Note':
-        content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="38" />;
-        break;
-      case 'Save Attendance Note':
-        content = <TelephoneAttendance />;
-        break;
-      case 'Open a Matter':
-        content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="9" />;
-        break;
-      case 'Request CollabSpace':
-        content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="44" />;
-        break;
-      case 'Request ID':
-        content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="60" />;
-        break;
-      case 'Request Annual Leave':  // Normal quick action for annual leave
-        content = (
-          <AnnualLeaveForm
-            futureLeave={futureLeaveRecords}
-            team={teamData}
-            userData={userData}
-            totals={annualLeaveTotals}
-            bankHolidays={bankHolidays}
-          />
-        );
-        break;
-      case 'Confirm Attendance':  // For attendance action, handled based on confirmation state
-        content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="109" />;
-        break;
-      default:
-        content = <div>No form available.</div>;
-        break;
-    }
-    setBespokePanelContent(content);
-    setBespokePanelTitle(titleText);
-    setIsBespokePanelOpen(true);
-  };
-
-  const copyToClipboardHandler = (url: string, title: string) => {
-    navigator.clipboard
-      .writeText(url)
-      .then(() => {
-        console.log(`Copied '${title}' to clipboard.`);
-      })
-      .catch((err) => {
-        console.error('Failed to copy: ', err);
-      });
-  };
-
+  // Compute attendance button style (unchanged)
   const currentUserRecord = attendanceRecords.find(
     (r) => r.name === currentUserName
   );
   const currentUserConfirmed = currentUserRecord ? currentUserRecord.confirmed : false;
-  // For normal quick action, when confirmed, the label should show "Update Attendance"
   const officeAttendanceButtonText = currentUserConfirmed
     ? 'Update Attendance'
     : 'Confirm Attendance';
 
   const today = new Date();
   const formattedToday = today.toISOString().split('T')[0];
-
   const columnsForPeople = 3;
 
   const isPersonOutToday = (person: Person): boolean => {
-    const now = new Date();
+    // Get today's date in YYYY-MM-DD format.
+    const todayStr = new Date().toISOString().split('T')[0];
     return annualLeaveRecords.some((leave) => {
       if (leave.status !== 'booked') return false;
-      if (leave.person.toLowerCase() !== person.initials.toLowerCase()) return false;
-      const startDate = new Date(leave.start_date);
-      const endDate = new Date(leave.end_date);
-      return now >= startDate && now <= endDate;
+      // Ensure both sides are trimmed and lowercased
+      if (leave.person.trim().toLowerCase() !== person.initials.trim().toLowerCase()) return false;
+      // Since leave.start_date and leave.end_date are already in YYYY-MM-DD format,
+      // we can do string comparisons:
+      return todayStr >= leave.start_date && todayStr <= leave.end_date;
     });
   };
 
@@ -1062,7 +990,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
 
   // --- Updated metricsData useMemo ---
   const metricsData = useMemo(() => {
-    // Compute Matters Opened this month using allMatters and the current user's full name.
     const currentDate = new Date();
     const currentMonth = currentDate.getMonth();
     const currentYear = currentDate.getFullYear();
@@ -1218,55 +1145,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
   const timeMetrics = metricsData.slice(0, 4);
   const enquiryMetrics = metricsData.slice(4);
 
-  const officeAttendanceButtonStyles = currentUserConfirmed
-    ? {
-        root: {
-          backgroundColor: `${colours.light.border} !important`,
-          border: 'none !important',
-          height: '40px !important',
-          fontWeight: '600',
-          borderRadius: '4px !important',
-          padding: '6px 12px !important',
-          transition: 'background 0.3s ease !important',
-          whiteSpace: 'nowrap',
-          width: 'auto',
-        },
-        rootHovered: {
-          background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.15) 100%), ${colours.light.border} !important`,
-        },
-        rootPressed: {
-          background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.25) 100%), ${colours.light.border} !important`,
-        },
-        rootFocused: { backgroundColor: `${colours.light.border} !important` },
-        label: { color: isDarkMode ? colours.dark.text : colours.light.text },
-      }
-    : {
-        root: {
-          backgroundColor: `${colours.cta} !important`,
-          border: 'none !important',
-          height: '40px !important',
-          fontWeight: '600',
-          borderRadius: '4px !important',
-          padding: '6px 12px !important',
-          animation: `redPulse 2s infinite !important`,
-          transition: 'box-shadow 0.3s, transform 0.3s, background 0.3s ease !important',
-          whiteSpace: 'nowrap',
-          width: 'auto',
-          color: '#ffffff !important',
-        },
-        rootHovered: {
-          background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.15) 100%), ${colours.cta} !important`,
-        },
-        rootPressed: {
-          background: `radial-gradient(circle at center, rgba(0,0,0,0) 20%, rgba(0,0,0,0.25) 100%), ${colours.cta} !important`,
-        },
-        rootFocused: { backgroundColor: `${colours.cta} !important` },
-        label: { color: '#ffffff !important' },
-      };
-
-  ///////////////////////////////////////////////////////////////////////////////
-  // NEW: Quick Actions Bar with Immediate Actions on Left & Normal Actions on Right
-  ///////////////////////////////////////////////////////////////////////////////
+  // Remove the old ActionSection from the header since we are handling leave actions via the Quick Actions Bar.
 
   // Combine annualLeaveRecords and futureLeaveRecords for approval filtering
   const combinedLeaveRecords = useMemo(() => {
@@ -1287,112 +1166,59 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
     [combinedLeaveRecords, isApprover, userInitials]
   );
 
+  // FIX: Merge annualLeaveRecords and futureLeaveRecords to determine if the user has approved/rejected (booked) items
   const bookingsNeeded = useMemo(
     () =>
-      annualLeaveRecords.filter(
+      [...annualLeaveRecords, ...futureLeaveRecords].filter(
         (x) =>
           (x.status === 'approved' || x.status === 'rejected') &&
-          x.person === userInitials
+          x.person.toLowerCase() === userInitials.toLowerCase()
       ),
-    [annualLeaveRecords, userInitials]
+    [annualLeaveRecords, futureLeaveRecords, userInitials]
   );
 
   useEffect(() => {
     console.log('Approvals Needed:', approvalsNeeded);
   }, [approvalsNeeded]);
 
-  let manageLeaveLabel = 'Manage Annual Leave';
-  let needsAttention = false;
-  if (isApprover && approvalsNeeded.length > 0) {
-    manageLeaveLabel = 'Approve Annual Leave';
-    needsAttention = true;
-  } else if (bookingsNeeded.length > 0) {
-    manageLeaveLabel = 'Book Requested Leave';
-    needsAttention = true;
-  }
-  const manageLeaveButtonStyles = needsAttention
-    ? {
-        root: {
-          backgroundColor: `${colours.cta} !important`,
-          animation: `redPulse 2s infinite !important`,
-          border: 'none !important',
-          height: '40px !important',
-          fontWeight: '600',
-          borderRadius: '4px !important',
-          padding: '6px 12px !important',
-          transition: 'box-shadow 0.3s, transform 0.3s, background 0.3s ease !important',
-          whiteSpace: 'nowrap',
-          width: 'auto',
-          color: '#ffffff !important',
-        },
-      }
-    : {
-        root: {
-          backgroundColor: `${colours.light.border} !important`,
-          color: isDarkMode ? colours.dark.text : colours.light.text,
-          border: 'none !important',
-          height: '40px !important',
-          fontWeight: '600',
-          borderRadius: '4px !important',
-          padding: '6px 12px !important',
-          transition: 'transform 0.3s, box-shadow 0.3s',
-          whiteSpace: 'nowrap',
-          width: 'auto',
-        },
-      };
+  // Define new button styles for leave actions
+  const approveButtonStyles = {
+    root: {
+      backgroundColor: '#FFD700 !important', // Gold (yellow)
+      border: 'none !important',
+      height: '40px !important',
+      fontWeight: '600',
+      borderRadius: '4px !important',
+      padding: '6px 12px !important',
+      animation: `redPulse 2s infinite !important`, // Same pulsing effect as confirm attendance
+      transition: 'box-shadow 0.3s, transform 0.3s, background 0.3s ease !important',
+      whiteSpace: 'nowrap',
+      width: 'auto',
+      color: '#ffffff !important',
+    },
+  };
 
-  const handleManageLeaveClick = () => {
-    if (approvalsNeeded.length > 0 && bookingsNeeded.length > 0) {
-      setBespokePanelContent(
-        <Stack tokens={{ childrenGap: 30 }} style={{ padding: 20 }}>
-          <Stack tokens={{ childrenGap: 10 }}>
-            <Text variant="xLarge" styles={{ root: { fontWeight: '600' } }}>
-              Approve Annual Leave
-            </Text>
-            <AnnualLeaveApprovals
-              approvals={approvalsNeeded.map((item) => ({
-                id: item.id,
-                person: item.person,
-                start_date: item.start_date,
-                end_date: item.end_date,
-                reason: item.reason,
-                status: item.status,
-              }))}
-              futureLeave={futureLeaveRecords.map((item) => ({
-                id: item.id,
-                person: item.person,
-                start_date: item.start_date,
-                end_date: item.end_date,
-                reason: item.reason,
-                status: item.status,
-              }))}
-              onClose={() => setIsBespokePanelOpen(false)}
-              team={teamData}
-              totals={annualLeaveTotals}
-              holidayEntitlement={userData[0]?.holiday_entitlement || 0}
-            />
-          </Stack>
-          <Stack tokens={{ childrenGap: 10 }}>
-            <Text variant="xLarge" styles={{ root: { fontWeight: '600' } }}>
-              Book Requested Leave
-            </Text>
-            <AnnualLeaveBookings
-              bookings={bookingsNeeded.map((item) => ({
-                id: item.id,
-                person: item.person,
-                start_date: item.start_date,
-                end_date: item.end_date,
-                status: item.status,
-                rejection_notes: item.rejection_notes,
-              }))}
-              onClose={() => setIsBespokePanelOpen(false)}
-              team={teamData}
-            />
-          </Stack>
-        </Stack>
-      );
-      setBespokePanelTitle('Manage Annual Leave');
-    } else if (isApprover && approvalsNeeded.length > 0) {
+  const bookButtonStyles = {
+    root: {
+      backgroundColor: '#28a745 !important', // Green
+      border: 'none !important',
+      height: '40px !important',
+      fontWeight: '600',
+      borderRadius: '4px !important',
+      padding: '6px 12px !important',
+      animation: `redPulse 2s infinite !important`,
+      transition: 'box-shadow 0.3s, transform 0.3s, background 0.3s ease !important',
+      whiteSpace: 'nowrap',
+      width: 'auto',
+      color: '#ffffff !important',
+    },
+  };
+
+  // Separate leave action handlers:
+
+  // For approving leave (shows the approve/reject form)
+  const handleApproveLeaveClick = () => {
+    if (approvalsNeeded.length > 0) {
       setBespokePanelContent(
         <AnnualLeaveApprovals
           approvals={approvalsNeeded.map((item) => ({
@@ -1418,7 +1244,13 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
         />
       );
       setBespokePanelTitle('Approve Annual Leave');
-    } else if (bookingsNeeded.length > 0) {
+      setIsBespokePanelOpen(true);
+    }
+  };
+
+  // For booking leave (shows the book/no longer needed form)
+  const handleBookLeaveClick = () => {
+    if (bookingsNeeded.length > 0) {
       setBespokePanelContent(
         <AnnualLeaveBookings
           bookings={bookingsNeeded.map((item) => ({
@@ -1434,45 +1266,36 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
         />
       );
       setBespokePanelTitle('Book Requested Leave');
-    } else {
-      setBespokePanelContent(<div style={{ padding: 20 }}>No items to action.</div>);
-      setBespokePanelTitle('Manage Annual Leave');
+      setIsBespokePanelOpen(true);
     }
-    setIsBespokePanelOpen(true);
   };
 
-  ///////////////////////////////////////////////////////////////////////////////
-  // NEW: Quick Actions Bar with Immediate Actions on Left & Normal Actions on Right
-  ///////////////////////////////////////////////////////////////////////////////
-
-  // Compute immediate actions for quick actions bar.
-  // Start with annual leave immediate actions.
+  // Build immediate leave actions for the Quick Actions Bar.
   const immediateALActions = useMemo(
     () => {
       const actions: { title: string; onClick: () => void; icon?: string; styles?: any }[] = [];
       if (isApprover && approvalsNeeded.length > 0) {
         actions.push({
           title: 'Approve Annual Leave',
-          onClick: handleManageLeaveClick,
-          icon: 'Accept',
-          styles: manageLeaveButtonStyles,
+          onClick: handleApproveLeaveClick,
+          icon: 'Warning', // yellow exclamation mark icon
+          styles: approveButtonStyles,
         });
       }
       if (bookingsNeeded.length > 0) {
         actions.push({
           title: 'Book Requested Leave',
-          onClick: handleManageLeaveClick,
+          onClick: handleBookLeaveClick,
           icon: 'Clock',
-          styles: manageLeaveButtonStyles,
+          styles: bookButtonStyles,
         });
       }
       return actions;
     },
-    [isApprover, approvalsNeeded, bookingsNeeded, manageLeaveButtonStyles]
+    [isApprover, approvalsNeeded, bookingsNeeded, approveButtonStyles, bookButtonStyles]
   );
 
   // Build the complete list of immediate actions.
-  // For attendance: if not confirmed, show "Confirm Attendance" as immediate action.
   const immediateActionsList: { title: string; onClick: () => void; icon?: string }[] = [];
   if (!currentUserConfirmed) {
     immediateActionsList.push({
@@ -1484,8 +1307,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
   immediateActionsList.push(...immediateALActions);
 
   // Compute normal quick actions.
-  // Exclude "Confirm Attendance" if not confirmed (since it appears as immediate action),
-  // and exclude "Request Annual Leave" if there are immediate annual leave actions.
   const normalQuickActions = quickActions
     .filter((action) => {
       if (action.title === 'Confirm Attendance') {
@@ -1503,13 +1324,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
       return action;
     });
 
-  ///////////////////////////////////////////////////////////////////////////////
-  // End Quick Actions Bar Computation
-  ///////////////////////////////////////////////////////////////////////////////
-
   return (
     <div className={containerStyle(isDarkMode)}>
-      {/* Header: Greeting and Action Section */}
+      {/* Header: Greeting only (old ActionSection removed) */}
       <Stack horizontal horizontalAlign="space-between" verticalAlign="start" className={headerStyle}>
         <Stack verticalAlign="start" tokens={{ childrenGap: 8 }}>
           <Text className={greetingStyle(isDarkMode)}>{typedGreeting}</Text>
@@ -1529,11 +1346,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
             </Text>
           )}
         </Stack>
-        {isActionsLoading ? null : (approvalsNeeded.length > 0 || bookingsNeeded.length > 0) && (
-          <div className={`${actionSectionStyle(isDarkMode)} ${fadeInAnimationStyle}`}>
-            <ActionSection actions={[{ category: 'Immediate Actions', title: manageLeaveLabel, onClick: handleManageLeaveClick }]} isDarkMode={isDarkMode} />
-          </div>
-        )}
       </Stack>
 
       {/* Quick Actions Bar */}
@@ -1570,7 +1382,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
         </div>
       </div>
 
-      {/* Metrics Section split into two sub-sections without the labels */}
+      {/* Metrics Section */}
       <div className={mergeStyles({ marginBottom: '40px' })}>
         <div
           className={mergeStyles({
@@ -1653,7 +1465,11 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
                     key={`form-${form.title}`}
                     link={form}
                     isFavorite
-                    onCopy={(url: string, title: string) => copyToClipboardHandler(url, title)}
+                    onCopy={(url: string, title: string) => {
+                      navigator.clipboard.writeText(url)
+                        .then(() => console.log(`Copied '${title}' to clipboard.`))
+                        .catch((err) => console.error('Failed to copy: ', err));
+                    }}
                     onSelect={() => setSelectedForm(form)}
                     onToggleFavorite={() => {
                       const updatedFavorites = formsFavorites.filter((fav) => fav.title !== form.title);
@@ -1679,7 +1495,11 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
                     key={`resource-${resource.title}`}
                     resource={resource}
                     isFavorite
-                    onCopy={(url: string, title: string) => copyToClipboardHandler(url, title)}
+                    onCopy={(url: string, title: string) => {
+                      navigator.clipboard.writeText(url)
+                        .then(() => console.log(`Copied '${title}' to clipboard.`))
+                        .catch((err) => console.error('Failed to copy: ', err));
+                    }}
                     onToggleFavorite={() => {
                       const updatedFavorites = resourcesFavorites.filter((fav) => fav.title !== resource.title);
                       setResourcesFavorites(updatedFavorites);
@@ -1786,7 +1606,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
             </div>
           </Stack>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px', gap: '10px' }}>
-            {!currentUserConfirmed ? null : (
+            {currentUserConfirmed && (
               <Text
                 className={mergeStyles({
                   color: isDarkMode ? colours.dark.text : colours.light.text,
@@ -1834,27 +1654,34 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
                 <MessageBar messageBarType={MessageBarType.error}>{annualLeaveError}</MessageBar>
               ) : (
                 <div className={peopleGridStyle}>
-                  {annualLeaveRecords
-                    .filter((leave) => leave.status === 'booked')
-                    .map((leave, index: number) => {
-                      const teamMember = teamData.find(
-                        (member: any) => member.Initials.toLowerCase() === leave.person.toLowerCase()
-                      );
-                      return (
-                        <PersonBubble
-                          key={leave.id}
-                          person={{
-                            id: leave.id,
-                            name: leave.person,
-                            initials: teamMember ? teamMember.Initials : '',
-                            presence: PersonaPresence.busy,
-                            nickname: teamMember ? teamMember.Nickname : leave.person,
-                          }}
-                          isDarkMode={isDarkMode}
-                          animationDelay={calculateAnimationDelay(Math.floor(index / columnsForPeople), index % columnsForPeople)}
-                        />
-                      );
-                    })}
+                  {(() => {
+                    // Only show leave records (from the annual_leave array) where today's date is between start_date and end_date.
+                    const todayStr = new Date().toISOString().split('T')[0];
+                    return annualLeaveRecords
+                      .filter((leave) => {
+                        if (leave.status !== 'booked') return false;
+                        return leave.start_date <= todayStr && leave.end_date >= todayStr;
+                      })
+                      .map((leave, index: number) => {
+                        const teamMember = teamData.find(
+                          (member: any) => member.Initials.toLowerCase() === leave.person.toLowerCase()
+                        );
+                        return (
+                          <PersonBubble
+                            key={leave.id}
+                            person={{
+                              id: leave.id,
+                              name: leave.person,
+                              initials: teamMember ? teamMember.Initials : '',
+                              presence: PersonaPresence.busy,
+                              nickname: teamMember ? teamMember.Nickname : leave.person,
+                            }}
+                            isDarkMode={isDarkMode}
+                            animationDelay={calculateAnimationDelay(Math.floor(index / columnsForPeople), index % columnsForPeople)}
+                          />
+                        );
+                      });
+                  })()}
                 </div>
               )}
             </div>
@@ -1921,3 +1748,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
 };
 
 export default Home;
+function handleActionClick(arg0: { title: string; icon: string; }): void {
+  throw new Error('Function not implemented.');
+}
