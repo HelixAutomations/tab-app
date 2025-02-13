@@ -21,6 +21,7 @@ export interface TeamData {
     "Rate"?: number;                // MONEY as number
     "Role"?: string;
     "AOW"?: string;
+    "status"?: string;              // New field for team status
 }
 
 // Handler Function
@@ -113,7 +114,8 @@ async function queryAllTeamData(context: InvocationContext): Promise<TeamData[]>
                     [Clio ID],
                     [Rate],
                     [Role],
-                    [AOW]
+                    [AOW],
+                    [status]
                 FROM [dbo].[team]
             `;
 

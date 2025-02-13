@@ -204,4 +204,5 @@ export interface TeamData {
   "Rate"?: number;
   "Role"?: string;
   "AOW"?: string;
+  "status"?: string; // <-- Added field for team status (e.g. 'active')
 }
