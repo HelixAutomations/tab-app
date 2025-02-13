@@ -98,18 +98,33 @@ interface Person {
 }
 
 //////////////////////
+// Quick Actions Order
+//////////////////////
+
+const quickActionOrder: Record<string, number> = {
+  'Confirm Attendance': 1,
+  'Create a Task': 2,
+  'Request CollabSpace': 3,
+  'Save Telephone Note': 4,
+  'Save Attendance Note': 5,
+  'Request ID': 6,
+  'Open a Matter': 7,
+  'Request Annual Leave': 8,
+};
+
+//////////////////////
 // Quick Actions
 //////////////////////
 
 const quickActions: QuickLink[] = [
-  { title: 'Confirm Attendance', icon: 'Accept' }, // This will appear as "Confirm Attendance" or "Update Attendance" based on state
+  { title: 'Confirm Attendance', icon: 'Accept' },
   { title: 'Create a Task', icon: 'Checklist' },
   { title: 'Request CollabSpace', icon: 'Group' },
   { title: 'Save Telephone Note', icon: 'Comment' },
   { title: 'Save Attendance Note', icon: 'NotePinned' },
   { title: 'Request ID', icon: 'ContactInfo' },
   { title: 'Open a Matter', icon: 'FolderOpen' },
-  { title: 'Request Annual Leave', icon: 'Calendar' }, // Only shown as normal action if no immediate annual leave actions exist
+  { title: 'Request Annual Leave', icon: 'Calendar' },
 ];
 
 //////////////////////
@@ -172,6 +187,10 @@ const quickLinksStyle = (isDarkMode: boolean) =>
     marginBottom: '20px',
   });
 
+const tableAnimationStyle = mergeStyles({
+  animation: 'fadeIn 0.5s ease-in-out',
+});
+
 const calculateAnimationDelay = (row: number, col: number) => (row + col) * 0.1;
 
 const versionStyle = mergeStyles({
@@ -216,7 +235,6 @@ const sectionContainerStyle = (isDarkMode: boolean) =>
     width: '100%',
   });
 
-// The old ActionSection style is no longer needed since we remove that section.
 const fadeInAnimationStyle = mergeStyles({
   animation: 'fadeIn 0.5s ease-in-out',
 });
@@ -475,7 +493,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
     </Stack>
   );
 
-  // State declarations
+  // State declarations...
   const [greeting, setGreeting] = useState<string>('');
   const [typedGreeting, setTypedGreeting] = useState<string>('');
   const [enquiriesToday, setEnquiriesToday] = useState<number>(0);
@@ -950,14 +968,10 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
   const columnsForPeople = 3;
 
   const isPersonOutToday = (person: Person): boolean => {
-    // Get today's date in YYYY-MM-DD format.
     const todayStr = new Date().toISOString().split('T')[0];
     return annualLeaveRecords.some((leave) => {
       if (leave.status !== 'booked') return false;
-      // Ensure both sides are trimmed and lowercased
       if (leave.person.trim().toLowerCase() !== person.initials.trim().toLowerCase()) return false;
-      // Since leave.start_date and leave.end_date are already in YYYY-MM-DD format,
-      // we can do string comparisons:
       return todayStr >= leave.start_date && todayStr <= leave.end_date;
     });
   };
@@ -980,13 +994,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
         };
       });
   }, [teamData, attendanceRecords]);
-
-  const inOfficePeople = allPeople.filter(
-    (p) => p.presence === PersonaPresence.online && !isPersonOutToday(p)
-  );
-  const workFromHomePeople = allPeople.filter(
-    (p) => p.presence !== PersonaPresence.online && !isPersonOutToday(p)
-  );
 
   // --- Updated metricsData useMemo ---
   const metricsData = useMemo(() => {
@@ -1145,8 +1152,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
   const timeMetrics = metricsData.slice(0, 4);
   const enquiryMetrics = metricsData.slice(4);
 
-  // Remove the old ActionSection from the header since we are handling leave actions via the Quick Actions Bar.
-
   // Combine annualLeaveRecords and futureLeaveRecords for approval filtering
   const combinedLeaveRecords = useMemo(() => {
     return [...annualLeaveRecords, ...futureLeaveRecords];
@@ -1166,7 +1171,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
     [combinedLeaveRecords, isApprover, userInitials]
   );
 
-  // FIX: Merge annualLeaveRecords and futureLeaveRecords to determine if the user has approved/rejected (booked) items
+  // Merge annualLeaveRecords and futureLeaveRecords for bookings
   const bookingsNeeded = useMemo(
     () =>
       [...annualLeaveRecords, ...futureLeaveRecords].filter(
@@ -1181,26 +1186,10 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
     console.log('Approvals Needed:', approvalsNeeded);
   }, [approvalsNeeded]);
 
-  // Define new button styles for leave actions
+  // Quick action button styles remain unchanged.
   const approveButtonStyles = {
     root: {
-      backgroundColor: '#FFD700 !important', // Gold (yellow)
-      border: 'none !important',
-      height: '40px !important',
-      fontWeight: '600',
-      borderRadius: '4px !important',
-      padding: '6px 12px !important',
-      animation: `redPulse 2s infinite !important`, // Same pulsing effect as confirm attendance
-      transition: 'box-shadow 0.3s, transform 0.3s, background 0.3s ease !important',
-      whiteSpace: 'nowrap',
-      width: 'auto',
-      color: '#ffffff !important',
-    },
-  };
-
-  const bookButtonStyles = {
-    root: {
-      backgroundColor: '#28a745 !important', // Green
+      backgroundColor: '#FFD700 !important',
       border: 'none !important',
       height: '40px !important',
       fontWeight: '600',
@@ -1214,9 +1203,23 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
     },
   };
 
-  // Separate leave action handlers:
+  const bookButtonStyles = {
+    root: {
+      backgroundColor: '#28a745 !important',
+      border: 'none !important',
+      height: '40px !important',
+      fontWeight: '600',
+      borderRadius: '4px !important',
+      padding: '6px 12px !important',
+      animation: `redPulse 2s infinite !important`,
+      transition: 'box-shadow 0.3s, transform 0.3s, background 0.3s ease !important',
+      whiteSpace: 'nowrap',
+      width: 'auto',
+      color: '#ffffff !important',
+    },
+  };
 
-  // For approving leave (shows the approve/reject form)
+  // Leave action handlers
   const handleApproveLeaveClick = () => {
     if (approvalsNeeded.length > 0) {
       setBespokePanelContent(
@@ -1248,7 +1251,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
     }
   };
 
-  // For booking leave (shows the book/no longer needed form)
   const handleBookLeaveClick = () => {
     if (bookingsNeeded.length > 0) {
       setBespokePanelContent(
@@ -1270,33 +1272,28 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
     }
   };
 
-  // Build immediate leave actions for the Quick Actions Bar.
-  const immediateALActions = useMemo(
-    () => {
-      const actions: { title: string; onClick: () => void; icon?: string; styles?: any }[] = [];
-      if (isApprover && approvalsNeeded.length > 0) {
-        actions.push({
-          title: 'Approve Annual Leave',
-          onClick: handleApproveLeaveClick,
-          icon: 'Warning', // yellow exclamation mark icon
-          styles: approveButtonStyles,
-        });
-      }
-      if (bookingsNeeded.length > 0) {
-        actions.push({
-          title: 'Book Requested Leave',
-          onClick: handleBookLeaveClick,
-          icon: 'Clock',
-          styles: bookButtonStyles,
-        });
-      }
-      return actions;
-    },
-    [isApprover, approvalsNeeded, bookingsNeeded, approveButtonStyles, bookButtonStyles]
-  );
+  const immediateALActions = useMemo(() => {
+    const actions: { title: string; onClick: () => void; icon?: string; styles?: any }[] = [];
+    if (isApprover && approvalsNeeded.length > 0) {
+      actions.push({
+        title: 'Approve Annual Leave',
+        onClick: handleApproveLeaveClick,
+        icon: 'Warning',
+        styles: approveButtonStyles,
+      });
+    }
+    if (bookingsNeeded.length > 0) {
+      actions.push({
+        title: 'Book Requested Leave',
+        onClick: handleBookLeaveClick,
+        icon: 'Clock',
+        styles: bookButtonStyles,
+      });
+    }
+    return actions;
+  }, [isApprover, approvalsNeeded, bookingsNeeded, approveButtonStyles, bookButtonStyles]);
 
-  // Build the complete list of immediate actions.
-  const immediateActionsList: { title: string; onClick: () => void; icon?: string }[] = [];
+  let immediateActionsList: { title: string; onClick: () => void; icon?: string }[] = [];
   if (!currentUserConfirmed) {
     immediateActionsList.push({
       title: 'Confirm Attendance',
@@ -1304,10 +1301,11 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
       onClick: () => handleActionClick({ title: 'Confirm Attendance', icon: 'Accept' }),
     });
   }
-  immediateActionsList.push(...immediateALActions);
+  immediateActionsList = immediateActionsList.concat(immediateALActions);
+  // Sort immediate actions by the predefined order.
+  immediateActionsList.sort((a, b) => (quickActionOrder[a.title] || 99) - (quickActionOrder[b.title] || 99));
 
-  // Compute normal quick actions.
-  const normalQuickActions = quickActions
+  let normalQuickActions = quickActions
     .filter((action) => {
       if (action.title === 'Confirm Attendance') {
         return currentUserConfirmed;
@@ -1323,10 +1321,123 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
       }
       return action;
     });
+  // Sort normal actions by order.
+  normalQuickActions.sort((a, b) => (quickActionOrder[a.title] || 99) - (quickActionOrder[b.title] || 99));
+
+  // Consolidated Attendance Table – helper functions and components
+  const getMondayOfCurrentWeek = (): Date => {
+    const now = new Date();
+    const day = now.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    const monday = new Date(now);
+    monday.setDate(now.getDate() + diff);
+    return monday;
+  };
+
+  const getCurrentWeekKey = (): string => {
+    const monday = getMondayOfCurrentWeek();
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    const options: Intl.DateTimeFormatOptions = { day: '2-digit', month: '2-digit', year: 'numeric' };
+    const mondayStr = monday.toLocaleDateString('en-GB', options);
+    const sundayStr = sunday.toLocaleDateString('en-GB', options);
+    const mondayName = monday.toLocaleDateString('en-GB', { weekday: 'long' });
+    const sundayName = sunday.toLocaleDateString('en-GB', { weekday: 'long' });
+    return `${mondayName}, ${mondayStr} - ${sundayName}, ${sundayStr}`;
+  };
+
+  const weekDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+
+  const currentWeekKey = getCurrentWeekKey();
+  const currentWeekMonday = getMondayOfCurrentWeek();
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  // Build attendancePersons from the new attendanceRecords structure.
+  const attendancePersons = useMemo(() => {
+    return attendanceRecords.map((rec: any) => {
+      const teamMember = teamData.find((member: any) => member.First.toLowerCase() === rec.name.toLowerCase());
+      return {
+        name: rec.name,
+        initials: teamMember ? teamMember.Initials : rec.name,
+        nickname: teamMember ? teamMember.Nickname : rec.name,
+        attendance: rec.weeks && rec.weeks[currentWeekKey] ? rec.weeks[currentWeekKey].attendance : "",
+      };
+    }).sort((a: any, b: any) => a.name.localeCompare(b.name));
+  }, [attendanceRecords, teamData, currentWeekKey]);
+
+  // getCellStatus uses person initials.
+  const getCellStatus = (personAttendance: string, personInitials: string, day: string, cellDateStr: string): 'in' | 'wfh' | 'out' => {
+    if (combinedLeaveRecords.some((leave) =>
+         leave.status === 'booked' &&
+         leave.person.trim().toLowerCase() === personInitials.trim().toLowerCase() &&
+         cellDateStr >= leave.start_date && cellDateStr <= leave.end_date
+       )) {
+      return 'out';
+    }
+    const attendedDays = personAttendance ? personAttendance.split(',').map((s: string) => s.trim()) : [];
+    if (attendedDays.includes(day)) {
+      return 'in';
+    }
+    return 'wfh';
+  };
+
+  // AttendanceCell now accepts a highlight prop. If highlighted, the icon color is forced white.
+  const AttendanceCell: React.FC<{ status: 'in' | 'wfh' | 'out'; highlight?: boolean }> = ({ status, highlight = false }) => {
+    let iconName = 'Home';
+    if (status === 'in') {
+      iconName = 'Accept';
+    } else if (status === 'out') {
+      iconName = 'Airplane';
+    }
+    return (
+      <Icon iconName={iconName} styles={{ root: { fontSize: '24px', color: highlight ? '#fff' : '#666' } }} />
+    );
+  };
+
+  // Header: show name above avatar in a column with a subtle bubble.
+  const AttendancePersonaHeader: React.FC<{ person: { name: string; initials: string; nickname: string; attendance: string } }> = ({ person }) => {
+    const todayDate = new Date();
+    let diffDays = Math.floor((todayDate.getTime() - currentWeekMonday.getTime()) / (1000 * 3600 * 24));
+    let todayWeekday = 'Monday';
+    if (diffDays >= 0 && diffDays < 5) {
+      todayWeekday = weekDays[diffDays];
+    }
+    const currentStatus = getCellStatus(person.attendance, person.initials, todayWeekday, todayStr);
+    let imageUrl = WfhImg;
+    if (currentStatus === 'in') {
+      imageUrl = InAttendanceImg;
+    } else if (currentStatus === 'out') {
+      imageUrl = OutImg;
+    }
+    return (
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: '4px'
+      }}>
+        <div style={{
+          backgroundColor: isDarkMode ? colours.dark.grey || '#3a3a3a' : colours.light.grey || '#F4F4F6',
+          padding: '4px 8px',
+          borderRadius: '8px'
+        }}>
+          <Text variant="small" styles={{ root: { color: isDarkMode ? colours.dark.text : colours.light.text } }}>
+            {person.nickname || person.name}
+          </Text>
+        </div>
+        <Persona text="" imageUrl={imageUrl} size={PersonaSize.size40} hidePersonaDetails styles={{ root: { margin: '0 auto' } }} />
+      </div>
+    );
+  };
+
+  // Define subtle highlight colours for the entire row.
+  const inHighlight = "rgba(16,124,16,0.15)";      // subtle green tint
+  const wfhHighlight = "rgba(54,144,206,0.15)";      // subtle blue tint
+  const outHighlight = "rgba(214,85,65,0.15)";       // subtle red tint
 
   return (
     <div className={containerStyle(isDarkMode)}>
-      {/* Header: Greeting only (old ActionSection removed) */}
+      {/* Header: Greeting only */}
       <Stack horizontal horizontalAlign="space-between" verticalAlign="start" className={headerStyle}>
         <Stack verticalAlign="start" tokens={{ childrenGap: 8 }}>
           <Text className={greetingStyle(isDarkMode)}>{typedGreeting}</Text>
@@ -1353,7 +1464,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
         className={quickLinksStyle(isDarkMode)}
         style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
       >
-        {/* Immediate Actions aligned left */}
         <div style={{ display: 'flex', gap: '10px' }}>
           {immediateActionsList.map((action) => (
             <QuickActionsCard
@@ -1366,7 +1476,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
             />
           ))}
         </div>
-        {/* Normal Quick Actions aligned right */}
         <div style={{ display: 'flex', gap: '10px' }}>
           {normalQuickActions.map((action) => (
             <QuickActionsCard
@@ -1516,195 +1625,81 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
         </div>
       )}
 
-      {/* Working Today and Annual Leave Sections */}
-      <Stack tokens={{ childrenGap: 40 }} styles={{ root: { width: '100%' } }}>
+      {/* Consolidated Attendance Table */}
+      <div className={mergeStyles({ marginBottom: '40px' })}>
         <div className={sectionContainerStyle(isDarkMode)}>
-          <Stack horizontal tokens={{ childrenGap: 20 }} styles={{ root: { flex: 1 } }}>
-            <div
-              className={mergeStyles({
-                flex: 1,
-                backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-                padding: '20px 20px 20px 60px',
-                borderRadius: '12px',
-                position: 'relative',
-                boxShadow: isDarkMode
-                  ? `0 4px 12px ${colours.dark.border}`
-                  : `0 4px 12px ${colours.light.border}`,
-              })}
-            >
-              <TabLabel label="In Attendance" />
-              <Icon
-                iconName="CityNext"
-                styles={{
-                  root: {
-                    position: 'absolute',
-                    top: '50%',
-                    left: '60px',
-                    transform: 'translateY(-50%)',
-                    opacity: 0.05,
-                    fontSize: '100px',
-                    pointerEvents: 'none',
-                  },
-                }}
-              />
-              <div className={peopleGridStyle}>
-                {isLoadingAttendance ? (
-                  <Spinner label="Loading attendance..." size={SpinnerSize.medium} />
-                ) : attendanceError ? (
-                  <MessageBar messageBarType={MessageBarType.error}>{attendanceError}</MessageBar>
-                ) : (
-                  inOfficePeople.map((person: Person, index: number) => {
-                    const row = Math.floor(index / columnsForPeople);
-                    const col = index % columnsForPeople;
-                    const delay = calculateAnimationDelay(row, col);
-                    return <PersonBubble key={person.id} person={person} isDarkMode={isDarkMode} animationDelay={delay} />;
-                  })
-                )}
-              </div>
-            </div>
-            <div
-              className={mergeStyles({
-                flex: 1,
-                backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-                padding: '20px 20px 20px 60px',
-                borderRadius: '12px',
-                position: 'relative',
-                boxShadow: isDarkMode
-                  ? `0 4px 12px ${colours.dark.border}`
-                  : `0 4px 12px ${colours.light.border}`,
-              })}
-            >
-              <TabLabel label="WFH" />
-              <Icon
-                iconName="Home"
-                styles={{
-                  root: {
-                    position: 'absolute',
-                    top: '50%',
-                    left: '60px',
-                    transform: 'translateY(-50%)',
-                    opacity: 0.05,
-                    fontSize: '100px',
-                    pointerEvents: 'none',
-                  },
-                }}
-              />
-              <div className={peopleGridStyle}>
-                {isLoadingAttendance ? (
-                  <Spinner label="Loading attendance..." size={SpinnerSize.medium} />
-                ) : attendanceError ? (
-                  <MessageBar messageBarType={MessageBarType.error}>{attendanceError}</MessageBar>
-                ) : (
-                  workFromHomePeople.map((person: Person, index: number) => {
-                    const row = Math.floor(index / columnsForPeople);
-                    const col = index % columnsForPeople;
-                    const delay = calculateAnimationDelay(row, col);
-                    return <PersonBubble key={person.id} person={person} isDarkMode={isDarkMode} animationDelay={delay} />;
-                  })
-                )}
-              </div>
-            </div>
-          </Stack>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px', gap: '10px' }}>
-            {currentUserConfirmed && (
-              <Text
-                className={mergeStyles({
-                  color: isDarkMode ? colours.dark.text : colours.light.text,
-                  fontWeight: '600',
-                })}
-              >
-                Attendance Confirmed
-              </Text>
-            )}
-          </div>
-        </div>
-
-        <div className={sectionContainerStyle(isDarkMode)}>
-          <div
-            className={mergeStyles({
-              backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-              padding: '20px 20px 20px 60px',
-              borderRadius: '12px',
-              position: 'relative',
-              boxShadow: isDarkMode
-                ? `0 4px 12px ${colours.dark.border}`
-                : `0 4px 12px ${colours.light.border}`,
-            })}
-            style={{ maxHeight: '300px', minHeight: '140px', overflow: 'auto' }}
-          >
-            <TabLabel label="Out" />
-            <Icon
-              iconName="Airplane"
-              styles={{
-                root: {
-                  position: 'absolute',
-                  top: '50%',
-                  left: '60px',
-                  transform: 'translateY(-50%)',
-                  opacity: 0.05,
-                  fontSize: '100px',
-                  pointerEvents: 'none',
-                },
+          {isLoadingAttendance || isLoadingAnnualLeave ? (
+            <Spinner label="Loading attendance..." size={SpinnerSize.medium} />
+          ) : attendanceError || annualLeaveError ? (
+            <MessageBar messageBarType={MessageBarType.error}>{attendanceError || annualLeaveError}</MessageBar>
+          ) : (
+            <table
+              className={tableAnimationStyle}
+              style={{
+                width: '100%',
+                borderCollapse: 'separate',
+                borderSpacing: '0',
+                border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                borderRadius: '8px',
+                overflow: 'hidden',
               }}
-            />
-            <div style={{ position: 'relative', flex: 1 }}>
-              {isLoadingAnnualLeave ? (
-                <Spinner label="Loading annual leave..." size={SpinnerSize.medium} />
-              ) : annualLeaveError ? (
-                <MessageBar messageBarType={MessageBarType.error}>{annualLeaveError}</MessageBar>
-              ) : (
-                <div className={peopleGridStyle}>
-                  {(() => {
-                    // Only show leave records (from the annual_leave array) where today's date is between start_date and end_date.
-                    const todayStr = new Date().toISOString().split('T')[0];
-                    return annualLeaveRecords
-                      .filter((leave) => {
-                        if (leave.status !== 'booked') return false;
-                        return leave.start_date <= todayStr && leave.end_date >= todayStr;
-                      })
-                      .map((leave, index: number) => {
-                        const teamMember = teamData.find(
-                          (member: any) => member.Initials.toLowerCase() === leave.person.toLowerCase()
-                        );
+            >
+              <thead>
+                <tr>
+                  <th style={{ border: '1px solid transparent', padding: '8px' }}></th>
+                  {attendancePersons.map(person => (
+                    <th
+                      key={person.initials}
+                      style={{
+                        border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                        padding: '8px',
+                        textAlign: 'center',
+                        backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+                      }}
+                    >
+                      <AttendancePersonaHeader person={person} />
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {weekDays.map((day, index) => {
+                  const dayDate = new Date(currentWeekMonday);
+                  dayDate.setDate(currentWeekMonday.getDate() + index);
+                  const cellDateStr = dayDate.toISOString().split('T')[0];
+                  const isCurrentDay = cellDateStr === todayStr;
+                  return (
+                    <tr key={day} style={isCurrentDay ? { backgroundColor: '#f0f8ff' } : {}}>
+                      <td style={{ border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`, padding: '8px', fontWeight: 'bold', backgroundColor: colours.reporting.tableHeaderBackground }}>
+                        {day}
+                      </td>
+                      {attendancePersons.map(person => {
+                        const status = getCellStatus(person.attendance, person.initials, day, cellDateStr);
+                        // For current day, cell background is tinted and the icon is forced white.
+                        const cellBg = isCurrentDay
+                          ? (status === 'in' ? inHighlight : status === 'wfh' ? wfhHighlight : outHighlight)
+                          : (isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground);
                         return (
-                          <PersonBubble
-                            key={leave.id}
-                            person={{
-                              id: leave.id,
-                              name: leave.person,
-                              initials: teamMember ? teamMember.Initials : '',
-                              presence: PersonaPresence.busy,
-                              nickname: teamMember ? teamMember.Nickname : leave.person,
+                          <td
+                            key={person.initials}
+                            style={{
+                              border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                              padding: '8px',
+                              textAlign: 'center',
+                              backgroundColor: cellBg,
                             }}
-                            isDarkMode={isDarkMode}
-                            animationDelay={calculateAnimationDelay(Math.floor(index / columnsForPeople), index % columnsForPeople)}
-                          />
+                          >
+                            <AttendanceCell status={status} highlight={isCurrentDay} />
+                          </td>
                         );
-                      });
-                  })()}
-                </div>
-              )}
-            </div>
-          </div>
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
-      </Stack>
-
-      <div
-        className={mergeStyles({
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          marginTop: '40px',
-        })}
-      >
-        <Text className={versionStyle}>Version 1.1</Text>
-        <IconButton
-          iconProps={{ iconName: 'Info' }}
-          title="Show context details"
-          ariaLabel="Show context details"
-          styles={{ root: { marginLeft: 8 }, icon: { fontSize: '16px' } }}
-          onClick={() => setIsContextPanelOpen(true)}
-        />
       </div>
 
       {/* Contexts Panel */}
@@ -1743,6 +1738,24 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
       {selectedResource && (
         <ResourceDetails resource={selectedResource} onClose={() => setSelectedResource(null)} />
       )}
+
+      <div
+        className={mergeStyles({
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          marginTop: '40px',
+        })}
+      >
+        <Text className={versionStyle}>Version 1.1</Text>
+        <IconButton
+          iconProps={{ iconName: 'Info' }}
+          title="Show context details"
+          ariaLabel="Show context details"
+          styles={{ root: { marginLeft: 8 }, icon: { fontSize: '16px' } }}
+          onClick={() => setIsContextPanelOpen(true)}
+        />
+      </div>
     </div>
   );
 };
