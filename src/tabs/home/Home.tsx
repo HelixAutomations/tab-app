@@ -133,22 +133,28 @@ interface CollapsibleSectionProps {
   children: React.ReactNode;
 }
 
+interface CollapsibleSectionProps {
+  title: string;
+  metrics: { title: string }[];
+  children: React.ReactNode;
+}
+
 const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({ title, metrics, children }) => {
   // Start expanded by default
   const [collapsed, setCollapsed] = useState(false);
   const toggleCollapse = () => setCollapsed(!collapsed);
 
   // Build the metric labels string (only used when collapsed)
-  const metricLabels = metrics.map(m => m.title).join(' | ');
+  const metricLabels = metrics.length > 0 ? metrics.map(m => m.title).join(' | ') : '';
 
   return (
-    // Outer container with a drop shadow and rounded corners
+    // Outer container with a drop shadow and rounded corners (no border)
     <div
       style={{
         marginBottom: '20px',
         boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)',
         borderRadius: '4px',
-        overflow: 'hidden'
+        overflow: 'hidden',
       }}
     >
       {/* Header */}
@@ -161,13 +167,15 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({ title, metrics,
           cursor: 'pointer',
           display: 'flex',
           justifyContent: 'space-between',
-          alignItems: 'center'
+          alignItems: 'center',
         }}
       >
         <span style={{ fontWeight: 600 }}>
           {title}
-          {collapsed && metrics.length > 0 && (
-            <span style={{ marginLeft: '10px' }}>{metricLabels}</span>
+          {collapsed && metricLabels && (
+            <span style={{ marginLeft: '10px', fontWeight: 400 }}>
+              {metricLabels}
+            </span>
           )}
         </span>
         <span>{collapsed ? '▼' : '▲'}</span>
@@ -177,7 +185,8 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({ title, metrics,
         <div 
           style={{
             padding: '10px 15px',
-            backgroundColor: colours.light.sectionBackground
+            backgroundColor: colours.light.sectionBackground,
+            boxShadow: '0 2px 6px rgba(0, 0, 0, 0.1)',
           }}
         >
           {children}
@@ -1858,27 +1867,19 @@ const officeAttendanceButtonText = currentUserConfirmed
         </div>
       )}
 
-      {/* Consolidated Attendance Table */}
+      {/* Consolidated Attendance Table wrapped in a collapsible section */}
       <div className={mergeStyles({ marginBottom: '40px' })}>
-        <div className={sectionContainerStyle(isDarkMode)}>
-          {isLoadingAttendance || isLoadingAnnualLeave ? (
-            <Spinner label="Loading attendance..." size={SpinnerSize.medium} />
-          ) : attendanceError || annualLeaveError ? (
-            <MessageBar messageBarType={MessageBarType.error}>
-              {attendanceError || annualLeaveError}
-            </MessageBar>
-          ) : (
+        <CollapsibleSection title="Attendance" metrics={[]}>
+          <div style={{ overflowX: 'auto' }}>
             <table
-              className={tableAnimationStyle}
               style={{
                 width: '100%',
                 borderCollapse: 'separate',
                 borderSpacing: '0',
-                border: `1px solid ${
-                  isDarkMode ? colours.dark.border : colours.light.border
-                }`,
+                border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                 borderRadius: '8px',
                 overflow: 'hidden',
+                animation: 'fadeIn 0.5s ease-in-out',
               }}
             >
               <thead>
@@ -1888,14 +1889,10 @@ const officeAttendanceButtonText = currentUserConfirmed
                     <th
                       key={person.initials}
                       style={{
-                        border: `1px solid ${
-                          isDarkMode ? colours.dark.border : colours.light.border
-                        }`,
+                        border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                         padding: '8px',
                         textAlign: 'center',
-                        backgroundColor: isDarkMode
-                          ? colours.dark.sectionBackground
-                          : colours.light.sectionBackground,
+                        backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
                       }}
                     >
                       <AttendancePersonaHeader person={person} />
@@ -1913,9 +1910,7 @@ const officeAttendanceButtonText = currentUserConfirmed
                     <tr key={day} style={isCurrentDay ? { backgroundColor: '#f0f8ff' } : {}}>
                       <td
                         style={{
-                          border: `1px solid ${
-                            isDarkMode ? colours.dark.border : colours.light.border
-                          }`,
+                          border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                           padding: '8px',
                           fontWeight: 'bold',
                           backgroundColor: colours.reporting.tableHeaderBackground,
@@ -1924,12 +1919,7 @@ const officeAttendanceButtonText = currentUserConfirmed
                         {day}
                       </td>
                       {attendancePersons.map((person) => {
-                        const status = getCellStatus(
-                          person.attendance,
-                          person.initials,
-                          day,
-                          cellDateStr
-                        );
+                        const status = getCellStatus(person.attendance, person.initials, day, cellDateStr);
                         const cellBg = isCurrentDay
                           ? status === 'in'
                             ? inHighlight
@@ -1943,9 +1933,7 @@ const officeAttendanceButtonText = currentUserConfirmed
                           <td
                             key={person.initials}
                             style={{
-                              border: `1px solid ${
-                                isDarkMode ? colours.dark.border : colours.light.border
-                              }`,
+                              border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                               padding: '8px',
                               textAlign: 'center',
                               backgroundColor: cellBg,
@@ -1960,8 +1948,8 @@ const officeAttendanceButtonText = currentUserConfirmed
                 })}
               </tbody>
             </table>
-          )}
-        </div>
+          </div>
+        </CollapsibleSection>
       </div>
 
       {/* Contexts Panel */}
