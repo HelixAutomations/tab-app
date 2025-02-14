@@ -60,9 +60,6 @@ import { sharedDefaultButtonStyles } from '../../app/styles/ButtonStyles';
 // NEW: Import the updated QuickActionsCard component
 import QuickActionsCard from './QuickActionsCard';
 
-// NEW: Import the new Attendance component
-import Attendance from './Attendance';
-
 initializeIcons();
 
 //////////////////////
@@ -315,6 +312,86 @@ const createColumnsFunction = (isDarkMode: boolean): IColumn[] => [
 ];
 
 //////////////////////
+// PersonBubble Component
+//////////////////////
+
+interface PersonBubbleProps {
+  person: Person;
+  isDarkMode: boolean;
+  animationDelay?: number;
+  avatarUrlOverride?: string;
+}
+
+const PersonBubble: React.FC<PersonBubbleProps> = ({
+  person,
+  isDarkMode,
+  animationDelay,
+  avatarUrlOverride,
+}) => {
+  const bubbleStyle = mergeStyles({
+    position: 'relative',
+    display: 'flex',
+    alignItems: 'center',
+    opacity: 0,
+    transform: 'translateY(20px)',
+    animation: `fadeInUp 0.3s ease forwards`,
+    animationDelay: animationDelay ? `${animationDelay}s` : '0s',
+  });
+
+  const textBubbleStyle = mergeStyles({
+    position: 'absolute',
+    left: 0,
+    top: '50%',
+    transform: 'translateY(-50%)',
+    backgroundColor: colours.grey,
+    borderRadius: '12px',
+    padding: '0 10px 0 50px',
+    height: '34px',
+    display: 'flex',
+    alignItems: 'center',
+    zIndex: 3,
+    whiteSpace: 'nowrap',
+  });
+
+  const textStyle = mergeStyles({ color: isDarkMode ? colours.dark.text : colours.light.text });
+
+  let imageUrl = WfhImg;
+  let presence = PersonaPresence.none;
+
+  if (person.presence === PersonaPresence.online) {
+    imageUrl = InAttendanceImg;
+    presence = PersonaPresence.online;
+  } else if (person.presence === PersonaPresence.busy) {
+    imageUrl = OutImg;
+    presence = PersonaPresence.busy;
+  }
+
+  return (
+    <div className={bubbleStyle}>
+      <div style={{ position: 'relative', zIndex: 4 }}>
+        <Persona
+          text=""
+          imageUrl={avatarUrlOverride || imageUrl}
+          size={PersonaSize.size40}
+          presence={presence}
+          hidePersonaDetails
+          styles={{
+            root: {
+              zIndex: 4,
+              boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.15)',
+              borderRadius: '50%',
+            },
+          }}
+        />
+        <div className={textBubbleStyle}>
+          <Text className={textStyle}>{person.nickname || person.name}</Text>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+//////////////////////
 // Caching Variables (module-level)
 //////////////////////
 
@@ -425,20 +502,14 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
   const [todaysTasks, setTodaysTasks] = useState<number>(10);
   const [tasksDueThisWeek, setTasksDueThisWeek] = useState<number>(20);
   const [completedThisWeek, setCompletedThisWeek] = useState<number>(15);
-  const [recordedTime, setRecordedTime] = useState<{ hours: number; money: number }>({
-    hours: 120,
-    money: 1000,
-  });
+  const [recordedTime, setRecordedTime] = useState<{ hours: number; money: number }>({ hours: 120, money: 1000 });
   const [prevEnquiriesToday, setPrevEnquiriesToday] = useState<number>(8);
   const [prevEnquiriesWeekToDate, setPrevEnquiriesWeekToDate] = useState<number>(18);
   const [prevEnquiriesMonthToDate, setPrevEnquiriesMonthToDate] = useState<number>(950);
   const [prevTodaysTasks, setPrevTodaysTasks] = useState<number>(12);
   const [prevTasksDueThisWeek, setPrevTasksDueThisWeek] = useState<number>(18);
   const [prevCompletedThisWeek, setPrevCompletedThisWeek] = useState<number>(17);
-  const [prevRecordedTime, setPrevRecordedTime] = useState<{ hours: number; money: number }>({
-    hours: 110,
-    money: 900,
-  });
+  const [prevRecordedTime, setPrevRecordedTime] = useState<{ hours: number; money: number }>({ hours: 110, money: 900 });
   const [isContextsExpanded, setIsContextsExpanded] = useState<boolean>(false);
   const [formsFavorites, setFormsFavorites] = useState<FormItem[]>([]);
   const [resourcesFavorites, setResourcesFavorites] = useState<Resource[]>([]);
@@ -473,9 +544,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
   const [allMattersError, setAllMattersError] = useState<string | null>(null);
   const [isLoadingAllMatters, setIsLoadingAllMatters] = useState<boolean>(false);
 
-  // -----------------------------------------
-  // Bank holidays fetch
-  // -----------------------------------------
   useEffect(() => {
     const fetchBankHolidays = async () => {
       try {
@@ -497,9 +565,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
     fetchBankHolidays();
   }, []);
 
-  // -----------------------------------------
-  // CSS keyframes injection
-  // -----------------------------------------
   useEffect(() => {
     const styles = `
 @keyframes redPulse {
@@ -530,8 +595,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
-}
-`;
+}`;
     const styleSheet = document.createElement('style');
     styleSheet.type = 'text/css';
     styleSheet.innerText = styles;
@@ -541,9 +605,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
     };
   }, []);
 
-  // -----------------------------------------
-  // Local Storage: load favorites
-  // -----------------------------------------
   useEffect(() => {
     const storedFormsFavorites = localStorage.getItem('formsFavorites');
     const storedResourcesFavorites = localStorage.getItem('resourcesFavorites');
@@ -570,9 +631,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
     };
   }, []);
 
-  // -----------------------------------------
-  // Set greeting
-  // -----------------------------------------
   useEffect(() => {
     if (
       userData &&
@@ -584,7 +642,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
       setCurrentUserName(firstName);
       const email = userData[0].Email || '';
       setCurrentUserEmail(email);
-
       const currentHour = new Date().getHours();
       let timeOfDay = 'Hello';
       if (currentHour < 12) {
@@ -600,18 +657,12 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
     }
   }, [userData]);
 
-  // -----------------------------------------
-  // Filter enquiries by user & timeframe
-  // -----------------------------------------
   useEffect(() => {
     if (enquiries && currentUserEmail) {
       const today = new Date();
       const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-
-      // Start of "week" (assuming Sunday is 0)
       const startOfWeek = new Date(today);
       startOfWeek.setDate(today.getDate() - today.getDay());
-
       const todayCount = enquiries.filter((enquiry: any) => {
         if (!enquiry.Touchpoint_Date) return false;
         const enquiryDate = new Date(enquiry.Touchpoint_Date);
@@ -620,7 +671,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
           enquiry.Point_of_Contact === currentUserEmail
         );
       }).length;
-
       const weekToDateCount = enquiries.filter((enquiry: any) => {
         if (!enquiry.Touchpoint_Date) return false;
         const enquiryDate = new Date(enquiry.Touchpoint_Date);
@@ -630,7 +680,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
           enquiry.Point_of_Contact === currentUserEmail
         );
       }).length;
-
       const monthToDateCount = enquiries.filter((enquiry: any) => {
         if (!enquiry.Touchpoint_Date) return false;
         const enquiryDate = new Date(enquiry.Touchpoint_Date);
@@ -640,16 +689,12 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
           enquiry.Point_of_Contact === currentUserEmail
         );
       }).length;
-
       setEnquiriesToday(todayCount);
       setEnquiriesWeekToDate(weekToDateCount);
       setEnquiriesMonthToDate(monthToDateCount);
     }
   }, [enquiries, currentUserEmail]);
 
-  // -----------------------------------------
-  // Typing effect for greeting
-  // -----------------------------------------
   useEffect(() => {
     let currentIndex = 0;
     setTypedGreeting('');
@@ -664,12 +709,13 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
     return () => clearInterval(typingInterval);
   }, [greeting]);
 
-  // -----------------------------------------
-  // Fetch Attendance and Annual Leave
-  // -----------------------------------------
   useEffect(() => {
-    if (cachedAttendance || cachedAttendanceError || cachedAnnualLeave || cachedAnnualLeaveError) {
-      // Use cached
+    if (
+      cachedAttendance ||
+      cachedAttendanceError ||
+      cachedAnnualLeave ||
+      cachedAnnualLeaveError
+    ) {
       setAttendanceRecords(cachedAttendance || []);
       setTeamData(cachedTeamData || []);
       setAttendanceError(cachedAttendanceError);
@@ -679,13 +725,10 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
       setIsLoadingAnnualLeave(false);
       setIsActionsLoading(false);
     } else {
-      // Fetch fresh
       const fetchData = async () => {
         try {
           setIsLoadingAttendance(true);
           setIsLoadingAnnualLeave(true);
-
-          // Attendance
           const attendanceResponse = await fetch(
             `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_ATTENDANCE_PATH}?code=${process.env.REACT_APP_GET_ATTENDANCE_CODE}`,
             { method: 'POST', headers: { 'Content-Type': 'application/json' } }
@@ -706,8 +749,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
         } finally {
           setIsLoadingAttendance(false);
         }
-
-        // Annual Leave
         try {
           const annualLeaveResponse = await fetch(
             `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_ANNUAL_LEAVE_PATH}?code=${process.env.REACT_APP_GET_ANNUAL_LEAVE_CODE}`,
@@ -721,39 +762,30 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
             throw new Error(`Failed to fetch annual leave: ${annualLeaveResponse.status}`);
           const annualLeaveData = await annualLeaveResponse.json();
           if (annualLeaveData && Array.isArray(annualLeaveData.annual_leave)) {
-            const mappedAnnualLeave: AnnualLeaveRecord[] = annualLeaveData.annual_leave.map(
-              (rec: any) => ({
+            const mappedAnnualLeave: AnnualLeaveRecord[] = annualLeaveData.annual_leave.map((rec: any) => ({
+              person: rec.person,
+              start_date: rec.start_date,
+              end_date: rec.end_date,
+              reason: rec.reason,
+              status: rec.status,
+              id: rec.request_id ? String(rec.request_id) : rec.id || `temp-${rec.start_date}-${rec.end_date}`,
+              rejection_notes: rec.rejection_notes || undefined,
+              approvers: ensureLZInApprovers(rec.approvers),
+            }));
+            cachedAnnualLeave = mappedAnnualLeave;
+            setAnnualLeaveRecords(mappedAnnualLeave);
+
+            if (Array.isArray(annualLeaveData.future_leave)) {
+              const mappedFutureLeave: AnnualLeaveRecord[] = annualLeaveData.future_leave.map((rec: any) => ({
                 person: rec.person,
                 start_date: rec.start_date,
                 end_date: rec.end_date,
                 reason: rec.reason,
                 status: rec.status,
-                id: rec.request_id
-                  ? String(rec.request_id)
-                  : rec.id || `temp-${rec.start_date}-${rec.end_date}`,
+                id: rec.request_id ? String(rec.request_id) : rec.id || `temp-${rec.start_date}-${rec.end_date}`,
                 rejection_notes: rec.rejection_notes || undefined,
                 approvers: ensureLZInApprovers(rec.approvers),
-              })
-            );
-            cachedAnnualLeave = mappedAnnualLeave;
-            setAnnualLeaveRecords(mappedAnnualLeave);
-
-            // Future Leave
-            if (Array.isArray(annualLeaveData.future_leave)) {
-              const mappedFutureLeave: AnnualLeaveRecord[] = annualLeaveData.future_leave.map(
-                (rec: any) => ({
-                  person: rec.person,
-                  start_date: rec.start_date,
-                  end_date: rec.end_date,
-                  reason: rec.reason,
-                  status: rec.status,
-                  id: rec.request_id
-                    ? String(rec.request_id)
-                    : rec.id || `temp-${rec.start_date}-${rec.end_date}`,
-                  rejection_notes: rec.rejection_notes || undefined,
-                  approvers: ensureLZInApprovers(rec.approvers),
-                })
-              );
+              }));
               setFutureLeaveRecords(mappedFutureLeave);
             }
 
@@ -777,11 +809,13 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
     }
   }, [userData]);
 
-  // -----------------------------------------
-  // Fetch WIP Clio and Recovered
-  // -----------------------------------------
   useEffect(() => {
-    if (cachedWipClio || cachedWipClioError || cachedRecovered || cachedRecoveredError) {
+    if (
+      cachedWipClio ||
+      cachedWipClioError ||
+      cachedRecovered ||
+      cachedRecoveredError
+    ) {
       setWipClioData(cachedWipClio);
       setWipClioError(cachedWipClioError);
       setRecoveredData(cachedRecovered);
@@ -794,7 +828,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
           setIsLoadingWipClio(true);
           setIsLoadingRecovered(true);
           const clioID = parseInt(userData[0]['Clio ID'], 10);
-
           const [wipResponse, recoveredResponse] = await Promise.all([
             fetch(
               `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_GET_WIP_CLIO_PATH}?code=${process.env.REACT_APP_GET_WIP_CLIO_CODE}`,
@@ -813,13 +846,11 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
               }
             ),
           ]);
-
           if (!wipResponse.ok)
             throw new Error(`Failed to fetch WIP Clio: ${wipResponse.status}`);
           const wipData = await wipResponse.json();
           cachedWipClio = wipData;
           setWipClioData(wipData);
-
           if (!recoveredResponse.ok)
             throw new Error(`Failed to fetch Recovered: ${recoveredResponse.status}`);
           const recoveredData = await recoveredResponse.json();
@@ -845,9 +876,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
     }
   }, [userData]);
 
-  // -----------------------------------------
-  // Fetch All Matters
-  // -----------------------------------------
   useEffect(() => {
     if (cachedAllMatters || cachedAllMattersError) {
       setAllMatters(cachedAllMatters || []);
@@ -865,7 +893,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
             throw new Error(`Failed to fetch all matters: ${response.status}`);
           }
           const rawData = await response.json();
-
           const mapData = (items: any[]): Matter[] => {
             return items.map((item) => ({
               DisplayNumber: item['Display Number'] || '',
@@ -898,10 +925,8 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
 
           let mappedMatters: Matter[] = [];
           if (Array.isArray(rawData)) {
-            // raw array
             mappedMatters = mapData(rawData);
           } else {
-            // nested object with "matters"
             if (Array.isArray(rawData.matters)) {
               mappedMatters = mapData(rawData.matters);
             } else {
@@ -929,18 +954,41 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
 
   const columns = useMemo(() => createColumnsFunction(isDarkMode), [isDarkMode]);
 
-  // -----------------------------------------
-  // Simple example: current user confirmed
-  // -----------------------------------------
-  const currentUserRecord = attendanceRecords.find(
-    (r) => r.name === currentUserName
-  );
-  const currentUserConfirmed = currentUserRecord ? currentUserRecord.confirmed : false;
-  const officeAttendanceButtonText = currentUserConfirmed
-    ? 'Update Attendance'
-    : 'Confirm Attendance';
+// --- Updated Confirm Attendance snippet ---
 
-  // Quick helper to see if user is "out" via annual leave (not used in all places now)
+// 1. Grab user’s initials from userData
+const userInitials = userData?.[0]?.Initials || '';
+
+// 2. Find matching person in teamData (so we know which 'name' is used in attendance)
+const matchingTeamMember = teamData.find(
+  (member: any) => (member.Initials || '').toLowerCase() === userInitials.toLowerCase()
+);
+
+// 3. That person’s name for attendance
+const attendanceName = matchingTeamMember ? matchingTeamMember.First : '';
+
+// 4. Find the user’s record in attendanceRecords by that name
+const currentUserRecord = attendanceRecords.find(
+  (record: any) => (record.name || '').toLowerCase() === attendanceName.toLowerCase()
+);
+
+// 5. Decide if they’re “confirmed” – for example, if there’s any “attendance” data in the current week
+const currentUserConfirmed = !!(
+  currentUserRecord &&
+  Object.values(currentUserRecord.weeks || {}).some(
+    (week: any) => (week.attendance || '').trim() !== ''
+  )
+);
+
+// 6. Final button text
+const officeAttendanceButtonText = currentUserConfirmed
+  ? 'Update Attendance'
+  : 'Confirm Attendance';
+
+  const today = new Date();
+  const formattedToday = today.toISOString().split('T')[0];
+  const columnsForPeople = 3;
+
   const isPersonOutToday = (person: Person): boolean => {
     const todayStr = new Date().toISOString().split('T')[0];
     return annualLeaveRecords.some((leave) => {
@@ -950,16 +998,33 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
     });
   };
 
-  // -----------------------------------------
-  // Metrics data & logic
-  // -----------------------------------------
+  const allPeople = useMemo(() => {
+    if (!teamData || teamData.length === 0) return [];
+    return teamData
+      .sort((a: any, b: any) => a.First.localeCompare(b.First))
+      .map((t: any) => {
+        const att = attendanceRecords.find(
+          (a: any) => a.name.toLowerCase() === t.First.toLowerCase()
+        );
+        const attending = att ? att.attendingToday : false;
+        return {
+          id: t.Initials,
+          name: t.First,
+          initials: t.Initials,
+          presence: attending ? PersonaPresence.online : PersonaPresence.none,
+          nickname: t.Nickname || t.First,
+        };
+      });
+  }, [teamData, attendanceRecords]);
+
+  // --- Updated metricsData useMemo ---
   const metricsData = useMemo(() => {
-    const today = new Date();
-    const formattedToday = today.toISOString().split('T')[0];
-    const currentMonth = today.getMonth();
-    const currentYear = today.getFullYear();
+    const currentDate = new Date();
+    const currentMonth = currentDate.getMonth();
+    const currentYear = currentDate.getFullYear();
     const userFullName =
-      userData?.[0]?.FullName || `${userData?.[0]?.First || ''} ${userData?.[0]?.Last || ''}`.trim();
+      userData?.[0]?.FullName ||
+      `${userData?.[0]?.First || ''} ${userData?.[0]?.Last || ''}`.trim();
     const mattersOpenedCount = allMatters
       ? allMatters.filter((m) => {
           const openDate = new Date(m.OpenDate);
@@ -971,75 +1036,24 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
         }).length
       : 0;
 
-    // If WIP Clio is missing, just show placeholders
     if (!wipClioData) {
       return [
-        {
-          title: 'Time Today',
-          isTimeMoney: true,
-          money: 0,
-          hours: 0,
-          prevMoney: 0,
-          prevHours: 0,
-          showDial: true,
-          dialTarget: 6,
-        },
-        {
-          title: 'Av. Time This Week',
-          isTimeMoney: true,
-          money: 0,
-          hours: 0,
-          prevMoney: 0,
-          prevHours: 0,
-          showDial: true,
-          dialTarget: 6,
-        },
-        {
-          title: 'Time This Week',
-          isTimeMoney: true,
-          money: 0,
-          hours: 0,
-          prevMoney: 0,
-          prevHours: 0,
-          showDial: true,
-          dialTarget: 30,
-        },
+        { title: 'Time Today', isTimeMoney: true, money: 0, hours: 0, prevMoney: 0, prevHours: 0, showDial: true, dialTarget: 6 },
+        { title: 'Av. Time This Week', isTimeMoney: true, money: 0, hours: 0, prevMoney: 0, prevHours: 0, showDial: true, dialTarget: 6 },
+        { title: 'Time This Week', isTimeMoney: true, money: 0, hours: 0, prevMoney: 0, prevHours: 0, showDial: true, dialTarget: 30 },
         { title: 'Fees Recovered This Month', isMoneyOnly: true, money: 0, prevMoney: 0 },
-        {
-          title: 'Enquiries Today',
-          isTimeMoney: false,
-          count: enquiriesToday,
-          prevCount: prevEnquiriesToday,
-        },
-        {
-          title: 'Enquiries This Week',
-          isTimeMoney: false,
-          count: enquiriesWeekToDate,
-          prevCount: prevEnquiriesWeekToDate,
-        },
-        {
-          title: 'Enquiries This Month',
-          isTimeMoney: false,
-          count: enquiriesMonthToDate,
-          prevCount: prevEnquiriesMonthToDate,
-        },
-        {
-          title: 'Matters Opened',
-          isTimeMoney: false,
-          count: mattersOpenedCount,
-          prevCount: 0,
-        },
+        { title: 'Enquiries Today', isTimeMoney: false, count: enquiriesToday, prevCount: prevEnquiriesToday },
+        { title: 'Enquiries This Week', isTimeMoney: false, count: enquiriesWeekToDate, prevCount: prevEnquiriesWeekToDate },
+        { title: 'Enquiries This Month', isTimeMoney: false, count: enquiriesMonthToDate, prevCount: prevEnquiriesMonthToDate },
+        { title: 'Matters Opened', isTimeMoney: false, count: mattersOpenedCount, prevCount: 0 },
       ];
     }
-
-    // Otherwise, parse the WIP data:
     const currentWeekData = wipClioData.current_week?.daily_data[formattedToday];
     const lastWeekDate = new Date(today);
     lastWeekDate.setDate(today.getDate() - 7);
     const formattedLastWeekDate = lastWeekDate.toISOString().split('T')[0];
     const lastWeekData = wipClioData.last_week?.daily_data[formattedLastWeekDate];
 
-    // totalTimeThisWeek
     let totalTimeThisWeek = 0;
     if (wipClioData.current_week && wipClioData.current_week.daily_data) {
       Object.values(wipClioData.current_week.daily_data).forEach((dayData: any) => {
@@ -1047,7 +1061,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
       });
     }
 
-    // Adjust weekly target if user is on annual leave some days
     const getWorkWeekDays = (): Date[] => {
       const now = new Date();
       const dayOfWeek = now.getDay();
@@ -1065,11 +1078,11 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
     const workWeekDays = getWorkWeekDays();
     const userInitials = userData?.[0]?.Initials || '';
     let leaveDays = 0;
-    workWeekDays.forEach((day) => {
+    workWeekDays.forEach(day => {
       const dayString = day.toISOString().split('T')[0];
       if (
         annualLeaveRecords.some(
-          (rec) =>
+          rec =>
             rec.status === 'booked' &&
             rec.person.toLowerCase() === userInitials.toLowerCase() &&
             dayString >= rec.start_date &&
@@ -1146,23 +1159,20 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
   }, [
     wipClioData,
     recoveredData,
+    formattedToday,
     enquiriesToday,
-    enquiriesWeekToDate,
-    enquiriesMonthToDate,
     prevEnquiriesToday,
+    enquiriesWeekToDate,
     prevEnquiriesWeekToDate,
+    enquiriesMonthToDate,
     prevEnquiriesMonthToDate,
-    allMatters,
+    today,
     annualLeaveRecords,
     userData,
+    allMatters,
   ]);
-
   const timeMetrics = metricsData.slice(0, 4);
   const enquiryMetrics = metricsData.slice(4);
-
-  // -----------------------------------------
-  // Approvals & Bookings logic
-  // -----------------------------------------
 
   // Combine annualLeaveRecords and futureLeaveRecords for approval filtering
   const combinedLeaveRecords = useMemo(() => {
@@ -1170,7 +1180,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
   }, [annualLeaveRecords, futureLeaveRecords]);
 
   const APPROVERS = ['AC', 'JW', 'LZ'];
-  const userInitials = userData?.[0]?.Initials || '';
   const isApprover = APPROVERS.includes(userInitials);
 
   const approvalsNeeded = useMemo(
@@ -1207,7 +1216,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
       fontWeight: '600',
       borderRadius: '4px !important',
       padding: '6px 12px !important',
-      animation: 'redPulse 2s infinite !important',
+      animation: `redPulse 2s infinite !important`,
       transition: 'box-shadow 0.3s, transform 0.3s, background 0.3s ease !important',
       whiteSpace: 'nowrap',
       width: 'auto',
@@ -1223,7 +1232,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
       fontWeight: '600',
       borderRadius: '4px !important',
       padding: '6px 12px !important',
-      animation: 'redPulse 2s infinite !important',
+      animation: `redPulse 2s infinite !important`,
       transition: 'box-shadow 0.3s, transform 0.3s, background 0.3s ease !important',
       whiteSpace: 'nowrap',
       width: 'auto',
@@ -1231,9 +1240,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
     },
   };
 
-  // -----------------------------------------
   // Leave action handlers
-  // -----------------------------------------
   const handleApproveLeaveClick = () => {
     if (approvalsNeeded.length > 0) {
       setBespokePanelContent(
@@ -1316,11 +1323,8 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
     });
   }
   immediateActionsList = immediateActionsList.concat(immediateALActions);
-
   // Sort immediate actions by the predefined order.
-  immediateActionsList.sort(
-    (a, b) => (quickActionOrder[a.title] || 99) - (quickActionOrder[b.title] || 99)
-  );
+  immediateActionsList.sort((a, b) => (quickActionOrder[a.title] || 99) - (quickActionOrder[b.title] || 99));
 
   let normalQuickActions = quickActions
     .filter((action) => {
@@ -1338,69 +1342,119 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
       }
       return action;
     });
-
   // Sort normal actions by order.
-  normalQuickActions.sort(
-    (a, b) => (quickActionOrder[a.title] || 99) - (quickActionOrder[b.title] || 99)
-  );
+  normalQuickActions.sort((a, b) => (quickActionOrder[a.title] || 99) - (quickActionOrder[b.title] || 99));
 
-  // -----------------------------------------
-  // Dummy for quick-actions "onClick"
-  // -----------------------------------------
-  function handleActionClick(action: { title: string; icon: string }) {
-    let content: React.ReactNode = <div>No form available.</div>;
-    const titleText = action.title;
+  // Consolidated Attendance Table – helper functions and components
+  const getMondayOfCurrentWeek = (): Date => {
+    const now = new Date();
+    const day = now.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    const monday = new Date(now);
+    monday.setDate(now.getDate() + diff);
+    return monday;
+  };
 
-    switch (titleText) {
-      case 'Confirm Attendance':
-        // Example Cognito form for "Confirm Attendance"
-        content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="109" />;
-        break;
-      case 'Create a Task':
-        // Show <Tasking /> form
-        content = <Tasking />;
-        break;
-      case 'Request CollabSpace':
-        // Example Cognito form
-        content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="44" />;
-        break;
-      case 'Save Telephone Note':
-        // Another Cognito form 
-        content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="38" />;
-        break;
-      case 'Save Attendance Note':
-        // Your <TelephoneAttendance /> component
-        content = <TelephoneAttendance />;
-        break;
-      case 'Request ID':
-        // Another Cognito form 
-        content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="60" />;
-        break;
-      case 'Open a Matter':
-        // Another Cognito form 
-        content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="9" />;
-        break;
-      case 'Request Annual Leave':
-        // Either a Cognito form OR your <AnnualLeaveForm /> 
-        content = (
-          <AnnualLeaveForm
-            futureLeave={futureLeaveRecords}
-            team={teamData}
-            userData={userData}
-            totals={annualLeaveTotals}
-            bankHolidays={bankHolidays}
-          />
-        );
-        break;
-      default:
-        content = <div>No form available.</div>;
-        break;
+  const getCurrentWeekKey = (): string => {
+    const monday = getMondayOfCurrentWeek();
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    const options: Intl.DateTimeFormatOptions = { day: '2-digit', month: '2-digit', year: 'numeric' };
+    const mondayStr = monday.toLocaleDateString('en-GB', options);
+    const sundayStr = sunday.toLocaleDateString('en-GB', options);
+    const mondayName = monday.toLocaleDateString('en-GB', { weekday: 'long' });
+    const sundayName = sunday.toLocaleDateString('en-GB', { weekday: 'long' });
+    return `${mondayName}, ${mondayStr} - ${sundayName}, ${sundayStr}`;
+  };
+
+  const weekDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+
+  const currentWeekKey = getCurrentWeekKey();
+  const currentWeekMonday = getMondayOfCurrentWeek();
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  // Build attendancePersons from the new attendanceRecords structure.
+  const attendancePersons = useMemo(() => {
+    return attendanceRecords.map((rec: any) => {
+      const teamMember = teamData.find((member: any) => member.First.toLowerCase() === rec.name.toLowerCase());
+      return {
+        name: rec.name,
+        initials: teamMember ? teamMember.Initials : rec.name,
+        nickname: teamMember ? teamMember.Nickname : rec.name,
+        attendance: rec.weeks && rec.weeks[currentWeekKey] ? rec.weeks[currentWeekKey].attendance : "",
+      };
+    }).sort((a: any, b: any) => a.name.localeCompare(b.name));
+  }, [attendanceRecords, teamData, currentWeekKey]);
+
+  // getCellStatus uses person initials.
+  const getCellStatus = (personAttendance: string, personInitials: string, day: string, cellDateStr: string): 'in' | 'wfh' | 'out' => {
+    if (combinedLeaveRecords.some((leave) =>
+         leave.status === 'booked' &&
+         leave.person.trim().toLowerCase() === personInitials.trim().toLowerCase() &&
+         cellDateStr >= leave.start_date && cellDateStr <= leave.end_date
+       )) {
+      return 'out';
     }
+    const attendedDays = personAttendance ? personAttendance.split(',').map((s: string) => s.trim()) : [];
+    if (attendedDays.includes(day)) {
+      return 'in';
+    }
+    return 'wfh';
+  };
 
-    setBespokePanelContent(content);
-    setBespokePanelTitle(titleText);
-    setIsBespokePanelOpen(true);
-  }
+  // AttendanceCell now accepts a highlight prop. If highlighted, the icon color is forced white.
+  const AttendanceCell: React.FC<{ status: 'in' | 'wfh' | 'out'; highlight?: boolean }> = ({ status, highlight = false }) => {
+    let iconName = 'Home';
+    if (status === 'in') {
+      iconName = 'Accept';
+    } else if (status === 'out') {
+      iconName = 'Airplane';
+    }
+    return (
+      <Icon iconName={iconName} styles={{ root: { fontSize: '24px', color: highlight ? '#fff' : '#666' } }} />
+    );
+  };
+
+  // Header: show name above avatar in a column with a subtle bubble.
+  const AttendancePersonaHeader: React.FC<{ person: { name: string; initials: string; nickname: string; attendance: string } }> = ({ person }) => {
+    const todayDate = new Date();
+    let diffDays = Math.floor((todayDate.getTime() - currentWeekMonday.getTime()) / (1000 * 3600 * 24));
+    let todayWeekday = 'Monday';
+    if (diffDays >= 0 && diffDays < 5) {
+      todayWeekday = weekDays[diffDays];
+    }
+    const currentStatus = getCellStatus(person.attendance, person.initials, todayWeekday, todayStr);
+    let imageUrl = WfhImg;
+    if (currentStatus === 'in') {
+      imageUrl = InAttendanceImg;
+    } else if (currentStatus === 'out') {
+      imageUrl = OutImg;
+    }
+    return (
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: '4px'
+      }}>
+        <div style={{
+          backgroundColor: isDarkMode ? colours.dark.grey || '#3a3a3a' : colours.light.grey || '#F4F4F6',
+          padding: '4px 8px',
+          borderRadius: '8px'
+        }}>
+          <Text variant="small" styles={{ root: { color: isDarkMode ? colours.dark.text : colours.light.text } }}>
+            {person.nickname || person.name}
+          </Text>
+        </div>
+        <Persona text="" imageUrl={imageUrl} size={PersonaSize.size40} hidePersonaDetails styles={{ root: { margin: '0 auto' } }} />
+      </div>
+    );
+  };
+
+  // Define subtle highlight colours for the entire row.
+  const inHighlight = "rgba(16,124,16,0.15)";      // subtle green tint
+  const wfhHighlight = "rgba(54,144,206,0.15)";      // subtle blue tint
+  const outHighlight = "rgba(214,85,65,0.15)";       // subtle red tint
 
   return (
     <div className={containerStyle(isDarkMode)}>
@@ -1452,9 +1506,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
               isDarkMode={isDarkMode}
               onClick={() => handleActionClick(action)}
               iconColor={colours.highlight}
-              {...(action.title === 'Confirm Attendance'
-                ? { confirmed: currentUserConfirmed }
-                : {})}
+              {...(action.title === 'Confirm Attendance' ? { confirmed: currentUserConfirmed } : {})}
             />
           ))}
         </div>
@@ -1474,11 +1526,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
               key={metric.title}
               title={metric.title}
               {...(metric.isMoneyOnly
-                ? {
-                    money: metric.money,
-                    prevMoney: metric.prevMoney,
-                    isMoneyOnly: metric.isMoneyOnly,
-                  }
+                ? { money: metric.money, prevMoney: metric.prevMoney, isMoneyOnly: metric.isMoneyOnly }
                 : metric.isTimeMoney
                 ? {
                     money: metric.money,
@@ -1489,10 +1537,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
                     showDial: metric.showDial,
                     dialTarget: metric.dialTarget,
                   }
-                : {
-                    count: metric.count,
-                    prevCount: metric.prevCount,
-                  })}
+                : { count: metric.count, prevCount: metric.prevCount })}
               isDarkMode={isDarkMode}
               animationDelay={index * 0.1}
             />
@@ -1513,23 +1558,10 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
               key={metric.title}
               title={metric.title}
               {...(metric.isMoneyOnly
-                ? {
-                    money: metric.money,
-                    prevMoney: metric.prevMoney,
-                    isMoneyOnly: metric.isMoneyOnly,
-                  }
+                ? { money: metric.money, prevMoney: metric.prevMoney, isMoneyOnly: metric.isMoneyOnly }
                 : metric.isTimeMoney
-                ? {
-                    money: metric.money,
-                    hours: metric.hours,
-                    prevMoney: metric.prevMoney,
-                    prevHours: metric.prevHours,
-                    isTimeMoney: metric.isTimeMoney,
-                  }
-                : {
-                    count: metric.count,
-                    prevCount: metric.prevCount,
-                  })}
+                ? { money: metric.money, hours: metric.hours, prevMoney: metric.prevMoney, prevHours: metric.prevHours, isTimeMoney: metric.isTimeMoney }
+                : { count: metric.count, prevCount: metric.prevCount })}
               isDarkMode={isDarkMode}
               animationDelay={index * 0.1}
             />
@@ -1544,9 +1576,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
             backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
             padding: '20px',
             borderRadius: '12px',
-            boxShadow: isDarkMode
-              ? `0 4px 12px ${colours.dark.border}`
-              : `0 4px 12px ${colours.light.border}`,
+            boxShadow: isDarkMode ? `0 4px 12px ${colours.dark.border}` : `0 4px 12px ${colours.light.border}`,
             transition: 'background-color 0.3s, box-shadow 0.3s',
             width: '100%',
             display: 'flex',
@@ -1554,16 +1584,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
             gap: '20px',
           })}
         >
-          <Text
-            className={mergeStyles({
-              fontWeight: '700',
-              fontSize: '24px',
-              color: isDarkMode ? colours.dark.text : colours.light.text,
-            })}
-          >
+          <Text className={mergeStyles({ fontWeight: '700', fontSize: '24px', color: isDarkMode ? colours.dark.text : colours.light.text })}>
             Favourites
           </Text>
-
           {formsFavorites.length > 0 && (
             <div>
               <div className={favouritesGridStyle}>
@@ -1573,8 +1596,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
                     link={form}
                     isFavorite
                     onCopy={(url: string, title: string) => {
-                      navigator.clipboard
-                        .writeText(url)
+                      navigator.clipboard.writeText(url)
                         .then(() => console.log(`Copied '${title}' to clipboard.`))
                         .catch((err) => console.error('Failed to copy: ', err));
                     }}
@@ -1592,7 +1614,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
               </div>
             </div>
           )}
-
           {resourcesFavorites.length > 0 && (
             <div>
               <div style={{ marginBottom: '15px' }}>
@@ -1605,15 +1626,12 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
                     resource={resource}
                     isFavorite
                     onCopy={(url: string, title: string) => {
-                      navigator.clipboard
-                        .writeText(url)
+                      navigator.clipboard.writeText(url)
                         .then(() => console.log(`Copied '${title}' to clipboard.`))
                         .catch((err) => console.error('Failed to copy: ', err));
                     }}
                     onToggleFavorite={() => {
-                      const updatedFavorites = resourcesFavorites.filter(
-                        (fav) => fav.title !== resource.title
-                      );
+                      const updatedFavorites = resourcesFavorites.filter((fav) => fav.title !== resource.title);
                       setResourcesFavorites(updatedFavorites);
                       localStorage.setItem('resourcesFavorites', JSON.stringify(updatedFavorites));
                     }}
@@ -1628,25 +1646,82 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
         </div>
       )}
 
-      {/* 
-        ------------------------------------------------
-        Consolidated Attendance Table has been MOVED!
-        ------------------------------------------------
-
-        Instead of placing all the attendance logic here,
-        we now simply import and render <Attendance />
-      */}
-      <Attendance
-        isDarkMode={isDarkMode}
-        isLoadingAttendance={isLoadingAttendance}
-        isLoadingAnnualLeave={isLoadingAnnualLeave}
-        attendanceError={attendanceError}
-        annualLeaveError={annualLeaveError}
-        attendanceRecords={attendanceRecords}
-        annualLeaveRecords={annualLeaveRecords}
-        futureLeaveRecords={futureLeaveRecords}
-        teamData={teamData}
-      />
+      {/* Consolidated Attendance Table */}
+      <div className={mergeStyles({ marginBottom: '40px' })}>
+        <div className={sectionContainerStyle(isDarkMode)}>
+          {isLoadingAttendance || isLoadingAnnualLeave ? (
+            <Spinner label="Loading attendance..." size={SpinnerSize.medium} />
+          ) : attendanceError || annualLeaveError ? (
+            <MessageBar messageBarType={MessageBarType.error}>{attendanceError || annualLeaveError}</MessageBar>
+          ) : (
+            <table
+              className={tableAnimationStyle}
+              style={{
+                width: '100%',
+                borderCollapse: 'separate',
+                borderSpacing: '0',
+                border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                borderRadius: '8px',
+                overflow: 'hidden',
+              }}
+            >
+              <thead>
+                <tr>
+                  <th style={{ border: '1px solid transparent', padding: '8px' }}></th>
+                  {attendancePersons.map(person => (
+                    <th
+                      key={person.initials}
+                      style={{
+                        border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                        padding: '8px',
+                        textAlign: 'center',
+                        backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+                      }}
+                    >
+                      <AttendancePersonaHeader person={person} />
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {weekDays.map((day, index) => {
+                  const dayDate = new Date(currentWeekMonday);
+                  dayDate.setDate(currentWeekMonday.getDate() + index);
+                  const cellDateStr = dayDate.toISOString().split('T')[0];
+                  const isCurrentDay = cellDateStr === todayStr;
+                  return (
+                    <tr key={day} style={isCurrentDay ? { backgroundColor: '#f0f8ff' } : {}}>
+                      <td style={{ border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`, padding: '8px', fontWeight: 'bold', backgroundColor: colours.reporting.tableHeaderBackground }}>
+                        {day}
+                      </td>
+                      {attendancePersons.map(person => {
+                        const status = getCellStatus(person.attendance, person.initials, day, cellDateStr);
+                        // For current day, cell background is tinted and the icon is forced white.
+                        const cellBg = isCurrentDay
+                          ? (status === 'in' ? inHighlight : status === 'wfh' ? wfhHighlight : outHighlight)
+                          : (isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground);
+                        return (
+                          <td
+                            key={person.initials}
+                            style={{
+                              border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                              padding: '8px',
+                              textAlign: 'center',
+                              backgroundColor: cellBg,
+                            }}
+                          >
+                            <AttendanceCell status={status} highlight={isCurrentDay} />
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
 
       {/* Contexts Panel */}
       <BespokePanel
@@ -1707,7 +1782,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
 };
 
 export default Home;
-
-function handleActionClick(arg0: { title: string; icon: string }): void {
+function handleActionClick(arg0: { title: string; icon: string; }): void {
   throw new Error('Function not implemented.');
 }

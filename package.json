@@ -12,7 +12,7 @@
     "@craco/craco": "^7.1.0",
     "@fluentui/react": "^8.122.9",
     "@fluentui/react-components": "^9.57.0",
-    "@microsoft/teams-js": "^2.31.1",
+    "@microsoft/teams-js": "^2.34.0",
     "@microsoft/teamsfx": "^2.2.0",
     "@microsoft/teamsfx-react": "^3.0.0",
     "@reduxjs/toolkit": "^2.3.0",
