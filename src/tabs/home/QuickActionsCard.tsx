@@ -1,5 +1,3 @@
-// src/tabs/home/QuickActionsCard.tsx
-
 import React from 'react';
 import { mergeStyles, Icon, Text } from '@fluentui/react';
 import { colours } from '../../app/styles/colours';
@@ -12,6 +10,8 @@ interface QuickActionsCardProps {
   onClick: () => void;
   iconColor?: string;
   confirmed?: boolean;
+  /** Optional inline style to allow passing a custom CSS variable for animation delay */
+  style?: React.CSSProperties;
 }
 
 const QuickActionsCard: React.FC<QuickActionsCardProps> = ({
@@ -21,6 +21,7 @@ const QuickActionsCard: React.FC<QuickActionsCardProps> = ({
   onClick,
   iconColor,
   confirmed,
+  style,
 }) => {
   // Base card style for a horizontal bar without circular icon backgrounds,
   // with increased size (approx. 20% larger)
@@ -60,21 +61,37 @@ const QuickActionsCard: React.FC<QuickActionsCardProps> = ({
     marginRight: '4px',
   });
 
-  // For the Confirm Attendance quick action, override the icon and styling.
+  // Override icon and styling based on action title.
   if (title === 'Confirm Attendance') {
     if (confirmed) {
-      // Show blue tick when confirmed (using the same size and blue as other quick actions)
+      // Show blue tick when confirmed.
       attendanceIconName = 'Accept';
       attendanceIconStyle = mergeStyles(attendanceIconStyle, { color: iconColor || colours.highlight });
     } else {
-      // Show red cross when not confirmed, with a red inner pulse effect.
+      // Show red cross when not confirmed, with a red pulse effect.
       attendanceIconName = 'Cancel';
       attendanceIconStyle = mergeStyles(attendanceIconStyle, {
-        color: 'red',
+        color: colours.red,
         animation: 'redPulse 2s infinite',
         boxShadow: 'inset 0 0 5px rgba(255,0,0,0.5)',
       });
     }
+  } else if (title === 'Approve Annual Leave') {
+    // Use a yellow "review" icon with pulsing yellow.
+    attendanceIconName = 'Warning';
+    attendanceIconStyle = mergeStyles(attendanceIconStyle, {
+      color: colours.yellow,
+      animation: 'yellowPulse 2s infinite',
+      boxShadow: 'inset 0 0 5px rgba(255,213,79,0.5)',
+    });
+  } else if (title === 'Book Requested Leave') {
+    // Use a green confirmation icon with pulsing green.
+    attendanceIconName = 'Accept';
+    attendanceIconStyle = mergeStyles(attendanceIconStyle, {
+      color: colours.green,
+      animation: 'greenPulse 2s infinite',
+      boxShadow: 'inset 0 0 5px rgba(16,124,16,0.5)',
+    });
   }
 
   // Text style with increased size
@@ -86,7 +103,8 @@ const QuickActionsCard: React.FC<QuickActionsCardProps> = ({
 
   return (
     <div
-      className={`quickActionCard ${combinedCardStyle}`}
+      className={mergeStyles("quickActionCard", combinedCardStyle)}
+      style={style}
       onClick={onClick}
       role="button"
       tabIndex={0}

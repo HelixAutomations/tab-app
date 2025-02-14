@@ -1,6 +1,12 @@
 // src/tabs/home/Home.tsx
 
-import React, { useState, useEffect, useMemo, ReactNode } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  ReactNode,
+  useRef, // ADDED
+} from 'react';
 import {
   mergeStyles,
   Text,
@@ -96,6 +102,91 @@ interface Person {
   presence: PersonaPresence;
   nickname?: string;
 }
+
+interface CollapsibleSectionProps {
+  title: string;
+  metrics: { title: string }[];
+  children: React.ReactNode;
+}
+
+interface CollapsibleSectionProps {
+  title: string;
+  metrics: { title: string }[];
+  children: React.ReactNode;
+}
+
+interface CollapsibleSectionProps {
+  title: string;
+  metrics: { title: string }[];
+  children: React.ReactNode;
+}
+
+interface CollapsibleSectionProps {
+  title: string;
+  metrics: { title: string }[];
+  children: React.ReactNode;
+}
+
+interface CollapsibleSectionProps {
+  title: string;
+  metrics: { title: string }[];
+  children: React.ReactNode;
+}
+
+const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({ title, metrics, children }) => {
+  // Start expanded by default
+  const [collapsed, setCollapsed] = useState(false);
+  const toggleCollapse = () => setCollapsed(!collapsed);
+
+  // Build the metric labels string (only used when collapsed)
+  const metricLabels = metrics.map(m => m.title).join(' | ');
+
+  return (
+    // Outer container with a drop shadow and rounded corners
+    <div
+      style={{
+        marginBottom: '20px',
+        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)',
+        borderRadius: '4px',
+        overflow: 'hidden'
+      }}
+    >
+      {/* Header */}
+      <div 
+        onClick={toggleCollapse} 
+        style={{
+          backgroundColor: colours.darkBlue,
+          color: '#ffffff',
+          padding: '10px 15px',
+          cursor: 'pointer',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}
+      >
+        <span style={{ fontWeight: 600 }}>
+          {title}
+          {collapsed && metrics.length > 0 && (
+            <span style={{ marginLeft: '10px' }}>{metricLabels}</span>
+          )}
+        </span>
+        <span>{collapsed ? '▼' : '▲'}</span>
+      </div>
+      {/* Content */}
+      {!collapsed && (
+        <div 
+          style={{
+            padding: '10px 15px',
+            backgroundColor: colours.light.sectionBackground
+          }}
+        >
+          {children}
+        </div>
+      )}
+    </div>
+  );
+};
+
 
 //////////////////////
 // Quick Actions Order
@@ -402,6 +493,9 @@ let cachedTeamData: any[] | null = null;
 let cachedAnnualLeave: AnnualLeaveRecord[] | null = null;
 let cachedAnnualLeaveError: string | null = null;
 
+// ADDED: store future leave in module-level cache so we can restore on remount
+let cachedFutureLeaveRecords: AnnualLeaveRecord[] | null = null; // ADDED
+
 let cachedWipClio: any | null = null;
 let cachedWipClioError: string | null = null;
 let cachedRecovered: number | null = null;
@@ -493,6 +587,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
     </Stack>
   );
 
+  // ADDED: Store user initials so they don't reset on remount
+  const storedUserInitials = useRef<string | null>(null); // ADDED
+
   // State declarations...
   const [greeting, setGreeting] = useState<string>('');
   const [typedGreeting, setTypedGreeting] = useState<string>('');
@@ -502,14 +599,20 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
   const [todaysTasks, setTodaysTasks] = useState<number>(10);
   const [tasksDueThisWeek, setTasksDueThisWeek] = useState<number>(20);
   const [completedThisWeek, setCompletedThisWeek] = useState<number>(15);
-  const [recordedTime, setRecordedTime] = useState<{ hours: number; money: number }>({ hours: 120, money: 1000 });
+  const [recordedTime, setRecordedTime] = useState<{ hours: number; money: number }>({
+    hours: 120,
+    money: 1000,
+  });
   const [prevEnquiriesToday, setPrevEnquiriesToday] = useState<number>(8);
   const [prevEnquiriesWeekToDate, setPrevEnquiriesWeekToDate] = useState<number>(18);
   const [prevEnquiriesMonthToDate, setPrevEnquiriesMonthToDate] = useState<number>(950);
   const [prevTodaysTasks, setPrevTodaysTasks] = useState<number>(12);
   const [prevTasksDueThisWeek, setPrevTasksDueThisWeek] = useState<number>(18);
   const [prevCompletedThisWeek, setPrevCompletedThisWeek] = useState<number>(17);
-  const [prevRecordedTime, setPrevRecordedTime] = useState<{ hours: number; money: number }>({ hours: 110, money: 900 });
+  const [prevRecordedTime, setPrevRecordedTime] = useState<{ hours: number; money: number }>({
+    hours: 110,
+    money: 900,
+  });
   const [isContextsExpanded, setIsContextsExpanded] = useState<boolean>(false);
   const [formsFavorites, setFormsFavorites] = useState<FormItem[]>([]);
   const [resourcesFavorites, setResourcesFavorites] = useState<Resource[]>([]);
@@ -544,6 +647,19 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
   const [allMattersError, setAllMattersError] = useState<string | null>(null);
   const [isLoadingAllMatters, setIsLoadingAllMatters] = useState<boolean>(false);
 
+  const [timeMetricsCollapsed, setTimeMetricsCollapsed] = useState(false);
+  const [conversionMetricsCollapsed, setConversionMetricsCollapsed] = useState(false);
+
+  // ADDED: userInitials logic - store in ref so it doesn't reset on re-render.
+  const rawUserInitials = userData?.[0]?.Initials || '';
+  useEffect(() => {
+    if (rawUserInitials) {
+      storedUserInitials.current = rawUserInitials;
+    }
+  }, [rawUserInitials]);
+  // Now anywhere we used userInitials, we can do:
+  const userInitials = storedUserInitials.current || rawUserInitials;
+
   useEffect(() => {
     const fetchBankHolidays = async () => {
       try {
@@ -563,46 +679,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
       }
     };
     fetchBankHolidays();
-  }, []);
-
-  useEffect(() => {
-    const styles = `
-@keyframes redPulse {
-  0% { box-shadow: inset 0 0 0 0 rgba(255,0,0,0.4); }
-  70% { box-shadow: inset 0 0 0 10px rgba(255,0,0,0); }
-  100% { box-shadow: inset 0 0 0 0 rgba(255,0,0,0); }
-}
-@keyframes fadeInUp {
-  0% { opacity: 0; transform: translateY(20px); }
-  100% { opacity: 1; transform: translateY(0); }
-}
-@keyframes fadeInFromTopLeft {
-  0% { opacity: 0; transform: translate(-20px,-20px); }
-  100% { opacity: 1; transform: translate(0,0); }
-}
-@keyframes fadeInFromTopRight {
-  0% { opacity: 0; transform: translate(20px,-20px); }
-  100% { opacity: 1; transform: translate(0,0); }
-}
-@keyframes fadeInFromBottomLeft {
-  0% { opacity: 0; transform: translate(-20px,20px); }
-  100% { opacity: 1; transform: translate(0,0); }
-}
-@keyframes fadeInFromBottomRight {
-  0% { opacity: 0; transform: translate(20px,20px); }
-  100% { opacity: 1; transform: translate(0,0); }
-}
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}`;
-    const styleSheet = document.createElement('style');
-    styleSheet.type = 'text/css';
-    styleSheet.innerText = styles;
-    document.head.appendChild(styleSheet);
-    return () => {
-      document.head.removeChild(styleSheet);
-    };
   }, []);
 
   useEffect(() => {
@@ -710,17 +786,18 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
   }, [greeting]);
 
   useEffect(() => {
-    if (
-      cachedAttendance ||
-      cachedAttendanceError ||
-      cachedAnnualLeave ||
-      cachedAnnualLeaveError
-    ) {
+    // ADDED: Restore from cache immediately
+    if (cachedAttendance || cachedAttendanceError || cachedAnnualLeave || cachedAnnualLeaveError) {
+      // If data is cached, restore it straight away
       setAttendanceRecords(cachedAttendance || []);
       setTeamData(cachedTeamData || []);
       setAttendanceError(cachedAttendanceError);
+
       setAnnualLeaveRecords(cachedAnnualLeave || []);
+      // ADDED: Also restore future leave if cached
+      setFutureLeaveRecords(cachedFutureLeaveRecords || []); // ADDED
       setAnnualLeaveError(cachedAnnualLeaveError);
+
       setIsLoadingAttendance(false);
       setIsLoadingAnnualLeave(false);
       setIsActionsLoading(false);
@@ -762,30 +839,39 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
             throw new Error(`Failed to fetch annual leave: ${annualLeaveResponse.status}`);
           const annualLeaveData = await annualLeaveResponse.json();
           if (annualLeaveData && Array.isArray(annualLeaveData.annual_leave)) {
-            const mappedAnnualLeave: AnnualLeaveRecord[] = annualLeaveData.annual_leave.map((rec: any) => ({
-              person: rec.person,
-              start_date: rec.start_date,
-              end_date: rec.end_date,
-              reason: rec.reason,
-              status: rec.status,
-              id: rec.request_id ? String(rec.request_id) : rec.id || `temp-${rec.start_date}-${rec.end_date}`,
-              rejection_notes: rec.rejection_notes || undefined,
-              approvers: ensureLZInApprovers(rec.approvers),
-            }));
-            cachedAnnualLeave = mappedAnnualLeave;
-            setAnnualLeaveRecords(mappedAnnualLeave);
-
-            if (Array.isArray(annualLeaveData.future_leave)) {
-              const mappedFutureLeave: AnnualLeaveRecord[] = annualLeaveData.future_leave.map((rec: any) => ({
+            const mappedAnnualLeave: AnnualLeaveRecord[] = annualLeaveData.annual_leave.map(
+              (rec: any) => ({
                 person: rec.person,
                 start_date: rec.start_date,
                 end_date: rec.end_date,
                 reason: rec.reason,
                 status: rec.status,
-                id: rec.request_id ? String(rec.request_id) : rec.id || `temp-${rec.start_date}-${rec.end_date}`,
+                id: rec.request_id
+                  ? String(rec.request_id)
+                  : rec.id || `temp-${rec.start_date}-${rec.end_date}`,
                 rejection_notes: rec.rejection_notes || undefined,
                 approvers: ensureLZInApprovers(rec.approvers),
-              }));
+              })
+            );
+            cachedAnnualLeave = mappedAnnualLeave;
+            setAnnualLeaveRecords(mappedAnnualLeave);
+
+            if (Array.isArray(annualLeaveData.future_leave)) {
+              const mappedFutureLeave: AnnualLeaveRecord[] = annualLeaveData.future_leave.map(
+                (rec: any) => ({
+                  person: rec.person,
+                  start_date: rec.start_date,
+                  end_date: rec.end_date,
+                  reason: rec.reason,
+                  status: rec.status,
+                  id: rec.request_id
+                    ? String(rec.request_id)
+                    : rec.id || `temp-${rec.start_date}-${rec.end_date}`,
+                  rejection_notes: rec.rejection_notes || undefined,
+                  approvers: ensureLZInApprovers(rec.approvers),
+                })
+              );
+              cachedFutureLeaveRecords = mappedFutureLeave; // ADDED
               setFutureLeaveRecords(mappedFutureLeave);
             }
 
@@ -810,12 +896,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
   }, [userData]);
 
   useEffect(() => {
-    if (
-      cachedWipClio ||
-      cachedWipClioError ||
-      cachedRecovered ||
-      cachedRecoveredError
-    ) {
+    if (cachedWipClio || cachedWipClioError || cachedRecovered || cachedRecoveredError) {
       setWipClioData(cachedWipClio);
       setWipClioError(cachedWipClioError);
       setRecoveredData(cachedRecovered);
@@ -956,23 +1037,17 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
 
 // --- Updated Confirm Attendance snippet ---
 
-// 1. Grab user’s initials from userData
-const userInitials = userData?.[0]?.Initials || '';
-
-// 2. Find matching person in teamData (so we know which 'name' is used in attendance)
+// 1. Grab user’s initials from userData (Now done via rawUserInitials + storedUserInitials above)
 const matchingTeamMember = teamData.find(
   (member: any) => (member.Initials || '').toLowerCase() === userInitials.toLowerCase()
 );
 
-// 3. That person’s name for attendance
 const attendanceName = matchingTeamMember ? matchingTeamMember.First : '';
 
-// 4. Find the user’s record in attendanceRecords by that name
 const currentUserRecord = attendanceRecords.find(
   (record: any) => (record.name || '').toLowerCase() === attendanceName.toLowerCase()
 );
 
-// 5. Decide if they’re “confirmed” – for example, if there’s any “attendance” data in the current week
 const currentUserConfirmed = !!(
   currentUserRecord &&
   Object.values(currentUserRecord.weeks || {}).some(
@@ -980,7 +1055,6 @@ const currentUserConfirmed = !!(
   )
 );
 
-// 6. Final button text
 const officeAttendanceButtonText = currentUserConfirmed
   ? 'Update Attendance'
   : 'Confirm Attendance';
@@ -1017,7 +1091,6 @@ const officeAttendanceButtonText = currentUserConfirmed
       });
   }, [teamData, attendanceRecords]);
 
-  // --- Updated metricsData useMemo ---
   const metricsData = useMemo(() => {
     const currentDate = new Date();
     const currentMonth = currentDate.getMonth();
@@ -1076,13 +1149,12 @@ const officeAttendanceButtonText = currentUserConfirmed
       return days;
     };
     const workWeekDays = getWorkWeekDays();
-    const userInitials = userData?.[0]?.Initials || '';
     let leaveDays = 0;
-    workWeekDays.forEach(day => {
+    workWeekDays.forEach((day) => {
       const dayString = day.toISOString().split('T')[0];
       if (
         annualLeaveRecords.some(
-          rec =>
+          (rec) =>
             rec.status === 'booked' &&
             rec.person.toLowerCase() === userInitials.toLowerCase() &&
             dayString >= rec.start_date &&
@@ -1170,6 +1242,7 @@ const officeAttendanceButtonText = currentUserConfirmed
     annualLeaveRecords,
     userData,
     allMatters,
+    userInitials, // ADDED so we recalc if userInitials changes
   ]);
   const timeMetrics = metricsData.slice(0, 4);
   const enquiryMetrics = metricsData.slice(4);
@@ -1180,6 +1253,7 @@ const officeAttendanceButtonText = currentUserConfirmed
   }, [annualLeaveRecords, futureLeaveRecords]);
 
   const APPROVERS = ['AC', 'JW', 'LZ'];
+  // MODIFIED: using userInitials from the ref
   const isApprover = APPROVERS.includes(userInitials);
 
   const approvalsNeeded = useMemo(
@@ -1207,16 +1281,16 @@ const officeAttendanceButtonText = currentUserConfirmed
     console.log('Approvals Needed:', approvalsNeeded);
   }, [approvalsNeeded]);
 
-  // Quick action button styles remain unchanged.
+  // Quick action button styles
   const approveButtonStyles = {
     root: {
-      backgroundColor: '#FFD700 !important',
+      backgroundColor: '#FFD700 !important', // Yellow background
       border: 'none !important',
       height: '40px !important',
       fontWeight: '600',
       borderRadius: '4px !important',
       padding: '6px 12px !important',
-      animation: `redPulse 2s infinite !important`,
+      animation: `yellowPulse 2s infinite !important`, // Use yellowPulse animation
       transition: 'box-shadow 0.3s, transform 0.3s, background 0.3s ease !important',
       whiteSpace: 'nowrap',
       width: 'auto',
@@ -1226,13 +1300,13 @@ const officeAttendanceButtonText = currentUserConfirmed
 
   const bookButtonStyles = {
     root: {
-      backgroundColor: '#28a745 !important',
+      backgroundColor: '#28a745 !important', // Green background
       border: 'none !important',
       height: '40px !important',
       fontWeight: '600',
       borderRadius: '4px !important',
       padding: '6px 12px !important',
-      animation: `redPulse 2s infinite !important`,
+      animation: `greenPulse 2s infinite !important`, // Use greenPulse animation
       transition: 'box-shadow 0.3s, transform 0.3s, background 0.3s ease !important',
       whiteSpace: 'nowrap',
       width: 'auto',
@@ -1307,15 +1381,16 @@ const officeAttendanceButtonText = currentUserConfirmed
       actions.push({
         title: 'Book Requested Leave',
         onClick: handleBookLeaveClick,
-        icon: 'Clock',
+        icon: 'Accept',
         styles: bookButtonStyles,
       });
     }
     return actions;
   }, [isApprover, approvalsNeeded, bookingsNeeded, approveButtonStyles, bookButtonStyles]);
 
+  // Build immediate actions list
   let immediateActionsList: { title: string; onClick: () => void; icon?: string }[] = [];
-  if (!currentUserConfirmed) {
+  if (!isLoadingAttendance && !currentUserConfirmed) {
     immediateActionsList.push({
       title: 'Confirm Attendance',
       icon: 'Cancel',
@@ -1324,7 +1399,58 @@ const officeAttendanceButtonText = currentUserConfirmed
   }
   immediateActionsList = immediateActionsList.concat(immediateALActions);
   // Sort immediate actions by the predefined order.
-  immediateActionsList.sort((a, b) => (quickActionOrder[a.title] || 99) - (quickActionOrder[b.title] || 99));
+  immediateActionsList.sort(
+    (a, b) => (quickActionOrder[a.title] || 99) - (quickActionOrder[b.title] || 99)
+  );
+
+  function handleActionClick(action: { title: string; icon: string }) {
+    let content: React.ReactNode = <div>No form available.</div>;
+    const titleText = action.title;
+  
+    switch (titleText) {
+      case "Confirm Attendance":
+      case "Update Attendance":
+        // The same form
+        content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="109" />;
+        break;
+      case 'Create a Task':
+        content = <Tasking />;
+        break;
+      case 'Request CollabSpace':
+        content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="44" />;
+        break;
+      case 'Save Telephone Note':
+        content = <TelephoneAttendance />;
+        break;
+      case 'Save Attendance Note':
+        content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="38" />;
+        break;
+      case 'Request ID':
+        content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="60" />;
+        break;
+      case 'Open a Matter':
+        content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="9" />;
+        break;
+      case 'Request Annual Leave':
+        content = (
+          <AnnualLeaveForm
+            futureLeave={futureLeaveRecords}
+            team={teamData}
+            userData={userData}
+            totals={annualLeaveTotals}
+            bankHolidays={bankHolidays}
+          />
+        );
+        break;
+      default:
+        content = <div>No form available.</div>;
+        break;
+    }
+  
+    setBespokePanelContent(content);
+    setBespokePanelTitle(titleText);
+    setIsBespokePanelOpen(true);
+  }  
 
   let normalQuickActions = quickActions
     .filter((action) => {
@@ -1343,7 +1469,9 @@ const officeAttendanceButtonText = currentUserConfirmed
       return action;
     });
   // Sort normal actions by order.
-  normalQuickActions.sort((a, b) => (quickActionOrder[a.title] || 99) - (quickActionOrder[b.title] || 99));
+  normalQuickActions.sort(
+    (a, b) => (quickActionOrder[a.title] || 99) - (quickActionOrder[b.title] || 99)
+  );
 
   // Consolidated Attendance Table – helper functions and components
   const getMondayOfCurrentWeek = (): Date => {
@@ -1359,7 +1487,11 @@ const officeAttendanceButtonText = currentUserConfirmed
     const monday = getMondayOfCurrentWeek();
     const sunday = new Date(monday);
     sunday.setDate(monday.getDate() + 6);
-    const options: Intl.DateTimeFormatOptions = { day: '2-digit', month: '2-digit', year: 'numeric' };
+    const options: Intl.DateTimeFormatOptions = {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    };
     const mondayStr = monday.toLocaleDateString('en-GB', options);
     const sundayStr = sunday.toLocaleDateString('en-GB', options);
     const mondayName = monday.toLocaleDateString('en-GB', { weekday: 'long' });
@@ -1373,26 +1505,38 @@ const officeAttendanceButtonText = currentUserConfirmed
   const currentWeekMonday = getMondayOfCurrentWeek();
   const todayStr = new Date().toISOString().split('T')[0];
 
-  // Build attendancePersons from the new attendanceRecords structure.
   const attendancePersons = useMemo(() => {
-    return attendanceRecords.map((rec: any) => {
-      const teamMember = teamData.find((member: any) => member.First.toLowerCase() === rec.name.toLowerCase());
-      return {
-        name: rec.name,
-        initials: teamMember ? teamMember.Initials : rec.name,
-        nickname: teamMember ? teamMember.Nickname : rec.name,
-        attendance: rec.weeks && rec.weeks[currentWeekKey] ? rec.weeks[currentWeekKey].attendance : "",
-      };
-    }).sort((a: any, b: any) => a.name.localeCompare(b.name));
+    return attendanceRecords
+      .map((rec: any) => {
+        const teamMember = teamData.find(
+          (member: any) => member.First.toLowerCase() === rec.name.toLowerCase()
+        );
+        return {
+          name: rec.name,
+          initials: teamMember ? teamMember.Initials : rec.name,
+          nickname: teamMember ? teamMember.Nickname : rec.name,
+          attendance:
+            rec.weeks && rec.weeks[currentWeekKey] ? rec.weeks[currentWeekKey].attendance : '',
+        };
+      })
+      .sort((a: any, b: any) => a.name.localeCompare(b.name));
   }, [attendanceRecords, teamData, currentWeekKey]);
 
-  // getCellStatus uses person initials.
-  const getCellStatus = (personAttendance: string, personInitials: string, day: string, cellDateStr: string): 'in' | 'wfh' | 'out' => {
-    if (combinedLeaveRecords.some((leave) =>
-         leave.status === 'booked' &&
-         leave.person.trim().toLowerCase() === personInitials.trim().toLowerCase() &&
-         cellDateStr >= leave.start_date && cellDateStr <= leave.end_date
-       )) {
+  const getCellStatus = (
+    personAttendance: string,
+    personInitials: string,
+    day: string,
+    cellDateStr: string
+  ): 'in' | 'wfh' | 'out' => {
+    if (
+      combinedLeaveRecords.some(
+        (leave) =>
+          leave.status === 'booked' &&
+          leave.person.trim().toLowerCase() === personInitials.trim().toLowerCase() &&
+          cellDateStr >= leave.start_date &&
+          cellDateStr <= leave.end_date
+      )
+    ) {
       return 'out';
     }
     const attendedDays = personAttendance ? personAttendance.split(',').map((s: string) => s.trim()) : [];
@@ -1402,8 +1546,10 @@ const officeAttendanceButtonText = currentUserConfirmed
     return 'wfh';
   };
 
-  // AttendanceCell now accepts a highlight prop. If highlighted, the icon color is forced white.
-  const AttendanceCell: React.FC<{ status: 'in' | 'wfh' | 'out'; highlight?: boolean }> = ({ status, highlight = false }) => {
+  const AttendanceCell: React.FC<{ status: 'in' | 'wfh' | 'out'; highlight?: boolean }> = ({
+    status,
+    highlight = false,
+  }) => {
     let iconName = 'Home';
     if (status === 'in') {
       iconName = 'Accept';
@@ -1411,14 +1557,20 @@ const officeAttendanceButtonText = currentUserConfirmed
       iconName = 'Airplane';
     }
     return (
-      <Icon iconName={iconName} styles={{ root: { fontSize: '24px', color: highlight ? '#fff' : '#666' } }} />
+      <Icon
+        iconName={iconName}
+        styles={{ root: { fontSize: '24px', color: highlight ? '#fff' : '#666' } }}
+      />
     );
   };
 
-  // Header: show name above avatar in a column with a subtle bubble.
-  const AttendancePersonaHeader: React.FC<{ person: { name: string; initials: string; nickname: string; attendance: string } }> = ({ person }) => {
+  const AttendancePersonaHeader: React.FC<{
+    person: { name: string; initials: string; nickname: string; attendance: string };
+  }> = ({ person }) => {
     const todayDate = new Date();
-    let diffDays = Math.floor((todayDate.getTime() - currentWeekMonday.getTime()) / (1000 * 3600 * 24));
+    let diffDays = Math.floor(
+      (todayDate.getTime() - currentWeekMonday.getTime()) / (1000 * 3600 * 24)
+    );
     let todayWeekday = 'Monday';
     if (diffDays >= 0 && diffDays < 5) {
       todayWeekday = weekDays[diffDays];
@@ -1431,42 +1583,59 @@ const officeAttendanceButtonText = currentUserConfirmed
       imageUrl = OutImg;
     }
     return (
-      <div style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        gap: '4px'
-      }}>
-        <div style={{
-          backgroundColor: isDarkMode ? colours.dark.grey || '#3a3a3a' : colours.light.grey || '#F4F4F6',
-          padding: '4px 8px',
-          borderRadius: '8px'
-        }}>
-          <Text variant="small" styles={{ root: { color: isDarkMode ? colours.dark.text : colours.light.text } }}>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: '4px',
+        }}
+      >
+        <div
+          style={{
+            backgroundColor: isDarkMode ? colours.dark.grey || '#3a3a3a' : colours.light.grey || '#F4F4F6',
+            padding: '4px 8px',
+            borderRadius: '8px',
+          }}
+        >
+          <Text
+            variant="small"
+            styles={{ root: { color: isDarkMode ? colours.dark.text : colours.light.text } }}
+          >
             {person.nickname || person.name}
           </Text>
         </div>
-        <Persona text="" imageUrl={imageUrl} size={PersonaSize.size40} hidePersonaDetails styles={{ root: { margin: '0 auto' } }} />
+        <Persona
+          text=""
+          imageUrl={imageUrl}
+          size={PersonaSize.size40}
+          hidePersonaDetails
+          styles={{ root: { margin: '0 auto' } }}
+        />
       </div>
     );
   };
 
-  // Define subtle highlight colours for the entire row.
-  const inHighlight = "rgba(16,124,16,0.15)";      // subtle green tint
-  const wfhHighlight = "rgba(54,144,206,0.15)";      // subtle blue tint
-  const outHighlight = "rgba(214,85,65,0.15)";       // subtle red tint
+  const inHighlight = 'rgba(16,124,16,0.15)'; // subtle green tint
+  const wfhHighlight = 'rgba(54,144,206,0.15)'; // subtle blue tint
+  const outHighlight = 'rgba(214,85,65,0.15)'; // subtle red tint
 
   return (
     <div className={containerStyle(isDarkMode)}>
       {/* Header: Greeting only */}
-      <Stack horizontal horizontalAlign="space-between" verticalAlign="start" className={headerStyle}>
+      <Stack
+        horizontal
+        horizontalAlign="space-between"
+        verticalAlign="start"
+        className={headerStyle}
+      >
         <Stack verticalAlign="start" tokens={{ childrenGap: 8 }}>
           <Text className={greetingStyle(isDarkMode)}>{typedGreeting}</Text>
           {!isActionsLoading && (approvalsNeeded.length > 0 || bookingsNeeded.length > 0) && (
             <Text className={`${reviewMessageStyle(isDarkMode)} ${fadeInAnimationStyle}`}>
               You have items to review
               <Icon
-                iconName="ChevronRight"
+                iconName="ChevronDown"
                 aria-hidden="true"
                 styles={{
                   root: {
@@ -1486,7 +1655,7 @@ const officeAttendanceButtonText = currentUserConfirmed
         style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
       >
         <div style={{ display: 'flex', gap: '10px' }}>
-          {immediateActionsList.map((action) => (
+          {immediateActionsList.map((action, index) => (
             <QuickActionsCard
               key={action.title}
               title={action.title}
@@ -1494,11 +1663,12 @@ const officeAttendanceButtonText = currentUserConfirmed
               isDarkMode={isDarkMode}
               onClick={action.onClick}
               iconColor={colours.highlight}
+              style={{ '--card-index': index } as React.CSSProperties}
             />
           ))}
         </div>
         <div style={{ display: 'flex', gap: '10px' }}>
-          {normalQuickActions.map((action) => (
+          {normalQuickActions.map((action, index) => (
             <QuickActionsCard
               key={action.title}
               title={action.title === 'Confirm Attendance' ? 'Update Attendance' : action.title}
@@ -1506,77 +1676,101 @@ const officeAttendanceButtonText = currentUserConfirmed
               isDarkMode={isDarkMode}
               onClick={() => handleActionClick(action)}
               iconColor={colours.highlight}
+              style={{ '--card-index': index } as React.CSSProperties}
               {...(action.title === 'Confirm Attendance' ? { confirmed: currentUserConfirmed } : {})}
             />
           ))}
         </div>
       </div>
 
-      {/* Metrics Section */}
-      <div className={mergeStyles({ marginBottom: '40px' })}>
-        <div
-          className={mergeStyles({
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
-            gap: '20px',
-          })}
-        >
-          {timeMetrics.map((metric, index) => (
-            <MetricCard
-              key={metric.title}
-              title={metric.title}
-              {...(metric.isMoneyOnly
-                ? { money: metric.money, prevMoney: metric.prevMoney, isMoneyOnly: metric.isMoneyOnly }
-                : metric.isTimeMoney
-                ? {
-                    money: metric.money,
-                    hours: metric.hours,
-                    prevMoney: metric.prevMoney,
-                    prevHours: metric.prevHours,
-                    isTimeMoney: metric.isTimeMoney,
-                    showDial: metric.showDial,
-                    dialTarget: metric.dialTarget,
-                  }
-                : { count: metric.count, prevCount: metric.prevCount })}
-              isDarkMode={isDarkMode}
-              animationDelay={index * 0.1}
-            />
-          ))}
-        </div>
+      {/* Metrics Section Container */}
+      <div
+        style={{
+          backgroundColor: '#ffffff',
+          padding: '20px',
+          borderRadius: '8px',
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+          marginBottom: '40px'
+        }}
+      >
+        {/* Time Metrics Section */}
+        <CollapsibleSection title="Time Metrics" metrics={timeMetrics.map(m => ({ title: m.title }))}>
+          <div
+            className={mergeStyles({
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+              gap: '20px'
+            })}
+          >
+            {timeMetrics.map((metric, index) => (
+              <MetricCard
+                key={metric.title}
+                title={metric.title}
+                {...(metric.isMoneyOnly
+                  ? { money: metric.money, prevMoney: metric.prevMoney, isMoneyOnly: metric.isMoneyOnly }
+                  : metric.isTimeMoney
+                  ? {
+                      money: metric.money,
+                      hours: metric.hours,
+                      prevMoney: metric.prevMoney,
+                      prevHours: metric.prevHours,
+                      isTimeMoney: metric.isTimeMoney,
+                      showDial: metric.showDial,
+                      dialTarget: metric.dialTarget
+                    }
+                  : { count: metric.count, prevCount: metric.prevCount })}
+                isDarkMode={isDarkMode}
+                animationDelay={index * 0.1}
+              />
+            ))}
+          </div>
+        </CollapsibleSection>
+
+        {/* Conversion Metrics Section */}
+        <CollapsibleSection title="Conversion Metrics" metrics={enquiryMetrics.map(m => ({ title: m.title }))}>
+          <div
+            className={mergeStyles({
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+              gap: '20px'
+            })}
+          >
+            {enquiryMetrics.map((metric, index) => (
+              <MetricCard
+                key={metric.title}
+                title={metric.title}
+                {...(metric.isMoneyOnly
+                  ? { money: metric.money, prevMoney: metric.prevMoney, isMoneyOnly: metric.isMoneyOnly }
+                  : metric.isTimeMoney
+                  ? {
+                      money: metric.money,
+                      hours: metric.hours,
+                      prevMoney: metric.prevMoney,
+                      prevHours: metric.prevHours,
+                      isTimeMoney: metric.isTimeMoney
+                    }
+                  : { count: metric.count, prevCount: metric.prevCount })}
+                isDarkMode={isDarkMode}
+                animationDelay={index * 0.1}
+              />
+            ))}
+          </div>
+        </CollapsibleSection>
       </div>
 
-      <div className={mergeStyles({ marginBottom: '40px' })}>
-        <div
-          className={mergeStyles({
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
-            gap: '20px',
-          })}
-        >
-          {enquiryMetrics.map((metric, index) => (
-            <MetricCard
-              key={metric.title}
-              title={metric.title}
-              {...(metric.isMoneyOnly
-                ? { money: metric.money, prevMoney: metric.prevMoney, isMoneyOnly: metric.isMoneyOnly }
-                : metric.isTimeMoney
-                ? { money: metric.money, hours: metric.hours, prevMoney: metric.prevMoney, prevHours: metric.prevHours, isTimeMoney: metric.isTimeMoney }
-                : { count: metric.count, prevCount: metric.prevCount })}
-              isDarkMode={isDarkMode}
-              animationDelay={index * 0.1}
-            />
-          ))}
-        </div>
-      </div>
 
       {/* Favourites Section */}
       {(formsFavorites.length > 0 || resourcesFavorites.length > 0) && (
         <div
           className={mergeStyles({
-            backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+            backgroundColor: isDarkMode
+              ? colours.dark.sectionBackground
+              : colours.light.sectionBackground,
             padding: '20px',
             borderRadius: '12px',
-            boxShadow: isDarkMode ? `0 4px 12px ${colours.dark.border}` : `0 4px 12px ${colours.light.border}`,
+            boxShadow: isDarkMode
+              ? `0 4px 12px ${colours.dark.border}`
+              : `0 4px 12px ${colours.light.border}`,
             transition: 'background-color 0.3s, box-shadow 0.3s',
             width: '100%',
             display: 'flex',
@@ -1584,7 +1778,13 @@ const officeAttendanceButtonText = currentUserConfirmed
             gap: '20px',
           })}
         >
-          <Text className={mergeStyles({ fontWeight: '700', fontSize: '24px', color: isDarkMode ? colours.dark.text : colours.light.text })}>
+          <Text
+            className={mergeStyles({
+              fontWeight: '700',
+              fontSize: '24px',
+              color: isDarkMode ? colours.dark.text : colours.light.text,
+            })}
+          >
             Favourites
           </Text>
           {formsFavorites.length > 0 && (
@@ -1596,15 +1796,21 @@ const officeAttendanceButtonText = currentUserConfirmed
                     link={form}
                     isFavorite
                     onCopy={(url: string, title: string) => {
-                      navigator.clipboard.writeText(url)
+                      navigator.clipboard
+                        .writeText(url)
                         .then(() => console.log(`Copied '${title}' to clipboard.`))
                         .catch((err) => console.error('Failed to copy: ', err));
                     }}
                     onSelect={() => setSelectedForm(form)}
                     onToggleFavorite={() => {
-                      const updatedFavorites = formsFavorites.filter((fav) => fav.title !== form.title);
+                      const updatedFavorites = formsFavorites.filter(
+                        (fav) => fav.title !== form.title
+                      );
                       setFormsFavorites(updatedFavorites);
-                      localStorage.setItem('formsFavorites', JSON.stringify(updatedFavorites));
+                      localStorage.setItem(
+                        'formsFavorites',
+                        JSON.stringify(updatedFavorites)
+                      );
                     }}
                     onGoTo={() => window.open(form.url, '_blank')}
                     animationDelay={index * 0.1}
@@ -1626,14 +1832,20 @@ const officeAttendanceButtonText = currentUserConfirmed
                     resource={resource}
                     isFavorite
                     onCopy={(url: string, title: string) => {
-                      navigator.clipboard.writeText(url)
+                      navigator.clipboard
+                        .writeText(url)
                         .then(() => console.log(`Copied '${title}' to clipboard.`))
                         .catch((err) => console.error('Failed to copy: ', err));
                     }}
                     onToggleFavorite={() => {
-                      const updatedFavorites = resourcesFavorites.filter((fav) => fav.title !== resource.title);
+                      const updatedFavorites = resourcesFavorites.filter(
+                        (fav) => fav.title !== resource.title
+                      );
                       setResourcesFavorites(updatedFavorites);
-                      localStorage.setItem('resourcesFavorites', JSON.stringify(updatedFavorites));
+                      localStorage.setItem(
+                        'resourcesFavorites',
+                        JSON.stringify(updatedFavorites)
+                      );
                     }}
                     onGoTo={() => window.open(resource.url, '_blank')}
                     onSelect={() => setSelectedResource(resource)}
@@ -1652,7 +1864,9 @@ const officeAttendanceButtonText = currentUserConfirmed
           {isLoadingAttendance || isLoadingAnnualLeave ? (
             <Spinner label="Loading attendance..." size={SpinnerSize.medium} />
           ) : attendanceError || annualLeaveError ? (
-            <MessageBar messageBarType={MessageBarType.error}>{attendanceError || annualLeaveError}</MessageBar>
+            <MessageBar messageBarType={MessageBarType.error}>
+              {attendanceError || annualLeaveError}
+            </MessageBar>
           ) : (
             <table
               className={tableAnimationStyle}
@@ -1660,7 +1874,9 @@ const officeAttendanceButtonText = currentUserConfirmed
                 width: '100%',
                 borderCollapse: 'separate',
                 borderSpacing: '0',
-                border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                border: `1px solid ${
+                  isDarkMode ? colours.dark.border : colours.light.border
+                }`,
                 borderRadius: '8px',
                 overflow: 'hidden',
               }}
@@ -1668,14 +1884,18 @@ const officeAttendanceButtonText = currentUserConfirmed
               <thead>
                 <tr>
                   <th style={{ border: '1px solid transparent', padding: '8px' }}></th>
-                  {attendancePersons.map(person => (
+                  {attendancePersons.map((person) => (
                     <th
                       key={person.initials}
                       style={{
-                        border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                        border: `1px solid ${
+                          isDarkMode ? colours.dark.border : colours.light.border
+                        }`,
                         padding: '8px',
                         textAlign: 'center',
-                        backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+                        backgroundColor: isDarkMode
+                          ? colours.dark.sectionBackground
+                          : colours.light.sectionBackground,
                       }}
                     >
                       <AttendancePersonaHeader person={person} />
@@ -1691,20 +1911,41 @@ const officeAttendanceButtonText = currentUserConfirmed
                   const isCurrentDay = cellDateStr === todayStr;
                   return (
                     <tr key={day} style={isCurrentDay ? { backgroundColor: '#f0f8ff' } : {}}>
-                      <td style={{ border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`, padding: '8px', fontWeight: 'bold', backgroundColor: colours.reporting.tableHeaderBackground }}>
+                      <td
+                        style={{
+                          border: `1px solid ${
+                            isDarkMode ? colours.dark.border : colours.light.border
+                          }`,
+                          padding: '8px',
+                          fontWeight: 'bold',
+                          backgroundColor: colours.reporting.tableHeaderBackground,
+                        }}
+                      >
                         {day}
                       </td>
-                      {attendancePersons.map(person => {
-                        const status = getCellStatus(person.attendance, person.initials, day, cellDateStr);
-                        // For current day, cell background is tinted and the icon is forced white.
+                      {attendancePersons.map((person) => {
+                        const status = getCellStatus(
+                          person.attendance,
+                          person.initials,
+                          day,
+                          cellDateStr
+                        );
                         const cellBg = isCurrentDay
-                          ? (status === 'in' ? inHighlight : status === 'wfh' ? wfhHighlight : outHighlight)
-                          : (isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground);
+                          ? status === 'in'
+                            ? inHighlight
+                            : status === 'wfh'
+                            ? wfhHighlight
+                            : outHighlight
+                          : isDarkMode
+                          ? colours.dark.sectionBackground
+                          : colours.light.sectionBackground;
                         return (
                           <td
                             key={person.initials}
                             style={{
-                              border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                              border: `1px solid ${
+                                isDarkMode ? colours.dark.border : colours.light.border
+                              }`,
                               padding: '8px',
                               textAlign: 'center',
                               backgroundColor: cellBg,
@@ -1782,6 +2023,3 @@ const officeAttendanceButtonText = currentUserConfirmed
 };
 
 export default Home;
-function handleActionClick(arg0: { title: string; icon: string; }): void {
-  throw new Error('Function not implemented.');
-}

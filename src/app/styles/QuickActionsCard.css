@@ -1,5 +1,4 @@
-/* src/tabs/home/QuickActionsCard.css */
-
+/* Keyframe for the card drop-in effect */
 @keyframes dropIn {
   from {
     transform: translateY(-10px);
@@ -11,33 +10,37 @@
   }
 }
 
+/* Keyframes for pulsing animations */
+@keyframes redPulse {
+  0% { box-shadow: inset 0 0 0 0 rgba(255,0,0,0.4); }
+  70% { box-shadow: inset 0 0 0 10px rgba(255,0,0,0); }
+  100% { box-shadow: inset 0 0 0 0 rgba(255,0,0,0); }
+}
+
+@keyframes yellowPulse {
+  0% { box-shadow: inset 0 0 0 0 rgba(255,213,79,0.4); }
+  70% { box-shadow: inset 0 0 0 10px rgba(255,213,79,0); }
+  100% { box-shadow: inset 0 0 0 0 rgba(255,213,79,0); }
+}
+
+@keyframes greenPulse {
+  0% { box-shadow: inset 0 0 0 0 rgba(16,124,16,0.4); }
+  70% { box-shadow: inset 0 0 0 10px rgba(16,124,16,0); }
+  100% { box-shadow: inset 0 0 0 0 rgba(16,124,16,0); }
+}
+
+/* Base styling for QuickActionsCard */
 .quickActionCard {
   background-color: #ffffff; /* Always white */
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1); /* Subtle initial shadow */
   transition: transform 0.3s, box-shadow 0.3s; /* Smooth transitions */
   opacity: 0; /* Initially invisible */
   animation: dropIn 0.3s ease forwards;
+  /* Use a CSS variable for animation delay. If not provided, defaults to 0 */
+  animation-delay: calc(var(--card-index, 0) * 0.1s);
 }
 
-/* Apply staggered animation delays */
-.quickActionCard:nth-child(1) {
-  animation-delay: 0s;
-}
-
-.quickActionCard:nth-child(2) {
-  animation-delay: 0.1s;
-}
-
-.quickActionCard:nth-child(3) {
-  animation-delay: 0.2s;
-}
-
-.quickActionCard:nth-child(4) {
-  animation-delay: 0.3s;
-}
-
-/* Add more nth-child selectors if there are more QuickActionsCards */
-
+/* Hover effect */
 .quickActionCard:hover {
   transform: translateY(-5px); /* Slight upward movement */
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2); /* Intensified shadow on hover */
