@@ -25,21 +25,18 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
   const [showDataInspector, setShowDataInspector] = useState<boolean>(false);
 
   const userFullName = userData?.[0]?.FullName?.toLowerCase();
-  const userInitials = userData?.[0]?.Initials?.toLowerCase();
+  const userRole = userData?.[0]?.Role?.toLowerCase();
+  const isAdmin = userRole?.includes('admin');
 
   const baseFiltered = useMemo(() => {
     if (!userFullName) return [];
+    if (isAdmin) return matters;
     return matters.filter((m) => {
-      const responsible = m.ResponsibleSolicitor?.toLowerCase() || '';
-      const originating = m.OriginatingSolicitor?.toLowerCase() || '';
-      return (
-        responsible.includes(userFullName) ||
-        originating.includes(userFullName) ||
-        responsible === userInitials ||
-        originating === userInitials
-      );
+      const responsible = m.ResponsibleSolicitor?.toLowerCase().trim() || '';
+      const originating = m.OriginatingSolicitor?.toLowerCase().trim() || '';
+      return responsible === userFullName || originating === userFullName;
     });
-  }, [matters, userFullName, userInitials]);
+  }, [matters, userFullName, isAdmin]);
 
   const filtered = useMemo(() => {
     let result = baseFiltered;
@@ -350,6 +347,12 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
             Try adjusting your search criteria or filters
           </Text>
         </div>
+        {showDataInspector && (
+          <MatterApiDebugger
+            currentMatters={matters}
+            onClose={() => setShowDataInspector(false)}
+          />
+        )}
       </div>
     );
   }
