@@ -1,73 +1,53 @@
-diff --git a/src/tabs/matters/Matters.tsx b/src/tabs/matters/Matters.tsx
-index 2e128296f81b4cb05997e2dfd4fa1695702c95ac..d7a9ee375ae751b1a6d58062c41a523ecee0c581 100644
---- a/src/tabs/matters/Matters.tsx
-+++ b/src/tabs/matters/Matters.tsx
-@@ -6,59 +6,63 @@ import MatterOverview from './MatterOverview';
- import { colours } from '../../app/styles/colours';
- import { useTheme } from '../../app/functionality/ThemeContext';
- import { useNavigator } from '../../app/functionality/NavigatorContext';
- import MatterApiDebugger from '../../components/MatterApiDebugger';
+diff --git a/src/utils/__tests__/getProxyBaseUrl.test.ts b/src/utils/__tests__/getProxyBaseUrl.test.ts
+index 95be9a226f6dd312835e15d4d8077736fe6f557c..8a92a1a8252ceac19a37b04266acca2f7d0405d0 100644
+--- a/src/utils/__tests__/getProxyBaseUrl.test.ts
++++ b/src/utils/__tests__/getProxyBaseUrl.test.ts
+@@ -1,37 +1,43 @@
+ import { getProxyBaseUrl } from "../getProxyBaseUrl";
  
- interface MattersProps {
-   matters: Matter[];
-   isLoading: boolean;
-   error: string | null;
-   userData: UserData[] | null;
- }
+ const DEFAULT_PROXY_BASE_URL = "https://helix-keys-proxy.azurewebsites.net/api";
  
- const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }) => {
-   const { isDarkMode } = useTheme();
-   const { setContent } = useNavigator();
-   const [selected, setSelected] = useState<Matter | null>(null);
-   const [searchTerm, setSearchTerm] = useState<string>('');
-   const [activeFilter, setActiveFilter] = useState<string>('Active');
-   const [activeAreaFilter, setActiveAreaFilter] = useState<string>('All');
-   const [showDataInspector, setShowDataInspector] = useState<boolean>(false);
+ describe("getProxyBaseUrl", () => {
+     const originalEnv = process.env.REACT_APP_PROXY_BASE_URL;
+     const originalNodeEnv = process.env.NODE_ENV;
  
-   const userFullName = userData?.[0]?.FullName?.toLowerCase();
-   const userInitials = userData?.[0]?.Initials?.toLowerCase();
- 
-   const baseFiltered = useMemo(() => {
--    if (!userFullName) return [];
-+    if (!userFullName && !userInitials) return matters;
-     return matters.filter((m) => {
-       const responsible = m.ResponsibleSolicitor?.toLowerCase() || '';
-       const originating = m.OriginatingSolicitor?.toLowerCase() || '';
-       return (
--        responsible.includes(userFullName) ||
--        originating.includes(userFullName) ||
--        responsible === userInitials ||
--        originating === userInitials
-+        (userFullName && (
-+          responsible.includes(userFullName) ||
-+          originating.includes(userFullName)
-+        )) ||
-+        (userInitials && (
-+          responsible === userInitials ||
-+          originating === userInitials
-+        ))
-       );
+     afterEach(() => {
+         process.env.REACT_APP_PROXY_BASE_URL = originalEnv;
+         process.env.NODE_ENV = originalNodeEnv;
      });
-   }, [matters, userFullName, userInitials]);
  
-   const filtered = useMemo(() => {
-     let result = baseFiltered;
+     it("uses env url in development when provided", () => {
+         process.env.NODE_ENV = "development";
+         process.env.REACT_APP_PROXY_BASE_URL = "http://localhost:8080";
+-        expect(getProxyBaseUrl()).toBe("http://localhost:8080");
++        expect(getProxyBaseUrl()).toBe("http://localhost:8080/api");
+     });
  
-     // Filter by status
-     if (activeFilter === 'Active') {
-       result = result.filter((m) => m.Status?.toLowerCase() !== 'closed');
-     } else if (activeFilter === 'Closed') {
-       result = result.filter((m) => m.Status?.toLowerCase() === 'closed');
-     }
+-    it("defaults to remote api in development when env url missing", () => {
++    it("defaults to local proxy in development when env url missing", () => {
+         process.env.NODE_ENV = "development";
+         delete process.env.REACT_APP_PROXY_BASE_URL;
+-        expect(getProxyBaseUrl()).toBe(DEFAULT_PROXY_BASE_URL);
++        expect(getProxyBaseUrl()).toBe("http://localhost:8080/api");
+     });
  
-     // Filter by area
-     if (activeAreaFilter !== 'All') {
-       result = result.filter((m) => m.PracticeArea?.toLowerCase() === activeAreaFilter.toLowerCase());
-     }
+     it("ignores localhost env url in production", () => {
+         process.env.NODE_ENV = "production";
+         process.env.REACT_APP_PROXY_BASE_URL = "http://localhost:8080";
+         expect(getProxyBaseUrl()).toBe(DEFAULT_PROXY_BASE_URL);
+     });
  
-     // Apply search term filter
-     if (searchTerm.trim()) {
-       const term = searchTerm.toLowerCase();
-       result = result.filter((m) =>
-         m.ClientName?.toLowerCase().includes(term) ||
-         m.DisplayNumber?.toLowerCase().includes(term) ||
+-    it("uses env url when non-local in production", () => {
++    it("uses env url when non-local in production and normalizes path", () => {
+         process.env.NODE_ENV = "production";
+         process.env.REACT_APP_PROXY_BASE_URL = "https://api.example.com";
+-        expect(getProxyBaseUrl()).toBe("https://api.example.com");
++        expect(getProxyBaseUrl()).toBe("https://api.example.com/api");
++    });
++
++    it("does not duplicate api segment", () => {
++        process.env.NODE_ENV = "production";
++        process.env.REACT_APP_PROXY_BASE_URL = "https://api.example.com/api";
++        expect(getProxyBaseUrl()).toBe("https://api.example.com/api");
+     });
+ });
