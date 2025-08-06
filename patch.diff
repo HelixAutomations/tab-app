@@ -1,14 +1,12 @@
 diff --git a/src/tabs/matters/Matters.tsx b/src/tabs/matters/Matters.tsx
-index dfc0fb5c72ea9a3918ae895ff9cf4e348db8f0cf..34cbbada6e9eb7c38205021b0b95272f5c69243c 100644
+index 2e128296f81b4cb05997e2dfd4fa1695702c95ac..d7a9ee375ae751b1a6d58062c41a523ecee0c581 100644
 --- a/src/tabs/matters/Matters.tsx
 +++ b/src/tabs/matters/Matters.tsx
-@@ -1,29 +1,29 @@
- import React, { useMemo, useState } from 'react';
- import { Stack, Text, Spinner, SpinnerSize, MessageBar, MessageBarType, IconButton } from '@fluentui/react';
- import { Matter, UserData } from '../../app/functionality/types';
--import MatterCard from './MatterCard';
-+import MatterLineItem from './MatterLineItem';
- import MatterOverview from './MatterOverview';
+@@ -6,59 +6,63 @@ import MatterOverview from './MatterOverview';
+ import { colours } from '../../app/styles/colours';
+ import { useTheme } from '../../app/functionality/ThemeContext';
+ import { useNavigator } from '../../app/functionality/NavigatorContext';
+ import MatterApiDebugger from '../../components/MatterApiDebugger';
  
  interface MattersProps {
    matters: Matter[];
@@ -18,63 +16,58 @@ index dfc0fb5c72ea9a3918ae895ff9cf4e348db8f0cf..34cbbada6e9eb7c38205021b0b95272f
  }
  
  const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }) => {
+   const { isDarkMode } = useTheme();
+   const { setContent } = useNavigator();
    const [selected, setSelected] = useState<Matter | null>(null);
+   const [searchTerm, setSearchTerm] = useState<string>('');
+   const [activeFilter, setActiveFilter] = useState<string>('Active');
+   const [activeAreaFilter, setActiveAreaFilter] = useState<string>('All');
+   const [showDataInspector, setShowDataInspector] = useState<boolean>(false);
  
    const userFullName = userData?.[0]?.FullName?.toLowerCase();
    const userInitials = userData?.[0]?.Initials?.toLowerCase();
  
-   const filtered = useMemo(() => {
-     if (!userFullName) return [];
+   const baseFiltered = useMemo(() => {
+-    if (!userFullName) return [];
++    if (!userFullName && !userInitials) return matters;
      return matters.filter((m) => {
        const responsible = m.ResponsibleSolicitor?.toLowerCase() || '';
        const originating = m.OriginatingSolicitor?.toLowerCase() || '';
        return (
-         responsible.includes(userFullName) ||
-         originating.includes(userFullName) ||
-         responsible === userInitials ||
-         originating === userInitials
-diff --git a/src/tabs/matters/Matters.tsx b/src/tabs/matters/Matters.tsx
-index dfc0fb5c72ea9a3918ae895ff9cf4e348db8f0cf..34cbbada6e9eb7c38205021b0b95272f5c69243c 100644
---- a/src/tabs/matters/Matters.tsx
-+++ b/src/tabs/matters/Matters.tsx
-@@ -33,37 +33,37 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
+-        responsible.includes(userFullName) ||
+-        originating.includes(userFullName) ||
+-        responsible === userInitials ||
+-        originating === userInitials
++        (userFullName && (
++          responsible.includes(userFullName) ||
++          originating.includes(userFullName)
++        )) ||
++        (userInitials && (
++          responsible === userInitials ||
++          originating === userInitials
++        ))
+       );
+     });
    }, [matters, userFullName, userInitials]);
  
-   if (selected) {
-     return (
-       <div style={{ padding: 20 }}>
-         <IconButton iconProps={{ iconName: 'Back' }} onClick={() => setSelected(null)} />
-         <MatterOverview matter={selected} />
-       </div>
-     );
-   }
+   const filtered = useMemo(() => {
+     let result = baseFiltered;
  
-   if (isLoading) {
-     return <Spinner label="Loading matters..." size={SpinnerSize.medium} />;
-   }
+     // Filter by status
+     if (activeFilter === 'Active') {
+       result = result.filter((m) => m.Status?.toLowerCase() !== 'closed');
+     } else if (activeFilter === 'Closed') {
+       result = result.filter((m) => m.Status?.toLowerCase() === 'closed');
+     }
  
-   if (error) {
-     return <MessageBar messageBarType={MessageBarType.error}>{error}</MessageBar>;
-   }
+     // Filter by area
+     if (activeAreaFilter !== 'All') {
+       result = result.filter((m) => m.PracticeArea?.toLowerCase() === activeAreaFilter.toLowerCase());
+     }
  
-   if (filtered.length === 0) {
-     return <Text>No matters found.</Text>;
-   }
-   return (
-     <Stack>
-       {filtered.map((m, idx) => (
--        <MatterCard
--          key={m.UniqueID}
-+        <MatterLineItem
-+          key={m.UniqueID || m.MatterID || idx}
-           matter={m}
-           onSelect={setSelected}
--          animationDelay={idx * 0.05}
-+          isLast={idx === filtered.length - 1}
-         />
-       ))}
-     </Stack>
-   );
- };
- 
- export default Matters;
+     // Apply search term filter
+     if (searchTerm.trim()) {
+       const term = searchTerm.toLowerCase();
+       result = result.filter((m) =>
+         m.ClientName?.toLowerCase().includes(term) ||
+         m.DisplayNumber?.toLowerCase().includes(term) ||

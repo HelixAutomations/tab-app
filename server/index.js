@@ -59,12 +59,33 @@ app.use('/api/enquiry-emails', enquiryEmailsRouter);
 app.use('/api/pitches', pitchesRouter);
 app.use('/ccls', express.static(CCL_DIR));
 
-const buildPath = path.join(__dirname, 'static');
-app.use(express.static(buildPath));
+// API routes should come BEFORE static file serving and catch-all route
+// This ensures API requests don't get caught by the catch-all route
 
-app.get('*', (_req, res) => {
-    res.sendFile(path.join(buildPath, 'index.html'));
-});
+const buildPath = path.join(__dirname, 'static');
+// Only serve static files if the directory exists
+const fs = require('fs');
+if (fs.existsSync(buildPath)) {
+    app.use(express.static(buildPath));
+    
+    // Catch-all route for SPA - only for non-API routes
+    app.get('*', (req, res) => {
+        // Don't serve HTML for API routes
+        if (req.path.startsWith('/api/')) {
+            return res.status(404).json({ error: 'API endpoint not found' });
+        }
+        res.sendFile(path.join(buildPath, 'index.html'));
+    });
+} else {
+    console.log('Static build directory not found, serving API only');
+    // For non-API routes when no static files exist
+    app.get('*', (req, res) => {
+        if (req.path.startsWith('/api/')) {
+            return res.status(404).json({ error: 'API endpoint not found' });
+        }
+        res.status(404).json({ error: 'Static files not available' });
+    });
+}
 
 app.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
