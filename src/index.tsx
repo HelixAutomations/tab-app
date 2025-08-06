@@ -392,20 +392,40 @@ async function fetchMatters(fullName: string): Promise<Matter[]> {
 
   const isLocalDev = typeof window !== 'undefined' &&
     (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-  const mattersUrl = isLocalDev
+  const legacyUrl = isLocalDev
     ? '/api/getMatters'
     : `${proxyBaseUrl}/${process.env.REACT_APP_GET_MATTERS_PATH}?code=${process.env.REACT_APP_GET_MATTERS_CODE}`;
 
-  const response = await fetch(mattersUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ fullName }),
-  });
-  if (!response.ok)
-    throw new Error(`Failed to fetch matters: ${response.status}`);
-  const data = await response.json();
+  const newUrl = '/api/matters';
 
-  const mapData = (items: any[]): Matter[] => {
+  let legacyData: any[] = [];
+  let newData: any[] = [];
+
+  try {
+    const response = await fetch(legacyUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fullName }),
+    });
+    if (!response.ok) throw new Error(`Failed to fetch matters: ${response.status}`);
+    const data = await response.json();
+    if (Array.isArray(data)) legacyData = data;
+    else if (Array.isArray(data.matters)) legacyData = data.matters;
+  } catch (err) {
+    console.warn('Legacy matters fetch failed', err);
+  }
+
+  try {
+    const resNew = await fetch(newUrl);
+    if (resNew.ok) {
+      const data = await resNew.json();
+      newData = Array.isArray(data) ? data : data.matters || [];
+    }
+  } catch (err) {
+    console.warn('New matters fetch failed', err);
+  }
+
+  const mapLegacy = (items: any[]): Matter[] => {
     return items.map((item) => ({
       MatterID: item["MatterID"] || item["Matter ID"] || "",
       InstructionRef: item["InstructionRef"] || item["Instruction Ref"] || "",
@@ -437,15 +457,44 @@ async function fetchMatters(fullName: string): Promise<Matter[]> {
     }));
   };
 
-  let fetchedMatters: Matter[] = [];
+  const mapNew = (items: any[]): Matter[] => {
+    return items.map((item) => ({
+      MatterID: item.MatterID || item.matter_id || "",
+      InstructionRef: item.InstructionRef || item.instruction_ref || "",
+      DisplayNumber: item.DisplayNumber || item.display_number || "",
+      OpenDate: item.OpenDate || item.open_date || "",
+      MonthYear: item.MonthYear || item.month_year || "",
+      YearMonthNumeric: item.YearMonthNumeric || item.year_month_numeric || 0,
+      ClientID: item.ClientID || item.client_id || "",
+      ClientName: item.ClientName || item.client_name || "",
+      ClientPhone: item.ClientPhone || item.client_phone || "",
+      ClientEmail: item.ClientEmail || item.client_email || "",
+      Status: item.Status || item.status || "",
+      UniqueID: item.UniqueID || item.unique_id || "",
+      Description: item.Description || item.description || "",
+      PracticeArea: item.PracticeArea || item.practice_area || "",
+      Source: item.Source || item.source || "",
+      Referrer: item.Referrer || item.referrer || "",
+      ResponsibleSolicitor: item.ResponsibleSolicitor || item.responsible_solicitor || "",
+      OriginatingSolicitor: item.OriginatingSolicitor || item.originating_solicitor || "",
+      SupervisingPartner: item.SupervisingPartner || item.supervising_partner || "",
+      Opponent: item.Opponent || item.opponent || "",
+      OpponentSolicitor: item.OpponentSolicitor || item.opponent_solicitor || "",
+      CloseDate: item.CloseDate || item.close_date || "",
+      ApproxValue: item.ApproxValue || item.approx_value || "",
+      mod_stamp: item.mod_stamp || '',
+      method_of_contact: item.method_of_contact || '',
+      CCL_date: item.CCL_date || null,
+      Rating: item.Rating as "Good" | "Neutral" | "Poor" | undefined,
+    }));
+  };
 
-  if (Array.isArray(data)) {
-    fetchedMatters = mapData(data);
-  } else if (Array.isArray(data.matters)) {
-    fetchedMatters = mapData(data.matters);
-  } else {
-    console.warn("Unexpected data format:", data);
+  let fetchedMatters: Matter[] = [...mapLegacy(legacyData), ...mapNew(newData)];
+
+  if (fetchedMatters.length === 0) {
+    fetchedMatters = mapLegacy(localMatters as unknown as any[]);
   }
+
   setCachedData(cacheKey, fetchedMatters);
   return fetchedMatters;
 }

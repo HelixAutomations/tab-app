@@ -775,8 +775,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, onAllMattersF
   const { setContent } = useNavigator();
   const inTeams = isInTeams();
   const useLocalData =
-    process.env.REACT_APP_USE_LOCAL_DATA === 'true' ||
-    window.location.hostname === 'localhost';
+    process.env.REACT_APP_USE_LOCAL_DATA === 'true';
 
   const [attendanceTeam, setAttendanceTeam] = useState<any[]>([]);
   // Transform teamData into our lite TeamMember type
@@ -1569,10 +1568,30 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
           setIsLoadingAllMatters(true);
           const isLocalDev = typeof window !== 'undefined' &&
             (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-          const allMattersUrl = isLocalDev
-            ? '/api/getAllMatters'
-            : `${proxyBaseUrl}/${process.env.REACT_APP_GET_ALL_MATTERS_PATH}?code=${process.env.REACT_APP_GET_ALL_MATTERS_CODE}`;
-          const response = await fetch(allMattersUrl, { method: 'GET' });
+          
+          // Use the working getMatters endpoint instead of getAllMatters
+          let allMattersUrl: string;
+          let requestOptions: RequestInit = {
+            headers: { 'Content-Type': 'application/json' }
+          };
+          
+          if (isLocalDev) {
+            // Use the local getMatters endpoint that works in the debugger
+            allMattersUrl = '/api/getMatters';
+            requestOptions.method = 'POST';
+            requestOptions.body = JSON.stringify({ 
+              fullName: userData?.[0]?.FullName || 'Lukasz Zemanek' 
+            });
+          } else {
+            // Use the proxy endpoint 
+            allMattersUrl = `${proxyBaseUrl}/${process.env.REACT_APP_GET_MATTERS_PATH}?code=${process.env.REACT_APP_GET_MATTERS_CODE}`;
+            requestOptions.method = 'POST';
+            requestOptions.body = JSON.stringify({ 
+              fullName: userData?.[0]?.FullName || 'Lukasz Zemanek' 
+            });
+          }
+          
+          const response = await fetch(allMattersUrl, requestOptions);
           if (!response.ok) {
             throw new Error(`Failed to fetch all matters: ${response.status}`);
           }
@@ -1609,13 +1628,13 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
 
           let mappedMatters: Matter[] = [];
           if (Array.isArray(rawData)) {
+            // Direct array response from getMatters API
             mappedMatters = mapData(rawData);
+          } else if (rawData.matters && Array.isArray(rawData.matters)) {
+            // Nested format from getAllMatters API
+            mappedMatters = mapData(rawData.matters);
           } else {
-            if (Array.isArray(rawData.matters)) {
-              mappedMatters = mapData(rawData.matters);
-            } else {
-              console.warn('Unexpected data format for getAllMatters:', rawData);
-            }
+            console.warn('Unexpected data format for getMatters:', rawData);
           }
 
           cachedAllMatters = mappedMatters;

@@ -1,63 +1,80 @@
-diff --git a/server/routes/getMatters.js b/server/routes/getMatters.js
-index 546c4aa8111764f0e070a30edf4283c49a6f74cb..f451b18acdd93e47514c8a890d8fbf8a643a3810 100644
---- a/server/routes/getMatters.js
-+++ b/server/routes/getMatters.js
-@@ -1,54 +1,48 @@
- const express = require('express');
--const { DefaultAzureCredential } = require('@azure/identity');
--const { SecretClient } = require('@azure/keyvault-secrets');
-+const { getSecret } = require('../utils/getSecret');
+diff --git a/src/tabs/matters/Matters.tsx b/src/tabs/matters/Matters.tsx
+index dfc0fb5c72ea9a3918ae895ff9cf4e348db8f0cf..34cbbada6e9eb7c38205021b0b95272f5c69243c 100644
+--- a/src/tabs/matters/Matters.tsx
++++ b/src/tabs/matters/Matters.tsx
+@@ -1,29 +1,29 @@
+ import React, { useMemo, useState } from 'react';
+ import { Stack, Text, Spinner, SpinnerSize, MessageBar, MessageBarType, IconButton } from '@fluentui/react';
+ import { Matter, UserData } from '../../app/functionality/types';
+-import MatterCard from './MatterCard';
++import MatterLineItem from './MatterLineItem';
+ import MatterOverview from './MatterOverview';
  
- const router = express.Router();
+ interface MattersProps {
+   matters: Matter[];
+   isLoading: boolean;
+   error: string | null;
+   userData: UserData[] | null;
+ }
  
--// Set up Key Vault client
--const credential = new DefaultAzureCredential();
--const vaultUrl = process.env.KEY_VAULT_URL || 'https://helix-keys.vault.azure.net/';
--const client = new SecretClient(vaultUrl, credential);
--
- // Route: POST /api/getMatters
- // Proxies to the getMatters Azure Function so local dev can use real data
- router.post('/', async (req, res) => {
-     const { fullName } = req.body || {};
-     if (!fullName) {
-         return res.status(400).json({ error: 'fullName is required' });
-     }
+ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }) => {
+   const [selected, setSelected] = useState<Matter | null>(null);
  
-     try {
-         let functionCode;
-         try {
--            const secret = await client.getSecret('getMatters-code');
--            functionCode = secret.value;
-+            functionCode = await getSecret('getMatters-code');
-         } catch (kvError) {
--            console.error('Failed to retrieve getMatters-code from Key Vault', kvError.message);
-+            console.error('Failed to retrieve getMatters-code', kvError.message);
-             return res.status(500).json({ error: 'Failed to authenticate with getMatters function' });
-         }
+   const userFullName = userData?.[0]?.FullName?.toLowerCase();
+   const userInitials = userData?.[0]?.Initials?.toLowerCase();
  
-         const baseUrl = process.env.GET_MATTERS_FUNC_BASE_URL ||
-             'https://instructions-vnet-functions.azurewebsites.net/api/getMatters';
-         const url = `${baseUrl}?code=${functionCode}`;
+   const filtered = useMemo(() => {
+     if (!userFullName) return [];
+     return matters.filter((m) => {
+       const responsible = m.ResponsibleSolicitor?.toLowerCase() || '';
+       const originating = m.OriginatingSolicitor?.toLowerCase() || '';
+       return (
+         responsible.includes(userFullName) ||
+         originating.includes(userFullName) ||
+         responsible === userInitials ||
+         originating === userInitials
+diff --git a/src/tabs/matters/Matters.tsx b/src/tabs/matters/Matters.tsx
+index dfc0fb5c72ea9a3918ae895ff9cf4e348db8f0cf..34cbbada6e9eb7c38205021b0b95272f5c69243c 100644
+--- a/src/tabs/matters/Matters.tsx
++++ b/src/tabs/matters/Matters.tsx
+@@ -33,37 +33,37 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
+   }, [matters, userFullName, userInitials]);
  
-         const resp = await fetch(url, {
-             method: 'POST',
-             headers: { 'Content-Type': 'application/json' },
-             body: JSON.stringify({ fullName })
-         });
+   if (selected) {
+     return (
+       <div style={{ padding: 20 }}>
+         <IconButton iconProps={{ iconName: 'Back' }} onClick={() => setSelected(null)} />
+         <MatterOverview matter={selected} />
+       </div>
+     );
+   }
  
-         if (!resp.ok) {
-             const text = await resp.text();
-             console.warn('getMatters function call failed', text);
-             return res.status(resp.status).json({ error: 'Failed to fetch matters' });
-         }
+   if (isLoading) {
+     return <Spinner label="Loading matters..." size={SpinnerSize.medium} />;
+   }
  
-         const data = await resp.json();
-         res.json(data);
-     } catch (err) {
-         console.error('Error calling getMatters function', err);
-         res.status(500).json({ error: 'Failed to fetch matters' });
-     }
- });
+   if (error) {
+     return <MessageBar messageBarType={MessageBarType.error}>{error}</MessageBar>;
+   }
  
- module.exports = router;
-+
+   if (filtered.length === 0) {
+     return <Text>No matters found.</Text>;
+   }
+   return (
+     <Stack>
+       {filtered.map((m, idx) => (
+-        <MatterCard
+-          key={m.UniqueID}
++        <MatterLineItem
++          key={m.UniqueID || m.MatterID || idx}
+           matter={m}
+           onSelect={setSelected}
+-          animationDelay={idx * 0.05}
++          isLast={idx === filtered.length - 1}
+         />
+       ))}
+     </Stack>
+   );
+ };
+ 
+ export default Matters;
