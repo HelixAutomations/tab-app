@@ -27,6 +27,7 @@ const bundleRouter = require('./routes/bundle');
 const enquiriesRouter = require('./routes/enquiries');
 const enquiryEmailsRouter = require('./routes/enquiryEmails');
 const pitchesRouter = require('./routes/pitches');
+const sqlMattersRouter = require('./routes/sqlMatters');
 // const { router: cclRouter, CCL_DIR } = require('./routes/ccl');
 
 const app = express();
@@ -73,6 +74,7 @@ app.use('/api/getAllMatters', getAllMattersRouter);
 app.use('/api/enquiries', enquiriesRouter);
 app.use('/api/enquiry-emails', enquiryEmailsRouter);
 app.use('/api/pitches', pitchesRouter);
+app.use('/api/sqlMatters', sqlMattersRouter);
 
 app.get('/api/keys/:name/preview', async (req, res) => {
     try {

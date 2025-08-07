@@ -27,6 +27,7 @@ const { router: cclRouter, CCL_DIR } = require('./routes/ccl');
 const enquiriesRouter = require('./routes/enquiries');
 const enquiryEmailsRouter = require('./routes/enquiryEmails');
 const pitchesRouter = require('./routes/pitches');
+const sqlMattersRouter = require('./routes/sqlMatters');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -57,6 +58,7 @@ app.use('/api/ccl', cclRouter);
 app.use('/api/enquiries', enquiriesRouter);
 app.use('/api/enquiry-emails', enquiryEmailsRouter);
 app.use('/api/pitches', pitchesRouter);
+app.use('/api/sqlMatters', sqlMattersRouter);
 app.use('/ccls', express.static(CCL_DIR));
 
 // API routes should come BEFORE static file serving and catch-all route

@@ -1,54 +1,100 @@
-diff --git a/src/utils/__tests__/getProxyBaseUrl.test.ts b/src/utils/__tests__/getProxyBaseUrl.test.ts
-index 8a92a1a8252ceac19a37b04266acca2f7d0405d0..4949a2e7aa83307f2090964a8b17b546611caaf2 100644
---- a/src/utils/__tests__/getProxyBaseUrl.test.ts
-+++ b/src/utils/__tests__/getProxyBaseUrl.test.ts
-@@ -1,43 +1,43 @@
- import { getProxyBaseUrl } from "../getProxyBaseUrl";
+diff --git a/src/tabs/home/Home.tsx b/src/tabs/home/Home.tsx
+index 0a732f8b00695b382c81c12718b9584f61e1dcd5..a913d3ca84f333681819d73efa9c59ac3009aa3e 100644
+--- a/src/tabs/home/Home.tsx
++++ b/src/tabs/home/Home.tsx
+@@ -1615,50 +1615,95 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
+               ResponsibleSolicitor: item['Responsible Solicitor'] || '',
+               OriginatingSolicitor: item['Originating Solicitor'] || '',
+               SupervisingPartner: item['Supervising Partner'] || '',
+               Opponent: item['Opponent'] || '',
+               OpponentSolicitor: item['Opponent Solicitor'] || '',
+               CloseDate: item['Close Date'] || '',
+               ApproxValue: item['Approx. Value'] || '',
+               mod_stamp: item['mod_stamp'] || '',
+               method_of_contact: item['method_of_contact'] || '',
+               CCL_date: item['CCL_date'] || null,
+               Rating: item['Rating'] as 'Good' | 'Neutral' | 'Poor' | undefined,
+             }));
+           };
  
- const DEFAULT_PROXY_BASE_URL = "https://helix-keys-proxy.azurewebsites.net/api";
+           let mappedMatters: Matter[] = [];
+           if (Array.isArray(rawData)) {
+             // Direct array response from getMatters API
+             mappedMatters = mapData(rawData);
+           } else if (rawData.matters && Array.isArray(rawData.matters)) {
+             // Nested format from getAllMatters API
+             mappedMatters = mapData(rawData.matters);
+           } else {
+             console.warn('Unexpected data format for getMatters:', rawData);
+           }
  
- describe("getProxyBaseUrl", () => {
-     const originalEnv = process.env.REACT_APP_PROXY_BASE_URL;
-     const originalNodeEnv = process.env.NODE_ENV;
++          // Fetch additional matters from SQL-backed decoupled function
++          try {
++            const sqlFullName = userData?.[0]?.FullName || 'Lukasz Zemanek';
++            const sqlResp = await fetch(`/api/sqlMatters?fullName=${encodeURIComponent(sqlFullName)}`);
++            if (sqlResp.ok) {
++              const sqlData = await sqlResp.json();
++              if (Array.isArray(sqlData.matters)) {
++                const sqlMapped: Matter[] = sqlData.matters.map((item: any) => ({
++                  MatterID: item.MatterID,
++                  InstructionRef: item.InstructionRef,
++                  DisplayNumber: item.DisplayNumber || '',
++                  OpenDate: item.OpenDate || '',
++                  MonthYear: item.MonthYear || '',
++                  YearMonthNumeric: item.YearMonthNumeric || 0,
++                  ClientID: item.ClientID || '',
++                  ClientName: item.ClientName || '',
++                  ClientPhone: item.ClientPhone || '',
++                  ClientEmail: item.ClientEmail || '',
++                  Status: item.Status || '',
++                  UniqueID: item.MatterID || '',
++                  Description: item.Description || '',
++                  PracticeArea: item.PracticeArea || '',
++                  Source: item.Source || '',
++                  Referrer: item.Referrer || '',
++                  ResponsibleSolicitor: item.ResponsibleSolicitor || '',
++                  OriginatingSolicitor: item.OriginatingSolicitor || '',
++                  SupervisingPartner: item.SupervisingPartner || '',
++                  Opponent: item.OpponentID || '',
++                  OpponentSolicitor: item.OpponentSolicitorID || '',
++                  CloseDate: item.CloseDate || '',
++                  ApproxValue: item.ApproxValue || '',
++                  mod_stamp: item.mod_stamp || '',
++                  method_of_contact: item.method_of_contact || '',
++                  CCL_date: item.CCL_date || null,
++                  Rating: item.Rating,
++                }));
++                mappedMatters = mappedMatters.concat(sqlMapped);
++              }
++            } else {
++              console.warn('Failed to fetch SQL matters:', sqlResp.status);
++            }
++          } catch (sqlErr) {
++            console.warn('Error fetching SQL matters:', sqlErr);
++          }
++
+           cachedAllMatters = mappedMatters;
+           setAllMatters(mappedMatters);
+           if (onAllMattersFetched) {
+             onAllMattersFetched(mappedMatters);
+           }
+         } catch (error: any) {
+           console.error('Error fetching all matters:', error);
+           cachedAllMattersError = error.message;
+           setAllMattersError(error.message);
+           setAllMatters([]);
+         } finally {
+           setIsLoadingAllMatters(false);
+         }
+       };
+       fetchAllMattersData();
+     }
+   }, [onAllMattersFetched]);
  
-     afterEach(() => {
-         process.env.REACT_APP_PROXY_BASE_URL = originalEnv;
-         process.env.NODE_ENV = originalNodeEnv;
-     });
- 
-     it("uses env url in development when provided", () => {
-         process.env.NODE_ENV = "development";
-         process.env.REACT_APP_PROXY_BASE_URL = "http://localhost:8080";
--        expect(getProxyBaseUrl()).toBe("http://localhost:8080/api");
-+        expect(getProxyBaseUrl()).toBe("http://localhost:8080");
-     });
- 
--    it("defaults to local proxy in development when env url missing", () => {
-+    it("defaults to remote proxy in development when env url missing", () => {
-         process.env.NODE_ENV = "development";
-         delete process.env.REACT_APP_PROXY_BASE_URL;
--        expect(getProxyBaseUrl()).toBe("http://localhost:8080/api");
-+        expect(getProxyBaseUrl()).toBe(DEFAULT_PROXY_BASE_URL);
-     });
- 
-     it("ignores localhost env url in production", () => {
-         process.env.NODE_ENV = "production";
-         process.env.REACT_APP_PROXY_BASE_URL = "http://localhost:8080";
-         expect(getProxyBaseUrl()).toBe(DEFAULT_PROXY_BASE_URL);
-     });
- 
--    it("uses env url when non-local in production and normalizes path", () => {
-+    it("uses env url when non-local in production", () => {
-         process.env.NODE_ENV = "production";
-         process.env.REACT_APP_PROXY_BASE_URL = "https://api.example.com";
--        expect(getProxyBaseUrl()).toBe("https://api.example.com/api");
-+        expect(getProxyBaseUrl()).toBe("https://api.example.com");
-     });
- 
--    it("does not duplicate api segment", () => {
-+    it("allows api segment if provided", () => {
-         process.env.NODE_ENV = "production";
-         process.env.REACT_APP_PROXY_BASE_URL = "https://api.example.com/api";
-         expect(getProxyBaseUrl()).toBe("https://api.example.com/api");
-     });
- });
+   // NEW: useEffect for fetching POID6Years data
+   useEffect(() => {
+     if (cachedPOID6Years) {
+       setPoid6Years(cachedPOID6Years);
+       setIsLoadingPOID6Years(false);
+       // Call the callback to pass data back to App
+       if (onPOID6YearsFetched) {

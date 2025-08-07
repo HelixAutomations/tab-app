@@ -1637,6 +1637,51 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
             console.warn('Unexpected data format for getMatters:', rawData);
           }
 
+          // Fetch additional matters from SQL-backed decoupled function
+          try {
+            const sqlFullName = userData?.[0]?.FullName || 'Lukasz Zemanek';
+            const sqlResp = await fetch(`/api/sqlMatters?fullName=${encodeURIComponent(sqlFullName)}`);
+            if (sqlResp.ok) {
+              const sqlData = await sqlResp.json();
+              if (Array.isArray(sqlData.matters)) {
+                const sqlMapped: Matter[] = sqlData.matters.map((item: any) => ({
+                  MatterID: item.MatterID,
+                  InstructionRef: item.InstructionRef,
+                  DisplayNumber: item.DisplayNumber || '',
+                  OpenDate: item.OpenDate || '',
+                  MonthYear: item.MonthYear || '',
+                  YearMonthNumeric: item.YearMonthNumeric || 0,
+                  ClientID: item.ClientID || '',
+                  ClientName: item.ClientName || '',
+                  ClientPhone: item.ClientPhone || '',
+                  ClientEmail: item.ClientEmail || '',
+                  Status: item.Status || '',
+                  UniqueID: item.MatterID || '',
+                  Description: item.Description || '',
+                  PracticeArea: item.PracticeArea || '',
+                  Source: item.Source || '',
+                  Referrer: item.Referrer || '',
+                  ResponsibleSolicitor: item.ResponsibleSolicitor || '',
+                  OriginatingSolicitor: item.OriginatingSolicitor || '',
+                  SupervisingPartner: item.SupervisingPartner || '',
+                  Opponent: item.OpponentID || '',
+                  OpponentSolicitor: item.OpponentSolicitorID || '',
+                  CloseDate: item.CloseDate || '',
+                  ApproxValue: item.ApproxValue || '',
+                  mod_stamp: item.mod_stamp || '',
+                  method_of_contact: item.method_of_contact || '',
+                  CCL_date: item.CCL_date || null,
+                  Rating: item.Rating,
+                }));
+                mappedMatters = mappedMatters.concat(sqlMapped);
+              }
+            } else {
+              console.warn('Failed to fetch SQL matters:', sqlResp.status);
+            }
+          } catch (sqlErr) {
+            console.warn('Error fetching SQL matters:', sqlErr);
+          }
+
           cachedAllMatters = mappedMatters;
           setAllMatters(mappedMatters);
           if (onAllMattersFetched) {
