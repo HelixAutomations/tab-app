@@ -48,54 +48,20 @@ module.exports = async function (context, req) {
   const fullName = req.query.fullName;
   const limit = req.query.limit ? parseInt(req.query.limit, 10) : null;
 
-  try {
-    await ensureDbPassword();
-    const pool = await getSqlPool();
-
-    let query = 'SELECT * FROM [dbo].[Matters]';
-    const conditions = [];
-    const request = pool.request();
-
-    if (fullName) {
-      conditions.push('ResponsibleSolicitor = @fullName');
-      request.input('fullName', sql.NVarChar, fullName);
+  // Temporary test response to verify routing works
+  context.res = {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type'
+    },
+    body: {
+      message: 'fetchMattersData route is working correctly!',
+      route: '/api/fetchMattersData',
+      receivedParams: { fullName, limit },
+      timestamp: new Date().toISOString()
     }
-
-    if (conditions.length > 0) {
-      query += ' WHERE ' + conditions.join(' AND ');
-    }
-
-    query += ' ORDER BY OpenDate DESC';
-    if (limit && limit > 0) {
-      query += ` OFFSET 0 ROWS FETCH NEXT ${limit} ROWS ONLY`;
-    }
-
-    context.log('Executing query:', query);
-    const result = await request.query(query);
-    const matters = result.recordset || [];
-
-    context.res = {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type'
-      },
-      body: {
-        matters,
-        count: matters.length,
-        filters: { fullName, limit }
-      }
-    };
-  } catch (err) {
-    context.log.error('fetchMattersData error:', err);
-    context.res = {
-      status: 500,
-      body: {
-        error: 'Failed to fetch matters data',
-        detail: err.message
-      }
-    };
-  }
+  };
 };

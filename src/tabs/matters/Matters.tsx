@@ -20,7 +20,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
   const { setContent } = useNavigator();
   const [selected, setSelected] = useState<Matter | null>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
-  const [activeFilter, setActiveFilter] = useState<string>('Active');
+  const [activeFilter, setActiveFilter] = useState<string>('Closed');
   const [activeAreaFilter, setActiveAreaFilter] = useState<string>('All');
   const [showDataInspector, setShowDataInspector] = useState<boolean>(false);
 
@@ -31,6 +31,12 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
   const baseFiltered = useMemo(() => {
     if (!userFullName) return [];
     if (isAdmin) return matters;
+    
+    // Show all matters for Luke and Alex
+    if (userFullName.includes('luke') || userFullName.includes('alex')) {
+      return matters;
+    }
+    
     return matters.filter((m) => {
       const responsible = m.ResponsibleSolicitor?.toLowerCase().trim() || '';
       const originating = m.OriginatingSolicitor?.toLowerCase().trim() || '';

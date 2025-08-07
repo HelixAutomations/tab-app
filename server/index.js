@@ -28,6 +28,7 @@ const enquiriesRouter = require('./routes/enquiries');
 const enquiryEmailsRouter = require('./routes/enquiryEmails');
 const pitchesRouter = require('./routes/pitches');
 const sqlMattersRouter = require('./routes/sqlMatters');
+const proxyToAzureFunctionsRouter = require('./routes/proxyToAzureFunctions');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -60,6 +61,9 @@ app.use('/api/enquiry-emails', enquiryEmailsRouter);
 app.use('/api/pitches', pitchesRouter);
 app.use('/api/sqlMatters', sqlMattersRouter);
 app.use('/ccls', express.static(CCL_DIR));
+
+// Proxy routes to Azure Functions - these handle requests without /api/ prefix
+app.use('/', proxyToAzureFunctionsRouter);
 
 // API routes should come BEFORE static file serving and catch-all route
 // This ensures API requests don't get caught by the catch-all route

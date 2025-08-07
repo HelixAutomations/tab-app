@@ -2806,10 +2806,16 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     }
   }, []);
 
+
   // Show overlay when immediate actions become available
-  // Check if overlay has been shown/dismissed in this browser session
+  // Check if overlay has been shown in this browser session
   const [hasShownOverlayThisSession, setHasShownOverlayThisSession] = useState<boolean>(() => {
     return sessionStorage.getItem('immediateActionsOverlayShown') === 'true';
+  });
+
+  // Track if immediate actions bar has been dismissed for this session
+  const [immediateActionsDismissedThisSession, setImmediateActionsDismissedThisSession] = useState<boolean>(() => {
+    return sessionStorage.getItem('immediateActionsBarDismissed') === 'true';
   });
 
   useEffect(() => {
@@ -2819,13 +2825,14 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       immediateActionsList &&
       immediateActionsList.length > 0 &&
       !showFocusOverlay &&
-      !hasShownOverlayThisSession
+      !hasShownOverlayThisSession &&
+      !immediateActionsDismissedThisSession
     ) {
       setShowFocusOverlay(true);
       setHasShownOverlayThisSession(true);
       sessionStorage.setItem('immediateActionsOverlayShown', 'true');
     }
-  }, [immediateActionsReady, immediateActionsList, showFocusOverlay, hasShownOverlayThisSession]);
+  }, [immediateActionsReady, immediateActionsList, showFocusOverlay, hasShownOverlayThisSession, immediateActionsDismissedThisSession]);
 
   const normalQuickActions = useMemo(() => {
     const actions = quickActions
@@ -2864,29 +2871,33 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           highlighted={false}
           resetSelectionRef={resetQuickActionsSelectionRef}
         />
-        <ImmediateActionsBar
-          isDarkMode={isDarkMode}
-          immediateActionsReady={immediateActionsReady}
-          immediateActionsList={immediateActionsList}
-          highlighted={showFocusOverlay}
-          showDismiss={showFocusOverlay}
-          onDismiss={() => {
-            setShowFocusOverlay(false);
-            setHasShownOverlayThisSession(true);
-            sessionStorage.setItem('immediateActionsOverlayShown', 'true');
-          }}
-        />
+        {!immediateActionsDismissedThisSession && (
+          <ImmediateActionsBar
+            isDarkMode={isDarkMode}
+            immediateActionsReady={immediateActionsReady}
+            immediateActionsList={immediateActionsList}
+            highlighted={showFocusOverlay}
+            showDismiss={showFocusOverlay}
+            onDismiss={() => {
+              setShowFocusOverlay(false);
+              setHasShownOverlayThisSession(true);
+              sessionStorage.setItem('immediateActionsOverlayShown', 'true');
+              setImmediateActionsDismissedThisSession(true);
+              sessionStorage.setItem('immediateActionsBarDismissed', 'true');
+            }}
+          />
+        )}
       </>
     );
     return () => setContent(null);
   }, [
-    // setContent, // REMOVED: This was causing infinite update loop and blocking scroll
     isDarkMode,
     immediateActionsReady,
     immediateActionsList,
     normalQuickActions,
     currentUserConfirmed,
     showFocusOverlay,
+    immediateActionsDismissedThisSession,
   ]);
 
   // Returns a narrow weekday (e.g. "M" for Monday, "T" for Tuesday)

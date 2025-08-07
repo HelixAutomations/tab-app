@@ -1,100 +1,571 @@
-diff --git a/src/tabs/home/Home.tsx b/src/tabs/home/Home.tsx
-index 0a732f8b00695b382c81c12718b9584f61e1dcd5..a913d3ca84f333681819d73efa9c59ac3009aa3e 100644
---- a/src/tabs/home/Home.tsx
-+++ b/src/tabs/home/Home.tsx
-@@ -1615,50 +1615,95 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
-               ResponsibleSolicitor: item['Responsible Solicitor'] || '',
-               OriginatingSolicitor: item['Originating Solicitor'] || '',
-               SupervisingPartner: item['Supervising Partner'] || '',
-               Opponent: item['Opponent'] || '',
-               OpponentSolicitor: item['Opponent Solicitor'] || '',
-               CloseDate: item['Close Date'] || '',
-               ApproxValue: item['Approx. Value'] || '',
-               mod_stamp: item['mod_stamp'] || '',
-               method_of_contact: item['method_of_contact'] || '',
-               CCL_date: item['CCL_date'] || null,
-               Rating: item['Rating'] as 'Good' | 'Neutral' | 'Poor' | undefined,
-             }));
-           };
- 
-           let mappedMatters: Matter[] = [];
-           if (Array.isArray(rawData)) {
-             // Direct array response from getMatters API
-             mappedMatters = mapData(rawData);
-           } else if (rawData.matters && Array.isArray(rawData.matters)) {
-             // Nested format from getAllMatters API
-             mappedMatters = mapData(rawData.matters);
-           } else {
-             console.warn('Unexpected data format for getMatters:', rawData);
-           }
- 
-+          // Fetch additional matters from SQL-backed decoupled function
-+          try {
-+            const sqlFullName = userData?.[0]?.FullName || 'Lukasz Zemanek';
-+            const sqlResp = await fetch(`/api/sqlMatters?fullName=${encodeURIComponent(sqlFullName)}`);
-+            if (sqlResp.ok) {
-+              const sqlData = await sqlResp.json();
-+              if (Array.isArray(sqlData.matters)) {
-+                const sqlMapped: Matter[] = sqlData.matters.map((item: any) => ({
-+                  MatterID: item.MatterID,
-+                  InstructionRef: item.InstructionRef,
-+                  DisplayNumber: item.DisplayNumber || '',
-+                  OpenDate: item.OpenDate || '',
-+                  MonthYear: item.MonthYear || '',
-+                  YearMonthNumeric: item.YearMonthNumeric || 0,
-+                  ClientID: item.ClientID || '',
-+                  ClientName: item.ClientName || '',
-+                  ClientPhone: item.ClientPhone || '',
-+                  ClientEmail: item.ClientEmail || '',
-+                  Status: item.Status || '',
-+                  UniqueID: item.MatterID || '',
-+                  Description: item.Description || '',
-+                  PracticeArea: item.PracticeArea || '',
-+                  Source: item.Source || '',
-+                  Referrer: item.Referrer || '',
-+                  ResponsibleSolicitor: item.ResponsibleSolicitor || '',
-+                  OriginatingSolicitor: item.OriginatingSolicitor || '',
-+                  SupervisingPartner: item.SupervisingPartner || '',
-+                  Opponent: item.OpponentID || '',
-+                  OpponentSolicitor: item.OpponentSolicitorID || '',
-+                  CloseDate: item.CloseDate || '',
-+                  ApproxValue: item.ApproxValue || '',
-+                  mod_stamp: item.mod_stamp || '',
-+                  method_of_contact: item.method_of_contact || '',
-+                  CCL_date: item.CCL_date || null,
-+                  Rating: item.Rating,
-+                }));
-+                mappedMatters = mappedMatters.concat(sqlMapped);
-+              }
-+            } else {
-+              console.warn('Failed to fetch SQL matters:', sqlResp.status);
-+            }
-+          } catch (sqlErr) {
-+            console.warn('Error fetching SQL matters:', sqlErr);
-+          }
-+
-           cachedAllMatters = mappedMatters;
-           setAllMatters(mappedMatters);
-           if (onAllMattersFetched) {
-             onAllMattersFetched(mappedMatters);
-           }
-         } catch (error: any) {
-           console.error('Error fetching all matters:', error);
-           cachedAllMattersError = error.message;
-           setAllMattersError(error.message);
-           setAllMatters([]);
-         } finally {
-           setIsLoadingAllMatters(false);
-         }
+diff --git a/src/components/MatterApiDebugger.tsx b/src/components/MatterApiDebugger.tsx
+index 051f7fa34e7df4e2d1e830fdbd66e69de81b5b91..e96b0bc70c41d96f4eaa15566d0d24f6e09a24bb 100644
+--- a/src/components/MatterApiDebugger.tsx
++++ b/src/components/MatterApiDebugger.tsx
+@@ -42,224 +42,224 @@ const MatterApiDebugger: React.FC<MatterApiDebuggerProps> = ({ currentMatters, o
+     setIsLoading(true);
+     const start = Date.now();
+     
+     try {
+       let url = endpoint;
+       let requestOptions: RequestInit = {
+         headers: {
+           'Content-Type': 'application/json',
+         },
        };
-       fetchAllMattersData();
-     }
-   }, [onAllMattersFetched]);
  
-   // NEW: useEffect for fetching POID6Years data
+       // Use POST for endpoints that require it, GET for others
+       if (endpoint.includes('/api/getMatters') || endpoint.includes('getMatters')) {
+         requestOptions.method = 'POST';
+         if (params) {
+           requestOptions.body = JSON.stringify(params);
+         }
+       } else {
+         requestOptions.method = 'GET';
+         if (params && Object.keys(params).length > 0) {
+           const searchParams = new URLSearchParams(params);
+           url += '?' + searchParams.toString();
+         }
+       }
+ 
+-      console.log(`🔍 Testing Matter API call to: ${url}`, requestOptions.method === 'POST' ? 'with body:' : '', requestOptions.body || '');
++      console.log(`Testing Matter API call to: ${url}`, requestOptions.method === 'POST' ? 'with body:' : '', requestOptions.body || '');
+       
+       const response = await fetch(url, requestOptions);
+ 
+       const duration = Date.now() - start;
+       const data = await response.json();
+ 
+       const apiResponse: ApiResponse = {
+         timestamp: new Date().toISOString(),
+         endpoint: url,
+         method: 'GET',
+         status: response.status,
+         data,
+         duration,
+       };
+ 
+       if (!response.ok) {
+         apiResponse.error = `HTTP ${response.status}: ${response.statusText}`;
+       }
+ 
+       setApiResponses(prev => [apiResponse, ...prev]);
+       
+-      console.log('📦 Matter API Response:', apiResponse);
++      console.log('Matter API Response:', apiResponse);
+       
+     } catch (error) {
+       const apiResponse: ApiResponse = {
+         timestamp: new Date().toISOString(),
+         endpoint: endpoint,
+         method: 'GET',
+         status: 0,
+         data: null,
+         error: (error as Error).message,
+         duration: Date.now() - start,
+       };
+       
+       setApiResponses(prev => [apiResponse, ...prev]);
+-      console.error('❌ Matter API Error:', error);
++      console.error('Matter API Error:', error);
+     } finally {
+       setIsLoading(false);
+     }
+   };
+ 
+   const testLegacyFunction = async () => {
+     setIsLoading(true);
+     const start = Date.now();
+     
+     try {
+       const isLocalDev = window.location.hostname === 'localhost';
+       const legacyBaseUrl = isLocalDev
+         ? 'https://helix-keys-proxy.azurewebsites.net/api'
+         : 'https://helix-keys-proxy.azurewebsites.net/api';
+       
+       // Get legacy function details from environment or use defaults
+       const legacyPath = process.env.REACT_APP_GET_MATTERS_PATH || 'getMatters';
+       const legacyCode = process.env.REACT_APP_GET_MATTERS_CODE || 'missing-code';
+       const legacyUrl = `${legacyBaseUrl}/${legacyPath}?code=${legacyCode}`;
+ 
+-      console.log(`🔍 Testing Legacy Matter Azure Function: ${legacyUrl}`);
+-      console.log(`🔧 Environment Variables:`, {
++      console.log(`Testing Legacy Matter Azure Function: ${legacyUrl}`);
++      console.log(`Environment Variables:`, {
+         REACT_APP_GET_MATTERS_PATH: process.env.REACT_APP_GET_MATTERS_PATH,
+         REACT_APP_GET_MATTERS_CODE: process.env.REACT_APP_GET_MATTERS_CODE ? 'SET' : 'NOT SET'
+       });
+       
+       const response = await fetch(legacyUrl, {
+         method: 'POST',
+         headers: {
+           'Content-Type': 'application/json',
+         },
+         body: JSON.stringify({
+           fullName: testFullName,
+         }),
+       });
+ 
+       const duration = Date.now() - start;
+       const data = await response.json();
+ 
+       const apiResponse: ApiResponse = {
+         timestamp: new Date().toISOString(),
+         endpoint: 'Legacy Matter Azure Function (Proxy)',
+         method: 'POST',
+         status: response.status,
+         data,
+         duration,
+       };
+ 
+       if (!response.ok) {
+         apiResponse.error = `HTTP ${response.status}: ${response.statusText}`;
+       }
+ 
+       setApiResponses(prev => [apiResponse, ...prev]);
+       
+-      console.log('📦 Legacy Matter Function Response:', apiResponse);
++      console.log('Legacy Matter Function Response:', apiResponse);
+       
+     } catch (error) {
+       const apiResponse: ApiResponse = {
+         timestamp: new Date().toISOString(),
+         endpoint: 'Legacy Matter Azure Function (Proxy)',
+         method: 'POST',
+         status: 0,
+         data: null,
+         error: (error as Error).message,
+         duration: Date.now() - start,
+       };
+       
+       setApiResponses(prev => [apiResponse, ...prev]);
+-      console.error('❌ Legacy Matter Function Error:', error);
++      console.error('Legacy Matter Function Error:', error);
+     } finally {
+       setIsLoading(false);
+     }
+   };
+ 
+   const testLocalAzureFunction = async () => {
+     setIsLoading(true);
+     const start = Date.now();
+     
+     try {
+       const localFunctionUrl = 'http://localhost:7071/api/getMatters';
+ 
+-      console.log(`🔍 Testing Local Matter Azure Function: ${localFunctionUrl}`);
++      console.log(`Testing Local Matter Azure Function: ${localFunctionUrl}`);
+       
+       const response = await fetch(localFunctionUrl, {
+         method: 'POST',
+         headers: {
+           'Content-Type': 'application/json',
+         },
+         body: JSON.stringify({
+           fullName: testFullName,
+         }),
+       });
+ 
+       const duration = Date.now() - start;
+       const data = await response.json();
+ 
+       const apiResponse: ApiResponse = {
+         timestamp: new Date().toISOString(),
+         endpoint: 'Local Matter Azure Function (localhost:7071)',
+         method: 'POST',
+         status: response.status,
+         data,
+         duration,
+       };
+ 
+       if (!response.ok) {
+         apiResponse.error = `HTTP ${response.status}: ${response.statusText}`;
+       }
+ 
+       setApiResponses(prev => [apiResponse, ...prev]);
+       
+-      console.log('📦 Local Matter Azure Function Response:', apiResponse);
++      console.log('Local Matter Azure Function Response:', apiResponse);
+       
+     } catch (error) {
+       const apiResponse: ApiResponse = {
+         timestamp: new Date().toISOString(),
+         endpoint: 'Local Matter Azure Function (localhost:7071)',
+         method: 'POST',
+         status: 0,
+         data: null,
+         error: (error as Error).message,
+         duration: Date.now() - start,
+       };
+       
+       setApiResponses(prev => [apiResponse, ...prev]);
+-      console.error('❌ Local Matter Azure Function Error:', error);
++      console.error('Local Matter Azure Function Error:', error);
+     } finally {
+       setIsLoading(false);
+     }
+   };
+ 
+   const analyzeCurrentData = () => {
+-    console.log('🔍 CURRENT MATTERS ANALYSIS:');
++    console.log('CURRENT MATTERS ANALYSIS:');
+     console.log('Total matters received:', currentMatters.length);
+     
+     // Log the fetch configuration
+-    console.log('🔧 FETCH CONFIGURATION:');
++    console.log('FETCH CONFIGURATION:');
+     console.log('REACT_APP_GET_MATTERS_PATH:', process.env.REACT_APP_GET_MATTERS_PATH);
+     console.log('REACT_APP_GET_MATTERS_CODE:', process.env.REACT_APP_GET_MATTERS_CODE ? 'SET' : 'NOT SET');
+     console.log('REACT_APP_PROXY_BASE_URL:', process.env.REACT_APP_PROXY_BASE_URL);
+     console.log('Current hostname:', window.location.hostname);
+     
+     if (currentMatters.length > 0) {
+       console.log('Sample matter structure:', Object.keys(currentMatters[0]));
+       
+       // Analyze Responsible Solicitor distribution
+       const responsibleCounts: { [key: string]: number } = {};
+       currentMatters.forEach(matter => {
+         const responsible = matter.ResponsibleSolicitor || 'Unknown';
+         responsibleCounts[responsible] = (responsibleCounts[responsible] || 0) + 1;
+       });
+       console.log('Responsible Solicitor distribution:', responsibleCounts);
+       
+       // Analyze Originating Solicitor distribution
+       const originatingCounts: { [key: string]: number } = {};
+       currentMatters.forEach(matter => {
+         const originating = matter.OriginatingSolicitor || 'Unknown';
+         originatingCounts[originating] = (originatingCounts[originating] || 0) + 1;
+       });
+       console.log('Originating Solicitor distribution:', originatingCounts);
+       
+       // Analyze Practice Area distribution
+diff --git a/src/components/MatterApiDebugger.tsx b/src/components/MatterApiDebugger.tsx
+index 051f7fa34e7df4e2d1e830fdbd66e69de81b5b91..e96b0bc70c41d96f4eaa15566d0d24f6e09a24bb 100644
+--- a/src/components/MatterApiDebugger.tsx
++++ b/src/components/MatterApiDebugger.tsx
+@@ -270,66 +270,66 @@ const MatterApiDebugger: React.FC<MatterApiDebuggerProps> = ({ currentMatters, o
+       });
+       console.log('Practice Area distribution:', areaCounts);
+       
+       // Analyze Status distribution
+       const statusCounts: { [key: string]: number } = {};
+       currentMatters.forEach(matter => {
+         const status = matter.Status || 'Unknown';
+         statusCounts[status] = (statusCounts[status] || 0) + 1;
+       });
+       console.log('Status distribution:', statusCounts);
+       
+       // Check for test user specific matters
+       const userMatters = currentMatters.filter(matter => {
+         const responsible = (matter.ResponsibleSolicitor || '').toLowerCase();
+         const originating = (matter.OriginatingSolicitor || '').toLowerCase();
+         const testEmailLower = testEmail.toLowerCase();
+         const testInitialsLower = testInitials.toLowerCase();
+         
+         return responsible.includes(testEmailLower) || 
+                originating.includes(testEmailLower) ||
+                responsible === testInitialsLower ||
+                originating === testInitialsLower;
+       });
+       console.log(`${testInitials}-specific matters:`, userMatters.length, userMatters);
+       
+-      console.log('📋 First 3 matters for inspection:', currentMatters.slice(0, 3));
++      console.log('First 3 matters for inspection:', currentMatters.slice(0, 3));
+       
+       // Additional debugging for data source
+-      console.log('🔍 DATA SOURCE ANALYSIS:');
++      console.log('DATA SOURCE ANALYSIS:');
+       const uniqueIds = new Set(currentMatters.map(m => m.UniqueID || m.MatterID));
+       console.log('Total unique matters:', uniqueIds.size);
+       
+       // Check if we might be getting local fallback data
+       const hasCompleteData = currentMatters.some(m => 
+         m.ResponsibleSolicitor && m.ClientName && m.PracticeArea
+       );
+       console.log('Has complete data (not fallback):', hasCompleteData);
+       
+     } else {
+-      console.log('❌ No matters data available');
+-      console.log('🔧 Debugging suggestions:');
++      console.log('No matters data available');
++      console.log('Debugging suggestions:');
+       console.log('1. Check if environment variables are set correctly');
+       console.log('2. Check network tab for failed API calls');
+       console.log('3. Check if getMatters Azure Function is running');
+       console.log('4. Check if matter data exists in the database');
+     }
+   };
+ 
+   const clearResponses = () => {
+     setApiResponses([]);
+   };
+ 
    useEffect(() => {
-     if (cachedPOID6Years) {
-       setPoid6Years(cachedPOID6Years);
-       setIsLoadingPOID6Years(false);
-       // Call the callback to pass data back to App
-       if (onPOID6YearsFetched) {
+     // Automatically analyze current data when component mounts
+     analyzeCurrentData();
+   }, [currentMatters]);
+ 
+   return (
+     <div
+       style={{
+         position: 'fixed',
+         top: 0,
+         left: 0,
+         right: 0,
+         bottom: 0,
+         background: 'rgba(0,0,0,0.7)',
+diff --git a/src/components/MatterApiDebugger.tsx b/src/components/MatterApiDebugger.tsx
+index 051f7fa34e7df4e2d1e830fdbd66e69de81b5b91..e96b0bc70c41d96f4eaa15566d0d24f6e09a24bb 100644
+--- a/src/components/MatterApiDebugger.tsx
++++ b/src/components/MatterApiDebugger.tsx
+@@ -341,237 +341,227 @@ const MatterApiDebugger: React.FC<MatterApiDebuggerProps> = ({ currentMatters, o
+       }}
+       onClick={(e) => e.target === e.currentTarget && onClose()}
+     >
+       <div style={{
+         background: isDarkMode ? '#1a1a1a' : '#fff',
+         borderRadius: 12,
+         width: '90%',
+         height: '90%',
+         maxWidth: '1200px',
+         overflow: 'hidden',
+         boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+         display: 'flex',
+         flexDirection: 'column',
+       }}>
+         
+         {/* Header */}
+         <div style={{
+           padding: '16px 24px',
+           borderBottom: `1px solid ${isDarkMode ? '#404040' : '#e5e7eb'}`,
+           display: 'flex',
+           justifyContent: 'space-between',
+           alignItems: 'center',
+           backgroundColor: isDarkMode ? '#2d2d2d' : '#ffffff',
+         }}>
+           <div>
+-            <Text variant="large" styles={{ root: { fontWeight: '600', color: isDarkMode ? '#ffffff' : '#111827' } }}>
+-              ⚖️ Matter API Debugger
+-            </Text>
++            <Text variant="large" styles={{ root: { fontWeight: '600', color: isDarkMode ? '#ffffff' : '#111827' } }}>Matter API Debugger</Text>
+             <Text variant="small" styles={{ root: { color: isDarkMode ? '#888' : '#6b7280', marginTop: '2px' } }}>
+               Debug API calls and filtering logic for matter data
+             </Text>
+           </div>
+           <IconButton
+             iconProps={{ iconName: 'Cancel' }}
+             onClick={onClose}
+             styles={{
+               root: {
+                 backgroundColor: isDarkMode ? '#404040' : '#f3f4f6',
+                 color: isDarkMode ? '#ffffff' : '#374151',
+               }
+             }}
+           />
+         </div>
+ 
+         {/* Content */}
+         <div style={{ flex: 1, overflow: 'auto', padding: '20px' }}>
+           
+           {/* Current Data Summary */}
+           <div style={{ 
+             marginBottom: '24px',
+             padding: '16px',
+             backgroundColor: isDarkMode ? '#2d2d2d' : '#f8f9fa',
+             borderRadius: '8px',
+             border: `1px solid ${isDarkMode ? '#404040' : '#e1e4e8'}`
+           }}>
+-            <Text variant="mediumPlus" styles={{ root: { fontWeight: '600', marginBottom: '12px' } }}>
+-              📊 Current Matters Summary
+-            </Text>
++            <Text variant="mediumPlus" styles={{ root: { fontWeight: '600', marginBottom: '12px' } }}>Current Matters Summary</Text>
+             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
+               <div>
+                 <Text variant="large" styles={{ root: { fontWeight: '600', color: colours.blue } }}>
+                   {currentMatters.length}
+                 </Text>
+                 <Text variant="small">Total Received</Text>
+               </div>
+               <div>
+                 <Text variant="large" styles={{ root: { fontWeight: '600', color: colours.green } }}>
+                   {currentMatters.filter(m => {
+                     const responsible = (m.ResponsibleSolicitor || '').toLowerCase();
+                     const originating = (m.OriginatingSolicitor || '').toLowerCase();
+                     const testFullNameLower = testFullName.toLowerCase();
+                     
+                     return responsible.includes(testFullNameLower) || 
+                            originating.includes(testFullNameLower);
+                   }).length}
+                 </Text>
+                 <Text variant="small">For {testFullName}</Text>
+               </div>
+               <div>
+                 <Text variant="large" styles={{ root: { fontWeight: '600', color: colours.orange } }}>
+                   {currentMatters.filter(m => m.Status?.toLowerCase() !== 'closed').length}
+                 </Text>
+                 <Text variant="small">Active</Text>
+               </div>
+               <div>
+                 <Text variant="large" styles={{ root: { fontWeight: '600', color: colours.cta } }}>
+                   {currentMatters.filter(m => m.Status?.toLowerCase() === 'closed').length}
+                 </Text>
+                 <Text variant="small">Closed</Text>
+               </div>
+             </div>
+             <DefaultButton
+-              text="🔍 Analyze in Console"
++              text="Analyze in Console"
+               onClick={analyzeCurrentData}
+               styles={{ root: { marginTop: '12px' } }}
+             />
+           </div>
+ 
+           {/* Test Controls */}
+           <div style={{ 
+             marginBottom: '24px',
+             padding: '16px',
+             backgroundColor: isDarkMode ? '#2d2d2d' : '#f8f9fa',
+             borderRadius: '8px',
+             border: `1px solid ${isDarkMode ? '#404040' : '#e1e4e8'}`
+           }}>
+-            <Text variant="mediumPlus" styles={{ root: { fontWeight: '600', marginBottom: '12px' } }}>
+-              🧪 API Test Controls
+-            </Text>
++            <Text variant="mediumPlus" styles={{ root: { fontWeight: '600', marginBottom: '12px' } }}>API Test Controls</Text>
+             
+             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+               <TextField
+                 label="Test Email"
+                 value={testEmail}
+                 onChange={(_, value) => setTestEmail(value || '')}
+               />
+               <TextField
+                 label="Test Initials"
+                 value={testInitials}
+                 onChange={(_, value) => setTestInitials(value || '')}
+               />
+               <TextField
+                 label="Full Name (for Matter queries)"
+                 value={testFullName}
+                 onChange={(_, value) => setTestFullName(value || '')}
+               />
+             </div>
+ 
+             <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+               <PrimaryButton
+-                text="🔄 New Route API"
++                text="New Route API"
+                 onClick={() => testApiCall('/api/getMatters', { fullName: testFullName })}
+                 disabled={isLoading}
+                 iconProps={{ iconName: 'Refresh' }}
+               />
+               
+               <DefaultButton
+-                text="⚡ Local Azure Function"
++                text="Local Azure Function"
+                 onClick={testLocalAzureFunction}
+                 disabled={isLoading}
+                 iconProps={{ iconName: 'Lightning' }}
+               />
+               
+               <DefaultButton
+-                text="🏛️ Legacy Function (Proxy)"
++                text="Legacy Function (Proxy)"
+                 onClick={testLegacyFunction}
+                 disabled={isLoading}
+                 iconProps={{ iconName: 'CloudUpload' }}
+               />
+               
+               <DefaultButton
+-                text="🌐 Get All Matters"
++                text="Get All Matters"
+                 onClick={() => testApiCall('/api/getAllMatters')}
+                 disabled={isLoading}
+                 iconProps={{ iconName: 'GlobalNavButton' }}
+               />
+             </div>
+ 
+             <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '12px' }}>
+               <DefaultButton
+-                text="🏗️ Test with Filters"
++                text="Test with Filters"
+                 onClick={() => testApiCall('/api/getMatters', {
+                   fullName: testFullName,
+                   practiceArea: 'Commercial'
+                 })}
+                 disabled={isLoading}
+               />
+               
+               <DefaultButton
+-                text="📊 Raw Data Dump"
++                text="Raw Data Dump"
+                 onClick={() => testApiCall('/api/getMatters', { fullName: testFullName, limit: '100' })}
+                 disabled={isLoading}
+               />
+               
+               <DefaultButton
+-                text="🗑️ Clear Results"
++                text="Clear Results"
+                 onClick={clearResponses}
+               />
+             </div>
+             
+             {isLoading && (
+               <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                 <Spinner size={SpinnerSize.small} />
+                 <Text variant="small">Testing Matter API...</Text>
+               </div>
+             )}
+           </div>
+ 
+           {/* Environment Variables Info */}
+           <div style={{ 
+             marginBottom: '24px',
+             padding: '16px',
+             backgroundColor: isDarkMode ? '#2d2d2d' : '#fff3cd',
+             borderRadius: '8px',
+             border: `1px solid ${colours.yellow}`
+           }}>
+-            <Text variant="mediumPlus" styles={{ root: { fontWeight: '600', marginBottom: '12px' } }}>
+-              🔧 Environment Configuration
+-            </Text>
++            <Text variant="mediumPlus" styles={{ root: { fontWeight: '600', marginBottom: '12px' } }}>Environment Configuration</Text>
+             <div style={{ fontSize: '12px', fontFamily: 'monospace' }}>
+               <div><strong>REACT_APP_GET_MATTERS_PATH:</strong> {process.env.REACT_APP_GET_MATTERS_PATH || 'NOT SET'}</div>
+               <div><strong>REACT_APP_GET_MATTERS_CODE:</strong> {process.env.REACT_APP_GET_MATTERS_CODE ? 'SET' : 'NOT SET'}</div>
+               <div><strong>REACT_APP_PROXY_BASE_URL:</strong> {process.env.REACT_APP_PROXY_BASE_URL || 'NOT SET'}</div>
+               <div><strong>Environment:</strong> {window.location.hostname === 'localhost' ? 'Development' : 'Production'}</div>
+             </div>
+           </div>
+ 
+           {/* API Responses */}
+           <div>
+-            <Text variant="mediumPlus" styles={{ root: { fontWeight: '600', marginBottom: '12px' } }}>
+-              📡 API Test Results ({apiResponses.length})
+-            </Text>
++            <Text variant="mediumPlus" styles={{ root: { fontWeight: '600', marginBottom: '12px' } }}>API Test Results ({apiResponses.length})</Text>
+             
+             {apiResponses.length === 0 ? (
+               <MessageBar messageBarType={MessageBarType.info}>
+                 No API tests run yet. Click a test button above to see results.
+               </MessageBar>
+             ) : (
+               <div style={{ maxHeight: '400px', overflow: 'auto' }}>
+                 {apiResponses.map((response, index) => (
+                   <div
+                     key={index}
+                     style={{
+                       padding: '16px',
+                       marginBottom: '12px',
+                       backgroundColor: response.status >= 200 && response.status < 300 ? 
+                         (isDarkMode ? '#0d4f3c' : '#d1fae5') : 
+                         (isDarkMode ? '#4c1d1d' : '#fee2e2'),
+                       borderRadius: '8px',
+                       border: `1px solid ${response.status >= 200 && response.status < 300 ? colours.green : colours.cta}`
+                     }}
+                   >
+                     {/* Response header */}
+                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                       <Text variant="medium" styles={{ root: { fontWeight: '600' } }}>
+                         {response.method} {response.endpoint}
+                       </Text>

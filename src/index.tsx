@@ -258,9 +258,9 @@ async function fetchEnquiries(
     console.log('🔵 Attempting to fetch LEGACY enquiries data (via proxy)...');
 
 
-    // Use local Azure Function when developing, otherwise call production proxy
+    // Use local Express server proxy when developing, otherwise call production proxy
     const legacyBaseUrl = isLocalDev
-      ? 'http://localhost:7071/api'
+      ? 'http://localhost:8080'
       : 'https://helix-keys-proxy.azurewebsites.net/api';
     const legacyPath = process.env.REACT_APP_GET_ENQUIRIES_PATH;
     const legacyCode = process.env.REACT_APP_GET_ENQUIRIES_CODE;
