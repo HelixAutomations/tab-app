@@ -385,6 +385,106 @@ async function fetchEnquiries(
   return filteredEnquiries;
 }
 
+// Helper functions for mapping matter data from different sources
+const mapLegacyMatters = (items: any[]): Matter[] => {
+  return items.map((item) => ({
+    MatterID: item["MatterID"] || item["Matter ID"] || "",
+    InstructionRef: item["InstructionRef"] || item["Instruction Ref"] || "",
+    DisplayNumber: item["Display Number"] || "",
+    OpenDate: item["Open Date"] || "",
+    MonthYear: item["MonthYear"] || "",
+    YearMonthNumeric: item["YearMonthNumeric"] || 0,
+    ClientID: item["Client ID"] || "",
+    ClientName: item["Client Name"] || "",
+    ClientPhone: item["Client Phone"] || "",
+    ClientEmail: item["Client Email"] || "",
+    Status: item["Status"] || "",
+    UniqueID: item["Unique ID"] || "",
+    Description: item["Description"] || "",
+    PracticeArea: item["Practice Area"] || "",
+    Source: item["Source"] || "",
+    Referrer: item["Referrer"] || "",
+    ResponsibleSolicitor: item["Responsible Solicitor"] || "",
+    OriginatingSolicitor: item["Originating Solicitor"] || "",
+    SupervisingPartner: item["Supervising Partner"] || "",
+    Opponent: item["Opponent"] || "",
+    OpponentSolicitor: item["Opponent Solicitor"] || "",
+    CloseDate: item["Close Date"] || "",
+    ApproxValue: item["Approx. Value"] || "",
+    mod_stamp: item["mod_stamp"] || "",
+    method_of_contact: item["method_of_contact"] || "",
+    CCL_date: item["CCL_date"] || null,
+    Rating: item["Rating"] as "Good" | "Neutral" | "Poor" | undefined,
+  }));
+};
+
+const mapNewMatters = (items: any[]): Matter[] => {
+  return items.map((item) => ({
+    MatterID: item.MatterID || item.matter_id || "",
+    InstructionRef: item.InstructionRef || item.instruction_ref || "",
+    DisplayNumber: item.DisplayNumber || item.display_number || "",
+    OpenDate: item.OpenDate || item.open_date || "",
+    MonthYear: item.MonthYear || item.month_year || "",
+    YearMonthNumeric: item.YearMonthNumeric || item.year_month_numeric || 0,
+    ClientID: item.ClientID || item.client_id || "",
+    ClientName: item.ClientName || item.client_name || "",
+    ClientPhone: item.ClientPhone || item.client_phone || "",
+    ClientEmail: item.ClientEmail || item.client_email || "",
+    Status: item.Status || item.status || "",
+    UniqueID: item.UniqueID || item.unique_id || "",
+    Description: item.Description || item.description || "",
+    PracticeArea: item.PracticeArea || item.practice_area || "",
+    Source: item.Source || item.source || "",
+    Referrer: item.Referrer || item.referrer || "",
+    ResponsibleSolicitor: item.ResponsibleSolicitor || item.responsible_solicitor || "",
+    OriginatingSolicitor: item.OriginatingSolicitor || item.originating_solicitor || "",
+    SupervisingPartner: item.SupervisingPartner || item.supervising_partner || "",
+    Opponent: item.Opponent || item.opponent || "",
+    OpponentSolicitor: item.OpponentSolicitor || item.opponent_solicitor || "",
+    CloseDate: item.CloseDate || item.close_date || "",
+    ApproxValue: item.ApproxValue || item.approx_value || "",
+    mod_stamp: item.mod_stamp || '',
+    method_of_contact: item.method_of_contact || '',
+    CCL_date: item.CCL_date || null,
+    Rating: item.Rating as "Good" | "Neutral" | "Poor" | undefined,
+  }));
+};
+
+async function fetchAllMatters(): Promise<Matter[]> {
+  const cacheKey = 'allMatters';
+  const cached = getCachedData<Matter[]>(cacheKey);
+  if (cached) return cached;
+
+  const isLocalDev = typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+  
+  let allMatters: any[] = [];
+
+  try {
+    const getAllMattersUrl = isLocalDev ? '/api/getAllMatters' : '/api/getAllMatters';
+    console.log('🔍 Fetching ALL matters from:', getAllMattersUrl);
+    
+    const response = await fetch(getAllMattersUrl, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      allMatters = Array.isArray(data) ? data : data.matters || [];
+      console.log('✅ Successfully fetched ALL matters, count:', allMatters.length);
+    } else {
+      console.warn('❌ Failed to fetch all matters:', response.status, response.statusText);
+    }
+  } catch (err) {
+    console.warn('❌ Error fetching all matters:', err);
+  }
+
+  const mappedMatters = mapLegacyMatters(allMatters);
+  setCachedData(cacheKey, mappedMatters);
+  return mappedMatters;
+}
+
 async function fetchMatters(fullName: string): Promise<Matter[]> {
   const cacheKey = `matters-${fullName}`;
   const cached = getCachedData<Matter[]>(cacheKey);
@@ -425,74 +525,10 @@ async function fetchMatters(fullName: string): Promise<Matter[]> {
     console.warn('New matters fetch failed', err);
   }
 
-  const mapLegacy = (items: any[]): Matter[] => {
-    return items.map((item) => ({
-      MatterID: item["MatterID"] || item["Matter ID"] || "",
-      InstructionRef: item["InstructionRef"] || item["Instruction Ref"] || "",
-      DisplayNumber: item["Display Number"] || "",
-      OpenDate: item["Open Date"] || "",
-      MonthYear: item["MonthYear"] || "",
-      YearMonthNumeric: item["YearMonthNumeric"] || 0,
-      ClientID: item["Client ID"] || "",
-      ClientName: item["Client Name"] || "",
-      ClientPhone: item["Client Phone"] || "",
-      ClientEmail: item["Client Email"] || "",
-      Status: item["Status"] || "",
-      UniqueID: item["Unique ID"] || "",
-      Description: item["Description"] || "",
-      PracticeArea: item["Practice Area"] || "",
-      Source: item["Source"] || "",
-      Referrer: item["Referrer"] || "",
-      ResponsibleSolicitor: item["Responsible Solicitor"] || "",
-      OriginatingSolicitor: item["Originating Solicitor"] || "",
-      SupervisingPartner: item["Supervising Partner"] || "",
-      Opponent: item["Opponent"] || "",
-      OpponentSolicitor: item["Opponent Solicitor"] || "",
-      CloseDate: item["Close Date"] || "",
-      ApproxValue: item["Approx. Value"] || "",
-      mod_stamp: item["mod_stamp"] || "",
-      method_of_contact: item["method_of_contact"] || "",
-      CCL_date: item["CCL_date"] || null,
-      Rating: item["Rating"] as "Good" | "Neutral" | "Poor" | undefined,
-    }));
-  };
-
-  const mapNew = (items: any[]): Matter[] => {
-    return items.map((item) => ({
-      MatterID: item.MatterID || item.matter_id || "",
-      InstructionRef: item.InstructionRef || item.instruction_ref || "",
-      DisplayNumber: item.DisplayNumber || item.display_number || "",
-      OpenDate: item.OpenDate || item.open_date || "",
-      MonthYear: item.MonthYear || item.month_year || "",
-      YearMonthNumeric: item.YearMonthNumeric || item.year_month_numeric || 0,
-      ClientID: item.ClientID || item.client_id || "",
-      ClientName: item.ClientName || item.client_name || "",
-      ClientPhone: item.ClientPhone || item.client_phone || "",
-      ClientEmail: item.ClientEmail || item.client_email || "",
-      Status: item.Status || item.status || "",
-      UniqueID: item.UniqueID || item.unique_id || "",
-      Description: item.Description || item.description || "",
-      PracticeArea: item.PracticeArea || item.practice_area || "",
-      Source: item.Source || item.source || "",
-      Referrer: item.Referrer || item.referrer || "",
-      ResponsibleSolicitor: item.ResponsibleSolicitor || item.responsible_solicitor || "",
-      OriginatingSolicitor: item.OriginatingSolicitor || item.originating_solicitor || "",
-      SupervisingPartner: item.SupervisingPartner || item.supervising_partner || "",
-      Opponent: item.Opponent || item.opponent || "",
-      OpponentSolicitor: item.OpponentSolicitor || item.opponent_solicitor || "",
-      CloseDate: item.CloseDate || item.close_date || "",
-      ApproxValue: item.ApproxValue || item.approx_value || "",
-      mod_stamp: item.mod_stamp || '',
-      method_of_contact: item.method_of_contact || '',
-      CCL_date: item.CCL_date || null,
-      Rating: item.Rating as "Good" | "Neutral" | "Poor" | undefined,
-    }));
-  };
-
-  let fetchedMatters: Matter[] = [...mapLegacy(legacyData), ...mapNew(newData)];
+  let fetchedMatters: Matter[] = [...mapLegacyMatters(legacyData), ...mapNewMatters(newData)];
 
   if (fetchedMatters.length === 0) {
-    fetchedMatters = mapLegacy(localMatters as unknown as any[]);
+    fetchedMatters = mapLegacyMatters(localMatters as unknown as any[]);
   }
 
   setCachedData(cacheKey, fetchedMatters);
@@ -691,6 +727,11 @@ const AppWithContext: React.FC = () => {
             console.warn('⚠️ Matters API failed, using fallback:', mattersError);
             mattersRes = localMatters as unknown as Matter[];
           }
+
+          // ALSO TEST fetchAllMatters for local development
+          console.log('🚀 About to call fetchAllMatters...');
+          const allMattersRes = await fetchAllMatters();
+          console.log('✅ ALL Matters API call successful:', allMattersRes?.length || 0);
           
           console.log('✅ LOCAL DEV API CALLS COMPLETED:');
           console.log('   📊 enquiriesRes count:', enquiriesRes?.length || 0);
