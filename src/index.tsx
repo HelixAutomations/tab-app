@@ -258,9 +258,9 @@ async function fetchEnquiries(
     console.log('🔵 Attempting to fetch LEGACY enquiries data (via proxy)...');
 
 
-    // Use local Azure Function when developing, otherwise call production proxy
+    // Use local Express server proxy when developing, otherwise call production proxy
     const legacyBaseUrl = isLocalDev
-      ? 'http://localhost:7071/api'
+      ? 'http://localhost:8080'
       : 'https://helix-keys-proxy.azurewebsites.net/api';
     const legacyPath = process.env.REACT_APP_GET_ENQUIRIES_PATH;
     const legacyCode = process.env.REACT_APP_GET_ENQUIRIES_CODE;
@@ -561,11 +561,28 @@ const AppWithContext: React.FC = () => {
     const fullName =
       normalized.FullName ||
       `${normalized.First || ''} ${normalized.Last || ''}`.trim();
+    
+    console.log(`🔄 User switched to: ${fullName} (${normalized.Email})`);
+    
     try {
+      // Fetch matters for new user
       const mattersRes = await fetchMatters(fullName);
       setMatters(mattersRes);
+      
+      // Also fetch enquiries for new user
+      console.log('🔄 Fetching enquiries for switched user...');
+      const today = new Date();
+      const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+      const enquiriesRes = await fetchEnquiries(
+        normalized.Email || '',
+        startOfMonth.toISOString().split('T')[0],
+        today.toISOString().split('T')[0]
+      );
+      setEnquiries(enquiriesRes);
+      console.log(`✅ Fetched ${enquiriesRes.length} enquiries for switched user`);
+      
     } catch (err) {
-      console.error('Error fetching matters for switched user:', err);
+      console.error('Error fetching data for switched user:', err);
     }
   };
 

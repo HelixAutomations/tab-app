@@ -118,6 +118,35 @@ export interface Enquiry {
   Web_Form?: string; // Added Web_Form
 }
 
+// Define the structure for EnquiryDb (matches SQL table)
+export interface EnquiryDb {
+  id: number;
+  datetime: string; // ISO string with date and time
+  stage?: string | null;
+  claim?: string | null; // ISO string with date and time, nullable
+  poc?: string | null;
+  pitch?: number | null;
+  aow?: string | null;
+  tow?: string | null;
+  moc?: string | null;
+  rep?: string | null;
+  first?: string | null;
+  last?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  value?: string | null;
+  notes?: string | null;
+  rank?: string | null;
+  rating?: string | null;
+  acid?: string | null;
+  card_id?: string | null;
+  source?: string | null;
+  url?: string | null;
+  contact_referrer?: string | null;
+  company_referrer?: string | null;
+  gclid?: string | null;
+}
+
 // Define the structure for Matter
 export interface Matter {
   MatterID?: string;

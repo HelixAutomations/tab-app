@@ -48,7 +48,7 @@ const EnquiryApiDebugger: React.FC<EnquiryApiDebuggerProps> = ({ currentEnquirie
         url += '?' + searchParams.toString();
       }
 
-      console.log(`🔍 Testing API call to: ${url}`);
+      console.log(`Testing API call to: ${url}`);
       
       const response = await fetch(url, {
         method: 'GET',
@@ -75,7 +75,7 @@ const EnquiryApiDebugger: React.FC<EnquiryApiDebuggerProps> = ({ currentEnquirie
 
       setApiResponses(prev => [apiResponse, ...prev]);
       
-      console.log('📦 API Response:', apiResponse);
+      console.log('API Response:', apiResponse);
       
     } catch (error) {
       const apiResponse: ApiResponse = {
@@ -89,7 +89,7 @@ const EnquiryApiDebugger: React.FC<EnquiryApiDebuggerProps> = ({ currentEnquirie
       };
       
       setApiResponses(prev => [apiResponse, ...prev]);
-      console.error('❌ API Error:', error);
+      console.error('API Error:', error);
     } finally {
       setIsLoading(false);
     }
@@ -110,7 +110,7 @@ const EnquiryApiDebugger: React.FC<EnquiryApiDebuggerProps> = ({ currentEnquirie
       const legacyCode = process.env.REACT_APP_GET_ENQUIRIES_CODE || 'missing-code';
       const legacyUrl = `${legacyBaseUrl}/${legacyPath}?code=${legacyCode}`;
 
-      console.log(`🔍 Testing Legacy Azure Function: ${legacyUrl}`);
+      console.log(`Testing Legacy Azure Function: ${legacyUrl}`);
       
       const response = await fetch(legacyUrl, {
         method: 'POST',
@@ -142,7 +142,7 @@ const EnquiryApiDebugger: React.FC<EnquiryApiDebuggerProps> = ({ currentEnquirie
 
       setApiResponses(prev => [apiResponse, ...prev]);
       
-      console.log('📦 Legacy Function Response:', apiResponse);
+      console.log('Legacy Function Response:', apiResponse);
       
     } catch (error) {
       const apiResponse: ApiResponse = {
@@ -156,7 +156,7 @@ const EnquiryApiDebugger: React.FC<EnquiryApiDebuggerProps> = ({ currentEnquirie
       };
       
       setApiResponses(prev => [apiResponse, ...prev]);
-      console.error('❌ Legacy Function Error:', error);
+      console.error('Legacy Function Error:', error);
     } finally {
       setIsLoading(false);
     }
@@ -167,9 +167,9 @@ const EnquiryApiDebugger: React.FC<EnquiryApiDebuggerProps> = ({ currentEnquirie
     const start = Date.now();
     
     try {
-      const localFunctionUrl = 'http://localhost:7071/api/getEnquiries';
+      const localFunctionUrl = 'http://localhost:8080/getEnquiries';
 
-      console.log(`🔍 Testing Local Azure Function: ${localFunctionUrl}`);
+      console.log(`Testing Local Azure Function: ${localFunctionUrl}`);
       
       const response = await fetch(localFunctionUrl, {
         method: 'POST',
@@ -201,7 +201,7 @@ const EnquiryApiDebugger: React.FC<EnquiryApiDebuggerProps> = ({ currentEnquirie
 
       setApiResponses(prev => [apiResponse, ...prev]);
       
-      console.log('📦 Local Azure Function Response:', apiResponse);
+      console.log('Local Azure Function Response:', apiResponse);
       
     } catch (error) {
       const apiResponse: ApiResponse = {
@@ -215,14 +215,14 @@ const EnquiryApiDebugger: React.FC<EnquiryApiDebuggerProps> = ({ currentEnquirie
       };
       
       setApiResponses(prev => [apiResponse, ...prev]);
-      console.error('❌ Local Azure Function Error:', error);
+      console.error('Local Azure Function Error:', error);
     } finally {
       setIsLoading(false);
     }
   };
 
   const analyzeCurrentData = () => {
-    console.log('🔍 CURRENT ENQUIRIES ANALYSIS:');
+    console.log('CURRENT ENQUIRIES ANALYSIS:');
     console.log('Total enquiries received:', currentEnquiries.length);
     
     if (currentEnquiries.length > 0) {
@@ -264,9 +264,9 @@ const EnquiryApiDebugger: React.FC<EnquiryApiDebuggerProps> = ({ currentEnquirie
       });
       console.log('Team/unclaimed enquiries:', teamEnquiries.length, teamEnquiries);
       
-      console.log('📋 First 3 enquiries for inspection:', currentEnquiries.slice(0, 3));
+      console.log('First 3 enquiries for inspection:', currentEnquiries.slice(0, 3));
     } else {
-      console.log('❌ No enquiries data available');
+      console.log('No enquiries data available');
     }
   };
 
@@ -318,9 +318,7 @@ const EnquiryApiDebugger: React.FC<EnquiryApiDebuggerProps> = ({ currentEnquirie
           backgroundColor: isDarkMode ? '#2d2d2d' : '#ffffff',
         }}>
           <div>
-            <Text variant="large" styles={{ root: { fontWeight: '600', color: isDarkMode ? '#ffffff' : '#111827' } }}>
-              🔧 Enquiry API Debugger
-            </Text>
+            <Text variant="large" styles={{ root: { fontWeight: '600', color: isDarkMode ? '#ffffff' : '#111827' } }}>Enquiry API Debugger</Text>
             <Text variant="small" styles={{ root: { color: isDarkMode ? '#888' : '#6b7280', marginTop: '2px' } }}>
               Debug API calls and filtering logic for enquiry data
             </Text>
@@ -348,9 +346,7 @@ const EnquiryApiDebugger: React.FC<EnquiryApiDebuggerProps> = ({ currentEnquirie
             borderRadius: '8px',
             border: `1px solid ${isDarkMode ? '#404040' : '#e1e4e8'}`
           }}>
-            <Text variant="mediumPlus" styles={{ root: { fontWeight: '600', marginBottom: '12px' } }}>
-              📊 Current Enquiries Summary
-            </Text>
+            <Text variant="mediumPlus" styles={{ root: { fontWeight: '600', marginBottom: '12px' } }}>Current Enquiries Summary</Text>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
               <div>
                 <Text variant="large" styles={{ root: { fontWeight: '600', color: colours.blue } }}>
@@ -378,7 +374,7 @@ const EnquiryApiDebugger: React.FC<EnquiryApiDebuggerProps> = ({ currentEnquirie
               </div>
             </div>
             <DefaultButton
-              text="🔍 Analyze in Console"
+              text="Analyze in Console"
               onClick={analyzeCurrentData}
               styles={{ root: { marginTop: '12px' } }}
             />
@@ -392,9 +388,7 @@ const EnquiryApiDebugger: React.FC<EnquiryApiDebuggerProps> = ({ currentEnquirie
             borderRadius: '8px',
             border: `1px solid ${isDarkMode ? '#404040' : '#e1e4e8'}`
           }}>
-            <Text variant="mediumPlus" styles={{ root: { fontWeight: '600', marginBottom: '12px' } }}>
-              🧪 API Test Controls
-            </Text>
+            <Text variant="mediumPlus" styles={{ root: { fontWeight: '600', marginBottom: '12px' } }}>API Test Controls</Text>
             
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
               <TextField
@@ -411,21 +405,21 @@ const EnquiryApiDebugger: React.FC<EnquiryApiDebuggerProps> = ({ currentEnquirie
 
             <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
               <PrimaryButton
-                text="🔄 New Route API"
+                text="New Route API"
                 onClick={() => testApiCall('/api/enquiries')}
                 disabled={isLoading}
                 iconProps={{ iconName: 'Refresh' }}
               />
               
               <DefaultButton
-                text="⚡ Local Azure Function"
+                text="Local Azure Function"
                 onClick={testLocalAzureFunction}
                 disabled={isLoading}
                 iconProps={{ iconName: 'Lightning' }}
               />
               
               <DefaultButton
-                text="🏛️ Legacy Function (Proxy)"
+                text="Legacy Function (Proxy)"
                 onClick={testLegacyFunction}
                 disabled={isLoading}
                 iconProps={{ iconName: 'CloudUpload' }}
@@ -434,7 +428,7 @@ const EnquiryApiDebugger: React.FC<EnquiryApiDebuggerProps> = ({ currentEnquirie
 
             <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '12px' }}>
               <DefaultButton
-                text="�️ Test with Filters"
+                text="Test with Filters"
                 onClick={() => testApiCall('/api/enquiries', {
                   pointOfContact: testEmail,
                   areaOfWork: 'Commercial'
@@ -443,13 +437,13 @@ const EnquiryApiDebugger: React.FC<EnquiryApiDebuggerProps> = ({ currentEnquirie
               />
               
               <DefaultButton
-                text="📊 Raw Data Dump"
+                text="Raw Data Dump"
                 onClick={() => testApiCall('/api/enquiries', { limit: '100' })}
                 disabled={isLoading}
               />
               
               <DefaultButton
-                text="🗑️ Clear Results"
+                text="Clear Results"
                 onClick={clearResponses}
               />
             </div>
@@ -464,9 +458,7 @@ const EnquiryApiDebugger: React.FC<EnquiryApiDebuggerProps> = ({ currentEnquirie
 
           {/* API Responses */}
           <div>
-            <Text variant="mediumPlus" styles={{ root: { fontWeight: '600', marginBottom: '12px' } }}>
-              📡 API Test Results ({apiResponses.length})
-            </Text>
+            <Text variant="mediumPlus" styles={{ root: { fontWeight: '600', marginBottom: '12px' } }}>API Test Results ({apiResponses.length})</Text>
             
             {apiResponses.length === 0 ? (
               <MessageBar messageBarType={MessageBarType.info}>

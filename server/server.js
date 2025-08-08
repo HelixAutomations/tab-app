@@ -19,15 +19,17 @@ const matterRequestsRouter = require('./routes/matterRequests');
 const opponentsRouter = require('./routes/opponents');
 const clioContactsRouter = require('./routes/clioContacts');
 const clioMattersRouter = require('./routes/clioMatters');
-const getMattersRouter = require('./routes/getMatters');
-const getAllMattersRouter = require('./routes/getAllMatters');
+// const getMattersRouter = require('./routes/getMatters');
+// const getAllMattersRouter = require('./routes/getAllMatters');
 const riskAssessmentsRouter = require('./routes/riskAssessments');
 const bundleRouter = require('./routes/bundle');
+const proxyToAzureFunctionsRouter = require('./routes/proxyToAzureFunctions');
 
 const enquiriesRouter = require('./routes/enquiries');
 const enquiryEmailsRouter = require('./routes/enquiryEmails');
 const pitchesRouter = require('./routes/pitches');
 const sqlMattersRouter = require('./routes/sqlMatters');
+const mattersRouter = require('./routes/matters');
 // const { router: cclRouter, CCL_DIR } = require('./routes/ccl');
 
 const app = express();
@@ -66,8 +68,8 @@ app.use('/api/risk-assessments', riskAssessmentsRouter);
 app.use('/api/bundle', bundleRouter);
 app.use('/api/clio-contacts', clioContactsRouter);
 app.use('/api/clio-matters', clioMattersRouter);
-app.use('/api/getMatters', getMattersRouter);
-app.use('/api/getAllMatters', getAllMattersRouter);
+// app.use('/api/getMatters', getMattersRouter);
+// app.use('/api/getAllMatters', getAllMattersRouter);
 // app.use('/api/ccl', cclRouter);
 // app.use('/ccls', express.static(CCL_DIR));
 
@@ -75,6 +77,10 @@ app.use('/api/enquiries', enquiriesRouter);
 app.use('/api/enquiry-emails', enquiryEmailsRouter);
 app.use('/api/pitches', pitchesRouter);
 app.use('/api/sqlMatters', sqlMattersRouter);
+app.use('/api/matters', mattersRouter);
+
+// Proxy routes to Azure Functions
+app.use('/', proxyToAzureFunctionsRouter);
 
 app.get('/api/keys/:name/preview', async (req, res) => {
     try {

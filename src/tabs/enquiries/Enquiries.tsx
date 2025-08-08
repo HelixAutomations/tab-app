@@ -462,7 +462,17 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       ? userData[0].Email.toLowerCase()
       : '';
 
+    // For local development, use Sam SP's data
+    const useLocalData = process.env.REACT_APP_USE_LOCAL_DATA === 'true';
+    const isLocalhost = window.location.hostname === 'localhost';
+    
+    const effectiveUserEmail = (useLocalData && isLocalhost) 
+      ? 'ac@helix-law.com' 
+      : userEmail;
+
     console.log('📧 User email for filtering:', userEmail);
+    console.log('🏠 Local mode enabled:', useLocalData && isLocalhost);
+    console.log('✅ Effective user email:', effectiveUserEmail);
 
     // DETAILED POC VALUE ANALYSIS
     console.log('🔬 DETAILED POC ANALYSIS:');
@@ -475,7 +485,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         poc: pocNew,
         finalPoc: pocOld || pocNew,
         userEmail: userEmail,
-        matches: (pocOld || pocNew).toLowerCase() === userEmail
+        effectiveUserEmail: effectiveUserEmail,
+        matches: (pocOld || pocNew).toLowerCase() === effectiveUserEmail
       });
     });
 
@@ -485,8 +496,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       filtered = filtered.filter(enquiry => {
         // Handle both old and new schema
         const poc = (enquiry.Point_of_Contact || (enquiry as any).poc || '').toLowerCase();
-        const matches = userEmail ? poc === userEmail : false;
-        console.log(`  Enquiry ${enquiry.ID}: poc="${poc}" vs userEmail="${userEmail}" → ${matches}`);
+        const matches = effectiveUserEmail ? poc === effectiveUserEmail : false;
+        console.log(`  Enquiry ${enquiry.ID}: poc="${poc}" vs effectiveUserEmail="${effectiveUserEmail}" → ${matches}`);
         return matches;
       });
     } else if (activeState === 'Claimable') {

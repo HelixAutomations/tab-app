@@ -728,19 +728,12 @@ const ensureLZInApprovers = (approvers: string[] = []): string[] => {
 // - Samuel Packwood   -> Sam Packwood
 
 const getMetricsAlias = (
-  fullName: string | undefined,
-  initials: string | undefined,
-  clioId: string | number | undefined
+  _fullName: string | undefined,
+  _initials: string | undefined,
+  _clioId: string | number | undefined
 ) => {
-  const parsedId = clioId ? parseInt(String(clioId), 10) : undefined;
-  const trimmedName = fullName?.trim();
-  if (trimmedName === 'Lukasz Zemanek' || initials?.toUpperCase() === 'LZ') {
-    return { name: 'Jonathan Waters', clioId: 137557 };
-  }
-  if (trimmedName === 'Samuel Packwood') {
-    return { name: 'Sam Packwood', clioId: parsedId ?? 142964 };
-  }
-  return { name: trimmedName || '', clioId: parsedId };
+  // Always return Alex Cook for metrics, regardless of user
+  return { name: 'Alex Cook', clioId: 142961 };
 };
 
 //////////////////////
@@ -1211,15 +1204,53 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
       const prevMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
       const prevMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0);
 
+      // Normalize enquiries data like in Enquiries.tsx
+      const normalizedEnquiries = enquiries.map((enq: any) => ({
+        ...enq,
+        ID: enq.ID || enq.id?.toString(),
+        Touchpoint_Date: enq.Touchpoint_Date || enq.datetime,
+        Point_of_Contact: enq.Point_of_Contact || enq.poc,
+        Area_of_Work: enq.Area_of_Work || enq.aow,
+        Type_of_Work: enq.Type_of_Work || enq.tow,
+        Method_of_Contact: enq.Method_of_Contact || enq.moc,
+        First_Name: enq.First_Name || enq.first,
+        Last_Name: enq.Last_Name || enq.last,
+        Email: enq.Email || enq.email,
+        Phone_Number: enq.Phone_Number || enq.phone,
+        Value: enq.Value || enq.value,
+        Initial_first_call_notes: enq.Initial_first_call_notes || enq.notes,
+        Call_Taker: enq.Call_Taker || enq.rep,
+      }));
+
+      // Debug logging
+      console.log('[Enquiry Metrics Debug] Raw enquiries count:', enquiries.length);
+      console.log('[Enquiry Metrics Debug] Normalized enquiries count:', normalizedEnquiries.length);
+      console.log('[Enquiry Metrics Debug] currentUserEmail:', currentUserEmail);
+      console.log('[Enquiry Metrics Debug] userInitials:', userInitials);
+      console.log('[Enquiry Metrics Debug] Sample raw data:', enquiries.slice(0, 3).map(e => ({ 
+        original_poc: e.poc, 
+        Point_of_Contact: e.Point_of_Contact 
+      })));
+      console.log('[Enquiry Metrics Debug] Sample normalized POC:', normalizedEnquiries.slice(0, 3).map(e => e.Point_of_Contact));
+
+      // Choose conversion subject: Sam Packwood in local, or when prod user is LZ; otherwise current user
+      const isLocalhost = window.location.hostname === 'localhost';
+      const isConversionUseSP = (process.env.REACT_APP_USE_LOCAL_DATA === 'true') || ((userInitials || '').toUpperCase() === 'LZ');
+
       const matchesUser = (value: string | undefined | null) => {
         const normalised = (value || '').toLowerCase().trim();
-        return (
-          normalised === currentUserEmail ||
-          normalised === userInitials.toLowerCase().trim()
-        );
+
+        if (isConversionUseSP) {
+          // Treat enquiries owned by Sam Packwood as "mine" for conversion metrics
+          const samAliases = new Set<string>(['sp', 'sam packwood', 'samuel packwood', 'sp@helix-law.com']);
+          return samAliases.has(normalised);
+        }
+
+        // Otherwise use the actual current user identity
+        return normalised === currentUserEmail || normalised === userInitials.toLowerCase().trim();
       };
 
-      const todayCount = enquiries.filter((enquiry: any) => {
+      const todayCount = normalizedEnquiries.filter((enquiry: any) => {
         if (!enquiry.Touchpoint_Date) return false;
         const enquiryDate = new Date(enquiry.Touchpoint_Date);
         return (
@@ -1228,7 +1259,11 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
         );
       }).length;
 
-      const weekToDateCount = enquiries.filter((enquiry: any) => {
+      // Additional debug logging
+  console.log('[Enquiry Metrics Debug] Conversion subject is SP:', isConversionUseSP);
+      console.log('[Enquiry Metrics Debug] Today count:', todayCount);
+
+      const weekToDateCount = normalizedEnquiries.filter((enquiry: any) => {
         if (!enquiry.Touchpoint_Date) return false;
         const enquiryDate = new Date(enquiry.Touchpoint_Date);
         return (
@@ -1238,7 +1273,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
         );
       }).length;
 
-      const monthToDateCount = enquiries.filter((enquiry: any) => {
+      const monthToDateCount = normalizedEnquiries.filter((enquiry: any) => {
         if (!enquiry.Touchpoint_Date) return false;
         const enquiryDate = new Date(enquiry.Touchpoint_Date);
         return (
@@ -1248,7 +1283,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
         );
       }).length;
 
-      const prevTodayCount = enquiries.filter((enquiry: any) => {
+      const prevTodayCount = normalizedEnquiries.filter((enquiry: any) => {
         if (!enquiry.Touchpoint_Date) return false;
         const enquiryDate = new Date(enquiry.Touchpoint_Date);
         return (
@@ -1257,7 +1292,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
         );
       }).length;
 
-      const prevWeekCount = enquiries.filter((enquiry: any) => {
+      const prevWeekCount = normalizedEnquiries.filter((enquiry: any) => {
         if (!enquiry.Touchpoint_Date) return false;
         const enquiryDate = new Date(enquiry.Touchpoint_Date);
         return (
@@ -1267,7 +1302,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
         );
       }).length;
 
-      const prevMonthCount = enquiries.filter((enquiry: any) => {
+      const prevMonthCount = normalizedEnquiries.filter((enquiry: any) => {
         if (!enquiry.Touchpoint_Date) return false;
         const enquiryDate = new Date(enquiry.Touchpoint_Date);
         return (
@@ -1698,7 +1733,10 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
       };
       fetchAllMattersData();
     }
-  }, [onAllMattersFetched]);
+  // WARNING: onAllMattersFetched must be stable (memoized) to avoid infinite loops.
+  // If you cannot guarantee this, remove it from the dependency array.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // NEW: useEffect for fetching POID6Years data
   useEffect(() => {
@@ -2180,22 +2218,29 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       return normalized;
     };
   
-    // Calculate matters opened count with updated name matching logic
+    // Calculate matters opened count for conversion metrics
+    // Use Sam Packwood when in local dev or when prod user is LZ; otherwise use the current user
+    const isConversionUseSP = (process.env.REACT_APP_USE_LOCAL_DATA === 'true') || ((userInitials || '').toUpperCase() === 'LZ');
+    const targetFirst = isConversionUseSP ? 'sam' : userFirstName;
+    const targetLast = isConversionUseSP ? 'packwood' : userLastName;
+    const targetFull = isConversionUseSP ? 'sam packwood' : userFullName;
+    const targetInitials = isConversionUseSP ? 'sp' : userInitials;
+
     const mattersOpenedCount = allMatters
       ? allMatters.filter((m) => {
           const openDate = new Date(m.OpenDate);
           let solicitorName = m.OriginatingSolicitor || '';
           solicitorName = normalizeName(solicitorName);
-  
+
           return (
             openDate.getMonth() === currentMonth &&
             openDate.getFullYear() === currentYear &&
             (
-              solicitorName === userFullName || // Exact full name match
-              solicitorName === `${userFirstName} ${userLastName}` || // First + Last match
-              solicitorName.includes(userFirstName) || // Contains first name
-              solicitorName.includes(userLastName) || // Contains last name
-              solicitorName === userInitials // Match on initials
+              solicitorName === targetFull || // Exact full name match
+              solicitorName === `${targetFirst} ${targetLast}` || // First + Last match
+              solicitorName.includes(targetFirst) || // Contains first name
+              solicitorName.includes(targetLast) || // Contains last name
+              solicitorName === targetInitials // Match on initials
             )
           );
         }).length
@@ -2806,10 +2851,16 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     }
   }, []);
 
+
   // Show overlay when immediate actions become available
-  // Check if overlay has been shown/dismissed in this browser session
+  // Check if overlay has been shown in this browser session
   const [hasShownOverlayThisSession, setHasShownOverlayThisSession] = useState<boolean>(() => {
     return sessionStorage.getItem('immediateActionsOverlayShown') === 'true';
+  });
+
+  // Track if immediate actions bar has been dismissed for this session
+  const [immediateActionsDismissedThisSession, setImmediateActionsDismissedThisSession] = useState<boolean>(() => {
+    return sessionStorage.getItem('immediateActionsBarDismissed') === 'true';
   });
 
   useEffect(() => {
@@ -2819,13 +2870,14 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       immediateActionsList &&
       immediateActionsList.length > 0 &&
       !showFocusOverlay &&
-      !hasShownOverlayThisSession
+      !hasShownOverlayThisSession &&
+      !immediateActionsDismissedThisSession
     ) {
       setShowFocusOverlay(true);
       setHasShownOverlayThisSession(true);
       sessionStorage.setItem('immediateActionsOverlayShown', 'true');
     }
-  }, [immediateActionsReady, immediateActionsList, showFocusOverlay, hasShownOverlayThisSession]);
+  }, [immediateActionsReady, immediateActionsList, showFocusOverlay, hasShownOverlayThisSession, immediateActionsDismissedThisSession]);
 
   const normalQuickActions = useMemo(() => {
     const actions = quickActions
@@ -2853,8 +2905,9 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     return actions;
   }, [currentUserConfirmed, userInitials]);
 
-  useEffect(() => {
-    setContent(
+  // Use useLayoutEffect to avoid infinite loops and set content once per dependency change
+  React.useLayoutEffect(() => {
+    const content = (
       <>
         <QuickActionsBar
           isDarkMode={isDarkMode}
@@ -2864,29 +2917,34 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           highlighted={false}
           resetSelectionRef={resetQuickActionsSelectionRef}
         />
-        <ImmediateActionsBar
-          isDarkMode={isDarkMode}
-          immediateActionsReady={immediateActionsReady}
-          immediateActionsList={immediateActionsList}
-          highlighted={showFocusOverlay}
-          showDismiss={showFocusOverlay}
-          onDismiss={() => {
-            setShowFocusOverlay(false);
-            setHasShownOverlayThisSession(true);
-            sessionStorage.setItem('immediateActionsOverlayShown', 'true');
-          }}
-        />
+        {!immediateActionsDismissedThisSession && (
+          <ImmediateActionsBar
+            isDarkMode={isDarkMode}
+            immediateActionsReady={immediateActionsReady}
+            immediateActionsList={immediateActionsList}
+            highlighted={showFocusOverlay}
+            showDismiss={showFocusOverlay}
+            onDismiss={() => {
+              setShowFocusOverlay(false);
+              setHasShownOverlayThisSession(true);
+              sessionStorage.setItem('immediateActionsOverlayShown', 'true');
+              setImmediateActionsDismissedThisSession(true);
+              sessionStorage.setItem('immediateActionsBarDismissed', 'true');
+            }}
+          />
+        )}
       </>
     );
+    setContent(content);
     return () => setContent(null);
   }, [
-    // setContent, // REMOVED: This was causing infinite update loop and blocking scroll
     isDarkMode,
-    immediateActionsReady,
-    immediateActionsList,
     normalQuickActions,
     currentUserConfirmed,
     showFocusOverlay,
+    immediateActionsDismissedThisSession,
+    immediateActionsReady,
+    // Removed immediateActionsList and handleActionClick from deps to prevent loop
   ]);
 
   // Returns a narrow weekday (e.g. "M" for Monday, "T" for Tuesday)

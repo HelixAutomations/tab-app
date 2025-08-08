@@ -7,11 +7,6 @@ const router = express.Router();
 // Calls the external fetchMattersData function (decoupled function in private vnet)
 router.get('/', async (req, res) => {
     try {
-        const { fullName, limit } = req.query;
-        if (!fullName) {
-            return res.status(400).json({ matters: [], count: 0, error: 'fullName is required' });
-        }
-
         let functionCode;
         try {
             functionCode = await getSecret('fetchMattersData-code');
@@ -20,12 +15,9 @@ router.get('/', async (req, res) => {
             return res.status(500).json({ matters: [], count: 0, error: 'Failed to authenticate with external function' });
         }
 
-        const baseUrl = 'https://instructions-vnet-functions.azurewebsites.net/api/fetchMattersData';
-        const params = new URLSearchParams();
-        params.append('code', functionCode);
-        params.append('fullName', fullName);
-        if (limit) params.append('limit', limit);
-        const url = `${baseUrl}?${params.toString()}`;
+        const baseUrl = process.env.FETCH_MATTERS_DATA_FUNC_BASE_URL ||
+            'http://localhost:7071/api/fetchMattersData';
+        const url = `${baseUrl}?code=${functionCode}`;
 
         const response = await fetch(url);
         if (!response.ok) {

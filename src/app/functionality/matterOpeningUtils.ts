@@ -88,8 +88,8 @@ export const hasActiveMatterOpening = (isCurrentlyInMatterOpening: boolean = fal
     }
   });
 
-  // Simple debug log
-  console.log('Matter opening active:', hasActiveData, 'currentlyViewing:', isCurrentlyInMatterOpening);
+  // Simple debug log (commented out to reduce console noise)
+  // console.log('Matter opening active:', hasActiveData, 'currentlyViewing:', isCurrentlyInMatterOpening);
   return hasActiveData;
 };
 

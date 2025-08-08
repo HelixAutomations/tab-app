@@ -23,6 +23,7 @@ import {
   IPoint,
   Text,
 } from '@fluentui/react';
+import ModernMultiSelect from '../instructions/MatterOpening/ModernMultiSelect';
 import { Enquiry } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
 import BubbleTextField from '../../app/styles/BubbleTextField';
@@ -558,6 +559,10 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
 
   const [templateSet, setTemplateSet] = useState<TemplateSet>('Database');
   const templateBlocks = useDynamicTemplateBlocks(templateSet);
+  
+  // Qualifying question state - determines base template
+  const [qualifyingAnswer, setQualifyingAnswer] = useState<string>('');
+  
   // Ref for the body editor
   const bodyEditorRef = useRef<HTMLDivElement>(null);
   const [dragSentence, setDragSentence] = useState<HTMLElement | null>(null);
@@ -3455,6 +3460,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
     boxShadow: isDarkMode
       ? '0 4px 12px rgba(255, 255, 255, 0.1)'
       : '0 4px 12px rgba(0, 0, 0, 0.1)',
+    maxWidth: 900,
     width: '100%',
     margin: '0 auto',
     fontFamily: 'Raleway, sans-serif',

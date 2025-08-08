@@ -64,7 +64,7 @@ const MatterApiDebugger: React.FC<MatterApiDebuggerProps> = ({ currentMatters, o
         }
       }
 
-      console.log(`🔍 Testing Matter API call to: ${url}`, requestOptions.method === 'POST' ? 'with body:' : '', requestOptions.body || '');
+      console.log(`Testing Matter API call to: ${url}`, requestOptions.method === 'POST' ? 'with body:' : '', requestOptions.body || '');
       
       const response = await fetch(url, requestOptions);
 
@@ -86,7 +86,7 @@ const MatterApiDebugger: React.FC<MatterApiDebuggerProps> = ({ currentMatters, o
 
       setApiResponses(prev => [apiResponse, ...prev]);
       
-      console.log('📦 Matter API Response:', apiResponse);
+      console.log('Matter API Response:', apiResponse);
       
     } catch (error) {
       const apiResponse: ApiResponse = {
@@ -100,7 +100,7 @@ const MatterApiDebugger: React.FC<MatterApiDebuggerProps> = ({ currentMatters, o
       };
       
       setApiResponses(prev => [apiResponse, ...prev]);
-      console.error('❌ Matter API Error:', error);
+      console.error('Matter API Error:', error);
     } finally {
       setIsLoading(false);
     }
@@ -121,8 +121,8 @@ const MatterApiDebugger: React.FC<MatterApiDebuggerProps> = ({ currentMatters, o
       const legacyCode = process.env.REACT_APP_GET_MATTERS_CODE || 'missing-code';
       const legacyUrl = `${legacyBaseUrl}/${legacyPath}?code=${legacyCode}`;
 
-      console.log(`🔍 Testing Legacy Matter Azure Function: ${legacyUrl}`);
-      console.log(`🔧 Environment Variables:`, {
+      console.log(`Testing Legacy Matter Azure Function: ${legacyUrl}`);
+      console.log(`Environment Variables:`, {
         REACT_APP_GET_MATTERS_PATH: process.env.REACT_APP_GET_MATTERS_PATH,
         REACT_APP_GET_MATTERS_CODE: process.env.REACT_APP_GET_MATTERS_CODE ? 'SET' : 'NOT SET'
       });
@@ -155,7 +155,7 @@ const MatterApiDebugger: React.FC<MatterApiDebuggerProps> = ({ currentMatters, o
 
       setApiResponses(prev => [apiResponse, ...prev]);
       
-      console.log('📦 Legacy Matter Function Response:', apiResponse);
+      console.log('Legacy Matter Function Response:', apiResponse);
       
     } catch (error) {
       const apiResponse: ApiResponse = {
@@ -169,7 +169,7 @@ const MatterApiDebugger: React.FC<MatterApiDebuggerProps> = ({ currentMatters, o
       };
       
       setApiResponses(prev => [apiResponse, ...prev]);
-      console.error('❌ Legacy Matter Function Error:', error);
+      console.error('Legacy Matter Function Error:', error);
     } finally {
       setIsLoading(false);
     }
@@ -182,7 +182,7 @@ const MatterApiDebugger: React.FC<MatterApiDebuggerProps> = ({ currentMatters, o
     try {
       const localFunctionUrl = 'http://localhost:7071/api/getMatters';
 
-      console.log(`🔍 Testing Local Matter Azure Function: ${localFunctionUrl}`);
+      console.log(`Testing Local Matter Azure Function: ${localFunctionUrl}`);
       
       const response = await fetch(localFunctionUrl, {
         method: 'POST',
@@ -212,7 +212,7 @@ const MatterApiDebugger: React.FC<MatterApiDebuggerProps> = ({ currentMatters, o
 
       setApiResponses(prev => [apiResponse, ...prev]);
       
-      console.log('📦 Local Matter Azure Function Response:', apiResponse);
+      console.log('Local Matter Azure Function Response:', apiResponse);
       
     } catch (error) {
       const apiResponse: ApiResponse = {
@@ -226,18 +226,18 @@ const MatterApiDebugger: React.FC<MatterApiDebuggerProps> = ({ currentMatters, o
       };
       
       setApiResponses(prev => [apiResponse, ...prev]);
-      console.error('❌ Local Matter Azure Function Error:', error);
+      console.error('Local Matter Azure Function Error:', error);
     } finally {
       setIsLoading(false);
     }
   };
 
   const analyzeCurrentData = () => {
-    console.log('🔍 CURRENT MATTERS ANALYSIS:');
+    console.log('CURRENT MATTERS ANALYSIS:');
     console.log('Total matters received:', currentMatters.length);
     
     // Log the fetch configuration
-    console.log('🔧 FETCH CONFIGURATION:');
+    console.log('FETCH CONFIGURATION:');
     console.log('REACT_APP_GET_MATTERS_PATH:', process.env.REACT_APP_GET_MATTERS_PATH);
     console.log('REACT_APP_GET_MATTERS_CODE:', process.env.REACT_APP_GET_MATTERS_CODE ? 'SET' : 'NOT SET');
     console.log('REACT_APP_PROXY_BASE_URL:', process.env.REACT_APP_PROXY_BASE_URL);
@@ -292,10 +292,10 @@ const MatterApiDebugger: React.FC<MatterApiDebuggerProps> = ({ currentMatters, o
       });
       console.log(`${testInitials}-specific matters:`, userMatters.length, userMatters);
       
-      console.log('📋 First 3 matters for inspection:', currentMatters.slice(0, 3));
+      console.log('First 3 matters for inspection:', currentMatters.slice(0, 3));
       
       // Additional debugging for data source
-      console.log('🔍 DATA SOURCE ANALYSIS:');
+      console.log('DATA SOURCE ANALYSIS:');
       const uniqueIds = new Set(currentMatters.map(m => m.UniqueID || m.MatterID));
       console.log('Total unique matters:', uniqueIds.size);
       
@@ -306,8 +306,8 @@ const MatterApiDebugger: React.FC<MatterApiDebuggerProps> = ({ currentMatters, o
       console.log('Has complete data (not fallback):', hasCompleteData);
       
     } else {
-      console.log('❌ No matters data available');
-      console.log('🔧 Debugging suggestions:');
+      console.log('No matters data available');
+      console.log('Debugging suggestions:');
       console.log('1. Check if environment variables are set correctly');
       console.log('2. Check network tab for failed API calls');
       console.log('3. Check if getMatters Azure Function is running');
@@ -363,9 +363,7 @@ const MatterApiDebugger: React.FC<MatterApiDebuggerProps> = ({ currentMatters, o
           backgroundColor: isDarkMode ? '#2d2d2d' : '#ffffff',
         }}>
           <div>
-            <Text variant="large" styles={{ root: { fontWeight: '600', color: isDarkMode ? '#ffffff' : '#111827' } }}>
-              ⚖️ Matter API Debugger
-            </Text>
+            <Text variant="large" styles={{ root: { fontWeight: '600', color: isDarkMode ? '#ffffff' : '#111827' } }}>Matter API Debugger</Text>
             <Text variant="small" styles={{ root: { color: isDarkMode ? '#888' : '#6b7280', marginTop: '2px' } }}>
               Debug API calls and filtering logic for matter data
             </Text>
@@ -393,9 +391,7 @@ const MatterApiDebugger: React.FC<MatterApiDebuggerProps> = ({ currentMatters, o
             borderRadius: '8px',
             border: `1px solid ${isDarkMode ? '#404040' : '#e1e4e8'}`
           }}>
-            <Text variant="mediumPlus" styles={{ root: { fontWeight: '600', marginBottom: '12px' } }}>
-              📊 Current Matters Summary
-            </Text>
+            <Text variant="mediumPlus" styles={{ root: { fontWeight: '600', marginBottom: '12px' } }}>Current Matters Summary</Text>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
               <div>
                 <Text variant="large" styles={{ root: { fontWeight: '600', color: colours.blue } }}>
@@ -430,7 +426,7 @@ const MatterApiDebugger: React.FC<MatterApiDebuggerProps> = ({ currentMatters, o
               </div>
             </div>
             <DefaultButton
-              text="🔍 Analyze in Console"
+              text="Analyze in Console"
               onClick={analyzeCurrentData}
               styles={{ root: { marginTop: '12px' } }}
             />
@@ -444,9 +440,7 @@ const MatterApiDebugger: React.FC<MatterApiDebuggerProps> = ({ currentMatters, o
             borderRadius: '8px',
             border: `1px solid ${isDarkMode ? '#404040' : '#e1e4e8'}`
           }}>
-            <Text variant="mediumPlus" styles={{ root: { fontWeight: '600', marginBottom: '12px' } }}>
-              🧪 API Test Controls
-            </Text>
+            <Text variant="mediumPlus" styles={{ root: { fontWeight: '600', marginBottom: '12px' } }}>API Test Controls</Text>
             
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginBottom: '16px' }}>
               <TextField
@@ -468,28 +462,28 @@ const MatterApiDebugger: React.FC<MatterApiDebuggerProps> = ({ currentMatters, o
 
             <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
               <PrimaryButton
-                text="🔄 New Route API"
+                text="New Route API"
                 onClick={() => testApiCall('/api/getMatters', { fullName: testFullName })}
                 disabled={isLoading}
                 iconProps={{ iconName: 'Refresh' }}
               />
               
               <DefaultButton
-                text="⚡ Local Azure Function"
+                text="Local Azure Function"
                 onClick={testLocalAzureFunction}
                 disabled={isLoading}
                 iconProps={{ iconName: 'Lightning' }}
               />
               
               <DefaultButton
-                text="🏛️ Legacy Function (Proxy)"
+                text="Legacy Function (Proxy)"
                 onClick={testLegacyFunction}
                 disabled={isLoading}
                 iconProps={{ iconName: 'CloudUpload' }}
               />
               
               <DefaultButton
-                text="🌐 Get All Matters"
+                text="Get All Matters"
                 onClick={() => testApiCall('/api/getAllMatters')}
                 disabled={isLoading}
                 iconProps={{ iconName: 'GlobalNavButton' }}
@@ -498,7 +492,7 @@ const MatterApiDebugger: React.FC<MatterApiDebuggerProps> = ({ currentMatters, o
 
             <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '12px' }}>
               <DefaultButton
-                text="🏗️ Test with Filters"
+                text="Test with Filters"
                 onClick={() => testApiCall('/api/getMatters', {
                   fullName: testFullName,
                   practiceArea: 'Commercial'
@@ -507,13 +501,13 @@ const MatterApiDebugger: React.FC<MatterApiDebuggerProps> = ({ currentMatters, o
               />
               
               <DefaultButton
-                text="📊 Raw Data Dump"
+                text="Raw Data Dump"
                 onClick={() => testApiCall('/api/getMatters', { fullName: testFullName, limit: '100' })}
                 disabled={isLoading}
               />
               
               <DefaultButton
-                text="🗑️ Clear Results"
+                text="Clear Results"
                 onClick={clearResponses}
               />
             </div>
@@ -534,9 +528,7 @@ const MatterApiDebugger: React.FC<MatterApiDebuggerProps> = ({ currentMatters, o
             borderRadius: '8px',
             border: `1px solid ${colours.yellow}`
           }}>
-            <Text variant="mediumPlus" styles={{ root: { fontWeight: '600', marginBottom: '12px' } }}>
-              🔧 Environment Configuration
-            </Text>
+            <Text variant="mediumPlus" styles={{ root: { fontWeight: '600', marginBottom: '12px' } }}>Environment Configuration</Text>
             <div style={{ fontSize: '12px', fontFamily: 'monospace' }}>
               <div><strong>REACT_APP_GET_MATTERS_PATH:</strong> {process.env.REACT_APP_GET_MATTERS_PATH || 'NOT SET'}</div>
               <div><strong>REACT_APP_GET_MATTERS_CODE:</strong> {process.env.REACT_APP_GET_MATTERS_CODE ? 'SET' : 'NOT SET'}</div>
@@ -547,9 +539,7 @@ const MatterApiDebugger: React.FC<MatterApiDebuggerProps> = ({ currentMatters, o
 
           {/* API Responses */}
           <div>
-            <Text variant="mediumPlus" styles={{ root: { fontWeight: '600', marginBottom: '12px' } }}>
-              📡 API Test Results ({apiResponses.length})
-            </Text>
+            <Text variant="mediumPlus" styles={{ root: { fontWeight: '600', marginBottom: '12px' } }}>API Test Results ({apiResponses.length})</Text>
             
             {apiResponses.length === 0 ? (
               <MessageBar messageBarType={MessageBarType.info}>

@@ -1,100 +1,171 @@
-diff --git a/src/tabs/home/Home.tsx b/src/tabs/home/Home.tsx
-index 0a732f8b00695b382c81c12718b9584f61e1dcd5..a913d3ca84f333681819d73efa9c59ac3009aa3e 100644
---- a/src/tabs/home/Home.tsx
-+++ b/src/tabs/home/Home.tsx
-@@ -1615,50 +1615,95 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
-               ResponsibleSolicitor: item['Responsible Solicitor'] || '',
-               OriginatingSolicitor: item['Originating Solicitor'] || '',
-               SupervisingPartner: item['Supervising Partner'] || '',
-               Opponent: item['Opponent'] || '',
-               OpponentSolicitor: item['Opponent Solicitor'] || '',
-               CloseDate: item['Close Date'] || '',
-               ApproxValue: item['Approx. Value'] || '',
-               mod_stamp: item['mod_stamp'] || '',
-               method_of_contact: item['method_of_contact'] || '',
-               CCL_date: item['CCL_date'] || null,
-               Rating: item['Rating'] as 'Good' | 'Neutral' | 'Poor' | undefined,
-             }));
-           };
+diff --git a/src/tabs/enquiries/pitch-builder/EmailPreview.tsx b/src/tabs/enquiries/pitch-builder/EmailPreview.tsx
+index 2ba035cacdec4ac589c9a5c5df7718114bd8aaf7..76faf7a8cda4d6b5d9e1dc60e98d1b1c1a9c60ce 100644
+--- a/src/tabs/enquiries/pitch-builder/EmailPreview.tsx
++++ b/src/tabs/enquiries/pitch-builder/EmailPreview.tsx
+@@ -1,161 +1,92 @@
+ import React from 'react';
+ import {
+   Stack,
+   Text,
+   MessageBar,
+   MessageBarType,
+   Separator,
+   Panel,
+   PanelType,
+   PrimaryButton,
+   DefaultButton,
+   Checkbox,
+   IconButton,
+   mergeStyles,
+   Link,
+ } from '@fluentui/react';
+ import { colours } from '../../../app/styles/colours';
+ import {
+   sharedPrimaryButtonStyles,
+   sharedDefaultButtonStyles,
+-// invisible change
+   sharedDraftConfirmedButtonStyles,
+ } from '../../../app/styles/ButtonStyles';
+ import { componentTokens } from '../../../app/styles/componentTokens';
+ import markWhite from '../../../assets/markwhite.svg';
+-import {
+-  removeHighlightSpans,
+-  markUnfilledPlaceholders,
+-  removeUnfilledPlaceholders,
+-  applyDynamicSubstitutions,
+-  convertDoubleBreaksToParagraphs,
+-} from './emailUtils';
+ import ExperimentalAssistant from './ExperimentalAssistant';
+ import { isInTeams } from '../../../app/functionality/isInTeams';
+-import { TemplateBlock } from '../../../app/customisation/ProductionTemplateBlocks';
+-import ReactDOMServer from 'react-dom/server';
+-import EmailSignature from '../EmailSignature';
+-
+-function escapeRegExp(str: string): string {
+-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+-}
+-
+-function removeAutoInsertedBlocks(
+-  html: string,
+-  autoBlocks: { [key: string]: boolean },
+-  editedBlocks: { [key: string]: boolean }
+-): string {
+-  let result = html;
+-  Object.keys(autoBlocks).forEach((title) => {
+-    if (!autoBlocks[title]) return;
+-    if (editedBlocks[title]) return;
+-    const escaped = escapeRegExp(title);
+-    const regex = new RegExp(
+-      `<!--START_BLOCK:${escaped}-->[\\s\\S]*?<!--END_BLOCK:${escaped}-->`,
+-      'g'
+-    );
+-    result = result.replace(regex, '');
+-  });
+-  return result;
+-}
++import { usePitchBuilderContext } from './PitchBuilderContext';
++import useEmailPreview from './useEmailPreview';
  
-           let mappedMatters: Matter[] = [];
-           if (Array.isArray(rawData)) {
-             // Direct array response from getMatters API
-             mappedMatters = mapData(rawData);
-           } else if (rawData.matters && Array.isArray(rawData.matters)) {
-             // Nested format from getAllMatters API
-             mappedMatters = mapData(rawData.matters);
-           } else {
-             console.warn('Unexpected data format for getMatters:', rawData);
-           }
+ interface EmailPreviewProps {
+   isPreviewOpen: boolean;
+   onDismiss: () => void;
+-  enquiry: any; // Ideally, replace with the appropriate type e.g., Enquiry
+   subject: string;
+   body: string;
+-  templateBlocks: TemplateBlock[];
+   attachments: string[];
+   followUp?: string;
+   fullName: string;
+-  userData: any;
+   serviceDescription?: string;
+-  clients?: { firstName: string; lastName: string; email: string }[];
+   to: string;
+   cc?: string;
+   bcc?: string;
+-  autoInsertedBlocks: { [key: string]: boolean };
+-  editedBlocks: { [key: string]: boolean };
+   sendEmail: () => void;
+   handleDraftEmail: () => void;
+   isSuccessVisible: boolean;
+   isDraftConfirmed: boolean;
+-  amount?: string;
+-  passcode?: string;
+ }
  
-+          // Fetch additional matters from SQL-backed decoupled function
-+          try {
-+            const sqlFullName = userData?.[0]?.FullName || 'Lukasz Zemanek';
-+            const sqlResp = await fetch(`/api/sqlMatters?fullName=${encodeURIComponent(sqlFullName)}`);
-+            if (sqlResp.ok) {
-+              const sqlData = await sqlResp.json();
-+              if (Array.isArray(sqlData.matters)) {
-+                const sqlMapped: Matter[] = sqlData.matters.map((item: any) => ({
-+                  MatterID: item.MatterID,
-+                  InstructionRef: item.InstructionRef,
-+                  DisplayNumber: item.DisplayNumber || '',
-+                  OpenDate: item.OpenDate || '',
-+                  MonthYear: item.MonthYear || '',
-+                  YearMonthNumeric: item.YearMonthNumeric || 0,
-+                  ClientID: item.ClientID || '',
-+                  ClientName: item.ClientName || '',
-+                  ClientPhone: item.ClientPhone || '',
-+                  ClientEmail: item.ClientEmail || '',
-+                  Status: item.Status || '',
-+                  UniqueID: item.MatterID || '',
-+                  Description: item.Description || '',
-+                  PracticeArea: item.PracticeArea || '',
-+                  Source: item.Source || '',
-+                  Referrer: item.Referrer || '',
-+                  ResponsibleSolicitor: item.ResponsibleSolicitor || '',
-+                  OriginatingSolicitor: item.OriginatingSolicitor || '',
-+                  SupervisingPartner: item.SupervisingPartner || '',
-+                  Opponent: item.OpponentID || '',
-+                  OpponentSolicitor: item.OpponentSolicitorID || '',
-+                  CloseDate: item.CloseDate || '',
-+                  ApproxValue: item.ApproxValue || '',
-+                  mod_stamp: item.mod_stamp || '',
-+                  method_of_contact: item.method_of_contact || '',
-+                  CCL_date: item.CCL_date || null,
-+                  Rating: item.Rating,
-+                }));
-+                mappedMatters = mappedMatters.concat(sqlMapped);
-+              }
-+            } else {
-+              console.warn('Failed to fetch SQL matters:', sqlResp.status);
-+            }
-+          } catch (sqlErr) {
-+            console.warn('Error fetching SQL matters:', sqlErr);
-+          }
-+
-           cachedAllMatters = mappedMatters;
-           setAllMatters(mappedMatters);
-           if (onAllMattersFetched) {
-             onAllMattersFetched(mappedMatters);
-           }
-         } catch (error: any) {
-           console.error('Error fetching all matters:', error);
-           cachedAllMattersError = error.message;
-           setAllMattersError(error.message);
-           setAllMatters([]);
-         } finally {
-           setIsLoadingAllMatters(false);
-         }
-       };
-       fetchAllMattersData();
+ const EmailPreview: React.FC<EmailPreviewProps> = ({
+   isPreviewOpen,
+   onDismiss,
+-  enquiry,
+   subject,
+   body,
+-  templateBlocks,
+   attachments,
+   followUp,
+   fullName,
+-  userData,
+   serviceDescription,
+   to,
+   cc,
+   bcc,
+-  autoInsertedBlocks,
+-  editedBlocks,
+   sendEmail,
+   handleDraftEmail,
+   isSuccessVisible,
+   isDraftConfirmed,
+-  amount,
+-  passcode,
+ }) => {
+-  // Strip blocks auto inserted by the system unless edited
+-  // Disabled for now since we want content to display by default
+-  const withoutAutoBlocks = body;
+-  
+-  // Generate checkout URL first
+-  const checkoutPreviewUrl = passcode && enquiry?.ID
+-    ? `https://instruct.helix-law.com/pitch/${enquiry.ID}-${passcode}`
+-    : '#';
+-  
+-  // Process body HTML using imported functions
+-  const sanitized = removeHighlightSpans(withoutAutoBlocks);
+-  const substituted = applyDynamicSubstitutions(
+-    sanitized,
+-    userData,
+-    enquiry,
+-    amount,
+-    passcode,
+-    checkoutPreviewUrl
+-  );
+-  const highlightedBody = markUnfilledPlaceholders(substituted, templateBlocks);
+-  const finalBody = convertDoubleBreaksToParagraphs(highlightedBody);
+-  const previewHtml = ReactDOMServer.renderToStaticMarkup(
+-    <EmailSignature bodyHtml={finalBody} userData={userData} />
+-  );
+-const previewRef = React.useRef<HTMLDivElement>(null);
++  const { amount, userData } = usePitchBuilderContext();
++  const { previewHtml, finalBody, checkoutPreviewUrl } = useEmailPreview(body);
++  const previewRef = React.useRef<HTMLDivElement>(null);
+ 
+   const [isAiOpen, setIsAiOpen] = React.useState(false);
+   const [isConfirmed, setIsConfirmed] = React.useState(false);
+   React.useEffect(() => {
+     if (isPreviewOpen) {
+       setIsConfirmed(false);
      }
-   }, [onAllMattersFetched]);
+   }, [isPreviewOpen]);
+   const inTeams = isInTeams();
+   const useLocalData =
+     process.env.REACT_APP_USE_LOCAL_DATA === 'true' || !inTeams;
+   const allowedInitials = ['LZ', 'AC'];
+   const userInitials = userData?.[0]?.Initials?.toUpperCase() || '';
+   const canUseAi = useLocalData || allowedInitials.includes(userInitials);
+   const showAiAssistButton = false;
  
-   // NEW: useEffect for fetching POID6Years data
-   useEffect(() => {
-     if (cachedPOID6Years) {
-       setPoid6Years(cachedPOID6Years);
-       setIsLoadingPOID6Years(false);
-       // Call the callback to pass data back to App
-       if (onPOID6YearsFetched) {
+   // Example follow-up options (you may wish to pass these in or centralise them)
+   const followUpOptions: { [key: string]: string } = {
+     '1_day': '1 day',
+     '2_days': '2 days',
+     '3_days': '3 days',
+     '7_days': '7 days',
+     '14_days': '14 days',
+     '30_days': '30 days',
+   };
