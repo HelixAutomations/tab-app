@@ -6,7 +6,8 @@ import { createTheme, ThemeProvider } from "@fluentui/react";
 import { colours } from "./app/styles/colours";
 import * as microsoftTeams from "@microsoft/teams-js";
 import { isInTeams } from "./app/functionality/isInTeams";
-import { Matter, UserData, Enquiry, TeamData } from "./app/functionality/types";
+import { Matter, UserData, Enquiry, TeamData, NormalizedMatter } from "./app/functionality/types";
+import { mergeMattersFromSources } from "./utils/matterNormalization";
 // Local sample data used when REACT_APP_USE_LOCAL_DATA is set
 import localUserData from "./localData/localUserData.json";
 import localEnquiries from "./localData/localEnquiries.json";
@@ -496,10 +497,7 @@ async function fetchMatters(fullName: string): Promise<Matter[]> {
     ? '/api/getMatters'
     : `${proxyBaseUrl}/${process.env.REACT_APP_GET_MATTERS_PATH}?code=${process.env.REACT_APP_GET_MATTERS_CODE}`;
 
-  const newUrl = '/api/matters';
-
   let legacyData: any[] = [];
-  let newData: any[] = [];
 
   try {
     const response = await fetch(legacyUrl, {
@@ -515,17 +513,7 @@ async function fetchMatters(fullName: string): Promise<Matter[]> {
     console.warn('Legacy matters fetch failed', err);
   }
 
-  try {
-    const resNew = await fetch(newUrl);
-    if (resNew.ok) {
-      const data = await resNew.json();
-      newData = Array.isArray(data) ? data : data.matters || [];
-    }
-  } catch (err) {
-    console.warn('New matters fetch failed', err);
-  }
-
-  let fetchedMatters: Matter[] = [...mapLegacyMatters(legacyData), ...mapNewMatters(newData)];
+  let fetchedMatters = mapLegacyMatters(legacyData);
 
   if (fetchedMatters.length === 0) {
     fetchedMatters = mapLegacyMatters(localMatters as unknown as any[]);
@@ -533,6 +521,76 @@ async function fetchMatters(fullName: string): Promise<Matter[]> {
 
   setCachedData(cacheKey, fetchedMatters);
   return fetchedMatters;
+}
+
+async function fetchVNetMatters(fullName?: string): Promise<any[]> {
+  const cacheKey = fullName ? `vnetMatters-${fullName}` : 'vnetMatters-all';
+  const cached = getCachedData<any[]>(cacheKey);
+  if (cached) return cached;
+
+  const newUrl = '/api/matters';
+  let vnetData: any[] = [];
+
+  try {
+    const params = fullName ? `?fullName=${encodeURIComponent(fullName)}` : '';
+    const resNew = await fetch(`${newUrl}${params}`);
+    if (resNew.ok) {
+      const data = await resNew.json();
+      vnetData = Array.isArray(data) ? data : data.matters || [];
+      console.log('✅ VNet matters fetch successful:', vnetData.length);
+    }
+  } catch (err) {
+    console.warn('VNet matters fetch failed', err);
+  }
+
+  setCachedData(cacheKey, vnetData);
+  return vnetData;
+}
+
+async function fetchAllMatterSources(fullName: string): Promise<NormalizedMatter[]> {
+  const cacheKey = `normalizedMatters-${fullName}`;
+  const cached = getCachedData<NormalizedMatter[]>(cacheKey);
+  if (cached) return cached;
+
+  console.log('🔍 Fetching matters from all sources for:', fullName);
+
+  try {
+    // Fetch from all three sources in parallel
+    const [allMatters, userMatters, vnetMatters] = await Promise.all([
+      fetchAllMatters(),
+      fetchMatters(fullName),
+      fetchVNetMatters(fullName)
+    ]);
+
+    console.log('📊 Matter sources fetched:');
+    console.log('  📋 All matters (legacy):', allMatters.length);
+    console.log('  👤 User matters (legacy):', userMatters.length);
+    console.log('  🌐 VNet matters:', vnetMatters.length);
+
+    // Merge and normalize all sources
+    const normalizedMatters = mergeMattersFromSources(
+      allMatters,
+      userMatters,
+      vnetMatters,
+      fullName
+    );
+
+    console.log('✅ Normalized matters total:', normalizedMatters.length);
+
+    setCachedData(cacheKey, normalizedMatters);
+    return normalizedMatters;
+  } catch (err) {
+    console.error('❌ Error fetching matter sources:', err);
+    // Fallback to legacy data only
+    const fallbackMatters = await fetchMatters(fullName);
+    const fallbackNormalized = mergeMattersFromSources(
+      [],
+      fallbackMatters,
+      [],
+      fullName
+    );
+    return fallbackNormalized;
+  }
 }
 
 async function fetchTeamData(): Promise<TeamData[] | null> {
@@ -565,7 +623,7 @@ const AppWithContext: React.FC = () => {
     useState<microsoftTeams.Context | null>(null);
   const [userData, setUserData] = useState<UserData[] | null>(null);
   const [enquiries, setEnquiries] = useState<Enquiry[] | null>(null);
-  const [matters, setMatters] = useState<Matter[] | null>(null);
+  const [matters, setMatters] = useState<NormalizedMatter[]>([]);
   const [teamData, setTeamData] = useState<TeamData[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -602,7 +660,7 @@ const AppWithContext: React.FC = () => {
     
     try {
       // Fetch matters for new user
-      const mattersRes = await fetchMatters(fullName);
+      const mattersRes = await fetchAllMatterSources(fullName);
       setMatters(mattersRes);
       
       // Also fetch enquiries for new user
@@ -651,7 +709,7 @@ const AppWithContext: React.FC = () => {
                 userDataRes[0]?.AOW || "",
                 userDataRes[0]?.Initials || "",
               ),
-              fetchMatters(fullName),
+              fetchAllMatterSources(fullName),
               fetchTeamData(),
             ]);
 
@@ -719,13 +777,15 @@ const AppWithContext: React.FC = () => {
           }
           
           // Try to fetch matters separately (don't block enquiries)
-          let mattersRes: Matter[] = [];
+          let normalizedMatters: NormalizedMatter[] = [];
           try {
-            mattersRes = await fetchMatters(fullName);
-            console.log('✅ Matters API call successful:', mattersRes?.length || 0);
+            normalizedMatters = await fetchAllMatterSources(fullName);
+            console.log('✅ Normalized matters fetch successful:', normalizedMatters?.length || 0);
           } catch (mattersError) {
             console.warn('⚠️ Matters API failed, using fallback:', mattersError);
-            mattersRes = localMatters as unknown as Matter[];
+            // Create fallback normalized matters from local data
+            const fallbackMatters = mergeMattersFromSources([], localMatters as unknown as Matter[], [], fullName);
+            normalizedMatters = fallbackMatters;
           }
 
           // ALSO TEST fetchAllMatters for local development
@@ -735,18 +795,19 @@ const AppWithContext: React.FC = () => {
           
           console.log('✅ LOCAL DEV API CALLS COMPLETED:');
           console.log('   📊 enquiriesRes count:', enquiriesRes?.length || 0);
-          console.log('   🏢 mattersRes count:', mattersRes?.length || 0);
+          console.log('   🏢 normalizedMatters count:', normalizedMatters?.length || 0);
           
           setEnquiries(enquiriesRes);
-          setMatters(mattersRes);
+          setMatters(normalizedMatters);
         } catch (err) {
           console.error('❌ Unexpected error in local dev:', err);
           console.log('🔄 FALLING BACK TO LOCAL SAMPLE DATA...');
-          // Fallback to local sample data
+          // Fallback to local sample data with normalization
           const fallbackEnquiries = getLiveLocalEnquiries(initialUserData[0].Email) as Enquiry[];
+          const fallbackMatters = mergeMattersFromSources([], localMatters as unknown as Matter[], [], fullName);
           console.log('📦 Fallback enquiries count:', fallbackEnquiries?.length || 0);
           setEnquiries(fallbackEnquiries);
-          setMatters(localMatters as unknown as Matter[]);
+          setMatters(fallbackMatters);
         }
         
         setTeamData(localTeamData as TeamData[]);

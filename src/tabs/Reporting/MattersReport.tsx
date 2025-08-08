@@ -735,15 +735,12 @@ const MattersReport: React.FC<MattersReportProps> = ({
                 {/* Card Content */}
                 <div className={innerDetailCardStyle(isDarkMode)}>
                     {activeTab === 'Overview' && (
-                        <MatterOverview
-                            matter={selectedMatter}
-                            overviewData={matterOverview}
-                            outstandingData={matterOutstandingData}
-                            complianceData={complianceData}
-                            matterSpecificActivitiesData={matterSpecificActivities}
-                            onEdit={() => { }}
-                            transactions={transactions}
-                        />
+                        <div style={{ padding: '20px', textAlign: 'center' }}>
+                            <h3>Matter Overview</h3>
+                            <p>Matter overview temporarily disabled during migration to normalized data</p>
+                            <p>Selected Matter: {selectedMatter?.DisplayNumber} - {selectedMatter?.ClientName}</p>
+                            {/* TODO: MattersReport needs to be updated to use normalized data */}
+                        </div>
                     )}
                     {activeTab === 'Transactions' && (
                         <MatterTransactions matter={selectedMatter} transactions={transactions} />

@@ -1,6 +1,14 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Stack, Text, Spinner, SpinnerSize, MessageBar, MessageBarType, IconButton, mergeStyles, Icon } from '@fluentui/react';
-import { Matter, UserData } from '../../app/functionality/types';
+import { NormalizedMatter, UserData } from '../../app/functionality/types';
+import {
+  filterMattersByStatus,
+  filterMattersByArea,
+  filterMattersByRole,
+  applyAdminFilter,
+  hasAdminAccess,
+  getUniquePracticeAreas
+} from '../../utils/matterNormalization';
 import MatterLineItem from './MatterLineItem';
 import MatterOverview from './MatterOverview';
 import { colours } from '../../app/styles/colours';
@@ -9,7 +17,7 @@ import { useNavigator } from '../../app/functionality/NavigatorContext';
 import MatterApiDebugger from '../../components/MatterApiDebugger';
 
 interface MattersProps {
-  matters: Matter[];
+  matters: NormalizedMatter[];
   isLoading: boolean;
   error: string | null;
   userData: UserData[] | null;
@@ -18,66 +26,69 @@ interface MattersProps {
 const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }) => {
   const { isDarkMode } = useTheme();
   const { setContent } = useNavigator();
-  const [selected, setSelected] = useState<Matter | null>(null);
+  const [selected, setSelected] = useState<NormalizedMatter | null>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
-  const [activeFilter, setActiveFilter] = useState<string>('Closed');
+  const [activeFilter, setActiveFilter] = useState<string>('Active');
   const [activeAreaFilter, setActiveAreaFilter] = useState<string>('All');
+  const [activeRoleFilter, setActiveRoleFilter] = useState<string>('All'); // New role filter
   const [showDataInspector, setShowDataInspector] = useState<boolean>(false);
+  const [showEveryone, setShowEveryone] = useState<boolean>(false); // New admin toggle
 
   const userFullName = userData?.[0]?.FullName?.toLowerCase();
   const userRole = userData?.[0]?.Role?.toLowerCase();
-  const isAdmin = userRole?.includes('admin');
+  const isAdmin = hasAdminAccess(userRole || '', userFullName || '');
 
-  const baseFiltered = useMemo(() => {
-    if (!userFullName) return [];
-    if (isAdmin) return matters;
-    
-    // Show all matters for Luke and Alex
-    if (userFullName.includes('luke') || userFullName.includes('alex')) {
-      return matters;
-    }
-    
-    return matters.filter((m) => {
-      const responsible = m.ResponsibleSolicitor?.toLowerCase().trim() || '';
-      const originating = m.OriginatingSolicitor?.toLowerCase().trim() || '';
-      return responsible === userFullName || originating === userFullName;
-    });
-  }, [matters, userFullName, isAdmin]);
+  // Debug the incoming matters
+  console.log('🔍 Matters received:', matters.length);
+  console.log('🔍 First matter sample:', matters[0]);
+  console.log('🔍 User info:', { userFullName, userRole, isAdmin });
 
+  // Apply all filters in sequence
   const filtered = useMemo(() => {
-    let result = baseFiltered;
+    let result = matters;
+    console.log('🔍 Filter Debug - Starting with matters:', result.length);
 
-    // Filter by status
-    if (activeFilter === 'Active') {
-      result = result.filter((m) => m.Status?.toLowerCase() !== 'closed');
-    } else if (activeFilter === 'Closed') {
-      result = result.filter((m) => m.Status?.toLowerCase() === 'closed');
-    }
+    // Apply admin filter first
+    result = applyAdminFilter(result, showEveryone, userFullName || '', userRole || '');
+    console.log('🔍 After admin filter:', result.length, 'showEveryone:', showEveryone);
 
-    // Filter by area
-    if (activeAreaFilter !== 'All') {
-      result = result.filter((m) => m.PracticeArea?.toLowerCase() === activeAreaFilter.toLowerCase());
+    // Apply status filter
+    result = filterMattersByStatus(result, activeFilter.toLowerCase() as any);
+    console.log('🔍 After status filter:', result.length, 'activeFilter:', activeFilter);
+
+    // Apply area filter
+    result = filterMattersByArea(result, activeAreaFilter);
+    console.log('🔍 After area filter:', result.length, 'activeAreaFilter:', activeAreaFilter);
+
+    // Apply role filter
+    if (activeRoleFilter !== 'All') {
+      const allowedRoles = activeRoleFilter === 'Responsible' ? ['responsible'] :
+                          activeRoleFilter === 'Originating' ? ['originating'] :
+                          ['responsible', 'originating'];
+      result = filterMattersByRole(result, allowedRoles as any);
+      console.log('🔍 After role filter:', result.length, 'activeRoleFilter:', activeRoleFilter);
     }
 
     // Apply search term filter
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase();
       result = result.filter((m) =>
-        m.ClientName?.toLowerCase().includes(term) ||
-        m.DisplayNumber?.toLowerCase().includes(term) ||
-        m.Description?.toLowerCase().includes(term) ||
-        m.PracticeArea?.toLowerCase().includes(term)
+        m.clientName?.toLowerCase().includes(term) ||
+        m.displayNumber?.toLowerCase().includes(term) ||
+        m.description?.toLowerCase().includes(term) ||
+        m.practiceArea?.toLowerCase().includes(term)
       );
+      console.log('🔍 After search filter:', result.length, 'searchTerm:', searchTerm);
     }
 
+    console.log('🔍 Final filtered result:', result.length);
     return result;
-  }, [baseFiltered, activeFilter, activeAreaFilter, searchTerm]);
+  }, [matters, showEveryone, userFullName, userRole, activeFilter, activeAreaFilter, activeRoleFilter, searchTerm]);
 
   // Get unique practice areas for filtering
   const availableAreas = useMemo(() => {
-    const areas = Array.from(new Set(baseFiltered.map(m => m.PracticeArea).filter(Boolean)));
-    return areas.sort();
-  }, [baseFiltered]);
+    return getUniquePracticeAreas(matters);
+  }, [matters]);
 
   // Set up navigation content with filter bar
   useEffect(() => {
@@ -118,6 +129,61 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
               </button>
             ))}
           </div>
+
+          {/* Role filter buttons */}
+          <div style={{ width: '1px', height: '20px', background: isDarkMode ? colours.dark.border : colours.light.border }} />
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ fontSize: '11px', fontWeight: '500', color: isDarkMode ? colours.dark.text : colours.light.text }}>
+              Role:
+            </span>
+            {['All', 'Responsible', 'Originating'].map(roleOption => (
+              <button
+                key={roleOption}
+                onClick={() => setActiveRoleFilter(roleOption)}
+                style={{
+                  background: activeRoleFilter === roleOption ? colours.highlight : 'transparent',
+                  color: activeRoleFilter === roleOption ? 'white' : (isDarkMode ? colours.dark.text : colours.light.text),
+                  border: `1px solid ${colours.highlight}`,
+                  borderRadius: '12px',
+                  padding: '4px 12px',
+                  fontSize: '11px',
+                  fontWeight: '500',
+                  cursor: 'pointer',
+                  fontFamily: 'Raleway, sans-serif',
+                }}
+              >
+                {roleOption}
+              </button>
+            ))}
+          </div>
+
+          {/* Admin toggle - only show if user has admin access */}
+          {isAdmin && (
+            <>
+              <div style={{ width: '1px', height: '20px', background: isDarkMode ? colours.dark.border : colours.light.border }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input
+                  type="checkbox"
+                  id="showEveryone"
+                  checked={showEveryone}
+                  onChange={(e) => setShowEveryone(e.target.checked)}
+                  style={{ cursor: 'pointer' }}
+                />
+                <label 
+                  htmlFor="showEveryone" 
+                  style={{ 
+                    fontSize: '11px', 
+                    fontWeight: '500', 
+                    color: isDarkMode ? colours.dark.text : colours.light.text,
+                    cursor: 'pointer',
+                    fontFamily: 'Raleway, sans-serif',
+                  }}
+                >
+                  See Everyone's
+                </label>
+              </div>
+            </>
+          )}
           
           {/* Area filter buttons - only show if there are multiple areas */}
           {availableAreas.length > 1 && (
@@ -353,11 +419,14 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
             Try adjusting your search criteria or filters
           </Text>
         </div>
+        {/* TODO: Update MatterApiDebugger to use NormalizedMatter */}
         {showDataInspector && (
-          <MatterApiDebugger
-            currentMatters={matters}
-            onClose={() => setShowDataInspector(false)}
-          />
+          <div style={{ padding: '20px', background: '#f0f0f0', margin: '10px 0' }}>
+            <h4>Debug Info (Temporary)</h4>
+            <p>Total matters: {matters.length}</p>
+            <p>Filtered matters: {filtered.length}</p>
+            <button onClick={() => setShowDataInspector(false)}>Close</button>
+          </div>
         )}
       </div>
     );
@@ -394,7 +463,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
           }}>
             {filtered.map((m, idx) => (
               <MatterLineItem
-                key={m.UniqueID || m.MatterID || idx}
+                key={m.matterId || idx}
                 matter={m}
                 onSelect={setSelected}
                 isLast={idx === filtered.length - 1}
@@ -406,10 +475,12 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
 
       {/* Matter API Debugger - Only in development */}
       {showDataInspector && (
-        <MatterApiDebugger
-          currentMatters={matters}
-          onClose={() => setShowDataInspector(false)}
-        />
+        <div style={{ padding: '20px', background: '#f0f0f0', margin: '10px 0' }}>
+          <h4>Debug Info (Temporary)</h4>
+          <p>Total matters: {matters.length}</p>
+          <p>Filtered matters: {filtered.length}</p>
+          <button onClick={() => setShowDataInspector(false)}>Close</button>
+        </div>
       )}
     </div>
   );

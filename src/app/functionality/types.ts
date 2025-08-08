@@ -148,6 +148,7 @@ export interface EnquiryDb {
 }
 
 // Define the structure for Matter
+// Raw matter interface (legacy)
 export interface Matter {
   MatterID?: string;
   InstructionRef?: string;
@@ -176,6 +177,59 @@ export interface Matter {
   method_of_contact: string;
   CCL_date: string | null;
   Rating?: 'Good' | 'Neutral' | 'Poor';
+}
+
+// Normalized matter interface for consistent UI rendering
+export interface NormalizedMatter {
+  // Core identifiers
+  matterId: string;
+  matterName: string;
+  displayNumber: string;
+  instructionRef?: string;
+  
+  // Dates
+  openDate: string;
+  closeDate: string | null;
+  
+  // Status derived from closeDate
+  status: 'active' | 'closed';
+  
+  // Client information
+  clientId: string;
+  clientName: string;
+  clientPhone?: string;
+  clientEmail?: string;
+  
+  // Matter details
+  description: string;
+  practiceArea: string;
+  source?: string;
+  referrer?: string;
+  value?: string;
+  
+  // Solicitors
+  responsibleSolicitor: string;
+  originatingSolicitor: string;
+  supervisingPartner?: string;
+  
+  // Opposition
+  opponent?: string;
+  opponentSolicitor?: string;
+  
+  // User role (computed)
+  role: 'responsible' | 'originating' | 'both' | 'none';
+  
+  // Metadata
+  methodOfContact?: string;
+  cclDate?: string | null;
+  rating?: 'Good' | 'Neutral' | 'Poor';
+  modStamp?: string;
+  
+  // Source tracking
+  dataSource: 'legacy_all' | 'legacy_user' | 'vnet_direct';
+  
+  // Raw data for debugging
+  _raw?: any;
 }
 
 // Define the structure for POID data

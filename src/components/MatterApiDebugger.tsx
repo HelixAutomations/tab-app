@@ -13,10 +13,10 @@ import {
 } from '@fluentui/react';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';
-import { Matter } from '../app/functionality/types';
+import { NormalizedMatter } from '../app/functionality/types';
 
 interface MatterApiDebuggerProps {
-  currentMatters: Matter[];
+  currentMatters: NormalizedMatter[];
   onClose: () => void;
 }
 
@@ -249,7 +249,7 @@ const MatterApiDebugger: React.FC<MatterApiDebuggerProps> = ({ currentMatters, o
       // Analyze Responsible Solicitor distribution
       const responsibleCounts: { [key: string]: number } = {};
       currentMatters.forEach(matter => {
-        const responsible = matter.ResponsibleSolicitor || 'Unknown';
+        const responsible = matter.responsibleSolicitor || 'Unknown';
         responsibleCounts[responsible] = (responsibleCounts[responsible] || 0) + 1;
       });
       console.log('Responsible Solicitor distribution:', responsibleCounts);
@@ -257,7 +257,7 @@ const MatterApiDebugger: React.FC<MatterApiDebuggerProps> = ({ currentMatters, o
       // Analyze Originating Solicitor distribution
       const originatingCounts: { [key: string]: number } = {};
       currentMatters.forEach(matter => {
-        const originating = matter.OriginatingSolicitor || 'Unknown';
+        const originating = matter.originatingSolicitor || 'Unknown';
         originatingCounts[originating] = (originatingCounts[originating] || 0) + 1;
       });
       console.log('Originating Solicitor distribution:', originatingCounts);
@@ -265,7 +265,7 @@ const MatterApiDebugger: React.FC<MatterApiDebuggerProps> = ({ currentMatters, o
       // Analyze Practice Area distribution
       const areaCounts: { [key: string]: number } = {};
       currentMatters.forEach(matter => {
-        const area = matter.PracticeArea || 'Unknown';
+        const area = matter.practiceArea || 'Unknown';
         areaCounts[area] = (areaCounts[area] || 0) + 1;
       });
       console.log('Practice Area distribution:', areaCounts);
@@ -273,15 +273,15 @@ const MatterApiDebugger: React.FC<MatterApiDebuggerProps> = ({ currentMatters, o
       // Analyze Status distribution
       const statusCounts: { [key: string]: number } = {};
       currentMatters.forEach(matter => {
-        const status = matter.Status || 'Unknown';
+        const status = matter.status || 'Unknown';
         statusCounts[status] = (statusCounts[status] || 0) + 1;
       });
       console.log('Status distribution:', statusCounts);
       
       // Check for test user specific matters
       const userMatters = currentMatters.filter(matter => {
-        const responsible = (matter.ResponsibleSolicitor || '').toLowerCase();
-        const originating = (matter.OriginatingSolicitor || '').toLowerCase();
+        const responsible = (matter.responsibleSolicitor || '').toLowerCase();
+        const originating = (matter.originatingSolicitor || '').toLowerCase();
         const testEmailLower = testEmail.toLowerCase();
         const testInitialsLower = testInitials.toLowerCase();
         
@@ -296,12 +296,12 @@ const MatterApiDebugger: React.FC<MatterApiDebuggerProps> = ({ currentMatters, o
       
       // Additional debugging for data source
       console.log('DATA SOURCE ANALYSIS:');
-      const uniqueIds = new Set(currentMatters.map(m => m.UniqueID || m.MatterID));
+      const uniqueIds = new Set(currentMatters.map(m => m.matterId));
       console.log('Total unique matters:', uniqueIds.size);
       
       // Check if we might be getting local fallback data
       const hasCompleteData = currentMatters.some(m => 
-        m.ResponsibleSolicitor && m.ClientName && m.PracticeArea
+        m.responsibleSolicitor && m.clientName && m.practiceArea
       );
       console.log('Has complete data (not fallback):', hasCompleteData);
       
@@ -402,8 +402,8 @@ const MatterApiDebugger: React.FC<MatterApiDebuggerProps> = ({ currentMatters, o
               <div>
                 <Text variant="large" styles={{ root: { fontWeight: '600', color: colours.green } }}>
                   {currentMatters.filter(m => {
-                    const responsible = (m.ResponsibleSolicitor || '').toLowerCase();
-                    const originating = (m.OriginatingSolicitor || '').toLowerCase();
+                    const responsible = (m.responsibleSolicitor || '').toLowerCase();
+                    const originating = (m.originatingSolicitor || '').toLowerCase();
                     const testFullNameLower = testFullName.toLowerCase();
                     
                     return responsible.includes(testFullNameLower) || 
@@ -414,13 +414,13 @@ const MatterApiDebugger: React.FC<MatterApiDebuggerProps> = ({ currentMatters, o
               </div>
               <div>
                 <Text variant="large" styles={{ root: { fontWeight: '600', color: colours.orange } }}>
-                  {currentMatters.filter(m => m.Status?.toLowerCase() !== 'closed').length}
+                  {currentMatters.filter(m => m.status?.toLowerCase() !== 'closed').length}
                 </Text>
                 <Text variant="small">Active</Text>
               </div>
               <div>
                 <Text variant="large" styles={{ root: { fontWeight: '600', color: colours.cta } }}>
-                  {currentMatters.filter(m => m.Status?.toLowerCase() === 'closed').length}
+                  {currentMatters.filter(m => m.status?.toLowerCase() === 'closed').length}
                 </Text>
                 <Text variant="small">Closed</Text>
               </div>

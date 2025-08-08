@@ -8,7 +8,7 @@ import { NavigatorProvider } from './functionality/NavigatorContext';
 import { colours } from './styles/colours';
 import * as microsoftTeams from '@microsoft/teams-js';
 import { Context as TeamsContextType } from '@microsoft/teams-js';
-import { Matter, UserData, Enquiry, Tab, TeamData, POID, Transaction, BoardroomBooking, SoundproofPodBooking, InstructionData } from './functionality/types';
+import { Matter, UserData, Enquiry, Tab, TeamData, POID, Transaction, BoardroomBooking, SoundproofPodBooking, InstructionData, NormalizedMatter } from './functionality/types';
 import { hasActiveMatterOpening } from './functionality/matterOpeningUtils';
 import localIdVerifications from '../localData/localIdVerifications.json';
 import localInstructionData from '../localData/localInstructionData.json';
@@ -29,7 +29,7 @@ interface AppProps {
   teamsContext: TeamsContextType | null;
   userData: UserData[] | null;
   enquiries: Enquiry[] | null;
-  matters: Matter[] | null;
+  matters: NormalizedMatter[];
   isLoading: boolean;
   error: string | null;
   teamData?: TeamData[] | null;
@@ -372,7 +372,7 @@ const App: React.FC<AppProps> = ({
       case 'matters':
         return (
           <Matters
-            matters={allMattersFromHome || []}
+            matters={matters}
             isLoading={isLoading}
             error={error}
             userData={userData}

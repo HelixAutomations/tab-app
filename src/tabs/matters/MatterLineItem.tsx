@@ -1,6 +1,6 @@
 import { Text, Icon } from '@fluentui/react';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
-import { Matter } from '../../app/functionality/types';
+import { NormalizedMatter } from '../../app/functionality/types';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 import React, { useState } from 'react';
@@ -60,8 +60,8 @@ const CopyableText: React.FC<CopyableTextProps> = ({ value, className, label }) 
 };
 
 interface MatterLineItemProps {
-    matter: Matter;
-    onSelect: (matter: Matter) => void;
+    matter: NormalizedMatter;
+    onSelect: (matter: NormalizedMatter) => void;
     isLast?: boolean;
 }
 
@@ -125,7 +125,7 @@ const MatterLineItem: React.FC<MatterLineItemProps> = ({ matter, onSelect, isLas
                 top: 0,
                 bottom: 0,
                 width: 2,
-                background: getAreaColor(matter.PracticeArea),
+                background: getAreaColor(matter.practiceArea),
                 zIndex: 2,
                 height: '100%',
                 opacity: 0.6,
@@ -259,30 +259,30 @@ const MatterLineItem: React.FC<MatterLineItemProps> = ({ matter, onSelect, isLas
                 {/* Client & Matter Info */}
                 <div>
                     <div>
-                        <CopyableText value={matter.ClientName || 'Unknown Client'} className={clientNameStyle} label="Client Name" />
+                        <CopyableText value={matter.clientName || 'Unknown Client'} className={clientNameStyle} label="Client Name" />
                     </div>
-                    <div className={matterNumberStyle}>{matter.DisplayNumber}</div>
-                    {matter.Description && (
+                    <div className={matterNumberStyle}>{matter.displayNumber}</div>
+                    {matter.description && (
                         <div>
-                            <CopyableText value={matter.Description} className={descriptionStyle} label="Description" />
+                            <CopyableText value={matter.description} className={descriptionStyle} label="Description" />
                         </div>
                     )}
                 </div>
 
                 {/* Practice Area & Status */}
                 <div>
-                    <div className={metaStyle}>{matter.PracticeArea || 'No Area'}</div>
+                    <div className={metaStyle}>{matter.practiceArea || 'No Area'}</div>
                     <div className={statusStyle} style={{ marginTop: '2px' }}>
-                        {matter.Status || 'Unknown Status'}
+                        {matter.status || 'Unknown Status'}
                     </div>
                 </div>
 
                 {/* Solicitor Info */}
                 <div>
                     <div className={metaStyle}>
-                        {matter.ResponsibleSolicitor || 'Unassigned'}
+                        {matter.responsibleSolicitor || 'Unassigned'}
                     </div>
-                    {matter.OriginatingSolicitor && matter.OriginatingSolicitor !== matter.ResponsibleSolicitor && (
+                    {matter.originatingSolicitor && matter.originatingSolicitor !== matter.responsibleSolicitor && (
                         <Text variant="small" styles={{
                             root: {
                                 color: isDarkMode ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)',
@@ -291,7 +291,7 @@ const MatterLineItem: React.FC<MatterLineItemProps> = ({ matter, onSelect, isLas
                                 marginTop: '1px',
                             }
                         }}>
-                            Orig: {matter.OriginatingSolicitor}
+                            Orig: {matter.originatingSolicitor}
                         </Text>
                     )}
                 </div>
@@ -299,7 +299,7 @@ const MatterLineItem: React.FC<MatterLineItemProps> = ({ matter, onSelect, isLas
                 {/* Date & Matter ID */}
                 <div>
                     <div className={dateStyle}>
-                        {formatDate(matter.OpenDate)}
+                        {formatDate(matter.openDate)}
                     </div>
                     <Text variant="small" styles={{
                         root: {
@@ -309,7 +309,7 @@ const MatterLineItem: React.FC<MatterLineItemProps> = ({ matter, onSelect, isLas
                             marginTop: '1px',
                         }
                     }}>
-                        ID: {matter.MatterID || matter.UniqueID}
+                        ID: {matter.matterId}
                     </Text>
                 </div>
 
@@ -319,12 +319,12 @@ const MatterLineItem: React.FC<MatterLineItemProps> = ({ matter, onSelect, isLas
                         View
                     </button>
                     
-                    {matter.ClientPhone && (
+                    {matter.clientPhone && (
                         <button
                             className={actionBadgeStyle}
                             onClick={(e) => {
                                 e.stopPropagation();
-                                window.location.href = `tel:${matter.ClientPhone}`;
+                                window.location.href = `tel:${matter.clientPhone}`;
                             }}
                             title="Call client"
                         >
@@ -332,12 +332,12 @@ const MatterLineItem: React.FC<MatterLineItemProps> = ({ matter, onSelect, isLas
                         </button>
                     )}
 
-                    {matter.ClientEmail && (
+                    {matter.clientEmail && (
                         <button
                             className={actionBadgeStyle}
                             onClick={(e) => {
                                 e.stopPropagation();
-                                window.location.href = `mailto:${matter.ClientEmail}`;
+                                window.location.href = `mailto:${matter.clientEmail}`;
                             }}
                             title="Email client"
                         >
