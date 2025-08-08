@@ -27,7 +27,6 @@ const { router: cclRouter, CCL_DIR } = require('./routes/ccl');
 const enquiriesRouter = require('./routes/enquiries');
 const enquiryEmailsRouter = require('./routes/enquiryEmails');
 const pitchesRouter = require('./routes/pitches');
-const sqlMattersRouter = require('./routes/sqlMatters');
 const proxyToAzureFunctionsRouter = require('./routes/proxyToAzureFunctions');
 
 const app = express();
@@ -59,7 +58,6 @@ app.use('/api/ccl', cclRouter);
 app.use('/api/enquiries', enquiriesRouter);
 app.use('/api/enquiry-emails', enquiryEmailsRouter);
 app.use('/api/pitches', pitchesRouter);
-app.use('/api/sqlMatters', sqlMattersRouter);
 app.use('/ccls', express.static(CCL_DIR));
 
 // Proxy routes to Azure Functions - these handle requests without /api/ prefix

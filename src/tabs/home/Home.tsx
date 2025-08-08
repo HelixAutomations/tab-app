@@ -1675,7 +1675,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
           // Fetch additional matters from SQL-backed decoupled function
           try {
             const sqlFullName = userData?.[0]?.FullName || 'Lukasz Zemanek';
-            const sqlResp = await fetch(`/api/sqlMatters?fullName=${encodeURIComponent(sqlFullName)}`);
+            const sqlResp = await fetch(`/api/getMatters?fullName=${encodeURIComponent(sqlFullName)}`);
             if (sqlResp.ok) {
               const sqlData = await sqlResp.json();
               if (Array.isArray(sqlData.matters)) {
@@ -2942,12 +2942,6 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     normalQuickActions,
     currentUserConfirmed,
     showFocusOverlay,
-    immediateActionsDismissedThisSession,
-<<<<<<< HEAD
-    immediateActionsReady,
-    // Removed immediateActionsList and handleActionClick from deps to prevent loop
-=======
->>>>>>> 1bc2a812459f6e4e92ce8309dffc3de22504a6dd
   ]);
 
   // Returns a narrow weekday (e.g. "M" for Monday, "T" for Tuesday)

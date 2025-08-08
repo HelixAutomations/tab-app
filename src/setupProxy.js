@@ -6,7 +6,6 @@ module.exports = function(app) {
     '/api/getMatters',
     '/api/matters',
     '/api/getAllMatters',
-    '/api/sqlMatters',
     '/api/enquiries',
     '/api/clio-contacts',
     '/api/clio-matters',

@@ -28,7 +28,6 @@ const proxyToAzureFunctionsRouter = require('./routes/proxyToAzureFunctions');
 const enquiriesRouter = require('./routes/enquiries');
 const enquiryEmailsRouter = require('./routes/enquiryEmails');
 const pitchesRouter = require('./routes/pitches');
-const sqlMattersRouter = require('./routes/sqlMatters');
 const mattersRouter = require('./routes/matters');
 // const { router: cclRouter, CCL_DIR } = require('./routes/ccl');
 
@@ -76,7 +75,6 @@ app.use('/api/clio-matters', clioMattersRouter);
 app.use('/api/enquiries', enquiriesRouter);
 app.use('/api/enquiry-emails', enquiryEmailsRouter);
 app.use('/api/pitches', pitchesRouter);
-app.use('/api/sqlMatters', sqlMattersRouter);
 app.use('/api/matters', mattersRouter);
 
 // Proxy routes to Azure Functions
