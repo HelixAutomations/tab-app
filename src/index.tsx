@@ -548,30 +548,35 @@ async function fetchVNetMatters(fullName?: string): Promise<any[]> {
 }
 
 async function fetchAllMatterSources(fullName: string): Promise<NormalizedMatter[]> {
-  const cacheKey = `normalizedMatters-${fullName}`;
+  // v2 to bust cache after normalization fixes
+  const cacheKey = `normalizedMatters-v2-${fullName}`;
   const cached = getCachedData<NormalizedMatter[]>(cacheKey);
   if (cached) return cached;
 
   console.log('🔍 Fetching matters from all sources for:', fullName);
 
   try {
-    // Fetch from all three sources in parallel
-    const [allMatters, userMatters, vnetMatters] = await Promise.all([
+    // Fetch from all sources in parallel (legacy all, legacy user, vnet user, vnet all)
+    const [allMatters, userMatters, vnetUserMatters, vnetAllMatters] = await Promise.all([
       fetchAllMatters(),
       fetchMatters(fullName),
-      fetchVNetMatters(fullName)
+      fetchVNetMatters(fullName),
+      fetchVNetMatters(),
     ]);
 
     console.log('📊 Matter sources fetched:');
     console.log('  📋 All matters (legacy):', allMatters.length);
     console.log('  👤 User matters (legacy):', userMatters.length);
-    console.log('  🌐 VNet matters:', vnetMatters.length);
+    console.log('  🌐 VNet matters (user):', vnetUserMatters.length);
+    console.log('  🌐 VNet matters (all):', vnetAllMatters.length);
 
     // Merge and normalize all sources
     const normalizedMatters = mergeMattersFromSources(
       allMatters,
       userMatters,
-      vnetMatters,
+      // prefer user-specific vnet set, but include all for admins in UI via source filter
+      // We merge both here; duplicates are de-duped by matterId in merge
+      [...vnetAllMatters, ...vnetUserMatters],
       fullName
     );
 

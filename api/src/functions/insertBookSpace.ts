@@ -1,4 +1,3 @@
-// invisible change
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { DefaultAzureCredential } from "@azure/identity";
 import { SecretClient } from "@azure/keyvault-secrets";
@@ -177,7 +176,7 @@ async function insertBookSpaceEntry(
 
       context.log("Binding parameters for BookingTime:", booking_time);
 
-      const bookingTimeValue = new Date(`1970-01-01T${booking_time}`);
+      const bookingTimeValue = new Date(`1970-01-01T${booking_time}Z`);
       sqlRequest.addParameter("FeeEarner", TYPES.NVarChar, fee_earner);
       sqlRequest.addParameter("BookingDate", TYPES.Date, booking_date);
       sqlRequest.addParameter("BookingTime", TYPES.Time, bookingTimeValue, { scale: 7 });
@@ -238,7 +237,7 @@ async function insertClioCalendarEvent(
   const accessToken = tokenResponse.data.access_token;
   context.log("Clio access token obtained:", accessToken);
 
-  const startDateTime = new Date(`${booking_date}T${booking_time}`);
+  const startDateTime = new Date(`${booking_date}T${booking_time}Z`);
   const endDateTime = new Date(startDateTime.getTime() + duration * 3600000);
 
   const eventPayload = {

@@ -10,5 +10,16 @@
     ],
     "azureFunctions.stopFuncTaskPostDebug": false,
     "azureFunctions.showProjectWarning": false,
-    "csharp.suppressDotnetRestoreNotification": true
+    "csharp.suppressDotnetRestoreNotification": true,
+    "github.copilot.chat.codeGeneration.useInstructionFiles": true,
+    "github.copilot.chat.reviewSelection.instructions": [
+        { "text": "Prioritize correctness, security, and TypeScript types. Flag unsafe SQL, secret leakage, and missing error handling. Skip minor style nits unless risky." }
+    ],
+    "github.copilot.chat.commitMessageGeneration.instructions": [
+        { "text": "Use Conventional Commits. Format: <type>(<scope>): <subject>. Types: feat, fix, refactor, docs, test, build, chore. Subject in imperative mood." },
+        { "text": "Wrap body at ~72 chars; include WHY and notable trade-offs. Reference issues with #<id> when applicable." }
+    ],
+    "github.copilot.chat.pullRequestDescriptionGeneration.instructions": [
+        { "text": "Include summary, key changes, risk/impact, testing steps, and rollback plan. Use bullet lists. Link related issues." }
+    ]
 }

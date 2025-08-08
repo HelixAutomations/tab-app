@@ -193,6 +193,8 @@ export interface NormalizedMatter {
   
   // Status derived from closeDate
   status: 'active' | 'closed';
+  // Original/raw status from source system (e.g., MatterRequest, Active, Closed)
+  originalStatus?: string;
   
   // Client information
   clientId: string;

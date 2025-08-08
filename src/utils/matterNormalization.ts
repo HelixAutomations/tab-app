@@ -141,7 +141,15 @@ export function normalizeMatterData(
   // Old schema (with spaces): "Display Number", "Client Name", etc.
   // VNet schema (snake_case): matter_id, display_number, etc.
   
-  const matterId = matter.MatterID || matter['Unique ID'] || matter.matter_id || matter.id || '';
+  // Prefer strong identifiers; support multiple legacy/new variants
+  const matterId =
+    matter.MatterID ||
+    matter['Unique ID'] || // legacy with space
+    matter.UniqueID || // legacy mapped without space
+    matter.unique_id ||
+    matter.matter_id ||
+    matter.id ||
+    '';
   const displayNumber = matter.DisplayNumber || matter['Display Number'] || matter.display_number || matter.number || '';
   const clientName = matter.ClientName || matter['Client Name'] || matter.client_name || matter.clientName || '';
   const description = matter.Description || matter.Description || matter.description || matter.matter_name || '';
@@ -150,6 +158,7 @@ export function normalizeMatterData(
   const practiceArea = matter.PracticeArea || matter['Practice Area'] || matter.practice_area || matter.practiceArea || '';
   const openDate = matter.OpenDate || matter['Open Date'] || matter.open_date || matter.openDate || '';
   const closeDate = matter.CloseDate || matter['Close Date'] || matter.close_date || matter.closeDate || null;
+  const originalStatus = matter.Status || matter.status || matter.original_status || matter.originalStatus;
 
   // Determine computed fields
   const status = determineMatterStatus(closeDate);
@@ -168,6 +177,7 @@ export function normalizeMatterData(
     
     // Status
     status,
+  originalStatus,
     
     // Client information
     clientId: matter.ClientID || matter['Client ID'] || matter.client_id || matter.clientId || '',
@@ -246,15 +256,29 @@ export function filterMattersByArea(
 
 /**
  * Checks if user has admin access to see everyone's matters
+ *
+ * Restores special handling for the LZ admin (Lukasz/Luke Zemanek):
+ * - Treat initials "LZ" as admin
+ * - Treat name variants containing "lukasz", "luke", or "zemanek" as admin
+ * Also treats roles including "admin" or names including "alex" as admin (existing behavior).
  */
 export function hasAdminAccess(userRole: string, userFullName: string): boolean {
-  const role = userRole?.toLowerCase() || '';
-  const name = userFullName?.toLowerCase() || '';
-  
-  // Check for admin role or specific admin users
-  return role.includes('admin') || 
-         name.includes('luke') || 
-         name.includes('alex');
+  const role = (userRole || '').toLowerCase();
+  const name = (userFullName || '').toLowerCase().trim();
+
+  // Derive initials from full name (e.g., "Lukasz Zemanek" -> "LZ")
+  const initials = (userFullName || '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(part => part[0] || '')
+    .join('')
+    .toUpperCase();
+
+  const isLZ = initials === 'LZ' || name.includes('lukasz') || name.includes('luke') || name.includes('zemanek');
+  const isAdminByRole = role.includes('admin');
+  const isKnownAdminByName = name.includes('alex');
+
+  return isAdminByRole || isKnownAdminByName || isLZ;
 }
 
 /**
