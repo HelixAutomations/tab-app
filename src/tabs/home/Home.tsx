@@ -2943,8 +2943,11 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     currentUserConfirmed,
     showFocusOverlay,
     immediateActionsDismissedThisSession,
+<<<<<<< HEAD
     immediateActionsReady,
     // Removed immediateActionsList and handleActionClick from deps to prevent loop
+=======
+>>>>>>> 1bc2a812459f6e4e92ce8309dffc3de22504a6dd
   ]);
 
   // Returns a narrow weekday (e.g. "M" for Monday, "T" for Tuesday)
