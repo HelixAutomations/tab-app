@@ -66,7 +66,13 @@ module.exports = async function (context, req) {
     context.log('DB fetch failed:', err.message);
     context.res = {
       status: 500,
-      body: 'Failed to fetch matters from database'
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type'
+      },
+      body: { error: 'Failed to fetch matters from database', details: err.message }
     };
   }
 };
