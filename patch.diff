@@ -1,171 +1,97 @@
-diff --git a/src/tabs/enquiries/pitch-builder/EmailPreview.tsx b/src/tabs/enquiries/pitch-builder/EmailPreview.tsx
-index 2ba035cacdec4ac589c9a5c5df7718114bd8aaf7..76faf7a8cda4d6b5d9e1dc60e98d1b1c1a9c60ce 100644
---- a/src/tabs/enquiries/pitch-builder/EmailPreview.tsx
-+++ b/src/tabs/enquiries/pitch-builder/EmailPreview.tsx
-@@ -1,161 +1,92 @@
- import React from 'react';
- import {
-   Stack,
-   Text,
-   MessageBar,
-   MessageBarType,
-   Separator,
-   Panel,
-   PanelType,
-   PrimaryButton,
-   DefaultButton,
-   Checkbox,
-   IconButton,
-   mergeStyles,
-   Link,
- } from '@fluentui/react';
- import { colours } from '../../../app/styles/colours';
- import {
-   sharedPrimaryButtonStyles,
-   sharedDefaultButtonStyles,
--// invisible change
-   sharedDraftConfirmedButtonStyles,
- } from '../../../app/styles/ButtonStyles';
- import { componentTokens } from '../../../app/styles/componentTokens';
- import markWhite from '../../../assets/markwhite.svg';
--import {
--  removeHighlightSpans,
--  markUnfilledPlaceholders,
--  removeUnfilledPlaceholders,
--  applyDynamicSubstitutions,
--  convertDoubleBreaksToParagraphs,
--} from './emailUtils';
- import ExperimentalAssistant from './ExperimentalAssistant';
- import { isInTeams } from '../../../app/functionality/isInTeams';
--import { TemplateBlock } from '../../../app/customisation/ProductionTemplateBlocks';
--import ReactDOMServer from 'react-dom/server';
--import EmailSignature from '../EmailSignature';
--
--function escapeRegExp(str: string): string {
--  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
--}
--
--function removeAutoInsertedBlocks(
--  html: string,
--  autoBlocks: { [key: string]: boolean },
--  editedBlocks: { [key: string]: boolean }
--): string {
--  let result = html;
--  Object.keys(autoBlocks).forEach((title) => {
--    if (!autoBlocks[title]) return;
--    if (editedBlocks[title]) return;
--    const escaped = escapeRegExp(title);
--    const regex = new RegExp(
--      `<!--START_BLOCK:${escaped}-->[\\s\\S]*?<!--END_BLOCK:${escaped}-->`,
--      'g'
--    );
--    result = result.replace(regex, '');
--  });
--  return result;
--}
-+import { usePitchBuilderContext } from './PitchBuilderContext';
-+import useEmailPreview from './useEmailPreview';
+diff --git a/api/src/functions/matterRequest.ts b/api/src/functions/matterRequest.ts
+index dbf8ce8df0ee0ba55de68e1e1d0dcc1f63d2d0fe..1cef913de70f5f84d2af4fac5ff8f94171440fc7 100644
+--- a/api/src/functions/matterRequest.ts
++++ b/api/src/functions/matterRequest.ts
+@@ -18,83 +18,91 @@ export async function matterRequest(request: HttpRequest, context: InvocationCon
+         const password = passwordSecret.value || '';
  
- interface EmailPreviewProps {
-   isPreviewOpen: boolean;
-   onDismiss: () => void;
--  enquiry: any; // Ideally, replace with the appropriate type e.g., Enquiry
-   subject: string;
-   body: string;
--  templateBlocks: TemplateBlock[];
-   attachments: string[];
-   followUp?: string;
-   fullName: string;
--  userData: any;
-   serviceDescription?: string;
--  clients?: { firstName: string; lastName: string; email: string }[];
-   to: string;
-   cc?: string;
-   bcc?: string;
--  autoInsertedBlocks: { [key: string]: boolean };
--  editedBlocks: { [key: string]: boolean };
-   sendEmail: () => void;
-   handleDraftEmail: () => void;
-   isSuccessVisible: boolean;
-   isDraftConfirmed: boolean;
--  amount?: string;
--  passcode?: string;
- }
+         const connectionString = `Server=${sqlServer};Database=${sqlDatabase};User ID=helix-database-server;Password=${password};Encrypt=true;TrustServerCertificate=false;`;
+         const config = parseConnectionString(connectionString, context);
  
- const EmailPreview: React.FC<EmailPreviewProps> = ({
-   isPreviewOpen,
-   onDismiss,
--  enquiry,
-   subject,
-   body,
--  templateBlocks,
-   attachments,
-   followUp,
-   fullName,
--  userData,
-   serviceDescription,
-   to,
-   cc,
-   bcc,
--  autoInsertedBlocks,
--  editedBlocks,
-   sendEmail,
-   handleDraftEmail,
-   isSuccessVisible,
-   isDraftConfirmed,
--  amount,
--  passcode,
- }) => {
--  // Strip blocks auto inserted by the system unless edited
--  // Disabled for now since we want content to display by default
--  const withoutAutoBlocks = body;
--  
--  // Generate checkout URL first
--  const checkoutPreviewUrl = passcode && enquiry?.ID
--    ? `https://instruct.helix-law.com/pitch/${enquiry.ID}-${passcode}`
--    : '#';
--  
--  // Process body HTML using imported functions
--  const sanitized = removeHighlightSpans(withoutAutoBlocks);
--  const substituted = applyDynamicSubstitutions(
--    sanitized,
--    userData,
--    enquiry,
--    amount,
--    passcode,
--    checkoutPreviewUrl
--  );
--  const highlightedBody = markUnfilledPlaceholders(substituted, templateBlocks);
--  const finalBody = convertDoubleBreaksToParagraphs(highlightedBody);
--  const previewHtml = ReactDOMServer.renderToStaticMarkup(
--    <EmailSignature bodyHtml={finalBody} userData={userData} />
--  );
--const previewRef = React.useRef<HTMLDivElement>(null);
-+  const { amount, userData } = usePitchBuilderContext();
-+  const { previewHtml, finalBody, checkoutPreviewUrl } = useEmailPreview(body);
-+  const previewRef = React.useRef<HTMLDivElement>(null);
+         await new Promise<void>((resolve, reject) => {
+             const connection = new Connection(config);
+             connection.on('connect', err => {
+                 if (err) {
+                     context.error('SQL Connection Error (matterRequest):', err);
+                     reject(err);
+                     return;
+                 }
  
-   const [isAiOpen, setIsAiOpen] = React.useState(false);
-   const [isConfirmed, setIsConfirmed] = React.useState(false);
-   React.useEffect(() => {
-     if (isPreviewOpen) {
-       setIsConfirmed(false);
-     }
-   }, [isPreviewOpen]);
-   const inTeams = isInTeams();
-   const useLocalData =
-     process.env.REACT_APP_USE_LOCAL_DATA === 'true' || !inTeams;
-   const allowedInitials = ['LZ', 'AC'];
-   const userInitials = userData?.[0]?.Initials?.toUpperCase() || '';
-   const canUseAi = useLocalData || allowedInitials.includes(userInitials);
-   const showAiAssistButton = false;
+                 const query = `INSERT INTO matters (
+                     selected_date,
+                     supervising_partner,
+                     originating_solicitor,
+                     client_type,
+                     selected_poid_ids,
+                     area_of_work,
+                     practice_area,
+                     description,
+                     folder_structure,
+                     dispute_value,
++                    budget_required,
++                    budget_amount,
++                    budget_notify_threshold,
++                    budget_notify_users,
+                     source,
+                     referrer_name,
+                     opponent_name,
+                     opponent_email,
+                     opponent_solicitor_name,
+                     opponent_solicitor_company,
+                     opponent_solicitor_email,
+                     no_conflict,
+                     created_by
+                 ) VALUES (
+-                    @selected_date,@supervising_partner,@originating_solicitor,@client_type,@selected_poid_ids,@area_of_work,@practice_area,@description,@folder_structure,@dispute_value,@source,@referrer_name,@opponent_name,@opponent_email,@opponent_solicitor_name,@opponent_solicitor_company,@opponent_solicitor_email,@no_conflict,@created_by
++                    @selected_date,@supervising_partner,@originating_solicitor,@client_type,@selected_poid_ids,@area_of_work,@practice_area,@description,@folder_structure,@dispute_value,@budget_required,@budget_amount,@budget_notify_threshold,@budget_notify_users,@source,@referrer_name,@opponent_name,@opponent_email,@opponent_solicitor_name,@opponent_solicitor_company,@opponent_solicitor_email,@no_conflict,@created_by
+                 );`;
  
-   // Example follow-up options (you may wish to pass these in or centralise them)
-   const followUpOptions: { [key: string]: string } = {
-     '1_day': '1 day',
-     '2_days': '2 days',
-     '3_days': '3 days',
-     '7_days': '7 days',
-     '14_days': '14 days',
-     '30_days': '30 days',
-   };
+                 const sqlRequest = new SqlRequest(query, err => {
+                     connection.close();
+                     if (err) {
+                         context.error('SQL Insert Error (matterRequest):', err);
+                         reject(err);
+                     } else {
+                         resolve();
+                     }
+                 });
+ 
+                 sqlRequest.addParameter('selected_date', TYPES.Date, data.selectedDate ?? null);
+                 sqlRequest.addParameter('supervising_partner', TYPES.NVarChar, data.supervisingPartner ?? null);
+                 sqlRequest.addParameter('originating_solicitor', TYPES.NVarChar, data.originatingSolicitor ?? null);
+                 sqlRequest.addParameter('client_type', TYPES.NVarChar, data.clientType ?? null);
+                 sqlRequest.addParameter('selected_poid_ids', TYPES.NVarChar, JSON.stringify(data.selectedPoidIds ?? []));
+                 sqlRequest.addParameter('area_of_work', TYPES.NVarChar, data.areaOfWork ?? null);
+                 sqlRequest.addParameter('practice_area', TYPES.NVarChar, data.practiceArea ?? null);
+                 sqlRequest.addParameter('description', TYPES.NVarChar, data.description ?? null);
+                 sqlRequest.addParameter('folder_structure', TYPES.NVarChar, data.folderStructure ?? null);
+                 sqlRequest.addParameter('dispute_value', TYPES.NVarChar, data.disputeValue ?? null);
++                sqlRequest.addParameter('budget_required', TYPES.NVarChar, data.budgetRequired ?? null);
++                sqlRequest.addParameter('budget_amount', TYPES.NVarChar, data.budgetAmount ?? null);
++                sqlRequest.addParameter('budget_notify_threshold', TYPES.NVarChar, data.budgetNotifyThreshold ?? null);
++                sqlRequest.addParameter('budget_notify_users', TYPES.NVarChar, JSON.stringify(data.budgetNotifyUsers ?? []));
+                 sqlRequest.addParameter('source', TYPES.NVarChar, data.source ?? null);
+                 sqlRequest.addParameter('referrer_name', TYPES.NVarChar, data.referrerName ?? null);
+                 sqlRequest.addParameter('opponent_name', TYPES.NVarChar, data.opponentName ?? null);
+                 sqlRequest.addParameter('opponent_email', TYPES.NVarChar, data.opponentEmail ?? null);
+                 sqlRequest.addParameter('opponent_solicitor_name', TYPES.NVarChar, data.opponentSolicitorName ?? null);
+                 sqlRequest.addParameter('opponent_solicitor_company', TYPES.NVarChar, data.opponentSolicitorCompany ?? null);
+                 sqlRequest.addParameter('opponent_solicitor_email', TYPES.NVarChar, data.opponentSolicitorEmail ?? null);
+                 sqlRequest.addParameter('no_conflict', TYPES.Bit, data.noConflict ?? false);
+                 sqlRequest.addParameter('created_by', TYPES.NVarChar, data.userInitials ?? null);
+ 
+                 connection.execSql(sqlRequest);
+             });
+             connection.connect();
+         });
+ 
+         return {
+             status: 201,
+             jsonBody: { success: true }
+         };
+     } catch (error) {
+         context.error('Failed to insert matter request:', error);
+         return {
+             status: 500,
+             jsonBody: { success: false, error: String(error) }
+         };

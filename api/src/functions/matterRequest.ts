@@ -40,6 +40,10 @@ export async function matterRequest(request: HttpRequest, context: InvocationCon
                     description,
                     folder_structure,
                     dispute_value,
+                    budget_required,
+                    budget_amount,
+                    budget_notify_threshold,
+                    budget_notify_users,
                     source,
                     referrer_name,
                     opponent_name,
@@ -50,7 +54,7 @@ export async function matterRequest(request: HttpRequest, context: InvocationCon
                     no_conflict,
                     created_by
                 ) VALUES (
-                    @selected_date,@supervising_partner,@originating_solicitor,@client_type,@selected_poid_ids,@area_of_work,@practice_area,@description,@folder_structure,@dispute_value,@source,@referrer_name,@opponent_name,@opponent_email,@opponent_solicitor_name,@opponent_solicitor_company,@opponent_solicitor_email,@no_conflict,@created_by
+                    @selected_date,@supervising_partner,@originating_solicitor,@client_type,@selected_poid_ids,@area_of_work,@practice_area,@description,@folder_structure,@dispute_value,@budget_required,@budget_amount,@budget_notify_threshold,@budget_notify_users,@source,@referrer_name,@opponent_name,@opponent_email,@opponent_solicitor_name,@opponent_solicitor_company,@opponent_solicitor_email,@no_conflict,@created_by
                 );`;
 
                 const sqlRequest = new SqlRequest(query, err => {
@@ -73,6 +77,10 @@ export async function matterRequest(request: HttpRequest, context: InvocationCon
                 sqlRequest.addParameter('description', TYPES.NVarChar, data.description ?? null);
                 sqlRequest.addParameter('folder_structure', TYPES.NVarChar, data.folderStructure ?? null);
                 sqlRequest.addParameter('dispute_value', TYPES.NVarChar, data.disputeValue ?? null);
+                sqlRequest.addParameter('budget_required', TYPES.NVarChar, data.budgetRequired ?? null);
+                sqlRequest.addParameter('budget_amount', TYPES.NVarChar, data.budgetAmount ?? null);
+                sqlRequest.addParameter('budget_notify_threshold', TYPES.NVarChar, data.budgetNotifyThreshold ?? null);
+                sqlRequest.addParameter('budget_notify_users', TYPES.NVarChar, JSON.stringify(data.budgetNotifyUsers ?? []));
                 sqlRequest.addParameter('source', TYPES.NVarChar, data.source ?? null);
                 sqlRequest.addParameter('referrer_name', TYPES.NVarChar, data.referrerName ?? null);
                 sqlRequest.addParameter('opponent_name', TYPES.NVarChar, data.opponentName ?? null);

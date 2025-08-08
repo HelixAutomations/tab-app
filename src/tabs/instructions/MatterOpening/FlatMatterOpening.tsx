@@ -27,6 +27,7 @@ import ValueAndSourceStep from './ValueAndSourceStep';
 import SourceStep from './SourceStep';
 import OpponentDetailsStep from './OpponentDetailsStep';
 import ModernMultiSelect from './ModernMultiSelect';
+import BudgetStep from './BudgetStep';
 
 import { CompletionProvider } from './CompletionContext';
 import ProcessingSection, { ProcessingStep } from './ProcessingSection';
@@ -286,6 +287,10 @@ const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
     // Source field starts empty - user must actively select an option
     const [source, setSource] = useDraftedState<string>('source', '');
     const [referrerName, setReferrerName] = useDraftedState<string>('referrerName', '');
+    const [budgetRequired, setBudgetRequired] = useDraftedState<string>('budgetRequired', 'No');
+    const [budgetAmount, setBudgetAmount] = useDraftedState<string>('budgetAmount', '');
+    const [budgetThreshold, setBudgetThreshold] = useDraftedState<string>('budgetThreshold', '');
+    const [budgetNotifyUsers, setBudgetNotifyUsers] = useDraftedState<string>('budgetNotifyUsers', '');
     const [opponentName, setOpponentName] = useDraftedState<string>('opponentName', '');
     const [opponentEmail, setOpponentEmail] = useDraftedState<string>('opponentEmail', '');
     const [opponentSolicitorName, setOpponentSolicitorName] = useDraftedState<string>('opponentSolicitorName', '');
@@ -778,7 +783,13 @@ const handleClearAll = () => {
                 description: description,
                 client_as_on_file: clientAsOnFile || null,
                 dispute_value: disputeValue || null,
-                folder_structure: folderStructure || null
+                folder_structure: folderStructure || null,
+                budget_required: budgetRequired,
+                budget_amount: budgetRequired === 'Yes' ? budgetAmount : null,
+                budget_notify_threshold: budgetRequired === 'Yes' ? budgetThreshold : null,
+                budget_notify_users: budgetRequired === 'Yes'
+                    ? budgetNotifyUsers.split(',').map(u => u.trim()).filter(Boolean)
+                    : []
             },
             team_assignments: {
                 fee_earner: teamMember,
@@ -873,10 +884,11 @@ const handleClearAll = () => {
 
     // Helper function to check if there's any data to clear
     const hasDataToClear = () => {
-        return selectedPoidIds.length > 0 || pendingClientType || poidSearchTerm || 
-               areaOfWork || practiceArea || description || disputeValue || 
-               source !== 'search' || referrerName || folderStructure ||
-               opponentName || opponentEmail || opponentSolicitorName || 
+        return selectedPoidIds.length > 0 || pendingClientType || poidSearchTerm ||
+            areaOfWork || practiceArea || description || disputeValue ||
+            budgetRequired === 'Yes' || budgetAmount || budgetThreshold || budgetNotifyUsers ||
+            source !== 'search' || referrerName || folderStructure ||
+            opponentName || opponentEmail || opponentSolicitorName ||
                opponentSolicitorCompany || opponentSolicitorEmail ||
                opponentTitle || opponentFirst || opponentLast || opponentPhone ||
                opponentHouseNumber || opponentStreet || opponentCity || opponentCounty || opponentPostcode || opponentCountry || opponentHasCompany || opponentCompanyName ||
@@ -897,6 +909,10 @@ const handleClearAll = () => {
         if (practiceArea) count++;
         if (description) count++;
         if (disputeValue) count++;
+        if (budgetRequired === 'Yes') count++;
+        if (budgetAmount) count++;
+        if (budgetThreshold) count++;
+        if (budgetNotifyUsers) count++;
         if (source !== 'search') count++;
         if (referrerName) count++;
         if (folderStructure) count++;
@@ -1780,6 +1796,16 @@ const handleClearAll = () => {
                                         setReferrerName={setReferrerName}
                                         onContinue={() => {}}
                                     />
+                                    <BudgetStep
+                                        budgetRequired={budgetRequired}
+                                        setBudgetRequired={setBudgetRequired}
+                                        budgetAmount={budgetAmount}
+                                        setBudgetAmount={setBudgetAmount}
+                                        threshold={budgetThreshold}
+                                        setThreshold={setBudgetThreshold}
+                                        notifyUsers={budgetNotifyUsers}
+                                        setNotifyUsers={setBudgetNotifyUsers}
+                                    />
 
                                 </Stack>
                                 {/* Navigation buttons for form step */}
@@ -2158,6 +2184,26 @@ const handleClearAll = () => {
                                                 <span style={{ color: '#666', fontSize: 13 }}>Dispute Value:</span>
                                                 <span style={{ fontWeight: 500, fontSize: 13 }}>{disputeValue || '-'}</span>
                                             </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <span style={{ color: '#666', fontSize: 13 }}>Budget Required:</span>
+                                                <span style={{ fontWeight: 500, fontSize: 13 }}>{budgetRequired}</span>
+                                            </div>
+                                            {budgetRequired === 'Yes' && (
+                                                <>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                        <span style={{ color: '#666', fontSize: 13 }}>Budget Amount:</span>
+                                                        <span style={{ fontWeight: 500, fontSize: 13 }}>{budgetAmount ? `£${budgetAmount}` : '-'}</span>
+                                                    </div>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                        <span style={{ color: '#666', fontSize: 13 }}>Notify Threshold:</span>
+                                                        <span style={{ fontWeight: 500, fontSize: 13 }}>{budgetThreshold ? `${budgetThreshold}%` : '-'}</span>
+                                                    </div>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                                        <span style={{ color: '#666', fontSize: 13 }}>Notify Users:</span>
+                                                        <span style={{ fontWeight: 500, fontSize: 13, maxWidth: '60%', textAlign: 'right' }}>{budgetNotifyUsers || '-'}</span>
+                                                    </div>
+                                                </>
+                                            )}
                                         </div>
                                     </div>
 
