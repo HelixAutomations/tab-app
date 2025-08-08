@@ -493,8 +493,17 @@ async function fetchMatters(fullName: string): Promise<Matter[]> {
 
   const isLocalDev = typeof window !== 'undefined' &&
     (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+  // IMPORTANT: We previously pointed local dev legacy fetch to /api/getMatters which
+  // is now reserved for the NEW (VNet) dataset (decoupled fetchMattersData function).
+  // That caused the "legacy" path to return new data and starve the actual new dataset
+  // (because both code paths hit the same route and we then filtered by source).
+  // To restore a clean separation:
+  //  - NEW dataset   -> /api/getMatters (GET/POST)  (decoupled VNet function proxy)
+  //  - LEGACY dataset (user) -> call legacy Azure Function via helix-keys proxy even in local dev
+  //  - LEGACY dataset (all)  -> /api/getAllMatters (already legacy)
+  // This ensures local dev still sees legacy data while allowing VNet toggle to work.
   const legacyUrl = isLocalDev
-    ? '/api/getMatters'
+    ? `https://helix-keys-proxy.azurewebsites.net/api/${process.env.REACT_APP_GET_MATTERS_PATH}?code=${process.env.REACT_APP_GET_MATTERS_CODE}`
     : `${proxyBaseUrl}/${process.env.REACT_APP_GET_MATTERS_PATH}?code=${process.env.REACT_APP_GET_MATTERS_CODE}`;
 
   let legacyData: any[] = [];
@@ -527,20 +536,28 @@ async function fetchVNetMatters(fullName?: string): Promise<any[]> {
   const cacheKey = fullName ? `vnetMatters-${fullName}` : 'vnetMatters-all';
   const cached = getCachedData<any[]>(cacheKey);
   if (cached) return cached;
-
-  const newUrl = '/api/matters';
+  // NEW dataset lives behind /api/getMatters (decoupled function). We previously
+  // used /api/matters which is a single-matter Clio lookup route and cannot serve
+  // bulk lists, resulting in 0 "new" matters. Switching to /api/getMatters fixes that.
+  const newUrl = '/api/getMatters';
   let vnetData: any[] = [];
 
   try {
+    // Support optional fullName filter (POST is also accepted by the route, but GET keeps caching simpler)
     const params = fullName ? `?fullName=${encodeURIComponent(fullName)}` : '';
-    const resNew = await fetch(`${newUrl}${params}`);
+    const resNew = await fetch(`${newUrl}${params}`, { method: 'GET' });
     if (resNew.ok) {
       const data = await resNew.json();
       vnetData = Array.isArray(data) ? data : data.matters || [];
-      console.log('✅ VNet matters fetch successful:', vnetData.length);
+      console.log('✅ VNet matters fetch successful:', {
+        count: vnetData.length,
+        sample: vnetData.slice(0, 2)
+      });
+    } else {
+      console.warn('❌ VNet matters fetch failed:', resNew.status, resNew.statusText);
     }
   } catch (err) {
-    console.warn('VNet matters fetch failed', err);
+    console.warn('VNet matters fetch error', err);
   }
 
   setCachedData(cacheKey, vnetData);
@@ -548,8 +565,8 @@ async function fetchVNetMatters(fullName?: string): Promise<any[]> {
 }
 
 async function fetchAllMatterSources(fullName: string): Promise<NormalizedMatter[]> {
-  // v2 to bust cache after normalization fixes
-  const cacheKey = `normalizedMatters-v2-${fullName}`;
+  // v4 cache key: enhanced name matching (composite & fuzzy) for role detection
+  const cacheKey = `normalizedMatters-v4-${fullName}`;
   const cached = getCachedData<NormalizedMatter[]>(cacheKey);
   if (cached) return cached;
 
@@ -564,11 +581,12 @@ async function fetchAllMatterSources(fullName: string): Promise<NormalizedMatter
       fetchVNetMatters(),
     ]);
 
-    console.log('📊 Matter sources fetched:');
-    console.log('  📋 All matters (legacy):', allMatters.length);
-    console.log('  👤 User matters (legacy):', userMatters.length);
-    console.log('  🌐 VNet matters (user):', vnetUserMatters.length);
-    console.log('  🌐 VNet matters (all):', vnetAllMatters.length);
+    console.log('📊 Matter sources fetched (post-separation):', {
+      legacyAll: allMatters.length,
+      legacyUser: userMatters.length,
+      vnetUser: vnetUserMatters.length,
+      vnetAll: vnetAllMatters.length
+    });
 
     // Merge and normalize all sources
     const normalizedMatters = mergeMattersFromSources(

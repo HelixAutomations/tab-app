@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+// invisible change
 import { Stack, Text, Spinner, SpinnerSize, Icon, DefaultButton, IButtonStyles } from '@fluentui/react';
 import { colours } from '../app/styles/colours';
 import { useTheme } from '../app/functionality/ThemeContext';
@@ -53,7 +54,7 @@ const selectionStyles: IButtonStyles = {
 export interface BookSpaceData {
   fee_earner: string;
   booking_date: string;
-  booking_time: Date;
+  booking_time: string; // Expected format: 'HH:MM:SS'
   duration: number;
   reason: string;
   spaceType: 'Boardroom' | 'Soundproof Pod';
@@ -138,7 +139,7 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
     if (timeStr.length === 5) {
       timeStr = `${timeStr}:00`;
     }
-    const newStart = new Date(`${dateStr}T${timeStr}Z`);
+    const newStart = new Date(`${dateStr}T${timeStr}`);
     const newEnd = new Date(newStart.getTime() + Number(duration) * 3600000);
 
     let relevantBookings: (BoardroomBooking | SoundproofPodBooking)[] = [];
@@ -152,7 +153,7 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
     const dayBookings = relevantBookings.filter((b) => b.booking_date === dateStr);
     let latestConflictEnd: Date | undefined;
     for (const booking of dayBookings) {
-      const existingStart = new Date(`${booking.booking_date}T${booking.booking_time}Z`);
+      const existingStart = new Date(`${booking.booking_date}T${booking.booking_time}`);
       const existingEnd = new Date(existingStart.getTime() + booking.duration * 3600000);
       if (newStart < existingEnd && newEnd > existingStart) {
         if (!latestConflictEnd || existingEnd > latestConflictEnd) {
@@ -179,7 +180,7 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
     duration: number,
     dateStr: string
   ): string | undefined {
-    const dayEnd = new Date(`${dateStr}T23:59:59Z`);
+    const dayEnd = new Date(`${dateStr}T23:59:59`);
     let proposedStart = new Date(startAfter);
 
     while (proposedStart <= dayEnd) {
@@ -187,7 +188,7 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
       let isSlotAvailable = true;
 
       for (const booking of dayBookings) {
-        const existingStart = new Date(`${booking.booking_date}T${booking.booking_time}Z`);
+        const existingStart = new Date(`${booking.booking_date}T${booking.booking_time}`);
         const existingEnd = new Date(existingStart.getTime() + booking.duration * 3600000);
         if (proposedStart < existingEnd && proposedEnd > existingStart) {
           isSlotAvailable = false;
@@ -297,11 +298,11 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
     if (t.length === 5) {
       t = t + ':00';
     }
-    const bookingTimeDate = new Date(`1970-01-01T${t}Z`);
+    const formattedTime = t;
     const payload: BookSpaceData = {
       fee_earner: feeEarner,
       booking_date: values.bookingDate,
-      booking_time: bookingTimeDate,
+      booking_time: formattedTime,
       duration: Number(values.duration),
       reason: values.reason,
       spaceType: selectedSpaceType,
@@ -321,10 +322,13 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
 
   async function submitBooking(data: BookSpaceData) {
     const url = `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_INSERT_BOOK_SPACE_PATH}?code=${process.env.REACT_APP_INSERT_BOOK_SPACE_CODE}`;
-    const isoTime = data.booking_time.toISOString().split('T')[1].split('Z')[0];
-    let [time, fraction = ''] = isoTime.split('.');
-    fraction = (fraction + '0000000').slice(0, 7);
-    const finalTimeStr = `${time}.${fraction}`;
+    let finalTimeStr = data.booking_time;
+    if (!finalTimeStr.includes('.')) {
+      finalTimeStr += '.0000000';
+    } else {
+      const [time, fraction = ''] = finalTimeStr.split('.');
+      finalTimeStr = `${time}.${(fraction + '0000000').slice(0, 7)}`;
+    }
     const finalPayload = {
       ...data,
       booking_time: finalTimeStr,
@@ -341,7 +345,7 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
   }
 
   const formatBookingTime = (booking: BoardroomBooking | SoundproofPodBooking) => {
-    const start = new Date(`${booking.booking_date}T${booking.booking_time}Z`);
+    const start = new Date(`${booking.booking_date}T${booking.booking_time}`);
     const end = new Date(start.getTime() + booking.duration * 3600000);
     return `${start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   };
