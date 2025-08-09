@@ -2,7 +2,7 @@ import {
     Text,
     Icon,
 } from '@fluentui/react';
-import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { mergeStyles, keyframes } from '@fluentui/react/lib/Styling';
 import { Enquiry } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
 import RatingIndicator from './RatingIndicator';
@@ -89,6 +89,11 @@ interface EnquiryLineItemProps {
   teamData?: TeamData[] | null;
   isLast?: boolean;
   userAOW?: string[]; // List of user's areas of work (lowercase)
+  /**
+   * Flag indicating this enquiry originated from the new direct getEnquiries route (not legacy/space data).
+   * Used for transitional UI (e.g., pulsing claim indicator) before full component split.
+   */
+  isNewSource?: boolean;
 }
 
 const formatCurrency = (value: string): string => {
@@ -130,21 +135,14 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
   teamData,
   isLast,
   userAOW,
+  isNewSource = false,
 }) => {
   const { isDarkMode } = useTheme();
 
   // Check if claimed
   const lowerPOC = enquiry.Point_of_Contact?.toLowerCase() || '';
-  const isClaimed =
-    lowerPOC &&
-    ![
-      'team@helix-law.com',
-      'property@helix-law.com',
-      'commercial@helix-law.com',
-      'construction@helix-law.com',
-      'employment@helix-law.com',
-      'automations@helix-law.com',
-    ].includes(lowerPOC);
+  // Unclaimed criteria: ONLY team@helix-law.com (legacy distribution lists removed)
+  const isClaimed = lowerPOC !== 'team@helix-law.com' && !!lowerPOC;
 
   // Get claimer info
   const claimer = isClaimed
@@ -217,6 +215,31 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
         opacity: 1,
       },
     },
+  });
+
+  // Animation + style for pulsing "claim me" indicator (new source, unclaimed only)
+  const pulse = keyframes({
+    '0%': { transform: 'scale(0.85)', opacity: 0.55 },
+    '50%': { transform: 'scale(1.35)', opacity: 1 },
+    '100%': { transform: 'scale(0.85)', opacity: 0.55 },
+  });
+
+  const pulseDotStyle = mergeStyles({
+    position: 'absolute',
+    left: 6, // just to the right of the coloured bar
+    top: '50%',
+    transform: 'translate(-50%, -50%)',
+    width: 10,
+    height: 10,
+    borderRadius: '50%',
+    backgroundColor: colours.highlight,
+    boxShadow: '0 0 0 4px rgba(102,170,232,0.25)',
+    animationName: pulse,
+    animationDuration: '1.8s',
+    animationIterationCount: 'infinite',
+    animationTimingFunction: 'ease-in-out',
+    zIndex: 3,
+    pointerEvents: 'none',
   });
 
   const mainContentStyle = mergeStyles({
@@ -394,8 +417,11 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
     },
   });
 
+  const showPulseClaimIndicator = !isClaimed && isNewSource;
+
   return (
     <div className={lineItemStyle} onClick={handleClick}>
+      {showPulseClaimIndicator && <span className={pulseDotStyle} aria-label="Unclaimed enquiry – action required" />}
       {/* Main content grid */}
       <div className={mainContentStyle}>
         {/* Contact Info */}

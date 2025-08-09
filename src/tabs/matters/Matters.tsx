@@ -1,5 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Stack, Text, Spinner, SpinnerSize, MessageBar, MessageBarType, IconButton, mergeStyles, Icon } from '@fluentui/react';
+import ToggleSwitch from '../../components/ToggleSwitch';
+import SegmentedControl from '../../components/filter/SegmentedControl';
 import { NormalizedMatter, UserData } from '../../app/functionality/types';
 import {
   filterMattersByStatus,
@@ -178,93 +180,75 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
           flexWrap: 'wrap',
         }}>
           {/* Status filter navigation buttons */}
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            {filterOptions.map(filterOption => (
-              <button
-                key={filterOption}
-                onClick={() => setActiveFilter(filterOption)}
-                style={{
-                  background: activeFilter === filterOption ? colours.highlight : 'transparent',
-                  color: activeFilter === filterOption ? 'white' : (isDarkMode ? colours.dark.text : colours.light.text),
-                  border: `1px solid ${colours.highlight}`,
-                  borderRadius: '16px',
-                  padding: '6px 16px',
-                  fontSize: '12px',
-                  fontWeight: '600',
-                  cursor: 'pointer',
-                  fontFamily: 'Raleway, sans-serif',
-                }}
-              >
-                {filterOption}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            id="matters-status-seg"
+            ariaLabel="Filter matters by status"
+            value={activeFilter}
+            onChange={setActiveFilter}
+            options={filterOptions.map(o => ({ key: o, label: o }))}
+          />
 
           {/* Role filter buttons */}
           <div style={{ width: '1px', height: '20px', background: isDarkMode ? colours.dark.border : colours.light.border }} />
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-            <span style={{ fontSize: '11px', fontWeight: '500', color: isDarkMode ? colours.dark.text : colours.light.text }}>
-              Role:
-            </span>
-            {['All', 'Responsible', 'Originating'].map(roleOption => (
-              <button
-                key={roleOption}
-                onClick={() => setActiveRoleFilter(roleOption)}
-                style={{
-                  background: activeRoleFilter === roleOption ? colours.highlight : 'transparent',
-                  color: activeRoleFilter === roleOption ? 'white' : (isDarkMode ? colours.dark.text : colours.light.text),
-                  border: `1px solid ${colours.highlight}`,
-                  borderRadius: '12px',
-                  padding: '4px 12px',
-                  fontSize: '11px',
-                  fontWeight: '500',
-                  cursor: 'pointer',
-                  fontFamily: 'Raleway, sans-serif',
-                }}
-              >
-                {roleOption}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            id="matters-role-seg"
+            ariaLabel="Filter matters by role"
+            value={activeRoleFilter}
+            onChange={setActiveRoleFilter}
+            options={['All','Responsible','Originating'].map(o => ({ key: o, label: o }))}
+          />
 
           {/* Scope: Mine | All (All only for admins) */}
           <div style={{ width: '1px', height: '20px', background: isDarkMode ? colours.dark.border : colours.light.border }} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '11px', fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>Scope:</span>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 11 }}>
-              <input
-                type="radio"
-                name="scope"
-                checked={scope === 'mine'}
-                onChange={() => setScope('mine')}
-              />
-              Mine
-            </label>
-            {isAdmin && (
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 11 }}>
-                <input
-                  type="radio"
-                  name="scope"
-                  checked={scope === 'all'}
-                  onChange={() => setScope('all')}
-                />
-                All
-              </label>
-            )}
-            <span style={{ fontSize: 11, color: isDarkMode ? colours.dark.subText : colours.light.subText }}>
-              Showing {filtered.length} of {datasetCount}
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <SegmentedControl
+              id="matters-scope-seg"
+              ariaLabel="Scope mine or all"
+              value={scope}
+              onChange={(k) => setScope(k as 'mine' | 'all')}
+              options={[{ key: 'mine', label: 'Mine' }, ...(isAdmin ? [{ key: 'all', label: 'All' }] : [])]}
+            />
+            <span style={{ fontSize: 11, color: isDarkMode ? colours.dark.subText : colours.light.subText }}>Showing {filtered.length} of {datasetCount}</span>
           </div>
 
-          {/* Admin-only dataset switch: Legacy vs New (VNet) */}
+          {/* Admin-only: compact yellow debug box */}
           {isAdmin && (
-            <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <div style={{ width: '1px', height: '20px', background: isDarkMode ? colours.dark.border : colours.light.border }} />
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 11 }}>
-                <input type="checkbox" checked={useNewData} onChange={(e) => setUseNewData(e.target.checked)} />
-                New data
-              </label>
-            </>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '2px 10px 2px 6px',
+                  height: 40,
+                  borderRadius: 12,
+                  background: isDarkMode ? '#5a4a12' : colours.highlightYellow,
+                  border: isDarkMode ? '1px solid #806c1d' : '1px solid #e2c56a',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: isDarkMode ? '#ffe9a3' : '#5d4700'
+                }}
+                title="Admin / debug controls"
+              >
+                <IconButton
+                  iconProps={{ iconName: 'TestBeaker', style: { fontSize: 16 } }}
+                  title="Debug API calls and filtering (Local Dev)"
+                  onClick={() => setShowDataInspector(true)}
+                  styles={{ root: { borderRadius: 8, background: 'rgba(0,0,0,0.08)', height: 30, width: 30 } }}
+                />
+                <ToggleSwitch
+                  id="matters-new-data-toggle"
+                  checked={useNewData}
+                  onChange={(v) => setUseNewData(v)}
+                  size="sm"
+                  onText="New"
+                  offText="Legacy"
+                  ariaLabel="Toggle dataset between legacy and new"
+                />
+              </div>
+            </div>
           )}
           
           {/* Area dropdown - scalable for many areas */}
@@ -331,26 +315,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
             )}
           </div>
           
-          {/* Development Inspector Button - Only show in localhost */}
-          {(window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && (
-            <>
-              <div style={{ width: '1px', height: '20px', background: isDarkMode ? colours.dark.border : colours.light.border }} />
-              <IconButton
-                iconProps={{ iconName: 'TestBeaker' }}
-                title="Debug API calls and filtering (Local Dev)"
-                onClick={() => setShowDataInspector(true)}
-                styles={{
-                  root: {
-                    backgroundColor: colours.cta,
-                    color: 'white',
-                    borderRadius: '50%',
-                    width: '32px',
-                    height: '32px',
-                  }
-                }}
-              />
-            </>
-          )}
+          {/* Development Inspector Button - Only show in localhost (now handled above for admins) */}
         </div>
       );
     } else {

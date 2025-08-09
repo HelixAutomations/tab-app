@@ -3670,7 +3670,30 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData }) => {
         }),
       }).catch((err) => console.error('Failed to save pitch sections', err));
     }
-    localStorage.setItem('pitchBuilderState', JSON.stringify(state));
+    try {
+      localStorage.setItem('pitchBuilderState', JSON.stringify(state));
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'QuotaExceededError') {
+        // Try to trim large fields and retry
+        const trimmed = { ...state };
+        if (trimmed.attachments && Array.isArray(trimmed.attachments)) {
+          trimmed.attachments = [];
+        }
+        if (trimmed.body && typeof trimmed.body === 'string' && trimmed.body.length > 2000) {
+          trimmed.body = trimmed.body.slice(0, 2000) + '…';
+        }
+        try {
+          localStorage.setItem('pitchBuilderState', JSON.stringify(trimmed));
+        } catch (e2) {
+          // If still fails, clear the key and log error
+          localStorage.removeItem('pitchBuilderState');
+          // Optionally, surface a user notification here
+          console.error('PitchBuilder: Could not save state, storage quota exceeded and fallback failed.', e2);
+        }
+      } else {
+        throw e;
+      }
+    }
   };
   }, [
     templateSet,

@@ -565,8 +565,8 @@ async function fetchVNetMatters(fullName?: string): Promise<any[]> {
 }
 
 async function fetchAllMatterSources(fullName: string): Promise<NormalizedMatter[]> {
-  // v4 cache key: enhanced name matching (composite & fuzzy) for role detection
-  const cacheKey = `normalizedMatters-v4-${fullName}`;
+  // v3 cache key: separation of legacy vs new endpoints & corrected VNet fetch
+  const cacheKey = `normalizedMatters-v3-${fullName}`;
   const cached = getCachedData<NormalizedMatter[]>(cacheKey);
   if (cached) return cached;
 

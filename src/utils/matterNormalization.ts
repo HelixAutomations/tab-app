@@ -39,7 +39,23 @@ function namesMatch(name1: string, name2: string): boolean {
   // Split names into parts (first name, last name)
   const n1Parts = n1.split(' ');
   const n2Parts = n2.split(' ');
-  
+
+  // If either name lacks a last name, fall back to first-name comparison with variations
+  if (n1Parts.length < 2 || n2Parts.length < 2) {
+    const firstName1 = n1Parts[0];
+    const firstName2 = n2Parts[0];
+
+    if (firstName1 === firstName2) return true;
+
+    const variations1 = nameVariations[firstName1] || [];
+    const variations2 = nameVariations[firstName2] || [];
+    if (variations1.includes(firstName2) || variations2.includes(firstName1)) {
+      return true;
+    }
+
+    return false;
+  }
+
   // Check if first names match (with variations) and last names match
   if (n1Parts.length >= 2 && n2Parts.length >= 2) {
     const firstName1 = n1Parts[0];

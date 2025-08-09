@@ -1,308 +1,73 @@
-diff --git a/src/CustomForms/BookSpaceForm.tsx b/src/CustomForms/BookSpaceForm.tsx
-index d22a13e99a1e80fc5ae0190b059a694b0fdfd1a4..8c7b8872716df6377102025355abc16d2ba58f83 100644
---- a/src/CustomForms/BookSpaceForm.tsx
-+++ b/src/CustomForms/BookSpaceForm.tsx
-@@ -1,27 +1,26 @@
- import React, { useState, useEffect } from 'react';
--// invisible change
- import { Stack, Text, Spinner, SpinnerSize, Icon, DefaultButton, IButtonStyles } from '@fluentui/react';
- import { colours } from '../app/styles/colours';
- import { useTheme } from '../app/functionality/ThemeContext';
- import BespokeForm, { FormField } from './BespokeForms';
- import {
-   BoardroomBooking,
-   SoundproofPodBooking,
-   FutureBookingsResponse
- } from '../app/functionality/types';
- 
- // Refined selection styles with pronounced states and larger size
- const selectionStyles: IButtonStyles = {
-   root: {
-     padding: '16px 28px',
-     borderRadius: '10px',
-     backgroundColor: colours.grey,
-     border: 'none',
-     height: '70px',
-     minWidth: '220px',
-     fontWeight: '600',
-     fontSize: '18px',
-     color: colours.greyText,
-     transition: 'background 0.3s ease, color 0.3s ease, box-shadow 0.3s ease, transform 0.2s ease',
-     boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
-     display: 'flex',
-diff --git a/src/CustomForms/BookSpaceForm.tsx b/src/CustomForms/BookSpaceForm.tsx
-index d22a13e99a1e80fc5ae0190b059a694b0fdfd1a4..8c7b8872716df6377102025355abc16d2ba58f83 100644
---- a/src/CustomForms/BookSpaceForm.tsx
-+++ b/src/CustomForms/BookSpaceForm.tsx
-@@ -32,51 +31,51 @@ const selectionStyles: IButtonStyles = {
-     backgroundColor: colours.highlight,
-     color: '#ffffff',
-     boxShadow: '0 8px 20px rgba(0,0,0,0.2)',
-     transform: 'translateY(-3px)',
-   },
-   rootPressed: {
-     backgroundColor: `${colours.highlight}cc`,
-     color: '#ffffff',
-     boxShadow: '0 4px 10px rgba(0,0,0,0.25)',
-     transform: 'translateY(2px)',
-   },
-   icon: {
-     marginRight: '12px',
-     fontSize: '22px',
-   },
-   flexContainer: {
-     display: 'flex',
-     alignItems: 'center',
-     justifyContent: 'center',
-   },
- };
- 
- export interface BookSpaceData {
-   fee_earner: string;
-   booking_date: string;
--  booking_time: string; // Expected format: 'HH:MM:SS'
-+  booking_time: Date;
-   duration: number;
-   reason: string;
-   spaceType: 'Boardroom' | 'Soundproof Pod';
+diff --git a/src/utils/matterNormalization.ts b/src/utils/matterNormalization.ts
+index 3c362818ebede014261fbecf393c60927eac7904..db31a60147dba75fd480f5bdf52a467b763886b4 100644
+--- a/src/utils/matterNormalization.ts
++++ b/src/utils/matterNormalization.ts
+@@ -17,51 +17,67 @@ function namesMatch(name1: string, name2: string): boolean {
+     'lukasz': ['luke', 'lucas'],
+     'luke': ['lukasz', 'lucas'],
+     'lucas': ['luke', 'lukasz'],
+     'samuel': ['sam'],
+     'sam': ['samuel'],
+     'alexander': ['alex'],
+     'alex': ['alexander'],
+     'william': ['will', 'bill'],
+     'will': ['william'],
+     'bill': ['william'],
+     'robert': ['rob', 'bob'],
+     'rob': ['robert'],
+     'bob': ['robert'],
+     'michael': ['mike'],
+     'mike': ['michael'],
+     'christopher': ['chris'],
+     'chris': ['christopher'],
+     'elizabeth': ['liz', 'beth'],
+     'liz': ['elizabeth'],
+     'beth': ['elizabeth']
+   };
+   
+   // Split names into parts (first name, last name)
+   const n1Parts = n1.split(' ');
+   const n2Parts = n2.split(' ');
+-  
++
++  // If either name lacks a last name, fall back to first-name comparison with variations
++  if (n1Parts.length < 2 || n2Parts.length < 2) {
++    const firstName1 = n1Parts[0];
++    const firstName2 = n2Parts[0];
++
++    if (firstName1 === firstName2) return true;
++
++    const variations1 = nameVariations[firstName1] || [];
++    const variations2 = nameVariations[firstName2] || [];
++    if (variations1.includes(firstName2) || variations2.includes(firstName1)) {
++      return true;
++    }
++
++    return false;
++  }
++
+   // Check if first names match (with variations) and last names match
+   if (n1Parts.length >= 2 && n2Parts.length >= 2) {
+     const firstName1 = n1Parts[0];
+     const lastName1 = n1Parts[n1Parts.length - 1];
+     const firstName2 = n2Parts[0];
+     const lastName2 = n2Parts[n2Parts.length - 1];
+     
+     // Last names must match exactly
+     if (lastName1 === lastName2) {
+       // Check if first names match or are variations
+       if (firstName1 === firstName2) return true;
+       
+       // Check variations
+       const variations1 = nameVariations[firstName1] || [];
+       const variations2 = nameVariations[firstName2] || [];
+       
+       if (variations1.includes(firstName2) || variations2.includes(firstName1)) {
+         return true;
+       }
+     }
+   }
+   
+   return false;
  }
  
- export interface BookSpaceFormProps {
-   onCancel: () => void;
-   feeEarner: string;
-   futureBookings?: FutureBookingsResponse;
- }
- 
- const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
-   onCancel,
-   feeEarner,
-   futureBookings
- }) => {
-   const { isDarkMode } = useTheme();
-   const [isSubmitting, setIsSubmitting] = useState(false);
-   const [submissionSuccess, setSubmissionSuccess] = useState(false);
-   const [submissionError, setSubmissionError] = useState<string | null>(null);
-   const [conflict, setConflict] = useState<boolean>(false);
-   const [conflictMessage, setConflictMessage] = useState<string>("");
-   const [formValues, setFormValues] = useState<{ [key: string]: any }>({});
-   const [bookingsForDay, setBookingsForDay] = useState<(BoardroomBooking | SoundproofPodBooking)[]>([]);
-   const [twoWeekBookings, setTwoWeekBookings] = useState<{
-diff --git a/src/CustomForms/BookSpaceForm.tsx b/src/CustomForms/BookSpaceForm.tsx
-index d22a13e99a1e80fc5ae0190b059a694b0fdfd1a4..8c7b8872716df6377102025355abc16d2ba58f83 100644
---- a/src/CustomForms/BookSpaceForm.tsx
-+++ b/src/CustomForms/BookSpaceForm.tsx
-@@ -117,100 +116,100 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
-   ];
- 
-   function checkConflictAndSuggest(values: { [key: string]: any }): {
-     hasConflict: boolean;
-     conflictEnd?: Date;
-     nextAvailable?: string;
-   } {
-     const { bookingDate, bookingTime, duration } = values;
-     const spaceType = selectedSpaceType;
-     if (!bookingDate || !bookingTime || !spaceType || !duration) {
-       return { hasConflict: false };
-     }
- 
-     let dateStr = bookingDate;
-     if (dateStr.includes('/')) {
-       const parts = dateStr.split('/');
-       if (parts.length === 3) {
-         dateStr = `${parts[2]}-${parts[1]}-${parts[0]}`;
-       }
-     }
- 
-     let timeStr = bookingTime;
-     if (timeStr.length === 5) {
-       timeStr = `${timeStr}:00`;
-     }
--    const newStart = new Date(`${dateStr}T${timeStr}`);
-+    const newStart = new Date(`${dateStr}T${timeStr}Z`);
-     const newEnd = new Date(newStart.getTime() + Number(duration) * 3600000);
- 
-     let relevantBookings: (BoardroomBooking | SoundproofPodBooking)[] = [];
-     if (futureBookings) {
-       relevantBookings =
-         spaceType === 'Boardroom'
-           ? futureBookings.boardroomBookings
-           : futureBookings.soundproofBookings;
-     }
- 
-     const dayBookings = relevantBookings.filter((b) => b.booking_date === dateStr);
-     let latestConflictEnd: Date | undefined;
-     for (const booking of dayBookings) {
--      const existingStart = new Date(`${booking.booking_date}T${booking.booking_time}`);
-+      const existingStart = new Date(`${booking.booking_date}T${booking.booking_time}Z`);
-       const existingEnd = new Date(existingStart.getTime() + booking.duration * 3600000);
-       if (newStart < existingEnd && newEnd > existingStart) {
-         if (!latestConflictEnd || existingEnd > latestConflictEnd) {
-           latestConflictEnd = existingEnd;
-         }
-       }
-     }
- 
-     if (latestConflictEnd) {
-       const nextAvailable = findNextAvailableSlot(dayBookings, latestConflictEnd, Number(duration), dateStr);
-       return {
-         hasConflict: true,
-         conflictEnd: latestConflictEnd,
-         nextAvailable,
-       };
-     }
- 
-     return { hasConflict: false };
-   }
- 
-   function findNextAvailableSlot(
-     dayBookings: (BoardroomBooking | SoundproofPodBooking)[],
-     startAfter: Date,
-     duration: number,
-     dateStr: string
-   ): string | undefined {
--    const dayEnd = new Date(`${dateStr}T23:59:59`);
-+    const dayEnd = new Date(`${dateStr}T23:59:59Z`);
-     let proposedStart = new Date(startAfter);
- 
-     while (proposedStart <= dayEnd) {
-       const proposedEnd = new Date(proposedStart.getTime() + duration * 3600000);
-       let isSlotAvailable = true;
- 
-       for (const booking of dayBookings) {
--        const existingStart = new Date(`${booking.booking_date}T${booking.booking_time}`);
-+        const existingStart = new Date(`${booking.booking_date}T${booking.booking_time}Z`);
-         const existingEnd = new Date(existingStart.getTime() + booking.duration * 3600000);
-         if (proposedStart < existingEnd && proposedEnd > existingStart) {
-           isSlotAvailable = false;
-           proposedStart = new Date(existingEnd);
-           break;
-         }
-       }
- 
-       if (isSlotAvailable && proposedEnd <= dayEnd) {
-         return proposedStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-       }
-     }
- 
-     return undefined;
-   }
- 
-   useEffect(() => {
-     const { bookingDate } = formValues;
-     if (!bookingDate || !selectedSpaceType) {
-       setBookingsForDay([]);
-       return;
-     }
-     let dateStr = bookingDate;
-     if (dateStr.includes('/')) {
-       const parts = dateStr.split('/');
-diff --git a/src/CustomForms/BookSpaceForm.tsx b/src/CustomForms/BookSpaceForm.tsx
-index d22a13e99a1e80fc5ae0190b059a694b0fdfd1a4..8c7b8872716df6377102025355abc16d2ba58f83 100644
---- a/src/CustomForms/BookSpaceForm.tsx
-+++ b/src/CustomForms/BookSpaceForm.tsx
-@@ -276,98 +275,95 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
-       ? (selectedSpaceType === 'Boardroom' ? futureBookings.boardroomBookings : futureBookings.soundproofBookings)
-       : [...futureBookings.boardroomBookings, ...futureBookings.soundproofBookings];
- 
-     allBookings.forEach((booking) => {
-       const bookingDate = booking.booking_date;
-       if (bookingsByDate[bookingDate]) {
-         bookingsByDate[bookingDate].push(booking);
-       }
-     });
- 
-     setTwoWeekBookings(bookingsByDate);
-   }, [futureBookings, selectedSpaceType]);
- 
-   const handleFieldChange = (vals: { [key: string]: any }) => {
-     setFormValues(vals);
-   };
- 
-   async function handleFormSubmit(values: { [key: string]: any }) {
-     if (conflict || !selectedSpaceType) return;
-     setIsSubmitting(true);
-     setSubmissionError(null);
-     let t = values.bookingTime;
-     if (t.length === 5) {
-       t = t + ':00';
-     }
--    const formattedTime = t;
-+    const bookingTimeDate = new Date(`1970-01-01T${t}Z`);
-     const payload: BookSpaceData = {
-       fee_earner: feeEarner,
-       booking_date: values.bookingDate,
--      booking_time: formattedTime,
-+      booking_time: bookingTimeDate,
-       duration: Number(values.duration),
-       reason: values.reason,
-       spaceType: selectedSpaceType,
-     };
-     try {
-       await submitBooking(payload);
-       setSubmissionSuccess(true);
-       setTimeout(() => {
-         onCancel();
-       }, 2000);
-     } catch (err: any) {
-       setSubmissionError(err.message || 'Booking failed.');
-     } finally {
-       setIsSubmitting(false);
-     }
-   }
- 
-   async function submitBooking(data: BookSpaceData) {
-     const url = `${process.env.REACT_APP_PROXY_BASE_URL}/${process.env.REACT_APP_INSERT_BOOK_SPACE_PATH}?code=${process.env.REACT_APP_INSERT_BOOK_SPACE_CODE}`;
--    let finalTimeStr = data.booking_time;
--    if (!finalTimeStr.includes('.')) {
--      finalTimeStr += '.0000000';
--    } else {
--      const [time, fraction = ''] = finalTimeStr.split('.');
--      finalTimeStr = `${time}.${(fraction + '0000000').slice(0, 7)}`;
--    }
-+    const isoTime = data.booking_time.toISOString().split('T')[1].split('Z')[0];
-+    let [time, fraction = ''] = isoTime.split('.');
-+    fraction = (fraction + '0000000').slice(0, 7);
-+    const finalTimeStr = `${time}.${fraction}`;
-     const finalPayload = {
-       ...data,
-       booking_time: finalTimeStr,
-     };
-     const response = await fetch(url, {
-       method: 'POST',
-       headers: { 'Content-Type': 'application/json' },
-       body: JSON.stringify(finalPayload),
-     });
-     if (!response.ok) {
-       throw new Error(`Booking failed with status ${response.status}`);
-     }
-     return response.json();
-   }
- 
-   const formatBookingTime = (booking: BoardroomBooking | SoundproofPodBooking) => {
--    const start = new Date(`${booking.booking_date}T${booking.booking_time}`);
-+    const start = new Date(`${booking.booking_date}T${booking.booking_time}Z`);
-     const end = new Date(start.getTime() + booking.duration * 3600000);
-     return `${start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-   };
- 
-   const handleSpaceSelection = (spaceType: 'Boardroom' | 'Soundproof Pod') => {
-     setSelectedSpaceType(spaceType);
-     setFormValues({ ...formValues, spaceType });
-   };
- 
-   // Helper to get bookings for the displayed period
-   const getDisplayedBookings = () => {
-     const today = new Date();
-     today.setHours(0, 0, 0, 0);
-     const endDate = new Date(today);
-     endDate.setDate(today.getDate() + displayWeeks * 7); // Calculate end date based on weeks
-     return Object.entries(twoWeekBookings)
-       .filter(([date]) => {
-         const d = new Date(date);
-         return d >= today && d <= endDate;
-       })
-       .sort(([dateA], [dateB]) => new Date(dateA).getTime() - new Date(dateB).getTime());
-   };
- 
-   // Load more weeks
-   const handleLoadMore = () => {

@@ -29,6 +29,7 @@ import {
 import { parseISO, startOfMonth, format, isValid } from 'date-fns';
 import { Enquiry, POID, UserData } from '../../app/functionality/types';
 import EnquiryLineItem from './EnquiryLineItem';
+import NewUnclaimedEnquiryCard from './NewUnclaimedEnquiryCard';
 import EnquiryApiDebugger from '../../components/EnquiryApiDebugger';
 import GroupedEnquiryCard from './GroupedEnquiryCard';
 import { GroupedEnquiry, getMixedEnquiryDisplay, isGroupedEnquiry } from './enquiryGrouping';
@@ -36,10 +37,13 @@ import PitchBuilder from './PitchBuilder';
 import EnquiryCalls from './EnquiryCalls';
 import EnquiryEmails from './EnquiryEmails';
 import { colours } from '../../app/styles/colours';
+import ToggleSwitch from '../../components/ToggleSwitch';
+import { hasAdminAccess } from '../../utils/matterNormalization';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { useNavigator } from '../../app/functionality/NavigatorContext';
 import UnclaimedEnquiries from './UnclaimedEnquiries';
 import { Pivot, PivotItem } from '@fluentui/react';
+import SegmentedControl from '../../components/filter/SegmentedControl';
 import { Context as TeamsContextType } from '@microsoft/teams-js';
 import AreaCountCard from './AreaCountCard';
 import 'rc-slider/assets/index.css';
@@ -153,7 +157,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
 
   // Use only real enquiries data
-  const [displayEnquiries, setDisplayEnquiries] = useState<Enquiry[]>(enquiries || []);
+  // All normalized enquiries (union of legacy + new) retained irrespective of toggle
+  const [allEnquiries, setAllEnquiries] = useState<(Enquiry & { __sourceType: 'new' | 'legacy' })[]>([]);
+  // Display subset after applying dataset toggle
+  const [displayEnquiries, setDisplayEnquiries] = useState<(Enquiry & { __sourceType: 'new' | 'legacy' })[]>([]);
 
   // Debug logging
   console.log('Enquiries component - enquiries prop:', enquiries);
@@ -184,46 +191,92 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [isSearchActive, setSearchActive] = useState<boolean>(false);
   const [showGroupedView, setShowGroupedView] = useState<boolean>(true);
   const [showDataInspector, setShowDataInspector] = useState<boolean>(false);
+  // Local dataset toggle (legacy vs new direct) analogous to Matters (only in localhost UI for now)
+  const [useNewData, setUseNewData] = useState<boolean>(false);
+  const isLocalhost = (typeof window !== 'undefined') && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+  // Admin check (match Matters logic)
+  const userRole = userData?.[0]?.Role || '';
+  const userFullName = userData?.[0]?.FullName || '';
+  const isAdmin = hasAdminAccess(userRole, userFullName);
+  // Debug storage for raw payloads when inspecting
+  const [debugRaw, setDebugRaw] = useState<{ legacy?: unknown; direct?: unknown }>({});
+  const [debugLoading, setDebugLoading] = useState(false);
+  const [debugError, setDebugError] = useState<string | null>(null);
   
   // Navigation state variables  
   const [activeState, setActiveState] = useState<string>('Claimed');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [activeAreaFilter, setActiveAreaFilter] = useState<string>('All');
 
-  // Update display enquiries when real enquiries data changes
+  // Detect source type heuristically (keep pure & easily testable)
+  const detectSourceType = (enq: Record<string, unknown>): 'new' | 'legacy' => {
+    // Heuristics for NEW dataset:
+    // 1. Presence of distinctly lower-case schema keys (id + datetime)
+    // 2. Presence of pipeline fields 'stage' or 'claim'
+    // 3. Absence of ANY spaced legacy keys (e.g. "Display Number") combined with at least one expected lower-case key
+    const hasLowerCore = 'id' in enq && 'datetime' in enq;
+    const hasPipeline = 'stage' in enq || 'claim' in enq;
+    if (hasLowerCore || hasPipeline) return 'new';
+    const hasSpacedKey = Object.keys(enq).some(k => k.includes(' '));
+    const hasAnyLowerCompact = ['aow','poc','notes','rep','email'].some(k => k in enq);
+    if (!hasSpacedKey && hasAnyLowerCompact) return 'new';
+    return 'legacy';
+  };
+
+  // Normalize all incoming enquiries once (unfiltered by toggle)
   useEffect(() => {
-    if (enquiries) {
-      console.log('🔄 Normalizing enquiries data, count:', enquiries.length);
-      console.log('📊 Sample enquiry fields (first item):', enquiries[0] ? Object.keys(enquiries[0]) : 'No data');
-      
-      const normalised = enquiries.map((enq: any) => ({
-        ...enq,
-        ID: enq.ID || enq.id?.toString(),
-        Touchpoint_Date: enq.Touchpoint_Date || enq.datetime,
-        Point_of_Contact: enq.Point_of_Contact || enq.poc,
-        Area_of_Work: enq.Area_of_Work || enq.aow,
-        Type_of_Work: enq.Type_of_Work || enq.tow,
-        Method_of_Contact: enq.Method_of_Contact || enq.moc,
-        First_Name: enq.First_Name || enq.first,
-        Last_Name: enq.Last_Name || enq.last,
-        Email: enq.Email || enq.email,
-        Phone_Number: enq.Phone_Number || enq.phone,
-        Value: enq.Value || enq.value,
-        Initial_first_call_notes: enq.Initial_first_call_notes || enq.notes,
-        Call_Taker: enq.Call_Taker || enq.rep,
-      }));
-      
-      console.log('✅ Normalized enquiries count:', normalised.length);
-      console.log('🎯 Sample POC values:', normalised.slice(0, 3).map(e => ({ 
-        original_poc: (e as any).poc, 
-        normalized_poc: e.Point_of_Contact 
-      })));
-      
-      setDisplayEnquiries(normalised);
-    } else {
+    if (!enquiries) {
+      setAllEnquiries([]);
       setDisplayEnquiries([]);
+      return;
     }
+    console.log('🔄 Normalizing enquiries data, count:', enquiries.length);
+    const normalised: (Enquiry & { __sourceType: 'new' | 'legacy'; [k: string]: unknown })[] = enquiries.map((raw: any) => {
+      const sourceType = detectSourceType(raw);
+      const rec: Enquiry & { __sourceType: 'new' | 'legacy'; [k: string]: unknown } = {
+        ...raw,
+        ID: raw.ID || raw.id?.toString(),
+        Touchpoint_Date: raw.Touchpoint_Date || raw.datetime,
+        Point_of_Contact: raw.Point_of_Contact || raw.poc,
+        Area_of_Work: raw.Area_of_Work || raw.aow,
+        Type_of_Work: raw.Type_of_Work || raw.tow,
+        Method_of_Contact: raw.Method_of_Contact || raw.moc,
+        First_Name: raw.First_Name || raw.first,
+        Last_Name: raw.Last_Name || raw.last,
+        Email: raw.Email || raw.email,
+        Phone_Number: raw.Phone_Number || raw.phone,
+        Value: raw.Value || raw.value,
+        Initial_first_call_notes: raw.Initial_first_call_notes || raw.notes,
+        Call_Taker: raw.Call_Taker || raw.rep,
+        __sourceType: sourceType
+      };
+      return rec;
+    });
+    const newCount = normalised.filter(r => r.__sourceType === 'new').length;
+    const legacyCount = normalised.length - newCount;
+    console.log(`📊 Source type distribution -> new: ${newCount}, legacy: ${legacyCount}`);
+    setAllEnquiries(normalised);
   }, [enquiries]);
+
+  // Apply dataset toggle to derive display list without losing the other dataset
+  useEffect(() => {
+    if (!allEnquiries.length) {
+      setDisplayEnquiries([]);
+      return;
+    }
+    if (isLocalhost) {
+      let filtered = allEnquiries.filter(e => useNewData ? e.__sourceType === 'new' : e.__sourceType === 'legacy');
+      // Fallback: if toggle selected new but zero new detected, show legacy + emit warning for debug panel
+      if (useNewData && filtered.length === 0) {
+        console.warn('⚠️ No enquiries classified as new. Falling back to all for visibility.');
+        filtered = allEnquiries;
+      }
+      console.log('✅ Applied dataset toggle: useNewData=', useNewData, 'result count=', filtered.length);
+      setDisplayEnquiries(filtered);
+    } else {
+      setDisplayEnquiries(allEnquiries);
+    }
+  }, [allEnquiries, useNewData, isLocalhost]);
 
   // Reset area filter if current filter is no longer available
   useEffect(() => {
@@ -301,11 +354,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const unclaimedEnquiries = useMemo(
     () =>
       displayEnquiries.filter((e) => {
-        // Handle both old and new schema
         const poc = (e.Point_of_Contact || (e as any).poc || '').toLowerCase();
-        return unclaimedEmails.includes(poc);
+        return poc === 'team@helix-law.com';
       }),
-    [displayEnquiries, unclaimedEmails]
+    [displayEnquiries]
   );
 
   const sortedValidEnquiries = useMemo(() => {
@@ -674,175 +726,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     });
   }
 
-  useEffect(() => {
-    if (!selectedEnquiry) {
-      // Enhanced navigation with all filter options + area-of-work integration
-      // Use actual userData (which gets updated by area selection in localhost)
-      let userAOW = userData && userData.length > 0 && userData[0].AOW 
-        ? userData[0].AOW.split(',').map(a => a.trim()) 
-        : [];
-      
-      // Operations/Tech users get access to all areas for filtering
-      const hasFullAccess = userAOW.some(area =>
-        area.toLowerCase().includes('operations') || area.toLowerCase().includes('tech')
-      );
-      
-      if (hasFullAccess) {
-        userAOW = ['Commercial', 'Construction', 'Property', 'Employment', 'Misc/Other', 'Operations', 'Tech'];
-      }
-      
-      const filterOptions = ['Claimed', 'Unclaimed'];
-      setContent(
-        <div style={{
-          backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-          padding: '12px 24px',
-          boxShadow: isDarkMode ? '0 2px 4px rgba(0,0,0,0.4)' : '0 2px 4px rgba(0,0,0,0.1)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '16px',
-          fontSize: '14px',
-          fontFamily: 'Raleway, sans-serif',
-          flexWrap: 'wrap',
-        }}>
-          {/* Status filter navigation buttons */}
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            {filterOptions.map(filterOption => (
-              <button
-                key={filterOption}
-                onClick={() => {
-                  if (filterOption === 'Unclaimed') {
-                    setActiveState('Claimable');
-                  } else {
-                    setActiveState(filterOption);
-                  }
-                }}
-                style={{
-                  background: activeState === (filterOption === 'Unclaimed' ? 'Claimable' : filterOption) ? colours.highlight : 'transparent',
-                  color: activeState === (filterOption === 'Unclaimed' ? 'Claimable' : filterOption) ? 'white' : (isDarkMode ? colours.dark.text : colours.light.text),
-                  border: `1px solid ${colours.highlight}`,
-                  borderRadius: '16px',
-                  padding: '6px 16px',
-                  fontSize: '12px',
-                  fontWeight: '600',
-                  cursor: 'pointer',
-                  fontFamily: 'Raleway, sans-serif',
-                }}
-              >
-                {filterOption}
-              </button>
-            ))}
-          </div>
-          
-          {/* Area filter buttons - only show if user has multiple areas */}
-          {userAOW.length > 1 && (
-            <>
-              <div style={{ width: '1px', height: '20px', background: isDarkMode ? colours.dark.border : colours.light.border }} />
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                {/* All areas button */}
-                <button
-                  key="All"
-                  onClick={() => setActiveAreaFilter('All')}
-                  style={{
-                    background: activeAreaFilter === 'All' ? colours.highlight : (isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground),
-                    color: activeAreaFilter === 'All' ? 'white' : (isDarkMode ? colours.dark.text : colours.light.text),
-                    border: `1px solid ${activeAreaFilter === 'All' ? colours.highlight : (isDarkMode ? colours.dark.border : colours.light.border)}`,
-                    borderRadius: '12px',
-                    padding: '4px 12px',
-                    fontSize: '11px',
-                    fontWeight: '500',
-                    cursor: 'pointer',
-                    fontFamily: 'Raleway, sans-serif',
-                    transition: 'all 0.2s ease',
-                  }}
-                >
-                  All
-                </button>
-                {/* Individual area buttons */}
-                {userAOW.map(area => (
-                  <button
-                    key={area}
-                    onClick={() => setActiveAreaFilter(area)}
-                    style={{
-                      background: activeAreaFilter === area ? colours.highlight : (isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground),
-                      color: activeAreaFilter === area ? 'white' : (isDarkMode ? colours.dark.text : colours.light.text),
-                      border: `1px solid ${activeAreaFilter === area ? colours.highlight : (isDarkMode ? colours.dark.border : colours.light.border)}`,
-                      borderRadius: '12px',
-                      padding: '4px 12px',
-                      fontSize: '11px',
-                      fontWeight: '500',
-                      cursor: 'pointer',
-                      fontFamily: 'Raleway, sans-serif',
-                      transition: 'all 0.2s ease',
-                    }}
-                  >
-                    {area}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-          
-          {/* Development Inspector Button - Only show in localhost */}
-          {(window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && (
-            <>
-              <div style={{ width: '1px', height: '20px', background: isDarkMode ? colours.dark.border : colours.light.border }} />
-              <IconButton
-                iconProps={{ iconName: 'TestBeaker' }}
-                title="Debug API calls and filtering (Local Dev)"
-                onClick={() => setShowDataInspector(true)}
-                styles={{
-                  root: {
-                    backgroundColor: colours.cta,
-                    color: 'white',
-                    borderRadius: '50%',
-                    width: '32px',
-                    height: '32px',
-                  }
-                }}
-              />
-            </>
-          )}
-        </div>
-      );
-    } else {
-      setContent(
-        <div className={detailNavStyle(isDarkMode)}>
-          <IconButton
-            iconProps={{ iconName: 'ChevronLeft' }}
-            onClick={handleBackToList}
-            className={backButtonStyle}
-            title="Back"
-            ariaLabel="Back"
-          />
-          <Pivot
-            className="navigatorPivot"
-            selectedKey={activeSubTab}
-            onLinkClick={handleSubTabChange}
-          >
-            <PivotItem headerText="Pitch Builder" itemKey="Pitch" />
-            <PivotItem headerText="Calls" itemKey="Calls" />
-            <PivotItem headerText="Emails" itemKey="Emails" />
-          </Pivot>
-        </div>
-      );
-    }
-    return () => setContent(null);
-  }, [
-    setContent,
-    selectedEnquiry,
-    selectedArea,
-    userData,
-    isDarkMode,
-    activeSubTab,
-    handleSubTabChange,
-    handleBackToList,
-    activeState,
-    activeAreaFilter,
-    searchTerm,
-    showGroupedView,
-    filteredEnquiries,
-    unclaimedEmails,
-  ]);
+
 
   const ratingOptions = [
     {
@@ -1082,11 +966,113 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     );
   };
 
+  function containerStyle(dark: boolean) {
+    return mergeStyles({
+      backgroundColor: dark ? colours.dark.background : colours.light.background,
+      minHeight: '100vh',
+      boxSizing: 'border-box',
+      color: dark ? colours.light.text : colours.dark.text,
+    });
+  }
+
   return (
     <div className={containerStyle(isDarkMode)}>
-      <div className={mergeStyles({ width: '100%' })}></div>
+      {/* Action / Navigation Bar */}
+      <div
+        className={mergeStyles({
+          position: 'sticky',
+          top: 0,
+          zIndex: 1000,
+          display: 'flex',
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 16,
+          padding: '10px 24px 12px 24px',
+          background: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+          boxShadow: isDarkMode ? '0 2px 6px rgba(0,0,0,0.5)' : '0 2px 6px rgba(0,0,0,0.12)',
+          borderBottom: isDarkMode ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)'
+        })}
+      >
+        {/* Left side: either back + pivot (detail view) OR filters (list view) */}
+        {selectedEnquiry ? (
+          <div className={detailNavStyle(isDarkMode)} style={{ position: 'static', padding: 0, boxShadow: 'none', top: undefined, height: 'auto' }}>
+            <IconButton
+              iconProps={{ iconName: 'ChevronLeft' }}
+              onClick={handleBackToList}
+              className={backButtonStyle}
+              title="Back"
+              ariaLabel="Back"
+            />
+            <Pivot selectedKey={activeSubTab} onLinkClick={handleSubTabChange}>
+              <PivotItem headerText="Pitch Builder" itemKey="Pitch" />
+              <PivotItem headerText="Calls" itemKey="Calls" />
+              <PivotItem headerText="Emails" itemKey="Emails" />
+            </Pivot>
+          </div>
+        ) : (
+          <>
+            {/* Status filter (labels removed for cleaner look) */}
+            <SegmentedControl
+              id="enquiries-status-seg"
+              ariaLabel="Filter enquiries by status"
+              value={activeState === 'Claimable' ? 'Unclaimed' : activeState}
+              onChange={(k) => handleSetActiveState(k === 'Unclaimed' ? 'Claimable' : k)}
+              options={[ 'Claimed', 'Unclaimed' ].map(k => ({ key: k, label: k }))}
+            />
+            {/* Area filter (only if user has >1 area) */}
+            {userData && userData[0]?.AOW && userData[0].AOW.split(',').length > 1 && (
+              <SegmentedControl
+                id="enquiries-area-seg"
+                ariaLabel="Filter enquiries by area of work"
+                value={activeAreaFilter}
+                onChange={setActiveAreaFilter}
+                options={[{ key: 'All', label: 'All' }, ...userData[0].AOW.split(',').map(a => a.trim()).map(a => ({ key: a, label: a }))]}
+              />
+            )}
+            {/* Spacer */}
+            <div style={{ flex: 1 }} />
+            {/* Admin controls (debug + data toggle) for admin or localhost */}
+            {(isAdmin || isLocalhost) && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '2px 10px 2px 6px',
+                  height: 40,
+                  borderRadius: 12,
+                  background: isDarkMode ? '#5a4a12' : colours.highlightYellow,
+                  border: isDarkMode ? '1px solid #806c1d' : '1px solid #e2c56a',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: isDarkMode ? '#ffe9a3' : '#5d4700'
+                }}
+                title="Admin / debug controls"
+              >
+                <IconButton
+                  iconProps={{ iconName: 'TestBeaker', style: { fontSize: 16 } }}
+                  title="Debug API calls"
+                  ariaLabel="Open data inspector"
+                  onClick={() => setShowDataInspector(v => !v)}
+                  styles={{ root: { borderRadius: 8, background: 'rgba(0,0,0,0.08)', height: 30, width: 30 } }}
+                />
+                <ToggleSwitch
+                  id="enquiries-new-data-toggle"
+                  checked={useNewData}
+                  onChange={setUseNewData}
+                  size="sm"
+                  onText="New"
+                  offText="Legacy"
+                  ariaLabel="Toggle dataset between legacy and new"
+                />
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
-      <section className="page-section">
+  <section className="page-section">
         <Stack
           tokens={{ childrenGap: 20 }}
           styles={{
@@ -1210,7 +1196,19 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                 />
                               );
                             } else {
-                              // Render single enquiry
+                              const pocLower = (item.Point_of_Contact || (item as any).poc || '').toLowerCase();
+                              const isUnclaimedNew = pocLower === 'team@helix-law.com' && (item as any).__sourceType === 'new';
+                              if (isUnclaimedNew) {
+                                return (
+                                  <NewUnclaimedEnquiryCard
+                                    key={item.ID}
+                                    enquiry={item}
+                                    onSelect={() => {}} // Prevent click-through to pitch builder
+                                    onRate={handleRate}
+                                    isLast={isLast}
+                                  />
+                                );
+                              }
                               return (
                                 <EnquiryLineItem
                                   key={item.ID}
@@ -1220,6 +1218,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   teamData={teamData}
                                   isLast={isLast}
                                   userAOW={userAOW}
+                                  isNewSource={(item as any).__sourceType === 'new'}
                                 />
                               );
                             }
@@ -1321,17 +1320,17 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           onClose={() => setShowDataInspector(false)}
         />
       )}
+      {showDataInspector && isLocalhost && (
+        <div style={{ margin:'16px 0', padding:16, background: isDarkMode ? '#1e2430' : '#f5f8fc', border:`1px solid ${isDarkMode? 'rgba(255,255,255,0.1)': '#d4e1f1'}`, borderRadius:8 }}>
+          <Text variant="mediumPlus" styles={{ root:{ fontWeight:600, marginBottom:8, color: isDarkMode? colours.dark.text: colours.light.text }}}>Local Dataset Toggle Debug</Text>
+          <Text variant="small" styles={{ root:{ display:'block', marginBottom:8 }}}>Showing <strong>{useNewData ? 'NEW (direct)' : 'LEGACY'}</strong> dataset. Total after normalization: {displayEnquiries.length}</Text>
+          {debugError && <MessageBar messageBarType={MessageBarType.error}>{debugError}</MessageBar>}
+        </div>
+      )}
     </div>
   );
+}
 
-  function containerStyle(dark: boolean) {
-    return mergeStyles({
-      backgroundColor: dark ? colours.dark.background : colours.light.background,
-      minHeight: '100vh',
-      boxSizing: 'border-box',
-      color: dark ? colours.light.text : colours.dark.text,
-    });
-  }
-};
+
 
 export default Enquiries;
