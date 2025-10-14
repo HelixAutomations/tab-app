@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*
   Registers Azure Blob Storage files for a given InstructionRef into dbo.Documents.
-  - Loads env from .env and .env.local
+  - Loads env from .env
   - Uses INSTRUCTIONS_STORAGE_CONNECTION_STRING or AZURE_STORAGE_CONNECTION_STRING
   - Uses INSTRUCTIONS_SQL_CONNECTION_STRING to write to SQL
 
@@ -11,7 +11,7 @@
 
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '../.env'), override: false });
-require('dotenv').config({ path: path.join(__dirname, '../.env.local'), override: false });
+require('dotenv').config({ path: path.join(__dirname, '../.env'), override: false });
 
 const { BlobServiceClient, StorageSharedKeyCredential } = require('@azure/storage-blob');
 const { DefaultAzureCredential } = require('@azure/identity');

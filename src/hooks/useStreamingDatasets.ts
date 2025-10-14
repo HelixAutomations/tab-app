@@ -100,8 +100,8 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
     eventSourceRef.current = eventSource;
 
     // Track timings for a concise summary at the end
-  const streamStart = Date.now();
-  const starts: Record<string, number> = {};
+    const streamStart = Date.now();
+    const starts: Record<string, number> = {};
     let cachedCount = 0;
     let cachedElapsed = 0;
     let freshCount = 0;
@@ -125,6 +125,7 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
                 updatedAt: Date.now(),
                 elapsedMs: starts[dataset] ? Date.now() - starts[dataset] : undefined,
               };
+
             }
           });
           return next;
@@ -189,6 +190,8 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
           case 'dataset-error':
             if (update.dataset) {
               const started = starts[update.dataset!];
+
+              
               setDatasetStates(prev => ({
                 ...prev,
                 [update.dataset!]: {
@@ -209,6 +212,8 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
               clearTimeout(timeoutRef.current);
               timeoutRef.current = null;
             }
+
+            
             // Print one concise summary
             const totalElapsed = Date.now() - streamStart;
             const avgFresh = freshCount ? Math.round(freshElapsed / freshCount) : 0;

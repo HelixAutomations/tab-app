@@ -35,7 +35,8 @@ router.post('/preheat', async (req, res) => {
 
         // Fetch and cache
         console.log(`🚀 Preheating ${datasetName}...`);
-        const data = await fetchDatasetByName(datasetName, { entraId });
+        const connectionString = process.env.SQL_CONNECTION_STRING;
+        const data = await fetchDatasetByName(datasetName, { connectionString, entraId });
         
         // Use smart TTL calculation
         const ttl = calculateOptimalTTL(datasetName, Array.isArray(data) ? data.length : 1);

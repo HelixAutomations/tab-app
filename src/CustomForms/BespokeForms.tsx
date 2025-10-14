@@ -427,12 +427,14 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
     if (!file) return;
     try {
       const base64 = await convertFileToBase64(file);
-      handleInputChange(fieldName, {
+      const fileData = {
         fileName: file.name,
         fileSize: file.size,
         fileType: file.type,
         base64: base64,
-      });
+      };
+      console.log(`File upload for field "${fieldName}":`, fileData);
+      handleInputChange(fieldName, fileData);
     } catch (err) {
       console.error('File read error:', err);
     }

@@ -6,6 +6,71 @@ const fs = require('fs');
 const { getRedisClient, generateCacheKey, cacheWrapper } = require('../utils/redisClient');
 const router = express.Router();
 
+// Helper: best-effort secret retrieval from multiple sources (ENV, Key Vault, Keys Proxy)
+async function getSecretFromAnySource(secretName) {
+  if (!secretName) return null;
+  // 1) Local env overrides (support both exact and UPPER_SNAKE_CASE without dashes)
+  const envExact = process.env[secretName];
+  if (envExact && String(envExact).trim()) return String(envExact).trim();
+  const envSnake = process.env[secretName.replace(/-/g, '_').toUpperCase()];
+  if (envSnake && String(envSnake).trim()) return String(envSnake).trim();
+
+  // 2) Azure Key Vault via Managed Identity, if configured
+  try {
+    const vaultUrl = process.env.KEY_VAULT_URL || 'https://helix-keys.vault.azure.net/';
+    if (vaultUrl) {
+      const credential = new DefaultAzureCredential();
+      const kvClient = new SecretClient(vaultUrl, credential);
+      const sec = await kvClient.getSecret(secretName);
+      if (sec?.value) return sec.value;
+    }
+  } catch (_) {
+    // ignore and try proxy fallback
+  }
+
+  // 3) Keys proxy fallback (works locally without MSI)
+  try {
+    const base = process.env.REACT_APP_PROXY_BASE_URL || 'https://helix-keys-proxy.azurewebsites.net/api';
+    const url = `${base.replace(/\/$/, '')}/keys/${encodeURIComponent(secretName)}`;
+    const resp = await fetch(url);
+    if (resp.ok) {
+      const json = await resp.json();
+      if (json && json.value) return json.value;
+    }
+  } catch (_) {
+    // swallow and return null
+  }
+
+  return null;
+}
+
+// Small helper: get a Facebook token from env first, else from Key Vault
+async function getFacebookSystemUserToken() {
+  // Prefer explicit env var in App Service for resilience
+  if (process.env.FACEBOOK_SYSTEM_USER_TOKEN && process.env.FACEBOOK_SYSTEM_USER_TOKEN.trim().length > 0) {
+    return process.env.FACEBOOK_SYSTEM_USER_TOKEN.trim();
+  }
+  // Fallback to Key Vault via Managed Identity
+  const credential = new DefaultAzureCredential();
+  const vaultUrl = process.env.KEY_VAULT_URL || 'https://helix-keys.vault.azure.net/';
+  const client = new SecretClient(vaultUrl, credential);
+  const secretName = process.env.FACEBOOK_SYSTEM_USER_TOKEN_SECRET || 'facebook-system-user-token';
+  const facebookToken = await client.getSecret(secretName);
+  if (!facebookToken?.value) {
+    throw new Error('Facebook System User token not found in Key Vault');
+  }
+  return facebookToken.value;
+}
+
+function withTimeout(promise, ms, onTimeoutMsg = 'Request timed out') {
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(onTimeoutMsg), ms);
+  return Promise.race([
+    promise(ac.signal),
+    new Promise((_, reject) => ac.signal.addEventListener('abort', () => reject(new Error(onTimeoutMsg))))
+  ]).finally(() => clearTimeout(t));
+}
+
 /**
  * GET /api/marketing-metrics
  * Fetches marketing metrics from Facebook Marketing API using System User token
@@ -32,29 +97,36 @@ router.get('/', async (req, res) => {
     const result = await cacheWrapper(
       cacheKey,
       async () => {
-        // Get System User token from Key Vault (never expires)
-        const credential = new DefaultAzureCredential();
-        const vaultUrl = "https://helix-keys.vault.azure.net/";
-        const client = new SecretClient(vaultUrl, credential);
-
-        const facebookToken = await client.getSecret("facebook-system-user-token");
-        
-        if (!facebookToken.value) {
-          throw new Error("Facebook System User token not found in Key Vault");
-        }
+        // Resolve token from ENV or Key Vault (never expires)
+        const token = await getFacebookSystemUserToken();
 
         console.log(`Fetching Facebook data for daily breakdown: ${startDateStr} to ${endDateStr} (${daysBack} days)`);
 
         // Call Facebook Graph API for ad account insights with daily breakdown
         const adAccountId = "act_3870546011665"; // Your ad account ID
-        const facebookResponse = await fetch(
-          `https://graph.facebook.com/v20.0/${adAccountId}/insights?fields=spend,impressions,clicks,reach,frequency,cpm,cpc,ctr,actions,date_start,date_stop&time_range={'since':'${startDateStr}','until':'${endDateStr}'}&time_increment=1&level=account&access_token=${facebookToken.value}`
+        const facebookResponse = await withTimeout(
+          (signal) => fetch(
+            `https://graph.facebook.com/v20.0/${adAccountId}/insights?fields=spend,impressions,clicks,reach,frequency,cpm,cpc,ctr,actions,date_start,date_stop&time_range={'since':'${startDateStr}','until':'${endDateStr}'}&time_increment=1&level=account&access_token=${token}`,
+            { signal }
+          ),
+          20000,
+          'Facebook insights timed out (20s)'
         );
 
         if (!facebookResponse.ok) {
-          const errorText = await facebookResponse.text();
-          console.log(`Facebook API error: ${facebookResponse.status} - ${errorText}`);
-          throw new Error(`Facebook API error: ${facebookResponse.status} - ${errorText}`);
+          let errorText = '';
+          try { errorText = await facebookResponse.text(); } catch { /* ignore */ }
+          const snippet = errorText?.slice(0, 500);
+          console.warn(`Facebook API error: ${facebookResponse.status} - ${snippet}`);
+          // Fail-soft: return empty series rather than 500 to avoid breaking dashboard
+          return {
+            success: true,
+            data: [],
+            timestamp: new Date().toISOString(),
+            dataSource: 'Facebook System User Token (error)',
+            dateRange: { start: startDateStr, end: endDateStr, daysIncluded: 0 },
+            warning: `Facebook API error: ${facebookResponse.status}`,
+          };
         }
 
         const facebookData = await facebookResponse.json();
@@ -64,8 +136,13 @@ router.get('/', async (req, res) => {
 
         // Get page insights for organic performance (still aggregate for now)
         const pageId = "269181206461730"; // Helix Law page ID
-        const pageResponse = await fetch(
-          `https://graph.facebook.com/v20.0/${pageId}/insights?metric=page_impressions,page_reach,page_engaged_users&period=day&since=${startDateStr}&access_token=${facebookToken.value}`
+        const pageResponse = await withTimeout(
+          (signal) => fetch(
+            `https://graph.facebook.com/v20.0/${pageId}/insights?metric=page_impressions,page_reach,page_engaged_users&period=day&since=${startDateStr}&access_token=${token}`,
+            { signal }
+          ),
+          15000,
+          'Facebook page insights timed out (15s)'
         );
 
         let pageInsights = {};
@@ -152,10 +229,14 @@ router.get('/', async (req, res) => {
 
   } catch (error) {
     console.error('Marketing metrics error:', error);
-    res.status(500).json({ 
-      success: false,
-      error: error.message,
-      timestamp: new Date().toISOString()
+    // Fail-soft: avoid 500 for the dashboard; return empty but informative payload
+    res.status(200).json({
+      success: true,
+      data: [],
+      timestamp: new Date().toISOString(),
+      dataSource: 'Facebook System User Token (unavailable)',
+      dateRange: null,
+      warning: error?.message || 'Unknown error',
     });
   }
 });
@@ -301,16 +382,8 @@ router.get('/ads', async (req, res) => {
   try {
     console.log('Individual ads request received');
 
-    // Get System User token from Key Vault
-    const credential = new DefaultAzureCredential();
-    const vaultUrl = "https://helix-keys.vault.azure.net/";
-    const client = new SecretClient(vaultUrl, credential);
-
-    const facebookToken = await client.getSecret("facebook-system-user-token");
-    
-    if (!facebookToken.value) {
-      throw new Error("Facebook System User token not found in Key Vault");
-    }
+    // Resolve System User token
+    const token = await getFacebookSystemUserToken();
 
     // Get date range from query parameters
     const daysBack = parseInt(req.query.daysBack || '7'); // Default to last 7 days for individual ads
@@ -326,13 +399,20 @@ router.get('/ads', async (req, res) => {
 
     // Call Facebook Graph API for individual ad insights
     const adAccountId = "act_3870546011665";
-    const adsResponse = await fetch(
-      `https://graph.facebook.com/v20.0/${adAccountId}/insights?fields=ad_id,ad_name,campaign_name,adset_name,spend,impressions,clicks,reach,frequency,cpm,cpc,ctr,actions,date_start,date_stop&time_range={'since':'${startDateStr}','until':'${endDateStr}'}&level=ad&limit=50&access_token=${facebookToken.value}`
+    const adsResponse = await withTimeout(
+      (signal) => fetch(
+        `https://graph.facebook.com/v20.0/${adAccountId}/insights?fields=ad_id,ad_name,campaign_name,adset_name,spend,impressions,clicks,reach,frequency,cpm,cpc,ctr,actions,date_start,date_stop&time_range={'since':'${startDateStr}','until':'${endDateStr}'}&level=ad&limit=50&access_token=${token}`,
+        { signal }
+      ),
+      20000,
+      'Facebook ads insights timed out (20s)'
     );
 
     if (!adsResponse.ok) {
-      const errorText = await adsResponse.text();
-      console.log(`Facebook Ads API error: ${adsResponse.status} - ${errorText}`);
+  let errorText = '';
+  try { errorText = await adsResponse.text(); } catch { /* ignore */ }
+  const snippet = errorText?.slice(0, 500);
+  console.warn(`Facebook Ads API error: ${adsResponse.status} - ${snippet}`);
       
       // Handle rate limiting gracefully
       if (adsResponse.status === 403) {
@@ -415,11 +495,12 @@ router.get('/ads', async (req, res) => {
         timestamp: new Date().toISOString()
       });
     }
-    
-    res.status(500).json({ 
-      success: false,
-      error: error.message,
-      timestamp: new Date().toISOString()
+    // Fail-soft instead of 500
+    return res.json({
+      success: true,
+      data: [],
+      message: error?.message || 'Unknown error',
+      timestamp: new Date().toISOString(),
     });
   }
 });
@@ -450,16 +531,17 @@ router.get('/ga4', async (req, res) => {
         return res.status(500).json({ success: false, error: 'Failed to read GA4_CREDENTIALS_PATH' });
       }
     } else {
-      // 2) Default: Key Vault
-      const kvUrl = process.env.KEY_VAULT_URL || 'https://helix-keys.vault.azure.net/';
-      const credential = new DefaultAzureCredential();
-      const client = new SecretClient(kvUrl, credential);
+      // 2) Default: resolve from Key Vault or Keys Proxy
       const secretName = process.env.GA4_SERVICE_ACCOUNT_SECRET || 'ga4-service-account-json';
-      const saSecret = await client.getSecret(secretName);
-      if (!saSecret.value) {
+      const sa = await getSecretFromAnySource(secretName);
+      if (!sa) {
         return res.status(500).json({ success: false, error: 'GA4 service account secret missing' });
       }
-      serviceAccount = JSON.parse(saSecret.value);
+      try {
+        serviceAccount = JSON.parse(sa);
+      } catch (e) {
+        return res.status(500).json({ success: false, error: 'GA4 service account JSON invalid' });
+      }
     }
 
   // Dates and filters
@@ -565,16 +647,14 @@ router.get('/google-ads', async (req, res) => {
       clientId: process.env.GOOGLE_ADS_CLIENT_ID,
       clientSecret: process.env.GOOGLE_ADS_CLIENT_SECRET,
       refreshToken: process.env.GOOGLE_ADS_REFRESH_TOKEN,
+      redirectUri: process.env.GOOGLE_ADS_REDIRECT_URI,
       loginCustomerId: (process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID || '').replace(/-/g, ''),
       customerId: (req.query.customerId || process.env.GOOGLE_ADS_CUSTOMER_ID || '').replace(/-/g, ''),
     };
 
     // If any are missing and we have secret names, try Key Vault
     const missing = Object.entries(cfg).filter(([k, v]) => !v && k !== 'customerId');
-    if (missing.length > 0 && process.env.KEY_VAULT_URL) {
-      const kvUrl = process.env.KEY_VAULT_URL;
-      const credential = new DefaultAzureCredential();
-      const client = new SecretClient(kvUrl, credential);
+    if (missing.length > 0 || !cfg.redirectUri) {
       const secretNameMap = {
         developerToken: process.env.GOOGLE_ADS_DEVELOPER_TOKEN_SECRET,
         clientId: process.env.GOOGLE_ADS_CLIENT_ID_SECRET,
@@ -582,19 +662,15 @@ router.get('/google-ads', async (req, res) => {
         refreshToken: process.env.GOOGLE_ADS_REFRESH_TOKEN_SECRET,
         loginCustomerId: process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID_SECRET,
         customerId: process.env.GOOGLE_ADS_CUSTOMER_ID_SECRET,
+        redirectUri: process.env.GOOGLE_ADS_REDIRECT_URI_SECRET,
       };
       for (const [key, envSecretName] of Object.entries(secretNameMap)) {
         if (!cfg[key] && envSecretName) {
-          try {
-            const sec = await client.getSecret(envSecretName);
-            if (sec?.value) {
-              // Only strip dashes for customer IDs; leave tokens/secrets as-is
-              cfg[key] = (key === 'loginCustomerId' || key === 'customerId')
-                ? sec.value.replace(/-/g, '')
-                : sec.value;
-            }
-          } catch (e) {
-            // best effort; continue
+          const secVal = await getSecretFromAnySource(envSecretName);
+          if (secVal) {
+            cfg[key] = (key === 'loginCustomerId' || key === 'customerId')
+              ? secVal.replace(/-/g, '')
+              : secVal;
           }
         }
       }
@@ -626,13 +702,32 @@ router.get('/google-ads', async (req, res) => {
     }
 
     // OAuth2: exchange refresh token for access token
-    const oauth2 = new google.auth.OAuth2(cfg.clientId, cfg.clientSecret, 'urn:ietf:wg:oauth:2.0:oob');
-    oauth2.setCredentials({ refresh_token: cfg.refreshToken });
-    const tokenResp = await oauth2.getAccessToken();
-    const accessToken = typeof tokenResp === 'string' ? tokenResp : tokenResp?.token;
-    if (!accessToken) {
-      return res.status(500).json({ success: false, error: 'Failed to obtain Google Ads access token' });
+    const redirectUri = cfg.redirectUri || 'https://developers.google.com/oauthplayground';
+    let accessToken;
+    try {
+      const oauth2 = new google.auth.OAuth2(cfg.clientId, cfg.clientSecret, redirectUri);
+      oauth2.setCredentials({ refresh_token: cfg.refreshToken });
+      const tokenResp = await oauth2.getAccessToken();
+      accessToken = typeof tokenResp === 'string' ? tokenResp : tokenResp?.token;
+    } catch (e) {
+      const msg = e?.response?.data?.error || e?.message || 'OAuth error';
+      return res.status(500).json({ success: false, error: `Failed to obtain Google Ads access token: ${msg}` });
     }
+    if (!accessToken) {
+      return res.status(500).json({ success: false, error: 'Failed to obtain Google Ads access token (empty token)' });
+    }
+
+    // Allow configurable Google Ads API version; default to a widely supported one
+    let apiVersion = process.env.GOOGLE_ADS_API_VERSION;
+    if (!apiVersion) {
+      const verSecretName = process.env.GOOGLE_ADS_API_VERSION_SECRET;
+      if (verSecretName) {
+        const ver = await getSecretFromAnySource(verSecretName);
+        if (ver) apiVersion = ver;
+      }
+    }
+    apiVersion = (apiVersion || 'v20').toString().trim();
+    if (!/^v\d+$/i.test(apiVersion)) apiVersion = `v${apiVersion.replace(/[^0-9]/g, '') || '20'}`;
 
     // Build GAQL query for daily metrics
     const query = `
@@ -647,7 +742,7 @@ router.get('/google-ads', async (req, res) => {
       ORDER BY segments.date
     `;
 
-  const url = `https://googleads.googleapis.com/v22/customers/${cfg.customerId}/googleAds:search`;
+    const url = `https://googleads.googleapis.com/${apiVersion}/customers/${cfg.customerId}/googleAds:search`;
     const resp = await fetch(url, {
       method: 'POST',
       headers: {
@@ -656,12 +751,36 @@ router.get('/google-ads', async (req, res) => {
         'login-customer-id': cfg.loginCustomerId,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ query, pageSize: 10000 }),
+      body: JSON.stringify({ query }),
     });
 
     if (!resp.ok) {
-      const errText = await resp.text();
-      return res.status(resp.status).json({ success: false, error: `Google Ads API error: ${resp.status} ${errText.slice(0, 500)}` });
+      let errPayload = await resp.text();
+      let errMsg = errPayload;
+      let details = undefined;
+      try {
+        const asJson = JSON.parse(errPayload);
+        errMsg = asJson?.error?.message || JSON.stringify(asJson);
+        const d = asJson?.error?.details;
+        if (Array.isArray(d) && d.length > 0) {
+          // Extract human-readable field violations if present
+          const violations = [];
+          for (const item of d) {
+            const fv = item?.errors || item?.fieldViolations || item?.violations;
+            if (Array.isArray(fv)) {
+              for (const v of fv) {
+                const f = v?.field || v?.fieldPath || v?.location || '';
+                const m = v?.description || v?.message || v?.errorCode || '';
+                violations.push(`${f}: ${m}`.trim());
+              }
+            }
+          }
+          if (violations.length > 0) {
+            details = violations.slice(0, 10); // cap
+          }
+        }
+      } catch (_) { /* plain text/html */ }
+      return res.status(resp.status).json({ success: false, error: `Google Ads API error: ${resp.status} ${String(errMsg).slice(0, 500)}`, details });
     }
     const json = await resp.json();
     const results = Array.isArray(json.results) ? json.results : [];

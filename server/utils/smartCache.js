@@ -131,6 +131,12 @@ async function getCacheAnalytics() {
  */
 async function schedulePeriodicCacheWarming() {
   const WARMING_DATASETS = ['teamData', 'userData', 'enquiries'];
+  function getSelfBaseUrl() {
+    if (process.env.INTERNAL_BASE_URL) return process.env.INTERNAL_BASE_URL.replace(/\/$/, '');
+    if (process.env.WEBSITE_HOSTNAME) return `https://${process.env.WEBSITE_HOSTNAME}`;
+    const port = process.env.PORT || 8080;
+    return `http://localhost:${port}`;
+  }
   
   setInterval(async () => {
     try {
@@ -147,7 +153,8 @@ async function schedulePeriodicCacheWarming() {
         if (ttl > 0 && ttl < 300) {
           console.log(`♨️  Warming ${datasetName} (TTL: ${ttl}s)`);
           // Trigger background refresh via cache preheater
-          fetch('http://localhost:8080/api/cache-preheater/preheat', {
+          const base = getSelfBaseUrl();
+          fetch(`${base}/api/cache-preheater/preheat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ datasets: [datasetName] }),

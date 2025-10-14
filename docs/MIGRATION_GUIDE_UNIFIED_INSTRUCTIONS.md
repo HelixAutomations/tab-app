@@ -79,7 +79,7 @@ router.get('/', async (req, res) => {
 });
 ```
 
-### 3. Environment: `.env.local`
+### 3. Environment: `.env`
 **Added:** Production data configuration
 ```env
 REACT_APP_USE_LOCAL_DATA=false
@@ -134,7 +134,7 @@ REACT_APP_USE_LOCAL_DATA=true   # Uses local test data
 **Fix:** 
 ```bash
 # Set environment variable
-echo "REACT_APP_USE_LOCAL_DATA=false" >> .env.local
+echo "REACT_APP_USE_LOCAL_DATA=false" >> .env
 
 # Restart all Node processes
 taskkill /F /IM node.exe
@@ -150,7 +150,7 @@ npm run dev:all
 curl "https://instructions-vnet-functions.azurewebsites.net/api/fetchInstructionData?code=<YOUR_CODE>"
 
 # Get new code from Azure Portal if expired
-# Update INSTRUCTIONS_FUNC_CODE in .env.local
+# Update INSTRUCTIONS_FUNC_CODE in .env
 ```
 
 ### Issue: Environment Variables Not Loading
@@ -216,4 +216,4 @@ However, this would reintroduce the "patchy" loading behavior and Luke Test inco
 - `docs/UNIFIED_INSTRUCTIONS_ENDPOINT.md` - Detailed API specs
 - `ARCHITECTURE_ANALYSIS.md` - Complete architecture overview  
 - `LOCAL_DEVELOPMENT_SETUP.md` - Environment setup guide
-- `.env.local` - Environment configuration
+- `.env` - Environment configuration

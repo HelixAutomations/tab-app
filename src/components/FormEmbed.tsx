@@ -73,6 +73,13 @@ const FormEmbed: React.FC<FormEmbedProps> = ({ link, userData, teamData, matters
                 data: values,
                 initials: userData?.[0]?.Initials || 'N/A',
             };
+            
+            // Debug logging for file uploads
+            console.log('Form submission payload:', payload);
+            if (values['Disbursement Upload']) {
+                console.log('Disbursement Upload data:', values['Disbursement Upload']);
+            }
+            
             const endpointUrl = `${getProxyBaseUrl()}/${process.env.REACT_APP_POST_FINANCIAL_TASK_PATH}?code=${process.env.REACT_APP_POST_FINANCIAL_TASK_CODE}`;
             try {
                 const response = await fetch(endpointUrl, {

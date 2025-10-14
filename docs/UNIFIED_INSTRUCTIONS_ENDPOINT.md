@@ -214,7 +214,7 @@ App.tsx:319 🔍 Debug: Luke Test found in instructions: true Luke Test
 ### Function Code Rotation
 When function codes expire:
 1. Get new code from Azure Portal → Functions → fetchInstructionData → Function Keys
-2. Update `INSTRUCTIONS_FUNC_CODE` in `.env.local` 
+2. Update `INSTRUCTIONS_FUNC_CODE` in `.env` 
 3. Restart development server to pick up new environment variable
 4. Test endpoint returns 200 status with instruction data
 

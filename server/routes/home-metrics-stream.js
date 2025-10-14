@@ -12,8 +12,18 @@ function writeSse(res, obj) {
   } catch { /* connection likely closed */ }
 }
 
+// Resolve self base URL for internal calls (Azure friendly)
+function getSelfBaseUrl() {
+  if (process.env.INTERNAL_BASE_URL) return process.env.INTERNAL_BASE_URL.replace(/\/$/, '');
+  if (process.env.WEBSITE_HOSTNAME) return `https://${process.env.WEBSITE_HOSTNAME}`;
+  const port = process.env.PORT || 8080;
+  return `http://localhost:${port}`;
+}
+
 // Fetch helpers using internal routes to reuse existing logic/caching
-async function fetchJson(url) {
+async function fetchJson(pathname) {
+  const base = getSelfBaseUrl();
+  const url = `${base}${pathname.startsWith('/') ? '' : '/'}${pathname}`;
   const response = await fetch(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
   if (!response.ok) throw new Error(`${url} -> ${response.status}`);
   return response.json();
@@ -85,16 +95,16 @@ router.get('/stream', async (req, res) => {
       if (!payload) {
         switch (name) {
           case 'transactions':
-            payload = await fetchJson('http://localhost:8080/api/transactions');
+            payload = await fetchJson('/api/transactions');
             break;
           case 'futureBookings':
-            payload = await fetchJson('http://localhost:8080/api/future-bookings');
+            payload = await fetchJson('/api/future-bookings');
             break;
           case 'outstandingBalances':
-            payload = await fetchJson('http://localhost:8080/api/outstanding-balances');
+            payload = await fetchJson('/api/outstanding-balances');
             break;
           case 'poid6Years':
-            payload = await fetchJson('http://localhost:8080/api/poid/6years');
+            payload = await fetchJson('/api/poid/6years');
             break;
           default:
             throw new Error(`Unknown metric: ${name}`);

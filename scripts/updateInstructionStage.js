@@ -4,7 +4,7 @@
  * Usage:
  *   node scripts/updateInstructionStage.js --ref HLX-26710-66409 --stage proof-of-id-complete
  *
- * Reads INSTRUCTIONS_SQL_CONNECTION_STRING from environment (.env/.env.local supported).
+ * Reads INSTRUCTIONS_SQL_CONNECTION_STRING from environment (.env supported).
  */
 const path = require('path');
 const dotenv = require('dotenv');
@@ -12,7 +12,6 @@ const sql = require('mssql');
 
 // Load env from root .env files
 dotenv.config({ path: path.join(__dirname, '../.env') });
-dotenv.config({ path: path.join(__dirname, '../.env.local') });
 
 // Simple arg parser
 function parseArgs(argv) {

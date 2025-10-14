@@ -30,10 +30,15 @@ function sanitizeDataForTask(data: any, context: InvocationContext): any {
     for (const key in sanitised) {
         if (sanitised.hasOwnProperty(key)) {
             const value = sanitised[key];
-            // Accept either fileContent or base64
-            if (value && typeof value === 'object' && 'fileName' in value && (value.fileContent || value.base64)) {
-                context.log(`Sanitise - File uploaded in field "${key}": Name: ${value.fileName}`);
-                sanitised[key] = value.fileName;
+            // Check if this looks like a file object (has fileName and either fileContent or base64)
+            if (value && typeof value === 'object' && 'fileName' in value) {
+                if (value.fileContent || value.base64) {
+                    context.log(`Sanitise - File uploaded in field "${key}": Name: ${value.fileName}`);
+                    sanitised[key] = value.fileName;
+                } else {
+                    context.log(`Sanitise - File object found in field "${key}" but missing content: Name: ${value.fileName}`);
+                    sanitised[key] = `${value.fileName} (file content missing)`;
+                }
             }
         }
     }
@@ -355,42 +360,76 @@ export async function postFinancialTaskHandler(req: HttpRequest, context: Invoca
         // ------------------------------
         const formFolderMapping: { [key: string]: string } = {
             "Payment Requests": "01SHVNVKRYLIPQGFSEVVDIOKCA6LR3LVFU",
-            "Supplier Payments": "01SHVNVKRFJFPCEFOND5C2PJMBMFYWAY7Y",
+            "Supplier Payment/Helix Expense": "01SHVNVKRFJFPCEFOND5C2PJMBMFYWAY7Y",
             "Transfer Request":   "01SHVNVKQXD7PIEWD7W5C2JRE3SJR5FYTC",
             "General Query":      "01SHVNVKSAMI5BILLCIRGIQV67ONCUBBNF"
         };
+        
+        // Different forms use different field names for file uploads
+        const fileFieldMapping: { [key: string]: string } = {
+            "Payment Requests": "Disbursement Upload",
+            "Supplier Payment/Helix Expense": "Invoice Upload", 
+            "General Query": "Attachments"
+        };
+        
         const targetFolderId = formFolderMapping[formType];
-        if (targetFolderId) {
+        const fileFieldName = fileFieldMapping[formType];
+        
+        if (targetFolderId && fileFieldName) {
             if (
-                data["Disbursement Upload"] &&
-                typeof data["Disbursement Upload"] === 'object' &&
-                data["Disbursement Upload"].fileName &&
-                data["Disbursement Upload"].fileType &&
-                (data["Disbursement Upload"].fileContent || data["Disbursement Upload"].base64)
+                data[fileFieldName] &&
+                typeof data[fileFieldName] === 'object'
             ) {
-                const fileData = data["Disbursement Upload"];
-                const fileName = fileData.fileName;
-                const fileContentBase64 = fileData.fileContent || fileData.base64;
-                context.log(`Uploading attachment "${fileName}" for form type "${formType}" to OneDrive folder.`);
-                const graphAccessToken = await getGraphAccessToken(context);
-                const driveId = "b!Yvwb2hcQd0Sccr_JiZEOOEqq1HfNiPFCs8wM4QfDlvVbiAZXWhpCS47xKdZKl8Vd";
-                const uploadResult = await uploadFileToOneDrive(graphAccessToken, driveId, targetFolderId, fileName, fileContentBase64, context);
-                if (uploadResult && uploadResult.id) {
-                    const sharingLink = await createOrgWideLink(graphAccessToken, driveId, uploadResult.id, context);
-                    if (sharingLink) {
-                        description += `\nUploaded File: ${uploadResult.name}\nLink: ${sharingLink}`;
-                        context.log("Updated task description with file link:", description);
-                    } else {
-                        context.warn("Sharing link not created; file link not appended.");
+                const fileData = data[fileFieldName];
+                context.log(`File upload data received for field "${fileFieldName}":`, JSON.stringify(fileData, null, 2));
+                
+                // Check if we have all required properties
+                if (fileData.fileName && fileData.fileType && (fileData.fileContent || fileData.base64)) {
+                    const fileName = fileData.fileName;
+                    const fileContentBase64 = fileData.fileContent || fileData.base64;
+                    context.log(`Uploading attachment "${fileName}" from field "${fileFieldName}" for form type "${formType}" to OneDrive folder.`);
+                    
+                    try {
+                        const graphAccessToken = await getGraphAccessToken(context);
+                        const driveId = "b!Yvwb2hcQd0Sccr_JiZEOOEqq1HfNiPFCs8wM4QfDlvVbiAZXWhpCS47xKdZKl8Vd";
+                        const uploadResult = await uploadFileToOneDrive(graphAccessToken, driveId, targetFolderId, fileName, fileContentBase64, context);
+                        if (uploadResult && uploadResult.id) {
+                            const sharingLink = await createOrgWideLink(graphAccessToken, driveId, uploadResult.id, context);
+                            if (sharingLink) {
+                                description += `\nUploaded File: ${uploadResult.name}\nLink: ${sharingLink}`;
+                                context.log("Updated task description with file link:", description);
+                            } else {
+                                context.warn("Sharing link not created; file link not appended.");
+                            }
+                        } else {
+                            context.warn("Upload result did not contain an ID; file link not appended.");
+                        }
+                    } catch (uploadError) {
+                        context.error("Failed to upload file to OneDrive:", uploadError);
+                        // Continue with task creation even if file upload fails
                     }
                 } else {
-                    context.warn("Upload result did not contain an ID; file link not appended.");
+                    // Log detailed debugging information
+                    context.log(`Attachment data validation failed for field "${fileFieldName}":`);
+                    context.log(`- fileName present: ${!!fileData.fileName} (value: "${fileData.fileName || 'undefined'}")`);
+                    context.log(`- fileType present: ${!!fileData.fileType} (value: "${fileData.fileType || 'undefined'}")`);  
+                    context.log(`- fileContent present: ${!!fileData.fileContent}`);
+                    context.log(`- base64 present: ${!!fileData.base64}`);
+                    context.log("Available properties:", Object.keys(fileData));
+                    context.log("Skipping file upload due to missing required properties.");
+                    
+                    // If we have at least a fileName, mention it in the task description
+                    if (fileData.fileName) {
+                        description += `\nFile mentioned: ${fileData.fileName} (upload failed - missing file data)`;
+                    }
                 }
             } else {
-                context.log("Attachment data is missing required properties. Skipping file upload.");
+                context.log(`No file upload data found in field "${fileFieldName}".`);
             }
-        } else {
+        } else if (!targetFolderId) {
             context.log(`No OneDrive folder mapping found for form type: ${formType}. Skipping file upload.`);
+        } else if (!fileFieldName) {
+            context.log(`No file field mapping found for form type: ${formType}. Skipping file upload.`);
         }
 
         // Build task details for Asana using the updated description.

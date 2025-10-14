@@ -9,7 +9,6 @@ if (typeof fetch === 'undefined') {
 }
 
 require('dotenv').config({ path: path.join(__dirname, '../.env'), override: false });
-require('dotenv').config({ path: path.join(__dirname, '../.env.local'), override: false });
 const express = require('express');
 const morgan = require('morgan');
 const cors = require('cors');

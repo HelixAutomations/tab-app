@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import type { CSSProperties } from 'react';
 import {
   DefaultButton,
@@ -584,9 +584,11 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   const { setContent } = useNavigatorActions();
   const [currentTime, setCurrentTime] = useState(() => new Date());
   const [activeView, setActiveView] = useState<'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport'>('overview');
+  
+  // Memoize handlers to prevent recreation on every render
   const handleBackToOverview = useCallback(() => {
     setActiveView('overview');
-  }, [setActiveView]);
+  }, []);
   const [datasetData, setDatasetData] = useState<DatasetMap>(() => ({
     userData: propUserData ?? cachedData.userData,
     teamData: propTeamData ?? cachedData.teamData,
@@ -621,17 +623,37 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   });
   const [refreshStartedAt, setRefreshStartedAt] = useState<number | null>(null);
 
-  // Helper: set status for a subset of datasets
-  const setStatusesFor = useCallback((keys: DatasetKey[], status: DatasetStatusValue) => {
-    setDatasetStatus(prev => {
-      const next: DatasetStatus = { ...prev };
-      keys.forEach(k => {
-        const prevMeta = prev[k];
-        next[k] = { status, updatedAt: prevMeta?.updatedAt ?? null };
-      });
-      return next;
-    });
+  // Add debounced state updates to prevent excessive re-renders
+  const debounceTimeoutRef = useRef<NodeJS.Timeout>();
+  const pendingStatusUpdatesRef = useRef<Map<DatasetKey, { status: DatasetStatusValue; updatedAt: number | null }>>(new Map());
+
+  const debouncedSetDatasetStatus = useCallback((updates: Map<DatasetKey, { status: DatasetStatusValue; updatedAt: number | null }>) => {
+    if (debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current);
+    }
+    
+    debounceTimeoutRef.current = setTimeout(() => {
+      if (updates.size > 0) {
+        setDatasetStatus(prev => {
+          const next: DatasetStatus = { ...prev };
+          updates.forEach((update, key) => {
+            next[key] = update;
+          });
+          return next;
+        });
+        updates.clear();
+      }
+    }, 100); // 100ms debounce
   }, []);
+
+  // Helper: set status for a subset of datasets with debouncing
+  const setStatusesFor = useCallback((keys: DatasetKey[], status: DatasetStatusValue) => {
+    keys.forEach(k => {
+      const prevMeta = pendingStatusUpdatesRef.current.get(k) || { status: 'idle', updatedAt: null };
+      pendingStatusUpdatesRef.current.set(k, { status, updatedAt: prevMeta.updatedAt });
+    });
+    debouncedSetDatasetStatus(pendingStatusUpdatesRef.current);
+  }, [debouncedSetDatasetStatus]);
 
   // Prepare list of datasets to stream (stable identity across re-renders)
   const streamableDatasets = useMemo(
@@ -776,8 +798,9 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     } catch {/* ignore */}
   }, [streamingDatasets, isStreamingComplete, isStreamingConnected, refreshStartedAt]);
 
+  // Optimize timer - update every 2 seconds instead of every second to reduce CPU usage
   useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    const timer = setInterval(() => setCurrentTime(new Date()), 2000); // 2s intervals for better performance
     return () => clearInterval(timer);
   }, []);
 
@@ -1503,7 +1526,11 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     return () => clearTimeout(preheatingTimer);
   }, [preloadReportingCache]);
 
+  // Add immediate visual feedback for better perceived performance
   const handleOpenDashboard = useCallback(() => {
+    // Immediately show loading state for better UX
+    setActiveView('dashboard');
+    
     // Check if we have recent enough data or need a fresh fetch
     const cacheState = getCacheState();
     const now = Date.now();
@@ -1519,8 +1546,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     } else {
       debugLog('ReportingHome: Opening dashboard with cached data');
     }
-    setActiveView('dashboard');
-  }, [hasFetchedOnce, isFetching, isStreamingConnected, refreshDatasetsWithStreaming, setActiveView]);
+  }, [hasFetchedOnce, isFetching, isStreamingConnected, refreshDatasetsWithStreaming]);
 
   useEffect(() => {
     if (propUserData !== undefined) {
@@ -1548,8 +1574,9 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     }
   }, [propTeamData]);
 
-  const datasetSummaries = useMemo(() => (
-    DATASETS.map((dataset) => {
+  // Memoize expensive dataset summaries computation with better dependency tracking
+  const datasetSummaries = useMemo(() => {
+    return DATASETS.map((dataset) => {
       // Check if this dataset is being streamed
       const streamingState = streamingDatasets[dataset.key];
       const useStreamingState = streamingState && (isStreamingConnected || streamingState.status !== 'idle');
@@ -1575,13 +1602,16 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
         count,
         cached,
       };
-    })
-  ), [datasetData, datasetStatus, streamingDatasets, isStreamingConnected]);
+    });
+  }, [datasetData, datasetStatus, streamingDatasets, isStreamingConnected]);
 
-  const refreshElapsedMs = useMemo(
-    () => (refreshStartedAt ? currentTime.getTime() - refreshStartedAt : 0),
-    [currentTime, refreshStartedAt],
-  );
+  // Optimize elapsed time calculation with reduced precision to prevent excessive re-renders
+  const refreshElapsedMs = useMemo(() => {
+    if (!refreshStartedAt) return 0;
+    const elapsed = currentTime.getTime() - refreshStartedAt;
+    // Round to nearest 500ms to reduce re-render frequency while maintaining smooth UX
+    return Math.round(elapsed / 500) * 500;
+  }, [currentTime, refreshStartedAt]);
 
   const refreshPhaseLabel = useMemo(() => {
     if (!isFetching || !refreshStartedAt) {
@@ -1591,46 +1621,65 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     return phase?.label ?? 'Finalising reporting data…';
   }, [isFetching, refreshElapsedMs, refreshStartedAt]);
 
-  const readyCount = datasetSummaries.filter((summary) => summary.status === 'ready').length;
-  const formattedDate = currentTime.toLocaleDateString('en-GB', {
+  // Memoize expensive calculations that depend on arrays or complex objects
+  const readyCount = useMemo(() => 
+    datasetSummaries.filter((summary) => summary.status === 'ready').length, 
+    [datasetSummaries]
+  );
+  
+  // Optimize date/time formatting with reduced frequency updates (only update every 2 seconds)
+  const formattedDate = useMemo(() => currentTime.toLocaleDateString('en-GB', {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
     year: 'numeric',
-  });
-  const formattedTime = currentTime.toLocaleTimeString('en-GB', {
+  }), [currentTime]);
+  
+  const formattedTime = useMemo(() => currentTime.toLocaleTimeString('en-GB', {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
-  });
+  }), [currentTime]);
 
-  // Determine if we're in an active loading state (vs just completed)
-  const isActivelyLoading = isFetching && (isStreamingConnected || refreshStartedAt !== null);
+  // Memoize loading state calculations to prevent excessive re-computation
+  const isActivelyLoading = useMemo(() => 
+    isFetching && (isStreamingConnected || refreshStartedAt !== null), 
+    [isFetching, isStreamingConnected, refreshStartedAt]
+  );
   
-  // Debug loading state
-  if (isActivelyLoading !== (isFetching && (isStreamingConnected || refreshStartedAt !== null))) {
-    debugLog('ReportingHome: Loading state debug:', { 
-      isActivelyLoading, 
-      isFetching, 
-      isStreamingConnected, 
-      refreshStartedAt,
-      readyCount,
-      total: datasetSummaries.length
-    });
-  }
-  const canUseReports = hasFetchedOnce && readyCount > 0;
+  const canUseReports = useMemo(() => 
+    hasFetchedOnce && readyCount > 0, 
+    [hasFetchedOnce, readyCount]
+  );
 
-  const heroSubtitle = isActivelyLoading
-    ? (refreshPhaseLabel ?? 'Refreshing')
-    : lastRefreshTimestamp
-      ? `Updated ${formatRelativeTime(lastRefreshTimestamp)}`
-      : 'Not refreshed yet';
+  // Memoize progress detail text to prevent string concatenation on every render
+  const progressDetailText = useMemo(() => {
+    if (refreshStartedAt && !isStreamingConnected) {
+      return `Elapsed ${formatDurationMs(refreshElapsedMs)}${refreshPhaseLabel ? ` • ${refreshPhaseLabel}` : ''}`;
+    }
+    if (isStreamingConnected) {
+      return `Elapsed ${formatDurationMs(refreshElapsedMs)} • Progress: ${Math.round(streamingProgress.percentage)}% • Redis caching active`;
+    }
+    return 'Preparing data sources…';
+  }, [refreshStartedAt, isStreamingConnected, refreshElapsedMs, refreshPhaseLabel, streamingProgress.percentage]);
 
-  const heroMetaItems = [
+  // Memoize hero subtitle to prevent frequent updates
+  const heroSubtitle = useMemo(() => {
+    if (isActivelyLoading) {
+      return refreshPhaseLabel ?? 'Refreshing';
+    }
+    if (lastRefreshTimestamp) {
+      return `Updated ${formatRelativeTime(lastRefreshTimestamp)}`;
+    }
+    return 'Not refreshed yet';
+  }, [isActivelyLoading, refreshPhaseLabel, lastRefreshTimestamp]);
+
+  // Memoize hero meta items to prevent array recreation on every render
+  const heroMetaItems = useMemo(() => [
     `${formattedDate} • ${formattedTime}`,
     heroSubtitle,
     `${readyCount}/${datasetSummaries.length} data feeds`,
-  ];
+  ], [formattedDate, formattedTime, heroSubtitle, readyCount, datasetSummaries.length]);
 
   // Safety: if streaming disconnected and nothing is loading, clear fetching flag
   useEffect(() => {
@@ -1782,11 +1831,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               </span>
             </div>
             <span style={refreshProgressDetailStyle(isDarkMode)}>
-              {refreshStartedAt && !isStreamingConnected
-                ? `Elapsed ${formatDurationMs(refreshElapsedMs)}${refreshPhaseLabel ? ` • ${refreshPhaseLabel}` : ''}`
-                : isStreamingConnected
-                  ? `Progress: ${Math.round(streamingProgress.percentage)}% • Redis caching active`
-                  : 'Preparing data sources…'}
+              {progressDetailText}
             </span>
             <div style={refreshProgressDatasetListStyle()}>
               {datasetSummaries.map(({ definition, status }) => {
