@@ -28,6 +28,8 @@ const DATASET_TTL = {
   wipClioCurrentWeek: 600,   // 10 min - Increased from 5min (was 300)
   wipDbLastWeek: 1200, // 20 min - Increased from 10min (was 600)
   wipDbCurrentWeek: 600, // 10 min - current week DB fallback
+  googleAnalytics: 1800, // 30 min - Google Analytics data updates hourly
+  googleAds: 1800,    // 30 min - Google Ads data updates regularly
 };
 
 // Server-Sent Events endpoint for progressive dataset loading
@@ -257,6 +259,12 @@ async function fetchDatasetByName(datasetName, { connectionString, entraId, clio
       return fetchWipDbLastWeek({ connectionString });
     case 'wipDbCurrentWeek':
       return fetchWipDbCurrentWeek({ connectionString });
+    case 'googleAnalytics':
+      return fetchGoogleAnalyticsData(3); // Default to 3 months, TODO: parameterize
+    case 'googleAds':
+      return fetchGoogleAdsData(3); // Default to 3 months, TODO: parameterize
+    case 'metaMetrics':
+      return fetchMetaMetrics(30); // Default to 30 days, TODO: parameterize
     default:
       throw new Error(`Unknown dataset: ${datasetName}`);
   }
@@ -537,6 +545,159 @@ function enumerateMonthlyWindows(from, to) {
     cursor.setMonth(cursor.getMonth() + 1, 1);
   }
   return windows;
+}
+
+// Google Analytics data fetcher
+async function fetchGoogleAnalyticsData(months = 3) {
+  const http = require('http');
+  const querystring = require('querystring');
+  
+  // Calculate date range
+  const endDate = new Date();
+  const startDate = new Date();
+  startDate.setMonth(startDate.getMonth() - months);
+  
+  const params = querystring.stringify({
+    startDate: startDate.toISOString().split('T')[0],
+    endDate: endDate.toISOString().split('T')[0],
+  });
+
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: 'localhost',
+      port: process.env.PORT || 3000,
+      path: `/api/marketing-metrics/ga4?${params}`,
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    };
+
+    const req = http.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
+      res.on('end', () => {
+        try {
+          const result = JSON.parse(data);
+          resolve(result);
+        } catch (error) {
+          reject(new Error(`Failed to parse Google Analytics response: ${error.message}`));
+        }
+      });
+    });
+
+    req.on('error', (error) => {
+      reject(new Error(`Google Analytics request failed: ${error.message}`));
+    });
+
+    req.end();
+  });
+}
+
+// Google Ads data fetcher
+async function fetchGoogleAdsData(months = 3) {
+  const http = require('http');
+  const querystring = require('querystring');
+  
+  // Calculate date range
+  const endDate = new Date();
+  const startDate = new Date();
+  startDate.setMonth(startDate.getMonth() - months);
+  
+  const params = querystring.stringify({
+    startDate: startDate.toISOString().split('T')[0],
+    endDate: endDate.toISOString().split('T')[0],
+  });
+
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: 'localhost',
+      port: process.env.PORT || 3000,
+      path: `/api/marketing-metrics/google-ads?${params}`,
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    };
+
+    const req = http.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
+      res.on('end', () => {
+        try {
+          const result = JSON.parse(data);
+          resolve(result);
+        } catch (error) {
+          reject(new Error(`Failed to parse Google Ads response: ${error.message}`));
+        }
+      });
+    });
+
+    req.on('error', (error) => {
+      reject(new Error(`Google Ads request failed: ${error.message}`));
+    });
+
+    req.end();
+  });
+}
+
+async function fetchMetaMetrics(daysBack = 30) {
+  const http = require('http');
+  const querystring = require('querystring');
+  
+  const params = querystring.stringify({
+    daysBack: daysBack
+  });
+
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: 'localhost',
+      port: process.env.PORT || 3000,
+      path: `/api/marketing-metrics?${params}`,
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    };
+
+    const req = http.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
+      res.on('end', () => {
+        try {
+          const response = JSON.parse(data);
+          if (response.success && response.data) {
+            // Return just the daily metrics array with metaAds data
+            resolve(response.data);
+          } else {
+            resolve([]); // Return empty array on failure
+          }
+        } catch (error) {
+          console.error('Error parsing Meta metrics response:', error);
+          resolve([]); // Return empty array on parse error
+        }
+      });
+    });
+
+    req.on('error', (error) => {
+      console.error('Error fetching Meta metrics:', error);
+      resolve([]); // Return empty array on request error
+    });
+
+    req.setTimeout(10000, () => {
+      console.error('Meta metrics request timed out');
+      req.destroy();
+      resolve([]); // Return empty array on timeout
+    });
+
+    req.end();
+  });
 }
 
 module.exports = router;

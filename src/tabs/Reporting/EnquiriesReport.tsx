@@ -923,8 +923,8 @@ function containerStyle(isDark: boolean): React.CSSProperties {
     display: 'flex',
     flexDirection: 'column',
     gap: 16,
-    background: isDark ? colours.dark.background : colours.light.background,
-    padding: '18px 22px',
+    background: 'transparent',
+    padding: 0,
     minHeight: '100%',
   };
 }

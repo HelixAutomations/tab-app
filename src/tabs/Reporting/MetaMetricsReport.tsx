@@ -7,6 +7,14 @@ import { getNormalizedEnquirySourceLabel } from '../../utils/enquirySource';
 import { Enquiry } from '../../app/functionality/types';
 import './ManagementDashboard.css';
 
+// Add CSS keyframes for spinner animation
+const spinKeyframes = `
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+`;
+
 // Safe import of Recharts components
 let LineChart: any, Line: any, XAxis: any, YAxis: any, CartesianGrid: any, Tooltip: any, Legend: any, ResponsiveContainer: any, AreaChart: any, Area: any;
 
@@ -24,6 +32,14 @@ try {
   Area = recharts.Area;
 } catch (error) {
   console.warn('Recharts not available, charts will be disabled');
+}
+
+// Inject CSS for spinner animation
+if (typeof document !== 'undefined') {
+  const styleSheet = document.createElement('style');
+  styleSheet.type = 'text/css';
+  styleSheet.innerText = spinKeyframes;
+  document.head.appendChild(styleSheet);
 }
 
 interface MetaMetricsReportProps {
@@ -106,14 +122,19 @@ const RANGE_OPTIONS: Array<{ key: RangeKey; label: string }> = [
   { key: 'year', label: 'Current Year' },
 ];
 
-// Helper function for consistent surface styling (matches EnquiriesReport)
+// Helper function for consistent surface styling - Updated to match glass container approach
 function surface(isDark: boolean, overrides: React.CSSProperties = {}): React.CSSProperties {
   return {
-    background: isDark ? 'rgba(15, 23, 42, 0.88)' : '#FFFFFF',
+    background: 'rgba(255, 255, 255, 0.02)',
+    backdropFilter: 'blur(12px) saturate(150%)',
+    WebkitBackdropFilter: 'blur(12px) saturate(150%)',
     borderRadius: 12,
-    border: `1px solid ${isDark ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.06)'}`,
-    boxShadow: isDark ? '0 2px 10px rgba(0, 0, 0, 0.22)' : '0 2px 8px rgba(15, 23, 42, 0.06)',
+    border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(255, 255, 255, 0.2)'}`,
+    boxShadow: isDark 
+      ? '0 4px 16px rgba(0, 0, 0, 0.25), 0 1px 4px rgba(0, 0, 0, 0.15)'
+      : '0 4px 16px rgba(15, 23, 42, 0.08), 0 1px 4px rgba(15, 23, 42, 0.04)',
     padding: 16,
+    transition: 'all 0.3s ease',
     ...overrides,
   };
 }
@@ -245,47 +266,12 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
     if (!metaMetrics) return [];
     
     if (!range) {
-      console.log('No range filter - returning all metrics');
       return metaMetrics;
     }
     
-    console.log('Filtering metrics with range:', {
-      rangeKey,
-      startDate: range.start.toISOString(),
-      endDate: range.end.toISOString(),
-      totalMetrics: metaMetrics.length,
-      sampleDates: metaMetrics.slice(0, 3).map(m => ({
-        raw: m.date,
-        parsed: new Date(m.date).toISOString(),
-        type: typeof m.date
-      }))
-    });
-    
-    const filtered = metaMetrics.filter((metric, index) => {
+    const filtered = metaMetrics.filter((metric) => {
       const metricDate = new Date(metric.date);
-      const isInRange = metricDate >= range.start && metricDate <= range.end;
-      
-      if (index < 3) { // Log first 3 for debugging
-        console.log(`Metric ${index}:`, {
-          rawDate: metric.date,
-          parsedDate: metricDate.toISOString(),
-          rangeStart: range.start.toISOString(),
-          rangeEnd: range.end.toISOString(),
-          isInRange,
-          comparison: {
-            afterStart: metricDate >= range.start,
-            beforeEnd: metricDate <= range.end
-          }
-        });
-      }
-      
-      return isInRange;
-    });
-    
-    console.log('Filter complete:', {
-      originalCount: metaMetrics.length,
-      filteredCount: filtered.length,
-      filteredDates: filtered.slice(0, 3).map(m => new Date(m.date).toLocaleDateString())
+      return metricDate >= range.start && metricDate <= range.end;
     });
     
     return filtered;
@@ -360,25 +346,7 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
   // Function to check if an enquiry has been pitched by matching with deals
   const getEnquiryPitchStatus = useCallback((enquiry: Enquiry) => {
     if (!instructionData?.deals) {
-      // Only log this once to avoid spam
-      if (!(window as any).noDealDataLogged) {
-        console.log('⚠️ No instruction data available for pitch matching');
-        (window as any).noDealDataLogged = true;
-      }
       return { isPitched: false, pitchDate: null };
-    }
-    
-    // Reset the no-data flag when we have data
-    (window as any).noDealDataLogged = false;
-    
-    // Debug: Log sample deal structure once
-    if (!(window as any).dealStructureLogged && instructionData.deals.length > 0) {
-      console.log('📋 Sample deal structure:', instructionData.deals[0]);
-      console.log('📋 All available fields in first deal:', Object.keys(instructionData.deals[0]));
-      console.log('📋 Date-related fields:', Object.keys(instructionData.deals[0]).filter(key => 
-        key.toLowerCase().includes('date') || key.toLowerCase().includes('created') || key.toLowerCase().includes('time')
-      ));
-      (window as any).dealStructureLogged = true;
     }
     
     // Since enquiries don't have ProspectId/ACID, we need to match by client info
@@ -453,21 +421,6 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
       return false;
     });
     
-    // Debug logging for instruction conversion analysis
-    if ((enquiry.First_Name === 'Mohammad' && enquiry.Last_Name === 'Khawaja') || 
-        (enquiry.First_Name === 'Amanda' && enquiry.Last_Name === 'Townsend')) {
-      console.log(`Instruction debug for ${enquiry.First_Name} ${enquiry.Last_Name}:`, {
-        email: enquiryEmail,
-        hasDeal: !!matchingDeal,
-        dealData: matchingDeal ? {
-          InstructionRef: (matchingDeal as any).InstructionRef,
-          LeadClientEmail: (matchingDeal as any).LeadClientEmail,
-          FirstName: (matchingDeal as any).FirstName,
-          LastName: (matchingDeal as any).LastName
-        } : null
-      });
-    }
-    
     // If no deal found, not instructed
     if (!matchingDeal || !(matchingDeal as any).InstructionRef) {
       return { hasInstruction: false, instructionRef: null, isProofOfIdComplete: false };
@@ -491,19 +444,6 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
     
     const isInstructed = internalStatus === 'paid';
     const isProofOfIdComplete = stage === 'proof-of-id-complete' && internalStatus === 'poid';
-    
-    // Debug logging for instruction status analysis
-    if ((enquiry.First_Name === 'Mohammad' && enquiry.Last_Name === 'Khawaja') || 
-        (enquiry.First_Name === 'Amanda' && enquiry.Last_Name === 'Townsend')) {
-      console.log(`Instruction status for ${enquiry.First_Name} ${enquiry.Last_Name}:`, {
-        instructionRef,
-        stage,
-        internalStatus,
-        isInstructed,
-        isProofOfIdComplete,
-        instructionData: matchingInstruction
-      });
-    }
     
     return { 
       hasInstruction: isInstructed, 
@@ -627,7 +567,6 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
           return isNaN(numValue) ? 0 : numValue;
         }
         
-        console.log('Unmapped value band:', valueText);
         return 0;
     }
   };
@@ -652,52 +591,9 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
     }
 
     // Filter enquiries to Meta Ads source within the date range
-    // Debug: Log instruction data summary
-    if (!(window as any).instructionDataLogged && instructionData) {
-      console.log('📋 Instruction data summary:', {
-        totalInstructions: instructionData.instructions?.length || 0,
-        totalDeals: instructionData.deals?.length || 0,
-        sampleInstruction: instructionData.instructions?.[0],
-        sampleDeal: instructionData.deals?.[0],
-        instructionStages: instructionData.instructions?.slice(0, 10).map(inst => ({
-          ref: (inst as any).ref || (inst as any).InstructionRef,
-          stage: (inst as any).Stage || (inst as any).stage,
-          internalStatus: (inst as any).InternalStatus || (inst as any).internalStatus
-        }))
-      });
-      (window as any).instructionDataLogged = true;
-    }
-
-    // Debug: Log all enquiries being classified as Meta Ads
-    if (!(window as any).metaSourcesLogged) {
-      const metaSources = enquiries
-        .map(enquiry => ({
-          name: `${enquiry.First_Name} ${enquiry.Last_Name}`,
-          Ultimate_Source: enquiry.Ultimate_Source,
-          normalizedSource: getNormalizedEnquirySourceLabel(enquiry),
-          Method_of_Contact: enquiry.Method_of_Contact,
-          Referral_URL: enquiry.Referral_URL
-        }))
-        .filter(e => e.normalizedSource === 'Meta Ads')
-        .slice(0, 10);
-      
-      console.log('Enquiries classified as Meta Ads:', metaSources);
-      (window as any).metaSourcesLogged = true;
-    }
-
     const metaEnquiries = enquiries.filter(enquiry => {
       const source = getNormalizedEnquirySourceLabel(enquiry);
       const isMetaSource = source === 'Meta Ads';
-      
-      // Debug logging for specific enquiry
-      if (enquiry.First_Name === 'Mohammad' && enquiry.Last_Name === 'Khawaja') {
-        console.log('Mohammad Khawaja debug:', {
-          Ultimate_Source: enquiry.Ultimate_Source,
-          normalizedSource: source,
-          isMetaSource,
-          enquiry
-        });
-      }
       
       if (!isMetaSource) return false;
       
@@ -720,17 +616,6 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
     }
 
     const totalEnquiries = metaEnquiries.length;
-    
-    // Log pitch matching summary when we have both enquiries and instruction data
-    if (totalEnquiries > 0 && instructionData?.deals && !(window as any).pitchSummaryLogged) {
-      const pitchedCount = metaEnquiries.filter(enquiry => getEnquiryPitchStatus(enquiry).isPitched).length;
-      const instructedCount = metaEnquiries.filter(enquiry => getEnquiryInstructionStatus(enquiry).hasInstruction).length;
-      console.log(`📈 Conversion Summary: ${pitchedCount}/${totalEnquiries} pitched, ${instructedCount}/${totalEnquiries} instructed`);
-      (window as any).pitchSummaryLogged = true;
-    } else if (totalEnquiries > 0 && !instructionData?.deals && !(window as any).noPitchDataLogged) {
-      console.log('⚠️ Cannot calculate conversion summary - no instruction data available');
-      (window as any).noPitchDataLogged = true;
-    }
     
     // Calculate pitch and instruction conversion metrics
     const pitchedCount = totalEnquiries > 0 && instructionData?.deals ? 
@@ -792,7 +677,6 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
         const data = await response.json();
         if (data.success) {
           setAdData(data.data);
-          console.log('Ad data loaded:', data.data.length, 'ads');
         }
       }
     } catch (error) {
@@ -813,7 +697,6 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
           instructions: data.instructions || [],
           deals: data.deals || []
         });
-        console.log('✅ Instruction data loaded:', data.deals?.length || 0, 'deals for pitch matching');
       } else {
         console.error('❌ Failed to fetch instruction data:', response.status, response.statusText);
       }
@@ -834,7 +717,6 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
     
     // Check if we should rate limit this request
     if (now - lastClioSearch < RATE_LIMIT_DELAY) {
-      console.log(`⏳ Clio search rate limited. Last search was ${Math.round((now - lastClioSearch) / 1000)}s ago`);
       return;
     }
     
@@ -845,22 +727,18 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
       
       const isExpired = now - cached.timestamp > CACHE_DURATION;
       if (isExpired) {
-        console.log(`🗑️ Cache expired for ${email} (${Math.round((now - cached.timestamp) / 1000 / 60)} mins old)`);
         return true; // Expired, need to refresh
       }
       
       // Use cached result
-      console.log(`💾 Using cached result for ${email}`);
       setClioSearchResults(prev => ({...prev, [email]: cached.result}));
       return false; // Don't search, use cache
     });
     
     if (emailsToSearch.length === 0) {
-      console.log(`📧 All ${emails.length} emails already cached - no Clio API calls needed`);
       return;
     }
     
-    console.log(`📧 Searching Clio for ${emailsToSearch.length}/${emails.length} emails (${emails.length - emailsToSearch.length} cached)`);
     setIsLoadingClioSearch(true);
     setLastClioSearch(now);
     
@@ -889,8 +767,6 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
           
           setClioSearchResults(prev => ({...prev, ...newResults}));
           setClioSearchCache(prev => ({...prev, ...newCacheEntries}));
-          
-          console.log(`🔍 Clio search completed: ${data.summary.totalFound}/${data.summary.totalSearched} contacts found, cached for 10 minutes`);
         } else {
           console.error('❌ Clio search failed:', data.error);
         }
@@ -906,7 +782,6 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
 
   // Clear Clio cache manually
   const clearClioCache = useCallback(() => {
-    console.log('🗑️ Clearing Clio cache and forcing refresh');
     setClioSearchCache({});
     setClioSearchResults({});
     setLastClioSearch(0);
@@ -920,7 +795,6 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
       ));
       
       if (uniqueEmails.length > 0) {
-        console.log(`📧 Re-starting fresh Clio contact search for ${uniqueEmails.length} unique email addresses`);
         searchClioContacts(uniqueEmails);
       }
     }
@@ -942,7 +816,6 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
       ));
       
       if (uniqueEmails.length > 0) {
-        console.log(`📧 Starting Clio contact search for ${uniqueEmails.length} unique email addresses`);
         searchClioContacts(uniqueEmails);
       }
     }
@@ -992,49 +865,159 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
     return `${days}d ago`;
   };
 
-  const getDatePickerStyles = (isDarkMode: boolean): Partial<IDatePickerStyles> => ({
-    root: { maxWidth: 220 },
-    textField: {
-      root: { fontFamily: 'Raleway, sans-serif !important', width: '100% !important' },
-      fieldGroup: {
-        height: '36px !important',
-        borderRadius: '8px !important',
-        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.18)'} !important`,
-        background: `${isDarkMode ? 'rgba(15, 23, 42, 0.9)' : 'rgba(255, 255, 255, 0.95)'} !important`,
-        padding: '0 14px !important',
-      },
-      field: {
-        fontSize: '14px !important',
-        fontFamily: 'Raleway, sans-serif !important',
-        fontWeight: '500 !important',
-      },
-    },
-  });
+  const getDatePickerStyles = (isDarkMode: boolean): Partial<IDatePickerStyles> => {
+    const baseBorder = isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.18)';
+    const hoverBorder = isDarkMode ? 'rgba(135, 206, 255, 0.5)' : 'rgba(54, 144, 206, 0.4)';
+    const focusBorder = isDarkMode ? '#87ceeb' : colours.highlight;
+    const backgroundColour = isDarkMode ? 'rgba(15, 23, 42, 0.9)' : 'rgba(255, 255, 255, 0.95)';
+    const hoverBackground = isDarkMode ? 'rgba(15, 23, 42, 0.95)' : 'rgba(248, 250, 252, 1)';
+    const focusBackground = isDarkMode ? 'rgba(15, 23, 42, 1)' : 'rgba(255, 255, 255, 1)';
 
-  const getRangeButtonStyles = (isDarkMode: boolean, active: boolean): IButtonStyles => ({
+    return {
+      root: { 
+        maxWidth: 220,
+        '.ms-DatePicker': {
+          fontFamily: 'Raleway, sans-serif !important',
+        }
+      },
+      textField: {
+        root: {
+          fontFamily: 'Raleway, sans-serif !important',
+          width: '100% !important',
+        },
+        fieldGroup: {
+          height: '36px !important',
+          borderRadius: '8px !important',
+          border: `1px solid ${baseBorder} !important`,
+          background: `${backgroundColour} !important`,
+          padding: '0 14px !important',
+          boxShadow: isDarkMode 
+            ? '0 2px 4px rgba(0, 0, 0, 0.2) !important' 
+            : '0 1px 3px rgba(15, 23, 42, 0.08) !important',
+          transition: 'all 0.2s ease !important',
+          selectors: {
+            ':hover': {
+              border: `1px solid ${hoverBorder} !important`,
+              background: `${hoverBackground} !important`,
+              boxShadow: isDarkMode 
+                ? '0 4px 8px rgba(0, 0, 0, 0.25) !important' 
+                : '0 2px 6px rgba(15, 23, 42, 0.12) !important',
+              transform: 'translateY(-1px) !important',
+            },
+            ':focus-within': {
+              border: `1px solid ${focusBorder} !important`,
+              background: `${focusBackground} !important`,
+              boxShadow: isDarkMode 
+                ? `0 0 0 3px rgba(135, 206, 235, 0.1), 0 4px 12px rgba(0, 0, 0, 0.25) !important`
+                : `0 0 0 3px rgba(54, 144, 206, 0.1), 0 2px 8px rgba(15, 23, 42, 0.15) !important`,
+              transform: 'translateY(-1px) !important',
+            }
+          }
+        },
+        field: {
+          fontSize: '14px !important',
+          color: `${isDarkMode ? colours.dark.text : colours.light.text} !important`,
+          fontFamily: 'Raleway, sans-serif !important',
+          fontWeight: '500 !important',
+          background: 'transparent !important',
+          lineHeight: '20px !important',
+          border: 'none !important',
+          outline: 'none !important',
+        },
+      },
+      icon: {
+        color: `${isDarkMode ? colours.highlight : colours.missedBlue} !important`,
+        fontSize: '16px !important',
+        fontWeight: 'bold !important',
+      },
+      callout: {
+        fontSize: '14px !important',
+        borderRadius: '12px !important',
+        border: `1px solid ${baseBorder} !important`,
+        boxShadow: isDarkMode 
+          ? '0 8px 24px rgba(0, 0, 0, 0.4) !important' 
+          : '0 6px 20px rgba(15, 23, 42, 0.15) !important',
+      },
+      wrapper: { 
+        borderRadius: '12px !important',
+      },
+    };
+  };
+
+  // Refresh functionality
+  const [refreshIndicatorKey, setRefreshIndicatorKey] = useState(0);
+
+  const refresh = () => {
+    setRefreshIndicatorKey(prev => prev + 1);
+    handleRefresh();
+  };
+
+  const subtleActionButtonStyles = (isDarkMode: boolean): IButtonStyles => ({
     root: {
-      borderRadius: 999,
-      border: active 
-        ? `1px solid ${isDarkMode ? 'rgba(135, 176, 255, 0.5)' : 'rgba(13, 47, 96, 0.32)'}`
-        : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.16)'}`,
-      padding: '0 12px',
-      minHeight: 32,
-      height: 32,
-      fontWeight: 600,
-      fontSize: 13,
-      color: active ? '#ffffff' : (isDarkMode ? '#E2E8F0' : colours.missedBlue),
-      background: active ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.16)' : 'transparent'),
-      fontFamily: 'Raleway, sans-serif',
-      transition: 'all 0.2s ease',
+      height: 28,
+      borderRadius: 14,
+      fontSize: 12,
+      padding: '0 10px',
+      background: 'transparent',
+      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.18)'}`,
+      color: isDarkMode ? '#E2E8F0' : colours.missedBlue,
+      minWidth: 'unset',
     },
     rootHovered: {
-      background: active ? '#2f7cb3' : (isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(54, 144, 206, 0.12)'),
+      background: isDarkMode ? 'rgba(148, 163, 184, 0.10)' : 'rgba(148, 163, 184, 0.08)',
+    },
+    rootPressed: {
+      background: isDarkMode ? 'rgba(148, 163, 184, 0.16)' : 'rgba(148, 163, 184, 0.12)',
     },
   });
 
+  const getRangeButtonStyles = (isDarkMode: boolean, active: boolean): IButtonStyles => {
+    const activeBackground = colours.highlight;
+    const inactiveBackground = isDarkMode ? 'rgba(148, 163, 184, 0.16)' : 'transparent';
+
+    const resolvedBackground = active ? activeBackground : inactiveBackground;
+    const resolvedBorder = active
+      ? `1px solid ${isDarkMode ? 'rgba(135, 176, 255, 0.5)' : 'rgba(13, 47, 96, 0.32)'}`
+      : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.16)'}`;
+    const resolvedColor = active ? '#ffffff' : (isDarkMode ? '#E2E8F0' : colours.missedBlue);
+
+    return {
+      root: {
+        display: 'inline-flex',
+        alignItems: 'center',
+        whiteSpace: 'nowrap' as const,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        borderRadius: 999,
+        border: resolvedBorder,
+        padding: '0 12px',
+        minHeight: 32,
+        height: 32,
+        fontWeight: 600,
+        fontSize: 13,
+        color: resolvedColor,
+        background: resolvedBackground,
+        boxShadow: active ? '0 2px 8px rgba(54, 144, 206, 0.25)' : 'none',
+        fontFamily: 'Raleway, sans-serif',
+        cursor: 'pointer',
+        transition: 'all 0.2s ease',
+      },
+      rootHovered: {
+        background: active 
+          ? '#2f7cb3'
+          : (isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(54, 144, 206, 0.12)'),
+      },
+      rootPressed: {
+        background: active 
+          ? '#266795'
+          : (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(54, 144, 206, 0.16)'),
+      },
+    };
+  };
+
   const containerStyle = {
-    padding: '24px',
-    backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
+    padding: 0,
+    backgroundColor: 'transparent',
     minHeight: '100vh',
     color: isDarkMode ? colours.dark.text : colours.light.text,
     fontFamily: 'Raleway, sans-serif',
@@ -1065,61 +1048,12 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
 
   return (
     <div style={containerStyle}>
-      {/* Header Section */}
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'flex-start',
-        marginBottom: '16px',
-        flexWrap: 'wrap',
-        gap: '16px'
-      }}>
-        <div>
-          <h1 style={{
-            ...headerStyle,
-            marginBottom: '4px'
-          }}>Meta Analytics</h1>
-          <p style={{
-            ...subHeaderStyle,
-            margin: 0
-          }}>
-            Facebook advertising performance insights
-          </p>
-        </div>
-        
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-          {lastRefreshTimestamp && (
-            <div style={{ 
-              fontSize: '12px',
-              color: isDarkMode ? colours.dark.subText : colours.light.subText,
-              textAlign: 'right',
-              fontFamily: 'Raleway, sans-serif'
-            }}>
-              <div>Updated {new Date(lastRefreshTimestamp).toLocaleTimeString()}</div>
-            </div>
-          )}
-          
-          <PrimaryButton
-            text={isRefreshing ? 'Refreshing...' : 'Refresh'}
-            onClick={handleRefresh}
-            disabled={isRefreshing || isFetching}
-            iconProps={isRefreshing ? undefined : { iconName: 'Refresh' }}
-            styles={{
-              root: {
-                backgroundColor: colours.cta,
-                borderColor: colours.cta,
-                fontFamily: 'Raleway, sans-serif',
-              },
-            }}
-          />
-        </div>
-      </div>
-
       {/* Navigation Surface */}
-      <div style={surface(isDarkMode)}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {/* Date Range Display */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
+      <div className="filter-toolbar">
+        <div style={surface(isDarkMode)}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {/* Date Range Display */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
             {rangeKey === 'custom' && customDateRange ? (
               <div style={{ display: 'flex', gap: 8 }}>
                 <DatePicker
@@ -1212,6 +1146,17 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
                   </>
                 )}
               </div>
+              
+              {/* Refresh Button */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <DefaultButton
+                  text={isFetching ? 'Refreshing…' : 'Refresh data'}
+                  iconProps={{ iconName: 'Refresh' }}
+                  onClick={refresh}
+                  disabled={isFetching}
+                  styles={subtleActionButtonStyles(isDarkMode)}
+                />
+              </div>
             </div>
           </div>
 
@@ -1281,6 +1226,7 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
             )}
           </div>
         </div>
+      </div>
       </div>
 
       {/* Loading State */}
@@ -1589,56 +1535,55 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
             {/* Recent Meta Enquiries */}
             {metaEnquiryStats.enquiries.length > 0 && (
               <div style={{ marginTop: '24px' }}>
-                <h4 style={{ 
-                  color: isDarkMode ? colours.dark.text : colours.light.text,
-                  marginBottom: '12px',
-                  fontSize: '16px'
-                }}>Recent Meta Enquiries ({metaEnquiryStats.enquiries.length})</h4>
-                
-                {/* Clio Search Summary */}
-                {Object.keys(clioSearchResults).length > 0 && (
-                  <div style={{
-                    fontSize: '12px',
-                    marginBottom: '8px',
-                    padding: '8px',
-                    backgroundColor: isDarkMode ? 'rgba(59, 130, 246, 0.1)' : 'rgba(59, 130, 246, 0.05)',
-                    borderRadius: '4px',
-                    border: '1px solid rgba(59, 130, 246, 0.2)',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center'
-                  }}>
-                    <div>
-                      <span style={{ color: colours.accent, fontWeight: 600 }}>🔍 Clio Validation: </span>
-                      {(() => {
-                        const totalSearched = Object.keys(clioSearchResults).length;
-                        const foundContacts = Object.values(clioSearchResults).filter(contact => contact !== null).length;
-                        const contactsWithMatters = Object.values(clioSearchResults).filter(contact => contact && contact.matters && contact.matters.length > 0).length;
-                        const cachedCount = Object.keys(clioSearchCache).length;
-                        
-                        return `${foundContacts}/${totalSearched} contacts found, ${contactsWithMatters} with matters${cachedCount > 0 ? ` (${cachedCount} cached)` : ''}`;
-                      })()}
-                      {isLoadingClioSearch && <span style={{ opacity: 0.7 }}> (searching...)</span>}
-                    </div>
-                    <button
-                      onClick={clearClioCache}
-                      disabled={isLoadingClioSearch}
-                      style={{
-                        padding: '4px 8px',
-                        fontSize: '10px',
-                        backgroundColor: 'transparent',
-                        border: '1px solid rgba(59, 130, 246, 0.4)',
-                        borderRadius: '3px',
-                        color: colours.accent,
-                        cursor: isLoadingClioSearch ? 'not-allowed' : 'pointer',
-                        opacity: isLoadingClioSearch ? 0.5 : 1
-                      }}
-                      title="Clear cache and refresh Clio search results"
-                    >
-                      🔄 Refresh
-                    </button>
-                  </div>
-                )}
+                <div style={{ 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center',
+                  marginBottom: '12px'
+                }}>
+                  <h4 style={{ 
+                    color: isDarkMode ? colours.dark.text : colours.light.text,
+                    fontSize: '16px',
+                    margin: 0
+                  }}>Recent Meta Enquiries ({metaEnquiryStats.enquiries.length})</h4>
+                  
+                  <button
+                    onClick={handleRefresh}
+                    disabled={isRefreshing}
+                    style={{
+                      padding: '8px 12px',
+                      fontSize: '14px',
+                      backgroundColor: isDarkMode ? 'rgba(59, 130, 246, 0.1)' : 'rgba(59, 130, 246, 0.05)',
+                      border: '1px solid rgba(59, 130, 246, 0.3)',
+                      borderRadius: '6px',
+                      color: colours.accent,
+                      cursor: isRefreshing ? 'not-allowed' : 'pointer',
+                      opacity: isRefreshing ? 0.6 : 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      transition: 'all 0.2s ease'
+                    }}
+                    title="Refresh Meta metrics data"
+                    onMouseEnter={(e) => {
+                      if (!isRefreshing) {
+                        e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(59, 130, 246, 0.15)' : 'rgba(59, 130, 246, 0.1)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(59, 130, 246, 0.1)' : 'rgba(59, 130, 246, 0.05)';
+                    }}
+                  >
+                    <FontIcon 
+                      iconName="Refresh" 
+                      style={{ 
+                        fontSize: '16px',
+                        animation: isRefreshing ? 'spin 1s linear infinite' : 'none'
+                      }} 
+                    />
+                    Refresh
+                  </button>
+                </div>
                 
                 <div style={{ 
                   maxHeight: '400px',
@@ -1649,7 +1594,7 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
                   {/* Table Header */}
                   <div style={{
                     display: 'grid',
-                    gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 1fr 1fr',
+                    gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 1fr',
                     gap: '12px',
                     padding: '12px',
                     backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.6)' : 'rgba(248, 250, 252, 0.8)',
@@ -1666,7 +1611,6 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
                     <div>Claimed</div>
                     <div>Pitched</div>
                     <div>Conversion</div>
-                    <div>Clio</div>
                     <div>Enquiry Date</div>
                   </div>
                   
@@ -1674,7 +1618,7 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
                   {metaEnquiryStats.enquiries.map((enquiry, index) => (
                     <div key={`enquiry-${enquiry.ID}-${index}`} style={{
                       display: 'grid',
-                      gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 1fr 1fr',
+                      gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 1fr',
                       gap: '12px',
                       padding: '12px',
                       borderBottom: index < metaEnquiryStats.enquiries.length - 1 ? 
@@ -1705,20 +1649,6 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
                       {/* Value Column */}
                       <div style={{ fontWeight: 500, color: colours.accent }}>
                         {(() => {
-                          // Debug: Log value data for first few enquiries
-                          if (!(window as any).valueDebugLogged) {
-                            console.log('🔍 Value Debug - First 5 enquiries:');
-                            metaEnquiryStats.enquiries.slice(0, 5).forEach((enq, i) => {
-                              console.log(`${i+1}. ${enq.First_Name} ${enq.Last_Name}:`, {
-                                Value: enq.Value,
-                                ValueType: typeof enq.Value,
-                                ValueString: String(enq.Value),
-                                ParsedFloat: parseFloat(String(enq.Value))
-                              });
-                            });
-                            (window as any).valueDebugLogged = true;
-                          }
-                          
                           // Get value from Value field or Facebook lead notes
                           const enquiryValue = getEnquiryValue(enquiry);
                           if (!enquiryValue || enquiryValue.trim() === '') return '—';
@@ -1849,60 +1779,6 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
                               )}
                             </div>
                           );
-                        })()}
-                      </div>
-                      
-                      {/* Clio Column */}
-                      <div>
-                        {(() => {
-                          // Check Clio contact status
-                          const clioContact = clioSearchResults[enquiry.Email];
-                          const isLoading = isLoadingClioSearch && !clioSearchResults.hasOwnProperty(enquiry.Email);
-                          
-                          if (isLoading) {
-                            return (
-                              <div style={{
-                                fontWeight: 600,
-                                color: '#64748b',
-                                fontSize: '11px'
-                              }}>
-                                Searching...
-                              </div>
-                            );
-                          }
-                          
-                          if (clioContact) {
-                            const hasMatter = clioContact.matters && clioContact.matters.length > 0;
-                            const matterCount = clioContact.matters?.length || 0;
-                            return (
-                              <div>
-                                <div style={{
-                                  fontWeight: 600,
-                                  color: hasMatter ? '#10b981' : '#3b82f6',
-                                  fontSize: '11px'
-                                }}>
-                                  {hasMatter ? `${matterCount} Matter(s)` : 'Contact Found'}
-                                </div>
-                                <div style={{ 
-                                  opacity: 0.7,
-                                  fontSize: '9px',
-                                  marginTop: '1px'
-                                }}>
-                                  {clioContact.name}
-                                </div>
-                              </div>
-                            );
-                          } else {
-                            return (
-                              <div style={{
-                                fontWeight: 600,
-                                color: '#ef4444',
-                                fontSize: '11px'
-                              }}>
-                                Not Found
-                              </div>
-                            );
-                          }
                         })()}
                       </div>
                       

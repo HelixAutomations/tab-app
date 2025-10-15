@@ -16,6 +16,7 @@ import ManagementDashboard, { WIP } from './ManagementDashboard';
 import AnnualLeaveReport, { AnnualLeaveRecord } from './AnnualLeaveReport';
 import MetaMetricsReport from './MetaMetricsReport';
 import SeoReport from './SeoReport';
+import PpcReport from './PpcReport';
 import { debugLog, debugWarn } from '../../utils/debug';
 import HomePreview from './HomePreview';
 import EnquiriesReport, { MarketingMetrics } from './EnquiriesReport';
@@ -56,6 +57,30 @@ interface RecoveredFee {
   user_id: number;
 }
 
+interface GoogleAnalyticsData {
+  date: string;
+  sessions?: number;
+  activeUsers?: number;
+  screenPageViews?: number;
+  bounceRate?: number;
+  averageSessionDuration?: number;
+  conversions?: number;
+  // Additional GA4 metrics...
+}
+
+interface GoogleAdsData {
+  date: string;
+  impressions?: number;
+  clicks?: number;
+  cost?: number;
+  conversions?: number;
+  ctr?: number;
+  cpc?: number;
+  cpa?: number;
+}
+
+// (Removed time range settings; we always fetch 24 months for GA4 and Google Ads)
+
 interface DatasetMap {
   userData: UserData[] | null;
   teamData: TeamData[] | null;
@@ -66,7 +91,11 @@ interface DatasetMap {
   poidData: POID[] | null;
   annualLeave: AnnualLeaveRecord[] | null;
   metaMetrics: MarketingMetrics[] | null;
+  googleAnalytics: GoogleAnalyticsData[] | null;
+  googleAds: GoogleAdsData[] | null;
 }
+
+// (Removed TIME_RANGE_OPTIONS and settings state)
 
 const DATASETS = [
   { key: 'userData', name: 'People' },
@@ -78,6 +107,8 @@ const DATASETS = [
   { key: 'poidData', name: 'ID Submissions' },
   { key: 'annualLeave', name: 'Annual Leave' },
   { key: 'metaMetrics', name: 'Meta Metrics' },
+  { key: 'googleAnalytics', name: 'Google Analytics' },
+  { key: 'googleAds', name: 'Google Ads' },
 ] as const;
 
 type DatasetDefinition = typeof DATASETS[number];
@@ -95,7 +126,7 @@ interface AvailableReport {
   key: string;
   name: string;
   status: string;
-  action?: 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport';
+  action?: 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport' | 'ppcReport';
 }
 
 const AVAILABLE_REPORTS: AvailableReport[] = [
@@ -130,6 +161,13 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
     status: 'Live today',
     action: 'seoReport' as const,
   }] : []),
+  // Only show PPC report if not in production
+  ...((process.env.NODE_ENV !== 'production') ? [{
+    key: 'ppc',
+    name: 'PPC report',
+    status: 'Live today',
+    action: 'ppcReport' as const,
+  }] : []),
   {
     key: 'matters',
     name: 'Matters snapshot',
@@ -150,6 +188,8 @@ const EMPTY_DATASET: DatasetMap = {
   poidData: null,
   annualLeave: null,
   metaMetrics: null,
+  googleAnalytics: null,
+  googleAds: null,
 };
 
 let cachedData: DatasetMap = { ...EMPTY_DATASET };
@@ -208,7 +248,9 @@ const containerStyle = (isDarkMode: boolean): CSSProperties => ({
   minHeight: '100vh',
   width: '100%',
   padding: '26px 30px 40px',
-  background: isDarkMode ? colours.dark.background : colours.light.background,
+  background: isDarkMode 
+    ? 'linear-gradient(135deg, #0f172a 0%, #1e293b 30%, #334155 65%, #475569 100%)'
+    : 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 25%, #e2e8f0 65%, #cbd5e1 100%)',
   color: isDarkMode ? colours.dark.text : colours.light.text,
   display: 'flex',
   flexDirection: 'column',
@@ -279,6 +321,7 @@ const dataFeedListStyle = (): CSSProperties => ({
 
 const feedRowStyle = (isDarkMode: boolean): CSSProperties => ({
   display: 'flex',
+  flexWrap: 'wrap',
   justifyContent: 'space-between',
   alignItems: 'center',
   borderRadius: 8,
@@ -331,6 +374,25 @@ const statusIconStyle = (isDarkMode: boolean): CSSProperties => ({
   fontSize: 12,
   color: isDarkMode ? '#E2E8F0' : colours.missedBlue,
 });
+
+// Render a compact JSON-like snippet for previewing row content safely
+const formatPreviewRow = (row: unknown): string => {
+  try {
+    // Avoid huge payloads; stringify with replacer to trim nested arrays/objects
+    const replacer = (_key: string, value: any) => {
+      if (Array.isArray(value)) return `[Array(${value.length})]`;
+      if (value && typeof value === 'object') return Object.fromEntries(
+        Object.entries(value).slice(0, 6)
+      );
+      return value;
+    };
+    const text = JSON.stringify(row, replacer, 2);
+    // Truncate long strings
+    return text.length > 320 ? text.slice(0, 320) + '…' : text;
+  } catch {
+    return String(row);
+  }
+};
 
 const refreshProgressPanelStyle = (isDarkMode: boolean): CSSProperties => ({
   display: 'flex',
@@ -409,12 +471,16 @@ const heroMetaRowStyle: CSSProperties = {
 const fullScreenWrapperStyle = (isDarkMode: boolean): CSSProperties => ({
   minHeight: '100vh',
   padding: '24px 28px',
-  background: isDarkMode ? DARK_BACKGROUND_COLOUR : LIGHT_BACKGROUND_COLOUR,
+  background: isDarkMode 
+    ? 'linear-gradient(135deg, #0f172a 0%, #1e293b 30%, #334155 65%, #475569 100%)'
+    : 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 25%, #e2e8f0 65%, #cbd5e1 100%)',
   color: isDarkMode ? colours.dark.text : colours.light.text,
   display: 'flex',
   flexDirection: 'column',
   gap: 16,
   transition: 'background 0.3s ease, color 0.3s ease',
+  position: 'relative',
+  overflow: 'hidden',
 });
 
 const primaryButtonStyles = (isDarkMode: boolean): IButtonStyles => ({
@@ -571,6 +637,11 @@ const REFRESH_PHASES: Array<{ thresholdMs: number; label: string }> = [
   { thresholdMs: Number.POSITIVE_INFINITY, label: 'Finalising dashboard views…' },
 ];
 
+// Marketing Data Settings Component
+// (Removed MarketingDataSettingsProps; settings UI deleted)
+
+// (Removed MarketingDataSettings component)
+
 interface ReportingHomeProps {
   userData?: UserData[] | null;
   teamData?: TeamData[] | null;
@@ -583,11 +654,68 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   const { isDarkMode } = useTheme();
   const { setContent } = useNavigatorActions();
   const [currentTime, setCurrentTime] = useState(() => new Date());
-  const [activeView, setActiveView] = useState<'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport'>('overview');
+  const [activeView, setActiveView] = useState<'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport' | 'ppcReport'>('overview');
+  // (Removed marketing data settings state; always fetch 24 months)
   
   // Memoize handlers to prevent recreation on every render
   const handleBackToOverview = useCallback(() => {
     setActiveView('overview');
+  }, []);
+
+  // Fetch Google Analytics data with time range
+  const fetchGoogleAnalyticsData = useCallback(async (months: number): Promise<GoogleAnalyticsData[]> => {
+    try {
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setMonth(startDate.getMonth() - months);
+      
+      const params = new URLSearchParams({
+        startDate: startDate.toISOString().split('T')[0],
+        endDate: endDate.toISOString().split('T')[0],
+      });
+
+      const response = await fetch(`/api/marketing-metrics/ga4?${params}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Google Analytics fetch failed: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching Google Analytics data:', error);
+      throw error;
+    }
+  }, []);
+
+  // Fetch Google Ads data with time range
+  const fetchGoogleAdsData = useCallback(async (months: number): Promise<GoogleAdsData[]> => {
+    try {
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setMonth(startDate.getMonth() - months);
+      
+      const params = new URLSearchParams({
+        startDate: startDate.toISOString().split('T')[0],
+        endDate: endDate.toISOString().split('T')[0],
+      });
+
+      const response = await fetch(`/api/marketing-metrics/google-ads?${params}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Google Ads fetch failed: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching Google Ads data:', error);
+      throw error;
+    }
   }, []);
   const [datasetData, setDatasetData] = useState<DatasetMap>(() => ({
     userData: propUserData ?? cachedData.userData,
@@ -599,6 +727,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     poidData: cachedData.poidData,
     annualLeave: cachedData.annualLeave,
     metaMetrics: cachedData.metaMetrics,
+    googleAnalytics: cachedData.googleAnalytics,
+    googleAds: cachedData.googleAds,
   }));
   const [datasetStatus, setDatasetStatus] = useState<DatasetStatus>(() => {
     const record: Partial<DatasetStatus> = {};
@@ -622,6 +752,14 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     return Boolean(cachedTimestamp) && cacheState.hasFetchedOnce;
   });
   const [refreshStartedAt, setRefreshStartedAt] = useState<number | null>(null);
+  // PPC-specific Google Ads data (24 months)
+  const [ppcGoogleAdsData, setPpcGoogleAdsData] = useState<GoogleAdsData[] | null>(null);
+  const [ppcLoading, setPpcLoading] = useState<boolean>(false);
+  // Feed-row preview toggles (keyed by dataset key)
+  const [feedPreviewOpen, setFeedPreviewOpen] = useState<Record<string, boolean>>({});
+  const toggleFeedPreview = useCallback((key: string) => {
+    setFeedPreviewOpen(prev => ({ ...prev, [key]: !prev[key] }));
+  }, []);
 
   // Add debounced state updates to prevent excessive re-renders
   const debounceTimeoutRef = useRef<NodeJS.Timeout>();
@@ -658,7 +796,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   // Prepare list of datasets to stream (stable identity across re-renders)
   const streamableDatasets = useMemo(
     () => {
-      const base = MANAGEMENT_DATASET_KEYS.filter(key => key !== 'annualLeave' && key !== 'metaMetrics');
+      const base = MANAGEMENT_DATASET_KEYS.filter(key => key !== 'annualLeave'); // Keep metaMetrics in streaming
       // Ensure current-week WIP (Clio) and DB fallback are streamed so "This Week" metrics populate during streaming
       return [...base, 'wipClioCurrentWeek' as unknown as DatasetKey, 'wipDbCurrentWeek' as unknown as DatasetKey];
     },
@@ -804,6 +942,56 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     return () => clearInterval(timer);
   }, []);
 
+  // Fetch 24 months of Google Ads data when opening PPC report
+  useEffect(() => {
+    let cancelled = false;
+    if (activeView === 'ppcReport') {
+      setPpcLoading(true);
+      fetchGoogleAdsData(24)
+        .then((rows) => {
+          if (!cancelled) setPpcGoogleAdsData(rows || []);
+        })
+        .catch(() => {/* ignore, will fallback to cached */})
+        .finally(() => { if (!cancelled) setPpcLoading(false); });
+    }
+    return () => { cancelled = true; };
+  }, [activeView, fetchGoogleAdsData]);
+
+  // Fetch 24 months of Google Analytics data when opening SEO report
+  useEffect(() => {
+    let cancelled = false;
+    if (activeView === 'seoReport') {
+      // Optionally reflect loading in datasetStatus
+      setDatasetStatus(prev => ({
+        ...prev,
+        googleAnalytics: { status: 'loading', updatedAt: prev.googleAnalytics?.updatedAt ?? null },
+      }));
+      fetchGoogleAnalyticsData(24)
+        .then((rows) => {
+          if (!cancelled) {
+            setDatasetData(prev => ({ ...prev, googleAnalytics: rows || [] }));
+            const now = Date.now();
+            setDatasetStatus(prev => ({
+              ...prev,
+              googleAnalytics: { status: 'ready', updatedAt: now },
+            }));
+            cachedData = { ...cachedData, googleAnalytics: rows || [] };
+            cachedTimestamp = now;
+            updateRefreshTimestamp(now, setLastRefreshTimestamp);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setDatasetStatus(prev => ({
+              ...prev,
+              googleAnalytics: { status: 'error', updatedAt: prev.googleAnalytics?.updatedAt ?? null },
+            }));
+          }
+        });
+    }
+    return () => { cancelled = true; };
+  }, [activeView, fetchGoogleAnalyticsData]);
+
   useEffect(() => {
   if (activeView === 'dashboard') {
       setContent(
@@ -851,6 +1039,30 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
             styles={dashboardNavigatorButtonStyles(isDarkMode)}
           />
           <span style={dashboardNavigatorTitleStyle(isDarkMode)}>SEO report</span>
+        </div>,
+      );
+    } else if (activeView === 'ppcReport') {
+      setContent(
+        <div style={dashboardNavigatorStyle(isDarkMode)}>
+          <DefaultButton
+            text="Back to overview"
+            iconProps={{ iconName: 'Back' }}
+            onClick={handleBackToOverview}
+            styles={dashboardNavigatorButtonStyles(isDarkMode)}
+          />
+          <span style={dashboardNavigatorTitleStyle(isDarkMode)}>PPC report</span>
+        </div>,
+      );
+    } else if (activeView === 'metaMetrics') {
+      setContent(
+        <div style={dashboardNavigatorStyle(isDarkMode)}>
+          <DefaultButton
+            text="Back to overview"
+            iconProps={{ iconName: 'Back' }}
+            onClick={handleBackToOverview}
+            styles={dashboardNavigatorButtonStyles(isDarkMode)}
+          />
+          <span style={dashboardNavigatorTitleStyle(isDarkMode)}>Meta metrics report</span>
         </div>,
       );
     } else {
@@ -933,14 +1145,28 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       const tenMinutes = 10 * 60 * 1000;
       const lastAL = datasetStatus.annualLeave?.updatedAt ?? 0;
       const lastMeta = datasetStatus.metaMetrics?.updatedAt ?? 0;
+      const lastGA = datasetStatus.googleAnalytics?.updatedAt ?? 0;
+      const lastGAds = datasetStatus.googleAds?.updatedAt ?? 0;
+      
       const shouldFetchAnnualLeave = !cachedData.annualLeave || (nowTs - lastAL) > tenMinutes;
       const shouldFetchMeta = !cachedData.metaMetrics || (nowTs - lastMeta) > tenMinutes;
+      const shouldFetchGA = !cachedData.googleAnalytics || (nowTs - lastGA) > tenMinutes;
+      const shouldFetchGAds = !cachedData.googleAds || (nowTs - lastGAds) > tenMinutes;
 
       let annualLeaveData: AnnualLeaveRecord[] = cachedData.annualLeave || [];
       let metaMetricsData: MarketingMetrics[] = cachedData.metaMetrics || [];
+      let googleAnalyticsData: GoogleAnalyticsData[] = cachedData.googleAnalytics || [];
+      let googleAdsData: GoogleAdsData[] = cachedData.googleAds || [];
 
-      if (shouldFetchAnnualLeave || shouldFetchMeta) {
-        const [annualLeaveResponse, metaMetrics] = await Promise.all([
+      if (shouldFetchAnnualLeave || shouldFetchMeta || shouldFetchGA || shouldFetchGAds) {
+        // Update status for datasets being fetched
+        setDatasetStatus(prev => ({
+          ...prev,
+          ...(shouldFetchGA && { googleAnalytics: { status: 'loading', updatedAt: prev.googleAnalytics?.updatedAt ?? null } }),
+          ...(shouldFetchGAds && { googleAds: { status: 'loading', updatedAt: prev.googleAds?.updatedAt ?? null } }),
+        }));
+
+        const [annualLeaveResponse, metaMetrics, gaData, gAdsData] = await Promise.all([
           shouldFetchAnnualLeave
             ? fetch('/api/attendance/annual-leave-all', {
                 method: 'GET',
@@ -949,6 +1175,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               })
             : Promise.resolve(null as unknown as Response),
           shouldFetchMeta ? fetchMetaMetrics() : Promise.resolve(metaMetricsData),
+          shouldFetchGA ? fetchGoogleAnalyticsData(24) : Promise.resolve(googleAnalyticsData),
+          shouldFetchGAds ? fetchGoogleAdsData(24) : Promise.resolve(googleAdsData),
         ]);
 
         if (shouldFetchAnnualLeave && annualLeaveResponse && annualLeaveResponse.ok) {
@@ -975,6 +1203,14 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
         if (shouldFetchMeta) {
           metaMetricsData = Array.isArray(metaMetrics) ? metaMetrics : [];
         }
+
+        if (shouldFetchGA) {
+          googleAnalyticsData = Array.isArray(gaData) ? gaData : [];
+        }
+
+        if (shouldFetchGAds) {
+          googleAdsData = Array.isArray(gAdsData) ? gAdsData : [];
+        }
       }
 
       // Update non-streaming datasets
@@ -982,6 +1218,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
         ...prev,
         annualLeave: annualLeaveData,
         metaMetrics: metaMetricsData,
+        googleAnalytics: googleAnalyticsData,
+        googleAds: googleAdsData,
       }));
 
       // Update status for non-streaming datasets
@@ -989,9 +1227,11 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
         ...prev,
         annualLeave: { status: 'ready', updatedAt: shouldFetchAnnualLeave ? nowTs : (prev.annualLeave?.updatedAt ?? nowTs) },
         metaMetrics: { status: 'ready', updatedAt: shouldFetchMeta ? nowTs : (prev.metaMetrics?.updatedAt ?? nowTs) },
+        googleAnalytics: { status: 'ready', updatedAt: shouldFetchGA ? nowTs : (prev.googleAnalytics?.updatedAt ?? nowTs) },
+        googleAds: { status: 'ready', updatedAt: shouldFetchGAds ? nowTs : (prev.googleAds?.updatedAt ?? nowTs) },
       }));
 
-      cachedData = { ...cachedData, annualLeave: annualLeaveData, metaMetrics: metaMetricsData };
+      cachedData = { ...cachedData, annualLeave: annualLeaveData, metaMetrics: metaMetricsData, googleAnalytics: googleAnalyticsData, googleAds: googleAdsData };
       cachedTimestamp = nowTs;
       updateRefreshTimestamp(nowTs, setLastRefreshTimestamp);
 
@@ -1001,7 +1241,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     }
     // Note: Don't set isFetching(false) here - let the streaming completion handler do it
     // This ensures we don't clear the loading state while streaming is still active
-  }, [startStreaming, fetchMetaMetrics, streamableDatasets]);
+  }, [startStreaming, fetchMetaMetrics, streamableDatasets, fetchGoogleAnalyticsData, fetchGoogleAdsData]);
 
   // Scoped refreshers for specific reports
   const refreshAnnualLeaveOnly = useCallback(async () => {
@@ -1445,6 +1685,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
         poidData: managementPayload.poidData ?? cachedData.poidData,
         annualLeave: annualLeaveData,
         metaMetrics: metaMetrics, // Use fetched meta metrics
+        googleAnalytics: cachedData.googleAnalytics, // Will be updated separately
+        googleAds: cachedData.googleAds, // Will be updated separately
       };
 
       const now = Date.now();
@@ -1652,6 +1894,20 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     [hasFetchedOnce, readyCount]
   );
 
+  // Individual report loading states based on their specific data dependencies
+  const reportLoadingStates = useMemo(() => {
+    return {
+      dashboard: isFetching && (!streamingDatasets.userData || streamingDatasets.userData.status !== 'ready' || 
+                               !streamingDatasets.teamData || streamingDatasets.teamData.status !== 'ready' ||
+                               !streamingDatasets.allMatters || streamingDatasets.allMatters.status !== 'ready'),
+      annualLeave: false, // Annual leave is fetched separately and doesn't use streaming
+      enquiries: isFetching && (!streamingDatasets.enquiries || streamingDatasets.enquiries.status !== 'ready'),
+      metaMetrics: false, // Meta metrics has its own loading state 
+      seoReport: false, // SEO uses separate Google Analytics fetch
+      ppcReport: false, // PPC uses separate Google Ads fetch
+    };
+  }, [isFetching, streamingDatasets]);
+
   // Memoize progress detail text to prevent string concatenation on every render
   const progressDetailText = useMemo(() => {
     if (refreshStartedAt && !isStreamingConnected) {
@@ -1694,71 +1950,99 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   if (activeView === 'dashboard') {
     return (
       <div style={fullScreenWrapperStyle(isDarkMode)}>
-        <ManagementDashboard
-          enquiries={datasetData.enquiries}
-          allMatters={datasetData.allMatters}
-          wip={datasetData.wip}
-          recoveredFees={datasetData.recoveredFees}
-          teamData={datasetData.teamData}
-          userData={datasetData.userData}
-          poidData={datasetData.poidData}
-          annualLeave={datasetData.annualLeave}
-          triggerRefresh={refreshDatasetsWithStreaming}
-          lastRefreshTimestamp={lastRefreshTimestamp ?? undefined}
-          isFetching={isFetching}
-        />
+        <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
+          <ManagementDashboard
+            enquiries={datasetData.enquiries}
+            allMatters={datasetData.allMatters}
+            wip={datasetData.wip}
+            recoveredFees={datasetData.recoveredFees}
+            teamData={datasetData.teamData}
+            userData={datasetData.userData}
+            poidData={datasetData.poidData}
+            annualLeave={datasetData.annualLeave}
+            triggerRefresh={refreshDatasetsWithStreaming}
+            lastRefreshTimestamp={lastRefreshTimestamp ?? undefined}
+            isFetching={isFetching}
+          />
+        </div>
       </div>
     );
   }
 
   if (activeView === 'annualLeave') {
     return (
-      <div style={fullScreenWrapperStyle(isDarkMode)}>
-        <AnnualLeaveReport
-          data={datasetData.annualLeave || []}
-          teamData={datasetData.teamData || []}
-          triggerRefresh={refreshAnnualLeaveOnly}
-          lastRefreshTimestamp={lastRefreshTimestamp ?? undefined}
-          isFetching={isFetching}
-        />
+      <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
+        <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
+          <AnnualLeaveReport
+            data={datasetData.annualLeave || []}
+            teamData={datasetData.teamData || []}
+            triggerRefresh={refreshAnnualLeaveOnly}
+            lastRefreshTimestamp={lastRefreshTimestamp ?? undefined}
+            isFetching={isFetching}
+          />
+        </div>
       </div>
     );
   }
 
   if (activeView === 'enquiries') {
     return (
-      <div style={fullScreenWrapperStyle(isDarkMode)}>
-        <EnquiriesReport 
-          enquiries={datasetData.enquiries} 
-          teamData={datasetData.teamData}
-          annualLeave={datasetData.annualLeave}
-          metaMetrics={datasetData.metaMetrics}
-          triggerRefresh={refreshEnquiriesScoped}
-          lastRefreshTimestamp={lastRefreshTimestamp ?? undefined}
-          isFetching={isFetching}
-        />
+      <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
+        <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
+          <EnquiriesReport 
+            enquiries={datasetData.enquiries} 
+            teamData={datasetData.teamData}
+            annualLeave={datasetData.annualLeave}
+            metaMetrics={datasetData.metaMetrics}
+            triggerRefresh={refreshEnquiriesScoped}
+            lastRefreshTimestamp={lastRefreshTimestamp ?? undefined}
+            isFetching={isFetching}
+          />
+        </div>
       </div>
     );
   }
 
   if (activeView === 'metaMetrics') {
     return (
-      <div style={fullScreenWrapperStyle(isDarkMode)}>
-        <MetaMetricsReport
-          metaMetrics={datasetData.metaMetrics}
-          enquiries={datasetData.enquiries}
-          triggerRefresh={refreshMetaMetricsOnly}
-          lastRefreshTimestamp={lastRefreshTimestamp ?? undefined}
-          isFetching={isFetching}
-        />
+      <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
+        <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
+          <MetaMetricsReport
+            metaMetrics={datasetData.metaMetrics}
+            enquiries={datasetData.enquiries}
+            triggerRefresh={refreshMetaMetricsOnly}
+            lastRefreshTimestamp={lastRefreshTimestamp ?? undefined}
+            isFetching={isFetching}
+          />
+        </div>
       </div>
     );
   }
 
   if (activeView === 'seoReport') {
     return (
-      <div style={fullScreenWrapperStyle(isDarkMode)}>
-        <SeoReport />
+      <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
+        <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
+          <SeoReport 
+            cachedGa4Data={(datasetData.googleAnalytics ?? cachedData.googleAnalytics) || []}
+            cachedChannelData={[]} // TODO: Add when channel data is cached
+            cachedSourceMediumData={[]} // TODO: Add when source/medium data is cached
+            cachedLandingPageData={[]} // TODO: Add when landing page data is cached
+            cachedDeviceData={[]} // TODO: Add when device data is cached
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (activeView === 'ppcReport') {
+    return (
+      <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
+        <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
+          <PpcReport 
+            cachedGoogleAdsData={(ppcGoogleAdsData ?? datasetData.googleAds ?? cachedData.googleAds) || []}
+          />
+        </div>
       </div>
     );
   }
@@ -1900,16 +2184,16 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               {report.action === 'dashboard' && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   <PrimaryButton
-                    text={isActivelyLoading ? 'Preparing…' : 'Open dashboard'}
+                    text={reportLoadingStates.dashboard ? 'Preparing…' : 'Open dashboard'}
                     onClick={handleOpenDashboard}
                     styles={primaryButtonStyles(isDarkMode)}
-                    disabled={isActivelyLoading}
+                    disabled={reportLoadingStates.dashboard}
                   />
                   <DefaultButton
                     text="Refresh data"
                     onClick={refreshDatasetsWithStreaming}
                     styles={subtleButtonStyles(isDarkMode)}
-                    disabled={isActivelyLoading}
+                    disabled={reportLoadingStates.dashboard}
                     iconProps={{ iconName: 'Refresh' }}
                   />
                 </div>
@@ -1917,16 +2201,16 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               {report.action === 'annualLeave' && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   <PrimaryButton
-                    text={isActivelyLoading ? 'Preparing…' : 'Open annual leave report'}
+                    text={reportLoadingStates.annualLeave ? 'Preparing…' : 'Open annual leave report'}
                     onClick={() => setActiveView('annualLeave')}
                     styles={primaryButtonStyles(isDarkMode)}
-                    disabled={isActivelyLoading}
+                    disabled={reportLoadingStates.annualLeave}
                   />
                   <DefaultButton
                     text="Refresh leave data"
                     onClick={refreshAnnualLeaveOnly}
                     styles={subtleButtonStyles(isDarkMode)}
-                    disabled={isActivelyLoading}
+                    disabled={reportLoadingStates.annualLeave}
                     iconProps={{ iconName: 'Refresh' }}
                   />
                 </div>
@@ -1934,16 +2218,16 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               {report.action === 'enquiries' && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   <PrimaryButton
-                    text={isActivelyLoading ? 'Preparing…' : 'Open enquiries report'}
+                    text={reportLoadingStates.enquiries ? 'Preparing…' : 'Open enquiries report'}
                     onClick={() => setActiveView('enquiries')}
                     styles={primaryButtonStyles(isDarkMode)}
-                    disabled={isActivelyLoading}
+                    disabled={reportLoadingStates.enquiries}
                   />
                   <DefaultButton
                     text="Refresh enquiries data"
                     onClick={refreshEnquiriesScoped}
                     styles={subtleButtonStyles(isDarkMode)}
-                    disabled={isActivelyLoading}
+                    disabled={reportLoadingStates.enquiries}
                     iconProps={{ iconName: 'Refresh' }}
                   />
                 </div>
@@ -1951,16 +2235,16 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               {report.action === 'metaMetrics' && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   <PrimaryButton
-                    text={isActivelyLoading ? 'Preparing…' : 'Open Meta metrics'}
+                    text={reportLoadingStates.metaMetrics ? 'Preparing…' : 'Open Meta metrics'}
                     onClick={() => setActiveView('metaMetrics')}
                     styles={primaryButtonStyles(isDarkMode)}
-                    disabled={isActivelyLoading}
+                    disabled={reportLoadingStates.metaMetrics}
                   />
                   <DefaultButton
                     text="Refresh Meta data"
                     onClick={refreshMetaMetricsOnly}
                     styles={subtleButtonStyles(isDarkMode)}
-                    disabled={isActivelyLoading}
+                    disabled={reportLoadingStates.metaMetrics}
                     iconProps={{ iconName: 'Refresh' }}
                   />
                 </div>
@@ -1968,16 +2252,33 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               {report.action === 'seoReport' && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   <PrimaryButton
-                    text={isActivelyLoading ? 'Preparing…' : 'Open SEO report'}
+                    text={reportLoadingStates.seoReport ? 'Preparing…' : 'Open SEO report'}
                     onClick={() => setActiveView('seoReport')}
                     styles={primaryButtonStyles(isDarkMode)}
-                    disabled={isActivelyLoading}
+                    disabled={reportLoadingStates.seoReport}
                   />
                   <DefaultButton
                     text="Refresh SEO data"
                     onClick={refreshMetaMetricsOnly} // SEO report uses Meta metrics data
                     styles={subtleButtonStyles(isDarkMode)}
-                    disabled={isActivelyLoading}
+                    disabled={reportLoadingStates.seoReport}
+                    iconProps={{ iconName: 'Refresh' }}
+                  />
+                </div>
+              )}
+              {report.action === 'ppcReport' && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  <PrimaryButton
+                    text={reportLoadingStates.ppcReport ? 'Preparing…' : 'Open PPC report'}
+                    onClick={() => setActiveView('ppcReport')}
+                    styles={primaryButtonStyles(isDarkMode)}
+                    disabled={reportLoadingStates.ppcReport}
+                  />
+                  <DefaultButton
+                    text="Refresh PPC data"
+                    onClick={refreshMetaMetricsOnly} // PPC report uses marketing metrics data
+                    styles={subtleButtonStyles(isDarkMode)}
+                    disabled={reportLoadingStates.ppcReport}
                     iconProps={{ iconName: 'Refresh' }}
                   />
                 </div>
@@ -1986,6 +2287,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
           ))}
         </ul>
       </section>
+
+      {/* Marketing Data Settings removed (always using 24 months for GA4 and Google Ads) */}
 
       {!isActivelyLoading && !isStreamingConnected && (
       <section style={sectionSurfaceStyle(isDarkMode)}>
@@ -2006,23 +2309,81 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                   <span style={feedLabelStyle}>{definition.name}</span>
                   <span style={feedMetaStyle}>{details.join(' • ')}</span>
                 </div>
-                <span style={statusPillStyle(palette, isDarkMode)}>
-                  {status === 'loading' ? (
-                    <Spinner size={SpinnerSize.xSmall} style={{ width: 14, height: 14 }} />
-                  ) : palette.icon ? (
-                    <FontIcon iconName={palette.icon} style={statusIconStyle(isDarkMode)} />
-                  ) : (
-                    <span style={statusDotStyle(palette.dot)} />
-                  )}
-                  {cached && (
-                    <FontIcon
-                      iconName="Database"
-                      style={{ ...statusIconStyle(isDarkMode), marginLeft: 6 }}
-                      title="Cached"
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={statusPillStyle(palette, isDarkMode)}>
+                    {status === 'loading' ? (
+                      <Spinner size={SpinnerSize.xSmall} style={{ width: 14, height: 14 }} />
+                    ) : palette.icon ? (
+                      <FontIcon iconName={palette.icon} style={statusIconStyle(isDarkMode)} />
+                    ) : (
+                      <span style={statusDotStyle(palette.dot)} />
+                    )}
+                    {cached && (
+                      <FontIcon
+                        iconName="Database"
+                        style={{ ...statusIconStyle(isDarkMode), marginLeft: 6 }}
+                        title="Cached"
+                      />
+                    )}
+                    {palette.label}
+                  </span>
+                  {status === 'ready' && (
+                    <DefaultButton
+                      text={feedPreviewOpen[definition.key] ? 'Hide preview' : 'Preview'}
+                      onClick={() => toggleFeedPreview(definition.key)}
+                      styles={subtleButtonStyles(isDarkMode)}
+                      disabled={isActivelyLoading}
+                      iconProps={{ iconName: feedPreviewOpen[definition.key] ? 'ChevronUp' : 'View'}}
                     />
                   )}
-                  {palette.label}
-                </span>
+                </div>
+                {feedPreviewOpen[definition.key] && (
+                  <div style={{
+                    marginTop: 8,
+                    gridColumn: '1 / -1',
+                    borderRadius: 10,
+                    padding: '10px 12px',
+                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(100, 116, 139, 0.18)'}`,
+                    background: isDarkMode ? 'rgba(30, 41, 59, 0.55)' : 'rgba(248, 250, 252, 0.72)',
+                  }}>
+                    {(() => {
+                      const key = definition.key as DatasetKey;
+                      const data = (datasetData as any)[key] as unknown[] | null | undefined;
+                      const rows = Array.isArray(data) ? data : [];
+                      const sample = rows.slice(0, 5);
+                      return (
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                            <span style={{ fontSize: 12, opacity: 0.8 }}>
+                              {rows.length.toLocaleString()} row{rows.length === 1 ? '' : 's'}
+                            </span>
+                            <span style={{ fontSize: 12, opacity: 0.6 }}>
+                              Showing first {sample.length} entr{sample.length === 1 ? 'y' : 'ies'}
+                            </span>
+                          </div>
+                          <div style={{ display: 'grid', gap: 6 }}>
+                            {sample.map((row, idx) => (
+                              <div key={idx} style={{
+                                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+                                fontSize: 11.5,
+                                padding: '6px 8px',
+                                borderRadius: 8,
+                                background: isDarkMode ? 'rgba(2, 6, 23, 0.55)' : 'rgba(241, 245, 249, 0.7)',
+                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(100, 116, 139, 0.18)'}`,
+                                overflowX: 'auto',
+                              }}>
+                                {formatPreviewRow(row)}
+                              </div>
+                            ))}
+                            {sample.length === 0 && (
+                              <div style={{ fontSize: 12, opacity: 0.7 }}>No data available</div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
             );
           })}
