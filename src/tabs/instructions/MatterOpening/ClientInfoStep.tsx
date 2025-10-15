@@ -11,6 +11,7 @@ import { sharedPrimaryButtonStyles } from '../../../app/styles/ButtonStyles';
 import { colours } from '../../../app/styles/colours';
 import '../../../app/styles/MultiSelect.css';
 import ModernMultiSelect from './ModernMultiSelect';
+import { useTheme } from '../../../app/functionality/ThemeContext';
 
 interface ClientInfoStepProps {
     selectedDate: Date | null;
@@ -52,9 +53,28 @@ const ClientInfoStep: React.FC<ClientInfoStepProps> = ({
     requestingUserClioId,
     onContinue,
 }) => {
+    const { isDarkMode } = useTheme();
+    
+    // Use consistent theming like other components
+    const themeColours = {
+        bg: isDarkMode 
+            ? 'linear-gradient(135deg, #0B1220 0%, #1F2937 100%)'
+            : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
+        border: isDarkMode ? '#334155' : '#E2E8F0',
+        text: isDarkMode ? '#E5E7EB' : '#0F172A',
+        shadow: isDarkMode 
+            ? '0 2px 4px rgba(0, 0, 0, 0.3)'
+            : '0 2px 4px rgba(0, 0, 0, 0.04)',
+        iconColor: colours.highlight, // Use standard highlight color like other components
+        focusColor: colours.highlight,
+        fieldBg: isDarkMode ? '#111827' : '#ffffff',
+        selectedBg: isDarkMode ? '#1F2937' : `${colours.highlight}15`,
+        textSecondary: isDarkMode ? '#9CA3AF' : colours.greyText
+    };
+
     const separatorStyle = mergeStyles({
         height: '1px',
-        backgroundColor: colours.light.border,
+        backgroundColor: themeColours.border,
         margin: '0.5rem 0',
     });
 
@@ -71,7 +91,14 @@ const ClientInfoStep: React.FC<ClientInfoStepProps> = ({
     }, []);
 
     return (
-        <>
+        <div style={{
+            background: themeColours.bg,
+            border: `1px solid ${themeColours.border}`,
+            borderRadius: 12,
+            padding: 20,
+            boxShadow: themeColours.shadow,
+            boxSizing: 'border-box'
+        }}>
             <Stack tokens={{ childrenGap: 8 }}>
                 {/* Date/User chips now shown in global header; removed local chips row */}
 
@@ -79,19 +106,19 @@ const ClientInfoStep: React.FC<ClientInfoStepProps> = ({
                 <div style={{ display: 'flex', gap: 12 }}>
                     <div style={{ flex: 1 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                            <i className="ms-Icon ms-Icon--Contact" style={{ fontSize: 16, color: '#3690CE' }} />
-                            <span style={{ fontSize: 16, fontWeight: 600, color: colours.greyText }}>Responsible Solicitor</span>
+                            <i className="ms-Icon ms-Icon--Contact" style={{ fontSize: 16, color: themeColours.iconColor }} />
+                            <span style={{ fontSize: 16, fontWeight: 600, color: themeColours.textSecondary }}>Responsible Solicitor</span>
                         </div>
                         <div
                             style={{
                                 position: 'relative',
                                 width: '100%',
                                 height: '40px',
-                                border: `1px solid ${colours.highlight}`,
+                                border: `1px solid ${teamMember ? themeColours.focusColor : themeColours.border}`,
                                 borderRadius: 6,
                                 background: teamMember
-                                    ? `${colours.highlight}15`
-                                    : '#fff',
+                                    ? themeColours.selectedBg
+                                    : themeColours.fieldBg,
                                 overflow: 'hidden',
                             }}
                         >
@@ -103,9 +130,9 @@ const ClientInfoStep: React.FC<ClientInfoStepProps> = ({
                                     height: '100%',
                                     border: 'none',
                                     background: 'transparent',
-                                    padding: '0 32px 0 12px',
+                                    padding: '0 40px 0 16px',
                                     fontSize: '13px',
-                                    color: teamMember ? colours.highlight : '#4a5568',
+                                    color: teamMember ? themeColours.focusColor : themeColours.textSecondary,
                                     fontWeight: '400',
                                     appearance: 'none',
                                     cursor: 'pointer',
@@ -124,16 +151,16 @@ const ClientInfoStep: React.FC<ClientInfoStepProps> = ({
                             <div
                                 style={{
                                     position: 'absolute',
-                                    right: '8px',
+                                    right: '12px',
                                     top: '50%',
                                     transform: 'translateY(-50%)',
                                     pointerEvents: 'none',
-                                    color: teamMember ? colours.highlight : '#4a5568',
+                                    color: teamMember ? themeColours.focusColor : themeColours.textSecondary,
                                 }}
                             >
                                 <svg
-                                    width="12"
-                                    height="12"
+                                    width="16"
+                                    height="16"
                                     viewBox="0 0 24 24"
                                     fill="none"
                                 >
@@ -151,19 +178,19 @@ const ClientInfoStep: React.FC<ClientInfoStepProps> = ({
 
                     <div style={{ flex: 1 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                            <i className="ms-Icon ms-Icon--Contact" style={{ fontSize: 16, color: '#3690CE' }} />
-                            <span style={{ fontSize: 16, fontWeight: 600, color: colours.greyText }}>Originating Solicitor</span>
+                            <i className="ms-Icon ms-Icon--Contact" style={{ fontSize: 16, color: themeColours.iconColor }} />
+                            <span style={{ fontSize: 16, fontWeight: 600, color: themeColours.textSecondary }}>Originating Solicitor</span>
                         </div>
                         <div
                             style={{
                                 position: 'relative',
                                 width: '100%',
                                 height: '40px',
-                                border: `1px solid ${colours.highlight}`,
+                                border: `1px solid ${originatingSolicitor ? themeColours.focusColor : themeColours.border}`,
                                 borderRadius: 6,
                                 background: originatingSolicitor
-                                    ? `${colours.highlight}15`
-                                    : '#fff',
+                                    ? themeColours.selectedBg
+                                    : themeColours.fieldBg,
                                 overflow: 'hidden',
                             }}
                         >
@@ -179,9 +206,7 @@ const ClientInfoStep: React.FC<ClientInfoStepProps> = ({
                                     background: 'transparent',
                                     padding: '0 40px 0 16px',
                                     fontSize: '13px',
-                                    color: originatingSolicitor
-                                        ? colours.highlight
-                                        : '#4a5568',
+                                    color: originatingSolicitor ? themeColours.focusColor : themeColours.textSecondary,
                                     fontWeight: '400',
                                     appearance: 'none',
                                     cursor: 'pointer',
@@ -205,8 +230,8 @@ const ClientInfoStep: React.FC<ClientInfoStepProps> = ({
                                     transform: 'translateY(-50%)',
                                     pointerEvents: 'none',
                                     color: originatingSolicitor
-                                        ? colours.highlight
-                                        : '#4a5568',
+                                        ? themeColours.focusColor
+                                        : themeColours.textSecondary,
                                 }}
                             >
                                 <svg
@@ -231,8 +256,8 @@ const ClientInfoStep: React.FC<ClientInfoStepProps> = ({
                 {/* Supervising Partner */}
                 <div style={{ marginTop: 12 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                        <i className="ms-Icon ms-Icon--Contact" style={{ fontSize: 16, color: '#3690CE' }} />
-                        <span style={{ fontSize: 16, fontWeight: 600, color: colours.greyText }}>Supervising Partner</span>
+                        <i className="ms-Icon ms-Icon--Contact" style={{ fontSize: 16, color: themeColours.iconColor }} />
+                        <span style={{ fontSize: 16, fontWeight: 600, color: themeColours.textSecondary }}>Supervising Partner</span>
                     </div>
                     <ModernMultiSelect
                         label=""
@@ -268,7 +293,7 @@ const ClientInfoStep: React.FC<ClientInfoStepProps> = ({
           }
         }
       `}</style>
-        </>
+        </div>
     );
 };
 

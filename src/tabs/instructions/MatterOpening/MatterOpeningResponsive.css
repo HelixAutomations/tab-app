@@ -1,0 +1,267 @@
+/* Matter Opening Responsive Design System */
+
+/* Base responsive breakpoints */
+:root {
+  --bp-xs: 480px;   /* Teams mobile */
+  --bp-sm: 768px;   /* Teams sidebar */
+  --bp-md: 1024px;  /* Small browser */
+  --bp-lg: 1440px;  /* Large monitor */
+  --bp-xl: 1920px;  /* Ultra-wide */
+  
+  /* Responsive spacing scale */
+  --space-xs: clamp(4px, 0.5vw, 8px);
+  --space-sm: clamp(8px, 1vw, 12px);
+  --space-md: clamp(12px, 1.5vw, 20px);
+  --space-lg: clamp(16px, 2vw, 32px);
+  --space-xl: clamp(24px, 3vw, 48px);
+  
+  /* Responsive font scale */
+  --text-xs: clamp(10px, 2vw, 12px);
+  --text-sm: clamp(12px, 2.2vw, 14px);
+  --text-base: clamp(14px, 2.5vw, 16px);
+  --text-lg: clamp(16px, 3vw, 18px);
+  --text-xl: clamp(18px, 3.5vw, 24px);
+}
+
+/* Container queries for matter opening */
+.matter-opening-container {
+  container-type: inline-size;
+  width: 100%;
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+/* Adaptive layout based on container width */
+@container (max-width: 600px) {
+  .matter-opening-card {
+    padding: var(--space-sm) !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+  
+  .workflow-header {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: var(--space-xs) !important;
+  }
+  
+  .progressive-dots {
+    display: none !important; /* Hide on very small screens */
+  }
+  
+  .breadcrumb-text {
+    font-size: var(--text-xs) !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+}
+
+@container (min-width: 601px) and (max-width: 900px) {
+  .matter-opening-card {
+    padding: var(--space-md) !important;
+    margin: var(--space-sm) !important;
+  }
+  
+  .poid-grid {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)) !important;
+    gap: var(--space-sm) !important;
+  }
+  
+  .form-section {
+    margin-bottom: var(--space-md) !important;
+  }
+}
+
+@container (min-width: 901px) {
+  .matter-opening-card {
+    padding: var(--space-lg) !important;
+    margin: var(--space-md) auto !important;
+    max-width: 1200px;
+  }
+  
+  .poid-grid {
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)) !important;
+    gap: var(--space-md) !important;
+  }
+}
+
+/* Responsive POID Grid */
+.poid-grid-responsive {
+  display: grid;
+  gap: var(--space-sm);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  width: 100%;
+}
+
+@container (max-width: 600px) {
+  .poid-grid-responsive {
+    grid-template-columns: 1fr; /* Single column on very small screens */
+  }
+}
+
+/* Compact form controls */
+.form-control-compact {
+  min-height: 36px;
+  font-size: var(--text-sm);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: 6px;
+}
+
+@container (max-width: 600px) {
+  .form-control-compact {
+    min-height: 44px; /* Touch-friendly */
+    font-size: var(--text-base);
+  }
+}
+
+/* Progressive disclosure patterns - transitions removed to prevent visual glitches */
+
+.collapsible-section.collapsed {
+  height: 0;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+}
+
+/* Smart button sizing */
+.action-button {
+  padding: var(--space-sm) var(--space-md);
+  font-size: var(--text-sm);
+  border-radius: 8px;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+}
+
+@container (max-width: 600px) {
+  .action-button {
+    min-height: 48px; /* Touch-friendly */
+    font-size: var(--text-base);
+    padding: var(--space-md) var(--space-lg);
+  }
+}
+
+/* Responsive step indicator */
+.step-indicator {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+@container (max-width: 600px) {
+  .step-indicator {
+    gap: var(--space-xs);
+    scale: 0.8;
+  }
+}
+
+/* Adaptive card layouts */
+.info-card {
+  padding: var(--space-md);
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+}
+
+@container (max-width: 600px) {
+  .info-card {
+    padding: var(--space-sm);
+    border-radius: 6px;
+  }
+}
+
+/* Responsive typography */
+.section-title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  margin-bottom: var(--space-sm);
+  line-height: 1.4;
+}
+
+.section-subtitle {
+  font-size: var(--text-sm);
+  color: #6b7280;
+  margin-bottom: var(--space-md);
+  line-height: 1.5;
+}
+
+/* Adaptive spacing utilities */
+.space-y-responsive > * + * {
+  margin-top: var(--space-md);
+}
+
+@container (max-width: 600px) {
+  .space-y-responsive > * + * {
+    margin-top: var(--space-sm);
+  }
+}
+
+/* Responsive flex utilities */
+.flex-responsive {
+  display: flex;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+@container (max-width: 600px) {
+  .flex-responsive {
+    flex-direction: column;
+    gap: var(--space-sm);
+  }
+}
+
+/* Compact mode overrides */
+.compact-mode .form-section {
+  margin-bottom: var(--space-sm);
+}
+
+.compact-mode .section-title {
+  font-size: var(--text-base);
+  margin-bottom: var(--space-xs);
+}
+
+.compact-mode .info-card {
+  padding: var(--space-sm);
+}
+
+/* Accessibility improvements */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .info-card {
+    border-width: 2px;
+  }
+  
+  .action-button {
+    border-width: 2px;
+  }
+}
+
+/* Print optimizations */
+@media print {
+  .action-button,
+  .step-indicator,
+  .workflow-header {
+    display: none !important;
+  }
+  
+  .matter-opening-card {
+    box-shadow: none !important;
+    border: 1px solid #000 !important;
+    margin: 0 !important;
+    padding: 20px !important;
+  }
+}

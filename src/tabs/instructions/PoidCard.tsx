@@ -455,166 +455,140 @@ const PoidCard: React.FC<PoidCardProps> = ({ poid, selected, onClick, teamData, 
                             )}
                         </Stack>
                     )}
-                    {/* Compact status chips row */}
+                    {/* Simplified status chips with visual hierarchy */}
                     {(checkResult || pepSanctionsResult || addressVerificationResult || paymentResult) && (
-                        <Stack horizontal wrap tokens={{ childrenGap: 8 }} verticalAlign="center">
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            {/* Main ID chip - prominent */}
                             {checkResult && (
                                 <div style={{
-                                    padding: '2px 6px',
+                                    padding: '6px 10px',
                                     backgroundColor: verificationColors.background,
                                     color: verificationColors.text,
-                                    border: `1px solid ${verificationColors.border}30`,
-                                    fontSize: '0.7rem',
-                                    fontWeight: 600,
-                                    display: 'inline-flex',
+                                    border: `2px solid ${verificationColors.border}`,
+                                    borderRadius: '8px',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 700,
+                                    display: 'flex',
                                     alignItems: 'center',
-                                    gap: 4
+                                    gap: 6,
+                                    boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
                                 }}>
-                                    <Icon iconName="Shield" styles={{ root: { fontSize: 10 } }} />
-                                    ID: {checkResult}
+                                    <Icon iconName="Shield" styles={{ root: { fontSize: 12 } }} />
+                                    <span>ID Verification: {checkResult}</span>
                                 </div>
                             )}
-                            {pepSanctionsResult && (
-                                <div style={{
-                                    padding: '2px 6px',
-                                    backgroundColor: pepColors.background,
-                                    color: pepColors.text,
-                                    border: `1px solid ${pepColors.border}30`,
-                                    fontSize: '0.7rem',
-                                    fontWeight: 600,
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 4
+                            
+                            {/* Sub-chips connected to main ID with reduced visual weight */}
+                            {(pepSanctionsResult || addressVerificationResult) && (
+                                <div style={{ 
+                                    marginLeft: 16, 
+                                    display: 'flex', 
+                                    flexDirection: 'column', 
+                                    gap: 2,
+                                    position: 'relative'
                                 }}>
-                                    <Icon iconName="PageShield" styles={{ root: { fontSize: 10 } }} />
-                                    PEP: {pepSanctionsResult}
+                                    {/* Connection line */}
+                                    <div style={{
+                                        position: 'absolute',
+                                        left: -12,
+                                        top: 0,
+                                        bottom: 0,
+                                        width: 2,
+                                        backgroundColor: checkResult ? verificationColors.border : '#E5E7EB',
+                                        opacity: 0.3
+                                    }} />
+                                    
+                                    {pepSanctionsResult && (
+                                        <div style={{
+                                            padding: '3px 8px',
+                                            backgroundColor: pepColors.background,
+                                            color: pepColors.text,
+                                            border: `1px solid ${pepColors.border}40`,
+                                            borderRadius: '4px',
+                                            fontSize: '0.65rem',
+                                            fontWeight: 600,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 4,
+                                            opacity: 0.9
+                                        }}>
+                                            <Icon iconName="PageShield" styles={{ root: { fontSize: 9 } }} />
+                                            <span>PEP: {pepSanctionsResult}</span>
+                                        </div>
+                                    )}
+                                    
+                                    {addressVerificationResult && (
+                                        <div style={{
+                                            padding: '3px 8px',
+                                            backgroundColor: addressColors.background,
+                                            color: addressColors.text,
+                                            border: `1px solid ${addressColors.border}40`,
+                                            borderRadius: '4px',
+                                            fontSize: '0.65rem',
+                                            fontWeight: 600,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 4,
+                                            opacity: 0.9
+                                        }}>
+                                            <Icon iconName="POI" styles={{ root: { fontSize: 9 } }} />
+                                            <span>Address: {addressVerificationResult}</span>
+                                        </div>
+                                    )}
                                 </div>
                             )}
-                            {addressVerificationResult && (
-                                <div style={{
-                                    padding: '2px 6px',
-                                    backgroundColor: addressColors.background,
-                                    color: addressColors.text,
-                                    border: `1px solid ${addressColors.border}30`,
-                                    fontSize: '0.7rem',
-                                    fontWeight: 600,
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 4
-                                }}>
-                                    <Icon iconName="POI" styles={{ root: { fontSize: 10 } }} />
-                                    Addr: {addressVerificationResult}
-                                </div>
-                            )}
+                            
+                            {/* Payment chip separate if present */}
                             {paymentResult && (
                                 <div style={{
-                                    padding: '2px 6px',
+                                    padding: '4px 8px',
                                     backgroundColor: paymentResult === 'successful' ? '#e6f4ea' : paymentResult === 'failed' ? '#fde7e9' : '#fffbe6',
                                     color: paymentResult === 'successful' ? '#107C10' : paymentResult === 'failed' ? '#d13438' : '#b88600',
-                                    border: `1px solid ${paymentResult === 'successful' ? '#107C10' : paymentResult === 'failed' ? '#d13438' : '#FFB900'}30`,
-                                    fontSize: '0.7rem',
+                                    border: `1px solid ${paymentResult === 'successful' ? '#107C10' : paymentResult === 'failed' ? '#d13438' : '#FFB900'}60`,
+                                    borderRadius: '4px',
+                                    fontSize: '0.65rem',
                                     fontWeight: 600,
-                                    display: 'inline-flex',
+                                    display: 'flex',
                                     alignItems: 'center',
                                     gap: 4
                                 }}>
-                                    <Icon iconName="PaymentCard" styles={{ root: { fontSize: 10 } }} />
-                                    Payment: {paymentResult}
+                                    <Icon iconName="PaymentCard" styles={{ root: { fontSize: 9 } }} />
+                                    <span>Payment: {paymentResult}</span>
                                 </div>
                             )}
-                        </Stack>
+                        </div>
                     )}
-                    {/* Service Description and Amount - REMOVED to avoid duplication */}
-                    {/* Compact Contact & ID Details */}
+                    {/* Simplified Contact Details - Only show most essential */}
                     <div className={contactBlockStyle}>
-                        <Stack tokens={{ childrenGap: 6 }}>
+                        <Stack tokens={{ childrenGap: 4 }}>
+                            {/* Only show email and phone for cleaner look */}
                             {email && (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <Icon iconName="Mail" styles={{ root: { fontSize: '12px', color: '#666' } }} />
-                                    <Text variant="xSmall" styles={{ root: { color: '#444', fontSize: '0.75rem', fontFamily: 'Raleway, sans-serif' } }}>
+                                    <Icon iconName="Mail" styles={{ root: { fontSize: '11px', color: '#888' } }} />
+                                    <Text variant="xSmall" styles={{ root: { color: '#555', fontSize: '0.7rem', fontFamily: 'Raleway, sans-serif' } }}>
                                         {email}
                                     </Text>
                                 </div>
                             )}
                             {phone && (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <Icon iconName="Phone" styles={{ root: { fontSize: '12px', color: '#666' } }} />
-                                    <Text variant="xSmall" styles={{ root: { color: '#444', fontSize: '0.75rem', fontFamily: 'Raleway, sans-serif' } }}>
+                                    <Icon iconName="Phone" styles={{ root: { fontSize: '11px', color: '#888' } }} />
+                                    <Text variant="xSmall" styles={{ root: { color: '#555', fontSize: '0.7rem', fontFamily: 'Raleway, sans-serif' } }}>
                                         {phone}
                                     </Text>
                                 </div>
                             )}
+                            {/* Show address in condensed form if available */}
                             {address && (
                                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
-                                    <Icon iconName="MapPin" styles={{ root: { fontSize: '12px', color: '#666', marginTop: '1px' } }} />
-                                    <Text variant="xSmall" styles={{ root: { color: '#666', fontSize: '0.75rem', fontStyle: 'italic', fontFamily: 'Raleway, sans-serif' } }}>
-                                        {address}
-                                    </Text>
-                                </div>
-                            )}
-                            {idType && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <Icon iconName="ContactCard" styles={{ root: { fontSize: '12px', color: '#666' } }} />
-                                    <Text variant="xSmall" styles={{ root: { color: '#444', fontSize: '0.75rem', fontFamily: 'Raleway, sans-serif' } }}>
-                                        ID Type: {idType}
-                                    </Text>
-                                </div>
-                            )}
-                            {passport && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <Icon iconName="Permissions" styles={{ root: { fontSize: '12px', color: '#666' } }} />
-                                    <Text variant="xSmall" styles={{ root: { color: '#444', fontSize: '0.75rem', fontFamily: 'Raleway, sans-serif' } }}>
-                                        Passport: {passport}
-                                    </Text>
-                                </div>
-                            )}
-                            {driversLicense && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <Icon iconName="Car" styles={{ root: { fontSize: '12px', color: '#666' } }} />
-                                    <Text variant="xSmall" styles={{ root: { color: '#444', fontSize: '0.75rem', fontFamily: 'Raleway, sans-serif' } }}>
-                                        License: {driversLicense}
+                                    <Icon iconName="MapPin" styles={{ root: { fontSize: '11px', color: '#888', marginTop: '1px' } }} />
+                                    <Text variant="xSmall" styles={{ root: { color: '#777', fontSize: '0.65rem', fontStyle: 'italic', fontFamily: 'Raleway, sans-serif', lineHeight: '1.2' } }}>
+                                        {address.length > 50 ? `${address.substring(0, 47)}...` : address}
                                     </Text>
                                 </div>
                             )}
                         </Stack>
                     </div>
-                    {/* ID Verification Status - Integrated */}
-                    {(pepSanctionsResult || addressVerificationResult) && (
-                        <Stack horizontal tokens={{ childrenGap: 8 }} verticalAlign="center">
-                            {pepSanctionsResult && (
-                                <div style={{
-                                    padding: '2px 6px',
-                                    backgroundColor: pepColors.background,
-                                    color: pepColors.text,
-                                    border: `1px solid ${pepColors.border}30`,
-                                    fontSize: '0.7rem',
-                                    fontWeight: 500,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 4
-                                }}>
-                                    <Icon iconName="Shield" styles={{ root: { fontSize: '10px' } }} />
-                                    PEP: {pepSanctionsResult}
-                                </div>
-                            )}
-                            {addressVerificationResult && (
-                                <div style={{
-                                    padding: '2px 6px',
-                                    backgroundColor: addressColors.background,
-                                    color: addressColors.text,
-                                    border: `1px solid ${addressColors.border}30`,
-                                    fontSize: '0.7rem',
-                                    fontWeight: 500,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 4
-                                }}>
-                                    <Icon iconName="MapPin" styles={{ root: { fontSize: '10px' } }} />
-                                    Address: {addressVerificationResult}
-                                </div>
-                            )}
-                        </Stack>
-                    )}
                     {/* EID checked date & status */}
                     {(eidStatus || eidCheckedDate) && (
                         <Text variant="xSmall" styles={{ root: { 

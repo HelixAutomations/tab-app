@@ -4,6 +4,7 @@ import React from 'react'; // invisible change // invisible change 2
 import { Stack, Text, Icon } from '@fluentui/react';
 import '../../../app/styles/MultiSelect.css';
 import { colours } from '../../../app/styles/colours';
+import { useTheme } from '../../../app/functionality/ThemeContext';
 
 interface AreaOfWorkStepProps {
     areaOfWork: string;
@@ -27,21 +28,32 @@ const options = [
 ];
 
 const AreaOfWorkStep: React.FC<AreaOfWorkStepProps> = ({ areaOfWork, setAreaOfWork, onContinue, getGroupColor }) => {
+    const { isDarkMode } = useTheme();
+    
     // Professional theme colors
-    const colours = {
-        bg: 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-        border: '#E2E8F0',
-        text: '#0F172A',
-        shadow: '0 2px 4px rgba(0, 0, 0, 0.04)'
+    const themeColours = {
+        bg: isDarkMode 
+            ? 'linear-gradient(135deg, #0B1220 0%, #1F2937 100%)'
+            : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
+        border: isDarkMode ? '#334155' : '#E2E8F0',
+        text: isDarkMode ? '#E5E7EB' : '#0F172A',
+        shadow: isDarkMode 
+            ? '0 2px 4px rgba(0, 0, 0, 0.3)'
+            : '0 2px 4px rgba(0, 0, 0, 0.04)',
+        cardBg: isDarkMode
+            ? 'linear-gradient(135deg, #111827 0%, #1F2937 100%)'
+            : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
+        inactiveText: isDarkMode ? '#9CA3AF' : '#64748B',
+        iconColor: colours.highlight // Use standard highlight color
     };
 
     return (
         <div style={{
-            background: colours.bg,
-            border: `1px solid ${colours.border}`,
+            background: themeColours.bg,
+            border: `1px solid ${themeColours.border}`,
             borderRadius: 12,
             padding: 20,
-            boxShadow: colours.shadow,
+            boxShadow: themeColours.shadow,
             boxSizing: 'border-box'
         }}>
             <Stack tokens={{ childrenGap: 16 }}>
@@ -54,12 +66,12 @@ const AreaOfWorkStep: React.FC<AreaOfWorkStepProps> = ({ areaOfWork, setAreaOfWo
                 }}>
                     <i className="ms-Icon ms-Icon--WorkItem" style={{ 
                         fontSize: 16, 
-                        color: '#3690CE' 
+                        color: themeColours.iconColor 
                     }} />
                     <span style={{ 
                         fontSize: 16, 
                         fontWeight: 500, 
-                        color: colours.text 
+                        color: themeColours.text 
                     }}>
                         Select Area of Work
                     </span>
@@ -90,11 +102,11 @@ const AreaOfWorkStep: React.FC<AreaOfWorkStepProps> = ({ areaOfWork, setAreaOfWo
                                         alignItems: 'center',
                                         justifyContent: 'center',
                                         padding: '10px 12px',
-                                        border: `1px solid ${isActive ? areaColor : colours.border}`,
+                                        border: `1px solid ${isActive ? areaColor : themeColours.border}`,
                                         borderRadius: '6px',
                                         background: isActive 
                                             ? `linear-gradient(135deg, ${areaColor}15 0%, ${areaColor}08 100%)` 
-                                            : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
+                                            : themeColours.cardBg,
                                         cursor: 'pointer',
                                         transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                                         minHeight: '36px',
@@ -111,7 +123,7 @@ const AreaOfWorkStep: React.FC<AreaOfWorkStepProps> = ({ areaOfWork, setAreaOfWo
                                         className="client-type-icon"
                                         style={{
                                             fontSize: '16px',
-                                            color: isActive ? areaColor : '#64748B',
+                                            color: isActive ? areaColor : themeColours.inactiveText,
                                             marginBottom: '8px',
                                             opacity: 1,
                                             transition: 'all 0.2s ease',
@@ -125,7 +137,7 @@ const AreaOfWorkStep: React.FC<AreaOfWorkStepProps> = ({ areaOfWork, setAreaOfWo
                                         style={{
                                             fontSize: '12px',
                                             fontWeight: 400,
-                                            color: isActive ? areaColor : '#64748B',
+                                            color: isActive ? areaColor : themeColours.inactiveText,
                                             textAlign: 'center',
                                             opacity: 1,
                                             transform: 'translateY(0)',

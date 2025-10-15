@@ -37,7 +37,7 @@ interface TestSuite {
 const EMAIL_TEST_CASES = [
   {
     name: 'Line Break Preservation',
-    input: `Hi Luke,
+    input: `Hello Luke,
 
 Thank you for your enquiry.
 

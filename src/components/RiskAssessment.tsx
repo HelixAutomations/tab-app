@@ -9,6 +9,7 @@ import {
     DialogFooter,
     DatePicker,
     IDatePickerStyles,
+    IButtonStyles,
     Checkbox,
 } from '@fluentui/react';
 import { useTheme } from '../app/functionality/ThemeContext';
@@ -89,9 +90,15 @@ const QuestionGroup: React.FC<QuestionGroupProps> = ({ label, options, selectedK
                             onClick={() => onChange(option.key, option.text)}
                             className="client-details-contact-bigbtn"
                             style={{
-                                background: isSelected ? 'linear-gradient(135deg, #E7F1FF 0%, #F0F7FF 100%)' : '#fff',
-                                border: isSelected ? '1px solid #3690CE' : '1px solid #e1dfdd',
-                                color: isSelected ? '#1B5C85' : '#061733',
+                                background: isSelected 
+                                    ? (isDarkMode ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.2) 0%, rgba(54, 144, 206, 0.1) 100%)' : 'linear-gradient(135deg, #E7F1FF 0%, #F0F7FF 100%)')
+                                    : (isDarkMode ? colours.dark.sectionBackground : '#fff'),
+                                border: isSelected 
+                                    ? '1px solid #3690CE' 
+                                    : (isDarkMode ? `1px solid ${colours.dark.border}` : '1px solid #e1dfdd'),
+                                color: isSelected 
+                                    ? (isDarkMode ? colours.blue : '#1B5C85')
+                                    : (isDarkMode ? colours.dark.text : '#061733'),
                                 padding: '6px 10px',
                                 fontSize: '12px',
                                 fontWeight: 500,
@@ -103,7 +110,7 @@ const QuestionGroup: React.FC<QuestionGroupProps> = ({ label, options, selectedK
                                 display: 'flex',
                                 alignItems: 'center',
                                 minHeight: 36,
-                                boxShadow: '0 1px 2px rgba(6,23,51,0.06)',
+                                boxShadow: isDarkMode ? '0 1px 2px rgba(0,0,0,0.3)' : '0 1px 2px rgba(6,23,51,0.06)',
                                 whiteSpace: 'normal',
                                 wordWrap: 'break-word',
                                 hyphens: 'auto',
@@ -111,16 +118,16 @@ const QuestionGroup: React.FC<QuestionGroupProps> = ({ label, options, selectedK
                             }}
                             onMouseEnter={(e) => {
                                 if (!isSelected) {
-                                    e.currentTarget.style.background = '#f4f9ff';
+                                    e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.1)' : '#f4f9ff';
                                     e.currentTarget.style.borderColor = '#3690CE';
-                                    e.currentTarget.style.color = '#1B5C85';
+                                    e.currentTarget.style.color = isDarkMode ? colours.blue : '#1B5C85';
                                 }
                             }}
                             onMouseLeave={(e) => {
                                 if (!isSelected) {
-                                    e.currentTarget.style.background = '#fff';
-                                    e.currentTarget.style.borderColor = '#e1dfdd';
-                                    e.currentTarget.style.color = '#061733';
+                                    e.currentTarget.style.background = isDarkMode ? colours.dark.sectionBackground : '#fff';
+                                    e.currentTarget.style.borderColor = isDarkMode ? colours.dark.border : '#e1dfdd';
+                                    e.currentTarget.style.color = isDarkMode ? colours.dark.text : '#061733';
                                 }
                             }}
                         >
@@ -131,10 +138,10 @@ const QuestionGroup: React.FC<QuestionGroupProps> = ({ label, options, selectedK
             </div>
             {shouldShowPrompt && (
                 <div style={{
-                    background: '#FFFDF5',
+                    background: isDarkMode ? 'rgba(255, 185, 0, 0.1)' : '#FFFDF5',
                     borderLeft: '2px solid #FFB900',
                     padding: '4px 8px',
-                    color: '#8A6D00',
+                    color: isDarkMode ? '#fbbf24' : '#8A6D00',
                     fontSize: 11,
                     fontWeight: 500,
                     display: 'flex',
@@ -240,26 +247,6 @@ const valueOfInstructionOptions = [
     { key: 3, text: 'Above £500,000' },
 ];
 
-const datePickerStyles: Partial<IDatePickerStyles> = {
-    root: { width: 200 },
-    textField: {
-        width: '100%',
-        borderRadius: '0',
-        selectors: {
-            '& .ms-TextField-fieldGroup': {
-                border: '1px solid #8a8886',
-                background: 'transparent',
-                borderRadius: '0',
-                height: '32px',
-            },
-            '& .ms-TextField-field': {
-                padding: '0 12px',
-                height: '100%',
-            },
-        },
-    },
-    icon: { right: 8 },
-};
 
 const RiskAssessment: React.FC<RiskAssessmentProps> = ({
     riskCore,
@@ -282,6 +269,134 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
     isComplete,
     onHeaderButtonsChange,
 }) => {
+    const { isDarkMode } = useTheme();
+    
+    const getDatePickerStyles = (): Partial<IDatePickerStyles> => ({
+        root: { width: 200 },
+        textField: {
+            width: '100%',
+            borderRadius: '0',
+            selectors: {
+                '& .ms-TextField-fieldGroup': {
+                    border: isDarkMode ? `1px solid ${colours.dark.border}` : '1px solid #8a8886',
+                    background: 'transparent',
+                    borderRadius: '0',
+                    height: '32px',
+                },
+                '& .ms-TextField-field': {
+                    padding: '0 12px',
+                    height: '100%',
+                    color: isDarkMode ? colours.dark.text : '#000',
+                },
+            },
+        },
+        icon: { right: 8 },
+    });
+
+    const getPrimaryButtonStyles = (): IButtonStyles => ({
+        root: {
+            padding: '6px 12px',
+            backgroundColor: isDarkMode ? colours.dark.cta : colours.cta,
+            border: 'none',
+            height: '40px',
+            fontWeight: '600',
+            color: '#ffffff',
+            transition: 'background 0.3s ease, box-shadow 0.3s ease',
+            transform: 'none !important',
+            outline: 'none !important',
+            ':focus': {
+                outline: 'none !important',
+                border: 'none !important',
+                transform: 'none !important',
+            },
+        },
+        rootHovered: {
+            backgroundColor: isDarkMode ? '#005a9e' : colours.cta,
+            background: isDarkMode 
+                ? 'radial-gradient(circle at center, rgba(0,0,0,0) 0%, rgba(0,0,0,0.15) 100%), #005a9e !important'
+                : `radial-gradient(circle at center, rgba(0,0,0,0) 0%, rgba(0,0,0,0.15) 100%), ${colours.cta} !important`,
+            boxShadow: '0 0 8px rgba(0,0,0,0.2) !important',
+            transform: 'none !important',
+            outline: 'none !important',
+            border: 'none !important',
+        },
+        rootPressed: {
+            backgroundColor: isDarkMode ? '#004578' : colours.cta,
+            background: isDarkMode 
+                ? 'radial-gradient(circle at center, rgba(0,0,0,0) 0%, rgba(0,0,0,0.25) 100%), #004578 !important'
+                : `radial-gradient(circle at center, rgba(0,0,0,0) 0%, rgba(0,0,0,0.15) 100%), ${colours.cta} !important`,
+            boxShadow: '0 0 8px rgba(0,0,0,0.3) !important',
+            transform: 'none !important',
+            outline: 'none !important',
+            border: 'none !important',
+        },
+        rootFocused: {
+            backgroundColor: isDarkMode ? colours.dark.cta : colours.cta,
+            transform: 'none !important',
+            outline: 'none !important',
+            border: 'none !important',
+        },
+        rootDisabled: {
+            backgroundColor: isDarkMode ? colours.dark.disabledBackground : '#cccccc',
+            color: isDarkMode ? colours.dark.text : '#666666',
+            opacity: 0.6,
+            border: 'none !important',
+        },
+        label: {
+            color: '#ffffff !important',
+        },
+        labelDisabled: {
+            color: isDarkMode ? colours.dark.text : '#666666',
+        },
+    });
+    
+    const getDefaultButtonStyles = (): IButtonStyles => ({
+        root: {
+            padding: '6px 12px',
+            borderRadius: '4px',
+            backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.secondaryButtonBackground,
+            border: isDarkMode ? `1px solid ${colours.dark.border}` : 'none',
+            height: '40px',
+            fontWeight: 'normal',
+            color: isDarkMode ? colours.dark.text : '#000000',
+            transition: 'background 0.3s ease, box-shadow 0.3s ease',
+            transform: 'none !important',
+            outline: 'none !important',
+            ':focus': {
+                outline: 'none !important',
+                border: isDarkMode ? `1px solid ${colours.dark.border}` : 'none',
+                transform: 'none !important',
+            },
+        },
+        rootHovered: {
+            backgroundColor: isDarkMode ? colours.dark.cardHover : colours.secondaryButtonBackground,
+            background: isDarkMode 
+                ? `radial-gradient(circle at center, rgba(255,255,255,0) 0%, rgba(255,255,255,0.05) 100%), ${colours.dark.cardHover} !important`
+                : `radial-gradient(circle at center, rgba(0,0,0,0) 0%, rgba(0,0,0,0.1) 100%), ${colours.secondaryButtonBackground} !important`,
+            boxShadow: '0 2px 6px rgba(0,0,0,0.15) !important',
+            transform: 'none !important',
+            outline: 'none !important',
+        },
+        rootPressed: {
+            backgroundColor: isDarkMode ? colours.dark.inputBackground : colours.secondaryButtonBackground,
+            background: isDarkMode 
+                ? `radial-gradient(circle at center, rgba(255,255,255,0) 0%, rgba(255,255,255,0.1) 100%), ${colours.dark.inputBackground} !important`
+                : `radial-gradient(circle at center, rgba(0,0,0,0) 0%, rgba(0,0,0,0.15) 100%), ${colours.secondaryButtonBackground} !important`,
+            boxShadow: '0 0 8px rgba(0,0,0,0.2) !important',
+            transform: 'none !important',
+            outline: 'none !important',
+        },
+        rootFocused: {
+            backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.secondaryButtonBackground,
+            transform: 'none !important',
+            outline: 'none !important',
+        },
+        label: {
+            color: isDarkMode ? colours.dark.text : '#000000',
+            fontWeight: 'normal !important',
+        },
+    });
+
     const initialRiskCore = useRef<RiskCore>(riskCore);
     const initialClientRisk = useRef<boolean | undefined>(consideredClientRisk);
     const initialTransactionRisk = useRef<boolean | undefined>(consideredTransactionRisk);
@@ -387,8 +502,8 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
                         type="button"
                         onClick={() => setIsClearDialogOpen(true)}
                         style={{
-                            background: '#fff',
-                            border: '1px solid #e1e5e9',
+                            background: isDarkMode ? colours.dark.sectionBackground : '#fff',
+                            border: isDarkMode ? `1px solid ${colours.dark.border}` : '1px solid #e1e5e9',
                             borderRadius: 0,
                             padding: '10px 16px',
                             fontSize: 13,
@@ -401,13 +516,13 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
                             fontFamily: 'Raleway, sans-serif',
                         }}
                         onMouseEnter={(e) => {
-                            e.currentTarget.style.background = '#ffefed';
+                            e.currentTarget.style.background = isDarkMode ? 'rgba(214, 85, 65, 0.1)' : '#ffefed';
                             e.currentTarget.style.borderColor = '#D65541';
                             e.currentTarget.style.boxShadow = '0 2px 8px rgba(214,85,65,0.08)';
                         }}
                         onMouseLeave={(e) => {
-                            e.currentTarget.style.background = '#fff';
-                            e.currentTarget.style.borderColor = '#e1e5e9';
+                            e.currentTarget.style.background = isDarkMode ? colours.dark.sectionBackground : '#fff';
+                            e.currentTarget.style.borderColor = isDarkMode ? colours.dark.border : '#e1e5e9';
                             e.currentTarget.style.boxShadow = '0 1px 2px rgba(6,23,51,0.04)';
                         }}
                     >
@@ -428,8 +543,8 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
                         type="button"
                         onClick={() => setJsonPreviewOpen(!jsonPreviewOpen)}
                         style={{
-                            background: '#f8f9fa',
-                            border: '1px solid #e1dfdd',
+                            background: isDarkMode ? colours.dark.cardBackground : '#f8f9fa',
+                            border: isDarkMode ? `1px solid ${colours.dark.border}` : '1px solid #e1dfdd',
                             borderRadius: 0,
                             padding: '10px 12px',
                             fontSize: 12,
@@ -442,12 +557,12 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
                             transition: 'background 0.2s ease, border-color 0.2s ease',
                         }}
                         onMouseEnter={(e) => {
-                            e.currentTarget.style.background = '#e7f1ff';
+                            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.1)' : '#e7f1ff';
                             e.currentTarget.style.borderColor = '#3690CE';
                         }}
                         onMouseLeave={(e) => {
-                            e.currentTarget.style.background = '#f8f9fa';
-                            e.currentTarget.style.borderColor = '#e1dfdd';
+                            e.currentTarget.style.background = isDarkMode ? colours.dark.cardBackground : '#f8f9fa';
+                            e.currentTarget.style.borderColor = isDarkMode ? colours.dark.border : '#e1dfdd';
                         }}
                     >
                         <i className="ms-Icon ms-Icon--Code" style={{ fontSize: 14 }} />
@@ -464,7 +579,7 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
             <Stack horizontal tokens={{ childrenGap: 16 }} styles={{ root: { width: '100%' } }}>
                 <Stack tokens={{ childrenGap: 8 }} styles={{ root: { flex: 3 } }}>
                     {/* Section: Client & Instruction */}
-                    <div style={{ fontSize: 10, fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', margin: '0 0 2px' }}>Client & Instruction</div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? colours.dark.text : '#6B7280', textTransform: 'uppercase', margin: '0 0 2px', opacity: 0.7 }}>Client & Instruction</div>
                     <QuestionGroup
                         label="Client Type"
                         options={clientTypeOptions}
@@ -514,7 +629,7 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
                         }
                     />
                     {/* Section: Funds */}
-                    <div style={{ fontSize: 10, fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', margin: '4px 0 2px' }}>Funds</div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? colours.dark.text : '#6B7280', textTransform: 'uppercase', margin: '4px 0 2px', opacity: 0.7 }}>Funds</div>
                     <QuestionGroup
                         label="Limitation"
                         options={limitationOptions}
@@ -532,7 +647,7 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
                             <DatePicker
                                 value={limitationDate}
                                 onSelectDate={(d) => setLimitationDate(d || undefined)}
-                                styles={datePickerStyles}
+                                styles={getDatePickerStyles()}
                                 placeholder="Limitation Date"
                                 formatDate={(d?: Date) => (d ? d.toLocaleDateString('en-GB') : '')}
                                 disabled={limitationDateTbc}
@@ -582,12 +697,14 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
                         justifyContent: 'space-between',
                         gap: 6,
                         padding: '6px 8px',
-                        border: '1px solid #e1e5e9',
+                        border: isDarkMode ? `1px solid ${colours.dark.border}` : '1px solid #e1e5e9',
                         borderRadius: 6,
-                        background: 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+                        background: isDarkMode 
+                            ? colours.dark.sectionBackground
+                            : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
+                        boxShadow: isDarkMode ? '0 2px 4px rgba(0,0,0,0.3)' : '0 2px 4px rgba(0,0,0,0.05)'
                     }}>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: '#061733' }}>Score: {riskScore}</div>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? colours.dark.text : '#061733' }}>Score: {riskScore}</div>
                         <div style={{
                             padding: '2px 6px',
                             borderRadius: 999,
@@ -679,8 +796,8 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
                         modalProps={{ isBlocking: true }}
                     >
                         <DialogFooter>
-                            <PrimaryButton onClick={doClearAll} text="Yes, clear all" />
-                            <DefaultButton onClick={() => setIsClearDialogOpen(false)} text="Cancel" />
+                            <PrimaryButton onClick={doClearAll} text="Yes, clear all" styles={getPrimaryButtonStyles()} />
+                            <DefaultButton onClick={() => setIsClearDialogOpen(false)} text="Cancel" styles={getDefaultButtonStyles()} />
                         </DialogFooter>
                     </Dialog>
                 )}
@@ -689,7 +806,7 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
                     text="Continue"
                     onClick={onContinue}
                     disabled={!isComplete()}
-                    styles={sharedPrimaryButtonStyles}
+                    styles={getPrimaryButtonStyles()}
                 />
             </Stack>
 
@@ -697,9 +814,9 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
                 <div
                     style={{
                         marginTop: 12,
-                        border: '1px solid #e1dfdd',
+                        border: isDarkMode ? `1px solid ${colours.dark.border}` : '1px solid #e1dfdd',
                         borderRadius: 6,
-                        background: '#f8f9fa',
+                        background: isDarkMode ? colours.dark.cardBackground : '#f8f9fa',
                         overflow: 'hidden',
                         width: '100%',
                         maxWidth: 620,
@@ -713,10 +830,16 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
                             fontSize: 10,
                             fontFamily: 'Monaco, Consolas, "Courier New", monospace',
                             lineHeight: 1.4,
-                            background: '#fff',
+                            background: isDarkMode ? colours.dark.sectionBackground : '#fff',
+                            color: isDarkMode ? colours.dark.text : '#000',
                         }}
                     >
-                        <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                        <pre style={{ 
+                            margin: 0, 
+                            whiteSpace: 'pre-wrap', 
+                            wordBreak: 'break-word',
+                            color: 'inherit'
+                        }}>
                             {JSON.stringify(generateJson(), null, 2)}
                         </pre>
                     </div>

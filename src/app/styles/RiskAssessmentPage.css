@@ -1,4 +1,60 @@
+.risk-assessment-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    background: var(--matter-card-bg, #ffffff);
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    overflow: hidden;
+}
+
+/* Responsive design for different screen sizes */
+@media (min-width: 1400px) {
+    .risk-assessment-container {
+        max-width: 1400px;
+        margin: 20px auto;
+    }
+}
+
+@media (max-width: 768px) {
+    .risk-assessment-container {
+        margin: 0;
+        border-radius: 0;
+        box-shadow: none;
+    }
+}
+
+/* Dark mode for the container */
+@media (prefers-color-scheme: dark) {
+    .risk-assessment-container {
+        background: var(--matter-card-bg, #0B1220);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+}
+
 .risk-full-width {
     max-width: none;
-    margin: 0 0 1.5rem;
+    margin: 0 0 2rem;
+}
+
+/* Improve typography and spacing within the risk assessment */
+.risk-full-width .step-content {
+    line-height: 1.5;
+}
+
+.risk-full-width .step-content h3,
+.risk-full-width .step-content h4 {
+    margin-bottom: 0.75rem;
+    margin-top: 1.5rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+
+.risk-full-width .step-content h3:first-child,
+.risk-full-width .step-content h4:first-child {
+    margin-top: 0;
+}
+
+/* Better spacing for form sections */
+.risk-full-width .step-content > div + div {
+    margin-top: 1.25rem;
 }

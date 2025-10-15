@@ -815,46 +815,56 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
 
   const getStatusForActiveFilters = (member: any): StatusFilterKey => {
     const weekPreference: WeekFilterKey[] = selectedWeeks.length > 0 ? selectedWeeks : ['current'];
-    const dayPreference: DayFilterKey[] = selectedDays.length > 0 ? selectedDays : DAY_ORDER;
+    
+    // If specific days are selected (daily filter is active), show attendance for ONLY those days
+    if (selectedDays.length > 0) {
+      for (const week of weekPreference) {
+        const attendance = getDailyAttendance(member, week === 'current' ? 0 : 1);
 
-    // For weekends with no specific day filters, use today's attendance (which uses Friday for weekends)
+        for (const day of selectedDays) {
+          const index = DAY_INDEX_MAP[day];
+          if (index < 0) {
+            continue;
+          }
+          const status = attendance[index];
+          if (!status) {
+            continue;
+          }
+          if (selectedStatuses.length === 0 || selectedStatuses.includes(status)) {
+            return status;
+          }
+        }
+      }
+      
+      // If no status found for selected days, return a fallback based on the first selected day
+      const firstDay = selectedDays[0];
+      const index = DAY_INDEX_MAP[firstDay];
+      if (index >= 0) {
+        const attendance = getDailyAttendance(member, weekPreference.includes('current') ? 0 : 1);
+        return (attendance[index] || 'wfh') as StatusFilterKey;
+      }
+    }
+    
+    // If no specific days are selected, use today's attendance for daily view
     const today = new Date();
     const dayIndex = today.getDay();
     const isWeekend = dayIndex === 0 || dayIndex === 6; // Sunday or Saturday
     
-    if (isWeekend && selectedDays.length === 0) {
+    if (isWeekend) {
+      const todayStatus = getTodayAttendance(member as AttendanceRecord);
+      if (validStatuses.includes(todayStatus as StatusFilterKey)) {
+        return todayStatus as StatusFilterKey;
+      }
+    } else {
+      // For weekdays, show today's attendance
       const todayStatus = getTodayAttendance(member as AttendanceRecord);
       if (validStatuses.includes(todayStatus as StatusFilterKey)) {
         return todayStatus as StatusFilterKey;
       }
     }
 
-    for (const week of weekPreference) {
-      const attendance = getDailyAttendance(member, week === 'current' ? 0 : 1);
-
-      for (const day of dayPreference) {
-        const index = DAY_INDEX_MAP[day];
-        if (index < 0) {
-          continue;
-        }
-        const status = attendance[index];
-        if (!status) {
-          continue;
-        }
-        if (selectedStatuses.length === 0 || selectedStatuses.includes(status)) {
-          return status;
-        }
-      }
-    }
-
-    if (weekPreference.includes('current')) {
-      const todayStatus = getTodayAttendance(member as AttendanceRecord);
-      if (validStatuses.includes(todayStatus as StatusFilterKey)) {
-        return todayStatus as StatusFilterKey;
-      }
-    }
-
-    const fallbackWeek = getDailyAttendance(member, 1);
+    // Fallback to first available status
+    const fallbackWeek = getDailyAttendance(member, 0);
     const fallback = fallbackWeek.find(status => validStatuses.includes(status as StatusFilterKey));
     return (fallback || 'wfh') as StatusFilterKey;
   };

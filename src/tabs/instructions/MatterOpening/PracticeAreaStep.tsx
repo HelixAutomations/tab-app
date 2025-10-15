@@ -4,6 +4,7 @@ import React from 'react'; // invisible change
 import { Stack, Text } from '@fluentui/react';
 import '../../../app/styles/MultiSelect.css';
 import { colours } from '../../../app/styles/colours';
+import { useTheme } from '../../../app/functionality/ThemeContext';
 
 const areaColors: Record<string, string> = { /* invisible change */
     // Commercial: colours.blue, // Removed Commercial
@@ -21,25 +22,35 @@ interface PracticeAreaStepProps {
 }
 
 const PracticeAreaStep: React.FC<PracticeAreaStepProps> = ({ options, practiceArea, setPracticeArea, onContinue, areaOfWork }) => {
+    const { isDarkMode } = useTheme();
     const color = areaColors[areaOfWork] || '#3690CE';
     // Filter out 'Commercial' from the options before rendering
     const filteredOptions = options.filter((pa) => pa !== 'Commercial');
     
     // Professional theme colors
-    const colours = {
-        bg: 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-        border: '#E2E8F0',
-        text: '#0F172A',
-        shadow: '0 2px 4px rgba(0, 0, 0, 0.04)'
+    const themeColours = {
+        bg: isDarkMode 
+            ? 'linear-gradient(135deg, #0B1220 0%, #1F2937 100%)'
+            : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
+        border: isDarkMode ? '#334155' : '#E2E8F0',
+        text: isDarkMode ? '#E5E7EB' : '#0F172A',
+        shadow: isDarkMode 
+            ? '0 2px 4px rgba(0, 0, 0, 0.3)'
+            : '0 2px 4px rgba(0, 0, 0, 0.04)',
+        cardBg: isDarkMode
+            ? 'linear-gradient(135deg, #111827 0%, #1F2937 100%)'
+            : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
+        inactiveText: isDarkMode ? '#9CA3AF' : '#64748B',
+        iconColor: colours.highlight // Use standard highlight color
     };
     
     return (
         <div style={{
-            background: colours.bg,
-            border: `1px solid ${colours.border}`,
+            background: themeColours.bg,
+            border: `1px solid ${themeColours.border}`,
             borderRadius: 12,
             padding: 20,
-            boxShadow: colours.shadow,
+            boxShadow: themeColours.shadow,
             boxSizing: 'border-box'
         }}>
             <Stack tokens={{ childrenGap: 16 }}>
@@ -52,12 +63,12 @@ const PracticeAreaStep: React.FC<PracticeAreaStepProps> = ({ options, practiceAr
                 }}>
                     <i className="ms-Icon ms-Icon--WorkItem" style={{ 
                         fontSize: 16, 
-                        color: color
+                        color: themeColours.iconColor 
                     }} />
                     <span style={{ 
                         fontSize: 16, 
                         fontWeight: 600, 
-                        color: colours.text 
+                        color: themeColours.text 
                     }}>
                         Select Practice Area
                     </span>
@@ -86,18 +97,18 @@ const PracticeAreaStep: React.FC<PracticeAreaStepProps> = ({ options, practiceAr
                                         alignItems: 'center',
                                         justifyContent: 'center',
                                         padding: '8px 12px',
-                                        border: `1px solid ${isActive ? color : colours.border}`,
+                                        border: `1px solid ${isActive ? color : themeColours.border}`,
                                         borderRadius: '6px',
                                         background: isActive 
                                             ? `linear-gradient(135deg, ${color}15 0%, ${color}08 100%)` 
-                                            : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
+                                            : themeColours.cardBg,
                                         cursor: 'pointer',
                                         transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                                         minHeight: '36px',
                                         boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
                                         fontSize: '12px',
                                         fontWeight: 400,
-                                        color: isActive ? color : colours.text,
+                                        color: isActive ? color : themeColours.inactiveText,
                                         // CSS vars for hover/press
                                         ['--area-hover-bg' as any]: `linear-gradient(135deg, ${color}10 0%, ${color}05 100%)`,
                                         ['--area-hover-color' as any]: color,

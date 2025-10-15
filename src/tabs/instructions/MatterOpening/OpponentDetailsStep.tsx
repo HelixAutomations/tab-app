@@ -120,41 +120,25 @@ const titleOptions: IDropdownOption[] = [
   { key: "Other", text: "Other" },
 ];
 
-const containerStyle: React.CSSProperties = { /* compact, consistent card */
-  background: "#F8FAFC",
-  border: "1px solid #e3e8ef",
+// Dynamic container style that responds to dark mode
+const useContainerStyle = (isDarkMode: boolean): React.CSSProperties => ({
+  background: isDarkMode 
+    ? 'linear-gradient(135deg, #111827 0%, #1F2937 100%)'
+    : "#F8FAFC",
+  border: isDarkMode 
+    ? "1px solid #374151" 
+    : "1px solid #e3e8ef",
   borderRadius: 8,
-  boxShadow: "0 2px 4px rgba(0, 0, 0, 0.04)",
+  boxShadow: isDarkMode 
+    ? "0 2px 4px rgba(0, 0, 0, 0.3)" 
+    : "0 2px 4px rgba(0, 0, 0, 0.04)",
   padding: "14px 14px 10px 14px",
   marginBottom: 12,
   marginTop: 4,
   transition: "box-shadow 0.2s, border-color 0.2s"
-};
+});
 
-const answeredFieldStyle = {
-  background: "rgba(54, 144, 206, 0.10)",
-  color: "#061733",
-  border: "none",
-  borderRadius: 0,
-  boxShadow: "none",
-  transition: "background 0.2s, color 0.2s, border 0.2s"
-};
-const placeholderFieldStyle = {
-  background: "#fafbfc",
-  color: "#9ca3af",
-  border: "none",
-  borderRadius: 0,
-  boxShadow: "0 1px 2px rgba(0,0,0,0.02)",
-  transition: "background 0.2s, color 0.2s, border 0.2s"
-};
-const unansweredFieldStyle = {
-  background: "#FFFFFF",
-  color: "#061733",
-  border: "none",
-  borderRadius: 0,
-  boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-  transition: "background 0.2s, color 0.2s, border 0.2s"
-};
+// Static styles moved inside component for dark mode support
 
 // Inline validators (touched-gated)
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -444,6 +428,52 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
   const _setOpponentSolicitorEmail = setOpponentSolicitorEmail ?? setLocalOpponentSolicitorEmail;
 
   const { isDarkMode } = useTheme();
+  
+  // Get dynamic container style
+  const containerStyle = useContainerStyle(isDarkMode);
+
+  // Dynamic text color for dark mode
+  const fieldTextColor = isDarkMode ? "#e5e7eb" : "#061733";
+  // Consistent icon color using standard highlight color
+  const iconColor = colours.highlight;
+
+  // Dynamic field styles that respond to dark mode
+  const placeholderFieldStyle = React.useMemo(() => ({
+    background: isDarkMode ? "#1f2937" : "#fafbfc",
+    color: isDarkMode ? "#6b7280" : "#9ca3af",
+    border: "none",
+    borderRadius: 0,
+    boxShadow: isDarkMode ? "0 1px 2px rgba(0,0,0,0.2)" : "0 1px 2px rgba(0,0,0,0.02)",
+    transition: "background 0.2s, color 0.2s, border 0.2s"
+  }), [isDarkMode]);
+
+  const unansweredFieldStyle = React.useMemo(() => ({
+    background: isDarkMode ? "#0f172a" : "#FFFFFF",
+    color: isDarkMode ? "#e5e7eb" : "#061733",
+    border: "none",
+    borderRadius: 0,
+    boxShadow: isDarkMode ? "0 2px 8px rgba(0,0,0,0.3)" : "0 2px 8px rgba(0,0,0,0.08)",
+    transition: "background 0.2s, color 0.2s, border 0.2s"
+  }), [isDarkMode]);
+
+  const answeredFieldStyleDynamic = React.useMemo(() => ({
+    background: isDarkMode ? "rgba(54, 144, 206, 0.15)" : "rgba(54, 144, 206, 0.10)",
+    color: isDarkMode ? "#e5e7eb" : "#061733",
+    border: "none",
+    borderRadius: 0,
+    boxShadow: "none",
+    transition: "background 0.2s, color 0.2s, border 0.2s"
+  }), [isDarkMode]);
+
+  const pressedFieldStyleDynamic = React.useMemo(() => ({
+    background: isDarkMode ? "rgba(54, 144, 206, 0.20)" : "rgba(54, 144, 206, 0.15)",
+    border: "none",
+    borderRadius: 0,
+    boxShadow: isDarkMode ? "0 0 0 2px rgba(54, 144, 206, 0.4), 0 1px 3px rgba(0,0,0,0.2)" : "0 0 0 2px rgba(54, 144, 206, 0.3), 0 1px 3px rgba(0,0,0,0.06)",
+    marginTop: 4,
+    transition: "box-shadow 0.2s, border-color 0.2s"
+  }), [isDarkMode]);
+
   // Modern chip-like styles for selector checkboxes
   const checkboxChipStyles: ICheckboxStyles = React.useMemo(() => {
     const lightGrad = "linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)";
@@ -519,14 +549,18 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
   const chipContainer = (checked: boolean): React.CSSProperties => {
     const lightGrad = "linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)";
     const darkGrad = "linear-gradient(135deg, #1F2937 0%, #111827 100%)";
+    const lightCheckedGrad = "rgba(54, 144, 206, 0.10)";
+    const darkCheckedGrad = `linear-gradient(135deg, ${colours.highlight}26 0%, ${colours.highlight}1f 100%)`;
     const accent = colours.highlight;
     const baseBorder = isDarkMode ? "#334155" : "#e3e8ef";
+    const checkedBorder = isDarkMode ? `${accent}66` : "#c9dfef";
     const shadow = isDarkMode ? "0 4px 6px rgba(0, 0, 0, 0.3)" : "0 4px 6px rgba(0, 0, 0, 0.07)";
+    
     return {
       background: checked
-        ? (isDarkMode ? `linear-gradient(135deg, ${accent}26 0%, ${accent}1f 100%)` : "rgba(54, 144, 206, 0.10)")
+        ? (isDarkMode ? darkCheckedGrad : lightCheckedGrad)
         : (isDarkMode ? darkGrad : lightGrad),
-      border: `1px solid ${checked ? (isDarkMode ? `${accent}66` : "#c9dfef") : baseBorder}`,
+      border: `1px solid ${checked ? checkedBorder : baseBorder}`,
       borderRadius: 8,
       boxShadow: shadow,
       padding: "8px 10px",
@@ -804,7 +838,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
         fontSize: 15,
         color: "#3b5b7e"
       }}>
-        <FontIcon iconName={iconName} style={{ fontSize: 18, marginRight: 10, color: "#6b8bbd" }} />
+        <FontIcon iconName={iconName} style={{ fontSize: 18, marginRight: 10, color: iconColor }} />
         <span style={{ fontWeight: 600, letterSpacing: 0.2 }}>{label}</span>
       </div>
       <div
@@ -824,15 +858,34 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
   const [touchedFields, setTouchedFields] = useDraftedState<{ [key: string]: boolean }>('touchedFields', {});
   const [placeholderFilledFields, setPlaceholderFilledFields] = useDraftedState<{ [key: string]: boolean }>('placeholderFilledFields', {});
 
+  // When a field is populated by placeholder data, render it as empty until the user interacts
+  const displayValue = React.useCallback(
+    (fieldKey: string, raw: string): string => {
+      return placeholderFilledFields[fieldKey] && !touchedFields[fieldKey] ? "" : raw;
+    },
+    [placeholderFilledFields, touchedFields]
+  );
+
+  // Same logic for select-type fields (e.g., Dropdown selectedKey)
+  const displaySelectKey = React.useCallback(
+    (fieldKey: string, raw: string | number | undefined): string | number | undefined => {
+      return placeholderFilledFields[fieldKey] && !touchedFields[fieldKey] ? undefined : raw;
+    },
+    [placeholderFilledFields, touchedFields]
+  );
+
   // Helper to get field style
   function getFieldStyle(fieldKey: string, value: string, isDropdown = false) {
     const isActive = activeField === fieldKey;
     const isTouched = touchedFields[fieldKey];
     const isPlaceholderFilled = placeholderFilledFields[fieldKey];
     
-    if (isActive) return pressedFieldStyle;
-    if (isPlaceholderFilled && value) return placeholderFieldStyle;
-    if (isTouched && value) return answeredFieldStyle;
+    if (isActive) return pressedFieldStyleDynamic;
+    // FIXED: Don't show placeholder styling for fields with placeholder data
+    // If field has been touched OR has real user data, show as answered
+    if (isTouched && value) return answeredFieldStyleDynamic;
+    // If field has placeholder data but user hasn't interacted, treat as unanswered
+    // This prevents showing grayed-out placeholder values to the user
     return unansweredFieldStyle;
   }
 
@@ -899,11 +952,17 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
 
   return (
     <div style={{
-      background: 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-      border: '1px solid #E2E8F0',
+      background: isDarkMode 
+        ? 'linear-gradient(135deg, #111827 0%, #1F2937 100%)'
+        : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
+      border: isDarkMode 
+        ? '1px solid #374151' 
+        : '1px solid #E2E8F0',
       borderRadius: 12,
       padding: 20,
-      boxShadow: '0 2px 4px rgba(0, 0, 0, 0.04)',
+      boxShadow: isDarkMode 
+        ? '0 2px 4px rgba(0, 0, 0, 0.3)' 
+        : '0 2px 4px rgba(0, 0, 0, 0.04)',
       boxSizing: 'border-box'
     }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -917,12 +976,12 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
           }}>
             <i className="ms-Icon ms-Icon--ShieldAlert" style={{ 
               fontSize: 16, 
-              color: '#3690CE' 
+              color: isDarkMode ? '#9CA3AF' : '#3690CE'
             }} />
             <span style={{ 
               fontSize: 16, 
               fontWeight: 600, 
-              color: '#0F172A' 
+              color: isDarkMode ? '#E5E7EB' : '#0F172A'
             }}>
               Confirm No Conflict of Interest
             </span>
@@ -952,12 +1011,12 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
               }}>
                 <i className="ms-Icon ms-Icon--People" style={{ 
                   fontSize: 16, 
-                  color: '#3690CE' 
+                  color: isDarkMode ? '#9CA3AF' : '#3690CE'
                 }} />
                 <span style={{ 
                   fontSize: 16, 
                   fontWeight: 600, 
-                  color: '#0F172A' 
+                  color: isDarkMode ? '#E5E7EB' : '#0F172A'
                 }}>
                   What type of opponent is this matter against?
                 </span>
@@ -989,40 +1048,52 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                         alignItems: 'center',
                         justifyContent: 'center',
                         padding: '12px 14px',
-                        border: `1px solid ${isActive ? '#3690CE' : '#E2E8F0'}`,
+                        border: `1px solid ${isActive ? '#3690CE' : (isDarkMode ? '#374151' : '#E2E8F0')}`,
                         borderRadius: '8px',
                         background: isActive 
                           ? 'linear-gradient(135deg, #3690CE15 0%, #3690CE08 100%)' 
-                          : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
+                          : (isDarkMode 
+                              ? 'linear-gradient(135deg, #1F2937 0%, #111827 100%)' 
+                              : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)'),
                         cursor: 'pointer',
                         transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                         minHeight: '70px',
                         boxShadow: isActive 
                           ? '0 3px 10px rgba(54, 144, 206, 0.15), 0 1px 2px rgba(0,0,0,0.03)' 
-                          : '0 1px 3px rgba(0,0,0,0.03)',
+                          : (isDarkMode 
+                              ? '0 1px 3px rgba(0,0,0,0.3)' 
+                              : '0 1px 3px rgba(0,0,0,0.03)'),
                         outline: 'none',
                         transform: isActive ? 'translateY(-2px)' : 'translateY(0)',
                       }}
                       onMouseEnter={(e) => {
                         if (!isActive) {
-                          e.currentTarget.style.background = 'linear-gradient(135deg, #F1F5F9 0%, #E2E8F0 100%)';
+                          e.currentTarget.style.background = isDarkMode 
+                            ? 'linear-gradient(135deg, #374151 0%, #1F2937 100%)' 
+                            : 'linear-gradient(135deg, #F1F5F9 0%, #E2E8F0 100%)';
                           e.currentTarget.style.borderColor = '#3690CE';
                           e.currentTarget.style.transform = 'translateY(-1px)';
-                          e.currentTarget.style.boxShadow = '0 3px 8px rgba(0,0,0,0.06)';
+                          e.currentTarget.style.boxShadow = isDarkMode 
+                            ? '0 3px 8px rgba(0,0,0,0.4)' 
+                            : '0 3px 8px rgba(0,0,0,0.06)';
                         }
                       }}
                       onMouseLeave={(e) => {
                         if (!isActive) {
-                          e.currentTarget.style.background = 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)';
-                          e.currentTarget.style.borderColor = '#E2E8F0';
+                          e.currentTarget.style.background = isDarkMode 
+                            ? 'linear-gradient(135deg, #1F2937 0%, #111827 100%)' 
+                            : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)';
+                          e.currentTarget.style.borderColor = isDarkMode ? '#374151' : '#E2E8F0';
                           e.currentTarget.style.transform = 'translateY(0)';
-                          e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.03)';
+                          e.currentTarget.style.boxShadow = isDarkMode 
+                            ? '0 1px 3px rgba(0,0,0,0.3)' 
+                            : '0 1px 3px rgba(0,0,0,0.03)';
                         }
                       }}
                     >
                       <div style={{
                         fontSize: '26px',
-                        color: isActive ? '#3690CE' : '#64748B',
+                        color: isActive ? '#3690CE' : (isDarkMode ? '#9CA3AF' : '#64748B'),
                         marginBottom: '8px',
                         transition: 'all 0.2s ease',
                       }}>
@@ -1031,7 +1102,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                       <span style={{
                         fontSize: '13px',
                         fontWeight: isActive ? 600 : 500,
-                        color: isActive ? '#3690CE' : '#0F172A',
+                        color: isActive ? '#3690CE' : (isDarkMode ? '#E5E7EB' : '#0F172A'),
                         textAlign: 'center',
                         lineHeight: 1.3,
                         transition: 'all 0.2s ease'
@@ -1048,7 +1119,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                     pointer-events: none;
                 }
                 .opponent-type-selection .client-type-icon-btn:not(.active):not(.pressed):not(:active):hover {
-                    background: #e3f0fc !important; /* subtle blue hover */
+                    background: ${isDarkMode ? '#374151' : '#e3f0fc'} !important; /* subtle blue hover */
                     border-color: #3690CE !important;
                 }
                 .opponent-type-selection .client-type-icon-btn:not(.active):not(.pressed):not(:active):hover .client-type-icon,
@@ -1060,7 +1131,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                 }
                 .opponent-type-selection .client-type-icon-btn.pressed,
                 .opponent-type-selection .client-type-icon-btn:active {
-                    background: #b3d3f7 !important; /* deeper blue for press */
+                    background: ${isDarkMode ? '#1F2937' : '#b3d3f7'} !important; /* deeper blue for press */
                     border-color: #1565c0 !important;
                 }
                 /* Animation for smooth transitions */
@@ -1224,7 +1295,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                     fontWeight: 600, 
                     fontSize: 15, 
                     marginBottom: 8, 
-                    color: '#061733'
+                    color: isDarkMode ? '#E5E7EB' : '#061733'
                   }}>
                     Opponent
                   </div>
@@ -1241,7 +1312,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                           />
                           <span style={{ fontSize: 11, color: '#6b7280' }}>Company name, number and address</span>
                         </div>
-                        <span className="ms-Icon ms-Icon--CityNext" style={{ fontSize: 18, color: '#6b8bbd' }} />
+                        <span className="ms-Icon ms-Icon--CityNext" style={{ fontSize: 18, color: iconColor }} />
                       </div>
                       {visibleSections.opponent.company && (
                         <>
@@ -1255,7 +1326,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                                   flex: 1,
                                   minWidth: 180,
                                   height: 38,
-                                  ...(touchedFields["opponentCompanyName"] && _opponentCompanyName ? answeredFieldStyle : unansweredFieldStyle)
+                                  ...getFieldStyle("opponentCompanyName", _opponentCompanyName)
                                 },
                                 fieldGroup: {
                                   borderRadius: 0,
@@ -1264,7 +1335,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                                   border: "none"
                                 },
                                 field: {
-                                  color: "#061733",
+                                  color: fieldTextColor,
                                   background: "transparent"
                                 }
                               }}
@@ -1284,7 +1355,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                                   flex: 1,
                                   minWidth: 140,
                                   height: 38,
-                                  ...(touchedFields["opponentCompanyNumber"] && _opponentCompanyNumber ? answeredFieldStyle : unansweredFieldStyle)
+                                  ...getFieldStyle("opponentCompanyNumber", _opponentCompanyNumber)
                                 },
                                 fieldGroup: {
                                   borderRadius: 0,
@@ -1293,7 +1364,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                                   border: "none"
                                 },
                                 field: {
-                                  color: "#061733",
+                                  color: fieldTextColor,
                                   background: "transparent"
                                 }
                               }}
@@ -1308,14 +1379,14 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(180px, 1fr))", gap: 6, marginBottom: 0 }}>
                             <TextField
                               placeholder="House/Building Number or Name"
-                              value={_opponentCompanyHouseNumber}
+                              value={displayValue("opponentCompanyHouseNumber", _opponentCompanyHouseNumber)}
                               onChange={(_, v) => _setOpponentCompanyHouseNumber(v || "")}
                               styles={{
                                 root: {
                                   minWidth: 80,
                                   flex: 1,
                                   height: 38,
-                                  ...getFieldStyle("opponentCompanyHouseNumber", _opponentCompanyHouseNumber)
+                                  ...getFieldStyle("opponentCompanyHouseNumber", displayValue("opponentCompanyHouseNumber", _opponentCompanyHouseNumber))
                                 },
                                 fieldGroup: {
                                   borderRadius: 0,
@@ -1325,7 +1396,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                                   ...noFocusOutline
                                 },
                                 field: {
-                                  color: "#061733",
+                                  color: fieldTextColor,
                                   background: "transparent"
                                 }
                               }}
@@ -1334,14 +1405,14 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                             />
                             <TextField
                               placeholder="Street"
-                              value={_opponentCompanyStreet}
+                              value={displayValue("opponentCompanyStreet", _opponentCompanyStreet)}
                               onChange={(_, v) => _setOpponentCompanyStreet(v || "")}
                               styles={{
                                 root: {
                                   minWidth: 100,
                                   flex: 1,
                                   height: 38,
-                                  ...getFieldStyle("opponentCompanyStreet", _opponentCompanyStreet)
+                                  ...getFieldStyle("opponentCompanyStreet", displayValue("opponentCompanyStreet", _opponentCompanyStreet))
                                 },
                                 fieldGroup: {
                                   borderRadius: 0,
@@ -1351,7 +1422,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                                   ...noFocusOutline
                                 },
                                 field: {
-                                  color: "#061733",
+                                  color: fieldTextColor,
                                   background: "transparent"
                                 }
                               }}
@@ -1360,14 +1431,14 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                             />
                             <TextField
                               placeholder="City/Town"
-                              value={_opponentCompanyCity}
+                              value={displayValue("opponentCompanyCity", _opponentCompanyCity)}
                               onChange={(_, v) => _setOpponentCompanyCity(v || "")}
                               styles={{
                                 root: {
                                   minWidth: 100,
                                   flex: 1,
                                   height: 38,
-                                  ...getFieldStyle("opponentCompanyCity", _opponentCompanyCity)
+                                  ...getFieldStyle("opponentCompanyCity", displayValue("opponentCompanyCity", _opponentCompanyCity))
                                 },
                                 fieldGroup: {
                                   borderRadius: 0,
@@ -1377,7 +1448,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                                   ...noFocusOutline
                                 },
                                 field: {
-                                  color: "#061733",
+                                  color: fieldTextColor,
                                   background: "transparent"
                                 }
                               }}
@@ -1386,14 +1457,14 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                             />
                             <TextField
                               placeholder="County"
-                              value={_opponentCompanyCounty}
+                              value={displayValue("opponentCompanyCounty", _opponentCompanyCounty)}
                               onChange={(_, v) => _setOpponentCompanyCounty(v || "")}
                               styles={{
                                 root: {
                                   minWidth: 80,
                                   flex: 1,
                                   height: 38,
-                                  ...getFieldStyle("opponentCompanyCounty", _opponentCompanyCounty)
+                                  ...getFieldStyle("opponentCompanyCounty", displayValue("opponentCompanyCounty", _opponentCompanyCounty))
                                 },
                                 fieldGroup: {
                                   borderRadius: 0,
@@ -1403,7 +1474,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                                   ...noFocusOutline
                                 },
                                 field: {
-                                  color: "#061733",
+                                  color: fieldTextColor,
                                   background: "transparent"
                                 }
                               }}
@@ -1412,14 +1483,14 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                             />
                             <TextField
                               placeholder="Post Code"
-                              value={_opponentCompanyPostcode}
+                              value={displayValue("opponentCompanyPostcode", _opponentCompanyPostcode)}
                               onChange={(_, v) => _setOpponentCompanyPostcode(v || "")}
                               styles={{
                                 root: {
                                   minWidth: 80,
                                   flex: 1,
                                   height: 38,
-                                  ...getFieldStyle("opponentCompanyPostcode", _opponentCompanyPostcode)
+                                  ...getFieldStyle("opponentCompanyPostcode", displayValue("opponentCompanyPostcode", _opponentCompanyPostcode))
                                 },
                                 fieldGroup: {
                                   borderRadius: 0,
@@ -1429,7 +1500,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                                   ...noFocusOutline
                                 },
                                 field: {
-                                  color: "#061733",
+                                  color: fieldTextColor,
                                   background: "transparent"
                                 }
                               }}
@@ -1439,7 +1510,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                             <Dropdown
                               placeholder="Country"
                               options={countries.map((c: { name: string; code: string }) => ({ key: c.name, text: `${c.name} (${c.code})` }))}
-                              selectedKey={_opponentCompanyCountry}
+                              selectedKey={displaySelectKey("opponentCompanyCountry", _opponentCompanyCountry)}
                               onChange={(_, o) => _setOpponentCompanyCountry(o?.key as string || "")}
                               styles={{
                                 root: {
@@ -1447,10 +1518,10 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                                   flex: 1,
                                   height: 38,
                                   alignSelf: 'flex-end',
-                                  ...getFieldStyle("opponentCompanyCountry", _opponentCompanyCountry, true)
+                                  ...getFieldStyle("opponentCompanyCountry", String(displaySelectKey("opponentCompanyCountry", _opponentCompanyCountry) ?? ""), true)
                                 },
                                 dropdown: { borderRadius: 0, height: 38, background: "transparent", ...noFocusOutline },
-                                title: { borderRadius: 0, height: 38, background: "transparent", color: "#061733", display: 'flex', alignItems: 'center', ...noFocusOutline }
+                                title: { borderRadius: 0, height: 38, background: "transparent", color: fieldTextColor, display: 'flex', alignItems: 'center', ...noFocusOutline }
                               }}
                               calloutProps={{ styles: { calloutMain: { borderRadius: 0 } } }}
                               onFocus={() => handleFieldFocus("opponentCompanyCountry")}
@@ -1473,7 +1544,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                         />
                         <span style={{ fontSize: 11, color: '#6b7280' }}>Title, first and last name</span>
                       </div>
-                      <span className="ms-Icon ms-Icon--ContactInfo" style={{ fontSize: 18, color: '#6b8bbd' }} />
+                      <span className="ms-Icon ms-Icon--ContactInfo" style={{ fontSize: 18, color: iconColor }} />
                     </div>
                   {visibleSections.opponent.name && (
                   <Stack horizontal tokens={{ childrenGap: 4 }} style={{ marginBottom: 0, width: "100%" }}>
@@ -1496,7 +1567,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                           borderRadius: 0,
                           height: 38,
                           background: "transparent",
-                          color: "#061733",
+                          color: fieldTextColor,
                           display: 'flex',
                           alignItems: 'center',
                           ...noFocusOutline
@@ -1525,7 +1596,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                           ...noFocusOutline
                         },
                         field: {
-                          color: "#061733",
+                          color: fieldTextColor,
                           background: "transparent"
                         }
                       }}
@@ -1551,7 +1622,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                           ...noFocusOutline
                         },
                         field: {
-                          color: "#061733",
+                          color: fieldTextColor,
                           background: "transparent"
                         }
                       }}
@@ -1575,7 +1646,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                         />
                         <span style={{ fontSize: 11, color: '#6b7280' }}>Email and phone</span>
                       </div>
-                      <span className="ms-Icon ms-Icon--Mail" style={{ fontSize: 18, color: '#6b8bbd' }} />
+                      <span className="ms-Icon ms-Icon--Mail" style={{ fontSize: 18, color: iconColor }} />
                     </div>
                   {visibleSections.opponent.contact && (
                   <Stack horizontal tokens={{ childrenGap: 4 }} style={{ marginBottom: 0, width: "100%" }}>
@@ -1600,7 +1671,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                           ...noFocusOutline
                         },
                         field: {
-                          color: "#061733",
+                          color: fieldTextColor,
                           background: "transparent"
                         }
                       }}
@@ -1628,7 +1699,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                           ...noFocusOutline
                         },
                         field: {
-                          color: "#061733",
+                          color: fieldTextColor,
                           background: "transparent"
                         }
                       }}
@@ -1672,7 +1743,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                             Use company address
                           </button>
                         )}
-                        <span className="ms-Icon ms-Icon--Home" style={{ fontSize: 18, color: '#6b8bbd' }} />
+                        <span className="ms-Icon ms-Icon--Home" style={{ fontSize: 18, color: iconColor }} />
                       </div>
                     </div>
                   {visibleSections.opponent.address && (
@@ -1696,7 +1767,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                           ...noFocusOutline
                         },
                         field: {
-                          color: "#061733",
+                          color: fieldTextColor,
                           background: "transparent"
                         }
                       }}
@@ -1725,7 +1796,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                           ...noFocusOutline
                         },
                         field: {
-                          color: "#061733",
+                          color: fieldTextColor,
                           background: "transparent"
                         }
                       }}
@@ -1754,7 +1825,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                           ...noFocusOutline
                         },
                         field: {
-                          color: "#061733",
+                          color: fieldTextColor,
                           background: "transparent"
                         }
                       }}
@@ -1783,7 +1854,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                           ...noFocusOutline
                         },
                         field: {
-                          color: "#061733",
+                          color: fieldTextColor,
                           background: "transparent"
                         }
                       }}
@@ -1812,7 +1883,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                           ...noFocusOutline
                         },
                         field: {
-                          color: "#061733",
+                          color: fieldTextColor,
                           background: "transparent"
                         }
                       }}
@@ -1844,7 +1915,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                           borderRadius: 0,
                           height: 38,
                           background: "transparent",
-                          color: "#061733",
+                          color: fieldTextColor,
                           display: 'flex',
                           alignItems: 'center',
                           ...noFocusOutline
@@ -1871,7 +1942,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                     fontWeight: 600, 
                     fontSize: 15, 
                     marginBottom: 8, 
-                    color: '#061733'
+                    color: isDarkMode ? '#E5E7EB' : '#061733'
                   }}>
                     Opponent's Solicitor
                   </div>
@@ -1888,7 +1959,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                         />
                         <span style={{ fontSize: 11, color: '#6b7280' }}>Company name and number</span>
                       </div>
-                      <span className="ms-Icon ms-Icon--CityNext" style={{ fontSize: 18, color: '#6b8bbd' }} />
+                      <span className="ms-Icon ms-Icon--CityNext" style={{ fontSize: 18, color: iconColor }} />
                     </div>
                   {visibleSections.solicitor.company && (
                   <Stack horizontal tokens={{ childrenGap: 5 }} style={{ width: "100%", marginBottom: 0 }}>
@@ -1901,7 +1972,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                           flex: 1,
                           minWidth: 180,
                           height: 38,
-                          ...(touchedFields["opponentSolicitorCompany"] && opponentSolicitorCompany ? answeredFieldStyle : unansweredFieldStyle)
+                          ...getFieldStyle("opponentSolicitorCompany", opponentSolicitorCompany)
                         },
                         fieldGroup: {
                           borderRadius: 0,
@@ -1911,7 +1982,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                           ...noFocusOutline
                         },
                         field: {
-                          color: "#061733",
+                          color: fieldTextColor,
                           background: "transparent"
                         }
                       }}
@@ -1930,7 +2001,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                           flex: 1,
                           minWidth: 140,
                           height: 38,
-                          ...(touchedFields["solicitorCompanyNumber"] && _solicitorCompanyNumber ? answeredFieldStyle : unansweredFieldStyle)
+                          ...getFieldStyle("solicitorCompanyNumber", _solicitorCompanyNumber)
                         },
                         fieldGroup: {
                           borderRadius: 0,
@@ -1940,7 +2011,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                           ...noFocusOutline
                         },
                         field: {
-                          color: "#061733",
+                          color: fieldTextColor,
                           background: "transparent"
                         }
                       }}
@@ -1966,7 +2037,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                         />
                         <span style={{ fontSize: 11, color: '#6b7280' }}>House number, street, city, county, postcode, country</span>
                       </div>
-                      <span className="ms-Icon ms-Icon--Home" style={{ fontSize: 18, color: '#6b8bbd' }} />
+                      <span className="ms-Icon ms-Icon--Home" style={{ fontSize: 18, color: iconColor }} />
                     </div>
                   {visibleSections.solicitor.address && (
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(180px, 1fr))", gap: 5, marginBottom: 0 }}>
@@ -1988,7 +2059,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                           border: "none"
                         },
                         field: {
-                          color: "#061733",
+                          color: fieldTextColor,
                           background: "transparent"
                         }
                       }}
@@ -2016,7 +2087,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                           border: "none"
                         },
                         field: {
-                          color: "#061733",
+                          color: fieldTextColor,
                           background: "transparent"
                         }
                       }}
@@ -2044,7 +2115,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                           border: "none"
                         },
                         field: {
-                          color: "#061733",
+                          color: fieldTextColor,
                           background: "transparent"
                         }
                       }}
@@ -2072,7 +2143,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                           border: "none"
                         },
                         field: {
-                          color: "#061733",
+                          color: fieldTextColor,
                           background: "transparent"
                         }
                       }}
@@ -2100,7 +2171,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                           border: "none"
                         },
                         field: {
-                          color: "#061733",
+                          color: fieldTextColor,
                           background: "transparent"
                         }
                       }}
@@ -2132,7 +2203,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                           borderRadius: 0,
                           height: 38,
                           background: "transparent",
-                          color: "#061733",
+                          color: fieldTextColor,
                           display: 'flex',
                           alignItems: 'center',
                           ...noFocusOutline
@@ -2162,7 +2233,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                         />
                         <span style={{ fontSize: 11, color: '#6b7280' }}>Title, first and last name</span>
                       </div>
-                      <span className="ms-Icon ms-Icon--ContactInfo" style={{ fontSize: 18, color: '#6b8bbd' }} />
+                      <span className="ms-Icon ms-Icon--ContactInfo" style={{ fontSize: 18, color: iconColor }} />
                     </div>
                   {visibleSections.solicitor.name && (
                   <Stack horizontal tokens={{ childrenGap: 5 }} style={{ marginBottom: 0, width: "100%" }}>
@@ -2185,7 +2256,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                           borderRadius: 0,
                           height: 38,
                           background: "transparent",
-                          color: "#061733",
+                          color: fieldTextColor,
                           display: 'flex',
                           alignItems: 'center',
                           ...noFocusOutline
@@ -2217,7 +2288,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                           ...noFocusOutline
                         },
                         field: {
-                          color: "#061733",
+                          color: fieldTextColor,
                           background: "transparent"
                         }
                       }}
@@ -2246,7 +2317,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                           ...noFocusOutline
                         },
                         field: {
-                          color: "#061733",
+                          color: fieldTextColor,
                           background: "transparent"
                         }
                       }}
@@ -2273,7 +2344,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                         />
                         <span style={{ fontSize: 11, color: '#6b7280' }}>Email and phone</span>
                       </div>
-                      <span className="ms-Icon ms-Icon--Mail" style={{ fontSize: 18, color: '#6b8bbd' }} />
+                      <span className="ms-Icon ms-Icon--Mail" style={{ fontSize: 18, color: iconColor }} />
                     </div>
                   {visibleSections.solicitor.contact && (
                   <Stack horizontal tokens={{ childrenGap: 5 }} style={{ marginBottom: 0, width: "100%" }}>
@@ -2297,7 +2368,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                           ...noFocusOutline
                         },
                         field: {
-                          color: "#061733",
+                          color: fieldTextColor,
                           background: "transparent"
                         }
                       }}
@@ -2327,7 +2398,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                           ...noFocusOutline
                         },
                         field: {
-                          color: "#061733",
+                          color: fieldTextColor,
                           background: "transparent"
                         }
                       }}

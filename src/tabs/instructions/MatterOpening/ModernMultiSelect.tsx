@@ -3,6 +3,7 @@ import React from 'react'; // invisible change // invisible change
 // invisible change 2.2
 import { Stack } from '@fluentui/react';
 import { colours } from '../../../app/styles/colours';
+import { useTheme } from '../../../app/functionality/ThemeContext';
 
 export interface ModernMultiSelectOption {
     key: string;
@@ -29,6 +30,21 @@ const ModernMultiSelect: React.FC<ModernMultiSelectProps> = ({
     className = '',
     disabled = false
 }) => {
+    const { isDarkMode } = useTheme();
+    
+    // Use consistent theming
+    const themeColours = {
+        bg: isDarkMode 
+            ? 'linear-gradient(135deg, #111827 0%, #1F2937 100%)'
+            : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
+        border: isDarkMode ? '#334155' : '#E2E8F0',
+        text: isDarkMode ? '#E5E7EB' : '#0F172A',
+        inactiveText: isDarkMode ? '#9CA3AF' : '#64748B',
+        selectedBg: isDarkMode ? '#1F2937' : `${colours.highlight}15`,
+        hoverBg: isDarkMode 
+            ? 'linear-gradient(135deg, #1F2937 0%, #374151 100%)'
+            : 'linear-gradient(135deg, #F1F5F9 0%, #E2E8F0 100%)'
+    };
     const getGridColumns = () => {
         if (variant === 'binary' && options.length === 2) {
             return 'repeat(2, 1fr)';
@@ -45,10 +61,10 @@ const ModernMultiSelect: React.FC<ModernMultiSelectProps> = ({
         gridTemplateColumns: getGridColumns(),
         gap: variant === 'binary' ? '0' : '6px',
         width: '100%',
-        border: variant === 'binary' ? `1px solid ${selectedValue ? colours.highlight : '#E2E8F0'}` : 'none',
+        border: variant === 'binary' ? `1px solid ${selectedValue ? colours.highlight : themeColours.border}` : 'none',
         borderRadius: '6px', // Slightly rounded for modern look
         overflow: 'hidden',
-        background: variant === 'binary' ? 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)' : 'transparent',
+        background: variant === 'binary' ? themeColours.bg : 'transparent',
         boxShadow: variant === 'binary' ? '0 1px 2px rgba(0,0,0,0.03)' : 'none',
     };
 
@@ -76,9 +92,9 @@ const ModernMultiSelect: React.FC<ModernMultiSelectProps> = ({
         if (variant === 'binary') {
             return {
                 ...baseStyle,
-                color: isSelected ? colours.highlight : '#64748B',
-                background: isSelected ? `${colours.highlight}15` : 'transparent',
-                borderRight: index === 0 && options.length > 1 ? `1px solid #E2E8F0` : 'none',
+                color: isSelected ? colours.highlight : themeColours.inactiveText,
+                background: isSelected ? themeColours.selectedBg : 'transparent',
+                borderRight: index === 0 && options.length > 1 ? `1px solid ${themeColours.border}` : 'none',
                 opacity: isDisabled ? 0.5 : 1,
                 fontWeight: isSelected ? '600' : '500',
                 transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
@@ -87,9 +103,9 @@ const ModernMultiSelect: React.FC<ModernMultiSelectProps> = ({
 
         return {
             ...baseStyle,
-            color: isSelected ? colours.highlight : '#64748B',
-            background: isSelected ? `${colours.highlight}15` : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-            borderColor: isSelected ? colours.highlight : '#E2E8F0',
+            color: isSelected ? colours.highlight : themeColours.inactiveText,
+            background: isSelected ? themeColours.selectedBg : themeColours.bg,
+            borderColor: isSelected ? colours.highlight : themeColours.border,
             opacity: isDisabled ? 0.5 : 1,
             boxShadow: isSelected ? `0 1px 3px ${colours.highlight}20` : '0 1px 2px rgba(0,0,0,0.03)',
             borderRadius: '6px',
@@ -97,11 +113,13 @@ const ModernMultiSelect: React.FC<ModernMultiSelectProps> = ({
     };
 
     const questionBannerStyle: React.CSSProperties = {
-        background: `linear-gradient(to right, #ffffff, ${colours.light.grey})`,
+        background: isDarkMode 
+            ? 'linear-gradient(to right, #1F2937, #374151)' 
+            : `linear-gradient(to right, #ffffff, ${colours.light.grey})`,
         borderLeft: `3px solid ${colours.cta}`,
         padding: '4px 8px',
         fontWeight: '600',
-        color: '#061733',
+        color: isDarkMode ? '#E5E7EB' : '#061733',
         marginBottom: '6px',
         fontSize: '11px',
         borderRadius: '0 4px 4px 0',
@@ -127,10 +145,10 @@ const ModernMultiSelect: React.FC<ModernMultiSelectProps> = ({
                         onMouseEnter={(e) => {
                             if (!disabled && !option.disabled && selectedValue !== option.key) {
                                 if (variant === 'binary') {
-                                    e.currentTarget.style.background = 'linear-gradient(135deg, #F1F5F9 0%, #E2E8F0 100%)';
-                                    e.currentTarget.style.color = '#3690CE';
+                                    e.currentTarget.style.background = themeColours.hoverBg;
+                                    e.currentTarget.style.color = colours.highlight;
                                 } else {
-                                    e.currentTarget.style.background = 'linear-gradient(135deg, #F1F5F9 0%, #E2E8F0 100%)';
+                                    e.currentTarget.style.background = themeColours.hoverBg;
                                     e.currentTarget.style.borderColor = colours.highlight;
                                     e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.06)';
                                 }
@@ -140,10 +158,10 @@ const ModernMultiSelect: React.FC<ModernMultiSelectProps> = ({
                             if (!disabled && !option.disabled && selectedValue !== option.key) {
                                 if (variant === 'binary') {
                                     e.currentTarget.style.background = 'transparent';
-                                    e.currentTarget.style.color = '#64748B';
+                                    e.currentTarget.style.color = themeColours.inactiveText;
                                 } else {
-                                    e.currentTarget.style.background = 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)';
-                                    e.currentTarget.style.borderColor = '#E2E8F0';
+                                    e.currentTarget.style.background = themeColours.bg;
+                                    e.currentTarget.style.borderColor = themeColours.border;
                                     e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.03)';
                                 }
                             }

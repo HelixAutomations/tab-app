@@ -93,21 +93,25 @@ const Instructions: React.FC<InstructionsProps> = ({
   const { setContent } = useNavigatorActions();
   const [showNewMatterPage, setShowNewMatterPage] = useState<boolean>(false);
   const [showRiskPage, setShowRiskPage] = useState<boolean>(false);
+  // Core selection + workflow state (restored after resume/new workflow removal)
+  const [selectedInstruction, setSelectedInstruction] = useState<any | null>(null);
   const [showEIDPage, setShowEIDPage] = useState<boolean>(false);
-  const [selectedRisk, setSelectedRisk] = useState<any | null>(null);
-  const [selectedInstruction, setSelectedInstruction] = useState<any | null>(
-    null,
-  );
+  // forceNewMatter was previously used to bust FlatMatterOpening internal draft keys; keep minimal for now
+  const [forceNewMatter, setForceNewMatter] = useState<boolean>(false);
   const [pendingInstructionRef, setPendingInstructionRef] = useState<string>('');
-  const [isResumeDialogOpen, setIsResumeDialogOpen] = useState(false);
-  const [idVerificationLoading, setIdVerificationLoading] = useState<Set<string>>(new Set());
-  const [windowWidth, setWindowWidth] = useState<number>(typeof window !== 'undefined' ? window.innerWidth : 1200);
-  const [showReviewModal, setShowReviewModal] = useState<boolean>(false);
-  const [reviewModalDetails, setReviewModalDetails] = useState<any>(null);
-  const overviewGridRef = useRef<HTMLDivElement | null>(null);
-  const [pendingInstruction, setPendingInstruction] = useState<any | null>(null);
-  const [forceNewMatter, setForceNewMatter] = useState(false);
+  const [selectedRisk, setSelectedRisk] = useState<any | null>(null);
   const [showCclDraftPage, setShowCclDraftPage] = useState(false);
+  // ID Verification review modal state (still required post-simplification)
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [reviewModalDetails, setReviewModalDetails] = useState<any | null>(null);
+  // Track which instruction refs are currently undergoing ID verification network calls
+  const [idVerificationLoading, setIdVerificationLoading] = useState<Set<string>>(new Set());
+  // Responsive helpers
+  const [windowWidth, setWindowWidth] = useState<number>(typeof window !== 'undefined' ? window.innerWidth : 1280);
+  // Overview grid ref for masonry reflow logic
+  const overviewGridRef = useRef<HTMLDivElement | null>(null);
+  // NOTE: Preselected POIDs are now derived lazily inside the showNewMatterPage branch
+  // (see block where <FlatMatterOpening /> is returned) to avoid referencing idVerificationOptions before it is defined.
   
   // Document Preview Modal State
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
@@ -640,10 +644,8 @@ const Instructions: React.FC<InstructionsProps> = ({
       // Open matter opening if not already open
       if (!showNewMatterPage) {
         setShowNewMatterPage(true);
-        // Scroll to top when opening matter page from navigation
-        setTimeout(() => {
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        }, 100);
+        // Removed smooth scrolling to avoid visual jolts during transition
+        // setTimeout(() => { window.scrollTo({ top: 0 }); }, 0);
       }
     }
   }, []); // Only run on mount
@@ -1182,8 +1184,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
     if (showNewMatterPage) {
       setShowNewMatterPage(false);
       setSelectedInstruction(null);
-      setPendingInstructionRef('');
-      setForceNewMatter(false);
+  setPendingInstructionRef('');
     } else if (showRiskPage) {
       setShowRiskPage(false);
       setSelectedRisk(null);
@@ -1193,257 +1194,267 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
   };
 
   useEffect(() => {
+    // Early exit with navigator content for special states
+    // IMPORTANT: Do NOT show the old back-only navigator for Matter Opening anymore.
+    // Keep back-only header for Risk/EID views only.
+    if (showRiskPage || showEIDPage) {
+      setContent(
+        <div className={detailNavStyle(isDarkMode)}>
+          <div 
+            className="nav-back-button"
+            onClick={handleBack}
+            style={{
+              background: isDarkMode ? colours.dark.sectionBackground : "#f3f3f3",
+              border: '1px solid #e1dfdd',
+              borderRadius: '0',
+              width: '32px',
+              height: '32px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
+              position: 'relative',
+              overflow: 'hidden',
+              marginRight: 8,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = '#e7f1ff';
+              e.currentTarget.style.border = '1px solid #3690CE';
+              e.currentTarget.style.width = '120px';
+              e.currentTarget.style.boxShadow = '0 2px 8px rgba(54,144,206,0.08)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = isDarkMode ? colours.dark.sectionBackground : "#f3f3f3";
+              e.currentTarget.style.border = '1px solid #e1dfdd';
+              e.currentTarget.style.width = '32px';
+              e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.1)';
+            }}
+            title="Back"
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                handleBack();
+              }
+            }}
+          >
+            {/* ChevronLeft Icon */}
+            <svg 
+              width="16" 
+              height="16" 
+              viewBox="0 0 16 16" 
+              fill="none"
+              style={{
+                transition: 'color 0.3s, opacity 0.3s',
+                color: isDarkMode ? '#ffffff' : '#666666',
+                position: 'absolute',
+                left: '50%',
+                top: '50%',
+                transform: 'translate(-50%, -50%)',
+              }}
+            >
+              <path 
+                d="M10 12L6 8L10 4" 
+                stroke="currentColor" 
+                strokeWidth="1.5" 
+                strokeLinecap="round" 
+                strokeLinejoin="round"
+              />
+            </svg>
+            
+            {/* Expandable Text */}
+            <span 
+              style={{
+                position: 'absolute',
+                left: '50%',
+                top: '50%',
+                transform: 'translate(-50%, -50%)',
+                fontSize: '14px',
+                fontWeight: 600,
+                color: '#3690CE',
+                opacity: 0,
+                transition: 'opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                whiteSpace: 'nowrap',
+              }}
+              className="back-text"
+            >
+              Back
+            </span>
+          </div>
+          
+          <style>{`
+            .nav-back-button:hover .back-text {
+              opacity: 1 !important;
+            }
+            .nav-back-button:hover svg {
+              opacity: 0 !important;
+            }
+          `}</style>
+        </div>
+      );
+      return () => setContent(null);
+    }
+
+    if (riskFilterRef) {
+      setContent(
+        <div className={detailNavStyle(isDarkMode)}>
+          <div 
+            className="nav-back-button"
+            onClick={() => setRiskFilterRef(null)}
+            style={{
+              background: isDarkMode ? colours.dark.sectionBackground : "#f3f3f3",
+              border: '1px solid #e1dfdd',
+              borderRadius: '0',
+              width: '32px',
+              height: '32px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
+              position: 'relative',
+              overflow: 'hidden',
+              marginRight: 8,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = '#e7f1ff';
+              e.currentTarget.style.border = '1px solid #3690CE';
+              e.currentTarget.style.width = '150px';
+              e.currentTarget.style.boxShadow = '0 2px 8px rgba(54,144,206,0.08)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = isDarkMode ? colours.dark.sectionBackground : "#f3f3f3";
+              e.currentTarget.style.border = '1px solid #e1dfdd';
+              e.currentTarget.style.width = '32px';
+              e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.1)';
+            }}
+            title="Back to Risk & Compliance"
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                setRiskFilterRef(null);
+              }
+            }}
+          >
+            {/* ChevronLeft Icon */}
+            <svg 
+              width="16" 
+              height="16" 
+              viewBox="0 0 16 16" 
+              fill="none"
+              style={{
+                transition: 'color 0.3s, opacity 0.3s',
+                color: isDarkMode ? '#ffffff' : '#666666',
+                position: 'absolute',
+                left: '50%',
+                top: '50%',
+                transform: 'translate(-50%, -50%)',
+              }}
+            >
+              <path 
+                d="M10 12L6 8L10 4" 
+                stroke="currentColor" 
+                strokeWidth="1.5" 
+                strokeLinecap="round" 
+                strokeLinejoin="round"
+              />
+            </svg>
+            
+            {/* Expandable Text */}
+            <span 
+              style={{
+                position: 'absolute',
+                left: '50%',
+                top: '50%',
+                transform: 'translate(-50%, -50%)',
+                fontSize: '14px',
+                fontWeight: 600,
+                color: '#3690CE',
+                opacity: 0,
+                transition: 'opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                whiteSpace: 'nowrap',
+              }}
+              className="back-text"
+            >
+              Back to Risk & Compliance
+            </span>
+          </div>
+          
+          <span style={{ 
+            fontSize: '14px', 
+            fontWeight: 600, 
+            color: isDarkMode ? colours.dark.text : colours.light.text,
+            marginLeft: '8px'
+          }}>
+            Risk & Compliance: {riskFilterRef}
+          </span>
+          
+          <style>{`
+            .nav-back-button:hover .back-text {
+              opacity: 1 !important;
+            }
+            .nav-back-button:hover svg {
+              opacity: 0 !important;
+            }
+          `}</style>
+        </div>
+      );
+      return () => setContent(null);
+    }
+
+    // Default (including Matter Opening): show the full filter banner (new navigator with breadcrumbs)
     setContent(
       <>
-        {showNewMatterPage || showRiskPage || showEIDPage ? (
-          <div className={detailNavStyle(isDarkMode)}>
-            <div 
-              className="nav-back-button"
-              onClick={handleBack}
+        <FilterBanner
+          seamless
+          dense
+          primaryFilter={
+            <TwoLayerFilter
+              id="instructions-unified-filter"
+              ariaLabel="Instructions navigation and filtering"
+              primaryValue={activeTab}
+              secondaryValue={secondaryFilter}
+              onPrimaryChange={handlePrimaryFilterChange}
+              onSecondaryChange={handleSecondaryFilterChange}
+              options={filterOptions}
+              hideSecondaryInProduction={true}
               style={{
-                background: isDarkMode ? colours.dark.sectionBackground : "#f3f3f3",
-                border: '1px solid #e1dfdd',
-                borderRadius: '0',
-                width: '32px',
-                height: '32px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
-                position: 'relative',
-                overflow: 'hidden',
-                marginRight: 8,
+                fontSize: windowWidth < 768 ? '10px' : '11px',
+                transform: windowWidth < 768 ? 'scale(0.9)' : 'none',
+                transformOrigin: 'left center'
               }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = '#e7f1ff';
-                e.currentTarget.style.border = '1px solid #3690CE';
-                e.currentTarget.style.width = '120px';
-                e.currentTarget.style.boxShadow = '0 2px 8px rgba(54,144,206,0.08)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = isDarkMode ? colours.dark.sectionBackground : "#f3f3f3";
-                e.currentTarget.style.border = '1px solid #e1dfdd';
-                e.currentTarget.style.width = '32px';
-                e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.1)';
-              }}
-              title="Back"
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  handleBack();
-                }
-              }}
-            >
-              {/* ChevronLeft Icon */}
-              <svg 
-                width="16" 
-                height="16" 
-                viewBox="0 0 16 16" 
-                fill="none"
-                style={{
-                  transition: 'color 0.3s, opacity 0.3s',
-                  color: isDarkMode ? '#ffffff' : '#666666',
-                  position: 'absolute',
-                  left: '50%',
-                  top: '50%',
-                  transform: 'translate(-50%, -50%)',
-                }}
-              >
-                <path 
-                  d="M10 12L6 8L10 4" 
-                  stroke="currentColor" 
-                  strokeWidth="1.5" 
-                  strokeLinecap="round" 
-                  strokeLinejoin="round"
-                />
-              </svg>
-              
-              {/* Expandable Text */}
-              <span 
-                style={{
-                  position: 'absolute',
-                  left: '50%',
-                  top: '50%',
-                  transform: 'translate(-50%, -50%)',
-                  fontSize: '14px',
-                  fontWeight: 600,
-                  color: '#3690CE',
-                  opacity: 0,
-                  transition: 'opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                  whiteSpace: 'nowrap',
-                }}
-                className="back-text"
-              >
-                Back
-              </span>
-            </div>
-            
-            <style>{`
-              .nav-back-button:hover .back-text {
-                opacity: 1 !important;
-              }
-              .nav-back-button:hover svg {
-                opacity: 0 !important;
-              }
-            `}</style>
-          </div>
-        ) : riskFilterRef ? (
-          <div className={detailNavStyle(isDarkMode)}>
-            <div 
-              className="nav-back-button"
-              onClick={() => setRiskFilterRef(null)}
-              style={{
-                background: isDarkMode ? colours.dark.sectionBackground : "#f3f3f3",
-                border: '1px solid #e1dfdd',
-                borderRadius: '0',
-                width: '32px',
-                height: '32px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
-                position: 'relative',
-                overflow: 'hidden',
-                marginRight: 8,
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = '#e7f1ff';
-                e.currentTarget.style.border = '1px solid #3690CE';
-                e.currentTarget.style.width = '150px';
-                e.currentTarget.style.boxShadow = '0 2px 8px rgba(54,144,206,0.08)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = isDarkMode ? colours.dark.sectionBackground : "#f3f3f3";
-                e.currentTarget.style.border = '1px solid #e1dfdd';
-                e.currentTarget.style.width = '32px';
-                e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.1)';
-              }}
-              title="Back to Risk & Compliance"
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  setRiskFilterRef(null);
-                }
-              }}
-            >
-              {/* ChevronLeft Icon */}
-              <svg 
-                width="16" 
-                height="16" 
-                viewBox="0 0 16 16" 
-                fill="none"
-                style={{
-                  transition: 'color 0.3s, opacity 0.3s',
-                  color: isDarkMode ? '#ffffff' : '#666666',
-                  position: 'absolute',
-                  left: '50%',
-                  top: '50%',
-                  transform: 'translate(-50%, -50%)',
-                }}
-              >
-                <path 
-                  d="M10 12L6 8L10 4" 
-                  stroke="currentColor" 
-                  strokeWidth="1.5" 
-                  strokeLinecap="round" 
-                  strokeLinejoin="round"
-                />
-              </svg>
-              
-              {/* Expandable Text */}
-              <span 
-                style={{
-                  position: 'absolute',
-                  left: '50%',
-                  top: '50%',
-                  transform: 'translate(-50%, -50%)',
-                  fontSize: '14px',
-                  fontWeight: 600,
-                  color: '#3690CE',
-                  opacity: 0,
-                  transition: 'opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                  whiteSpace: 'nowrap',
-                }}
-                className="back-text"
-              >
-                Back to Risk & Compliance
-              </span>
-            </div>
-            
-            <span style={{ 
-              fontSize: '14px', 
-              fontWeight: 600, 
-              color: isDarkMode ? colours.dark.text : colours.light.text,
-              marginLeft: '8px'
-            }}>
-              Risk & Compliance: {riskFilterRef}
-            </span>
-            
-            <style>{`
-              .nav-back-button:hover .back-text {
-                opacity: 1 !important;
-              }
-              .nav-back-button:hover svg {
-                opacity: 0 !important;
-              }
-            `}</style>
-          </div>
-        ) : (
-          <>
-            <FilterBanner
-              seamless
-              dense
-              primaryFilter={
-                <TwoLayerFilter
-                  id="instructions-unified-filter"
-                  ariaLabel="Instructions navigation and filtering"
-                  primaryValue={activeTab}
-                  secondaryValue={secondaryFilter}
-                  onPrimaryChange={handlePrimaryFilterChange}
-                  onSecondaryChange={handleSecondaryFilterChange}
-                  options={filterOptions}
-                  hideSecondaryInProduction={true}
-                  style={{
-                    fontSize: windowWidth < 768 ? '10px' : '11px',
-                    transform: windowWidth < 768 ? 'scale(0.9)' : 'none',
-                    transformOrigin: 'left center'
-                  }}
-                />
-              }
-              secondaryFilter={
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center', transform: 'scale(0.96)', transformOrigin: 'left center' }}>
-                  <SegmentedControl
-                    id="instructions-scope-seg"
-                    ariaLabel={`Scope: toggle between my ${toggleCounts.label} and all ${toggleCounts.label}`}
-                    value={showAllInstructions ? 'all' : 'mine'}
-                    onChange={(v) => setShowAllInstructions(v === 'all')}
-                    options={[
-                      { key: 'mine', label: 'Mine', badge: toggleCounts.mine },
-                      { key: 'all', label: 'All', badge: toggleCounts.all, disabled: !isAdmin && !isLocalhost }
-                    ]}
-                  />
-                  <SegmentedControl
-                    id="instructions-layout-seg"
-                    ariaLabel="Layout: choose 1 or 2 columns"
-                    value={twoColumn ? 'two' : 'one'}
-                    onChange={(v) => setTwoColumn(v === 'two')}
-                    options={[
-                      { key: 'one', label: '1' },
-                      { key: 'two', label: '2' }
-                    ]}
-                  />
-                </div>
-              }
             />
-          </>
-        )}
-      </>,
+          }
+          secondaryFilter={
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', transform: 'scale(0.96)', transformOrigin: 'left center' }}>
+              <SegmentedControl
+                id="instructions-scope-seg"
+                ariaLabel={`Scope: toggle between my ${toggleCounts.label} and all ${toggleCounts.label}`}
+                value={showAllInstructions ? 'all' : 'mine'}
+                onChange={(v) => setShowAllInstructions(v === 'all')}
+                options={[
+                  { key: 'mine', label: 'Mine', badge: toggleCounts.mine },
+                  { key: 'all', label: 'All', badge: toggleCounts.all, disabled: !isAdmin && !isLocalhost }
+                ]}
+              />
+              <SegmentedControl
+                id="instructions-layout-seg"
+                ariaLabel="Layout: choose 1 or 2 columns"
+                value={twoColumn ? 'two' : 'one'}
+                onChange={(v) => setTwoColumn(v === 'two')}
+                options={[
+                  { key: 'one', label: '1' },
+                  { key: 'two', label: '2' }
+                ]}
+              />
+            </div>
+          }
+        />
+      </>
     );
     return () => setContent(null);
   }, [
@@ -2603,19 +2614,11 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
   }, [filteredRiskComplianceData, effectiveInstructionData, idVerificationOptions]);
 
   const handleOpenMatter = (inst: any) => {
-    if (hasActiveMatterOpening()) {
-      setPendingInstruction(inst);
-      setIsResumeDialogOpen(true);
-    } else {
-      setSelectedInstruction(inst);
-      setPendingInstructionRef('');
-      setForceNewMatter(false);
-      setShowNewMatterPage(true);
-      // Scroll to top when opening matter for selected instruction
-      setTimeout(() => {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      }, 100);
-    }
+    // Always start a fresh matter opening
+    setSelectedInstruction(inst);
+    setPendingInstructionRef('');
+    setShowNewMatterPage(true);
+    setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 50);
   };
 
   const handleRiskAssessment = (item: any) => {
@@ -2935,9 +2938,8 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
   const handleDraftCclNow = () => {
     setShowNewMatterPage(false);
     setShowCclDraftPage(true);
-    setTimeout(() => {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }, 100);
+    // Removed smooth scroll to prevent jolt
+    // setTimeout(() => { window.scrollTo({ top: 0 }); }, 0);
   };
 
   // Document Preview Handler
@@ -3148,21 +3150,12 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
 
 
   const handleStartNewMatter = () => {
-    if (!pendingInstruction) return;
+    // Simplified: just show matter page with current selectedInstruction
+    if (!selectedInstruction) return;
     clearMatterOpeningDraft();
-    setSelectedInstruction(pendingInstruction);
-    setPendingInstruction(null);
-    setForceNewMatter(true);
     setShowNewMatterPage(true);
-    setIsResumeDialogOpen(false);
-    // Scroll to top when starting new matter
-    setTimeout(() => {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }, 100);
-    // Force a small delay to ensure localStorage is cleared before component mounts
-    setTimeout(() => {
-      setForceNewMatter(false);
-    }, 100);
+  // Removed smooth scroll to prevent jolt
+  // setTimeout(() => window.scrollTo({ top: 0 }), 0);
   };
 
 
@@ -3211,6 +3204,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
           preselectedPoidIds={preselectedPoidIds}
           instructionPhone={selectedInstruction?.Phone}
           onDraftCclNow={handleDraftCclNow}
+          onBack={() => setShowNewMatterPage(false)}
         />
       </Stack>
     );
@@ -5264,97 +5258,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
       </Stack>
 
     {/* Dialogs and Modals */}
-    <Dialog
-        hidden={!isResumeDialogOpen}
-        onDismiss={() => setIsResumeDialogOpen(false)}
-        dialogContentProps={{
-          type: 'normal' as any,
-          title: 'Resume Matter Opening?',
-          subText: 'An unfinished matter opening was detected. Would you like to resume it or start a new one?'
-        }}
-        modalProps={{ isBlocking: true }}
-      >
-        {/* Dialog content for resume matter opening */}
-        <div style={{ display: 'flex', gap: 16, marginTop: 8, flexWrap: 'wrap' }}>
-          <button
-            type="button"
-            onClick={() => {
-              setIsResumeDialogOpen(false);
-              setSelectedInstruction(pendingInstruction);
-              setForceNewMatter(false);
-              setShowNewMatterPage(true);
-              setTimeout(() => {
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }, 100);
-            }}
-            style={{
-              flex: '1 1 200px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-              padding: '16px 20px',
-              border: '2px solid #3690CE',
-              borderRadius: 8,
-              background: 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-              color: '#061733',
-              cursor: 'pointer',
-              fontSize: 14,
-              fontWeight: 600,
-              transition: 'all 0.2s ease',
-            }}
-            onMouseEnter={e => {
-              e.currentTarget.style.transform = 'translateY(-1px)';
-              e.currentTarget.style.boxShadow = '0 8px 16px rgba(54, 144, 206, 0.15)';
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = 'none';
-            }}
-          >
-            <div style={{ fontSize: 18, color: '#3690CE' }}>↻</div>
-            <div>
-              <div style={{ fontWeight: 700, marginBottom: 2 }}>Resume</div>
-              <div style={{ fontSize: 12, color: '#6B7280' }}>Continue where you left off</div>
-            </div>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleStartNewMatter}
-            style={{
-              flex: '1 1 200px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-              padding: '16px 20px',
-              border: '2px solid #E5E7EB',
-              borderRadius: 8,
-              background: 'linear-gradient(135deg, #FFFFFF 0%, #F9FAFB 100%)',
-              color: '#374151',
-              cursor: 'pointer',
-              fontSize: 14,
-              fontWeight: 600,
-              transition: 'all 0.2s ease',
-            }}
-            onMouseEnter={e => {
-              e.currentTarget.style.transform = 'translateY(-1px)';
-              e.currentTarget.style.borderColor = '#9CA3AF';
-              e.currentTarget.style.boxShadow = '0 8px 16px rgba(0, 0, 0, 0.1)';
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.borderColor = '#E5E7EB';
-              e.currentTarget.style.boxShadow = 'none';
-            }}
-          >
-            <div style={{ fontSize: 18, color: '#6B7280' }}>+</div>
-            <div>
-              <div style={{ fontWeight: 700, marginBottom: 2 }}>Start New</div>
-              <div style={{ fontSize: 12, color: '#6B7280' }}>Begin a fresh matter opening</div>
-            </div>
-          </button>
-        </div>
-      </Dialog>
+    {/* Resume Matter Opening dialog removed to streamline flow */}
 
     <IDVerificationReviewModal
         isVisible={showReviewModal}

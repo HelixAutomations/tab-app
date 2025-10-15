@@ -2075,9 +2075,11 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                         const name = String(first || '').trim();
                         return name.length > 0 ? name : 'there';
                       })();
-                      const composed = raw.startsWith('Hi ') || raw.startsWith('Hello ')
+                      const composed = raw.startsWith('Hello ')
                         ? raw
-                        : `Hi ${greetingName},\n\n${raw}`;
+                        : raw.startsWith('Hi ')
+                          ? raw.replace(/^Hi\s+/, 'Hello ')
+                          : `Hello ${greetingName},\n\n${raw}`;
                       const projected = applyRateRolePlaceholders(composed);
                       lastScenarioBodyRef.current = projected;
                       setBody(projected);

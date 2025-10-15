@@ -91,11 +91,64 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
 }) => {
     // Build selection context (selected ids, selected POIDs, inferred company/individuals)
     const { isDarkMode } = useTheme();
-    const selectedIds = (selectedPoidIds && selectedPoidIds.length > 0)
-        ? selectedPoidIds
-        : (preselectedPoidIds || []);
-    const byId = (id: string) => poidData.find(p => p.poid_id === id) || filteredPoidData.find(p => p.poid_id === id);
-    const baseSelectedPoids = selectedIds.map(byId).filter(Boolean) as POID[];
+    
+    // Consistent theming like other components
+    const themeColours = {
+        bg: isDarkMode 
+            ? 'linear-gradient(135deg, #0B1220 0%, #1F2937 100%)'
+            : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
+        cardBg: isDarkMode
+            ? 'linear-gradient(135deg, #111827 0%, #1F2937 100%)'
+            : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
+        border: isDarkMode ? '#334155' : '#E5E7EB',
+        text: isDarkMode ? '#E5E7EB' : '#061733',
+        textSecondary: isDarkMode ? '#9CA3AF' : '#4B5563',
+        iconBg: isDarkMode ? '#1F2937' : '#F4F4F6',
+        shadow: isDarkMode 
+            ? '0 4px 6px rgba(0, 0, 0, 0.3)'
+            : '0 4px 6px rgba(0, 0, 0, 0.07)',
+        hoverShadow: isDarkMode 
+            ? '0 6px 10px rgba(0, 0, 0, 0.35)'
+            : '0 6px 12px rgba(0, 0, 0, 0.12)',
+    };
+    
+    // Guard against unintended auto-preselect when coming from global actions without an instruction selected.
+    const userInteractedRef = React.useRef(false);
+    const findPoidById = React.useCallback((id: string) => {
+        return poidData.find(p => p.poid_id === id) || filteredPoidData.find(p => p.poid_id === id) || null;
+    }, [poidData, filteredPoidData]);
+
+    // Improved auto-selection detection: if no instructionRef and no preselected IDs, 
+    // treat any selectedPoidIds as unwanted auto-selection until user interacts
+    const isDirectEntry = !instructionRef && (!preselectedPoidIds || preselectedPoidIds.length === 0);
+    const hasAutoSelection = isDirectEntry 
+        && Array.isArray(selectedPoidIds) 
+        && selectedPoidIds.length > 0 
+        && !userInteractedRef.current;
+
+    // Track user interaction to distinguish from auto-selection
+    React.useEffect(() => {
+        // Only mark as user interaction if we're not in direct entry mode with auto-selection
+        if (Array.isArray(selectedPoidIds) && selectedPoidIds.length > 0 && !hasAutoSelection) {
+            userInteractedRef.current = true;
+        }
+    }, [selectedPoidIds, hasAutoSelection]);
+
+    const effectiveSelectedIds = React.useMemo(() => {
+        // For direct entry (no instructionRef, no preselected), start with empty selection
+        // until user actually interacts
+        if (hasAutoSelection) {
+            return [] as string[];
+        }
+        
+        // For instruction-based entry, use selected or preselected IDs
+        return (selectedPoidIds && selectedPoidIds.length > 0)
+            ? selectedPoidIds
+            : (instructionRef && preselectedPoidIds ? preselectedPoidIds : []);
+    }, [selectedPoidIds, instructionRef, preselectedPoidIds, hasAutoSelection]);
+
+    const selectedIds = effectiveSelectedIds;
+    const baseSelectedPoids = selectedIds.map(id => findPoidById(id)).filter(Boolean) as POID[];
     // Fallback: if no explicit selection but we have an instructionRef, try to resolve matching POIDs by reference
     const instructionMatchedPoids = React.useMemo(() => {
         if (!instructionRef) return [] as POID[];
@@ -104,7 +157,8 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
         const alt = (filteredPoidData || []).filter((p: any) => (p?.InstructionRef || p?.instruction_ref) === instructionRef);
         return alt as POID[];
     }, [poidData, filteredPoidData, instructionRef]);
-    const selectedPoids = (baseSelectedPoids.length > 0 ? baseSelectedPoids : instructionMatchedPoids) as POID[];
+    const rawSelectedPoids = (baseSelectedPoids.length > 0 ? baseSelectedPoids : instructionMatchedPoids) as POID[];
+    const selectedPoids = hasAutoSelection ? ([] as POID[]) : rawSelectedPoids;
     const companyPoid = selectedPoids.find(p => !!(p.company_name || p.company_number));
     const individualPoids = selectedPoids.filter(p => !(p.company_name || p.company_number));
 
@@ -126,9 +180,16 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
     };
 
     const bannerTitle = (() => {
-        if (companyPoid) return companyPoid.company_name || 'Company';
-        if (individualPoids.length > 0) return formatPeopleList(individualPoids, 2);
-        return 'Select Client';
+        if (companyPoid) {
+            const companyName = companyPoid.company_name || 'Company';
+            if (individualPoids.length > 0) {
+                const directorName = formatPeopleList(individualPoids, 1); // Get just the first director
+                return { companyName, directorName };
+            }
+            return { companyName, directorName: null };
+        }
+        if (individualPoids.length > 0) return { companyName: formatPeopleList(individualPoids, 2), directorName: null };
+        return { companyName: 'Select Client', directorName: null };
     })();
 
     const bannerSubtitle = (() => {
@@ -141,7 +202,8 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
         if (individualPoids.length > 0 && inferredType === 'Multiple Individuals') {
             return `Clients: ${formatPeopleList(individualPoids, 3)}`;
         }
-        return inferredType || undefined;
+        // Don't show inferredType here - it will be shown under instruction ref
+        return undefined;
     })();
 
     // Meta chips for context
@@ -195,6 +257,17 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
         };
     };
 
+    const getChipColors = (state: Verif) => {
+        const map: Record<Verif, { bg: string; text: string; brd: string }> = {
+            passed: { bg: '#e6f4ea', text: '#107C10', brd: '#107C10' },
+            review: { bg: '#fffbe6', text: '#b88600', brd: '#FFB900' },
+            failed: { bg: '#fde7e9', text: '#d13438', brd: '#d13438' },
+            pending: { bg: '#f4f4f6', text: '#666', brd: '#e1dfdd' },
+            '': { bg: '#f4f4f6', text: '#666', brd: '#e1dfdd' },
+        };
+        return map[state];
+    };
+
     // Collapsible state for unified Client Selection section - must be before any early returns
     const [isClientSectionOpen, setIsClientSectionOpen] = React.useState<boolean>(!!pendingClientType);
     React.useEffect(() => {
@@ -209,149 +282,140 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
             <div
                 className="instruction-card-banner"
                 style={{
-                    background: 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-                    border: '1px solid #E5E7EB',
+                    background: themeColours.cardBg,
+                    border: `1px solid ${themeColours.border}`,
                     borderRadius: 12,
-                    padding: '16px 20px',
-                    boxShadow: '0 4px 6px rgba(0, 0, 0, 0.07)',
-                    color: '#061733',
-                    marginBottom: 16
+                    padding: '20px 24px',
+                    boxShadow: themeColours.shadow,
+                    color: themeColours.text,
+                    marginBottom: 16,
+                    position: 'relative',
+                    backgroundImage: `url(${helixLogo})`,
+                    backgroundRepeat: 'no-repeat',
+                    backgroundPosition: 'right 20px center',
+                    backgroundSize: '48px 48px',
+                    backgroundBlendMode: isDarkMode ? 'soft-light' : 'multiply',
+                    backgroundColor: themeColours.cardBg
                 }}
             >
-                {/* Main client header - compact */}
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: selectedPoids.length > 0 ? 16 : 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, flex: 1 }}>
-                        <div style={{ 
-                            background: '#F4F4F6', // Helix grey
-                            border: '1px solid #E5E7EB',
-                            borderRadius: 10,
-                            padding: 8,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            flexShrink: 0,
-                            marginTop: 2,
-                            width: 42,
-                            height: 42,
-                            boxShadow: '0 1px 3px rgba(0,0,0,0.08)'
-                        }}>
-                            <img 
-                                src={helixLogo} 
-                                alt="Helix" 
-                                style={{ 
-                                    width: 28, 
-                                    height: 28,
-                                    objectFit: 'contain'
-                                }} 
-                            />
-                        </div>
-                        
-                        <div style={{ flex: 1, minWidth: 0 }}>
+                {/* Overlay to control logo opacity */}
+                <div style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: themeColours.cardBg,
+                    opacity: 0.85,
+                    borderRadius: 12,
+                    pointerEvents: 'none'
+                }} />
+                
+                {/* Content with relative positioning */}
+                <div style={{ position: 'relative', zIndex: 1 }}>
+                    {/* Main client header - simplified without avatar */}
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: selectedPoids.length > 0 ? 16 : 0 }}>
+                        <div style={{ flex: 1, minWidth: 0, paddingRight: 60 }}>
                             <div style={{ 
-                                fontWeight: 700, 
                                 fontSize: 16, 
                                 lineHeight: 1.3, 
-                                color: '#061733',
-                                marginBottom: 2
+                                color: themeColours.text,
+                                marginBottom: 8
                             }}>
-                                {bannerTitle}
+                                <span style={{ fontWeight: 800 }}>
+                                    {typeof bannerTitle === 'object' ? bannerTitle.companyName : bannerTitle}
+                                </span>
+                                {typeof bannerTitle === 'object' && bannerTitle.directorName && (
+                                    <span style={{ fontWeight: 400, marginLeft: 8, opacity: 0.8 }}>
+                                        / {bannerTitle.directorName}
+                                    </span>
+                                )}
                             </div>
                             {bannerSubtitle && (
                                 <div style={{ 
-                                    fontSize: 13, 
-                                    color: '#6B7280', 
+                                    fontSize: 12, 
+                                    color: themeColours.textSecondary, 
                                     lineHeight: 1.3,
-                                    marginBottom: 8
+                                    marginBottom: 12
                                 }}>
                                     {bannerSubtitle}
                                 </div>
                             )}
                             
-                            {/* Contact details */}
+                            {/* Essential contact details only */}
                             {selectedPoid && (
                                 <div style={{ 
                                     display: 'flex', 
-                                    gap: 16, 
+                                    gap: 20, 
                                     flexWrap: 'wrap', 
-                                    fontSize: 13, 
-                                    color: '#4B5563',
-                                    marginBottom: 8
+                                    fontSize: 12, 
+                                    color: themeColours.text,
+                                    marginBottom: 12
                                 }}>
                                     {selectedPoid.email && (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                            <i className="ms-Icon ms-Icon--Mail" style={{ fontSize: 12, color: '#6B7280' }} />
+                                            <i className="ms-Icon ms-Icon--Mail" style={{ fontSize: 11, color: themeColours.textSecondary }} />
                                             <span>{selectedPoid.email}</span>
                                         </div>
                                     )}
                                     {selectedPoid.best_number && (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                            <i className="ms-Icon ms-Icon--Phone" style={{ fontSize: 12, color: '#6B7280' }} />
+                                            <i className="ms-Icon ms-Icon--Phone" style={{ fontSize: 11, color: themeColours.textSecondary }} />
                                             <span>{selectedPoid.best_number}</span>
                                         </div>
                                     )}
                                 </div>
                             )}
                             
-                            {/* Address - separate line with pin icon */}
+                            {/* Address - condensed to one line */}
                             {selectedPoid && (selectedPoid.house_building_number || selectedPoid.street || selectedPoid.city || selectedPoid.post_code) && (
                                 <div style={{ 
                                     display: 'flex', 
                                     alignItems: 'flex-start', 
                                     gap: 6,
-                                    fontSize: 13, 
-                                    color: '#4B5563',
-                                    marginBottom: 8
+                                    fontSize: 12, 
+                                    color: themeColours.text,
+                                    marginBottom: 8,
+                                    opacity: 0.9
                                 }}>
-                                    <i className="ms-Icon ms-Icon--POI" style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }} />
-                                    <span>{[
-                                        selectedPoid.house_building_number,
-                                        selectedPoid.street,
-                                        selectedPoid.city,
-                                        selectedPoid.county,
-                                        selectedPoid.post_code,
-                                        selectedPoid.country
-                                    ].filter(Boolean).join(', ')}</span>
+                                    <i className="ms-Icon ms-Icon--POI" style={{ fontSize: 11, color: themeColours.textSecondary, marginTop: 1 }} />
+                                    <span style={{ lineHeight: '1.3' }}>
+                                        {[
+                                            selectedPoid.house_building_number,
+                                            selectedPoid.street,
+                                            selectedPoid.city,
+                                            selectedPoid.post_code,
+                                            selectedPoid.country
+                                        ].filter(Boolean).join(', ')}
+                                    </span>
                                 </div>
                             )}
                             
-                            {/* Additional personal details */}
-                            {selectedPoid && (
+                            {/* Personal details - DOB and nationality on their own line */}
+                            {selectedPoid && (selectedPoid.date_of_birth || selectedPoid.nationality) && (
                                 <div style={{ 
                                     display: 'flex', 
-                                    gap: 16, 
+                                    gap: 20, 
                                     flexWrap: 'wrap', 
                                     fontSize: 12, 
-                                    color: '#6B7280',
-                                    marginTop: 4
+                                    color: themeColours.text,
+                                    marginBottom: 6
                                 }}>
                                     {selectedPoid.date_of_birth && (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                            <i className="ms-Icon ms-Icon--Calendar" style={{ fontSize: 11, color: '#9CA3AF' }} />
-                                            <span>DOB: {new Date(selectedPoid.date_of_birth).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
-                                        </div>
-                                    )}
-                                    {selectedPoid.gender && (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                            <i className="ms-Icon ms-Icon--Contact" style={{ fontSize: 11, color: '#9CA3AF' }} />
-                                            <span>{selectedPoid.gender}</span>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                            <i className="ms-Icon ms-Icon--EventDate" style={{ fontSize: 11, color: themeColours.textSecondary }} />
+                                            <span>{new Date(selectedPoid.date_of_birth).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
                                         </div>
                                     )}
                                     {selectedPoid.nationality && (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                            <i className="ms-Icon ms-Icon--Globe" style={{ fontSize: 11, color: '#9CA3AF' }} />
-                                            <span>{selectedPoid.nationality}</span>
-                                        </div>
-                                    )}
-                                    {selectedPoid.passport_number && (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                            <i className="ms-Icon ms-Icon--Passport" style={{ fontSize: 11, color: '#9CA3AF' }} />
-                                            <span>Passport: {selectedPoid.passport_number}</span>
-                                        </div>
-                                    )}
-                                    {selectedPoid.drivers_license_number && (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                            <i className="ms-Icon ms-Icon--Car" style={{ fontSize: 11, color: '#9CA3AF' }} />
-                                            <span>DL: {selectedPoid.drivers_license_number}</span>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                            <i className="ms-Icon ms-Icon--People" style={{ fontSize: 11, color: themeColours.textSecondary }} />
+                                            <span>
+                                                {selectedPoid.nationality}
+                                                {((selectedPoid as any).nationality_iso || (selectedPoid as any).country_code) && 
+                                                    ` (${(selectedPoid as any).nationality_iso || (selectedPoid as any).country_code})`
+                                                }
+                                            </span>
                                         </div>
                                     )}
                                 </div>
@@ -372,7 +436,7 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
                                         gap: 6,
                                         marginBottom: 6
                                     }}>
-                                        <i className="ms-Icon ms-Icon--BuildingRegular" style={{ fontSize: 12, color: '#6B7280' }} />
+                                        <i className="ms-Icon ms-Icon--BuildingRegular" style={{ fontSize: 12, color: themeColours.textSecondary }} />
                                         <span style={{ fontWeight: 600 }}>
                                             {selectedPoid.company_name}
                                             {selectedPoid.company_number && ` (${selectedPoid.company_number})`}
@@ -386,9 +450,9 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
                                             alignItems: 'flex-start', 
                                             gap: 6,
                                             fontSize: 12,
-                                            color: '#6B7280'
+                                            color: themeColours.textSecondary
                                         }}>
-                                            <i className="ms-Icon ms-Icon--POI" style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }} />
+                                            <i className="ms-Icon ms-Icon--POI" style={{ fontSize: 11, color: themeColours.textSecondary, marginTop: 2 }} />
                                             <span>{[
                                                 selectedPoid.company_house_building_number,
                                                 selectedPoid.company_street,
@@ -402,20 +466,36 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
                                 </div>
                             )}
                         </div>
-                    </div>
-                    
-                    {/* Instruction ref - top right, no label */}
-                    {instructionRef && (
+                        
+                        {/* Instruction ref and client type - top right */}
                         <div style={{ 
-                            fontSize: 12, 
-                            color: '#6B7280',
-                            fontWeight: 600,
                             flexShrink: 0,
-                            textAlign: 'right'
+                            textAlign: 'right',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 4
                         }}>
-                            {instructionRef}
+                            {instructionRef && (
+                                <div style={{ 
+                                    fontSize: 12, 
+                                    color: themeColours.textSecondary,
+                                    fontWeight: 600
+                                }}>
+                                    {instructionRef}
+                                </div>
+                            )}
+                            {inferredType && (
+                                <div style={{ 
+                                    fontSize: 11, 
+                                    color: themeColours.textSecondary,
+                                    fontWeight: 500,
+                                    opacity: 0.8
+                                }}>
+                                    {inferredType}
+                                </div>
+                            )}
                         </div>
-                    )}
+                    </div>
                 </div>
 
                 {/* Remove the old reference info section since it's now moved to top right */}
@@ -423,11 +503,10 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
                 {/* Verification status - clear visual hierarchy */}
                 {selectedPoids.length > 0 && (
                     <div style={{
-                        borderTop: '1px solid #E5E7EB',
+                        borderTop: `1px solid ${themeColours.border}`,
                         paddingTop: 16,
-                        background: 'rgba(248, 250, 252, 0.5)',
-                        margin: '0 -20px -16px -20px',
-                        padding: '16px 20px',
+                        margin: '0 -24px -20px -24px',
+                        padding: '16px 24px 20px 24px',
                         borderRadius: '0 0 12px 12px'
                     }}>
                         {/* Overall status indicator */}
@@ -438,64 +517,94 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
                         }}>
                             <div style={{ 
                                 fontSize: 12, 
-                                fontWeight: 700, 
-                                color: '#374151',
+                                fontWeight: 800, 
+                                color: isDarkMode ? '#FFFFFF' : '#0F172A',
                                 textTransform: 'uppercase',
-                                letterSpacing: '0.5px'
+                                letterSpacing: '0.6px'
                             }}>
                                 Verification Status
                             </div>
                         </div>
                         
-                        {/* Individual verification chips - ID is overall, others are sub-results */}
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                            {/* ID is the OVERALL result - make it prominent */}
-                            <span style={{
-                                ...chipStyle(aggId),
-                                padding: '8px 14px',
+                        {/* Hierarchical verification status - matches card design */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            {/* Main ID verification - prominent */}
+                            <div style={{
+                                padding: '10px 16px',
                                 borderRadius: 8,
-                                fontSize: 12,
+                                fontSize: 13,
                                 fontWeight: 800,
                                 display: 'flex',
                                 alignItems: 'center',
-                                gap: 6,
-                                minWidth: 'auto',
-                                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                                gap: 8,
+                                border: `2px solid ${getChipColors(aggId).brd}`,
+                                backgroundColor: `${getChipColors(aggId).bg}20`,
+                                color: getChipColors(aggId).text,
+                                backdropFilter: 'blur(8px)'
                             }}>
-                                <i className="ms-Icon ms-Icon--Shield" style={{ fontSize: 13 }} /> 
-                                ID: {aggId || 'pending'}
-                            </span>
-                            {/* PEP and Address are sub-results - smaller */}
-                            <span style={{
-                                ...chipStyle(aggPep),
-                                padding: '6px 10px',
-                                borderRadius: 6,
-                                fontSize: 10,
-                                fontWeight: 600,
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 4,
-                                minWidth: 'auto',
-                                opacity: 0.8
-                            }}>
-                                <i className="ms-Icon ms-Icon--PageShield" style={{ fontSize: 10 }} /> 
-                                PEP: {aggPep || 'pending'}
-                            </span>
-                            <span style={{
-                                ...chipStyle(aggAddr),
-                                padding: '6px 10px',
-                                borderRadius: 6,
-                                fontSize: 10,
-                                fontWeight: 600,
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 4,
-                                minWidth: 'auto',
-                                opacity: 0.8
-                            }}>
-                                <i className="ms-Icon ms-Icon--POI" style={{ fontSize: 10 }} /> 
-                                Address: {aggAddr || 'pending'}
-                            </span>
+                                <i className="ms-Icon ms-Icon--Shield" style={{ fontSize: 14 }} /> 
+                                <span>ID Verification: {aggId || 'pending'}</span>
+                            </div>
+                            
+                            {/* Sub-verification results with visual connection */}
+                            {(aggPep || aggAddr) && (
+                                <div style={{ 
+                                    marginLeft: 20, 
+                                    display: 'flex', 
+                                    flexDirection: 'column', 
+                                    gap: 4,
+                                    position: 'relative'
+                                }}>
+                                    {/* Connection line */}
+                                    <div style={{
+                                        position: 'absolute',
+                                        left: -14,
+                                        top: 0,
+                                        bottom: 0,
+                                        width: 2,
+                                        backgroundColor: aggId ? getChipColors(aggId).brd : '#E5E7EB',
+                                        opacity: 0.4
+                                    }} />
+                                    
+                                    {aggPep && (
+                                        <div style={{
+                                            padding: '6px 12px',
+                                            borderRadius: 6,
+                                            fontSize: 11,
+                                            fontWeight: 600,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 6,
+                                            border: `1px solid ${getChipColors(aggPep).brd}60`,
+                                            backgroundColor: `${getChipColors(aggPep).bg}15`,
+                                            color: getChipColors(aggPep).text,
+                                            opacity: 0.95
+                                        }}>
+                                            <i className="ms-Icon ms-Icon--PageShield" style={{ fontSize: 11 }} /> 
+                                            <span>PEP Check: {aggPep}</span>
+                                        </div>
+                                    )}
+                                    
+                                    {aggAddr && (
+                                        <div style={{
+                                            padding: '6px 12px',
+                                            borderRadius: 6,
+                                            fontSize: 11,
+                                            fontWeight: 600,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 6,
+                                            border: `1px solid ${getChipColors(aggAddr).brd}60`,
+                                            backgroundColor: `${getChipColors(aggAddr).bg}15`,
+                                            color: getChipColors(aggAddr).text,
+                                            opacity: 0.95
+                                        }}>
+                                            <i className="ms-Icon ms-Icon--POI" style={{ fontSize: 11 }} /> 
+                                            <span>Address Verification: {aggAddr}</span>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
@@ -569,11 +678,11 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
                                     alignItems: 'center',
                                     justifyContent: 'center',
                                     padding: '12px 14px',
-                                    border: `1px solid ${isActive ? '#3690CE' : '#E2E8F0'}`,
+                                    border: `1px solid ${isActive ? '#3690CE' : themeColours.border}`,
                                     borderRadius: '8px',
                                     background: isActive 
                                         ? 'linear-gradient(135deg, #3690CE15 0%, #3690CE08 100%)' 
-                                        : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
+                                        : themeColours.cardBg,
                                     cursor: 'pointer',
                                     transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                                     minHeight: '70px',
@@ -586,7 +695,7 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
                                 }}
                                 onMouseEnter={(e) => {
                                     if (!isActive) {
-                                        e.currentTarget.style.background = 'linear-gradient(135deg, #F1F5F9 0%, #E2E8F0 100%)';
+                                        e.currentTarget.style.background = isDarkMode ? '#374151' : '#F1F5F9';
                                         e.currentTarget.style.borderColor = '#3690CE';
                                         e.currentTarget.style.transform = 'translateY(-1px)';
                                         e.currentTarget.style.boxShadow = '0 3px 6px rgba(0,0,0,0.06)';
@@ -594,8 +703,8 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
                                 }}
                                 onMouseLeave={(e) => {
                                     if (!isActive) {
-                                        e.currentTarget.style.background = 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)';
-                                        e.currentTarget.style.borderColor = '#E2E8F0';
+                                        e.currentTarget.style.background = themeColours.cardBg;
+                                        e.currentTarget.style.borderColor = themeColours.border;
                                         e.currentTarget.style.transform = 'translateY(0)';
                                         e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.03)';
                                     }
@@ -634,9 +743,9 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
                 <div style={{ marginTop: 32 }}>
                     <div
                         style={{
-                            border: '1px solid #e1e5ea',
+                            border: `1px solid ${themeColours.border}`,
                             borderRadius: 8,
-                            background: 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
+                            background: themeColours.cardBg,
                             boxShadow: isDarkMode ? '0 4px 6px rgba(0,0,0,0.3)' : '0 4px 6px rgba(0,0,0,0.07)'
                         }}
                     >
@@ -684,9 +793,9 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
                                                 padding: '8px 12px', 
                                                 height: '38px',
                                                 boxSizing: 'border-box',
-                                                background: clientAsOnFile ? "#3690CE22" : "#fff",
+                                                background: clientAsOnFile ? "#3690CE22" : themeColours.bg,
                                                 color: "#061733",
-                                                border: clientAsOnFile ? "1px solid #3690CE" : "1px solid #e3e8ef",
+                                                border: clientAsOnFile ? "1px solid #3690CE" : `1px solid ${themeColours.border}`,
                                                 borderRadius: 0,
                                                 boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
                                                 transition: "background 0.2s, color 0.2s, border 0.2s",
@@ -707,7 +816,7 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
                                                 style={{ 
                                                     width: '100%',
                                                     overflow: 'visible',
-                                                    border: '1px solid #e3e8ef',
+                                                    border: `1px solid ${themeColours.border}`,
                                                     borderRadius: '4px',
                                                     background: '#fafafa',
                                                     transition: 'all 0.4s ease-out',
@@ -717,7 +826,7 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
                                                 ref={poidGridRef as any}
                                             >
                                                 {(() => {
-                                                    const hasSelection = selectedPoidIds.length > 0;
+                                                    const hasSelection = effectiveSelectedIds.length > 0;
                                                     
                                                     // Filter POIDs based on client type
                                                     const filteredData = displayPoidData.filter((poid) => {
@@ -729,7 +838,7 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
                                                             return !isCompany;
                                                         } else if (pendingClientType === 'Company') {
                                                             // Two-stage selection for Company type
-                                                            const currentSelectedPoids = selectedPoidIds.map(id => 
+                                                            const currentSelectedPoids = effectiveSelectedIds.map(id => 
                                                                 displayPoidData.find(p => p.poid_id === id)
                                                             ).filter(Boolean);
                                                             
@@ -754,7 +863,7 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
                                                     // Special handling for Company type two-stage selection
                                                     let cardsToShow;
                                                     if (pendingClientType === 'Company') {
-                                                        const currentSelectedPoids = selectedPoidIds.map(id => 
+                                                        const currentSelectedPoids = effectiveSelectedIds.map(id => 
                                                             displayPoidData.find(p => p.poid_id === id)
                                                         ).filter(Boolean);
                                                         
@@ -777,19 +886,22 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
                                                         } else {
                                                             // Single selection types: show only selected when there's a selection
                                                             cardsToShow = hasSelection 
-                                                                ? filteredData.filter(poid => selectedPoidIds.includes(poid.poid_id))
+                                                                ? filteredData.filter(poid => effectiveSelectedIds.includes(poid.poid_id))
                                                                 : filteredData.slice(0, visiblePoidCount);
                                                         }
                                                     }
 
                                                     return cardsToShow.map((poid) => {
-                                                        const isSelected = selectedPoidIds.includes(poid.poid_id);
+                                                        const isSelected = effectiveSelectedIds.includes(poid.poid_id);
                                                         const singlePreselected = onlyShowPreselected && displayPoidData.length === 1;
                                                         
                                                         return (
                                                             <div 
                                                                 key={poid.poid_id} 
-                                                                onClick={() => handlePoidClick(poid)} 
+                                                                onClick={() => {
+                                                                    userInteractedRef.current = true;
+                                                                    handlePoidClick(poid);
+                                                                }} 
                                                                 role="button" 
                                                                 tabIndex={0}
                                                                 style={{
@@ -805,7 +917,10 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
                                                                 <PoidCard 
                                                                     poid={poid} 
                                                                     selected={isSelected} 
-                                                                    onClick={() => handlePoidClick(poid)} 
+                                                                    onClick={() => {
+                                                                        userInteractedRef.current = true;
+                                                                        handlePoidClick(poid);
+                                                                    }} 
                                                                     teamData={teamData}
                                                                     instructionRefOverride={instructionRef}
                                                                     matterRefOverride={matterRef}

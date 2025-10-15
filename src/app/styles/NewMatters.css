@@ -37,7 +37,6 @@
         color: var(--helix-dark-blue);
         border: 1px solid transparent;
         cursor: pointer;
-        transition: border-color 0.3s, background-color 0.3s, transform 0.3s;
         position: relative;
         z-index: 2;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
@@ -97,7 +96,6 @@
     color: var(--helix-blue);
     cursor: pointer;
     opacity: 0.8;
-    transition: color 0.2s;
 }
 
 .step-header .edit-step:hover {

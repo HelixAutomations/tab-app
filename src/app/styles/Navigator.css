@@ -4,7 +4,6 @@
     top: 48px;
     /* Lower z-index to avoid overlapping Immediate Actions and other content */
     z-index: 2;
-    min-height: 48px;
     display: flex;
     flex-direction: column;
     gap: 6px; /* compact spacing */

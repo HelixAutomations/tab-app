@@ -1,5 +1,5 @@
 //
-import React, { useState, useEffect, useMemo, useRef } from 'react'; // invisible change
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react'; // invisible change
 // invisible change 2.2
 import { Stack, PrimaryButton, Dialog, DialogType, DialogFooter, DefaultButton } from '@fluentui/react';
 import MinimalSearchBox from './MinimalSearchBox';
@@ -9,6 +9,10 @@ import ClientHub from '../ClientHub';
 import StepWrapper from './StepWrapper';
 import '../../../app/styles/NewMatters.css';
 import '../../../app/styles/MatterOpeningCard.css';
+import './MatterOpeningResponsive.css';
+import { useTheme } from '../../../app/functionality/ThemeContext';
+import { colours } from '../../../app/styles/colours';
+import { useNavigatorActions } from '../../../app/functionality/NavigatorContext';
 import {
     practiceAreasByArea,
     getGroupColor,
@@ -36,15 +40,16 @@ import idVerifications from '../../../localData/localIdVerifications.json';
 import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from '../../../app/styles/ButtonStyles';
 import { clearMatterOpeningDraft, completeMatterOpening } from '../../../app/functionality/matterOpeningUtils';
 
-// Local implementation of useDraftedState for draft persistence
+// Local implementation of useDraftedState (draft persistence DISABLED to remove resume complexity)
+const DISABLE_DRAFT_PERSISTENCE = true;
 function useDraftedState<T>(key: string, initialValue: T): [T, React.Dispatch<React.SetStateAction<T>>] {
     const storageKey = `matterOpeningDraft_${key}`;
     const [state, setState] = useState<T>(() => {
+        if (DISABLE_DRAFT_PERSISTENCE) return initialValue;
         try {
             const item = localStorage.getItem(storageKey);
             if (!item) return initialValue;
             const parsed = JSON.parse(item);
-            // Special handling for selectedDate: convert string to Date
             if (key === 'selectedDate') {
                 if (parsed === null) return null as any;
                 if (typeof parsed === 'string' || typeof parsed === 'number') {
@@ -53,20 +58,18 @@ function useDraftedState<T>(key: string, initialValue: T): [T, React.Dispatch<Re
                 }
             }
             return parsed;
-        } catch {
-            return initialValue;
-        }
+        } catch { return initialValue; }
     });
     useEffect(() => {
+        if (DISABLE_DRAFT_PERSISTENCE) return; // no-op when disabled
         try {
-            // For selectedDate, store as ISO string
             if (key === 'selectedDate' && state instanceof Date) {
                 localStorage.setItem(storageKey, JSON.stringify(state.toISOString()));
             } else {
                 localStorage.setItem(storageKey, JSON.stringify(state));
             }
-        } catch {}
-    }, [state, storageKey]);
+        } catch { /* ignore */ }
+    }, [state, storageKey, key]);
     return [state, setState];
 }
 
@@ -97,6 +100,11 @@ interface FlatMatterOpeningProps {
      * immediately after opening the matter.
      */
     onDraftCclNow?: (matterId: string) => void;
+    /**
+     * Optional callback triggered when the user wants to go back/close the matter opening workflow.
+     * Should navigate back to the instructions page instead of using browser history.
+     */
+    onBack?: () => void;
 }
 
 const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
@@ -117,12 +125,20 @@ const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
     instructionPhone,
     instructionRecords,
     onDraftCclNow,
+    onBack,
 }) => {
+    // Dark mode support
+    const { isDarkMode } = useTheme();
+    
+    // Navigator context for setting custom header content
+    const { setContent } = useNavigatorActions();
+    
+    // Responsive layout system
     const idExpiry = useMemo(() => {
         const d = new Date();
         d.setDate(d.getDate() + 30);
         return d.toLocaleDateString('en-GB');
-    }, []); // invisible change
+    }, []); // invisible change // invisible change
 
     const [clientId, setClientId] = useState<string | null>(initialClientId || null);
     const [matterIdState, setMatterIdState] = useState<string | null>(matterRef || null);
@@ -331,7 +347,32 @@ const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
     const [clientType, setClientType] = useDraftedState<string>('clientType', initialClientType || '');
     const [pendingClientType, setPendingClientType] = useDraftedState<string>('pendingClientType', initialClientType || '');
     // Core drafted form field states (restored after container removal patch)
-    const [selectedPoidIds, setSelectedPoidIds] = useDraftedState<string[]>('selectedPoidIds', preselectedPoidIds.length > 0 ? preselectedPoidIds : []);
+    // For selectedPoidIds, only restore from localStorage when we have an instructionRef (instruction-based entry)
+    // For direct entry, always start fresh to avoid unwanted auto-selection
+    const initialSelectedPoidIds = (preselectedPoidIds.length > 0 && instructionRef) ? preselectedPoidIds : [];
+    const storageKey = 'matterOpeningDraft_selectedPoidIds';
+    
+    const [selectedPoidIds, setSelectedPoidIds] = useState<string[]>(() => {
+        if (DISABLE_DRAFT_PERSISTENCE || !instructionRef) return initialSelectedPoidIds;
+        try {
+            const item = localStorage.getItem(storageKey);
+            if (!item) return initialSelectedPoidIds;
+            return JSON.parse(item);
+        } catch { return initialSelectedPoidIds; }
+    });
+    
+    useEffect(() => {
+        if (DISABLE_DRAFT_PERSISTENCE || !instructionRef) {
+            // For direct entry, clear any existing localStorage to prevent contamination
+            localStorage.removeItem(storageKey);
+            return;
+        }
+        try {
+            localStorage.setItem(storageKey, JSON.stringify(selectedPoidIds));
+        } catch (e) {
+            console.warn('Failed to save selectedPoidIds to localStorage:', e);
+        }
+    }, [selectedPoidIds, instructionRef]);
     const [areaOfWork, setAreaOfWork] = useDraftedState<string>('areaOfWork', '');
     const [practiceArea, setPracticeArea] = useDraftedState<string>('practiceArea', '');
     const [description, setDescription] = useDraftedState<string>('description', '');
@@ -357,6 +398,36 @@ const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
     const [clientAsOnFile, setClientAsOnFile] = useDraftedState<string>('clientAsOnFile', '');
     const [isDateCalloutOpen, setIsDateCalloutOpen] = useState(false);
     const dateButtonRef = useRef<HTMLDivElement | null>(null);
+    
+    // Auto-select client when entering via instruction card
+    useEffect(() => {
+        if (instructionRef && effectivePoidData.length > 0 && selectedPoidIds.length === 0) {
+            // Find POIDs that match the instruction reference
+            const matchingPoids = effectivePoidData.filter((p: any) => 
+                (p?.InstructionRef || p?.instruction_ref) === instructionRef
+            );
+            
+            if (matchingPoids.length > 0) {
+                const matchingIds = matchingPoids.map(p => p.poid_id);
+                setSelectedPoidIds(matchingIds);
+                
+                // Auto-set client type based on selection
+                const hasCompany = matchingPoids.some(p => !!(p.company_name || p.company_number));
+                const hasIndividuals = matchingPoids.some(p => !(p.company_name || p.company_number));
+                
+                if (hasCompany && hasIndividuals) {
+                    setPendingClientType('Company'); // Company with directors
+                } else if (hasCompany) {
+                    setPendingClientType('Company');
+                } else if (matchingPoids.length > 1) {
+                    setPendingClientType('Multiple Individuals');
+                } else {
+                    setPendingClientType('Individual');
+                }
+            }
+        }
+    }, [instructionRef, effectivePoidData, selectedPoidIds.length, setSelectedPoidIds, setPendingClientType]);
+    
     // --- Restored original team option sourcing logic (full active team) ---
     const defaultPartnerOptions = defaultPartners; // fallback partner list
 
@@ -415,6 +486,18 @@ const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
         setTeamMember(prev => (prev ? prev : defaultTeamMember));
         setOriginatingSolicitor(prev => (prev ? prev : defaultTeamMember));
     }, [defaultTeamMember]);
+
+    // Initialize supervising partner with first available partner
+    useEffect(() => {
+        if (partnerOptionsList.length > 0 && !supervisingPartner) {
+            // Try to find current user if they're a partner, otherwise use first partner
+            const currentUserFullName = defaultTeamMember;
+            const currentUserPartner = partnerOptionsList.find(partner => 
+                currentUserFullName.toLowerCase().includes(partner.toLowerCase())
+            );
+            setSupervisingPartner(currentUserPartner || partnerOptionsList[0]);
+        }
+    }, [partnerOptionsList, supervisingPartner, defaultTeamMember, setSupervisingPartner]);
     const [debugManualPasteOpen, setDebugManualPasteOpen] = useState(false);
     
     // Workbench states
@@ -433,17 +516,17 @@ const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
         predictions: { step: string; willPass: boolean; reason: string }[];
     } | null>(null);
     
-    // If preselectedPoidIds is provided, set the initial activePoid to the first matching POID
+    // If preselectedPoidIds is provided AND we have an instructionRef, set the initial activePoid to the first matching POID
     useEffect(() => {
-        if (preselectedPoidIds && preselectedPoidIds.length > 0 && effectivePoidData.length > 0) {
-            // Only set if not already set
+        if (preselectedPoidIds && preselectedPoidIds.length > 0 && effectivePoidData.length > 0 && instructionRef) {
+            // Only set if not already set and we're entering via instruction (not global action)
             setSelectedPoidIds((prev) => (prev.length === 0 ? preselectedPoidIds : prev));
             const found = effectivePoidData.find((p) => p.poid_id === preselectedPoidIds[0]);
             setActivePoid((prev) => (prev == null ? found || null : prev));
         }
-        // Only run on mount or when preselectedPoidIds changes
+        // Only run on mount or when preselectedPoidIds/instructionRef changes
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [preselectedPoidIds, effectivePoidData]);
+    }, [preselectedPoidIds, effectivePoidData, instructionRef]);
 
     
 
@@ -631,13 +714,19 @@ const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
         return {
             ...base,
             position: 'relative',
-            background: 'linear-gradient(135deg, #F2F5F8 0%, #E9EEF2 100%)',
-            border: '1px solid #cfd6de',
-            boxShadow: 'inset 0 0 0 999px rgba(255,255,255,0.25), 0 0 0 1px rgba(255,255,255,0.4)',
+            background: isDarkMode 
+                ? 'linear-gradient(135deg, #1f2937 0%, #111827 100%)'
+                : 'linear-gradient(135deg, #F2F5F8 0%, #E9EEF2 100%)',
+            border: isDarkMode ? '1px solid #374151' : '1px solid #cfd6de',
+            boxShadow: isDarkMode 
+                ? 'inset 0 0 0 999px rgba(0,0,0,0.25), 0 0 0 1px rgba(255,255,255,0.1)'
+                : 'inset 0 0 0 999px rgba(255,255,255,0.25), 0 0 0 1px rgba(255,255,255,0.4)',
             opacity: 0.9,
             filter: 'saturate(0.85)',
             // Subtle top accent bar
-            backgroundImage: 'linear-gradient(to bottom, rgba(55,65,81,0.08), rgba(55,65,81,0) 28%)'
+            backgroundImage: isDarkMode 
+                ? 'linear-gradient(to bottom, rgba(255,255,255,0.05), rgba(255,255,255,0) 28%)'
+                : 'linear-gradient(to bottom, rgba(55,65,81,0.08), rgba(55,65,81,0) 28%)'
         };
     };
 
@@ -652,13 +741,13 @@ const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
                 alignItems: 'center',
                 gap: 4,
                 padding: '2px 6px',
-                background: 'rgba(55,65,81,0.08)',
-                border: '1px solid rgba(55,65,81,0.15)',
+                background: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(55,65,81,0.08)',
+                border: isDarkMode ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(55,65,81,0.15)',
                 borderRadius: 6,
                 fontSize: 10,
                 fontWeight: 600,
                 letterSpacing: 0.5,
-                color: '#374151',
+                color: isDarkMode ? '#e5e7eb' : '#374151',
                 backdropFilter: 'blur(2px)'
             }}>
                 <i className="ms-Icon ms-Icon--LockSolid" style={{ fontSize: 12, color: '#374151' }} />
@@ -763,6 +852,18 @@ const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
     const [searchBoxFocused, setSearchBoxFocused] = useState(false);
     const poidGridRef = useRef<HTMLDivElement | null>(null);
     const [activePoid, setActivePoid] = useDraftedState<POID | null>('activePoid', null);
+
+    // Guard: when entering via global action (no instructionRef), ensure there's no preselection
+    // This clears any persisted selection that might carry from previous sessions
+    useEffect(() => {
+        if (!instructionRef) {
+            if (selectedPoidIds.length > 0) setSelectedPoidIds([]);
+            if (activePoid) setActivePoid(null);
+            if (pendingClientType) setPendingClientType('');
+        }
+        // We only want this to run when instructionRef toggles to empty on entry
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [instructionRef]);
 
     // When entering via an instruction, try to set an active POID from InstructionRef if none is selected
     // CRITICAL: Also refresh when effectivePoidData changes to ensure we get fresh instruction data
@@ -969,7 +1070,7 @@ const handleClearAll = () => {
         // Required fields - check for meaningful values, not just existence
         if (selectedDate !== null) filledFields++; // Date has been set
         if (supervisingPartner && supervisingPartner.trim() !== '') filledFields++;
-        if (originatingSolicitor && originatingSolicitor.trim() !== '' && originatingSolicitor !== defaultTeamMember) filledFields++;
+        if (originatingSolicitor && originatingSolicitor.trim() !== '') filledFields++; // Accept defaultTeamMember as valid
         if (areaOfWork && areaOfWork.trim() !== '') filledFields++;
         if (practiceArea && practiceArea.trim() !== '') filledFields++;
         if (description && description.trim() !== '') filledFields++;
@@ -980,19 +1081,29 @@ const handleClearAll = () => {
         
         const completion = totalFields > 0 ? (filledFields / totalFields) * 100 : 0;
         
-        // Debug logging - remove this after fixing
-        if (filledFields > 0) {
-            console.log('Matter step filled fields:', filledFields, 'out of', totalFields, 'completion:', completion + '%');
-            console.log('Debug values:', {
-                selectedDate: selectedDate !== null,
-                supervisingPartner: supervisingPartner && supervisingPartner.trim() !== '',
-                originatingSolicitor: originatingSolicitor && originatingSolicitor.trim() !== '' && originatingSolicitor !== defaultTeamMember,
-                source: source && source.trim() !== '',
-                noConflict: noConflict === true,
-                defaultTeamMember,
-                originatingSolicitorValue: originatingSolicitor,
-                sourceValue: source
-            });
+        // Debug logging only once when completion changes significantly - using session storage to avoid spam
+        try {
+            const debugKey = `matterCompletion_${Math.floor(completion / 20) * 20}`; // Log every 20% change
+            if (filledFields > 0 && !sessionStorage.getItem(debugKey)) {
+                sessionStorage.setItem(debugKey, 'true');
+                
+                console.log('Matter step filled fields:', filledFields, 'out of', totalFields, 'completion:', completion + '%');
+                console.log('Debug values:', {
+                    selectedDate: selectedDate !== null,
+                    supervisingPartner: supervisingPartner || 'EMPTY',
+                    originatingSolicitor: originatingSolicitor || 'EMPTY',
+                    areaOfWork: areaOfWork || 'EMPTY',
+                    practiceArea: practiceArea || 'EMPTY',
+                    description: description || 'EMPTY',
+                    folderStructure: folderStructure || 'EMPTY',
+                    source: source || 'EMPTY',
+                    noConflict,
+                    referrerName: referrerName || 'EMPTY',
+                    defaultTeamMember: defaultTeamMember || 'EMPTY'
+                });
+            }
+        } catch {
+            // Ignore storage errors
         }
         
         return completion;
@@ -1115,19 +1226,47 @@ const handleClearAll = () => {
     const clientsStepComplete = (() => {
         // For instruction-driven entry, check essential fields only
         if (instructionRef || hideClientSections) {
-            // In instruction mode, we need at least dispute value and no-conflict confirmation
-            const hasDisputeValue = disputeValue && disputeValue.trim() !== '';
-            const hasNoConflictConfirmed = noConflict === true;
-            return hasDisputeValue && hasNoConflictConfirmed;
+            // In instruction mode, we primarily need client selection (POID selection)
+            // Dispute value and conflict checks come later in the flow
+            if (hideClientSections) {
+                // If client sections are hidden, we just need conflict confirmation if it's available
+                return noConflict === true;
+            }
+            
+            // For instruction mode with client selection, we need at least one POID selected
+            const hasClientSelection = selectedPoidIds.length > 0;
+            
+            // Debug logging for production troubleshooting - limit to avoid spam
+            try {
+                const debugKey = `client-instruction-${!!hasClientSelection}`;
+                if (!sessionStorage.getItem(debugKey)) {
+                    sessionStorage.setItem(debugKey, 'true');
+                    console.log('Matter Opening Debug (Instruction Mode):', {
+                        instructionRef,
+                        hideClientSections,
+                        selectedPoidIds: selectedPoidIds.length,
+                        hasClientSelection,
+                        result: hasClientSelection
+                    });
+                }
+            } catch {
+                // Ignore storage errors
+            }
+            
+            return hasClientSelection;
         }
 
         // Otherwise use the user's current choice (pendingClientType) or provided initial type
         const type = (pendingClientType || initialClientType || '').trim();
-        if (!type) return false;
+        if (!type) {
+            return false;
+        }
+        
         if (type === 'Multiple Individuals') {
             const hasDirectEntry = Boolean(clientAsOnFile && clientAsOnFile.trim());
             return selectedPoidIds.length > 0 || hasDirectEntry;
         }
+        
         // Individual, Company, Existing Client require at least one POID selected
         return selectedPoidIds.length > 0;
     })();
@@ -1140,20 +1279,21 @@ const handleClearAll = () => {
             setClientType(pendingClientType || clientType);
             setCurrentStep(1);
             // Scroll to top when changing steps
-            window.scrollTo({ top: 0, behavior: 'smooth' });
+            // Removed smooth scroll to avoid transition jolt
+            // window.scrollTo({ top: 0 });
         }
     };
 
     const handleGoToReview = () => {
         setCurrentStep(2);
         // Scroll to top when changing steps
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+    // window.scrollTo({ top: 0 });
     };
 
     const handleBackToClients = () => {
         setCurrentStep(0);
         // Scroll to top when changing steps
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+    // window.scrollTo({ top: 0 });
     };
 
     const handleBackToForm = () => {
@@ -1162,7 +1302,36 @@ const handleClearAll = () => {
         setConfirmAcknowledge(false); // Reset acknowledgement checkbox
         setEditsAfterConfirmation(false); // Reset edits flag when explicitly going back
         // Scroll to top when changing steps
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+    // window.scrollTo({ top: 0 });
+    };
+
+    // Back navigation handler - must be after currentStep and handlers are defined
+    const handleGoBack = () => {
+        // Step-aware back: navigate within the wizard when possible
+        if (currentStep === 2) {
+            // From Review -> back to Matter Details (also resets confirmation flags there)
+            handleBackToForm();
+            return;
+        }
+        if (currentStep === 1) {
+            // From Matter Details -> back to Select Parties
+            setCurrentStep(0);
+            // Scroll to top when changing steps
+            // window.scrollTo({ top: 0 });
+            return;
+        }
+        if (currentStep === 0) {
+            // From Select Parties -> back to previous page (Instructions space)
+            if (onBack) {
+                onBack();
+            } else {
+                // Fallback to browser history if no callback provided
+                window.history.back();
+            }
+            return;
+        }
+        // Otherwise fall back to browser history
+        window.history.back();
     };
 
     const handleClientTypeChange = (newType: string, shouldLimitToSingle: boolean) => {
@@ -1724,21 +1893,11 @@ ${JSON.stringify(debugInfo, null, 2)}
     const [isClearDialogOpen, setIsClearDialogOpen] = useState(false);
 
     // Entry choice: New vs Existing/Carry On
-    const [entryMode, setEntryMode] = useDraftedState<'unset' | 'new' | 'existing'>('entryMode', 'unset');
-    // Generic entry no longer shows Start New vs Existing here; the client type question covers it
-    const shouldShowEntryModal = false;
-
-    const handleChooseNew = () => {
-        // No-op: generic choice handled by client type control now
-        setEntryMode('new');
-        setPendingClientType('');
-    };
-    const handleChooseExisting = () => {
-        // No-op: generic choice handled by client type control now
-        setEntryMode('existing');
-        setPendingClientType('Existing Client');
-        setSearchBoxFocused(true);
-    };
+    // Entry mode simplified: always start a fresh matter (no resume flow)
+    const [entryMode, setEntryMode] = useState<'new'>('new');
+    const shouldShowEntryModal = false; // permanently false
+    const handleChooseNew = () => { /* retained for compatibility; no action needed */ };
+    const handleChooseExisting = () => { /* existing mode removed */ };
 
     // Clear all selections and inputs
     const doClearAll = () => {
@@ -1808,7 +1967,7 @@ ${JSON.stringify(debugInfo, null, 2)}
         setPoidSearchTerm('');
         
         // Clear all localStorage draft data
-        clearMatterOpeningDraft();
+    if (!DISABLE_DRAFT_PERSISTENCE) clearMatterOpeningDraft();
     };
 
     // Determine if all processing steps completed successfully
@@ -1830,551 +1989,320 @@ ${JSON.stringify(debugInfo, null, 2)}
 
     const showProcessingSection = processingSteps.some(s => s.status !== 'pending');
 
+    // Set navigator content with breadcrumbs and Clear All button
+    useEffect(() => {
+        // Immediate content update without delay to prevent jolting
+        setContent(
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                width: '100%',
+                padding: '0 8px'
+            }}>
+                {/* Back button and Breadcrumbs */}
+                <div style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: 6,
+                    fontSize: 14,
+                    flex: 1
+                }}>
+                    {/* Back button */}
+                    <button
+                        onClick={handleGoBack}
+                        style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#666',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            padding: '6px 8px',
+                            borderRadius: 4,
+                            fontSize: '14px',
+                            fontWeight: 400,
+                            transition: 'all 0.15s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.color = '#3690CE';
+                            e.currentTarget.style.backgroundColor = '#f0f8ff';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.color = '#666';
+                            e.currentTarget.style.backgroundColor = 'transparent';
+                        }}
+                        title="Go back to previous page"
+                    >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                            <path d="M19 12H5M12 19l-7-7 7-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                        Back
+                    </button>
+                    
+                    <span style={{ color: '#ddd', margin: '0 2px' }}>|</span>
+                    
+                    <button
+                        onClick={handleBackToClients}
+                        style={{
+                            color: currentStep === 0 ? '#3690CE' : '#666',
+                            fontWeight: currentStep === 0 ? 500 : 400,
+                            backgroundColor: 'transparent',
+                            whiteSpace: 'nowrap',
+                            flexShrink: 0,
+                            minHeight: '28px',
+                            border: 'none',
+                            padding: '4px 8px',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            fontSize: '13px',
+                            transition: 'all 0.15s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                            if (currentStep !== 0) {
+                                e.currentTarget.style.backgroundColor = '#f8f9fa';
+                            }
+                        }}
+                        onMouseLeave={(e) => {
+                            if (currentStep !== 0) {
+                                e.currentTarget.style.backgroundColor = 'transparent';
+                            }
+                        }}
+                    >
+                        {clientsStepComplete && currentStep !== 0 ? (
+                            <div style={{ 
+                                width: 12,
+                                height: 12,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                borderRadius: '50%',
+                                background: '#20b26c',
+                                color: '#fff'
+                            }}>
+                                <svg width="6" height="5" viewBox="0 0 24 24" fill="none">
+                                    <polyline points="5,13 10,18 19,7" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"/>
+                                </svg>
+                            </div>
+                        ) : (
+                            <i className="ms-Icon ms-Icon--People" style={{ fontSize: 12 }} />
+                        )}
+                        Select Parties
+                    </button>
+                    
+                    <span style={{ color: '#ccc', fontSize: '12px' }}>›</span>
+                    
+                    <button 
+                        onClick={handleBackToForm}
+                        disabled={currentStep === 0 || !clientsStepComplete}
+                        style={{ 
+                            background: 'transparent', 
+                            border: 'none', 
+                            color: currentStep === 1 ? '#3690CE' : (!clientsStepComplete ? '#ccc' : '#666'),
+                            cursor: (currentStep === 0 || !clientsStepComplete) ? 'not-allowed' : 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            padding: '4px 8px',
+                            borderRadius: '6px',
+                            fontWeight: currentStep === 1 ? 500 : 400,
+                            fontSize: '13px',
+                            whiteSpace: 'nowrap',
+                            flexShrink: 0,
+                            minHeight: '28px',
+                            transition: 'all 0.15s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                            if (currentStep !== 1 && clientsStepComplete && currentStep !== 0) {
+                                e.currentTarget.style.backgroundColor = '#f8f9fa';
+                            }
+                        }}
+                        onMouseLeave={(e) => {
+                            if (currentStep !== 1) {
+                                e.currentTarget.style.backgroundColor = 'transparent';
+                            }
+                        }}
+                    >
+                        {currentStep === 2 ? (
+                            <div style={{ 
+                                width: 12,
+                                height: 12,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                borderRadius: '50%',
+                                background: '#20b26c',
+                                color: '#fff'
+                            }}>
+                                <svg width="6" height="5" viewBox="0 0 24 24" fill="none">
+                                    <polyline points="5,13 10,18 19,7" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"/>
+                                </svg>
+                            </div>
+                        ) : (
+                            <i className="ms-Icon ms-Icon--OpenFolderHorizontal" style={{ fontSize: 12 }} />
+                        )}
+                        Build Matter
+                    </button>
+                    
+                    <span style={{ color: '#ccc', fontSize: '12px' }}>›</span>
+                    
+                    <button
+                        onClick={handleGoToReview}
+                        disabled={!matterStepComplete}
+                        style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: currentStep === 2 ? '#3690CE' : (!matterStepComplete ? '#ccc' : '#666'),
+                            cursor: !matterStepComplete ? 'not-allowed' : 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            padding: '4px 8px',
+                            borderRadius: '6px',
+                            fontWeight: currentStep === 2 ? 500 : 400,
+                            fontSize: '13px',
+                            whiteSpace: 'nowrap',
+                            flexShrink: 0,
+                            minHeight: '28px',
+                            transition: 'all 0.15s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                            if (currentStep !== 2 && matterStepComplete) {
+                                e.currentTarget.style.backgroundColor = '#f8f9fa';
+                            }
+                        }}
+                        onMouseLeave={(e) => {
+                            if (currentStep !== 2) {
+                                e.currentTarget.style.backgroundColor = 'transparent';
+                            }
+                        }}
+                    >
+                        {currentStep === 2 && summaryConfirmed ? (
+                            <div style={{ 
+                                width: 12,
+                                height: 12,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                borderRadius: '50%',
+                                background: '#20b26c',
+                                color: '#fff'
+                            }}>
+                                <svg width="6" height="5" viewBox="0 0 24 24" fill="none">
+                                    <polyline points="5,13 10,18 19,7" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"/>
+                                </svg>
+                            </div>
+                        ) : (
+                            <i className="ms-Icon ms-Icon--CheckList" style={{ fontSize: 12 }} />
+                        )}
+                        Review and Confirm
+                    </button>
+                </div>
+
+                {/* Search and Clear All */}
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    {/* Search (only step 0) */}
+                    {currentStep === 0 && showPoidSelection && !((pendingClientType === 'Individual' || pendingClientType === 'Company') && selectedPoidIds.length > 0) && (
+                        <div style={{ position: 'relative' }}>
+                            <MinimalSearchBox
+                                value={poidSearchTerm}
+                                onChange={setPoidSearchTerm}
+                                focused={searchBoxFocused}
+                                onRequestOpen={() => setSearchBoxFocused(true)}
+                                onRequestClose={() => setSearchBoxFocused(false)}
+                            />
+                        </div>
+                    )}
+                    
+                    {hasDataToClear() && (
+                        <button 
+                            type="button" 
+                            onClick={handleClearAll} 
+                            style={{
+                                background: 'none',
+                                border: '1px solid #e5e7eb',
+                                borderRadius: 4,
+                                padding: '4px 8px',
+                                fontSize: 12,
+                                fontWeight: 500,
+                                color: '#D65541',
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                whiteSpace: 'nowrap',
+                                height: '28px'
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.backgroundColor = '#fef2f2';
+                                e.currentTarget.style.borderColor = '#D65541';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.backgroundColor = 'transparent';
+                                e.currentTarget.style.borderColor = '#e5e7eb';
+                            }}
+                        >
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
+                                <path 
+                                    d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c0-1 1-2 2-2v2m-6 5v6m4-6v6" 
+                                    stroke="currentColor" 
+                                    strokeWidth="2" 
+                                    strokeLinecap="round" 
+                                    strokeLinejoin="round"
+                                />
+                            </svg>
+                            Clear All
+                            {getFieldCount() > 0 && (
+                                <span style={{
+                                    background: '#D65541',
+                                    color: '#fff',
+                                    borderRadius: '50%',
+                                    width: '14px',
+                                    height: '14px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontSize: '9px',
+                                    fontWeight: 600,
+                                    marginLeft: '2px'
+                                }}>
+                                    {getFieldCount()}
+                                </span>
+                            )}
+                        </button>
+                    )}
+                </div>
+            </div>
+        );
+        
+        // Cleanup when component unmounts
+        return () => {
+            setContent(null);
+        };
+    }, [setContent, currentStep, clientsStepComplete, matterStepComplete, summaryConfirmed, hasDataToClear, getFieldCount, showPoidSelection, pendingClientType, selectedPoidIds, poidSearchTerm, searchBoxFocused, handleBackToClients, handleBackToForm, handleGoToReview, handleClearAll]);
+
     // Render the horizontal sliding carousel
     return (
         <CompletionProvider>
-            <Stack className="workflow-container">
-                {/* Main Container */}
-                <div className="workflow-main matter-opening-card">
-                    {/* Persistent Header */}
-                    <div className="persistent-header" style={{
-                        padding: '12px 24px',
-                        background: '#fff',
-                        position: 'sticky',
-                        top: 0,
-                        zIndex: 10,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 12,
-                        margin: '-20px -20px 0 -20px',
-                        minHeight: 'auto',
-                        alignContent: 'center'
-                    }}>
-                        <div style={{ 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            gap: 4, 
-                            flex: '1 1 auto',
-                            minWidth: 0,
-                            overflow: 'hidden'
-                        }}>
-                            {/* Unified breadcrumbs + actions row */}
-                            <div style={{ 
-                                display: 'flex', 
-                                alignItems: 'center', 
-                                gap: 4, 
-                                fontSize: 14,
-                                minWidth: 0,
-                                flex: '1 1 auto',
-                                overflow: 'hidden'
-                            }}>
-                                <button 
-                                    onClick={handleBackToClients}
-                                    style={{ 
-                                        background: 'none', 
-                                        border: 'none', 
-                                        color: currentStep === 0 ? '#3690CE' : '#666',
-                                        cursor: 'pointer',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 4,
-                                        padding: '4px 8px',
-                                        borderRadius: 6,
-                                        transition: 'all 0.2s ease',
-                                        fontWeight: currentStep === 0 ? 600 : 400,
-                                        backgroundColor: currentStep === 0 ? '#e3f0fc' : 'transparent',
-                                        fontSize: '12px',
-                                        whiteSpace: 'nowrap',
-                                        flexShrink: 0
-                                    }}
-                                >
-                                    {clientsStepComplete && currentStep !== 0 ? (
-                                        <div className="completion-tick visible" style={{ 
-                                            marginRight: 4,
-                                            width: 16,
-                                            height: 16,
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            borderRadius: '50%',
-                                            background: '#fff',
-                                            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)',
-                                            color: '#20b26c',
-                                            border: '2px solid #f8f8f8'
-                                        }}>
-                                            <svg width="10" height="8" viewBox="0 0 24 24" fill="none">
-                                                <polyline points="5,13 10,18 19,7" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
-                                            </svg>
-                                        </div>
-                                    ) : (
-                                        <i className="ms-Icon ms-Icon--People" style={{ fontSize: 16 }} />
-                                    )}
-                                    Select Parties
-                                </button>
-                                
-                                {/* Progressive dots connector */}
-                                <div style={{ 
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 1,
-                                    margin: '0 2px',
-                                    flexShrink: 0
-                                }}>
-                                    <div style={{ 
-                                        width: '4px', 
-                                        height: '4px', 
-                                        borderRadius: '50%', 
-                                        background: getDotColor(getProgressiveDotStates()[0]),
-                                        transition: 'background-color 0.3s ease'
-                                    }} />
-                                    <div style={{ 
-                                        width: '6px', 
-                                        height: '1px', 
-                                        background: '#ddd'
-                                    }} />
-                                    <div style={{ 
-                                        width: '4px', 
-                                        height: '4px', 
-                                        borderRadius: '50%', 
-                                        background: getDotColor(getProgressiveDotStates()[1]),
-                                        transition: 'background-color 0.3s ease'
-                                    }} />
-                                    <div style={{ 
-                                        width: '6px', 
-                                        height: '1px', 
-                                        background: '#ddd'
-                                    }} />
-                                    <div style={{ 
-                                        width: '4px', 
-                                        height: '4px', 
-                                        borderRadius: '50%', 
-                                        background: getDotColor(getProgressiveDotStates()[2]),
-                                        transition: 'background-color 0.3s ease'
-                                    }} />
-                                </div>
-                                
-                                <button 
-                                    onClick={handleBackToForm}
-                                    disabled={currentStep === 0}
-                                    style={{ 
-                                        background: 'none', 
-                                        border: 'none', 
-                                        color: currentStep === 1 ? '#3690CE' : currentStep === 0 ? '#ccc' : '#666',
-                                        cursor: currentStep === 0 ? 'not-allowed' : 'pointer',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 4,
-                                        padding: '4px 8px',
-                                        borderRadius: 6,
-                                        transition: 'all 0.2s ease',
-                                        fontWeight: currentStep === 1 ? 600 : 400,
-                                        backgroundColor: currentStep === 1 ? '#e3f0fc' : 'transparent',
-                                        fontSize: '12px',
-                                        whiteSpace: 'nowrap',
-                                        flexShrink: 0
-                                    }}
-                                >
-                                    {currentStep === 2 ? (
-                                        <div className="completion-tick visible" style={{ 
-                                            marginRight: 4,
-                                            width: 16,
-                                            height: 16,
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            borderRadius: '50%',
-                                            background: '#fff',
-                                            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)',
-                                            color: '#20b26c',
-                                            border: '2px solid #f8f8f8'
-                                        }}>
-                                            <svg width="10" height="8" viewBox="0 0 24 24" fill="none">
-                                                <polyline points="5,13 10,18 19,7" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
-                                            </svg>
-                                        </div>
-                                    ) : (
-                                        <i className="ms-Icon ms-Icon--OpenFolderHorizontal" style={{ fontSize: 16 }} />
-                                    )}
-                                    Build Matter
-                                </button>
-                                
-                                {/* Progressive dots with visible separators */}
-                                <div style={{ 
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 1,
-                                    margin: '0 2px',
-                                    flexShrink: 0
-                                }}>
-                                    <div style={{ 
-                                        width: '4px', 
-                                        height: '4px', 
-                                        borderRadius: '50%', 
-                                        background: getDotColor(getBuildMatterDotStates()[0]),
-                                        transition: 'background-color 0.3s ease'
-                                    }} />
-                                    <div style={{ 
-                                        width: '6px', 
-                                        height: '1px', 
-                                        background: '#ddd'
-                                    }} />
-                                    <div style={{ 
-                                        width: '4px', 
-                                        height: '4px', 
-                                        borderRadius: '50%', 
-                                        background: getDotColor(getBuildMatterDotStates()[1]),
-                                        transition: 'background-color 0.3s ease'
-                                    }} />
-                                    <div style={{ 
-                                        width: '6px', 
-                                        height: '1px', 
-                                        background: '#ddd'
-                                    }} />
-                                    <div style={{ 
-                                        width: '4px', 
-                                        height: '4px', 
-                                        borderRadius: '50%', 
-                                        background: getDotColor(getBuildMatterDotStates()[2]),
-                                        transition: 'background-color 0.3s ease'
-                                    }} />
-                                </div>
-                                
-                                <div style={{ 
-                                    color: currentStep === 2 ? '#3690CE' : '#666',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 4,
-                                    padding: '4px 8px',
-                                    borderRadius: 6,
-                                    fontWeight: currentStep === 2 ? 600 : 400,
-                                    backgroundColor: currentStep === 2 ? '#e3f0fc' : 'transparent',
-                                    transition: 'all 0.2s ease',
-                                    fontSize: '12px',
-                                    whiteSpace: 'nowrap',
-                                    flexShrink: 0
-                                }}>
-                                    {summaryConfirmed ? (
-                                        <div className="completion-tick visible" style={{ 
-                                            marginRight: 4,
-                                            width: 16,
-                                            height: 16,
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            borderRadius: '50%',
-                                            background: '#fff',
-                                            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)',
-                                            color: '#20b26c',
-                                            border: '2px solid #f8f8f8'
-                                        }}>
-                                            <svg width="10" height="8" viewBox="0 0 24 24" fill="none">
-                                                <polyline points="5,13 10,18 19,7" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
-                                            </svg>
-                                        </div>
-                                    ) : (
-                                        <i className="ms-Icon ms-Icon--CheckList" style={{ fontSize: 16 }} />
-                                    )}
-                                    Review and Confirm
-                                </div>
-                                {/* Spacer to push actions right */}
-                                <div style={{ flex: 1, minWidth: 12 }} />
-                                {/* Search (only step 0) */}
-                                {currentStep === 0 && showPoidSelection && !((pendingClientType === 'Individual' || pendingClientType === 'Company') && selectedPoidIds.length > 0) && (
-                                    <div style={{ position: 'relative' }}>
-                                        <MinimalSearchBox
-                                            value={poidSearchTerm}
-                                            onChange={setPoidSearchTerm}
-                                            focused={searchBoxFocused}
-                                            onRequestOpen={() => setSearchBoxFocused(true)}
-                                            onRequestClose={() => setSearchBoxFocused(false)}
-                                        />
-                                    </div>
-                                )}
-                                {/* Clear All inline */}
-                                {hasDataToClear() && (
-                                    <>
-                                        <button 
-                                            type="button" 
-                                            onClick={handleClearAll} 
-                                            style={{
-                                                background: 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-                                                border: '1px solid #e5e7eb',
-                                                borderRadius: 8,
-                                                padding: '8px 12px',
-                                                fontSize: 12,
-                                                fontWeight: 600,
-                                                color: '#D65541',
-                                                cursor: 'pointer',
-                                                transition: 'all 0.2s ease',
-                                                boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: 6,
-                                                whiteSpace: 'nowrap'
-                                            }}
-                                            onMouseEnter={(e) => {
-                                                e.currentTarget.style.background = 'linear-gradient(135deg, #FEF2F2 0%, #FEE2E2 100%)';
-                                                e.currentTarget.style.borderColor = '#D65541';
-                                                e.currentTarget.style.transform = 'translateY(-1px)';
-                                                e.currentTarget.style.boxShadow = '0 4px 8px rgba(214, 85, 65, 0.15)';
-                                            }}
-                                            onMouseLeave={(e) => {
-                                                e.currentTarget.style.background = 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)';
-                                                e.currentTarget.style.borderColor = '#e5e7eb';
-                                                e.currentTarget.style.transform = 'translateY(0)';
-                                                e.currentTarget.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.05)';
-                                            }}
-                                        >
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                                                <path 
-                                                    d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c0-1 1-2 2-2v2m-6 5v6m4-6v6" 
-                                                    stroke="currentColor" 
-                                                    strokeWidth="2" 
-                                                    strokeLinecap="round" 
-                                                    strokeLinejoin="round"
-                                                />
-                                            </svg>
-                                            Clear All
-                                            {getFieldCount() > 0 && (
-                                                <span style={{
-                                                    background: '#D65541',
-                                                    color: '#fff',
-                                                    borderRadius: '50%',
-                                                    width: '18px',
-                                                    height: '18px',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    fontSize: '10px',
-                                                    fontWeight: 600,
-                                                    marginLeft: '2px'
-                                                }}>
-                                                    {getFieldCount()}
-                                                </span>
-                                            )}
-                                        </button>
-                                        <Dialog
-                                          hidden={!isClearDialogOpen}
-                                          onDismiss={() => setIsClearDialogOpen(false)}
-                                          dialogContentProps={{
-                                            type: DialogType.normal,
-                                            title: 'Clear All Data',
-                                            subText: 'Are you sure you want to clear all form data? This action cannot be undone.'
-                                          }}
-                                          modalProps={{
-                                            isBlocking: true
-                                          }}
-                                        >
-                                          <DialogFooter>
-                                            <PrimaryButton onClick={doClearAll} text="Yes, clear all" />
-                                            <DefaultButton onClick={() => setIsClearDialogOpen(false)} text="Cancel" />
-                                          </DialogFooter>
-                                        </Dialog>
-                                    </>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                    {/* Removed obsolete IIFE placeholder for meta chip state (state now at top-level) */}
-
-                    {/* Neat Separator */}
-                    <div style={{
-                        height: '1px',
-                        background: 'linear-gradient(90deg, transparent 0%, rgba(225, 229, 233, 0.4) 20%, rgba(225, 229, 233, 0.7) 50%, rgba(225, 229, 233, 0.4) 80%, transparent 100%)',
-                        margin: '12px -20px 8px -20px',
-                        position: 'relative',
-                        zIndex: 1,
-                        clear: 'both'
-                    }} />
-
-                    {/* System Info Pills - positioned close to separator */}
-                    <div style={{ 
-                        display: 'flex', 
-                        flexWrap: 'wrap', 
-                        gap: 6, 
-                        marginBottom: 20,
-                        marginTop: 8,
-                        paddingLeft: 4,
-                        paddingRight: 4
-                    }}>
-                        {instructionRef && (
-                            <span style={{
-                                padding: '3px 8px',
-                                border: '1px solid #e5e7eb',
-                                borderRadius: 4,
-                                background: '#f9fafb',
-                                fontSize: 11,
-                                fontWeight: 500,
-                                color: '#6b7280',
-                                fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-                                letterSpacing: '0.5px'
-                            }}>
-                                Instruction: {instructionRef}
-                            </span>
-                        )}
-                        {(matterIdState || matterRef) && (
-                            <span style={{
-                                padding: '3px 8px',
-                                border: '1px solid #e5e7eb',
-                                borderRadius: 4,
-                                background: '#f9fafb',
-                                fontSize: 11,
-                                fontWeight: 500,
-                                color: '#6b7280',
-                                fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-                                letterSpacing: '0.5px'
-                            }}>
-                                Matter: {matterIdState || matterRef}
-                            </span>
-                        )}
-                        {stage && (
-                            <span style={{
-                                padding: '3px 8px',
-                                border: '1px solid #e5e7eb',
-                                borderRadius: 4,
-                                background: '#f9fafb',
-                                fontSize: 11,
-                                fontWeight: 500,
-                                color: '#6b7280',
-                                fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-                                letterSpacing: '0.5px'
-                            }}>
-                                Stage: {stage}
-                            </span>
-                        )}
-                        {(() => {
-                            const chipBase: React.CSSProperties = {
-                                padding: '3px 8px',
-                                border: '1px solid #e5e7eb',
-                                borderRadius: 4,
-                                background: '#f9fafb',
-                                fontSize: 11,
-                                fontWeight: 500,
-                                color: '#374151',
-                                fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-                                letterSpacing: '0.5px',
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: 6,
-                                transition: 'background .15s, border-color .15s, color .15s'
-                            };
-                            const hoverActive = (active: boolean): React.CSSProperties => active ? ({ background: '#eef6ff', borderColor: '#93c5fd', color: '#1d4ed8' }) : ({ background: '#f9fafb' });
-                            const dateLabel = selectedDate ? selectedDate.toLocaleDateString('en-GB') : '-';
-                            return (
-                                <>
-                                    <span
-                                        onClick={() => setOpenMeta(openMeta === 'date' ? null : 'date')}
-                                        style={{ ...chipBase, ...(openMeta === 'date' ? hoverActive(true) : {}) }}
-                                    >
-                                        Opening Date: {dateLabel}
-                                    </span>
-                                    {requestingUserNickname && (
-                                        <span
-                                            onClick={() => setOpenMeta(openMeta === 'user' ? null : 'user')}
-                                            style={{ ...chipBase, ...(openMeta === 'user' ? hoverActive(true) : {}) }}
-                                        >
-                                            User: {requestingUserNickname}{requestingUserClioId ? ` (${requestingUserClioId})` : ''}
-                                        </span>
-                                    )}
-                                    {(openMeta === 'date' || openMeta === 'user') && (
-                                        <div style={{
-                                            position: 'absolute',
-                                            top: '100%',
-                                            left: 0,
-                                            marginTop: 6,
-                                            background: '#FFFFFF',
-                                            border: '1px solid #e5e7eb',
-                                            borderRadius: 8,
-                                            padding: '10px 14px',
-                                            boxShadow: '0 8px 20px rgba(0,0,0,0.08)',
-                                            fontFamily: 'system-ui, sans-serif',
-                                            zIndex: 50,
-                                            minWidth: 240
-                                        }}>
-                                            {openMeta === 'date' && (
-                                                <div style={{ fontSize: 12, lineHeight: 1.5 }}>
-                                                    <div style={{ fontWeight: 600, marginBottom: 4, color: '#0f172a' }}>Opening Date & Time</div>
-                                                    <div style={{ color: '#334155' }}>{dateLabel}</div>
-                                                    <div style={{ color: '#475569', marginTop: 2 }}>Now: {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
-                                                    <div style={{ marginTop: 6 }}>
-                                                        <button onClick={() => setOpenMeta(null)} style={{
-                                                            fontSize: 11,
-                                                            padding: '4px 8px',
-                                                            borderRadius: 4,
-                                                            border: '1px solid #cbd5e1',
-                                                            background: '#f8fafc',
-                                                            cursor: 'pointer'
-                                                        }}>Close</button>
-                                                    </div>
-                                                </div>
-                                            )}
-                                            {openMeta === 'user' && (
-                                                <div style={{ fontSize: 12, lineHeight: 1.5 }}>
-                                                    <div style={{ fontWeight: 600, marginBottom: 4, color: '#0f172a' }}>Requesting User</div>
-                                                    <div style={{ color: '#334155' }}>{requestingUserNickname}</div>
-                                                    {requestingUserClioId && <div style={{ color: '#475569', marginTop: 2 }}>Clio ID: {requestingUserClioId}</div>}
-                                                    <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-                                                        <button onClick={() => navigator.clipboard.writeText(requestingUserNickname)} style={{
-                                                            fontSize: 11,
-                                                            padding: '4px 8px',
-                                                            borderRadius: 4,
-                                                            border: '1px solid #cbd5e1',
-                                                            background: '#f8fafc',
-                                                            cursor: 'pointer'
-                                                        }}>Copy Name</button>
-                                                        {requestingUserClioId && (
-                                                            <button onClick={() => navigator.clipboard.writeText(requestingUserClioId)} style={{
-                                                                fontSize: 11,
-                                                                padding: '4px 8px',
-                                                                borderRadius: 4,
-                                                                border: '1px solid #cbd5e1',
-                                                                background: '#f8fafc',
-                                                                cursor: 'pointer'
-                                                            }}>Copy ID</button>
-                                                        )}
-                                                        <button onClick={() => setOpenMeta(null)} style={{
-                                                            fontSize: 11,
-                                                            padding: '4px 8px',
-                                                            borderRadius: 4,
-                                                            border: '1px solid #cbd5e1',
-                                                            background: '#f1f5f9',
-                                                            cursor: 'pointer'
-                                                        }}>Close</button>
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-                                </>
-                            );
-                        })()}
-                    </div>
-
-                    {/* CSS animations for search controls */}
-                    <style>{`
-                        @keyframes cascadeSlideIn {
-                            from {
-                                opacity: 0;
-                                transform: translateX(20px);
-                            }
-                            to {
-                                opacity: 1;
-                                transform: translateX(0);
-                            }
-                        }
-                        
-                        @keyframes cascadeSlideOut {
-                            from {
-                                opacity: 1;
-                                transform: translateX(0);
-                            }
-                            to {
-                                opacity: 0;
-                                transform: translateX(20px);
-                            }
-                        }
+            {/* CSS animations for search controls */}
+            <style>{`
+                @keyframes cascadeSlideIn {
+                    from {
+                        opacity: 0;
+                        transform: translateX(20px);
+                    }
+                    to {
+                        opacity: 1;
+                        transform: translateX(0);
+                    }
+                }
+                
+                /* CSS animations for search controls - slide out removed to prevent glitches */
                         
                         /* Opponent details slide in animation */
                         @keyframes slideInFromTop {
@@ -2386,11 +2314,6 @@ ${JSON.stringify(debugInfo, null, 2)}
                                 opacity: 1;
                                 transform: translateY(0);
                             }
-                        }
-                        
-                        /* Smooth exit animation when controls disappear */
-                        .search-controls-exit {
-                            animation: cascadeSlideOut 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
                         }
                         
                         /* Responsive header breakpoints */
@@ -2466,8 +2389,16 @@ ${JSON.stringify(debugInfo, null, 2)}
                         }}>
                             
                             {/* Step 1: Client Selection */}
-                            <div style={{ width: '33.333%', padding: '16px', boxSizing: 'border-box' }}>
-                                <div style={{ width: '100%', maxWidth: 1080, margin: '0 auto 16px auto' }}>
+                            <div style={{ 
+                                width: '33.333%', 
+                                padding: '16px', 
+                                boxSizing: 'border-box' 
+                            }}>
+                                <div style={{ 
+                                    width: '100%', 
+                                    maxWidth: 1080, 
+                                    margin: '0 auto 16px auto' 
+                                }}>
                                     {/** Hide the selection UI entirely for instruction-driven entry */}
                                     <PoidSelectionStep
                                         poidData={effectivePoidData}
@@ -2571,42 +2502,50 @@ ${JSON.stringify(debugInfo, null, 2)}
                                     </div>
                                 )}
                                 
-                                {/* Continue Button */}
-                                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 24 }}>
+                                {/* Continue to Matter Details Button */}
+                                <div style={{ 
+                                    marginTop: 24, 
+                                    display: 'flex', 
+                                    justifyContent: 'flex-end',
+                                    padding: '16px 0'
+                                }}>
                                     <button
                                         onClick={clientsStepComplete ? handleContinueToForm : undefined}
                                         disabled={!clientsStepComplete}
                                         style={{
-                                            background: clientsStepComplete ? 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)' : '#f8f9fa',
-                                            border: '1px solid #e5e7eb',
-                                            borderRadius: 8,
+                                            minWidth: '200px',
                                             padding: '12px 20px',
-                                            fontSize: 14,
-                                            fontWeight: 600,
-                                            color: clientsStepComplete ? '#374151' : '#9ca3af',
+                                            backgroundColor: clientsStepComplete ? colours.highlight : (isDarkMode ? colours.dark.disabledBackground : '#f3f2f1'),
+                                            color: clientsStepComplete ? 'white' : (isDarkMode ? colours.dark.text : '#323130'),
+                                            border: clientsStepComplete ? 'none' : `1px solid ${isDarkMode ? colours.dark.borderColor : '#d2d0ce'}`,
+                                            borderRadius: '6px',
                                             cursor: clientsStepComplete ? 'pointer' : 'not-allowed',
                                             display: 'flex',
                                             alignItems: 'center',
-                                            gap: 8,
+                                            justifyContent: 'center',
+                                            gap: 10,
+                                            fontSize: 14,
+                                            fontWeight: 500,
                                             transition: 'all 0.2s ease',
-                                            boxShadow: clientsStepComplete ? '0 2px 4px rgba(0, 0, 0, 0.05)' : 'none',
-                                            opacity: clientsStepComplete ? 1 : 0.6
+                                            boxShadow: clientsStepComplete ? '0 2px 4px rgba(54, 144, 206, 0.2)' : 'none'
                                         }}
-                                        onMouseEnter={clientsStepComplete ? (e) => {
-                                            e.currentTarget.style.background = 'linear-gradient(135deg, #F8FAFC 0%, #F1F5F9 100%)';
-                                            e.currentTarget.style.borderColor = '#3690CE';
-                                            e.currentTarget.style.transform = 'translateY(-1px)';
-                                            e.currentTarget.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.1)';
-                                        } : undefined}
-                                        onMouseLeave={clientsStepComplete ? (e) => {
-                                            e.currentTarget.style.background = 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)';
-                                            e.currentTarget.style.borderColor = '#e5e7eb';
-                                            e.currentTarget.style.transform = 'translateY(0)';
-                                            e.currentTarget.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.05)';
-                                        } : undefined}
+                                        onMouseEnter={(e) => {
+                                            if (clientsStepComplete) {
+                                                e.currentTarget.style.backgroundColor = '#2a7bb8';
+                                                e.currentTarget.style.transform = 'translateY(-1px)';
+                                                e.currentTarget.style.boxShadow = '0 4px 8px rgba(54, 144, 206, 0.3)';
+                                            }
+                                        }}
+                                        onMouseLeave={(e) => {
+                                            if (clientsStepComplete) {
+                                                e.currentTarget.style.backgroundColor = colours.highlight;
+                                                e.currentTarget.style.transform = 'translateY(0)';
+                                                e.currentTarget.style.boxShadow = '0 2px 4px rgba(54, 144, 206, 0.2)';
+                                            }
+                                        }}
                                     >
                                         Continue to Matter Details
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                                        <svg width={16} height={16} viewBox="0 0 24 24" fill="none">
                                             <path d="M5 12h14m-7-7l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                                         </svg>
                                     </button>
@@ -2614,7 +2553,11 @@ ${JSON.stringify(debugInfo, null, 2)}
                             </div>
 
                             {/* Step 2: Matter Form */}
-                            <div style={{ width: '33.333%', padding: '16px', boxSizing: 'border-box' }}>
+                            <div style={{ 
+                                width: '33.333%', 
+                                padding: '16px', 
+                                boxSizing: 'border-box' 
+                            }}>
                                 <ClientInfoStep
                                     selectedDate={selectedDate}
                                     setSelectedDate={setSelectedDate}
@@ -3139,7 +3082,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                             border: '1px solid #e5e7eb',
                                                             borderRadius: 6,
                                                             overflow: 'hidden',
-                                                            background: '#fff'
+                                                            background: isDarkMode ? '#1F2937' : '#fff'
                                                         }}>
                                                             {processingSteps.slice(0, 6).map((step, idx) => (
                                                                 <div key={`step-${idx}`} style={{
@@ -3718,13 +3661,15 @@ ${JSON.stringify(debugInfo, null, 2)}
                                         <div style={lockCardStyle({
                                             border: '1px solid #e1e5ea',
                                             borderRadius: 8,
-                                            background: 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
+                                            background: isDarkMode
+                                                ? 'linear-gradient(135deg, #111827 0%, #1F2937 100%)'
+                                                : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
                                             padding: 14
                                         })}>
                                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                    <i className="ms-Icon ms-Icon--OpenFolderHorizontal" style={{ fontSize: 12, color: '#6b7280' }} />
-                                                    <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Matter Overview</span>
+                                                    <i className="ms-Icon ms-Icon--OpenFolderHorizontal" style={{ fontSize: 12, color: isDarkMode ? '#9CA3AF' : '#6b7280' }} />
+                                                    <span style={{ fontSize: 13, fontWeight: 600, color: isDarkMode ? '#E5E7EB' : '#374151' }}>Matter Overview</span>
                                                 </div>
                                                 {currentStep === 2 && (
                                                     <button
@@ -3867,13 +3812,15 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                 <div style={lockCardStyle({
                                                     border: '1px solid #e1e5ea',
                                                     borderRadius: 8,
-                                                    background: 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
+                                                    background: isDarkMode
+                                                        ? 'linear-gradient(135deg, #111827 0%, #1F2937 100%)'
+                                                        : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
                                                     padding: 14
                                                 })}>
                                                     {renderLockOverlay()}
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-                                                        <i className="ms-Icon ms-Icon--Contact" style={{ fontSize: 12, color: '#6b7280' }} />
-                                                        <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Opponent Details</span>
+                                                        <i className="ms-Icon ms-Icon--Contact" style={{ fontSize: 12, color: isDarkMode ? '#9CA3AF' : '#6b7280' }} />
+                                                        <span style={{ fontSize: 13, fontWeight: 600, color: isDarkMode ? '#E5E7EB' : '#374151' }}>Opponent Details</span>
                                                     </div>
                                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 6 }}>
                                                         {realOpponentKeys.includes('opponentCompanyName') && opponentType === 'Company' && (
@@ -4036,12 +3983,14 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                 <div style={{
                                                     border: '1px solid #e1e5ea',
                                                     borderRadius: 8,
-                                                    background: 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
+                                                    background: isDarkMode
+                                                        ? 'linear-gradient(135deg, #111827 0%, #1F2937 100%)'
+                                                        : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
                                                     padding: 14
                                                 }}>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-                                                        <i className="ms-Icon ms-Icon--ContactInfo" style={{ fontSize: 12, color: '#6b7280' }} />
-                                                        <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Opponent Solicitor</span>
+                                                        <i className="ms-Icon ms-Icon--ContactInfo" style={{ fontSize: 12, color: isDarkMode ? '#9CA3AF' : '#6b7280' }} />
+                                                        <span style={{ fontSize: 13, fontWeight: 600, color: isDarkMode ? '#E5E7EB' : '#374151' }}>Opponent Solicitor</span>
                                                     </div>
                                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 6 }}>
                                                         {realKeys.includes('opponentSolicitorCompany') && (
@@ -4101,10 +4050,12 @@ ${JSON.stringify(debugInfo, null, 2)}
                                         <div style={{
                                             marginTop: 16,
                                             padding: '16px 18px',
-                                            background: 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-                                            border: '1px solid #e2e8f0',
+                                            background: isDarkMode
+                                                ? 'linear-gradient(135deg, #111827 0%, #1F2937 100%)'
+                                                : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
+                                            border: isDarkMode ? '1px solid #374151' : '1px solid #e2e8f0',
                                             borderRadius: 8,
-                                            boxShadow: '0 2px 4px rgba(0,0,0,0.04)'
+                                            boxShadow: isDarkMode ? '0 2px 6px rgba(0,0,0,0.35)' : '0 2px 4px rgba(0,0,0,0.04)'
                                         }}>
                                             {/* Conflicts status row */}
                                             <div style={{ 
@@ -4113,23 +4064,23 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                 gap: 10,
                                                 marginBottom: 12,
                                                 paddingBottom: 12,
-                                                borderBottom: '1px solid #e2e8f0'
+                                                borderBottom: isDarkMode ? '1px solid #374151' : '1px solid #e2e8f0'
                                             }}>
                                                 <i className={`ms-Icon ms-Icon--${noConflict ? 'CheckMark' : 'Warning'}`} 
-                                                   style={{ fontSize: 14, color: noConflict ? '#059669' : '#dc2626' }} />
-                                                <span style={{ fontSize: 13, fontWeight: 500, color: noConflict ? '#047857' : '#b91c1c' }}>
+                                                   style={{ fontSize: 14, color: noConflict ? '#10b981' : '#f87171' }} />
+                                                <span style={{ fontSize: 13, fontWeight: 600, color: isDarkMode ? (noConflict ? '#34d399' : '#fca5a5') : (noConflict ? '#047857' : '#b91c1c') }}>
                                                     {noConflict ? 'No conflicts detected' : 'Conflict check required'}
                                                 </span>
                                                 {editsAfterConfirmation && (
                                                     <span style={{
                                                         marginLeft: 'auto',
                                                         padding: '2px 8px',
-                                                        background: '#fef3c7',
-                                                        color: '#92400e',
+                                                        background: isDarkMode ? 'rgba(251,191,36,0.15)' : '#fef3c7',
+                                                        color: isDarkMode ? '#fde68a' : '#92400e',
                                                         borderRadius: 4,
                                                         fontSize: 11,
                                                         fontWeight: 500,
-                                                        border: '1px solid #fde68a'
+                                                        border: isDarkMode ? '1px solid rgba(253,230,138,0.35)' : '1px solid #fde68a'
                                                     }}>
                                                         Changes detected
                                                     </span>
@@ -4150,7 +4101,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                             accentColor: '#D65541'
                                                         }}
                                                     />
-                                                    <span style={{ fontSize: 13, color: '#374151', lineHeight: 1.3 }}>
+                                                    <span style={{ fontSize: 13, color: isDarkMode ? '#E5E7EB' : '#374151', lineHeight: 1.3 }}>
                                                         {editsAfterConfirmation 
                                                             ? 'I have reviewed the changes and am ready to proceed' 
                                                             : 'I have reviewed all details and am ready to proceed'}
@@ -4158,8 +4109,8 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                             <span style={{
                                                                 marginLeft: 8,
                                                                 padding: '2px 6px',
-                                                                background: '#f1f5f9',
-                                                                color: '#475569',
+                                                                background: isDarkMode ? 'rgba(148,163,184,0.15)' : '#f1f5f9',
+                                                                color: isDarkMode ? '#cbd5e1' : '#475569',
                                                                 borderRadius: 4,
                                                                 fontSize: 11,
                                                                 fontWeight: 500
@@ -4876,8 +4827,25 @@ ${JSON.stringify(debugInfo, null, 2)}
 
 
                     {/* Navigation Container - Removed as requested */}
-                </div>
-            </Stack>
+                
+                {/* Clear All Dialog */}
+                <Dialog
+                  hidden={!isClearDialogOpen}
+                  onDismiss={() => setIsClearDialogOpen(false)}
+                  dialogContentProps={{
+                    type: DialogType.normal,
+                    title: 'Clear All Data',
+                    subText: 'Are you sure you want to clear all form data? This action cannot be undone.'
+                  }}
+                  modalProps={{
+                    isBlocking: true
+                  }}
+                >
+                  <DialogFooter>
+                    <PrimaryButton onClick={doClearAll} text="Yes, clear all" />
+                    <DefaultButton onClick={() => setIsClearDialogOpen(false)} text="Cancel" />
+                  </DialogFooter>
+                </Dialog>
         </CompletionProvider>
     );
 }

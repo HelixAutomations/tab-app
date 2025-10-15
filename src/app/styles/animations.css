@@ -59,25 +59,7 @@
     }
 }
 
-@keyframes slideIn {
-    from {
-        transform: translateX(100%);
-    }
-
-    to {
-        transform: translateX(0);
-    }
-}
-
-@keyframes slideOut {
-    from {
-        transform: translateX(0);
-    }
-
-    to {
-        transform: translateX(100%);
-    }
-}
+/* Slide animations removed to prevent navigation glitches */
 
 .fade-in {
     animation: fadeIn 0.3s ease forwards;
@@ -95,13 +77,7 @@
     animation: slideInFromLeft 0.3s ease forwards;
 }
 
-.slide-in {
-    animation: slideIn 0.3s forwards;
-}
-
-.slide-out {
-    animation: slideOut 0.3s forwards;
-}
+/* Slide classes removed to prevent navigation glitches */
 
 .drop-in {
     animation: dropIn 0.3s ease forwards;

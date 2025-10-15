@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 // invisible change 2.1
 //
-import { Stack, Dialog, DialogType, DialogFooter, DefaultButton, PrimaryButton } from '@fluentui/react';
+import { Dialog, DialogType, DialogFooter, DefaultButton, PrimaryButton, Spinner, SpinnerSize } from '@fluentui/react';
 import OperationStatusToast from '../enquiries/pitch-builder/OperationStatusToast';
 import RiskAssessment, { RiskCore } from '../../components/RiskAssessment';
-import { dashboardTokens } from './componentTokens';
+import { useTheme } from '../../app/functionality/ThemeContext';
+import { colours } from '../../app/styles/colours';
 import '../../app/styles/NewMatters.css';
 import '../../app/styles/MatterOpeningCard.css';
 import '../../app/styles/RiskAssessmentPage.css';
@@ -21,6 +22,7 @@ interface RiskAssessmentPageProps {
 }
 
 const RiskAssessmentPage: React.FC<RiskAssessmentPageProps> = ({ onBack, instructionRef, riskAssessor, existingRisk, onSave }) => {
+    const { isDarkMode } = useTheme();
     const [toast, setToast] = useState<{
         visible: boolean;
         message: string;
@@ -76,6 +78,7 @@ const RiskAssessmentPage: React.FC<RiskAssessmentPageProps> = ({ onBack, instruc
         clearAllButton: null,
         jsonButton: null
     });
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     const handleHeaderButtonsChange = (buttons: { clearAllButton: React.ReactNode | null; jsonButton: React.ReactNode }) => {
         setHeaderButtons(buttons);
@@ -133,7 +136,8 @@ const RiskAssessmentPage: React.FC<RiskAssessmentPageProps> = ({ onBack, instruc
         (riskCore.limitationValue === 1 || limitationDateTbc || !!limitationDate);
 
     const handleContinue = async () => {
-        if (!isComplete()) return;
+        if (!isComplete() || isSubmitting) return;
+        setIsSubmitting(true);
         
         try {
             const riskScore =
@@ -218,187 +222,128 @@ const RiskAssessmentPage: React.FC<RiskAssessmentPageProps> = ({ onBack, instruc
             // Notify parent of new risk assessment so it can refresh UI
             onSave?.(payload);
 
-            // Native in-app toast
+            // Native in-app toast and inline header status
             setToast({ visible: true, message: 'Risk assessment saved', type: 'success' });
-            // Allow toast to be visible briefly before navigating back
+            // Briefly show success before navigating back
             setTimeout(() => {
                 setToast((t) => ({ ...t, visible: false }));
                 onBack();
-            }, 1200);
+            }, 900);
             
         } catch (err) {
             console.error('❌ Risk assessment submit failed', err);
             setToast({ visible: true, message: 'Failed to save risk assessment', type: 'error' });
             // Auto-hide error after a short delay; stay on page for correction
             setTimeout(() => setToast((t) => ({ ...t, visible: false })), 2000);
+        } finally {
+            setIsSubmitting(false);
         }
         
     };
 
     return (
-        <Stack tokens={dashboardTokens} className="workflow-container">
-            <div className="workflow-main matter-opening-card risk-full-width">
-                {/* Header with breadcrumb-style progress - exactly like Matter Opening */}
+        <div className="risk-assessment-container">
+            {/* Header with breadcrumb-style progress */}
+            <div style={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center', 
+                padding: '20px 24px', 
+                borderBottom: `1px solid ${isDarkMode ? colours.dark.border : '#e1dfdd'}`,
+                background: isDarkMode ? colours.dark.sectionBackground : '#fff',
+                color: isDarkMode ? colours.dark.text : undefined,
+                borderRadius: '8px 8px 0 0',
+                marginBottom: '0'
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 18, fontWeight: 600, letterSpacing: '-0.02em' }}>
+                    <i className="ms-Icon ms-Icon--DocumentSearch" style={{ fontSize: 18, opacity: 0.9 }} />
+                    Risk Assessment
+                </div>
+
+                {/* Right side controls */}
                 <div style={{ 
                     display: 'flex', 
-                    justifyContent: 'space-between', 
                     alignItems: 'center', 
-                    padding: '16px 24px', 
-                    borderBottom: '1px solid #e1dfdd',
-                    background: '#fff',
-                    margin: '-20px -20px 0 -20px'
+                    gap: 8
                 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 16, fontWeight: 600 }}>
-                        <i className="ms-Icon ms-Icon--DocumentSearch" style={{ fontSize: 16 }} />
-                        Risk Assessment
-                    </div>
-
-                    {/* Right side controls */}
-                    <div style={{ 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        gap: 8
-                    }}>
-                        {/* Buttons provided by child component */}
-                        {headerButtons.clearAllButton}
-                        {headerButtons.jsonButton}
-                    </div>
-                </div>
-
-                {/* Info box styled exactly like the provided element */}
-                <div style={{
-                    background: 'linear-gradient(135deg, rgb(248, 250, 251) 0%, rgb(241, 244, 246) 100%)',
-                    border: '1px solid rgb(225, 229, 233)',
-                    borderRadius: '0px',
-                    padding: '8px 12px',
-                    marginBottom: '6px',
-                    position: 'relative',
-                    overflow: 'hidden'
-                }}>
-                    <div style={{
-                        position: 'absolute',
-                        top: '0px',
-                        right: '0px',
-                        width: '120px',
-                        height: '100%',
-                        background: 'linear-gradient(90deg, transparent 0%, rgba(54, 144, 206, 0.03) 100%)',
-                        pointerEvents: 'none'
-                    }}></div>
-                    <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        position: 'relative',
-                        zIndex: 1
-                    }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <div>
-                                <div style={{
-                                    fontSize: '10px',
-                                    fontWeight: 600,
-                                    color: 'rgb(107, 114, 128)',
-                                    textTransform: 'uppercase',
-                                    letterSpacing: '0.5px',
-                                    marginBottom: '1px'
-                                }}>Assessment Date &amp; Time</div>
-                                <div style={{
-                                    fontSize: '13px',
-                                    fontWeight: 400,
-                                    color: 'rgb(31, 41, 55)',
-                                    fontFamily: 'Raleway, sans-serif'
-                                }}>{new Date().toLocaleDateString('en-GB')} {new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>
-                            </div>
-                            <div style={{
-                                width: '1px',
-                                height: '32px',
-                                background: 'rgb(225, 229, 233)',
-                                margin: '0 6px'
-                            }}></div>
-                            <div>
-                                <div style={{
-                                    fontSize: '10px',
-                                    fontWeight: 600,
-                                    color: 'rgb(107, 114, 128)',
-                                    textTransform: 'uppercase',
-                                    letterSpacing: '0.5px',
-                                    marginBottom: '1px'
-                                }}>Assessment Expiry</div>
-                                <div style={{
-                                    fontSize: '13px',
-                                    fontWeight: 400,
-                                    color: 'rgb(31, 41, 55)',
-                                    fontFamily: 'Raleway, sans-serif'
-                                }}>
-                                    {complianceDate ? (() => {
-                                        const expiryDate = new Date(complianceDate);
-                                        expiryDate.setMonth(expiryDate.getMonth() + 6);
-                                        return expiryDate.toLocaleDateString('en-GB');
-                                    })() : 'Not Set'}
-                                </div>
-                            </div>
+                    {isSubmitting && (
+                        <div aria-live="polite" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
+                            <Spinner size={SpinnerSize.small} />
+                            <span style={{ fontSize: 13, fontWeight: 500, opacity: 0.9 }}>Saving…</span>
                         </div>
-                        <div style={{ textAlign: 'right' }}>
-                            <div style={{
-                                fontSize: '10px',
-                                fontWeight: 600,
-                                color: 'rgb(107, 114, 128)',
-                                textTransform: 'uppercase',
-                                letterSpacing: '0.5px',
-                                marginBottom: '1px'
-                            }}>User Assessing Risk</div>
-                            <div style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'flex-end',
-                                gap: '6px'
-                            }}>
-                                <div style={{
-                                    fontSize: '13px',
-                                    fontWeight: 400,
-                                    color: 'rgb(54, 144, 206)',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '4px'
-                                }}>
-                                    <i className="ms-Icon ms-Icon--Contact" style={{ fontSize: '12px' }}></i>
-                                    {riskAssessor ? `${riskAssessor} | 141740` : 'Current User | 141740'}
-                                </div>
-                                <div style={{
-                                    width: '6px',
-                                    height: '6px',
-                                    borderRadius: '50%',
-                                    background: 'rgb(16, 185, 129)',
-                                    animation: '2s ease 0s infinite normal none running pulse',
-                                    boxShadow: 'rgba(16, 185, 129, 0.7) 0px 0px 0px 0px'
-                                }}></div>
-                            </div>
-                        </div>
-                    </div>
+                    )}
+                    {/* Buttons provided by child component; hidden during submit */}
+                    {!isSubmitting && headerButtons.clearAllButton}
+                    {!isSubmitting && headerButtons.jsonButton}
+                    
+                    {/* Exit Button */}
+                    <button
+                        type="button"
+                        onClick={onBack}
+                        disabled={isSubmitting}
+                        style={{
+                            background: 'transparent',
+                            border: 'none',
+                            borderRadius: '4px',
+                            padding: '8px',
+                            fontSize: 16,
+                            color: isDarkMode ? colours.dark.text : '#666',
+                            cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            opacity: isSubmitting ? 0.5 : 1,
+                            transition: 'background 0.2s ease, color 0.2s ease',
+                        }}
+                        onMouseEnter={(e) => {
+                            if (!isSubmitting) {
+                                e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)';
+                                e.currentTarget.style.color = isDarkMode ? '#fff' : '#333';
+                            }
+                        }}
+                        onMouseLeave={(e) => {
+                            if (!isSubmitting) {
+                                e.currentTarget.style.background = 'transparent';
+                                e.currentTarget.style.color = isDarkMode ? colours.dark.text : '#666';
+                            }
+                        }}
+                        title="Close Risk Assessment"
+                    >
+                        <i className="ms-Icon ms-Icon--Cancel" style={{ fontSize: 16 }} />
+                    </button>
                 </div>
-                
-                <div className="step-content active" style={{ maxHeight: 'none', opacity: 1, visibility: 'visible', padding: '0.5rem' }}>
-                    <RiskAssessment
-                        riskCore={riskCore}
-                        setRiskCore={setRiskCore}
-                        consideredClientRisk={consideredClientRisk}
-                        setConsideredClientRisk={setConsideredClientRisk}
-                        consideredTransactionRisk={consideredTransactionRisk}
-                        setConsideredTransactionRisk={setConsideredTransactionRisk}
-                        transactionRiskLevel={transactionRiskLevel}
-                        setTransactionRiskLevel={setTransactionRiskLevel}
-                        consideredFirmWideSanctions={consideredFirmWideSanctions}
-                        setConsideredFirmWideSanctions={setConsideredFirmWideSanctions}
-                        consideredFirmWideAML={consideredFirmWideAML}
-                        setConsideredFirmWideAML={setConsideredFirmWideAML}
-                        limitationDate={limitationDate}
-                        setLimitationDate={setLimitationDate}
-                        limitationDateTbc={limitationDateTbc}
-                        setLimitationDateTbc={setLimitationDateTbc}
-                        onContinue={handleContinue}
-                        isComplete={isComplete}
-                        onHeaderButtonsChange={handleHeaderButtonsChange}
-                    />
-                </div>
+            </div>
+
+            {/* Risk Assessment Content */}
+            <div style={{ 
+                opacity: isSubmitting ? 0.7 : 1, 
+                padding: '24px', 
+                pointerEvents: isSubmitting ? 'none' : 'auto',
+                background: isDarkMode ? colours.dark.background : '#fafbfc',
+                borderRadius: '0 0 8px 8px',
+                minHeight: '500px'
+            }}>
+                <RiskAssessment
+                    riskCore={riskCore}
+                    setRiskCore={setRiskCore}
+                    consideredClientRisk={consideredClientRisk}
+                    setConsideredClientRisk={setConsideredClientRisk}
+                    consideredTransactionRisk={consideredTransactionRisk}
+                    setConsideredTransactionRisk={setConsideredTransactionRisk}
+                    transactionRiskLevel={transactionRiskLevel}
+                    setTransactionRiskLevel={setTransactionRiskLevel}
+                    consideredFirmWideSanctions={consideredFirmWideSanctions}
+                    setConsideredFirmWideSanctions={setConsideredFirmWideSanctions}
+                    consideredFirmWideAML={consideredFirmWideAML}
+                    setConsideredFirmWideAML={setConsideredFirmWideAML}
+                    limitationDate={limitationDate}
+                    setLimitationDate={setLimitationDate}
+                    limitationDateTbc={limitationDateTbc}
+                    setLimitationDateTbc={setLimitationDateTbc}
+                    onContinue={handleContinue}
+                    isComplete={isComplete}
+                    onHeaderButtonsChange={handleHeaderButtonsChange}
+                />
             </div>
 
             {/* Clear All Confirmation Dialog */}
@@ -449,18 +394,6 @@ const RiskAssessmentPage: React.FC<RiskAssessmentPageProps> = ({ onBack, instruc
                     opacity: 1;
                     transform: scale(1);
                 }
-
-                @keyframes pulse {
-                    0% {
-                        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
-                    }
-                    70% {
-                        box-shadow: 0 0 0 4px rgba(16, 185, 129, 0);
-                    }
-                    100% {
-                        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
-                    }
-                }
             `}</style>
             {/* Toast */}
             <OperationStatusToast 
@@ -468,7 +401,7 @@ const RiskAssessmentPage: React.FC<RiskAssessmentPageProps> = ({ onBack, instruc
                 message={toast.message}
                 type={toast.type}
             />
-        </Stack>
+        </div>
     );
 };
 
