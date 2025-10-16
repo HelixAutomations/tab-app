@@ -30,6 +30,8 @@ const DATASET_TTL = {
   wipDbCurrentWeek: 600, // 10 min - current week DB fallback
   googleAnalytics: 1800, // 30 min - Google Analytics data updates hourly
   googleAds: 1800,    // 30 min - Google Ads data updates regularly
+  deals: 900,         // 15 min - Deal/pitch data for Meta metrics conversion tracking
+  instructions: 900,  // 15 min - Instruction data for conversion funnel
 };
 
 // Server-Sent Events endpoint for progressive dataset loading
@@ -265,6 +267,10 @@ async function fetchDatasetByName(datasetName, { connectionString, entraId, clio
       return fetchGoogleAdsData(3); // Default to 3 months, TODO: parameterize
     case 'metaMetrics':
       return fetchMetaMetrics(30); // Default to 30 days, TODO: parameterize
+    case 'deals':
+      return fetchDeals({ connectionString });
+    case 'instructions':
+      return fetchInstructions({ connectionString });
     default:
       throw new Error(`Unknown dataset: ${datasetName}`);
   }
@@ -698,6 +704,75 @@ async function fetchMetaMetrics(daysBack = 30) {
 
     req.end();
   });
+}
+
+// Fetch deals/pitches data for Meta metrics conversion tracking
+async function fetchDeals({ connectionString }) {
+  const { from, to } = getLast24MonthsRange();
+  console.log(`🔍 Deals Query: Fetching data from ${formatDateOnly(from)} to ${formatDateOnly(to)}`);
+  
+  try {
+    // Use the instructions database connection string (deals are in the same database)
+    const instructionsConnStr = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+    if (!instructionsConnStr) {
+      console.log(`⚠️  Instructions database connection string not found - returning empty dataset`);
+      return [];
+    }
+
+    return withRequest(instructionsConnStr, async (request, sqlClient) => {
+      request.input('dateFrom', sqlClient.Date, formatDateOnly(from));
+      request.input('dateTo', sqlClient.Date, formatDateOnly(to));
+      
+      const result = await request.query(`
+        SELECT TOP 2000 DealId, InstructionRef, ProspectId, ServiceDescription, Amount, AreaOfWork,
+               PitchedBy, PitchedDate, PitchedTime, Status, IsMultiClient, LeadClientEmail,
+               LeadClientId, CloseDate, CloseTime, PitchValidUntil
+        FROM [dbo].[Deals] WITH (NOLOCK)
+        WHERE PitchedDate BETWEEN @dateFrom AND @dateTo
+        ORDER BY PitchedDate DESC, DealId DESC
+      `);
+      
+      console.log(`✅ Deals Query: Retrieved ${result.recordset?.length || 0} records`);
+      return Array.isArray(result.recordset) ? result.recordset : [];
+    });
+  } catch (error) {
+    console.error('❌ Deals fetch error:', error);
+    return [];
+  }
+}
+
+// Fetch instruction summaries for conversion tracking
+async function fetchInstructions({ connectionString }) {
+  const { from, to } = getLast24MonthsRange();
+  console.log(`🔍 Instructions Query: Fetching data from ${formatDateOnly(from)} to ${formatDateOnly(to)}`);
+  
+  try {
+    // Use the instructions database connection string
+    const instructionsConnStr = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+    if (!instructionsConnStr) {
+      console.log(`⚠️  Instructions database connection string not found - returning empty dataset`);
+      return [];
+    }
+
+    return withRequest(instructionsConnStr, async (request, sqlClient) => {
+      request.input('dateFrom', sqlClient.Date, formatDateOnly(from));
+      request.input('dateTo', sqlClient.Date, formatDateOnly(to));
+      
+      const result = await request.query(`
+        SELECT TOP 2000 InstructionRef, Stage, SubmissionDate, SubmissionTime, LastUpdated,
+               MatterId, ClientId, Email, FirstName, LastName, Phone, InternalStatus
+        FROM [dbo].[Instructions] WITH (NOLOCK)
+        WHERE SubmissionDate BETWEEN @dateFrom AND @dateTo
+        ORDER BY SubmissionDate DESC, InstructionRef DESC
+      `);
+      
+      console.log(`✅ Instructions Query: Retrieved ${result.recordset?.length || 0} records`);
+      return Array.isArray(result.recordset) ? result.recordset : [];
+    });
+  } catch (error) {
+    console.error('❌ Instructions fetch error:', error);
+    return [];
+  }
 }
 
 module.exports = router;

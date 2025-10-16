@@ -716,6 +716,57 @@ const PpcReport: React.FC<PpcReportProps> = ({
       background: 'transparent',
       minHeight: '100vh'
     }}>
+      {/* Data Source System Stamp + Params - positioned above date ranges */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{
+          padding: 8,
+          borderRadius: 8,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          maxWidth: '100%',
+          background: isDarkMode
+            ? 'rgba(15,23,42,0.4)'
+            : 'rgba(248,250,252,0.6)',
+          border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.15)' : 'rgba(148,163,184,0.12)'}`,
+          fontSize: 11,
+          opacity: 0.8
+        }}>
+          <div style={{
+            flex: '0 0 auto', width: 18, height: 18, borderRadius: 4, overflow: 'hidden',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: isDarkMode ? 'rgba(2,6,23,0.4)' : 'rgba(241,245,249,0.6)'
+          }}>
+            <img src={require('../../assets/grey helix mark.png')} alt="Helix" style={{ width: 14, height: 14, objectFit: 'contain', opacity: 0.7 }} />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', minWidth: 0 }}>
+            <div style={{
+              width: 6, height: 6, borderRadius: '50%',
+              background: '#10b981',
+              boxShadow: '0 0 6px rgba(16, 185, 129, 0.4)'
+            }} />
+            <span style={{ fontWeight: 600, opacity: 0.9 }}>Google Ads</span>
+            <span style={{ opacity: 0.6 }}>•</span>
+            <span style={{ opacity: 0.7 }}>774-810-8809</span>
+            <span style={{ opacity: 0.6 }}>•</span>
+            <span style={{ opacity: 0.7 }}>googleapis/adwords</span>
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }} />
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+            fontSize: 11, opacity: 0.75
+          }}>
+            <div style={{
+              padding: '2px 6px', borderRadius: 4,
+              background: '#10b981', color: 'white', fontWeight: 600, fontSize: 10
+            }}>
+              LIVE
+            </div>
+            <span style={{ opacity: 0.8 }}>sync {Math.floor(daysBetween / 7)}w ago</span>
+          </div>
+        </div>
+      </div>
+
       <div className="filter-toolbar">
         <div className="filter-toolbar__top">
           <div className="filter-toolbar__date-inputs">
@@ -925,65 +976,6 @@ const PpcReport: React.FC<PpcReportProps> = ({
                 />
               ))}
             </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Data Source System Stamp + Params - moved to top */}
-      <div style={{ marginBottom: 24 }}>
-        <div style={{
-          padding: 8,
-          borderRadius: 8,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          maxWidth: '100%',
-          background: isDarkMode
-            ? 'rgba(15,23,42,0.4)'
-            : 'rgba(248,250,252,0.6)',
-          border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.15)' : 'rgba(148,163,184,0.12)'}`,
-          fontSize: 11,
-          opacity: 0.8
-        }}>
-          <div style={{
-            flex: '0 0 auto', width: 18, height: 18, borderRadius: 4, overflow: 'hidden',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: isDarkMode ? 'rgba(2,6,23,0.4)' : 'rgba(241,245,249,0.6)'
-          }}>
-            <img src={require('../../assets/grey helix mark.png')} alt="Helix" style={{ width: 14, height: 14, objectFit: 'contain', opacity: 0.7 }} />
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', minWidth: 0 }}>
-            <div style={{
-              width: 6, height: 6, borderRadius: '50%',
-              background: '#10b981',
-              boxShadow: '0 0 6px rgba(16, 185, 129, 0.4)'
-            }} />
-            <span style={{ fontWeight: 600, opacity: 0.9 }}>Google Ads</span>
-            <span style={{ opacity: 0.6 }}>•</span>
-            <span style={{ opacity: 0.7 }}>774-810-8809</span>
-            <span style={{ opacity: 0.6 }}>•</span>
-            <span style={{ opacity: 0.7 }}>googleapis/adwords</span>
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }} />
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
-            fontSize: 11, opacity: 0.75
-          }}>
-            <span>
-              {(() => {
-                if (rangeKey === 'all' && googleAdsData.length > 0) {
-                  const dates = googleAdsData
-                    .map(r => new Date(r.date))
-                    .sort((a, b) => a.getTime() - b.getTime());
-                  const first = dates[0];
-                  const last = dates[dates.length - 1];
-                  return `${first.toLocaleDateString('en-GB')} → ${last.toLocaleDateString('en-GB')}`;
-                }
-                return `${(startDate ?? rangeStart)?.toLocaleDateString('en-GB') || 'auto'} → ${(endDate ?? rangeEnd)?.toLocaleDateString('en-GB') || 'auto'}`;
-              })()}
-            </span>
-            <span style={{ opacity: 0.6 }}>•</span>
-            <span>{daysBetween} days</span>
           </div>
         </div>
       </div>

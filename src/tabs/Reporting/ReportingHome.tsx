@@ -93,22 +93,64 @@ interface DatasetMap {
   metaMetrics: MarketingMetrics[] | null;
   googleAnalytics: GoogleAnalyticsData[] | null;
   googleAds: GoogleAdsData[] | null;
+  deals: Deal[] | null;
+  instructions: InstructionSummary[] | null;
+}
+
+// Meta Metrics Deal interface for tracking conversion funnel
+interface Deal {
+  DealId: number;
+  ProspectId: number;
+  InstructionRef?: string;
+  ServiceDescription: string;
+  Amount?: number;
+  AreaOfWork?: string;
+  PitchedBy?: string;
+  PitchedDate?: string;
+  PitchedTime?: string;
+  Status: string;
+  IsMultiClient?: boolean;
+  LeadClientEmail?: string;
+  FirstName?: string;
+  LastName?: string;
+  Phone?: string;
+  isPitchedDeal?: boolean;
+  CreatedDate?: string;
+  ModifiedDate?: string;
+  CloseDate?: string;
+}
+
+// Instruction summary for conversion tracking
+interface InstructionSummary {
+  InstructionRef: string;
+  ProspectId?: number;
+  Email?: string;
+  Stage?: string;
+  Status?: string;
+  CreatedDate?: string;
+  MatterId?: string;
+  ClientId?: string;
+  workflow?: string;
+  payments?: any;
 }
 
 // (Removed TIME_RANGE_OPTIONS and settings state)
 
+// Dataset groups for better organization and dependency tracking
 const DATASETS = [
-  { key: 'userData', name: 'People' },
-  { key: 'teamData', name: 'Teams' },
+  { key: 'userData', name: 'Users' },
+  { key: 'teamData', name: 'Team' },
   { key: 'enquiries', name: 'Enquiries' },
   { key: 'allMatters', name: 'Matters' },
   { key: 'wip', name: 'WIP' },
   { key: 'recoveredFees', name: 'Collected Fees' },
   { key: 'poidData', name: 'ID Submissions' },
   { key: 'annualLeave', name: 'Annual Leave' },
-  { key: 'metaMetrics', name: 'Meta Metrics' },
+  { key: 'metaMetrics', name: 'Meta Ads' },
   { key: 'googleAnalytics', name: 'Google Analytics' },
   { key: 'googleAds', name: 'Google Ads' },
+  { key: 'deals', name: 'Pitches' },
+  { key: 'instructions', name: 'Instructions' },
 ] as const;
 
 type DatasetDefinition = typeof DATASETS[number];
@@ -127,6 +169,9 @@ interface AvailableReport {
   name: string;
   status: string;
   action?: 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport' | 'ppcReport';
+  requiredDatasets: DatasetKey[]; // Dependencies for this report
+  description?: string;
+  disabled?: boolean; // Mark report as disabled/not ready
 }
 
 const AVAILABLE_REPORTS: AvailableReport[] = [
@@ -135,43 +180,50 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
     name: 'Management dashboard',
     status: 'Live today',
     action: 'dashboard',
+    requiredDatasets: ['enquiries', 'allMatters', 'wip', 'recoveredFees', 'teamData', 'userData', 'poidData', 'annualLeave'],
   },
   {
     key: 'enquiries',
     name: 'Enquiries report',
     status: 'Live today',
     action: 'enquiries',
+    requiredDatasets: ['enquiries', 'deals', 'instructions'],
   },
   {
     key: 'annualLeave',
     name: 'Annual leave report',
     status: 'Live today',
     action: 'annualLeave',
+    requiredDatasets: ['annualLeave'],
   },
   {
     key: 'metaMetrics',
-    name: 'Meta metrics',
+    name: 'Meta ads',
     status: 'Live today',
     action: 'metaMetrics',
+    requiredDatasets: ['enquiries', 'deals', 'instructions'],
   },
-  // Only show SEO report if not in production
-  ...((process.env.NODE_ENV !== 'production') ? [{
+  {
     key: 'seo',
     name: 'SEO report',
-    status: 'Live today',
+    status: 'Coming soon',
     action: 'seoReport' as const,
-  }] : []),
-  // Only show PPC report if not in production
-  ...((process.env.NODE_ENV !== 'production') ? [{
+    requiredDatasets: ['googleAnalytics', 'googleAds'] as DatasetKey[],
+    disabled: true,
+  },
+  {
     key: 'ppc',
     name: 'PPC report',
-    status: 'Live today',
+    status: 'Coming soon',
     action: 'ppcReport' as const,
-  }] : []),
+    requiredDatasets: ['googleAds', 'metaMetrics'] as DatasetKey[],
+    disabled: true,
+  },
   {
     key: 'matters',
     name: 'Matters snapshot',
     status: 'Matters tab',
+    requiredDatasets: ['allMatters'],
   },
 ];
 
@@ -190,6 +242,8 @@ const EMPTY_DATASET: DatasetMap = {
   metaMetrics: null,
   googleAnalytics: null,
   googleAds: null,
+  deals: null,
+  instructions: null,
 };
 
 let cachedData: DatasetMap = { ...EMPTY_DATASET };
@@ -215,15 +269,15 @@ const STATUS_BADGE_COLOURS: Record<DatasetStatusValue, {
     icon: 'CheckMark',
   },
   loading: {
-    lightBg: 'rgba(59, 130, 246, 0.18)',
-    darkBg: 'rgba(59, 130, 246, 0.32)',
-    dot: '#60a5fa',
+    lightBg: 'rgba(54, 144, 206, 0.18)', // Using highlight blue
+    darkBg: 'rgba(54, 144, 206, 0.32)',
+    dot: '#3690CE', // highlight blue
     label: 'Refreshing',
   },
   error: {
-    lightBg: 'rgba(248, 113, 113, 0.18)',
-    darkBg: 'rgba(248, 113, 113, 0.32)',
-    dot: '#f87171',
+    lightBg: 'rgba(148, 163, 184, 0.16)',
+    darkBg: 'rgba(148, 163, 184, 0.28)',
+    dot: 'rgba(148, 163, 184, 0.7)',
     label: 'Error',
     icon: 'WarningSolid',
   },
@@ -483,35 +537,131 @@ const fullScreenWrapperStyle = (isDarkMode: boolean): CSSProperties => ({
   overflow: 'hidden',
 });
 
-const primaryButtonStyles = (isDarkMode: boolean): IButtonStyles => ({
+type ButtonState = 'neutral' | 'warming' | 'ready';
+
+const conditionalButtonStyles = (isDarkMode: boolean, state: ButtonState): IButtonStyles => ({
   root: {
-    borderRadius: 12,
-    padding: '0 20px',
-    height: 38,
-    background: colours.highlight,
-    color: '#ffffff',
-    fontWeight: 600,
+    borderRadius: 8,
+    padding: '0 16px',
+    height: 34,
+    background: (() => {
+      switch (state) {
+        case 'ready':
+          return isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.08)';
+        case 'warming':
+          return isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(135, 243, 243, 0.08)'; // Using accent color
+        case 'neutral':
+        default:
+          return isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.04)';
+      }
+    })(),
+    color: (() => {
+      switch (state) {
+        case 'ready':
+          return isDarkMode ? '#86efac' : '#166534';
+        case 'warming':
+          return isDarkMode ? '#87F3F3' : '#0891b2'; // Accent with darker variant for light mode
+        case 'neutral':
+        default:
+          return isDarkMode ? '#cbd5e1' : '#64748b';
+      }
+    })(),
+    border: (() => {
+      switch (state) {
+        case 'ready':
+          return `1px solid ${isDarkMode ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.2)'}`;
+        case 'warming':
+          return `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(135, 243, 243, 0.2)'}`; // Accent border
+        case 'neutral':
+        default:
+          return `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`;
+      }
+    })(),
+    fontWeight: 500,
     boxShadow: 'none',
-    transition: 'background 0.2s ease',
+    transition: 'all 0.2s ease',
     fontFamily: 'Raleway, sans-serif',
   },
   rootHovered: {
-    background: '#2f7cb3',
+    background: (() => {
+      switch (state) {
+        case 'ready':
+          return isDarkMode ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.12)';
+        case 'warming':
+          return isDarkMode ? 'rgba(135, 243, 243, 0.16)' : 'rgba(135, 243, 243, 0.12)';
+        case 'neutral':
+        default:
+          return isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.08)';
+      }
+    })(),
+    borderColor: (() => {
+      switch (state) {
+        case 'ready':
+          return isDarkMode ? 'rgba(34, 197, 94, 0.4)' : 'rgba(34, 197, 94, 0.3)';
+        case 'warming':
+          return isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(135, 243, 243, 0.3)';
+        case 'neutral':
+        default:
+          return isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)';
+      }
+    })(),
   },
   rootPressed: {
-    background: '#266795',
+    background: (() => {
+      switch (state) {
+        case 'ready':
+          return isDarkMode ? 'rgba(34, 197, 94, 0.25)' : 'rgba(34, 197, 94, 0.15)';
+        case 'warming':
+          return isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(135, 243, 243, 0.15)';
+        case 'neutral':
+        default:
+          return isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.1)';
+      }
+    })(),
+  },
+  rootDisabled: {
+    background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.05)',
+    color: isDarkMode ? '#64748b' : '#94a3b8',
+    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
+  },
+});
+
+const primaryButtonStyles = (isDarkMode: boolean): IButtonStyles => ({
+  root: {
+    borderRadius: 8,
+    padding: '0 16px',
+    height: 34,
+    background: isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.08)',
+    color: isDarkMode ? '#86efac' : '#166534',
+    border: `1px solid ${isDarkMode ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.2)'}`,
+    fontWeight: 500,
+    boxShadow: 'none',
+    transition: 'all 0.2s ease',
+    fontFamily: 'Raleway, sans-serif',
+  },
+  rootHovered: {
+    background: isDarkMode ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.12)',
+    borderColor: isDarkMode ? 'rgba(34, 197, 94, 0.4)' : 'rgba(34, 197, 94, 0.3)',
+  },
+  rootPressed: {
+    background: isDarkMode ? 'rgba(34, 197, 94, 0.25)' : 'rgba(34, 197, 94, 0.15)',
+  },
+  rootDisabled: {
+    background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.05)',
+    color: isDarkMode ? '#64748b' : '#94a3b8',
+    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
   },
 });
 
 const subtleButtonStyles = (isDarkMode: boolean): IButtonStyles => ({
   root: {
-    borderRadius: 12,
-    padding: '0 18px',
-    height: 38,
-    background: isDarkMode ? 'rgba(148, 163, 184, 0.16)' : 'transparent',
-    color: isDarkMode ? '#E2E8F0' : colours.missedBlue,
-    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.32)' : 'rgba(13, 47, 96, 0.22)'}`,
-    fontWeight: 600,
+    borderRadius: 8,
+    padding: '0 14px',
+    height: 34,
+    background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.04)',
+    color: isDarkMode ? '#cbd5e1' : '#64748b',
+    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
+    fontWeight: 500,
     boxShadow: 'none',
     transition: 'background 0.2s ease',
     fontFamily: 'Raleway, sans-serif',
@@ -729,6 +879,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     metaMetrics: cachedData.metaMetrics,
     googleAnalytics: cachedData.googleAnalytics,
     googleAds: cachedData.googleAds,
+    deals: cachedData.deals,
+    instructions: cachedData.instructions,
   }));
   const [datasetStatus, setDatasetStatus] = useState<DatasetStatus>(() => {
     const record: Partial<DatasetStatus> = {};
@@ -760,6 +912,44 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   const toggleFeedPreview = useCallback((key: string) => {
     setFeedPreviewOpen(prev => ({ ...prev, [key]: !prev[key] }));
   }, []);
+
+  // Live metrics date range selection
+  const [selectedDateRange, setSelectedDateRange] = useState<'7d' | '30d' | '3mo' | '6mo' | '12mo' | '24mo'>('24mo');
+
+  // Helper function to filter data by selected date range
+  const getFilteredDataByDateRange = useCallback((data: any[], dateField: string) => {
+    if (!Array.isArray(data) || data.length === 0) return data;
+    
+    const now = new Date();
+    let cutoffDate: Date;
+    
+    switch (selectedDateRange) {
+      case '7d':
+        cutoffDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        break;
+      case '30d':
+        cutoffDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        break;
+      case '3mo':
+        cutoffDate = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
+        break;
+      case '6mo':
+        cutoffDate = new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
+        break;
+      case '12mo':
+        cutoffDate = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+        break;
+      case '24mo':
+      default:
+        cutoffDate = new Date(now.getFullYear() - 2, now.getMonth(), now.getDate());
+        break;
+    }
+    
+    return data.filter(item => {
+      const itemDate = new Date(item[dateField]);
+      return itemDate >= cutoffDate && itemDate <= now;
+    });
+  }, [selectedDateRange]);
 
   // Add debounced state updates to prevent excessive re-renders
   const debounceTimeoutRef = useRef<NodeJS.Timeout>();
@@ -1062,7 +1252,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
             onClick={handleBackToOverview}
             styles={dashboardNavigatorButtonStyles(isDarkMode)}
           />
-          <span style={dashboardNavigatorTitleStyle(isDarkMode)}>Meta metrics report</span>
+          <span style={dashboardNavigatorTitleStyle(isDarkMode)}>Meta ads report</span>
         </div>,
       );
     } else {
@@ -1687,6 +1877,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
         metaMetrics: metaMetrics, // Use fetched meta metrics
         googleAnalytics: cachedData.googleAnalytics, // Will be updated separately
         googleAds: cachedData.googleAds, // Will be updated separately
+        deals: managementPayload.deals ?? cachedData.deals, // Deal/pitch data for Meta metrics
+        instructions: managementPayload.instructions ?? cachedData.instructions, // Instruction data for conversion tracking
       };
 
       const now = Date.now();
@@ -1908,6 +2100,56 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     };
   }, [isFetching, streamingDatasets]);
 
+  // Helper function to check if all required datasets are ready for a report
+  const areRequiredDatasetsReady = useCallback((requiredDatasets: DatasetKey[]): boolean => {
+    return requiredDatasets.every(key => {
+      const status = datasetStatus[key];
+      return status?.status === 'ready';
+    });
+  }, [datasetStatus]);
+
+  // Helper function to get date range for datasets
+  const getDatasetDateRange = useCallback((datasetKey: DatasetKey): string => {
+    // For most datasets, show a general range based on typical data freshness
+    const dateRanges: Record<DatasetKey, string> = {
+      userData: 'Current',
+      teamData: 'Current', 
+      enquiries: 'Last 24 months',
+      allMatters: 'Last 24 months',
+      wip: 'Active matters',
+      recoveredFees: 'Last 12 months',
+      poidData: 'Last 24 months',
+      annualLeave: 'Current year',
+      metaMetrics: 'Last 90 days',
+      googleAnalytics: 'Last 24 months',
+      googleAds: 'Last 24 months', 
+      deals: 'Last 12 months',
+      instructions: 'Last 12 months',
+    };
+    
+    return dateRanges[datasetKey] || '';
+  }, []);
+
+  // Helper function to determine button state based on dataset statuses
+  const getButtonState = useCallback((requiredDatasets: DatasetKey[]): ButtonState => {
+    if (requiredDatasets.length === 0) return 'ready'; // No dependencies = always ready
+    
+    const statuses = requiredDatasets.map(key => datasetStatus[key]?.status || 'idle');
+    
+    // If all are ready, show ready state
+    if (statuses.every(status => status === 'ready')) {
+      return 'ready';
+    }
+    
+    // If any are loading, show warming state
+    if (statuses.some(status => status === 'loading')) {
+      return 'warming';
+    }
+    
+    // Otherwise neutral
+    return 'neutral';
+  }, [datasetStatus]);
+
   // Memoize progress detail text to prevent string concatenation on every render
   const progressDetailText = useMemo(() => {
     if (refreshStartedAt && !isStreamingConnected) {
@@ -2103,60 +2345,1064 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
             </span>
           ))}
         </div>
-        {(isActivelyLoading || isStreamingConnected) && (
-          <div style={refreshProgressPanelStyle(isDarkMode)}>
-            <div style={refreshProgressHeaderStyle(isDarkMode)}>
-              <Spinner size={SpinnerSize.small} />
-              <span>
-                {isStreamingConnected 
-                  ? `Streaming datasets… (${streamingProgress.completed}/${streamingProgress.total})`
-                  : 'Refreshing reporting datasets…'
-                }
+      </section>
+
+      {/* Quick metrics snapshot - Always visible */}
+      <section style={sectionSurfaceStyle(isDarkMode)}>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 16,
+        }}>
+          <h2 style={sectionTitleStyle}>Live metrics</h2>
+          
+          {/* Date Range Selector */}
+          <div style={{
+            display: 'flex',
+            gap: 6,
+            alignItems: 'center',
+          }}>
+            <span style={{
+              fontSize: 11,
+              color: isDarkMode ? '#94a3b8' : '#64748b',
+              fontWeight: 500,
+            }}>
+              Range:
+            </span>
+            {(['7d', '30d', '3mo', '6mo', '12mo', '24mo'] as const).map((range) => (
+              <button
+                key={range}
+                style={{
+                  padding: '4px 8px',
+                  borderRadius: 4,
+                  border: 'none',
+                  fontSize: 10,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  background: range === selectedDateRange 
+                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)')
+                    : (isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(241, 245, 249, 0.8)'),
+                  color: range === selectedDateRange
+                    ? (isDarkMode ? '#93c5fd' : '#3690CE')
+                    : (isDarkMode ? '#cbd5e1' : '#475569'),
+                  transition: 'all 0.2s ease',
+                }}
+                onClick={() => {
+                  setSelectedDateRange(range);
+                }}
+              >
+                {range}
+              </button>
+            ))}
+          </div>
+        </div>
+        
+        {/* Top Row - WIP and Collected Time (Full Width) */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: 16,
+          marginBottom: 16,
+        }}>
+          {/* WIP - Selected Range */}
+          <div style={{
+            background: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : 'rgba(248, 250, 252, 0.6)',
+            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(100, 116, 139, 0.18)'}`,
+            borderRadius: 8,
+            padding: 16,
+            position: 'relative',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+              <div>
+                <h3 style={{
+                  margin: 0,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: isDarkMode ? '#f1f5f9' : '#334155',
+                  marginBottom: 4,
+                }}>
+                  WIP
+                </h3>
+                <div style={{
+                  fontSize: 11,
+                  color: isDarkMode ? '#94a3b8' : '#64748b',
+                  opacity: 0.9,
+                }}>
+                  Total value
+                </div>
+              </div>
+              
+              <span style={{
+                fontSize: 9,
+                color: isDarkMode ? '#64748b' : '#94a3b8',
+                fontWeight: 500,
+              }}>
+                {selectedDateRange}
               </span>
             </div>
-            <span style={refreshProgressDetailStyle(isDarkMode)}>
-              {progressDetailText}
-            </span>
-            <div style={refreshProgressDatasetListStyle()}>
-              {datasetSummaries.map(({ definition, status }) => {
-                const palette = STATUS_BADGE_COLOURS[status];
-                const iconName = palette.icon;
-                const streamState = streamingDatasets[definition.key as keyof typeof streamingDatasets];
-                const elapsed = streamState?.elapsedMs;
-                const cached = streamState?.cached;
-                return (
-                  <div key={definition.key} style={refreshProgressDatasetRowStyle(isDarkMode)}>
-                    <span style={refreshProgressDatasetLabelStyle(isDarkMode)}>
-                      {status === 'loading' ? (
-                        <Spinner size={SpinnerSize.xSmall} style={{ width: 16, height: 16 }} />
-                      ) : iconName ? (
-                        <FontIcon iconName={iconName} style={statusIconStyle(isDarkMode)} />
-                      ) : (
-                        <span style={statusDotStyle(palette.dot)} />
-                      )}
-                      {definition.name}
-                    </span>
-                    <span style={refreshProgressDatasetStatusStyle(isDarkMode)}>
-                      {cached && (
-                        <FontIcon
-                          iconName="Database"
-                          style={{ ...statusIconStyle(isDarkMode), marginRight: 6 }}
-                          title="Cached"
-                        />
-                      )}
-                      {palette.label}
-                      {typeof elapsed === 'number' && elapsed >= 0 && (
-                        <span style={{ marginLeft: 8, opacity: 0.8 }}>
-                          {formatElapsedTime(elapsed)}
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                );
-              })}
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{
+                fontSize: 24,
+                fontWeight: 600,
+                color: colours.blue,
+                fontFamily: 'system-ui, -apple-system, sans-serif',
+                lineHeight: 1,
+                marginBottom: 4,
+              }}>
+                {(() => {
+                  if (!Array.isArray(datasetData.wip)) return '—';
+                  const filtered = getFilteredDataByDateRange(datasetData.wip, 'date');
+                  const total = filtered.reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0);
+                  return `£${(total / 1000).toFixed(1)}k`;
+                })()}
+              </div>
+              <div style={{
+                height: 3,
+                borderRadius: 2,
+                background: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)',
+                marginTop: 8,
+                flexGrow: 1,
+              }}>
+                <div style={{
+                  height: '100%',
+                  width: (() => {
+                    if (!Array.isArray(datasetData.wip)) return '0%';
+                    const filtered = getFilteredDataByDateRange(datasetData.wip, 'date');
+                    const total = filtered.reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0);
+                    return `${Math.min(100, (total / 50000) * 100)}%`;
+                  })(),
+                  background: colours.blue,
+                  borderRadius: 2,
+                  transition: 'width 1s ease',
+                }} />
+              </div>
             </div>
           </div>
-        )}
+
+          {/* Collected Time - Selected Range */}
+          <div style={{
+            background: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : 'rgba(248, 250, 252, 0.6)',
+            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(100, 116, 139, 0.18)'}`,
+            borderRadius: 8,
+            padding: 16,
+            position: 'relative',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div>
+                  <h3 style={{
+                    margin: 0,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: isDarkMode ? '#f1f5f9' : '#334155',
+                    marginBottom: 4,
+                  }}>
+                    Collected Time
+                  </h3>
+                  <div style={{
+                    fontSize: 11,
+                    color: isDarkMode ? '#94a3b8' : '#64748b',
+                    opacity: 0.9,
+                  }}>
+                    Total collected
+                  </div>
+                </div>
+                <div 
+                  style={{
+                    position: 'relative',
+                    cursor: 'help',
+                    marginTop: -2,
+                  }}
+                  title="Excludes disbursements (expenses)"
+                >
+                  <FontIcon
+                    iconName="Info"
+                    style={{
+                      fontSize: 12,
+                      color: isDarkMode ? '#64748b' : '#94a3b8',
+                      opacity: 0.7,
+                      transition: 'opacity 0.2s ease',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.opacity = '1';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.opacity = '0.7';
+                    }}
+                  />
+                </div>
+              </div>
+              <span style={{
+                fontSize: 9,
+                color: isDarkMode ? '#64748b' : '#94a3b8',
+                fontWeight: 500,
+              }}>
+                {selectedDateRange}
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{
+                fontSize: 24,
+                fontWeight: 600,
+                color: colours.blue,
+                fontFamily: 'system-ui, -apple-system, sans-serif',
+                lineHeight: 1,
+                marginBottom: 4,
+              }}>
+                {(() => {
+                  if (!Array.isArray(datasetData.recoveredFees)) return '—';
+                  const filtered = getFilteredDataByDateRange(datasetData.recoveredFees, 'date');
+                  // Exclude disbursements (kind = 'Expense') - only count actual fees, same as Management Dashboard
+                  const feesOnly = filtered.filter(item => item.kind !== 'Expense' && item.kind !== 'Product');
+                  const total = feesOnly.reduce((sum, item) => sum + (parseFloat(item.payment_allocated) || 0), 0);
+                  return `£${(total / 1000).toFixed(1)}k`;
+                })()}
+              </div>
+              <div style={{
+                height: 3,
+                borderRadius: 2,
+                background: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)',
+                marginTop: 8,
+                flexGrow: 1,
+              }}>
+                <div style={{
+                  height: '100%',
+                  width: (() => {
+                    if (!Array.isArray(datasetData.recoveredFees)) return '0%';
+                    const filtered = getFilteredDataByDateRange(datasetData.recoveredFees, 'date');
+                    // Exclude disbursements (kind = 'Expense') - only count actual fees, same as Management Dashboard
+                    const feesOnly = filtered.filter(item => item.kind !== 'Expense' && item.kind !== 'Product');
+                    const total = feesOnly.reduce((sum, item) => sum + (parseFloat(item.payment_allocated) || 0), 0);
+                    return `${Math.min(100, (total / 30000) * 100)}%`;
+                  })(),
+                  background: colours.blue,
+                  borderRadius: 2,
+                  transition: 'width 1s ease',
+                }} />
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        {/* Bottom Row - Core Metrics Grid */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+          gap: 16,
+        }}>
+          {/* Enquiries - Last 24 months */}
+          <div style={{
+            padding: '16px 20px',
+            borderRadius: 12,
+            background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.04)',
+            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
+            position: 'relative',
+            overflow: 'hidden',
+          }}>
+            {/* Background pattern */}
+            <div style={{
+              position: 'absolute',
+              top: 0,
+              right: 0,
+              width: '40%',
+              height: '100%',
+              background: `linear-gradient(135deg, ${isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)'} 0%, transparent 70%)`,
+              borderRadius: '50% 0 0 50%',
+            }} />
+            <div style={{ position: 'relative', zIndex: 1 }}>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'flex-start',
+                marginBottom: 8,
+              }}>
+                <span style={{
+                  fontSize: 12,
+                  color: isDarkMode ? '#93c5fd' : '#3690CE',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.5,
+                }}>
+                  Enquiries
+                </span>
+                <span style={{
+                  fontSize: 9,
+                  color: isDarkMode ? '#64748b' : '#94a3b8',
+                  fontWeight: 500,
+                }}>
+                  {selectedDateRange}
+                </span>
+              </div>
+              <div style={{
+                fontSize: 28,
+                fontWeight: 800,
+                color: isDarkMode ? '#f1f5f9' : '#334155',
+                fontFamily: 'system-ui, -apple-system, sans-serif',
+                lineHeight: 1,
+                marginBottom: 4,
+              }}>
+                {(() => {
+                  if (!Array.isArray(datasetData.enquiries)) return '—';
+                  const filtered = getFilteredDataByDateRange(datasetData.enquiries, 'Date_Created');
+                  return filtered.length.toLocaleString();
+                })()}
+              </div>
+              <div style={{
+                height: 3,
+                borderRadius: 2,
+                background: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)',
+                marginTop: 8,
+              }}>
+                <div style={{
+                  height: '100%',
+                  width: (() => {
+                    if (!Array.isArray(datasetData.enquiries)) return '0%';
+                    const filtered = getFilteredDataByDateRange(datasetData.enquiries, 'Date_Created');
+                    return `${Math.min(100, (filtered.length / 100) * 20)}%`;
+                  })(),
+                  background: isDarkMode ? '#3690CE' : '#3690CE',
+                  borderRadius: 2,
+                  transition: 'width 1s ease',
+                }} />
+              </div>
+            </div>
+          </div>
+
+          {/* Pitches - Last 12 months */}
+          <div style={{
+            padding: '16px 20px',
+            borderRadius: 12,
+            background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.04)',
+            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
+            position: 'relative',
+            overflow: 'hidden',
+          }}>
+            <div style={{
+              position: 'absolute',
+              top: 0,
+              right: 0,
+              width: '40%',
+              height: '100%',
+              background: `linear-gradient(135deg, ${isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)'} 0%, transparent 70%)`,
+              borderRadius: '50% 0 0 50%',
+            }} />
+            <div style={{ position: 'relative', zIndex: 1 }}>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'flex-start',
+                marginBottom: 8,
+              }}>
+                <span style={{
+                  fontSize: 12,
+                  color: colours.blue,
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.5,
+                }}>
+                  Pitches
+                </span>
+                <span style={{
+                  fontSize: 9,
+                  color: isDarkMode ? '#64748b' : '#94a3b8',
+                  fontWeight: 500,
+                }}>
+                  {selectedDateRange}
+                </span>
+              </div>
+              <div style={{
+                fontSize: 28,
+                fontWeight: 800,
+                color: isDarkMode ? '#f1f5f9' : '#334155',
+                fontFamily: 'system-ui, -apple-system, sans-serif',
+                lineHeight: 1,
+                marginBottom: 4,
+              }}>
+                {(() => {
+                  if (!Array.isArray(datasetData.deals)) return '—';
+                  const filtered = getFilteredDataByDateRange(datasetData.deals, 'PitchedDate');
+                  return filtered.length > 0 ? filtered.length.toLocaleString() : '0';
+                })()}
+              </div>
+              <div style={{
+                height: 3,
+                borderRadius: 2,
+                background: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)',
+                marginTop: 8,
+              }}>
+                <div style={{
+                  height: '100%',
+                  width: (() => {
+                    if (!Array.isArray(datasetData.deals)) return '0%';
+                    const filtered = getFilteredDataByDateRange(datasetData.deals, 'PitchedDate');
+                    return `${Math.min(100, (filtered.length / 50) * 20)}%`;
+                  })(),
+                  background: colours.blue,
+                  borderRadius: 2,
+                  transition: 'width 1s ease',
+                }} />
+              </div>
+            </div>
+          </div>
+
+          {/* Instructions - Last 12 months */}
+          <div style={{
+            padding: '16px 20px',
+            borderRadius: 12,
+            background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.04)',
+            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
+            position: 'relative',
+            overflow: 'hidden',
+          }}>
+            <div style={{
+              position: 'absolute',
+              top: 0,
+              right: 0,
+              width: '40%',
+              height: '100%',
+              background: `linear-gradient(135deg, ${isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)'} 0%, transparent 70%)`,
+              borderRadius: '50% 0 0 50%',
+            }} />
+            <div style={{ position: 'relative', zIndex: 1 }}>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'flex-start',
+                marginBottom: 8,
+              }}>
+                <span style={{
+                  fontSize: 12,
+                  color: colours.blue,
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.5,
+                }}>
+                  v2 Instructions
+                </span>
+                <span style={{
+                  fontSize: 9,
+                  color: isDarkMode ? '#64748b' : '#94a3b8',
+                  fontWeight: 500,
+                }}>
+                  {selectedDateRange}
+                </span>
+              </div>
+              <div style={{
+                fontSize: 28,
+                fontWeight: 800,
+                color: isDarkMode ? '#f1f5f9' : '#334155',
+                fontFamily: 'system-ui, -apple-system, sans-serif',
+                lineHeight: 1,
+                marginBottom: 4,
+              }}>
+                {(() => {
+                  if (!Array.isArray(datasetData.instructions)) return '—';
+                  const filtered = getFilteredDataByDateRange(datasetData.instructions, 'SubmissionDate');
+                  return filtered.length > 0 ? filtered.length.toLocaleString() : '0';
+                })()}
+              </div>
+              <div style={{
+                height: 3,
+                borderRadius: 2,
+                background: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)',
+                marginTop: 8,
+              }}>
+                <div style={{
+                  height: '100%',
+                  width: (() => {
+                    if (!Array.isArray(datasetData.instructions)) return '0%';
+                    const filtered = getFilteredDataByDateRange(datasetData.instructions, 'SubmissionDate');
+                    return `${Math.min(100, (filtered.length / 30) * 20)}%`;
+                  })(),
+                  background: colours.blue,
+                  borderRadius: 2,
+                  transition: 'width 1s ease',
+                }} />
+              </div>
+            </div>
+          </div>
+
+          {/* Matters - Last 24 months */}
+          <div style={{
+            padding: '16px 20px',
+            borderRadius: 12,
+            background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.04)',
+            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
+            position: 'relative',
+            overflow: 'hidden',
+          }}>
+            <div style={{
+              position: 'absolute',
+              top: 0,
+              right: 0,
+              width: '40%',
+              height: '100%',
+              background: `linear-gradient(135deg, ${isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)'} 0%, transparent 70%)`,
+              borderRadius: '50% 0 0 50%',
+            }} />
+            <div style={{ position: 'relative', zIndex: 1 }}>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'flex-start',
+                marginBottom: 8,
+              }}>
+                <span style={{
+                  fontSize: 12,
+                  color: colours.blue,
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.5,
+                }}>
+                  Matters
+                </span>
+                <span style={{
+                  fontSize: 9,
+                  color: isDarkMode ? '#64748b' : '#94a3b8',
+                  fontWeight: 500,
+                }}>
+                  {selectedDateRange}
+                </span>
+              </div>
+              <div style={{
+                fontSize: 28,
+                fontWeight: 800,
+                color: isDarkMode ? '#f1f5f9' : '#334155',
+                fontFamily: 'system-ui, -apple-system, sans-serif',
+                lineHeight: 1,
+                marginBottom: 4,
+              }}>
+                {(() => {
+                  if (!Array.isArray(datasetData.allMatters)) return '—';
+                  const filtered = getFilteredDataByDateRange(datasetData.allMatters, 'Open Date');
+                  return filtered.length.toLocaleString();
+                })()}
+              </div>
+              <div style={{
+                height: 3,
+                borderRadius: 2,
+                background: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)',
+                marginTop: 8,
+              }}>
+                <div style={{
+                  height: '100%',
+                  width: (() => {
+                    if (!Array.isArray(datasetData.allMatters)) return '0%';
+                    const filtered = getFilteredDataByDateRange(datasetData.allMatters, 'Open Date');
+                    return `${Math.min(100, (filtered.length / 200) * 20)}%`;
+                  })(),
+                  background: colours.blue,
+                  borderRadius: 2,
+                  transition: 'width 1s ease',
+                }} />
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section style={sectionSurfaceStyle(isDarkMode)}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <h2 style={sectionTitleStyle}>Reporting & Data Hub</h2>
+          
+          {/* Global Refresh Status */}
+          {(isActivelyLoading || isStreamingConnected) && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '8px 12px',
+              borderRadius: 8,
+              background: isDarkMode ? 'rgba(59, 130, 246, 0.1)' : 'rgba(59, 130, 246, 0.05)',
+              border: `1px solid ${isDarkMode ? 'rgba(59, 130, 246, 0.3)' : 'rgba(59, 130, 246, 0.2)'}`,
+            }}>
+              <Spinner 
+                size={SpinnerSize.xSmall} 
+                styles={{
+                  root: {
+                    width: 16,
+                    height: 16,
+                  },
+                  circle: {
+                    width: 16,
+                    height: 16,
+                    borderWidth: 2,
+                    borderTopColor: '#3690CE', // highlight blue
+                    borderLeftColor: '#3690CE',
+                    borderBottomColor: 'transparent',
+                    borderRightColor: 'transparent',
+                  }
+                }}
+              />
+              <span style={{
+                fontSize: 13,
+                color: '#3690CE', // highlight blue
+                fontWeight: 500,
+              }}>
+                {isStreamingConnected 
+                  ? `Refreshing datasets… (${streamingProgress.completed}/${streamingProgress.total})`
+                  : 'Refreshing data…'
+                }
+              </span>
+              <span style={{
+                fontSize: 11,
+                color: isDarkMode ? '#64748b' : '#64748b',
+                opacity: 0.8,
+              }}>
+                {progressDetailText}
+              </span>
+            </div>
+          )}
+        </div>
+        
+        {/* Unified Reports and Datasets View */}
+        <div style={{
+          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(100, 116, 139, 0.18)'}`,
+          borderRadius: 12,
+          overflow: 'hidden',
+          background: isDarkMode ? 'rgba(30, 41, 59, 0.4)' : 'rgba(248, 250, 252, 0.6)',
+        }}>
+          <div style={{ padding: 20 }}>
+            {/* Data Sources - Only visible when refreshing */}
+            <div style={{
+              maxHeight: (isActivelyLoading || isStreamingConnected) ? '1000px' : '0px',
+              overflow: 'hidden',
+              opacity: (isActivelyLoading || isStreamingConnected) ? 1 : 0,
+              transition: 'all 0.3s ease-in-out',
+              marginBottom: (isActivelyLoading || isStreamingConnected) ? 24 : 0,
+            }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                margin: '0 0 8px 0',
+              }}>
+                <h3 style={{
+                  margin: 0,
+                  fontSize: 15,
+                  fontWeight: 600,
+                  color: isDarkMode ? '#e2e8f0' : '#475569',
+                }}>
+                  Data Sources
+                </h3>
+                <span style={{
+                  fontSize: 10,
+                  padding: '2px 6px',
+                  borderRadius: 8,
+                  background: isDarkMode ? 'rgba(71, 85, 105, 0.4)' : 'rgba(241, 245, 249, 0.8)',
+                  color: isDarkMode ? '#cbd5e1' : '#475569',
+                  fontWeight: 500,
+                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
+                }}>
+                  {DATASETS.length}
+                </span>
+              </div>
+              <div style={{ display: 'grid', gap: 6 }}>
+                {DATASETS.map((definition) => {
+                  const status = datasetStatus[definition.key];
+                  const streamState = streamingDatasets[definition.key as keyof typeof streamingDatasets];
+                  const data = (datasetData as any)[definition.key] as unknown[] | null | undefined;
+                  const count = Array.isArray(data) ? data.length : 0;
+                  
+                  if (!status) return null;
+                  
+                  const palette = STATUS_BADGE_COLOURS[status.status];
+                  const hasData = count > 0;
+                  const elapsed = streamState?.elapsedMs;
+
+                  return (
+                    <div key={definition.key} style={{
+                      borderRadius: 4,
+                      background: isDarkMode ? 'rgba(51, 65, 85, 0.25)' : 'rgba(248, 250, 252, 0.6)',
+                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(100, 116, 139, 0.1)'}`,
+                    }}>
+                      <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '8px 10px',
+                      }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{
+                          fontWeight: 500,
+                          color: isDarkMode ? '#f1f5f9' : '#334155',
+                          fontSize: 12,
+                        }}>
+                          {definition.name}
+                        </span>
+                        <span style={{
+                          fontSize: 9,
+                          color: isDarkMode ? '#94a3b8' : '#64748b',
+                          opacity: 0.7,
+                          fontStyle: 'italic',
+                        }}>
+                          {getDatasetDateRange(definition.key)}
+                        </span>
+                        {hasData && (
+                          <span style={{
+                            fontSize: 10,
+                            color: isDarkMode ? '#94a3b8' : '#64748b',
+                            opacity: 0.8,
+                          }}>
+                            {count.toLocaleString()} rows
+                          </span>
+                        )}
+                        {streamState?.cached && (
+                          <span style={{
+                            fontSize: 9,
+                            padding: '1px 4px',
+                            borderRadius: 2,
+                            background: isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)',
+                            color: isDarkMode ? '#86efac' : '#166534',
+                          }}>
+                            cached
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: 8,
+                        height: '100%',
+                        minHeight: 24,
+                      }}>
+                        <span style={{
+                          fontSize: 10,
+                          padding: '3px 7px',
+                          borderRadius: 4,
+                          background: palette.darkBg,
+                          color: isDarkMode ? '#f1f5f9' : '#334155',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          height: 20,
+                          lineHeight: 1,
+                          fontWeight: 500,
+                        }}>
+                          {status.status === 'loading' ? (
+                            <Spinner 
+                              size={SpinnerSize.xSmall} 
+                              styles={{
+                                root: {
+                                  width: 10,
+                                  height: 10,
+                                },
+                                circle: {
+                                  width: 10,
+                                  height: 10,
+                                  borderWidth: 1,
+                                  borderTopColor: '#3690CE', // highlight blue
+                                  borderLeftColor: '#3690CE',
+                                  borderBottomColor: 'transparent',
+                                  borderRightColor: 'transparent',
+                                }
+                              }}
+                            />
+                          ) : (
+                            <span style={{
+                              width: 4,
+                              height: 4,
+                              borderRadius: '50%',
+                              background: palette.dot,
+                            }} />
+                          )}
+                          {palette.label}
+                          {typeof elapsed === 'number' && elapsed >= 0 && (
+                            <span style={{ marginLeft: 4, opacity: 0.8, fontSize: 9 }}>
+                              {formatElapsedTime(elapsed)}
+                            </span>
+                          )}
+                        </span>
+                        {status.status === 'ready' && hasData && (
+                          <button
+                            onClick={() => {
+                              console.log('Preview button clicked for:', definition.key);
+                              console.log('Current feedPreviewOpen state:', feedPreviewOpen);
+                              console.log('Data for this dataset:', (datasetData as any)[definition.key]);
+                              toggleFeedPreview(definition.key);
+                            }}
+                            disabled={isActivelyLoading}
+                            style={{
+                              width: 20,
+                              height: 20,
+                              padding: 0,
+                              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(100, 116, 139, 0.2)'}`,
+                              borderRadius: 4,
+                              background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(100, 116, 139, 0.05)',
+                              color: isDarkMode ? '#94a3b8' : '#64748b',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: 10,
+                              transition: 'all 0.15s ease',
+                              opacity: 0.8,
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.opacity = '1';
+                              e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.15)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.opacity = '0.7';
+                              e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.1)';
+                            }}
+                          >
+                            {feedPreviewOpen[definition.key] ? '▼' : '👁'}
+                          </button>
+                        )}
+                      </div>
+                      {feedPreviewOpen[definition.key] && (
+                        <div style={{
+                          marginTop: 6,
+                          padding: '6px 8px',
+                          borderRadius: 4,
+                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.12)'}`,
+                          background: isDarkMode ? 'rgba(30, 41, 59, 0.3)' : 'rgba(248, 250, 252, 0.5)',
+                          gridColumn: '1 / -1',
+                        }}>
+                          {(() => {
+                            const key = definition.key as DatasetKey;
+                            const data = (datasetData as any)[key] as unknown[] | null | undefined;
+                            const rows = Array.isArray(data) ? data : [];
+                            const sample = rows.slice(0, 2);
+                            return (
+                              <div>
+                                <div style={{ marginBottom: 4 }}>
+                                  <span style={{ fontSize: 10, opacity: 0.8 }}>
+                                    Sample data ({rows.length.toLocaleString()} total)
+                                  </span>
+                                </div>
+                                <div style={{ display: 'grid', gap: 3 }}>
+                                  {sample.map((row, idx) => (
+                                    <div key={idx} style={{
+                                      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+                                      fontSize: 9,
+                                      padding: '3px 5px',
+                                      borderRadius: 3,
+                                      background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(241, 245, 249, 0.5)',
+                                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(100, 116, 139, 0.08)'}`,
+                                      overflowX: 'auto',
+                                      whiteSpace: 'nowrap',
+                                    }}>
+                                      {formatPreviewRow(row)}
+                                    </div>
+                                  ))}
+                                  {sample.length === 0 && (
+                                    <div style={{ fontSize: 10, opacity: 0.7 }}>No data available</div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Available Reports */}
+            <div>
+              <h3 style={{
+                margin: '0 0 12px 0',
+                fontSize: 15,
+                fontWeight: 600,
+                color: isDarkMode ? '#e2e8f0' : '#475569',
+              }}>
+                Available Reports
+              </h3>
+              <div style={{ display: 'grid', gap: 10 }}>
+                {AVAILABLE_REPORTS.map((report) => (
+                  <div key={report.key} style={{
+                    padding: '12px 14px',
+                    borderRadius: 6,
+                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(100, 116, 139, 0.15)'}`,
+                    background: isDarkMode ? 'rgba(51, 65, 85, 0.4)' : 'rgba(255, 255, 255, 0.7)',
+                  }}>
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: 10,
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{
+                          fontWeight: 500,
+                          color: isDarkMode ? '#f1f5f9' : '#334155',
+                          fontSize: 14,
+                        }}>
+                          {report.name}
+                        </span>
+                      </div>
+                      
+                      {/* Dataset Dependencies Badges - Far Right */}
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                        {/* Vertical Separator */}
+                        <div style={{
+                          width: 1,
+                          height: 20,
+                          background: isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(100, 116, 139, 0.2)',
+                          flexShrink: 0,
+                        }} />
+                        
+                        {/* Badges - Allow wrapping */}
+                        <div style={{ 
+                          display: 'flex', 
+                          flexWrap: 'wrap', 
+                          gap: 4,
+                          maxWidth: '300px',
+                          justifyContent: 'flex-end',
+                        }}>
+                          {report.requiredDatasets.map(datasetKey => {
+                            const dataset = DATASETS.find(d => d.key === datasetKey);
+                            const currentDatasetStatus = dataset ? datasetStatus[datasetKey] : null;
+                            const statusValue = currentDatasetStatus?.status || 'idle';
+                            const palette = STATUS_BADGE_COLOURS[statusValue];
+                            
+                            return (
+                              <span key={datasetKey} style={{
+                                fontSize: 9,
+                                padding: '2px 5px',
+                                borderRadius: 3,
+                                background: isDarkMode ? 'rgba(71, 85, 105, 0.4)' : 'rgba(241, 245, 249, 0.6)',
+                                color: isDarkMode ? '#cbd5e1' : '#475569',
+                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 3,
+                              }}>
+                                <span style={{
+                                  width: 4,
+                                  height: 4,
+                                  borderRadius: '50%',
+                                  background: palette.dot,
+                                }} />
+                                {dataset?.name || datasetKey}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Report Actions */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {report.action === 'dashboard' && (
+                        <>
+                          <PrimaryButton
+                            text={reportLoadingStates.dashboard ? 'Preparing…' : 'Open dashboard'}
+                            onClick={handleOpenDashboard}
+                            styles={conditionalButtonStyles(isDarkMode, getButtonState(report.requiredDatasets))}
+                            disabled={reportLoadingStates.dashboard}
+                          />
+                          <DefaultButton
+                            text="Refresh data"
+                            onClick={refreshDatasetsWithStreaming}
+                            styles={subtleButtonStyles(isDarkMode)}
+                            disabled={reportLoadingStates.dashboard}
+                            iconProps={{ iconName: 'Refresh' }}
+                          />
+                        </>
+                      )}
+                      {report.action === 'annualLeave' && (
+                        <>
+                          <PrimaryButton
+                            text={reportLoadingStates.annualLeave ? 'Preparing…' : 'Open annual leave report'}
+                            onClick={() => setActiveView('annualLeave')}
+                            styles={conditionalButtonStyles(isDarkMode, getButtonState(report.requiredDatasets))}
+                            disabled={reportLoadingStates.annualLeave}
+                          />
+                          <DefaultButton
+                            text="Refresh leave data"
+                            onClick={refreshAnnualLeaveOnly}
+                            styles={subtleButtonStyles(isDarkMode)}
+                            disabled={reportLoadingStates.annualLeave}
+                            iconProps={{ iconName: 'Refresh' }}
+                          />
+                        </>
+                      )}
+                      {report.action === 'enquiries' && (
+                        <>
+                          <PrimaryButton
+                            text={reportLoadingStates.enquiries ? 'Preparing…' : 'Open enquiries report'}
+                            onClick={() => setActiveView('enquiries')}
+                            styles={conditionalButtonStyles(isDarkMode, getButtonState(report.requiredDatasets))}
+                            disabled={reportLoadingStates.enquiries}
+                          />
+                          <DefaultButton
+                            text="Refresh enquiries data"
+                            onClick={refreshEnquiriesScoped}
+                            styles={subtleButtonStyles(isDarkMode)}
+                            disabled={reportLoadingStates.enquiries}
+                            iconProps={{ iconName: 'Refresh' }}
+                          />
+                        </>
+                      )}
+                      {report.action === 'metaMetrics' && (
+                        <>
+                          <PrimaryButton
+                            text={reportLoadingStates.metaMetrics ? 'Preparing…' : 'Open Meta ads'}
+                            onClick={() => setActiveView('metaMetrics')}
+                            styles={conditionalButtonStyles(isDarkMode, getButtonState(report.requiredDatasets))}
+                            disabled={reportLoadingStates.metaMetrics}
+                          />
+                          <DefaultButton
+                            text="Refresh Meta data"
+                            onClick={refreshMetaMetricsOnly}
+                            styles={subtleButtonStyles(isDarkMode)}
+                            disabled={reportLoadingStates.metaMetrics}
+                            iconProps={{ iconName: 'Refresh' }}
+                          />
+                        </>
+                      )}
+                      {report.action === 'seoReport' && (
+                        <>
+                          <PrimaryButton
+                            text={report.disabled ? 'Coming soon' : (reportLoadingStates.seoReport ? 'Preparing…' : 'Open SEO report')}
+                            onClick={() => setActiveView('seoReport')}
+                            styles={conditionalButtonStyles(isDarkMode, getButtonState(report.requiredDatasets))}
+                            disabled={report.disabled || reportLoadingStates.seoReport}
+                          />
+                          <DefaultButton
+                            text="Refresh SEO data"
+                            onClick={refreshMetaMetricsOnly}
+                            styles={subtleButtonStyles(isDarkMode)}
+                            disabled={report.disabled || reportLoadingStates.seoReport}
+                            iconProps={{ iconName: 'Refresh' }}
+                          />
+                        </>
+                      )}
+                      {report.action === 'ppcReport' && (
+                        <>
+                          <PrimaryButton
+                            text={report.disabled ? 'Coming soon' : (reportLoadingStates.ppcReport ? 'Preparing…' : 'Open PPC report')}
+                            onClick={() => setActiveView('ppcReport')}
+                            styles={conditionalButtonStyles(isDarkMode, getButtonState(report.requiredDatasets))}
+                            disabled={report.disabled || reportLoadingStates.ppcReport}
+                          />
+                          <DefaultButton
+                            text="Refresh PPC data"
+                            onClick={refreshMetaMetricsOnly}
+                            styles={subtleButtonStyles(isDarkMode)}
+                            disabled={report.disabled || reportLoadingStates.ppcReport}
+                            iconProps={{ iconName: 'Refresh' }}
+                          />
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Error Display */}
         {error && (
           <div style={{
             padding: '10px 14px',
@@ -2166,240 +3412,15 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
             fontSize: 12,
             boxShadow: surfaceShadow(isDarkMode),
             border: `1px solid ${isDarkMode ? 'rgba(248, 113, 113, 0.32)' : 'rgba(248, 113, 113, 0.32)'}`,
+            marginTop: 16,
           }}>
             {error}
           </div>
         )}
       </section>
 
-      <section style={sectionSurfaceStyle(isDarkMode)}>
-        <h2 style={sectionTitleStyle}>Available today</h2>
-        <ul style={reportsListStyle()}>
-          {AVAILABLE_REPORTS.map((report) => (
-            <li key={report.key} style={reportRowStyle(isDarkMode)}>
-              <div style={reportRowHeaderStyle(isDarkMode)}>
-                <span style={reportNameStyle}>{report.name}</span>
-                <span style={reportStatusStyle(isDarkMode)}>{report.status}</span>
-              </div>
-              {report.action === 'dashboard' && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  <PrimaryButton
-                    text={reportLoadingStates.dashboard ? 'Preparing…' : 'Open dashboard'}
-                    onClick={handleOpenDashboard}
-                    styles={primaryButtonStyles(isDarkMode)}
-                    disabled={reportLoadingStates.dashboard}
-                  />
-                  <DefaultButton
-                    text="Refresh data"
-                    onClick={refreshDatasetsWithStreaming}
-                    styles={subtleButtonStyles(isDarkMode)}
-                    disabled={reportLoadingStates.dashboard}
-                    iconProps={{ iconName: 'Refresh' }}
-                  />
-                </div>
-              )}
-              {report.action === 'annualLeave' && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  <PrimaryButton
-                    text={reportLoadingStates.annualLeave ? 'Preparing…' : 'Open annual leave report'}
-                    onClick={() => setActiveView('annualLeave')}
-                    styles={primaryButtonStyles(isDarkMode)}
-                    disabled={reportLoadingStates.annualLeave}
-                  />
-                  <DefaultButton
-                    text="Refresh leave data"
-                    onClick={refreshAnnualLeaveOnly}
-                    styles={subtleButtonStyles(isDarkMode)}
-                    disabled={reportLoadingStates.annualLeave}
-                    iconProps={{ iconName: 'Refresh' }}
-                  />
-                </div>
-              )}
-              {report.action === 'enquiries' && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  <PrimaryButton
-                    text={reportLoadingStates.enquiries ? 'Preparing…' : 'Open enquiries report'}
-                    onClick={() => setActiveView('enquiries')}
-                    styles={primaryButtonStyles(isDarkMode)}
-                    disabled={reportLoadingStates.enquiries}
-                  />
-                  <DefaultButton
-                    text="Refresh enquiries data"
-                    onClick={refreshEnquiriesScoped}
-                    styles={subtleButtonStyles(isDarkMode)}
-                    disabled={reportLoadingStates.enquiries}
-                    iconProps={{ iconName: 'Refresh' }}
-                  />
-                </div>
-              )}
-              {report.action === 'metaMetrics' && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  <PrimaryButton
-                    text={reportLoadingStates.metaMetrics ? 'Preparing…' : 'Open Meta metrics'}
-                    onClick={() => setActiveView('metaMetrics')}
-                    styles={primaryButtonStyles(isDarkMode)}
-                    disabled={reportLoadingStates.metaMetrics}
-                  />
-                  <DefaultButton
-                    text="Refresh Meta data"
-                    onClick={refreshMetaMetricsOnly}
-                    styles={subtleButtonStyles(isDarkMode)}
-                    disabled={reportLoadingStates.metaMetrics}
-                    iconProps={{ iconName: 'Refresh' }}
-                  />
-                </div>
-              )}
-              {report.action === 'seoReport' && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  <PrimaryButton
-                    text={reportLoadingStates.seoReport ? 'Preparing…' : 'Open SEO report'}
-                    onClick={() => setActiveView('seoReport')}
-                    styles={primaryButtonStyles(isDarkMode)}
-                    disabled={reportLoadingStates.seoReport}
-                  />
-                  <DefaultButton
-                    text="Refresh SEO data"
-                    onClick={refreshMetaMetricsOnly} // SEO report uses Meta metrics data
-                    styles={subtleButtonStyles(isDarkMode)}
-                    disabled={reportLoadingStates.seoReport}
-                    iconProps={{ iconName: 'Refresh' }}
-                  />
-                </div>
-              )}
-              {report.action === 'ppcReport' && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  <PrimaryButton
-                    text={reportLoadingStates.ppcReport ? 'Preparing…' : 'Open PPC report'}
-                    onClick={() => setActiveView('ppcReport')}
-                    styles={primaryButtonStyles(isDarkMode)}
-                    disabled={reportLoadingStates.ppcReport}
-                  />
-                  <DefaultButton
-                    text="Refresh PPC data"
-                    onClick={refreshMetaMetricsOnly} // PPC report uses marketing metrics data
-                    styles={subtleButtonStyles(isDarkMode)}
-                    disabled={reportLoadingStates.ppcReport}
-                    iconProps={{ iconName: 'Refresh' }}
-                  />
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
-      </section>
-
       {/* Marketing Data Settings removed (always using 24 months for GA4 and Google Ads) */}
 
-      {!isActivelyLoading && !isStreamingConnected && (
-      <section style={sectionSurfaceStyle(isDarkMode)}>
-        <h2 style={sectionTitleStyle}>Data feeds powering the dashboard</h2>
-        <div style={dataFeedListStyle()}>
-          {datasetSummaries.map(({ definition, status, updatedAt, count, cached }) => {
-            const palette = STATUS_BADGE_COLOURS[status];
-            const details: string[] = [count > 0 ? `${count.toLocaleString()} record${count === 1 ? '' : 's'}` : 'No data'];
-            if (cached) {
-              details.push('cached');
-            }
-            if (updatedAt) {
-              details.push(formatTimestamp(updatedAt));
-            }
-            return (
-              <div key={definition.key} style={feedRowStyle(isDarkMode)}>
-                <div style={feedLabelGroupStyle}>
-                  <span style={feedLabelStyle}>{definition.name}</span>
-                  <span style={feedMetaStyle}>{details.join(' • ')}</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={statusPillStyle(palette, isDarkMode)}>
-                    {status === 'loading' ? (
-                      <Spinner size={SpinnerSize.xSmall} style={{ width: 14, height: 14 }} />
-                    ) : palette.icon ? (
-                      <FontIcon iconName={palette.icon} style={statusIconStyle(isDarkMode)} />
-                    ) : (
-                      <span style={statusDotStyle(palette.dot)} />
-                    )}
-                    {cached && (
-                      <FontIcon
-                        iconName="Database"
-                        style={{ ...statusIconStyle(isDarkMode), marginLeft: 6 }}
-                        title="Cached"
-                      />
-                    )}
-                    {palette.label}
-                  </span>
-                  {status === 'ready' && (
-                    <DefaultButton
-                      text={feedPreviewOpen[definition.key] ? 'Hide preview' : 'Preview'}
-                      onClick={() => toggleFeedPreview(definition.key)}
-                      styles={subtleButtonStyles(isDarkMode)}
-                      disabled={isActivelyLoading}
-                      iconProps={{ iconName: feedPreviewOpen[definition.key] ? 'ChevronUp' : 'View'}}
-                    />
-                  )}
-                </div>
-                {feedPreviewOpen[definition.key] && (
-                  <div style={{
-                    marginTop: 8,
-                    gridColumn: '1 / -1',
-                    borderRadius: 10,
-                    padding: '10px 12px',
-                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(100, 116, 139, 0.18)'}`,
-                    background: isDarkMode ? 'rgba(30, 41, 59, 0.55)' : 'rgba(248, 250, 252, 0.72)',
-                  }}>
-                    {(() => {
-                      const key = definition.key as DatasetKey;
-                      const data = (datasetData as any)[key] as unknown[] | null | undefined;
-                      const rows = Array.isArray(data) ? data : [];
-                      const sample = rows.slice(0, 5);
-                      return (
-                        <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-                            <span style={{ fontSize: 12, opacity: 0.8 }}>
-                              {rows.length.toLocaleString()} row{rows.length === 1 ? '' : 's'}
-                            </span>
-                            <span style={{ fontSize: 12, opacity: 0.6 }}>
-                              Showing first {sample.length} entr{sample.length === 1 ? 'y' : 'ies'}
-                            </span>
-                          </div>
-                          <div style={{ display: 'grid', gap: 6 }}>
-                            {sample.map((row, idx) => (
-                              <div key={idx} style={{
-                                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-                                fontSize: 11.5,
-                                padding: '6px 8px',
-                                borderRadius: 8,
-                                background: isDarkMode ? 'rgba(2, 6, 23, 0.55)' : 'rgba(241, 245, 249, 0.7)',
-                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(100, 116, 139, 0.18)'}`,
-                                overflowX: 'auto',
-                              }}>
-                                {formatPreviewRow(row)}
-                              </div>
-                            ))}
-                            {sample.length === 0 && (
-                              <div style={{ fontSize: 12, opacity: 0.7 }}>No data available</div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </section>
-      )}
-
-      <section style={sectionSurfaceStyle(isDarkMode)}>
-        <h2 style={sectionTitleStyle}>Quick metrics snapshot</h2>
-        <HomePreview
-          enquiries={datasetData.enquiries}
-          allMatters={datasetData.allMatters}
-          wip={datasetData.wip}
-          recoveredFees={datasetData.recoveredFees}
-        />
-      </section>
     </div>
   );
 };

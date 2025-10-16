@@ -65,6 +65,16 @@ const datasetFetchers = {
     const key = generateCacheKey('rpt', 'wipDbLastWeek');
     return cacheWrapper(key, () => fetchWipDbLastWeek({ connectionString }), 600);
   },
+  // 15 min - Deal/pitch data for Meta metrics conversion tracking
+  deals: ({ connectionString }) => {
+    const key = generateCacheKey('rpt', 'deals');
+    return cacheWrapper(key, () => fetchDeals({ connectionString }), 900);
+  },
+  // 15 min - Instruction data for conversion funnel tracking
+  instructions: ({ connectionString }) => {
+    const key = generateCacheKey('rpt', 'instructions');
+    return cacheWrapper(key, () => fetchInstructions({ connectionString }), 900);
+  },
 };
 
 router.get('/management-datasets', async (req, res) => {
@@ -1091,3 +1101,60 @@ function aggregateDailyData(activities, rangeStart, rangeEnd) {
   }
   return daily;
 }
+
+// Deal/pitch data for Meta metrics conversion tracking
+async function fetchDeals({ connectionString }) {
+  try {
+    // Use the instructions database connection string
+    const instructionsConnStr = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+    if (!instructionsConnStr) {
+      console.log(`⚠️  Instructions database connection string not found - returning empty dataset`);
+      return [];
+    }
+
+    return withRequest(instructionsConnStr, async (request, sqlClient) => {
+      const result = await request.query(`
+        SELECT TOP 2000 DealId, InstructionRef, ProspectId, ServiceDescription, Amount, AreaOfWork,
+               PitchedBy, PitchedDate, PitchedTime, Status, IsMultiClient, LeadClientEmail,
+               LeadClientId, CloseDate, CloseTime, PitchValidUntil
+        FROM [dbo].[Deals] WITH (NOLOCK)
+        ORDER BY PitchedDate DESC, DealId DESC
+      `);
+      
+      console.log(`✅ Deals Query: Retrieved ${result.recordset?.length || 0} records`);
+      return Array.isArray(result.recordset) ? result.recordset : [];
+    });
+  } catch (error) {
+    console.error('❌ Deals fetch error:', error);
+    return [];
+  }
+}
+
+// Instruction data for conversion funnel tracking
+async function fetchInstructions({ connectionString }) {
+  try {
+    // Use the instructions database connection string
+    const instructionsConnStr = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+    if (!instructionsConnStr) {
+      console.log(`⚠️  Instructions database connection string not found - returning empty dataset`);
+      return [];
+    }
+
+    return withRequest(instructionsConnStr, async (request, sqlClient) => {
+      const result = await request.query(`
+        SELECT TOP 2000 InstructionRef, Stage, SubmissionDate, SubmissionTime, LastUpdated,
+               MatterId, ClientId, Email, FirstName, LastName, Phone, InternalStatus
+        FROM [dbo].[Instructions] WITH (NOLOCK)
+        ORDER BY SubmissionDate DESC, InstructionRef DESC
+      `);
+      
+      console.log(`✅ Instructions Query: Retrieved ${result.recordset?.length || 0} records`);
+      return Array.isArray(result.recordset) ? result.recordset : [];
+    });
+  } catch (error) {
+    console.error('❌ Instructions fetch error:', error);
+    return [];
+  }
+}
+
+module.exports = router;
