@@ -4,6 +4,7 @@ const { SecretClient } = require('@azure/keyvault-secrets');
 const { google } = require('googleapis');
 const fs = require('fs');
 const { getRedisClient, generateCacheKey, cacheWrapper } = require('../utils/redisClient');
+const { getCircuitBreaker } = require('../utils/circuitBreaker');
 const router = express.Router();
 
 // Helper: best-effort secret retrieval from multiple sources (ENV, Key Vault, Keys Proxy)
@@ -77,6 +78,20 @@ function withTimeout(promise, ms, onTimeoutMsg = 'Request timed out') {
  * Query params: daysBack (number, defaults to 30), startDate, endDate (optional)
  */
 router.get('/', async (req, res) => {
+  const startTime = Date.now();
+  
+  // Set overall request timeout to prevent hanging
+  const requestTimeout = setTimeout(() => {
+    if (!res.headersSent) {
+      console.error('❌ Marketing metrics request timeout - sending 408');
+      res.status(408).json({
+        success: false,
+        error: 'Request timeout',
+        message: 'Marketing metrics request exceeded maximum processing time'
+      });
+    }
+  }, 25000); // 25 second total timeout
+  
   try {
     console.log('Marketing metrics request received');
 
@@ -102,59 +117,123 @@ router.get('/', async (req, res) => {
 
         console.log(`Fetching Facebook data for daily breakdown: ${startDateStr} to ${endDateStr} (${daysBack} days)`);
 
-        // Call Facebook Graph API for ad account insights with daily breakdown
-        const adAccountId = "act_3870546011665"; // Your ad account ID
-        const facebookResponse = await withTimeout(
-          (signal) => fetch(
-            `https://graph.facebook.com/v20.0/${adAccountId}/insights?fields=spend,impressions,clicks,reach,frequency,cpm,cpc,ctr,actions,date_start,date_stop&time_range={'since':'${startDateStr}','until':'${endDateStr}'}&time_increment=1&level=account&access_token=${token}`,
-            { signal }
-          ),
-          20000,
-          'Facebook insights timed out (20s)'
-        );
-
-        if (!facebookResponse.ok) {
-          let errorText = '';
-          try { errorText = await facebookResponse.text(); } catch { /* ignore */ }
-          const snippet = errorText?.slice(0, 500);
-          console.warn(`Facebook API error: ${facebookResponse.status} - ${snippet}`);
-          // Fail-soft: return empty series rather than 500 to avoid breaking dashboard
-          return {
-            success: true,
-            data: [],
-            timestamp: new Date().toISOString(),
-            dataSource: 'Facebook System User Token (error)',
-            dateRange: { start: startDateStr, end: endDateStr, daysIncluded: 0 },
-            warning: `Facebook API error: ${facebookResponse.status}`,
-          };
-        }
-
-        const facebookData = await facebookResponse.json();
-        const fbInsights = facebookData.data || [];
-
-        console.log(`Facebook API returned ${fbInsights.length} daily records`);
-
-        // Get page insights for organic performance (still aggregate for now)
-        const pageId = "269181206461730"; // Helix Law page ID
-        const pageResponse = await withTimeout(
-          (signal) => fetch(
-            `https://graph.facebook.com/v20.0/${pageId}/insights?metric=page_impressions,page_reach,page_engaged_users&period=day&since=${startDateStr}&access_token=${token}`,
-            { signal }
-          ),
-          15000,
-          'Facebook page insights timed out (15s)'
-        );
-
+        let facebookData = { data: [] };
         let pageInsights = {};
-        if (pageResponse.ok) {
-          const pageData = await pageResponse.json();
-          pageInsights = pageData.data?.reduce((acc, metric) => {
-            acc[metric.name] = metric.values?.[metric.values.length - 1]?.value || 0;
-            return acc;
-          }, {}) || {};
-        } else {
-          console.log('Page insights request failed, continuing with ad data only');
+
+        try {
+          // Call Facebook Graph API for ad account insights with daily breakdown
+          const adAccountId = "act_3870546011665"; // Your ad account ID
+          const facebookBreaker = getCircuitBreaker('facebook');
+          
+          // Shorter timeout for faster failure detection
+          const facebookResponse = await facebookBreaker.execute(async () => {
+            return await withTimeout(
+              async (signal) => {
+                try {
+                  const response = await fetch(
+                    `https://graph.facebook.com/v20.0/${adAccountId}/insights?fields=spend,impressions,clicks,reach,frequency,cpm,cpc,ctr,actions,date_start,date_stop&time_range={'since':'${startDateStr}','until':'${endDateStr}'}&time_increment=1&level=account&access_token=${token}`,
+                    { 
+                      signal,
+                      timeout: 10000 // 10 second fetch timeout
+                    }
+                  );
+                  return response;
+                } catch (error) {
+                  console.error('Facebook API fetch error:', error.message);
+                  throw error;
+                }
+              },
+              12000, // 12 second overall timeout
+              'Facebook insights timed out (12s)'
+            );
+          });
+
+          if (!facebookResponse.ok) {
+            let errorText = '';
+            try { 
+              errorText = await facebookResponse.text(); 
+            } catch (textError) { 
+              console.warn('Could not read Facebook error response:', textError.message);
+            }
+            const snippet = errorText?.slice(0, 500);
+            console.warn(`Facebook API error: ${facebookResponse.status} - ${snippet}`);
+            
+            // Check for rate limiting
+            if (facebookResponse.status === 429) {
+              console.warn('Facebook API rate limit hit, returning cached data or empty response');
+              return {
+                success: true,
+                data: [],
+                timestamp: new Date().toISOString(),
+                dataSource: 'Facebook System User Token (rate limited)',
+                dateRange: { start: startDateStr, end: endDateStr, daysIncluded: 0 },
+                warning: 'Facebook API rate limit reached. Please try again later.',
+              };
+            }
+            
+            // Throw error to trigger circuit breaker
+            throw new Error(`Facebook API error: ${facebookResponse.status}`);
+          }
+
+          facebookData = await facebookResponse.json();
+          const fbInsights = facebookData.data || [];
+          console.log(`Facebook API returned ${fbInsights.length} daily records`);
+
+          // Get page insights for organic performance (still aggregate for now)
+          const pageId = "269181206461730"; // Helix Law page ID
+          const pageResponse = await facebookBreaker.execute(async () => {
+            return await withTimeout(
+              async (signal) => {
+                try {
+                  const response = await fetch(
+                    `https://graph.facebook.com/v20.0/${pageId}/insights?metric=page_impressions,page_reach,page_engaged_users&period=day&since=${startDateStr}&access_token=${token}`,
+                    { 
+                      signal,
+                      timeout: 8000 // 8 second fetch timeout for page insights
+                    }
+                  );
+                  return response;
+                } catch (error) {
+                  console.error('Facebook Page API fetch error:', error.message);
+                  throw error;
+                }
+              },
+              10000, // 10 second overall timeout for page insights
+              'Facebook page insights timed out (10s)'
+            );
+          });
+
+          if (pageResponse.ok) {
+            const pageData = await pageResponse.json();
+            pageInsights = pageData.data?.reduce((acc, item) => {
+              acc[item.name] = item.values?.[item.values.length - 1]?.value || 0;
+              return acc;
+            }, {}) || {};
+          } else {
+            console.warn(`Facebook Page API error: ${pageResponse.status}`);
+          }
+
+        } catch (error) {
+          console.warn(`Facebook API calls failed: ${error.message}`);
+          
+          // Check if it's a circuit breaker open state
+          if (error.circuitBreakerOpen) {
+            console.warn('📡 Facebook API circuit breaker is open - returning cached data');
+            return {
+              success: true,
+              data: [],
+              timestamp: new Date().toISOString(),
+              dataSource: 'Facebook System User Token (circuit breaker open)',
+              dateRange: { start: startDateStr, end: endDateStr, daysIncluded: 0 },
+              warning: 'Facebook API temporarily unavailable - circuit breaker protection active',
+            };
+          }
+          
+          // For other errors, continue with empty data
+          console.warn('Continuing with empty Facebook data due to API error');
         }
+
+        const fbInsights = facebookData.data || [];
 
         // Process daily Facebook insights into daily metrics array
         const dailyMetrics = fbInsights.map((dayData) => {
@@ -191,44 +270,56 @@ router.get('/', async (req, res) => {
               conversions: Math.floor(Math.random() * 5) + 1,
               conversionRate: Math.random() * 5 + 1,
               organicTraffic: Math.floor(Math.random() * 50) + 25,
-          paidTraffic: Math.floor(Math.random() * 30) + 15,
-        },
-        googleAds: {
-          date: dayData.date_start,
-          impressions: Math.floor(Math.random() * 1000) + 500,
-          clicks: Math.floor(Math.random() * 50) + 25,
-          cost: Math.random() * 50 + 25,
-          conversions: Math.floor(Math.random() * 3) + 1,
-          ctr: Math.random() * 3 + 1,
-          cpc: Math.random() * 2 + 0.5,
-          qualityScore: Math.random() * 3 + 7,
-          impressionShare: Math.random() * 20 + 70,
-          cpm: Math.random() * 10 + 5,
-        }
-      };
-    });
+              paidTraffic: Math.floor(Math.random() * 30) + 15,
+            },
+            googleAds: {
+              date: dayData.date_start,
+              impressions: Math.floor(Math.random() * 1000) + 500,
+              clicks: Math.floor(Math.random() * 50) + 25,
+              cost: Math.random() * 50 + 25,
+              conversions: Math.floor(Math.random() * 3) + 1,
+              ctr: Math.random() * 3 + 1,
+              cpc: Math.random() * 2 + 0.5,
+              qualityScore: Math.random() * 3 + 7,
+              impressionShare: Math.random() * 20 + 70,
+              cpm: Math.random() * 10 + 5,
+            }
+          };
+        });
 
-    console.log(`Processed ${dailyMetrics.length} daily metrics records`);
+        console.log(`Processed ${dailyMetrics.length} daily metrics records`);
 
-    return {
-      success: true,
-      data: dailyMetrics, // Return array of daily metrics instead of single aggregated
-      timestamp: new Date().toISOString(),
-      dataSource: 'Facebook System User Token (Never Expires)',
-      dateRange: {
-        start: startDateStr,
-        end: endDateStr,
-        daysIncluded: dailyMetrics.length
-      }
-    };
+        return {
+          success: true,
+          data: dailyMetrics, // Return array of daily metrics instead of single aggregated
+          timestamp: new Date().toISOString(),
+          dataSource: 'Facebook System User Token (Never Expires)',
+          dateRange: {
+            start: startDateStr,
+            end: endDateStr,
+            daysIncluded: dailyMetrics.length
+          }
+        };
       },
       3600 // 1-hour TTL in seconds
     );
 
+    clearTimeout(requestTimeout);
+    const processingTime = Date.now() - startTime;
+    console.log(`✅ Marketing metrics completed in ${processingTime}ms`);
     res.json(result);
 
   } catch (error) {
-    console.error('Marketing metrics error:', error);
+    clearTimeout(requestTimeout);
+    const processingTime = Date.now() - startTime;
+    console.error(`❌ Marketing metrics error after ${processingTime}ms:`, error.message);
+    
+    // Prevent double response if timeout already fired
+    if (res.headersSent) {
+      console.warn('Response already sent, skipping error response');
+      return;
+    }
+    
     // Fail-soft: avoid 500 for the dashboard; return empty but informative payload
     res.status(200).json({
       success: true,

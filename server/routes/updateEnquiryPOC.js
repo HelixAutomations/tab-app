@@ -7,7 +7,18 @@ const router = express.Router();
 
 // Update enquiry Point of Contact
 router.post('/', async (req, res) => {
-    console.log('Update Enquiry POC endpoint called:', req.body);
+    // Log request with masked sensitive data
+    const maskedBody = {
+        ID: req.body.ID,
+        Point_of_Contact: req.body.Point_of_Contact ? '***' : undefined,
+        // Keep other non-sensitive fields as-is
+        ...Object.fromEntries(
+            Object.entries(req.body).filter(([key]) => 
+                !['Point_of_Contact'].includes(key)
+            )
+        )
+    };
+    console.log('Update Enquiry POC endpoint called:', maskedBody);
 
     const { ID, Point_of_Contact } = req.body;
 
@@ -20,7 +31,7 @@ router.post('/', async (req, res) => {
     }
 
     try {
-        console.log('Updating enquiry POC - ID:', ID, 'New POC:', Point_of_Contact);
+        console.log('Updating enquiry POC - ID:', ID, 'New POC: ***');
         await updatePOCInSQL(ID, Point_of_Contact);
         console.log('Successfully updated enquiry Point of Contact');
 

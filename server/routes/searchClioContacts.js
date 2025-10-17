@@ -96,6 +96,7 @@ async function performClioContactSearch(emails) {
   const tokenResponse = await fetch(`${clioTokenUrl}?${params.toString()}`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    timeout: 10000 // 10 second timeout for token refresh
   });
 
   if (!tokenResponse.ok) {
@@ -134,7 +135,8 @@ async function performClioContactSearch(emails) {
         headers: {
           "Authorization": `Bearer ${accessToken}`,
           "Content-Type": "application/json"
-        }
+        },
+        timeout: 15000 // 15 second timeout for contact search
       });
 
       if (!contactResponse.ok) {

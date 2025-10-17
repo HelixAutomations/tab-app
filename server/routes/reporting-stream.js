@@ -659,51 +659,104 @@ async function fetchMetaMetrics(daysBack = 30) {
     daysBack: daysBack
   });
 
-  return new Promise((resolve, reject) => {
-    const options = {
-      hostname: 'localhost',
-      port: process.env.PORT || 3000,
-      path: `/api/marketing-metrics?${params}`,
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    };
+  // Retry configuration for connection stability
+  const maxRetries = 3;
+  const retryDelay = 1000; // 1 second
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await new Promise((resolve, reject) => {
+        const options = {
+          hostname: 'localhost',
+          port: process.env.PORT || 3000,
+          path: `/api/marketing-metrics?${params}`,
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Connection': 'keep-alive', // Reuse connections
+            'User-Agent': 'Helix-Internal-Client/1.0'
+          },
+          // Use HTTP agent for connection pooling
+          agent: new http.Agent({
+            keepAlive: true,
+            keepAliveMsecs: 1000,
+            maxSockets: 5,
+            timeout: 15000 // 15 second socket timeout
+          })
+        };
 
-    const req = http.request(options, (res) => {
-      let data = '';
-      res.on('data', (chunk) => {
-        data += chunk;
-      });
-      res.on('end', () => {
-        try {
-          const response = JSON.parse(data);
-          if (response.success && response.data) {
-            // Return just the daily metrics array with metaAds data
-            resolve(response.data);
-          } else {
-            resolve([]); // Return empty array on failure
+        const req = http.request(options, (res) => {
+          let data = '';
+          
+          // Handle connection errors during response
+          res.on('error', (error) => {
+            console.error(`Meta metrics response error (attempt ${attempt}/${maxRetries}):`, error);
+            reject(error);
+          });
+          
+          res.on('data', (chunk) => {
+            data += chunk;
+          });
+          
+          res.on('end', () => {
+            try {
+              if (res.statusCode !== 200) {
+                console.warn(`Meta metrics HTTP error ${res.statusCode} (attempt ${attempt}/${maxRetries})`);
+                reject(new Error(`HTTP ${res.statusCode}: ${data.slice(0, 200)}`));
+                return;
+              }
+              
+              const response = JSON.parse(data);
+              if (response.success && response.data) {
+                console.log(`✅ Meta metrics fetched successfully (attempt ${attempt})`);
+                resolve(response.data);
+              } else {
+                console.warn(`Meta metrics invalid response (attempt ${attempt}/${maxRetries}):`, response);
+                reject(new Error('Invalid response structure'));
+              }
+            } catch (error) {
+              console.error(`Meta metrics JSON parse error (attempt ${attempt}/${maxRetries}):`, error);
+              reject(error);
+            }
+          });
+        });
+
+        // Enhanced error handling for connection issues
+        req.on('error', (error) => {
+          console.error(`Meta metrics request error (attempt ${attempt}/${maxRetries}):`, error.message);
+          if (error.code === 'ECONNRESET' || error.code === 'ECONNREFUSED') {
+            console.error('📡 Connection issue - the marketing-metrics endpoint may be unavailable');
           }
-        } catch (error) {
-          console.error('Error parsing Meta metrics response:', error);
-          resolve([]); // Return empty array on parse error
-        }
+          reject(error);
+        });
+
+        req.on('timeout', () => {
+          console.error(`Meta metrics request timeout (attempt ${attempt}/${maxRetries})`);
+          req.destroy();
+          reject(new Error('Request timeout'));
+        });
+
+        // Set request timeout
+        req.setTimeout(15000);
+        req.end();
       });
-    });
-
-    req.on('error', (error) => {
-      console.error('Error fetching Meta metrics:', error);
-      resolve([]); // Return empty array on request error
-    });
-
-    req.setTimeout(10000, () => {
-      console.error('Meta metrics request timed out');
-      req.destroy();
-      resolve([]); // Return empty array on timeout
-    });
-
-    req.end();
-  });
+      
+      return result; // Success - return data
+      
+    } catch (error) {
+      console.error(`Meta metrics attempt ${attempt}/${maxRetries} failed:`, error.message);
+      
+      if (attempt === maxRetries) {
+        console.error('❌ All Meta metrics retry attempts failed - returning empty data');
+        return []; // Final fallback
+      }
+      
+      // Wait before retry (exponential backoff)
+      await new Promise(resolve => setTimeout(resolve, retryDelay * Math.pow(2, attempt - 1)));
+    }
+  }
+  
+  return []; // Fallback if all retries failed
 }
 
 // Fetch deals/pitches data for Meta metrics conversion tracking

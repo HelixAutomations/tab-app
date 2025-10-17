@@ -125,15 +125,19 @@ const RANGE_OPTIONS: Array<{ key: RangeKey; label: string }> = [
 // Helper function for consistent surface styling - Updated to match glass container approach
 function surface(isDark: boolean, overrides: React.CSSProperties = {}): React.CSSProperties {
   return {
-    background: 'rgba(255, 255, 255, 0.02)',
-    backdropFilter: 'blur(12px) saturate(150%)',
-    WebkitBackdropFilter: 'blur(12px) saturate(150%)',
+    backgroundColor: isDark 
+      ? 'rgba(15, 23, 42, 0.85)' 
+      : 'rgba(255, 255, 255, 0.85)',
+    backdropFilter: 'blur(12px) saturate(180%)',
+    WebkitBackdropFilter: 'blur(12px) saturate(180%)',
     borderRadius: 12,
-    border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(255, 255, 255, 0.2)'}`,
+    border: `1px solid ${isDark 
+      ? 'rgba(148, 163, 184, 0.16)' 
+      : 'rgba(13, 47, 96, 0.12)'}`,
     boxShadow: isDark 
       ? '0 4px 16px rgba(0, 0, 0, 0.25), 0 1px 4px rgba(0, 0, 0, 0.15)'
-      : '0 4px 16px rgba(15, 23, 42, 0.08), 0 1px 4px rgba(15, 23, 42, 0.04)',
-    padding: 16,
+      : '0 4px 16px rgba(15, 23, 42, 0.06), 0 1px 4px rgba(15, 23, 42, 0.03)',
+    padding: 20,
     transition: 'all 0.3s ease',
     ...overrides,
   };
@@ -806,6 +810,13 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
     fetchInstructionData();
   }, [fetchAdData, fetchInstructionData]);
 
+  // Trigger initial refresh when component mounts if data isn't already loaded
+  useEffect(() => {
+    if (triggerRefresh && (!metaMetrics || metaMetrics.length === 0)) {
+      triggerRefresh();
+    }
+  }, []);
+
   // Search Clio contacts when metaEnquiryStats changes and has enquiries
   useEffect(() => {
     if (metaEnquiryStats?.enquiries && metaEnquiryStats.enquiries.length > 0) {
@@ -954,32 +965,46 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
 
   const subtleActionButtonStyles = (isDarkMode: boolean): IButtonStyles => ({
     root: {
-      height: 28,
-      borderRadius: 14,
+      height: 32,
+      borderRadius: 8,
       fontSize: 12,
-      padding: '0 10px',
-      background: 'transparent',
-      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.18)'}`,
-      color: isDarkMode ? '#E2E8F0' : colours.missedBlue,
+      padding: '0 12px',
+      background: isDarkMode ? 'rgba(30, 41, 59, 0.8)' : 'rgba(248, 250, 252, 0.9)',
+      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(13, 47, 96, 0.12)'}`,
+      color: isDarkMode ? colours.dark.text : colours.light.text,
       minWidth: 'unset',
+      fontFamily: 'Raleway, sans-serif',
+      fontWeight: 500,
+      boxShadow: isDarkMode 
+        ? '0 1px 3px rgba(0, 0, 0, 0.12)' 
+        : '0 1px 2px rgba(15, 23, 42, 0.04)',
     },
     rootHovered: {
-      background: isDarkMode ? 'rgba(148, 163, 184, 0.10)' : 'rgba(148, 163, 184, 0.08)',
+      background: isDarkMode ? 'rgba(51, 65, 85, 0.9)' : 'rgba(241, 245, 249, 1)',
+      borderColor: isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(13, 47, 96, 0.18)',
+      transform: 'translateY(-1px)',
+      boxShadow: isDarkMode 
+        ? '0 2px 6px rgba(0, 0, 0, 0.15)' 
+        : '0 2px 4px rgba(15, 23, 42, 0.08)',
     },
     rootPressed: {
-      background: isDarkMode ? 'rgba(148, 163, 184, 0.16)' : 'rgba(148, 163, 184, 0.12)',
+      background: isDarkMode ? 'rgba(30, 41, 59, 0.9)' : 'rgba(226, 232, 240, 0.8)',
+      transform: 'translateY(0)',
+      boxShadow: isDarkMode 
+        ? '0 1px 2px rgba(0, 0, 0, 0.1)' 
+        : '0 1px 1px rgba(15, 23, 42, 0.04)',
     },
   });
 
   const getRangeButtonStyles = (isDarkMode: boolean, active: boolean): IButtonStyles => {
-    const activeBackground = colours.highlight;
-    const inactiveBackground = isDarkMode ? 'rgba(148, 163, 184, 0.16)' : 'transparent';
+    const activeBackground = isDarkMode ? colours.highlight : colours.missedBlue;
+    const inactiveBackground = isDarkMode ? 'rgba(30, 41, 59, 0.8)' : 'rgba(248, 250, 252, 0.9)';
 
     const resolvedBackground = active ? activeBackground : inactiveBackground;
     const resolvedBorder = active
-      ? `1px solid ${isDarkMode ? 'rgba(135, 176, 255, 0.5)' : 'rgba(13, 47, 96, 0.32)'}`
-      : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.16)'}`;
-    const resolvedColor = active ? '#ffffff' : (isDarkMode ? '#E2E8F0' : colours.missedBlue);
+      ? `1px solid ${isDarkMode ? colours.highlight : colours.missedBlue}`
+      : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(13, 47, 96, 0.12)'}`;
+    const resolvedColor = active ? '#ffffff' : (isDarkMode ? colours.dark.text : colours.light.text);
 
     return {
       root: {
@@ -988,29 +1013,42 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
         whiteSpace: 'nowrap' as const,
         overflow: 'hidden',
         textOverflow: 'ellipsis',
-        borderRadius: 999,
+        borderRadius: 8,
         border: resolvedBorder,
         padding: '0 12px',
         minHeight: 32,
         height: 32,
-        fontWeight: 600,
+        fontWeight: 500,
         fontSize: 13,
         color: resolvedColor,
         background: resolvedBackground,
-        boxShadow: active ? '0 2px 8px rgba(54, 144, 206, 0.25)' : 'none',
+        boxShadow: active 
+          ? (isDarkMode ? '0 2px 8px rgba(54, 144, 206, 0.15)' : '0 2px 4px rgba(13, 47, 96, 0.12)')
+          : (isDarkMode ? '0 1px 3px rgba(0, 0, 0, 0.12)' : '0 1px 2px rgba(15, 23, 42, 0.04)'),
         fontFamily: 'Raleway, sans-serif',
         cursor: 'pointer',
         transition: 'all 0.2s ease',
       },
       rootHovered: {
         background: active 
-          ? '#2f7cb3'
-          : (isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(54, 144, 206, 0.12)'),
+          ? (isDarkMode ? '#4a90c2' : '#2a5a8a')
+          : (isDarkMode ? 'rgba(51, 65, 85, 0.9)' : 'rgba(241, 245, 249, 1)'),
+        borderColor: active
+          ? (isDarkMode ? colours.highlight : colours.missedBlue)
+          : (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(13, 47, 96, 0.18)'),
+        transform: 'translateY(-1px)',
+        boxShadow: active 
+          ? (isDarkMode ? '0 4px 12px rgba(54, 144, 206, 0.2)' : '0 3px 8px rgba(13, 47, 96, 0.15)')
+          : (isDarkMode ? '0 2px 6px rgba(0, 0, 0, 0.15)' : '0 2px 4px rgba(15, 23, 42, 0.08)'),
       },
       rootPressed: {
         background: active 
-          ? '#266795'
-          : (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(54, 144, 206, 0.16)'),
+          ? (isDarkMode ? '#3a7ba8' : '#1e4a73')
+          : (isDarkMode ? 'rgba(30, 41, 59, 0.9)' : 'rgba(226, 232, 240, 0.8)'),
+        transform: 'translateY(0)',
+        boxShadow: active 
+          ? (isDarkMode ? '0 1px 4px rgba(54, 144, 206, 0.1)' : '0 1px 2px rgba(13, 47, 96, 0.08)')
+          : (isDarkMode ? '0 1px 2px rgba(0, 0, 0, 0.1)' : '0 1px 1px rgba(15, 23, 42, 0.04)'),
       },
     };
   };
@@ -1080,36 +1118,90 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
             ) : (
               <div style={{ display: 'flex', gap: 8 }}>
                 <div style={{
-                  padding: '8px 12px',
+                  padding: '10px 14px',
                   borderRadius: 8,
-                  background: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.95)',
-                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.18)'}`,
+                  background: isDarkMode ? 'rgba(30, 41, 59, 0.8)' : 'rgba(248, 250, 252, 0.9)',
+                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(13, 47, 96, 0.12)'}`,
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: 2,
+                  gap: 4,
                   cursor: 'pointer',
+                  boxShadow: isDarkMode 
+                    ? '0 1px 3px rgba(0, 0, 0, 0.12)' 
+                    : '0 1px 2px rgba(15, 23, 42, 0.04)',
+                  transition: 'all 0.2s ease',
                 }}
                 onClick={() => setRangeKey('custom')}
-                title="Click to set custom date range">
-                  <span style={{ fontSize: 11, opacity: 0.7, fontWeight: 600 }}>From</span>
-                  <span style={{ fontSize: 16, fontWeight: 700 }}>
+                title="Click to set custom date range"
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-1px)';
+                  e.currentTarget.style.boxShadow = isDarkMode 
+                    ? '0 2px 6px rgba(0, 0, 0, 0.15)' 
+                    : '0 2px 4px rgba(15, 23, 42, 0.08)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = isDarkMode 
+                    ? '0 1px 3px rgba(0, 0, 0, 0.12)' 
+                    : '0 1px 2px rgba(15, 23, 42, 0.04)';
+                }}>
+                  <span style={{ 
+                    fontSize: 11, 
+                    opacity: 0.7, 
+                    fontWeight: 600,
+                    color: isDarkMode ? colours.dark.subText : colours.light.subText,
+                    fontFamily: 'Raleway, sans-serif'
+                  }}>From</span>
+                  <span style={{ 
+                    fontSize: 14, 
+                    fontWeight: 600,
+                    color: isDarkMode ? colours.dark.text : colours.light.text,
+                    fontFamily: 'Raleway, sans-serif'
+                  }}>
                     {range ? range.start.toLocaleDateString() : 'All time'}
                   </span>
                 </div>
                 <div style={{
-                  padding: '8px 12px',
+                  padding: '10px 14px',
                   borderRadius: 8,
-                  background: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.95)',
-                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.18)'}`,
+                  background: isDarkMode ? 'rgba(30, 41, 59, 0.8)' : 'rgba(248, 250, 252, 0.9)',
+                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(13, 47, 96, 0.12)'}`,
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: 2,
+                  gap: 4,
                   cursor: 'pointer',
+                  boxShadow: isDarkMode 
+                    ? '0 1px 3px rgba(0, 0, 0, 0.12)' 
+                    : '0 1px 2px rgba(15, 23, 42, 0.04)',
+                  transition: 'all 0.2s ease',
                 }}
                 onClick={() => setRangeKey('custom')}
-                title="Click to set custom date range">
-                  <span style={{ fontSize: 11, opacity: 0.7, fontWeight: 600 }}>To</span>
-                  <span style={{ fontSize: 16, fontWeight: 700 }}>
+                title="Click to set custom date range"
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-1px)';
+                  e.currentTarget.style.boxShadow = isDarkMode 
+                    ? '0 2px 6px rgba(0, 0, 0, 0.15)' 
+                    : '0 2px 4px rgba(15, 23, 42, 0.08)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = isDarkMode 
+                    ? '0 1px 3px rgba(0, 0, 0, 0.12)' 
+                    : '0 1px 2px rgba(15, 23, 42, 0.04)';
+                }}>
+                  <span style={{ 
+                    fontSize: 11, 
+                    opacity: 0.7, 
+                    fontWeight: 600,
+                    color: isDarkMode ? colours.dark.subText : colours.light.subText,
+                    fontFamily: 'Raleway, sans-serif'
+                  }}>To</span>
+                  <span style={{ 
+                    fontSize: 14, 
+                    fontWeight: 600,
+                    color: isDarkMode ? colours.dark.text : colours.light.text,
+                    fontFamily: 'Raleway, sans-serif'
+                  }}>
                     {range ? range.end.toLocaleDateString() : 'All time'}
                   </span>
                 </div>
@@ -1121,13 +1213,19 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 gap: 6,
-                padding: '6px 12px',
+                padding: '8px 12px',
                 borderRadius: 8,
-                border: `1px solid ${isFetching ? (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)') : (isDarkMode ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.25)')}`,
-                background: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.95)',
+                border: `1px solid ${isFetching 
+                  ? (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)') 
+                  : (isDarkMode ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.2)')}`,
+                background: isDarkMode ? 'rgba(30, 41, 59, 0.8)' : 'rgba(248, 250, 252, 0.9)',
                 fontSize: 12,
-                fontWeight: 600,
-                color: isDarkMode ? '#E2E8F0' : colours.missedBlue,
+                fontWeight: 500,
+                color: isDarkMode ? colours.dark.text : colours.light.text,
+                fontFamily: 'Raleway, sans-serif',
+                boxShadow: isDarkMode 
+                  ? '0 1px 3px rgba(0, 0, 0, 0.12)' 
+                  : '0 1px 2px rgba(15, 23, 42, 0.04)',
               }}>
                 {isFetching ? (
                   <>
@@ -1163,16 +1261,20 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
           {/* Data Summary */}
           {metaMetrics && metaMetrics.length > 0 && (
             <div style={{
-              padding: '8px 12px',
+              padding: '10px 14px',
               borderRadius: 8,
-              background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(13, 47, 96, 0.04)',
+              background: isDarkMode ? 'rgba(30, 41, 59, 0.8)' : 'rgba(248, 250, 252, 0.9)',
               border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.16)' : 'rgba(13, 47, 96, 0.08)'}`,
               fontSize: 12,
-              color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(13, 47, 96, 0.75)',
+              color: isDarkMode ? colours.dark.subText : colours.light.subText,
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
-              gap: 12
+              gap: 12,
+              fontFamily: 'Raleway, sans-serif',
+              boxShadow: isDarkMode 
+                ? '0 1px 3px rgba(0, 0, 0, 0.12)' 
+                : '0 1px 2px rgba(15, 23, 42, 0.04)',
             }}>
               <span>
                 Available data: {new Date(Math.min(...metaMetrics.map(m => new Date(m.date).getTime()))).toLocaleDateString()} to {new Date(Math.max(...metaMetrics.map(m => new Date(m.date).getTime()))).toLocaleDateString()} 
@@ -1272,88 +1374,184 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
       {/* Main Analytics Dashboard */}
       {!isFetching && filteredMetrics.length > 0 && (
         <>
-          {/* Key Performance Indicators */}
+          {/* Key Performance Indicators - Large Spend/Income Cards */}
           <div style={surface(isDarkMode, { marginTop: '16px' })}>
-            <h3 style={sectionTitleStyle}>Key Metrics</h3>
             <div style={{ 
               display: 'grid', 
-              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-              gap: '20px',
+              gridTemplateColumns: 'repeat(2, 1fr)',
+              gap: '24px',
               marginBottom: '32px'
             }}>
+              {/* Spend Card */}
               <div style={{
-                padding: '20px',
-                backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.7)' : 'rgba(248, 250, 252, 0.8)',
-                borderRadius: '12px',
-                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.06)'}`,
+                padding: '32px',
+                backgroundColor: isDarkMode 
+                  ? 'rgba(30, 41, 59, 0.9)' 
+                  : 'rgba(248, 250, 252, 0.95)',
+                borderRadius: '16px',
+                border: `2px solid ${isDarkMode 
+                  ? 'rgba(148, 163, 184, 0.3)' 
+                  : 'rgba(13, 47, 96, 0.15)'}`,
+                boxShadow: isDarkMode
+                  ? '0 4px 12px rgba(0, 0, 0, 0.2)'
+                  : '0 2px 8px rgba(15, 23, 42, 0.1)',
+                transition: 'all 0.2s ease',
               }}>
                 <div style={{ 
-                  fontSize: '36px', 
-                  fontWeight: 700, 
-                  color: colours.accent,
-                  marginBottom: '8px' 
+                  fontSize: '14px', 
+                  color: isDarkMode ? colours.dark.subText : colours.light.subText,
+                  fontWeight: 600,
+                  marginBottom: '12px',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px',
+                  fontFamily: 'Raleway, sans-serif'
+                }}>
+                  Spend
+                </div>
+                <div style={{ 
+                  fontSize: '48px', 
+                  fontWeight: 800, 
+                  color: isDarkMode ? colours.highlight : colours.missedBlue,
+                  fontFamily: 'Raleway, sans-serif'
                 }}>
                   {formatCurrency(stats.totalSpend)}
                 </div>
-                <div style={{ fontSize: '14px', color: '#ffffff' }}>
-                  Total Investment
-                </div>
               </div>
 
+              {/* Income Card */}
               <div style={{
-                padding: '20px',
-                backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.7)' : 'rgba(248, 250, 252, 0.8)',
-                borderRadius: '12px',
-                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.06)'}`,
+                padding: '32px',
+                backgroundColor: isDarkMode 
+                  ? 'rgba(30, 41, 59, 0.9)' 
+                  : 'rgba(248, 250, 252, 0.95)',
+                borderRadius: '16px',
+                border: `2px solid ${isDarkMode 
+                  ? 'rgba(148, 163, 184, 0.3)' 
+                  : 'rgba(13, 47, 96, 0.15)'}`,
+                boxShadow: isDarkMode
+                  ? '0 4px 12px rgba(0, 0, 0, 0.2)'
+                  : '0 2px 8px rgba(15, 23, 42, 0.1)',
+                transition: 'all 0.2s ease',
               }}>
                 <div style={{ 
-                  fontSize: '36px', 
+                  fontSize: '14px', 
+                  color: isDarkMode ? colours.dark.subText : colours.light.subText,
+                  fontWeight: 600,
+                  marginBottom: '12px',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px',
+                  fontFamily: 'Raleway, sans-serif'
+                }}>
+                  Income
+                </div>
+                <div style={{ 
+                  fontSize: '48px', 
+                  fontWeight: 800, 
+                  color: isDarkMode ? colours.highlight : colours.missedBlue,
+                  fontFamily: 'Raleway, sans-serif'
+                }}>
+                  {formatCurrency(0)}
+                </div>
+              </div>
+            </div>
+
+            {/* Subtle Secondary Metrics */}
+            <h3 style={{ ...sectionTitleStyle, fontSize: '16px', opacity: 0.7, marginTop: '24px', marginBottom: '16px' }}>Supporting Metrics</h3>
+            <div style={{ 
+              display: 'grid', 
+              gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+              gap: '12px'
+            }}>
+              <div style={{
+                padding: '16px',
+                backgroundColor: isDarkMode 
+                  ? 'rgba(30, 41, 59, 0.6)' 
+                  : 'rgba(248, 250, 252, 0.8)',
+                borderRadius: '8px',
+                border: `1px solid ${isDarkMode 
+                  ? 'rgba(148, 163, 184, 0.12)' 
+                  : 'rgba(13, 47, 96, 0.08)'}`,
+                boxShadow: 'none',
+                transition: 'all 0.2s ease',
+              }}>
+                <div style={{ 
+                  fontSize: '12px', 
+                  color: isDarkMode ? colours.dark.subText : colours.light.subText,
+                  fontWeight: 600,
+                  marginBottom: '8px',
+                  fontFamily: 'Raleway, sans-serif'
+                }}>
+                  People Reached
+                </div>
+                <div style={{ 
+                  fontSize: '24px', 
                   fontWeight: 700, 
-                  color: colours.accent,
-                  marginBottom: '8px' 
+                  color: isDarkMode ? colours.highlight : colours.missedBlue,
+                  fontFamily: 'Raleway, sans-serif'
                 }}>
                   {formatNumber(stats.totalReach)}
                 </div>
-                <div style={{ fontSize: '14px', color: '#ffffff' }}>
-                  People Reached
-                </div>
               </div>
 
               <div style={{
-                padding: '20px',
-                backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.7)' : 'rgba(248, 250, 252, 0.8)',
-                borderRadius: '12px',
-                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.06)'}`,
+                padding: '16px',
+                backgroundColor: isDarkMode 
+                  ? 'rgba(30, 41, 59, 0.6)' 
+                  : 'rgba(248, 250, 252, 0.8)',
+                borderRadius: '8px',
+                border: `1px solid ${isDarkMode 
+                  ? 'rgba(148, 163, 184, 0.12)' 
+                  : 'rgba(13, 47, 96, 0.08)'}`,
+                boxShadow: 'none',
+                transition: 'all 0.2s ease',
               }}>
                 <div style={{ 
-                  fontSize: '36px', 
+                  fontSize: '12px', 
+                  color: isDarkMode ? colours.dark.subText : colours.light.subText,
+                  fontWeight: 600,
+                  marginBottom: '8px',
+                  fontFamily: 'Raleway, sans-serif'
+                }}>
+                  Conversions
+                </div>
+                <div style={{ 
+                  fontSize: '24px', 
                   fontWeight: 700, 
-                  color: colours.accent,
-                  marginBottom: '8px' 
+                  color: isDarkMode ? colours.highlight : colours.missedBlue,
+                  fontFamily: 'Raleway, sans-serif'
                 }}>
                   {formatNumber(stats.totalConversions)}
                 </div>
-                <div style={{ fontSize: '14px', color: '#ffffff' }}>
-                  Total Conversions
-                </div>
               </div>
 
               <div style={{
-                padding: '20px',
-                backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.7)' : 'rgba(248, 250, 252, 0.8)',
-                borderRadius: '12px',
-                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.06)'}`,
+                padding: '16px',
+                backgroundColor: isDarkMode 
+                  ? 'rgba(30, 41, 59, 0.6)' 
+                  : 'rgba(248, 250, 252, 0.8)',
+                borderRadius: '8px',
+                border: `1px solid ${isDarkMode 
+                  ? 'rgba(148, 163, 184, 0.12)' 
+                  : 'rgba(13, 47, 96, 0.08)'}`,
+                boxShadow: 'none',
+                transition: 'all 0.2s ease',
               }}>
                 <div style={{ 
-                  fontSize: '36px', 
+                  fontSize: '12px', 
+                  color: isDarkMode ? colours.dark.subText : colours.light.subText,
+                  fontWeight: 600,
+                  marginBottom: '8px',
+                  fontFamily: 'Raleway, sans-serif'
+                }}>
+                  CPA
+                </div>
+                <div style={{ 
+                  fontSize: '24px', 
                   fontWeight: 700, 
-                  color: colours.accent,
-                  marginBottom: '8px' 
+                  color: isDarkMode ? colours.highlight : colours.missedBlue,
+                  fontFamily: 'Raleway, sans-serif'
                 }}>
                   {formatCurrency(stats.costPerConversion)}
-                </div>
-                <div style={{ fontSize: '14px', color: '#ffffff' }}>
-                  Cost Per Conversion
                 </div>
               </div>
             </div>
@@ -1361,74 +1559,161 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
 
           {/* Performance Summary */}
           <div style={surface(isDarkMode, { marginTop: '16px' })}>
-            <h3 style={sectionTitleStyle}>Performance Summary</h3>
+            <h3 style={{ ...sectionTitleStyle, fontSize: '16px', opacity: 0.7, marginBottom: '16px' }}>Performance Details</h3>
             <div style={{ 
               display: 'grid', 
-              gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-              gap: '20px',
-              marginBottom: '20px'
+              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+              gap: '16px'
             }}>
               {/* Efficiency Metrics */}
-              <div>
+              <div style={{
+                padding: '14px',
+                backgroundColor: isDarkMode 
+                  ? 'rgba(30, 41, 59, 0.5)' 
+                  : 'rgba(248, 250, 252, 0.7)',
+                borderRadius: '8px',
+                border: `1px solid ${isDarkMode 
+                  ? 'rgba(148, 163, 184, 0.1)' 
+                  : 'rgba(13, 47, 96, 0.06)'}`,
+              }}>
                 <h4 style={{ 
                   color: isDarkMode ? colours.dark.text : colours.light.text,
-                  marginBottom: '12px',
-                  fontSize: '16px'
+                  marginBottom: '10px',
+                  fontSize: '13px',
+                  fontFamily: 'Raleway, sans-serif',
+                  fontWeight: 600,
+                  opacity: 0.8
                 }}>Campaign Efficiency</h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Click-Through Rate:</span>
-                    <strong style={{ color: colours.accent }}>{formatPercent(stats.avgCtr)}</strong>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between',
+                    fontSize: '12px',
+                    color: isDarkMode ? colours.dark.subText : colours.light.subText 
+                  }}>
+                    <span>CTR:</span>
+                    <strong style={{ 
+                      color: isDarkMode ? colours.highlight : colours.missedBlue,
+                      fontFamily: 'Raleway, sans-serif'
+                    }}>{formatPercent(stats.avgCtr)}</strong>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Cost Per Click:</span>
-                    <strong style={{ color: colours.accent }}>{formatCurrency(stats.avgCpc)}</strong>
+                  <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between',
+                    fontSize: '12px',
+                    color: isDarkMode ? colours.dark.subText : colours.light.subText 
+                  }}>
+                    <span>CPC:</span>
+                    <strong style={{ 
+                      color: isDarkMode ? colours.highlight : colours.missedBlue,
+                      fontFamily: 'Raleway, sans-serif'
+                    }}>{formatCurrency(stats.avgCpc)}</strong>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Conversion Rate:</span>
-                    <strong style={{ color: colours.accent }}>{formatPercent(stats.conversionRate)}</strong>
+                  <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between',
+                    fontSize: '12px',
+                    color: isDarkMode ? colours.dark.subText : colours.light.subText 
+                  }}>
+                    <span>Conv. Rate:</span>
+                    <strong style={{ 
+                      color: isDarkMode ? colours.highlight : colours.missedBlue,
+                      fontFamily: 'Raleway, sans-serif'
+                    }}>{formatPercent(stats.conversionRate)}</strong>
                   </div>
                 </div>
               </div>
 
               {/* Reach & Frequency */}
-              <div>
+              <div style={{
+                padding: '14px',
+                backgroundColor: isDarkMode 
+                  ? 'rgba(30, 41, 59, 0.5)' 
+                  : 'rgba(248, 250, 252, 0.7)',
+                borderRadius: '8px',
+                border: `1px solid ${isDarkMode 
+                  ? 'rgba(148, 163, 184, 0.1)' 
+                  : 'rgba(13, 47, 96, 0.06)'}`,
+              }}>
                 <h4 style={{ 
                   color: isDarkMode ? colours.dark.text : colours.light.text,
-                  marginBottom: '12px',
-                  fontSize: '16px'
+                  marginBottom: '10px',
+                  fontSize: '13px',
+                  fontFamily: 'Raleway, sans-serif',
+                  fontWeight: 600,
+                  opacity: 0.8
                 }}>Reach & Frequency</h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Total Impressions:</span>
-                    <strong style={{ color: colours.accent }}>{formatNumber(stats.totalImpressions)}</strong>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between',
+                    fontSize: '12px',
+                    color: isDarkMode ? colours.dark.subText : colours.light.subText 
+                  }}>
+                    <span>Impressions:</span>
+                    <strong style={{ 
+                      color: isDarkMode ? colours.highlight : colours.missedBlue,
+                      fontFamily: 'Raleway, sans-serif'
+                    }}>{formatNumber(stats.totalImpressions)}</strong>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Unique Reach:</span>
-                    <strong style={{ color: colours.accent }}>{formatNumber(stats.totalReach)}</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Average Frequency:</span>
-                    <strong style={{ color: colours.accent }}>{stats.avgFrequency.toFixed(2)}</strong>
+                  <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between',
+                    fontSize: '12px',
+                    color: isDarkMode ? colours.dark.subText : colours.light.subText 
+                  }}>
+                    <span>Avg Frequency:</span>
+                    <strong style={{ 
+                      color: isDarkMode ? colours.highlight : colours.missedBlue,
+                      fontFamily: 'Raleway, sans-serif'
+                    }}>{stats.avgFrequency.toFixed(2)}</strong>
                   </div>
                 </div>
               </div>
 
               {/* ROI Analysis */}
-              <div>
+              <div style={{
+                padding: '14px',
+                backgroundColor: isDarkMode 
+                  ? 'rgba(30, 41, 59, 0.5)' 
+                  : 'rgba(248, 250, 252, 0.7)',
+                borderRadius: '8px',
+                border: `1px solid ${isDarkMode 
+                  ? 'rgba(148, 163, 184, 0.1)' 
+                  : 'rgba(13, 47, 96, 0.06)'}`,
+              }}>
                 <h4 style={{ 
                   color: isDarkMode ? colours.dark.text : colours.light.text,
-                  marginBottom: '12px',
-                  fontSize: '16px'
-                }}>ROI Analysis</h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  marginBottom: '10px',
+                  fontSize: '13px',
+                  fontFamily: 'Raleway, sans-serif',
+                  fontWeight: 600,
+                  opacity: 0.8
+                }}>Engagement</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between',
+                    fontSize: '12px',
+                    color: isDarkMode ? colours.dark.subText : colours.light.subText 
+                  }}>
                     <span>Total Clicks:</span>
-                    <strong style={{ color: colours.accent }}>{formatNumber(stats.totalClicks)}</strong>
+                    <strong style={{ 
+                      color: isDarkMode ? colours.highlight : colours.missedBlue,
+                      fontFamily: 'Raleway, sans-serif'
+                    }}>{formatNumber(stats.totalClicks)}</strong>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Cost Per Conversion:</span>
-                    <strong style={{ color: colours.accent }}>{formatCurrency(stats.costPerConversion)}</strong>
+                  <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between',
+                    fontSize: '12px',
+                    color: isDarkMode ? colours.dark.subText : colours.light.subText 
+                  }}>
+                    <span>CPM:</span>
+                    <strong style={{ 
+                      color: isDarkMode ? colours.highlight : colours.missedBlue,
+                      fontFamily: 'Raleway, sans-serif'
+                    }}>{formatCurrency(stats.avgCpm)}</strong>
                   </div>
                 </div>
               </div>
@@ -1437,28 +1722,56 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
 
           {/* ROI & Enquiries Analysis */}
           <div style={surface(isDarkMode, { marginTop: '16px' })}>
-            <h3 style={sectionTitleStyle}>ROI & Enquiries Analysis</h3>
+            <h3 style={{ ...sectionTitleStyle, fontSize: '16px', opacity: 0.7, marginBottom: '16px' }}>ROI & Enquiries</h3>
             <div style={{ 
               display: 'grid', 
-              gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
-              gap: '20px',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+              gap: '16px',
               marginBottom: '20px'
             }}>
               {/* Enquiries Overview */}
-              <div>
+              <div style={{
+                padding: '14px',
+                backgroundColor: isDarkMode 
+                  ? 'rgba(30, 41, 59, 0.5)' 
+                  : 'rgba(248, 250, 252, 0.7)',
+                borderRadius: '8px',
+                border: `1px solid ${isDarkMode 
+                  ? 'rgba(148, 163, 184, 0.1)' 
+                  : 'rgba(13, 47, 96, 0.06)'}`,
+              }}>
                 <h4 style={{ 
                   color: isDarkMode ? colours.dark.text : colours.light.text,
-                  marginBottom: '12px',
-                  fontSize: '16px'
+                  marginBottom: '10px',
+                  fontSize: '13px',
+                  fontFamily: 'Raleway, sans-serif',
+                  fontWeight: 600,
+                  opacity: 0.8
                 }}>Meta Enquiries</h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Total Enquiries:</span>
-                    <strong style={{ color: colours.accent }}>{metaEnquiryStats.totalEnquiries}</strong>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between',
+                    fontSize: '12px',
+                    color: isDarkMode ? colours.dark.subText : colours.light.subText 
+                  }}>
+                    <span>Total:</span>
+                    <strong style={{ 
+                      color: isDarkMode ? colours.highlight : colours.missedBlue,
+                      fontFamily: 'Raleway, sans-serif'
+                    }}>{metaEnquiryStats.totalEnquiries}</strong>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Cost Per Enquiry:</span>
-                    <strong style={{ color: colours.accent }}>
+                  <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between',
+                    fontSize: '12px',
+                    color: isDarkMode ? colours.dark.subText : colours.light.subText 
+                  }}>
+                    <span>Cost/Enq:</span>
+                    <strong style={{ 
+                      color: isDarkMode ? colours.highlight : colours.missedBlue,
+                      fontFamily: 'Raleway, sans-serif'
+                    }}>
                       {metaEnquiryStats.costPerEnquiry > 0 ? formatCurrency(metaEnquiryStats.costPerEnquiry) : '—'}
                     </strong>
                   </div>
@@ -1466,31 +1779,53 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
               </div>
 
               {/* ROI Metrics */}
-              <div>
+              <div style={{
+                padding: '14px',
+                backgroundColor: isDarkMode 
+                  ? 'rgba(30, 41, 59, 0.5)' 
+                  : 'rgba(248, 250, 252, 0.7)',
+                borderRadius: '8px',
+                border: `1px solid ${isDarkMode 
+                  ? 'rgba(148, 163, 184, 0.1)' 
+                  : 'rgba(13, 47, 96, 0.06)'}`,
+              }}>
                 <h4 style={{ 
                   color: isDarkMode ? colours.dark.text : colours.light.text,
-                  marginBottom: '12px',
-                  fontSize: '16px'
-                }}>Return on Investment</h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Total Value (est.):</span>
-                    <strong style={{ color: colours.accent }}>
+                  marginBottom: '10px',
+                  fontSize: '13px',
+                  fontFamily: 'Raleway, sans-serif',
+                  fontWeight: 600,
+                  opacity: 0.8
+                }}>ROI</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between',
+                    fontSize: '12px',
+                    color: isDarkMode ? colours.dark.subText : colours.light.subText 
+                  }}>
+                    <span>Value (est):</span>
+                    <strong style={{ 
+                      color: isDarkMode ? colours.highlight : colours.missedBlue,
+                      fontFamily: 'Raleway, sans-serif'
+                    }}>
                       {metaEnquiryStats.totalValue > 0 ? formatCurrency(metaEnquiryStats.totalValue) : '—'}
                     </strong>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>ROI:</span>
+                  <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between',
+                    fontSize: '12px',
+                    color: isDarkMode ? colours.dark.subText : colours.light.subText 
+                  }}>
+                    <span>Ratio:</span>
                     <strong style={{ 
-                      color: metaEnquiryStats.roi > 0 ? colours.accent : colours.cta
+                      color: metaEnquiryStats.roi > 0 
+                        ? (isDarkMode ? colours.highlight : colours.missedBlue)
+                        : (isDarkMode ? '#ef4444' : '#dc2626'),
+                      fontFamily: 'Raleway, sans-serif'
                     }}>
-                      {metaEnquiryStats.totalValue > 0 ? `${metaEnquiryStats.roi.toFixed(1)}%` : '—'}
-                    </strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Revenue Ratio:</span>
-                    <strong style={{ color: colours.accent }}>
-                      {metaEnquiryStats.totalValue > 0 && stats.totalSpend > 0 
+                      {metaEnquiryStats.totalValue > 0 && stats.totalSpend > 0
                         ? `${(metaEnquiryStats.totalValue / stats.totalSpend).toFixed(2)}:1`
                         : '—'
                       }
@@ -1500,28 +1835,36 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
               </div>
 
               {/* Conversion Funnel */}
-              <div>
+              <div style={{
+                padding: '14px',
+                backgroundColor: isDarkMode 
+                  ? 'rgba(30, 41, 59, 0.5)' 
+                  : 'rgba(248, 250, 252, 0.7)',
+                borderRadius: '8px',
+                border: `1px solid ${isDarkMode 
+                  ? 'rgba(148, 163, 184, 0.1)' 
+                  : 'rgba(13, 47, 96, 0.06)'}`,
+              }}>
                 <h4 style={{ 
                   color: isDarkMode ? colours.dark.text : colours.light.text,
-                  marginBottom: '12px',
-                  fontSize: '16px'
-                }}>Conversion Funnel</h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Ad Impressions:</span>
-                    <strong style={{ color: colours.accent }}>{formatNumber(stats.totalImpressions)}</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Ad Clicks:</span>
-                    <strong style={{ color: colours.accent }}>{formatNumber(stats.totalClicks)}</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Enquiries:</span>
-                    <strong style={{ color: colours.accent }}>{metaEnquiryStats.totalEnquiries}</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Click-to-Enquiry:</span>
-                    <strong style={{ color: colours.accent }}>
+                  marginBottom: '10px',
+                  fontSize: '13px',
+                  fontFamily: 'Raleway, sans-serif',
+                  fontWeight: 600,
+                  opacity: 0.8
+                }}>Funnel</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between',
+                    fontSize: '12px',
+                    color: isDarkMode ? colours.dark.subText : colours.light.subText 
+                  }}>
+                    <span>Click-to-Enq:</span>
+                    <strong style={{ 
+                      color: isDarkMode ? colours.highlight : colours.missedBlue,
+                      fontFamily: 'Raleway, sans-serif'
+                    }}>
                       {stats.totalClicks > 0 && metaEnquiryStats.totalEnquiries > 0
                         ? `${((metaEnquiryStats.totalEnquiries / stats.totalClicks) * 100).toFixed(2)}%`
                         : '—'
@@ -1839,27 +2182,63 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
                 <h3 style={sectionTitleStyle}>Engagement Performance</h3>
                 <ResponsiveContainer width="100%" height={300}>
                   <LineChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0,0,0,0.1)'} />
+                    <CartesianGrid 
+                      strokeDasharray="3 3" 
+                      stroke={isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(13, 47, 96, 0.08)'} 
+                    />
                     <XAxis 
                       dataKey="date" 
-                      tick={{ fontSize: 12, fill: isDarkMode ? '#E2E8F0' : '#374151' }}
-                      stroke={isDarkMode ? '#64748B' : '#9CA3AF'}
+                      tick={{ 
+                        fontSize: 12, 
+                        fill: isDarkMode ? colours.dark.subText : colours.light.subText,
+                        fontFamily: 'Raleway, sans-serif'
+                      }}
+                      stroke={isDarkMode ? colours.dark.border : colours.light.border}
                     />
                     <YAxis 
-                      tick={{ fontSize: 12, fill: isDarkMode ? '#E2E8F0' : '#374151' }}
-                      stroke={isDarkMode ? '#64748B' : '#9CA3AF'}
+                      tick={{ 
+                        fontSize: 12, 
+                        fill: isDarkMode ? colours.dark.subText : colours.light.subText,
+                        fontFamily: 'Raleway, sans-serif'
+                      }}
+                      stroke={isDarkMode ? colours.dark.border : colours.light.border}
                     />
                     <Tooltip 
                       contentStyle={{
                         backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
                         border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                         borderRadius: '8px',
+                        fontSize: '12px',
+                        fontFamily: 'Raleway, sans-serif',
+                        boxShadow: isDarkMode 
+                          ? '0 4px 12px rgba(0, 0, 0, 0.25)' 
+                          : '0 2px 8px rgba(15, 23, 42, 0.08)'
+                      }}
+                    />
+                    <Legend 
+                      wrapperStyle={{
+                        fontFamily: 'Raleway, sans-serif',
                         fontSize: '12px'
                       }}
                     />
-                    <Legend />
-                    <Line type="monotone" dataKey="clicks" stroke={colours.highlight} strokeWidth={2} name="Clicks" />
-                    <Line type="monotone" dataKey="conversions" stroke={colours.accent} strokeWidth={2} name="Conversions" />
+                    <Line 
+                      type="monotone" 
+                      dataKey="clicks" 
+                      stroke={isDarkMode ? colours.highlight : colours.missedBlue} 
+                      strokeWidth={2} 
+                      name="Clicks"
+                      dot={{ fill: isDarkMode ? colours.highlight : colours.missedBlue, strokeWidth: 2, r: 4 }}
+                      activeDot={{ r: 6, stroke: isDarkMode ? colours.highlight : colours.missedBlue, strokeWidth: 2 }}
+                    />
+                    <Line 
+                      type="monotone" 
+                      dataKey="conversions" 
+                      stroke={isDarkMode ? '#10b981' : '#059669'} 
+                      strokeWidth={2} 
+                      name="Conversions"
+                      dot={{ fill: isDarkMode ? '#10b981' : '#059669', strokeWidth: 2, r: 4 }}
+                      activeDot={{ r: 6, stroke: isDarkMode ? '#10b981' : '#059669', strokeWidth: 2 }}
+                    />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -1928,10 +2307,14 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
               }}>
                 {adData.slice(0, 10).map((ad) => (
                   <div key={ad.adId} style={{
-                    padding: '16px',
-                    backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : 'rgba(248, 250, 252, 0.6)',
-                    borderRadius: '8px',
-                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.16)' : 'rgba(15, 23, 42, 0.04)'}`,
+                    padding: '18px',
+                    backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.8)' : 'rgba(248, 250, 252, 0.9)',
+                    borderRadius: '10px',
+                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(13, 47, 96, 0.08)'}`,
+                    boxShadow: isDarkMode 
+                      ? '0 2px 8px rgba(0, 0, 0, 0.15)' 
+                      : '0 1px 3px rgba(15, 23, 42, 0.08)',
+                    transition: 'all 0.2s ease',
                   }}>
                     <div style={{ 
                       display: 'grid',
@@ -1945,20 +2328,23 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
                           fontWeight: 600,
                           fontSize: '14px',
                           color: isDarkMode ? colours.dark.text : colours.light.text,
-                          marginBottom: '4px'
+                          marginBottom: '4px',
+                          fontFamily: 'Raleway, sans-serif'
                         }}>
                           {ad.adName}
                         </div>
                         <div style={{ 
                           fontSize: '12px',
                           color: isDarkMode ? colours.dark.subText : colours.light.subText,
-                          marginBottom: '2px'
+                          marginBottom: '2px',
+                          fontFamily: 'Raleway, sans-serif'
                         }}>
                           Campaign: {ad.campaignName}
                         </div>
                         <div style={{ 
                           fontSize: '12px',
-                          color: isDarkMode ? colours.dark.subText : colours.light.subText
+                          color: isDarkMode ? colours.dark.subText : colours.light.subText,
+                          fontFamily: 'Raleway, sans-serif'
                         }}>
                           Ad Set: {ad.adsetName}
                         </div>
@@ -1969,14 +2355,16 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
                         <div style={{ 
                           fontSize: '18px',
                           fontWeight: 700,
-                          color: colours.cta,
-                          marginBottom: '2px'
+                          color: isDarkMode ? colours.highlight : colours.missedBlue,
+                          marginBottom: '2px',
+                          fontFamily: 'Raleway, sans-serif'
                         }}>
                           {formatCurrency(ad.metrics.spend)}
                         </div>
                         <div style={{ 
                           fontSize: '11px',
-                          color: isDarkMode ? colours.dark.subText : colours.light.subText
+                          color: isDarkMode ? colours.dark.subText : colours.light.subText,
+                          fontFamily: 'Raleway, sans-serif'
                         }}>
                           Spend
                         </div>
@@ -1987,21 +2375,24 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
                         <div style={{ 
                           fontSize: '16px',
                           fontWeight: 600,
-                          color: colours.highlight,
-                          marginBottom: '2px'
+                          color: isDarkMode ? colours.highlight : colours.missedBlue,
+                          marginBottom: '2px',
+                          fontFamily: 'Raleway, sans-serif'
                         }}>
                           {formatNumber(ad.metrics.reach)}
                         </div>
                         <div style={{ 
                           fontSize: '11px',
                           color: isDarkMode ? colours.dark.subText : colours.light.subText,
-                          marginBottom: '4px'
+                          marginBottom: '4px',
+                          fontFamily: 'Raleway, sans-serif'
                         }}>
                           Reach
                         </div>
                         <div style={{ 
                           fontSize: '12px',
-                          color: isDarkMode ? colours.dark.subText : colours.light.subText
+                          color: isDarkMode ? colours.dark.subText : colours.light.subText,
+                          fontFamily: 'Raleway, sans-serif'
                         }}>
                           {formatNumber(ad.metrics.impressions)} imp
                         </div>
@@ -2012,21 +2403,24 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
                         <div style={{ 
                           fontSize: '16px',
                           fontWeight: 600,
-                          color: colours.highlight,
-                          marginBottom: '2px'
+                          color: isDarkMode ? colours.highlight : colours.missedBlue,
+                          marginBottom: '2px',
+                          fontFamily: 'Raleway, sans-serif'
                         }}>
                           {formatNumber(ad.metrics.clicks)}
                         </div>
                         <div style={{ 
                           fontSize: '11px',
                           color: isDarkMode ? colours.dark.subText : colours.light.subText,
-                          marginBottom: '4px'
+                          marginBottom: '4px',
+                          fontFamily: 'Raleway, sans-serif'
                         }}>
                           Clicks
                         </div>
                         <div style={{ 
                           fontSize: '12px',
-                          color: colours.accent
+                          color: isDarkMode ? '#10b981' : '#059669',
+                          fontFamily: 'Raleway, sans-serif'
                         }}>
                           {formatPercent(ad.metrics.ctr)} CTR
                         </div>
@@ -2037,21 +2431,24 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
                         <div style={{ 
                           fontSize: '16px',
                           fontWeight: 600,
-                          color: colours.accent,
-                          marginBottom: '2px'
+                          color: isDarkMode ? '#10b981' : '#059669',
+                          marginBottom: '2px',
+                          fontFamily: 'Raleway, sans-serif'
                         }}>
                           {ad.metrics.conversions}
                         </div>
                         <div style={{ 
                           fontSize: '11px',
                           color: isDarkMode ? colours.dark.subText : colours.light.subText,
-                          marginBottom: '4px'
+                          marginBottom: '4px',
+                          fontFamily: 'Raleway, sans-serif'
                         }}>
                           Conversions
                         </div>
                         <div style={{ 
                           fontSize: '12px',
-                          color: colours.cta
+                          color: isDarkMode ? colours.dark.subText : colours.light.subText,
+                          fontFamily: 'Raleway, sans-serif'
                         }}>
                           {ad.metrics.costPerConversion > 0 ? formatCurrency(ad.metrics.costPerConversion) : '—'} CPA
                         </div>

@@ -11,6 +11,9 @@ import {
   SpinnerSize,
   Stack,
   Icon,
+  TooltipHost,
+  DirectionalHint,
+  ITooltipProps,
 } from '@fluentui/react';
 import { initializeIcons } from '@fluentui/react/lib/Icons';
 import { useTheme } from '../../app/functionality/ThemeContext';
@@ -20,6 +23,60 @@ import './ManagementDashboard.css';
 
 // Ensure Fluent UI icons are available (fixes warnings for 'target', 'trendingup', etc.)
 initializeIcons();
+
+export interface PpcIncomePayment {
+  paymentDate: string;
+  amount: number;
+  kind?: string;
+  description?: string;
+}
+
+export interface PpcIncomeBreakdown {
+  matterId?: string;
+  displayNumber?: string;
+  clientName?: string;
+  source?: string;
+  openDate?: string;
+  totalCollected: number;
+  collectedWithin7Days: number;
+  collectedWithin30Days: number;
+  payments: PpcIncomePayment[];
+  enquiryId?: string;
+  enquiryDate?: string;
+  enquirySource?: string;
+  enquiryMoc?: string;
+}
+
+export interface PpcIncomeMetrics {
+  generatedAt: string;
+  summary: {
+    totalEnquiries: number;
+    totalMatters: number;
+    mattersWithRevenue: number;
+    totalRevenue: number;
+    revenue7d: number;
+    revenue30d: number;
+  };
+  breakdown: PpcIncomeBreakdown[];
+  unmatchedPayments?: Array<{
+    matterId?: string;
+    paymentDate?: string;
+    amount: number;
+    kind?: string;
+    description?: string;
+  }>;
+  debug?: {
+    unmatchedCount?: number;
+    matchedPaymentCount?: number;
+    candidateMatterCount?: number;
+  };
+  notes?: string[];
+}
+
+type AugmentedIncomeRow = PpcIncomeBreakdown & {
+  totalInRange?: number;
+  paymentsInRange?: PpcIncomePayment[];
+};
 
 interface GoogleAdsRow {
   date: string;
@@ -69,6 +126,7 @@ interface PpcReportProps {
   lastRefreshTimestamp?: number;
   isFetching?: boolean;
   cachedGoogleAdsData?: (GoogleAdsRow | GoogleAdsData)[] | GoogleAdsApiResponse | null;
+  ppcIncomeMetrics?: PpcIncomeMetrics | null;
 }
 
 type RangeKey = 'all' | 'today' | 'yesterday' | 'week' | 'lastWeek' | 'month' | 'lastMonth' | 'last90Days' | 'quarter' | 'yearToDate' | 'year' | 'custom';
@@ -371,8 +429,8 @@ const formatCurrency = (amount: number): string => {
 };
 
 const formatNumber = (num: number): string => {
-  if (num < 1000) return num.toString();
-  if (num < 1000000) return `${(num / 1000).toFixed(1)}k`;
+  if (num < 1000) return Math.round(num).toString();
+  if (num < 1000000) return `${Math.round(num / 1000)}k`;
   return `${(num / 1000000).toFixed(1)}m`;
 };
 
@@ -382,6 +440,43 @@ const formatFullNumber = (num: number): string => {
 
 const formatPercentage = (num: number): string => {
   return `${num.toFixed(1)}%`;
+};
+
+const formatRelativeTime = (timestamp?: number): string => {
+  if (!timestamp) {
+    return 'unknown';
+  }
+
+  const diffMs = Date.now() - timestamp;
+  if (!Number.isFinite(diffMs)) {
+    return 'unknown';
+  }
+
+  const absMs = Math.abs(diffMs);
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  const week = 7 * day;
+  const month = 30 * day;
+  const year = 365 * day;
+
+  const units: { ms: number; label: string }[] = [
+    { ms: year, label: 'y' },
+    { ms: month, label: 'mo' },
+    { ms: week, label: 'w' },
+    { ms: day, label: 'd' },
+    { ms: hour, label: 'h' },
+    { ms: minute, label: 'm' },
+  ];
+
+  for (const unit of units) {
+    if (absMs >= unit.ms) {
+      const value = Math.round(absMs / unit.ms);
+      return diffMs >= 0 ? `${value}${unit.label} ago` : `in ${value}${unit.label}`;
+    }
+  }
+
+  return 'just now';
 };
 
 const formatDateForPicker = (date?: Date | null): string => {
@@ -448,6 +543,7 @@ const PpcReport: React.FC<PpcReportProps> = ({
   lastRefreshTimestamp,
   isFetching = false,
   cachedGoogleAdsData = [],
+  ppcIncomeMetrics = null,
 }) => {
   const { isDarkMode } = useTheme();
   const [{ start: rangeStart, end: rangeEnd }, setRangeState] = useState(() => computeRange('all'));
@@ -456,11 +552,24 @@ const PpcReport: React.FC<PpcReportProps> = ({
   const [endDate, setEndDate] = useState<Date | undefined>(undefined);
   const [showPreview, setShowPreview] = useState(false);
   const [showDaily, setShowDaily] = useState(false);
+  const [showIncomePreview, setShowIncomePreview] = useState(false);
+  const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set());
+  const [expandedMatters, setExpandedMatters] = useState<Set<string>>(new Set());
+  const lastSyncLabel = useMemo(() => formatRelativeTime(lastRefreshTimestamp), [lastRefreshTimestamp]);
+
+  useEffect(() => {
+    if (ppcIncomeMetrics) {
+      debugLog('PpcReport: received PPC income metrics summary', ppcIncomeMetrics.summary);
+      if (ppcIncomeMetrics.debug?.unmatchedCount) {
+        debugLog('PpcReport: unmatched PPC payment preview', ppcIncomeMetrics.unmatchedPayments?.slice(0, 5));
+      }
+    }
+  }, [ppcIncomeMetrics]);
   
   // Ensure googleAdsData is always an array and transform the data structure
-  const [googleAdsData] = useState<GoogleAdsRow[]>(() => {
+  const googleAdsData = useMemo<GoogleAdsRow[]>(() => {
     debugLog('PpcReport: cachedGoogleAdsData received:', cachedGoogleAdsData);
-    
+
     // Unwrap if the data is nested in an API response object
     const maybeResponse = cachedGoogleAdsData as GoogleAdsApiResponse | (GoogleAdsRow | GoogleAdsData)[] | null | undefined;
     const rawArray: (GoogleAdsRow | GoogleAdsData)[] = Array.isArray(maybeResponse)
@@ -468,14 +577,14 @@ const PpcReport: React.FC<PpcReportProps> = ({
       : (maybeResponse && typeof maybeResponse === 'object' && 'data' in maybeResponse && Array.isArray((maybeResponse as GoogleAdsApiResponse).data))
         ? (maybeResponse as GoogleAdsApiResponse).data!
         : [];
-    
+
     if (!Array.isArray(rawArray)) {
       debugWarn('PpcReport: google ads data is not an array after unwrap');
       return [];
     }
-    
+
     // Transform data from GoogleAdsData to GoogleAdsRow format
-  const transformed = rawArray.map(item => {
+    const transformed = rawArray.map((item) => {
       // Handle both direct GoogleAdsRow format and nested googleAds format
       if ('googleAds' in item && item.googleAds) {
         const gadsData = item as GoogleAdsData;
@@ -490,16 +599,16 @@ const PpcReport: React.FC<PpcReportProps> = ({
           cpc: gadsData.googleAds?.cpc || 0,
           cpa: gadsData.googleAds?.cpa || 0,
         };
-      } else {
-        // Already in correct format
-        debugLog('PpcReport: using direct GoogleAdsRow format:', item);
-        return item as GoogleAdsRow;
       }
+
+      // Already in correct format
+      debugLog('PpcReport: using direct GoogleAdsRow format:', item);
+      return item as GoogleAdsRow;
     });
-    
+
     debugLog('PpcReport: transformed googleAdsData:', transformed);
     return transformed;
-  });
+  }, [cachedGoogleAdsData]);
 
   // Meta enquiry data state
   const [metaEnquiries, setMetaEnquiries] = useState<MetaEnquiry[]>([]);
@@ -677,6 +786,10 @@ const PpcReport: React.FC<PpcReportProps> = ({
     const totalCost = filteredGoogleAdsData.reduce((sum, row) => sum + (row.cost || 0), 0);
     const totalConversions = filteredGoogleAdsData.reduce((sum, row) => sum + (row.conversions || 0), 0);
     
+    // Calculate working days (days with actual spend)
+    const workingDays = filteredGoogleAdsData.filter(row => (row.cost || 0) > 0).length;
+    const effectiveDays = workingDays > 0 ? workingDays : daysBetween;
+    
     const averageCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
     const averageCpc = totalClicks > 0 ? totalCost / totalClicks : 0;
     const averageCpa = totalConversions > 0 ? totalCost / totalConversions : 0;
@@ -693,15 +806,195 @@ const PpcReport: React.FC<PpcReportProps> = ({
       averageCpa,
       conversionRate,
       roas,
-      averageImpressionsPerDay: daysBetween > 0 ? totalImpressions / daysBetween : 0,
-      averageClicksPerDay: daysBetween > 0 ? totalClicks / daysBetween : 0,
-      averageCostPerDay: daysBetween > 0 ? totalCost / daysBetween : 0,
-      averageConversionsPerDay: daysBetween > 0 ? totalConversions / daysBetween : 0,
+      averageImpressionsPerDay: effectiveDays > 0 ? totalImpressions / effectiveDays : 0,
+      averageClicksPerDay: effectiveDays > 0 ? totalClicks / effectiveDays : 0,
+      averageCostPerDay: effectiveDays > 0 ? totalCost / effectiveDays : 0,
+      averageConversionsPerDay: effectiveDays > 0 ? totalConversions / effectiveDays : 0,
+      workingDays,
     };
     
     debugLog('PpcReport: calculated summary metrics:', result);
     return result;
   }, [filteredGoogleAdsData, daysBetween]);
+
+  const performanceMetrics = useMemo(() => ([
+    {
+      key: 'impressions',
+      label: 'Impressions',
+      value: formatNumber(summaryMetrics.totalImpressions),
+      subLabel: `${formatNumber(summaryMetrics.averageImpressionsPerDay)}/day`,
+    },
+    {
+      key: 'clicks',
+      label: 'Clicks',
+      value: formatNumber(summaryMetrics.totalClicks),
+      subLabel: `${formatNumber(summaryMetrics.averageClicksPerDay)}/day`,
+    },
+    {
+      key: 'cost',
+      label: 'Cost',
+      value: formatCurrency(summaryMetrics.totalCost),
+      valueColor: colours.red,
+      subLabel: `${formatCurrency(summaryMetrics.averageCostPerDay)}/day`,
+    },
+    {
+      key: 'conversions',
+      label: 'Conversions',
+      value: formatNumber(summaryMetrics.totalConversions),
+      subLabel: `${formatPercentage(summaryMetrics.conversionRate)} rate`,
+    },
+    {
+      key: 'ctr',
+      label: 'CTR',
+      value: formatPercentage(summaryMetrics.averageCtr),
+      subLabel: 'avg',
+    },
+    {
+      key: 'cpc',
+      label: 'CPC',
+      value: formatCurrency(summaryMetrics.averageCpc),
+      subLabel: 'avg',
+    },
+    {
+      key: 'cpa',
+      label: 'CPA',
+      value: formatCurrency(summaryMetrics.averageCpa),
+      subLabel: 'avg',
+    },
+  ]), [summaryMetrics]);
+
+  const incomeRangeSummary = useMemo(() => {
+    if (!ppcIncomeMetrics) {
+      return null;
+    }
+    const start = rangeKey === 'all' ? null : new Date(activeStart.getTime());
+    if (start) {
+      start.setHours(0, 0, 0, 0);
+    }
+    const end = rangeKey === 'all' ? null : new Date(activeEnd.getTime());
+    if (end) {
+      end.setHours(23, 59, 59, 999);
+    }
+
+    const breakdown: AugmentedIncomeRow[] = ppcIncomeMetrics.breakdown.map((item) => {
+      const paymentsInRange = item.payments.filter((payment) => {
+        if (!payment.paymentDate) {
+          return false;
+        }
+        const paymentDate = new Date(payment.paymentDate);
+        if (Number.isNaN(paymentDate.getTime())) {
+          return false;
+        }
+        if (!start || !end) {
+          return true;
+        }
+        return paymentDate >= start && paymentDate <= end;
+      });
+
+      const totalInRange = paymentsInRange.reduce((sum, payment) => sum + (payment.amount || 0), 0);
+      return {
+        ...item,
+        paymentsInRange,
+        totalInRange,
+      };
+    });
+
+    const totalRevenue = breakdown.reduce((sum, item) => sum + (item.totalInRange || 0), 0);
+    const mattersWithRevenue = breakdown.filter((item) => (item.totalInRange || 0) > 0).length;
+
+    return {
+      breakdown,
+      totalRevenue,
+      mattersWithRevenue,
+    };
+  }, [ppcIncomeMetrics, rangeKey, activeStart, activeEnd]);
+
+  useEffect(() => {
+    if (incomeRangeSummary) {
+      debugLog('PpcReport: filtered PPC income summary', {
+        rangeKey,
+        totalRevenue: incomeRangeSummary.totalRevenue,
+        mattersWithRevenue: incomeRangeSummary.mattersWithRevenue,
+      });
+    }
+  }, [incomeRangeSummary, rangeKey]);
+
+  const effectiveIncomeBreakdown: AugmentedIncomeRow[] = useMemo(() => {
+    if (incomeRangeSummary?.breakdown) {
+      return incomeRangeSummary.breakdown;
+    }
+    if (ppcIncomeMetrics?.breakdown) {
+      return ppcIncomeMetrics.breakdown;
+    }
+    return [];
+  }, [incomeRangeSummary, ppcIncomeMetrics]);
+
+  const topIncomeRows = useMemo(() => {
+    return [...effectiveIncomeBreakdown]
+      .sort((a, b) => {
+        const aTotal = typeof a.totalInRange === 'number' ? a.totalInRange : a.totalCollected;
+        const bTotal = typeof b.totalInRange === 'number' ? b.totalInRange : b.totalCollected;
+        return bTotal - aTotal;
+      })
+      .slice(0, 5);
+  }, [effectiveIncomeBreakdown]);
+
+  const allTimeTooltipContent = useMemo(() => {
+    if (!ppcIncomeMetrics) {
+      return null;
+    }
+    const { summary } = ppcIncomeMetrics;
+    return (
+      <div
+        style={{
+          padding: '10px 12px',
+          borderRadius: 8,
+          background: isDarkMode ? 'rgba(15, 23, 42, 0.9)' : '#ffffff',
+          boxShadow: isDarkMode
+            ? '0 6px 18px rgba(0, 0, 0, 0.35)'
+            : '0 8px 24px rgba(15, 23, 42, 0.12)',
+          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.28)' : 'rgba(148, 163, 184, 0.18)'}`,
+          maxWidth: 260,
+          fontSize: 11.5,
+          color: isDarkMode ? '#E2E8F0' : colours.missedBlue,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 6,
+        }}
+      >
+        <span style={{ fontWeight: 600 }}>
+          All-time • {summary.mattersWithRevenue}/{summary.totalMatters} matters with revenue
+        </span>
+        <span>
+          All-time {formatCurrency(summary.totalRevenue)} • ≤7d {formatCurrency(summary.revenue7d)} • ≤30d {formatCurrency(summary.revenue30d)}
+        </span>
+      </div>
+    );
+  }, [ppcIncomeMetrics, isDarkMode]);
+
+  const allTimeTooltipProps = useMemo<ITooltipProps | undefined>(() => {
+    if (!allTimeTooltipContent) {
+      return undefined;
+    }
+    return {
+      directionalHint: DirectionalHint.bottomCenter,
+      onRenderContent: () => allTimeTooltipContent,
+      calloutProps: {
+        isBeakVisible: false,
+        gapSpace: 8,
+        setInitialFocus: false,
+      },
+    };
+  }, [allTimeTooltipContent]);
+
+  const selectedRangeRevenue = incomeRangeSummary?.totalRevenue ?? ppcIncomeMetrics?.summary.totalRevenue ?? 0;
+  const selectedMattersWithRevenue = incomeRangeSummary?.mattersWithRevenue ?? ppcIncomeMetrics?.summary.mattersWithRevenue ?? 0;
+  const totalMattersTracked = ppcIncomeMetrics?.summary.totalMatters ?? 0;
+  const totalIncomeAllTime = ppcIncomeMetrics?.summary.totalRevenue ?? 0;
+  const incomeWithin7Days = ppcIncomeMetrics?.summary.revenue7d ?? 0;
+  const incomeWithin30Days = ppcIncomeMetrics?.summary.revenue30d ?? 0;
+  const roasActual = summaryMetrics.totalCost > 0 ? selectedRangeRevenue / summaryMetrics.totalCost : 0;
+  const unmatchedCount = ppcIncomeMetrics?.debug?.unmatchedCount ?? ppcIncomeMetrics?.unmatchedPayments?.length ?? 0;
 
   const isCustomRange = rangeKey === 'custom';
   const activePresetKey = rangeKey !== 'custom' ? rangeKey : null;
@@ -753,21 +1046,15 @@ const PpcReport: React.FC<PpcReportProps> = ({
           </div>
           <div style={{ flex: 1, minWidth: 0 }} />
           <div style={{
-            display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+            display: 'flex', alignItems: 'center',
             fontSize: 11, opacity: 0.75
           }}>
-            <div style={{
-              padding: '2px 6px', borderRadius: 4,
-              background: '#10b981', color: 'white', fontWeight: 600, fontSize: 10
-            }}>
-              LIVE
-            </div>
-            <span style={{ opacity: 0.8 }}>sync {Math.floor(daysBetween / 7)}w ago</span>
+            <span style={{ opacity: 0.8 }}>sync {lastSyncLabel}</span>
           </div>
         </div>
       </div>
 
-      <div className="filter-toolbar">
+  <div className="filter-toolbar" style={{ marginBottom: 28 }}>
         <div className="filter-toolbar__top">
           <div className="filter-toolbar__date-inputs">
             {isCustomRange ? (
@@ -865,68 +1152,9 @@ const PpcReport: React.FC<PpcReportProps> = ({
                 disabled={isFetching}
                 styles={subtleActionButtonStyles(isDarkMode)}
               />
-              {googleAdsData && googleAdsData.length > 0 && (
-                <DefaultButton
-                  text={showPreview ? 'Hide preview' : 'Preview data'}
-                  iconProps={{ iconName: showPreview ? 'Hide3' : 'View' }}
-                  onClick={() => setShowPreview(v => !v)}
-                  styles={subtleActionButtonStyles(isDarkMode)}
-                />
-              )}
-              {/* Daily breakdown toggle moved to collapsible card header below */}
             </div>
           </div>
         </div>
-        {showPreview && (
-          <div style={{
-            marginTop: 8,
-            padding: 12,
-            borderRadius: 8,
-            background: isDarkMode ? 'rgba(15,23,42,0.6)' : 'rgba(248,250,252,0.85)',
-            border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.22)' : 'rgba(148,163,184,0.18)'}`,
-          }}>
-            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 12, opacity: 0.9, marginBottom: 8 }}>
-              <div>
-                <span style={{ opacity: 0.7 }}>Rows (all): </span>
-                <strong>{googleAdsData.length}</strong>
-              </div>
-              <div>
-                <span style={{ opacity: 0.7 }}>Rows (filtered): </span>
-                <strong>{filteredGoogleAdsData.length}</strong>
-              </div>
-              {googleAdsData.length > 0 && (
-                <div>
-                  <span style={{ opacity: 0.7 }}>Dates: </span>
-                  {(() => {
-                    const dates = googleAdsData
-                      .map(r => new Date(r.date))
-                      .sort((a, b) => a.getTime() - b.getTime());
-                    const first = dates[0]?.toLocaleDateString('en-GB');
-                    const last = dates[dates.length - 1]?.toLocaleDateString('en-GB');
-                    return <strong>{first} → {last}</strong>;
-                  })()}
-                </div>
-              )}
-            </div>
-            <div style={{ fontSize: 11, opacity: 0.9 }}>
-              <div style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Icon iconName="Info" />
-                <span>Sample rows (first {Math.min(5, filteredGoogleAdsData.length || 5)}):</span>
-              </div>
-              <pre style={{
-                margin: 0,
-                maxHeight: 180,
-                overflow: 'auto',
-                padding: 8,
-                background: isDarkMode ? 'rgba(2,6,23,0.5)' : 'rgba(255,255,255,0.8)',
-                border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.18)' : 'rgba(148,163,184,0.16)'}`,
-                borderRadius: 6,
-              }}>
-{JSON.stringify(filteredGoogleAdsData.slice(0, 5), null, 2)}
-              </pre>
-            </div>
-          </div>
-        )}
 
         <div className="filter-toolbar__middle">
           <div className="filter-toolbar__presets">
@@ -989,81 +1217,100 @@ const PpcReport: React.FC<PpcReportProps> = ({
       }}>
         <div style={summaryChipStyle(isDarkMode)}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: 0.8 }}>
-            <Icon iconName="Money" style={{ fontSize: 16 }} />
-            <span style={{ fontSize: 14, fontWeight: 600 }}>Total Ad Spend</span>
+            <span style={{ fontSize: 14, fontWeight: 600 }}>Ad Spend</span>
           </div>
-          <span style={{ fontSize: 32, fontWeight: 700, color: '#ef4444' }}>
+          <span style={{ fontSize: 32, fontWeight: 700, color: colours.red }}>
             {formatCurrency(summaryMetrics.totalCost)}
           </span>
           <span style={{ fontSize: 12, opacity: 0.6 }}>
-            {formatCurrency(summaryMetrics.averageCostPerDay)}/day avg • {Math.round(summaryMetrics.totalConversions)} conversions
+            {formatCurrency(summaryMetrics.averageCostPerDay)}/day avg across {summaryMetrics.workingDays} working {summaryMetrics.workingDays === 1 ? 'day' : 'days'}
           </span>
         </div>
 
         <div style={summaryChipStyle(isDarkMode)}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: 0.8 }}>
             <Icon iconName="TrendingUp" style={{ fontSize: 16 }} />
-            <span style={{ fontSize: 14, fontWeight: 600 }}>Revenue Tracking</span>
+            <span style={{ fontSize: 14, fontWeight: 600 }}>Income</span>
           </div>
-          <span style={{ fontSize: 24, fontWeight: 400, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
-            Not Configured
-          </span>
-          <span style={{ fontSize: 12, opacity: 0.6 }}>
-            Connect revenue data to track actual income vs spend
-          </span>
+          {ppcIncomeMetrics === null ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 80 }}>
+              <Spinner size={SpinnerSize.medium} label="Loading income data..." labelPosition="bottom" />
+            </div>
+          ) : ppcIncomeMetrics ? (
+            <>
+              <span style={{ fontSize: 32, fontWeight: 700, color: colours.highlight }}>
+                {formatCurrency(selectedRangeRevenue)}
+              </span>
+              <span style={{ fontSize: 12, opacity: 0.65 }}>
+                {rangeKey === 'all' ? 'All-time' : 'Selected range'} • {selectedMattersWithRevenue}/{totalMattersTracked} matters with revenue
+              </span>
+            </>
+          ) : (
+            <>
+              <span style={{ fontSize: 24, fontWeight: 400, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                No Data
+              </span>
+              <span style={{ fontSize: 12, opacity: 0.6 }}>
+                Revenue tracking unavailable
+              </span>
+            </>
+          )}
         </div>
       </div>
 
-      {/* Supporting Metrics Table */}
+      {/* Compact Metrics Banner */}
       <div style={{
         background: isDarkMode
           ? 'rgba(15, 23, 42, 0.4)'
           : 'rgba(248, 250, 252, 0.6)',
         border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)'}`,
         borderRadius: 8,
-        padding: 16,
+        padding: '14px 18px',
         marginBottom: 32
       }}>
-        <div style={{ 
-          fontSize: 12, 
-          fontWeight: 600, 
-          opacity: 0.8, 
-          marginBottom: 12,
-          color: isDarkMode ? '#E2E8F0' : colours.missedBlue
-        }}>
-          Performance Overview
-        </div>
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-          gap: 16,
-          fontSize: 11
-        }}>
-          <div>
-            <div style={{ opacity: 0.7, marginBottom: 4 }}>Impressions</div>
-            <div style={{ fontWeight: 700, fontSize: 14 }}>{formatNumber(summaryMetrics.totalImpressions)}</div>
-            <div style={{ opacity: 0.6, fontSize: 10 }}>{formatNumber(summaryMetrics.averageImpressionsPerDay)}/day</div>
-          </div>
-          <div>
-            <div style={{ opacity: 0.7, marginBottom: 4 }}>Clicks</div>
-            <div style={{ fontWeight: 700, fontSize: 14, color: colours.highlight }}>{formatNumber(summaryMetrics.totalClicks)}</div>
-            <div style={{ opacity: 0.6, fontSize: 10 }}>{formatNumber(summaryMetrics.averageClicksPerDay)}/day</div>
-          </div>
-          <div>
-            <div style={{ opacity: 0.7, marginBottom: 4 }}>Click-through Rate</div>
-            <div style={{ fontWeight: 700, fontSize: 14 }}>{formatPercentage(summaryMetrics.averageCtr)}</div>
-            <div style={{ opacity: 0.6, fontSize: 10 }}>average CTR</div>
-          </div>
-          <div>
-            <div style={{ opacity: 0.7, marginBottom: 4 }}>Cost per Click</div>
-            <div style={{ fontWeight: 700, fontSize: 14 }}>{formatCurrency(summaryMetrics.averageCpc)}</div>
-            <div style={{ opacity: 0.6, fontSize: 10 }}>average CPC</div>
-          </div>
-          <div>
-            <div style={{ opacity: 0.7, marginBottom: 4 }}>Conversion Rate</div>
-            <div style={{ fontWeight: 700, fontSize: 14 }}>{formatPercentage(summaryMetrics.conversionRate)}</div>
-            <div style={{ opacity: 0.6, fontSize: 10 }}>of clicks convert</div>
-          </div>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '110px 90px 95px 95px',
+            columnGap: 24,
+            rowGap: 16,
+          }}
+        >
+          {performanceMetrics.map((metric, index) => {
+            const isEndOfRow = (index % 4) === 3;
+            const showDivider = !isEndOfRow && (index < performanceMetrics.length - 1);
+            return (
+              <div
+                key={metric.key}
+                style={{
+                  position: 'relative',
+                  paddingRight: showDivider ? 12 : 0,
+                }}
+              >
+                <div style={{ opacity: 0.6, fontSize: 9, marginBottom: 3, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  {metric.label}
+                </div>
+                <div style={{ fontWeight: 700, fontSize: 15, color: metric.valueColor }}>
+                  {metric.value}
+                </div>
+                <div style={{ opacity: 0.5, fontSize: 9 }}>
+                  {metric.subLabel}
+                </div>
+                {showDivider && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      right: -12,
+                      top: 0,
+                      width: 1,
+                      height: 36,
+                      background: isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(148,163,184,0.15)',
+                    }}
+                  />
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -1124,6 +1371,27 @@ const PpcReport: React.FC<PpcReportProps> = ({
         </div>
 
         {showDaily && (() => {
+          // Build a map of daily income from effective breakdown
+          const dailyIncomeMap = new Map<string, number>();
+          if (effectiveIncomeBreakdown && effectiveIncomeBreakdown.length > 0) {
+            effectiveIncomeBreakdown.forEach((item) => {
+              const paymentsToAggregate = Array.isArray(item.paymentsInRange) && item.paymentsInRange.length > 0
+                ? item.paymentsInRange
+                : item.payments;
+              
+              paymentsToAggregate.forEach((payment) => {
+                if (payment.paymentDate && payment.amount) {
+                  const paymentDate = new Date(payment.paymentDate);
+                  if (!Number.isNaN(paymentDate.getTime())) {
+                    const dateKey = paymentDate.toISOString().split('T')[0];
+                    const current = dailyIncomeMap.get(dateKey) || 0;
+                    dailyIncomeMap.set(dateKey, current + payment.amount);
+                  }
+                }
+              });
+            });
+          }
+
           // Create day groups combining Google Ads data and Meta enquiries
           const dayGroupsMap = new Map<string, { 
             date: string; 
@@ -1163,6 +1431,7 @@ const PpcReport: React.FC<PpcReportProps> = ({
               {dayGroups.map((dayGroup, index) => {
                 const row = dayGroup.googleAds;
                 const metaEnquiryCount = dayGroup.metaEnquiries.reduce((sum, e) => sum + (e.enquiries || 0), 0);
+                const dayIncome = dailyIncomeMap.get(dayGroup.date) || 0;
                 const formattedDate = new Date(dayGroup.date).toLocaleDateString('en-GB', { 
                   day: '2-digit', 
                   month: 'short',
@@ -1199,58 +1468,364 @@ const PpcReport: React.FC<PpcReportProps> = ({
                         <span>{formattedDate}</span>
                         <span style={{ opacity: 0.6, fontSize: 11 }}>({weekday})</span>
                       </div>
-                      {metaEnquiryCount > 0 && (
-                        <div style={{
-                          background: colours.highlight,
-                          color: 'white',
-                          padding: '2px 8px',
-                          borderRadius: 12,
-                          fontSize: 10,
-                          fontWeight: 600
-                        }}>
-                          {metaEnquiryCount} Meta {metaEnquiryCount === 1 ? 'Enquiry' : 'Enquiries'}
-                        </div>
-                      )}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {dayIncome > 0 && (
+                          <div style={{
+                            background: isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                            border: `1.5px solid ${isDarkMode ? colours.green : colours.highlight}`,
+                            color: isDarkMode ? colours.green : colours.highlight,
+                            padding: '4px 12px',
+                            borderRadius: 14,
+                            fontSize: 11,
+                            fontWeight: 700,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 5,
+                            boxShadow: isDarkMode 
+                              ? '0 2px 6px rgba(32, 178, 108, 0.2)' 
+                              : '0 2px 6px rgba(54, 144, 206, 0.15)'
+                          }}>
+                            <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: 0.3, opacity: 0.9 }}>INCOME</span>
+                            <span style={{ fontSize: 12, fontWeight: 700 }}>{formatCurrency(dayIncome)}</span>
+                          </div>
+                        )}
+                        {metaEnquiryCount > 0 && (
+                          <div style={{
+                            background: isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)',
+                            color: isDarkMode ? '#E2E8F0' : colours.missedBlue,
+                            padding: '2px 8px',
+                            borderRadius: 12,
+                            fontSize: 10,
+                            fontWeight: 600
+                          }}>
+                            {metaEnquiryCount} Meta {metaEnquiryCount === 1 ? 'Enquiry' : 'Enquiries'}
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     {/* Content */}
                     <div style={{ padding: '12px 16px' }}>
                       {row ? (
-                        <div style={{ 
-                          display: 'grid',
-                          gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
-                          gap: 12,
-                          fontSize: 12
-                        }}>
-                          <div>
-                            <div style={{ opacity: 0.6, fontSize: 10, marginBottom: 2 }}>Impressions</div>
-                            <div style={{ fontWeight: 600 }}>{formatFullNumber(row.impressions || 0)}</div>
-                          </div>
-                          <div>
-                            <div style={{ opacity: 0.6, fontSize: 10, marginBottom: 2 }}>Clicks</div>
-                            <div style={{ fontWeight: 600, color: colours.highlight }}>{row.clicks || 0}</div>
-                          </div>
-                          <div>
-                            <div style={{ opacity: 0.6, fontSize: 10, marginBottom: 2 }}>Cost</div>
-                            <div style={{ fontWeight: 600, color: '#ef4444' }}>{formatCurrency(row.cost || 0)}</div>
-                          </div>
-                          <div>
-                            <div style={{ opacity: 0.6, fontSize: 10, marginBottom: 2 }}>Conversions</div>
-                            <div style={{ fontWeight: 600, color: colours.highlight }}>{Math.round(row.conversions || 0)}</div>
-                          </div>
-                          <div>
-                            <div style={{ opacity: 0.6, fontSize: 10, marginBottom: 2 }}>CTR</div>
-                            <div style={{ fontWeight: 600 }}>{formatPercentage(row.ctr || 0)}</div>
-                          </div>
-                          <div>
-                            <div style={{ opacity: 0.6, fontSize: 10, marginBottom: 2 }}>CPC</div>
-                            <div style={{ fontWeight: 600 }}>{formatCurrency(row.cpc || 0)}</div>
-                          </div>
-                          <div>
-                            <div style={{ opacity: 0.6, fontSize: 10, marginBottom: 2 }}>CPA</div>
-                            <div style={{ fontWeight: 600 }}>{row.cpa && row.cpa > 0 ? formatCurrency(row.cpa) : '—'}</div>
-                          </div>
-                        </div>
+                        <>
+                          {(() => {
+                            const dayMetrics = [
+                              {
+                                key: 'impressions',
+                                label: 'Impressions',
+                                value: formatFullNumber(row.impressions || 0),
+                              },
+                              {
+                                key: 'clicks',
+                                label: 'Clicks',
+                                value: formatFullNumber(row.clicks || 0),
+                              },
+                              {
+                                key: 'cost',
+                                label: 'Cost',
+                                value: formatCurrency(row.cost || 0),
+                                valueColor: colours.red,
+                              },
+                              {
+                                key: 'conversions',
+                                label: 'Conversions',
+                                value: formatFullNumber(Math.round(row.conversions || 0)),
+                              },
+                              {
+                                key: 'ctr',
+                                label: 'CTR',
+                                value: formatPercentage(row.ctr || 0),
+                              },
+                              {
+                                key: 'cpc',
+                                label: 'CPC',
+                                value: formatCurrency(row.cpc || 0),
+                              },
+                              {
+                                key: 'cpa',
+                                label: 'CPA',
+                                value: row.cpa && row.cpa > 0 ? formatCurrency(row.cpa) : '—',
+                              },
+                            ];
+
+                            return (
+                              <div
+                                style={{
+                                  display: 'grid',
+                                  gridTemplateColumns: '110px 90px 95px 95px',
+                                  columnGap: 24,
+                                  rowGap: 12,
+                                  fontSize: 12,
+                                  marginBottom: expandedDays.has(dayGroup.date) ? 16 : 0,
+                                }}
+                              >
+                                {dayMetrics.map((metric, metricIndex) => {
+                                  const isEndOfRow = (metricIndex % 4) === 3;
+                                  const showDivider = !isEndOfRow && (metricIndex < dayMetrics.length - 1);
+                                  return (
+                                    <div
+                                      key={metric.key}
+                                      style={{
+                                        position: 'relative',
+                                        paddingRight: showDivider ? 12 : 0,
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: 2,
+                                      }}
+                                    >
+                                      <div style={{ opacity: 0.7, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                                        {metric.label}
+                                      </div>
+                                      <div style={{ fontWeight: 600, color: metric.valueColor }}>
+                                        {metric.value}
+                                      </div>
+                                      {showDivider && (
+                                        <div
+                                          style={{
+                                            position: 'absolute',
+                                            right: -12,
+                                            top: 0,
+                                            width: 1,
+                                            height: 32,
+                                            background: isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(148,163,184,0.15)',
+                                          }}
+                                        />
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })()}
+
+                          {/* Expandable income breakdown */}
+                          {dayIncome > 0 && (
+                            <>
+                              <div style={{
+                                marginTop: 12,
+                                paddingTop: 12,
+                                borderTop: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.12)' : 'rgba(13,47,96,0.06)'}`,
+                              }}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const newExpanded = new Set(expandedDays);
+                                    if (newExpanded.has(dayGroup.date)) {
+                                      newExpanded.delete(dayGroup.date);
+                                    } else {
+                                      newExpanded.add(dayGroup.date);
+                                    }
+                                    setExpandedDays(newExpanded);
+                                  }}
+                                  style={{
+                                    width: '100%',
+                                    padding: '10px 14px',
+                                    borderRadius: 8,
+                                    background: isDarkMode ? 'rgba(32, 178, 108, 0.08)' : 'rgba(54, 144, 206, 0.06)',
+                                    border: `1.5px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.25)' : 'rgba(54, 144, 206, 0.25)'}`,
+                                    color: isDarkMode ? colours.green : colours.highlight,
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    transition: 'all 0.2s ease',
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.background = isDarkMode ? 'rgba(32, 178, 108, 0.14)' : 'rgba(54, 144, 206, 0.12)';
+                                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(54, 144, 206, 0.35)';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.background = isDarkMode ? 'rgba(32, 178, 108, 0.08)' : 'rgba(54, 144, 206, 0.06)';
+                                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(32, 178, 108, 0.25)' : 'rgba(54, 144, 206, 0.25)';
+                                  }}
+                                >
+                                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <Icon iconName="BulletedList" style={{ fontSize: 14 }} />
+                                    <span>Income Breakdown</span>
+                                    <span style={{ 
+                                      fontSize: 10, 
+                                      fontWeight: 600, 
+                                      opacity: 0.8,
+                                      padding: '2px 6px',
+                                      borderRadius: 4,
+                                      background: isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(54, 144, 206, 0.15)',
+                                    }}>
+                                      {(() => {
+                                        const dayMatters = effectiveIncomeBreakdown.filter((item) => {
+                                          const paymentsToCheck = Array.isArray(item.paymentsInRange) && item.paymentsInRange.length > 0
+                                            ? item.paymentsInRange
+                                            : item.payments;
+                                          return paymentsToCheck.some((payment) => {
+                                            if (!payment.paymentDate) return false;
+                                            const paymentDate = new Date(payment.paymentDate);
+                                            if (Number.isNaN(paymentDate.getTime())) return false;
+                                            const paymentDateKey = paymentDate.toISOString().split('T')[0];
+                                            return paymentDateKey === dayGroup.date;
+                                          });
+                                        });
+                                        return `${dayMatters.length} ${dayMatters.length === 1 ? 'matter' : 'matters'}`;
+                                      })()}
+                                    </span>
+                                  </span>
+                                  <Icon iconName={expandedDays.has(dayGroup.date) ? 'ChevronUp' : 'ChevronDown'} style={{ fontSize: 14 }} />
+                                </button>
+                              </div>
+
+                              {expandedDays.has(dayGroup.date) && (() => {
+                                // Filter matters with payments on this day
+                                const dayMatters = effectiveIncomeBreakdown
+                                  .map((item) => {
+                                    const paymentsToCheck = Array.isArray(item.paymentsInRange) && item.paymentsInRange.length > 0
+                                      ? item.paymentsInRange
+                                      : item.payments;
+                                    const dayPayments = paymentsToCheck.filter((payment) => {
+                                      if (!payment.paymentDate) return false;
+                                      const paymentDate = new Date(payment.paymentDate);
+                                      if (Number.isNaN(paymentDate.getTime())) return false;
+                                      const paymentDateKey = paymentDate.toISOString().split('T')[0];
+                                      return paymentDateKey === dayGroup.date;
+                                    });
+                                    if (dayPayments.length === 0) return null;
+                                    const dayTotal = dayPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+                                    return {
+                                      ...item,
+                                      dayPayments,
+                                      dayTotal,
+                                    };
+                                  })
+                                  .filter(Boolean)
+                                  .sort((a, b) => (b?.dayTotal || 0) - (a?.dayTotal || 0));
+
+                                return (
+                                  <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                    {dayMatters.map((matter, idx) => {
+                                      if (!matter) return null;
+                                      const matterKey = `${dayGroup.date}-${matter.matterId || matter.displayNumber || matter.clientName || matter.enquiryId || `matter-${idx}`}`;
+                                      const isExpanded = expandedMatters.has(matterKey);
+                                      
+                                      return (
+                                        <div
+                                          key={matterKey}
+                                          style={{
+                                            borderRadius: 6,
+                                            background: isDarkMode ? 'rgba(15,23,42,0.5)' : 'rgba(255,255,255,0.9)',
+                                            border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.22)' : 'rgba(148,163,184,0.18)'}`,
+                                            overflow: 'hidden',
+                                          }}
+                                        >
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const newExpanded = new Set(expandedMatters);
+                                              if (newExpanded.has(matterKey)) {
+                                                newExpanded.delete(matterKey);
+                                              } else {
+                                                newExpanded.add(matterKey);
+                                              }
+                                              setExpandedMatters(newExpanded);
+                                            }}
+                                            style={{
+                                              width: '100%',
+                                              padding: '10px 12px',
+                                              background: 'transparent',
+                                              border: 'none',
+                                              cursor: 'pointer',
+                                              display: 'flex',
+                                              justifyContent: 'space-between',
+                                              alignItems: 'center',
+                                              gap: 12,
+                                              textAlign: 'left',
+                                              transition: 'background 0.15s ease',
+                                            }}
+                                            onMouseEnter={(e) => {
+                                              e.currentTarget.style.background = isDarkMode ? 'rgba(148,163,184,0.04)' : 'rgba(148,163,184,0.03)';
+                                            }}
+                                            onMouseLeave={(e) => {
+                                              e.currentTarget.style.background = 'transparent';
+                                            }}
+                                          >
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                              <div style={{ fontWeight: 600, fontSize: 13 }}>
+                                                {matter.displayNumber || matter.matterId || 'Matter'}
+                                              </div>
+                                              {matter.clientName && (
+                                                <div style={{ opacity: 0.6, marginTop: 2, fontSize: 11, fontWeight: 500 }}>
+                                                  {matter.clientName}
+                                                </div>
+                                              )}
+                                            </div>
+                                            <div style={{ 
+                                              display: 'flex', 
+                                              alignItems: 'center', 
+                                              gap: 10,
+                                              flexShrink: 0,
+                                            }}>
+                                              <div style={{ fontWeight: 700, color: isDarkMode ? colours.green : colours.highlight, fontSize: 14 }}>
+                                                {formatCurrency(matter.dayTotal)}
+                                              </div>
+                                              {matter.dayPayments.length > 1 && (
+                                                <>
+                                                  <div style={{ 
+                                                    fontSize: 10, 
+                                                    fontWeight: 600, 
+                                                    opacity: 0.6,
+                                                    padding: '2px 5px',
+                                                    borderRadius: 3,
+                                                    background: isDarkMode ? 'rgba(148,163,184,0.12)' : 'rgba(148,163,184,0.08)',
+                                                  }}>
+                                                    {matter.dayPayments.length}
+                                                  </div>
+                                                  <Icon 
+                                                    iconName={isExpanded ? 'ChevronUp' : 'ChevronDown'} 
+                                                    style={{ fontSize: 12, opacity: 0.5 }} 
+                                                  />
+                                                </>
+                                              )}
+                                            </div>
+                                          </button>
+                                          
+                                          {isExpanded && matter.dayPayments.length > 0 && (
+                                            <div style={{ 
+                                              padding: '0 12px 10px 12px',
+                                              borderTop: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.1)' : 'rgba(148,163,184,0.08)'}`,
+                                            }}>
+                                              <div style={{ 
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                gap: 6,
+                                                marginTop: 8,
+                                              }}>
+                                                {matter.dayPayments.map((payment, pidx) => (
+                                                  <div key={pidx} style={{ 
+                                                    fontSize: 11, 
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                    alignItems: 'flex-start',
+                                                    gap: 12,
+                                                    paddingLeft: 8,
+                                                  }}>
+                                                    <div style={{ opacity: 0.7, flex: 1 }}>
+                                                      {payment.description || 'Payment'}
+                                                    </div>
+                                                    <div style={{ fontWeight: 600, opacity: 0.85, whiteSpace: 'nowrap' }}>
+                                                      {formatCurrency(payment.amount)}
+                                                    </div>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                );
+                              })()}
+                            </>
+                          )}
+                        </>
                       ) : (
                         <div style={{ 
                           opacity: 0.6, 

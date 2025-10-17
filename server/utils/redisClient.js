@@ -240,16 +240,30 @@ async function performRedisConnection() {
 }
 
 /**
- * Generate cache key with namespace
+ * Generate cache key with namespace and secure hashing for sensitive data
  * @param {string} prefix - Cache prefix (hc, inst, clio, unified)
  * @param {string} type - Data type (enquiries, matters, contacts)
  * @param {Array} params - Parameters for cache key
- * @returns {string} Formatted cache key
+ * @returns {string} Formatted cache key with hashed sensitive data
  */
 function generateCacheKey(prefix, type, ...params) {
+  const crypto = require('crypto');
+  
   const cleanParams = params
     .filter(p => p !== null && p !== undefined && p !== '')
-    .map(p => String(p).toLowerCase().replace(/[^a-z0-9]/g, '-'));
+    .map(p => {
+      const param = String(p);
+      
+      // Hash email lists and other potentially sensitive data
+      if (param.includes('@') || param.includes(',')) {
+        // This looks like an email list or sensitive data - hash it
+        const hash = crypto.createHash('sha256').update(param).digest('hex');
+        return `h-${hash.substring(0, 16)}`; // Use first 16 chars of hash with prefix
+      }
+      
+      // For non-sensitive data, clean normally
+      return param.toLowerCase().replace(/[^a-z0-9]/g, '-');
+    });
   
   return `${prefix}:${type}:${cleanParams.join(':')}`;
 }
@@ -263,13 +277,15 @@ async function getCache(key) {
   try {
     const client = await initRedisClient();
     if (!client || !isConnected) {
-      console.log(`⚠️  Redis client unavailable for key: ${key}`);
+      const maskedKey = maskCacheKeyForLogging(key);
+      console.log(`⚠️  Redis client unavailable for key: ${maskedKey}`);
       return null;
     }
 
     const data = await client.get(key);
     if (!data) {
-      console.log(`🚫 Cache MISS: ${key} (key not found)`);
+      const maskedKey = maskCacheKeyForLogging(key);
+      console.log(`🚫 Cache MISS: ${maskedKey} (key not found)`);
       return null;
     }
 
@@ -277,7 +293,8 @@ async function getCache(key) {
     return parsed;
 
   } catch (error) {
-    console.error(`❌ Cache GET error for key ${key}:`, error);
+    const maskedKey = maskCacheKeyForLogging(key);
+    console.error(`❌ Cache GET error for key ${maskedKey}:`, error);
     return null;
   }
 }
@@ -301,11 +318,13 @@ async function setCache(key, data, ttl = CACHE_CONFIG.TTL.UNIFIED) {
     });
 
     await client.setEx(key, ttl, serialized);
-    console.log(`💾 Cache SET: ${key} (TTL: ${ttl}s)`);
+    const maskedKey = maskCacheKeyForLogging(key);
+    console.log(`💾 Cache SET: ${maskedKey} (TTL: ${ttl}s)`);
     return true;
 
   } catch (error) {
-    console.error(`❌ Cache SET error for key ${key}:`, error);
+    const maskedKey = maskCacheKeyForLogging(key);
+    console.error(`❌ Cache SET error for key ${maskedKey}:`, error);
     return false;
   }
 }
@@ -355,6 +374,21 @@ async function deleteCachePattern(pattern) {
 }
 
 /**
+ * Safely mask sensitive parts of cache keys for logging
+ * @param {string} key - Cache key to mask
+ * @returns {string} Masked cache key safe for logging
+ */
+function maskCacheKeyForLogging(key) {
+  // If the key contains hashed data (h- prefix), it's already safe
+  if (key.includes(':h-')) {
+    return key;
+  }
+  
+  // For other keys, mask any parts that might contain sensitive data
+  return key.replace(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g, '***@***');
+}
+
+/**
  * Cache wrapper for database queries
  * @param {string} cacheKey - Cache key
  * @param {Function} queryFunction - Function that returns data
@@ -364,26 +398,27 @@ async function deleteCachePattern(pattern) {
 async function cacheWrapper(cacheKey, queryFunction, ttl = CACHE_CONFIG.TTL.UNIFIED) {
   try {
     // Try cache first
-    console.log(`🔍 Checking cache for key: ${cacheKey}`);
+    const maskedKey = maskCacheKeyForLogging(cacheKey);
+    console.log(`🔍 Checking cache for key: ${maskedKey}`);
     const cached = await getCache(cacheKey);
     if (cached && Object.prototype.hasOwnProperty.call(cached, 'data')) {
-      console.log(`📦 Cache HIT: ${cacheKey}`);
+      console.log(`📦 Cache HIT: ${maskedKey}`);
       return cached.data; // preserve original shape
     }
 
     // Cache miss - de-dupe concurrent fetches for this key
-    console.log(`🌐 Cache MISS: ${cacheKey}`);
+    console.log(`🌐 Cache MISS: ${maskedKey}`);
     if (inflightCache.has(cacheKey)) {
-      console.log(`🔁 Awaiting in-flight fetch for key: ${cacheKey}`);
+      console.log(`🔁 Awaiting in-flight fetch for key: ${maskedKey}`);
       return await inflightCache.get(cacheKey);
     }
     const inFlight = (async () => {
       try {
-        console.log(`🚀 Executing query for key: ${cacheKey}`);
+        console.log(`🚀 Executing query for key: ${maskedKey}`);
         const freshData = await queryFunction();
         const cacheSuccess = await setCache(cacheKey, freshData, ttl);
         if (!cacheSuccess) {
-          console.warn(`⚠️  Failed to cache result for key: ${cacheKey}`);
+          console.warn(`⚠️  Failed to cache result for key: ${maskedKey}`);
         }
         return freshData;
       } finally {
@@ -393,7 +428,8 @@ async function cacheWrapper(cacheKey, queryFunction, ttl = CACHE_CONFIG.TTL.UNIF
     inflightCache.set(cacheKey, inFlight);
     return await inFlight;
   } catch (error) {
-    console.error(`❌ Cache wrapper error for key ${cacheKey}:`, error);
+    const maskedKey = maskCacheKeyForLogging(cacheKey);
+    console.error(`❌ Cache wrapper error for key ${maskedKey}:`, error);
     // Fall back to executing query without cache
     console.log(`🔄 Falling back to direct query execution`);
     const freshData = await queryFunction();
@@ -435,6 +471,7 @@ module.exports = {
   initRedisClient,
   getRedisClient,
   generateCacheKey,
+  maskCacheKeyForLogging,
   getCache,
   setCache,
   deleteCache,

@@ -18,9 +18,12 @@ import MetaMetricsReport from './MetaMetricsReport';
 import SeoReport from './SeoReport';
 import PpcReport from './PpcReport';
 import { debugLog, debugWarn } from '../../utils/debug';
+import { getNormalizedEnquirySource } from '../../utils/enquirySource';
 import HomePreview from './HomePreview';
 import EnquiriesReport, { MarketingMetrics } from './EnquiriesReport';
 import { useStreamingDatasets } from '../../hooks/useStreamingDatasets';
+import markWhite from '../../assets/markwhite.svg';
+import type { PpcIncomeMetrics } from './PpcReport';
 
 // Persist streaming progress across navigation
 const STREAM_SNAPSHOT_KEY = 'reporting_stream_snapshot_v1';
@@ -51,10 +54,102 @@ const updateRefreshTimestamp = (timestamp: number, setLastRefreshTimestamp: (ts:
   setCacheState(true, timestamp);
 };
 
+const normaliseKey = (input: unknown): string => {
+  if (input == null) {
+    return '';
+  }
+  return String(input).trim().toLowerCase();
+};
+
+const parseDateLoose = (input: unknown): Date | null => {
+  if (input instanceof Date) {
+    return Number.isNaN(input.getTime()) ? null : new Date(input.getTime());
+  }
+  if (typeof input === 'number' && Number.isFinite(input)) {
+    const fromNumber = new Date(input);
+    return Number.isNaN(fromNumber.getTime()) ? null : fromNumber;
+  }
+  if (typeof input !== 'string') {
+    return null;
+  }
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const normalised = trimmed.includes('/') && !trimmed.includes('T')
+    ? (() => {
+      const parts = trimmed.split('/');
+      if (parts.length !== 3) {
+        return trimmed;
+      }
+      const [day, month, year] = parts;
+      const fullYear = year.length === 2 ? `20${year}` : year;
+      return `${fullYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    })()
+    : trimmed;
+  const candidate = new Date(normalised);
+  return Number.isNaN(candidate.getTime()) ? null : candidate;
+};
+
+const toNumberSafe = (value: unknown): number => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : 0;
+  }
+  return 0;
+};
+
+const isPpcSourceLabel = (value: unknown): boolean => {
+  const source = normaliseKey(value);
+  if (!source) {
+    return false;
+  }
+  return (
+    source.includes('ppc') ||
+    source.includes('paid search') ||
+    source.includes('google ads') ||
+    source.includes('google ad') ||
+    source.includes('adwords')
+  );
+};
+
+const extractMatterIdentifiers = (matter: Matter) => {
+  const rawIds = [
+    (matter as any).MatterID,
+    (matter as any)['Unique ID'],
+    (matter as any).UniqueID,
+    (matter as any).unique_id,
+    (matter as any).matter_id,
+    (matter as any).id,
+  ];
+  const displayValue = (matter as any).DisplayNumber
+    ?? (matter as any)['Display Number']
+    ?? (matter as any).display_number
+    ?? '';
+  const variants = [...rawIds.map(normaliseKey), normaliseKey(displayValue)]
+    .filter((value, index, arr) => value && arr.indexOf(value) === index);
+  const canonical = variants[0] ?? '';
+  return {
+    canonical,
+    variants,
+    displayNumber: typeof displayValue === 'string' ? displayValue : String(displayValue ?? ''),
+  };
+};
+
 interface RecoveredFee {
   payment_date: string;
   payment_allocated: number;
   user_id: number;
+  matter_id?: number;
+  description?: string;
+  kind?: string;
+  type?: string;
+  activity_type?: string;
+  bill_id?: number;
+  user_name?: string;
 }
 
 interface GoogleAnalyticsData {
@@ -206,18 +301,18 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
   {
     key: 'seo',
     name: 'SEO report',
-    status: 'Coming soon',
+    status: 'ETA 1 day',
     action: 'seoReport' as const,
     requiredDatasets: ['googleAnalytics', 'googleAds'] as DatasetKey[],
-    disabled: true,
+    disabled: process.env.NODE_ENV === 'production',
   },
   {
     key: 'ppc',
     name: 'PPC report',
-    status: 'Coming soon',
+    status: 'ETA 1 day',
     action: 'ppcReport' as const,
     requiredDatasets: ['googleAds', 'metaMetrics'] as DatasetKey[],
-    disabled: true,
+    disabled: process.env.NODE_ENV === 'production',
   },
   {
     key: 'matters',
@@ -262,9 +357,9 @@ const STATUS_BADGE_COLOURS: Record<DatasetStatusValue, {
   icon?: string;
 }> = {
   ready: {
-    lightBg: 'rgba(34, 197, 94, 0.16)',
+    lightBg: 'rgba(13, 47, 96, 0.22)',
     darkBg: 'rgba(34, 197, 94, 0.28)',
-    dot: '#22c55e',
+    dot: '#22c55e', // Green dot for dark mode, will override for light mode in render
     label: 'Ready',
     icon: 'CheckMark',
   },
@@ -326,8 +421,44 @@ const sectionSurfaceStyle = (isDarkMode: boolean, overrides: CSSProperties = {})
 });
 
 const heroSurfaceStyle = (isDarkMode: boolean): CSSProperties => (
-  sectionSurfaceStyle(isDarkMode, { gap: 14, padding: '22px 24px' })
+  sectionSurfaceStyle(isDarkMode, {
+    gap: 14,
+    padding: '22px 24px',
+    position: 'relative',
+    overflow: 'hidden',
+  })
 );
+
+const heroRightMarkStyle = (isDarkMode: boolean, isHovered: boolean = false): CSSProperties => ({
+  position: 'absolute',
+  top: '50%',
+  right: 22,
+  transform: 'translateY(-50%)',
+  width: 120,
+  height: 120,
+  backgroundImage: `url(${markWhite})`,
+  backgroundRepeat: 'no-repeat',
+  backgroundPosition: 'center',
+  backgroundSize: 'contain',
+  // Make hover effect more subtle by reducing the delta and easing
+  opacity: isHovered ? (isDarkMode ? 0.22 : 0.14) : (isDarkMode ? 0.14 : 0.08),
+  pointerEvents: 'none',
+  zIndex: 0,
+  transition: 'opacity 0.45s ease',
+});
+
+const heroRightOverlayStyle = (isDarkMode: boolean): CSSProperties => ({
+  position: 'absolute',
+  top: 0,
+  right: 0,
+  width: 100,
+  height: '100%',
+  background: isDarkMode
+    ? 'linear-gradient(to left, rgba(15, 23, 42, 0.18) 0%, transparent 70%)'
+    : 'linear-gradient(to left, rgba(15, 23, 42, 0.04) 0%, transparent 70%)',
+  pointerEvents: 'none',
+  zIndex: 1,
+});
 
 const reportsListStyle = (): CSSProperties => ({
   listStyle: 'none',
@@ -547,9 +678,9 @@ const conditionalButtonStyles = (isDarkMode: boolean, state: ButtonState): IButt
     background: (() => {
       switch (state) {
         case 'ready':
-          return isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.08)';
+          return isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(13, 47, 96, 0.22)'; // Darker for light mode
         case 'warming':
-          return isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(135, 243, 243, 0.08)'; // Using accent color
+          return isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(13, 47, 96, 0.16)'; // Using dark blue for light mode
         case 'neutral':
         default:
           return isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.04)';
@@ -558,9 +689,9 @@ const conditionalButtonStyles = (isDarkMode: boolean, state: ButtonState): IButt
     color: (() => {
       switch (state) {
         case 'ready':
-          return isDarkMode ? '#86efac' : '#166534';
+          return isDarkMode ? '#86efac' : '#0d2f60'; // Using dark blue for light mode
         case 'warming':
-          return isDarkMode ? '#87F3F3' : '#0891b2'; // Accent with darker variant for light mode
+          return isDarkMode ? '#87F3F3' : '#0d2f60'; // Using dark blue for light mode
         case 'neutral':
         default:
           return isDarkMode ? '#cbd5e1' : '#64748b';
@@ -569,9 +700,9 @@ const conditionalButtonStyles = (isDarkMode: boolean, state: ButtonState): IButt
     border: (() => {
       switch (state) {
         case 'ready':
-          return `1px solid ${isDarkMode ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.2)'}`;
+          return `1px solid ${isDarkMode ? 'rgba(34, 197, 94, 0.3)' : 'rgba(13, 47, 96, 0.2)'}`;
         case 'warming':
-          return `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(135, 243, 243, 0.2)'}`; // Accent border
+          return `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(13, 47, 96, 0.2)'}`; // Dark blue border
         case 'neutral':
         default:
           return `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`;
@@ -586,20 +717,31 @@ const conditionalButtonStyles = (isDarkMode: boolean, state: ButtonState): IButt
     background: (() => {
       switch (state) {
         case 'ready':
-          return isDarkMode ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.12)';
+          return isDarkMode ? 'rgba(34, 197, 94, 0.2)' : 'rgba(13, 47, 96, 0.28)'; // Darker for light mode
         case 'warming':
-          return isDarkMode ? 'rgba(135, 243, 243, 0.16)' : 'rgba(135, 243, 243, 0.12)';
+          return isDarkMode ? 'rgba(135, 243, 243, 0.16)' : 'rgba(13, 47, 96, 0.16)';
         case 'neutral':
         default:
           return isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.08)';
       }
     })(),
+    color: (() => {
+      switch (state) {
+        case 'ready':
+          return isDarkMode ? '#86efac' : '#0d2f60';
+        case 'warming':
+          return isDarkMode ? '#87F3F3' : '#0d2f60'; // Using dark blue for light mode
+        case 'neutral':
+        default:
+          return isDarkMode ? '#cbd5e1' : '#64748b';
+      }
+    })(),
     borderColor: (() => {
       switch (state) {
         case 'ready':
-          return isDarkMode ? 'rgba(34, 197, 94, 0.4)' : 'rgba(34, 197, 94, 0.3)';
+          return isDarkMode ? 'rgba(34, 197, 94, 0.4)' : 'rgba(13, 47, 96, 0.3)';
         case 'warming':
-          return isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(135, 243, 243, 0.3)';
+          return isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(13, 47, 96, 0.3)';
         case 'neutral':
         default:
           return isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)';
@@ -610,9 +752,9 @@ const conditionalButtonStyles = (isDarkMode: boolean, state: ButtonState): IButt
     background: (() => {
       switch (state) {
         case 'ready':
-          return isDarkMode ? 'rgba(34, 197, 94, 0.25)' : 'rgba(34, 197, 94, 0.15)';
+          return isDarkMode ? 'rgba(34, 197, 94, 0.25)' : 'rgba(13, 47, 96, 0.32)'; // Darker for light mode
         case 'warming':
-          return isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(135, 243, 243, 0.15)';
+          return isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(13, 47, 96, 0.2)';
         case 'neutral':
         default:
           return isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.1)';
@@ -631,20 +773,20 @@ const primaryButtonStyles = (isDarkMode: boolean): IButtonStyles => ({
     borderRadius: 8,
     padding: '0 16px',
     height: 34,
-    background: isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.08)',
-    color: isDarkMode ? '#86efac' : '#166534',
-    border: `1px solid ${isDarkMode ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.2)'}`,
+    background: isDarkMode ? 'rgba(34, 197, 94, 0.15)' : '#061733',
+    color: isDarkMode ? '#86efac' : '#ffffff',
+    border: isDarkMode ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid rgba(6, 23, 51, 0.4)',
     fontWeight: 500,
     boxShadow: 'none',
     transition: 'all 0.2s ease',
     fontFamily: 'Raleway, sans-serif',
   },
   rootHovered: {
-    background: isDarkMode ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.12)',
-    borderColor: isDarkMode ? 'rgba(34, 197, 94, 0.4)' : 'rgba(34, 197, 94, 0.3)',
+    background: isDarkMode ? 'rgba(34, 197, 94, 0.2)' : '#0d2f60',
+    borderColor: isDarkMode ? 'rgba(34, 197, 94, 0.4)' : 'rgba(13, 47, 96, 0.6)',
   },
   rootPressed: {
-    background: isDarkMode ? 'rgba(34, 197, 94, 0.25)' : 'rgba(34, 197, 94, 0.15)',
+    background: isDarkMode ? 'rgba(34, 197, 94, 0.25)' : '#051a33',
   },
   rootDisabled: {
     background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.05)',
@@ -667,10 +809,11 @@ const subtleButtonStyles = (isDarkMode: boolean): IButtonStyles => ({
     fontFamily: 'Raleway, sans-serif',
   },
   rootHovered: {
-    background: isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(54, 144, 206, 0.12)',
+    background: isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(148, 163, 184, 0.08)',
+    color: isDarkMode ? '#cbd5e1' : '#64748b',
   },
   rootPressed: {
-    background: isDarkMode ? 'rgba(148, 163, 184, 0.32)' : 'rgba(54, 144, 206, 0.18)',
+    background: isDarkMode ? 'rgba(148, 163, 184, 0.32)' : 'rgba(148, 163, 184, 0.12)',
   },
 });
 
@@ -805,6 +948,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   const { setContent } = useNavigatorActions();
   const [currentTime, setCurrentTime] = useState(() => new Date());
   const [activeView, setActiveView] = useState<'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport' | 'ppcReport'>('overview');
+  const [heroHovered, setHeroHovered] = useState(false);
   // (Removed marketing data settings state; always fetch 24 months)
   
   // Memoize handlers to prevent recreation on every render
@@ -907,6 +1051,268 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   // PPC-specific Google Ads data (24 months)
   const [ppcGoogleAdsData, setPpcGoogleAdsData] = useState<GoogleAdsData[] | null>(null);
   const [ppcLoading, setPpcLoading] = useState<boolean>(false);
+  const [ppcGoogleAdsUpdatedAt, setPpcGoogleAdsUpdatedAt] = useState<number | null>(() => {
+    const initial = datasetStatus.googleAds?.updatedAt;
+    return typeof initial === 'number' && Number.isFinite(initial) ? initial : null;
+  });
+  const ppcIncomeMetrics = useMemo<PpcIncomeMetrics | null>(() => {
+    const enquiries = datasetData.enquiries;
+    const matters = datasetData.allMatters;
+    const recovered = datasetData.recoveredFees;
+
+    if (!Array.isArray(enquiries) || !Array.isArray(matters) || !Array.isArray(recovered)) {
+      return null;
+    }
+
+    const MAX_UNMATCHED_PREVIEW = 25;
+    const MS_IN_DAY = 1000 * 60 * 60 * 24;
+
+    const ppcEnquiries = enquiries.filter((enquiry) => {
+      try {
+        return getNormalizedEnquirySource(enquiry).key === 'google_ads';
+      } catch (err) {
+        debugWarn('ReportingHome: Failed to normalise enquiry source for PPC detection', {
+          enquiryId: enquiry.ID,
+          error: err instanceof Error ? err.message : err,
+        });
+        return false;
+      }
+    });
+
+    const enquiriesByMatterRef = new Map<string, Enquiry[]>();
+    const enquiriesByEmail = new Map<string, Enquiry[]>();
+
+    const pushToBucket = (map: Map<string, Enquiry[]>, key: string, record: Enquiry) => {
+      if (!key) {
+        return;
+      }
+      const bucket = map.get(key) ?? [];
+      bucket.push(record);
+      map.set(key, bucket);
+    };
+
+    ppcEnquiries.forEach((enquiry) => {
+      pushToBucket(enquiriesByMatterRef, normaliseKey(enquiry.Matter_Ref || (enquiry as any).matter_ref), enquiry);
+      pushToBucket(enquiriesByEmail, normaliseKey(enquiry.Email), enquiry);
+    });
+
+    const candidateMatters = matters
+      .map((matter) => {
+        const identifiers = extractMatterIdentifiers(matter);
+        const displayKey = normaliseKey(identifiers.displayNumber);
+        const matchesSource = isPpcSourceLabel((matter as any).Source || (matter as any).source);
+        const hasLinkedEnquiry = displayKey && enquiriesByMatterRef.has(displayKey);
+        if (!matchesSource && !hasLinkedEnquiry) {
+          return null;
+        }
+        return { matter, identifiers, displayKey };
+      })
+      .filter((entry): entry is { matter: Matter; identifiers: ReturnType<typeof extractMatterIdentifiers>; displayKey: string } => Boolean(entry));
+
+    if (candidateMatters.length === 0 && ppcEnquiries.length === 0) {
+      return null;
+    }
+
+    const idToMatter = new Map<string, { matter: Matter; identifiers: ReturnType<typeof extractMatterIdentifiers>; displayKey: string }>();
+    candidateMatters.forEach((entry) => {
+      entry.identifiers.variants.forEach((variant) => {
+        if (variant) {
+          idToMatter.set(variant, entry);
+        }
+      });
+    });
+
+    const selectLinkedEnquiry = (entry: { matter: Matter; identifiers: ReturnType<typeof extractMatterIdentifiers>; displayKey: string }): Enquiry | undefined => {
+      if (entry.displayKey && enquiriesByMatterRef.has(entry.displayKey)) {
+        return enquiriesByMatterRef.get(entry.displayKey)?.[0];
+      }
+      const emailCandidate = (entry.matter as any).ClientEmail
+        || (entry.matter as any)['Client Email']
+        || (entry.matter as any).client_email
+        || (entry.matter as any).clientEmail;
+      const emailKey = normaliseKey(emailCandidate);
+      if (emailKey && enquiriesByEmail.has(emailKey)) {
+        return enquiriesByEmail.get(emailKey)?.[0];
+      }
+      return undefined;
+    };
+
+    const breakdownMap = new Map<string, PpcIncomeMetrics['breakdown'][number]>();
+    const unmatchedPreview: { matterId?: string; paymentDate?: string; amount: number; kind?: string; description?: string }[] = [];
+    let unmatchedTotal = 0;
+    let matchedPaymentCount = 0;
+
+    recovered.forEach((fee) => {
+      const amount = toNumberSafe(fee.payment_allocated);
+      if (amount <= 0) {
+        return;
+      }
+
+      const kind = typeof fee.kind === 'string' ? fee.kind : undefined;
+      if (kind === 'Expense' || kind === 'Product') {
+        return; // Skip disbursements to mirror Management Dashboard totals
+      }
+
+      const candidateKeys = [
+        normaliseKey(fee.matter_id),
+        normaliseKey((fee as any).matterId),
+        normaliseKey((fee as any).matter),
+        normaliseKey(fee.bill_id),
+      ].filter(Boolean);
+
+      let matchedEntry: { matter: Matter; identifiers: ReturnType<typeof extractMatterIdentifiers>; displayKey: string } | undefined;
+      let canonicalKey: string | undefined;
+
+      for (const key of candidateKeys) {
+        const entry = idToMatter.get(key);
+        if (entry) {
+          matchedEntry = entry;
+          canonicalKey = entry.identifiers.canonical || entry.identifiers.variants[0];
+          break;
+        }
+      }
+
+      if (!matchedEntry && typeof fee.description === 'string') {
+        const matches = fee.description.match(/[A-Z]{2,}-\d{3,}/g);
+        if (matches) {
+          for (const token of matches) {
+            const entry = idToMatter.get(normaliseKey(token));
+            if (entry) {
+              matchedEntry = entry;
+              canonicalKey = entry.identifiers.canonical || entry.identifiers.variants[0];
+              break;
+            }
+          }
+        }
+      }
+
+      if (!matchedEntry || !canonicalKey) {
+        unmatchedTotal += 1;
+        if (unmatchedPreview.length < MAX_UNMATCHED_PREVIEW) {
+          unmatchedPreview.push({
+            matterId: fee.matter_id != null ? String(fee.matter_id) : undefined,
+            paymentDate: fee.payment_date,
+            amount,
+            kind,
+            description: fee.description,
+          });
+        }
+        return;
+      }
+
+      matchedPaymentCount += 1;
+
+      let breakdown = breakdownMap.get(canonicalKey);
+      if (!breakdown) {
+        const linkedEnquiry = selectLinkedEnquiry(matchedEntry);
+        breakdown = {
+          matterId: matchedEntry.identifiers.canonical || matchedEntry.identifiers.variants[0],
+          displayNumber: matchedEntry.identifiers.displayNumber,
+          clientName: (matchedEntry.matter as any).ClientName || (matchedEntry.matter as any)['Client Name'],
+          source: (matchedEntry.matter as any).Source || (matchedEntry.matter as any).source,
+          openDate: (matchedEntry.matter as any).OpenDate || (matchedEntry.matter as any)['Open Date'] || (matchedEntry.matter as any).openDate,
+          totalCollected: 0,
+          collectedWithin7Days: 0,
+          collectedWithin30Days: 0,
+          payments: [],
+          enquiryId: linkedEnquiry?.ID,
+          enquiryDate: linkedEnquiry?.Touchpoint_Date,
+          enquirySource: linkedEnquiry?.Ultimate_Source,
+          enquiryMoc: linkedEnquiry?.Method_of_Contact,
+        };
+        breakdownMap.set(canonicalKey, breakdown);
+      }
+
+      breakdown.payments.push({
+        paymentDate: fee.payment_date,
+        amount,
+        kind,
+        description: fee.description,
+      });
+      breakdown.totalCollected += amount;
+
+      const openDate = parseDateLoose(breakdown.openDate);
+      const paymentDate = parseDateLoose(fee.payment_date);
+      if (openDate && paymentDate) {
+        const diffDays = (paymentDate.getTime() - openDate.getTime()) / MS_IN_DAY;
+        if (diffDays >= 0 && diffDays <= 7) {
+          breakdown.collectedWithin7Days += amount;
+        }
+        if (diffDays >= 0 && diffDays <= 30) {
+          breakdown.collectedWithin30Days += amount;
+        }
+      }
+    });
+
+    candidateMatters.forEach((entry) => {
+      const canonicalKey = entry.identifiers.canonical || entry.identifiers.variants[0];
+      if (!canonicalKey || breakdownMap.has(canonicalKey)) {
+        return;
+      }
+      const linkedEnquiry = selectLinkedEnquiry(entry);
+      breakdownMap.set(canonicalKey, {
+        matterId: canonicalKey,
+        displayNumber: entry.identifiers.displayNumber,
+        clientName: (entry.matter as any).ClientName || (entry.matter as any)['Client Name'],
+        source: (entry.matter as any).Source || (entry.matter as any).source,
+        openDate: (entry.matter as any).OpenDate || (entry.matter as any)['Open Date'] || (entry.matter as any).openDate,
+        totalCollected: 0,
+        collectedWithin7Days: 0,
+        collectedWithin30Days: 0,
+        payments: [],
+        enquiryId: linkedEnquiry?.ID,
+        enquiryDate: linkedEnquiry?.Touchpoint_Date,
+        enquirySource: linkedEnquiry?.Ultimate_Source,
+        enquiryMoc: linkedEnquiry?.Method_of_Contact,
+      });
+    });
+
+    const breakdownList = Array.from(breakdownMap.values()).sort((a, b) => b.totalCollected - a.totalCollected);
+
+    const summary = {
+      totalEnquiries: ppcEnquiries.length,
+      totalMatters: candidateMatters.length,
+      mattersWithRevenue: breakdownList.filter((record) => record.totalCollected > 0).length,
+      totalRevenue: breakdownList.reduce((sum, record) => sum + record.totalCollected, 0),
+      revenue7d: breakdownList.reduce((sum, record) => sum + record.collectedWithin7Days, 0),
+      revenue30d: breakdownList.reduce((sum, record) => sum + record.collectedWithin30Days, 0),
+    };
+
+    const notes: string[] = [];
+    if (unmatchedTotal > 0) {
+      notes.push(`${unmatchedTotal} PPC payments could not be linked to matters (showing ${unmatchedPreview.length}).`);
+    }
+    if (candidateMatters.length === 0 && summary.totalEnquiries > 0) {
+      notes.push('No PPC matters matched via Source or Matter Reference.');
+    }
+
+    const metrics: PpcIncomeMetrics = {
+      generatedAt: new Date().toISOString(),
+      summary,
+      breakdown: breakdownList,
+      unmatchedPayments: unmatchedPreview,
+      debug: {
+        unmatchedCount: unmatchedTotal,
+        matchedPaymentCount,
+        candidateMatterCount: candidateMatters.length,
+      },
+      notes,
+    };
+
+    debugLog('ReportingHome: PPC income metrics ready', {
+      summary,
+      sampleBreakdown: breakdownList.slice(0, 3).map((record) => ({
+        matterId: record.matterId,
+        displayNumber: record.displayNumber,
+        totalCollected: record.totalCollected,
+      })),
+    });
+    if (unmatchedTotal > 0) {
+      debugWarn('ReportingHome: Unmatched PPC revenue entries (preview)', unmatchedPreview.slice(0, 3));
+    }
+
+    return metrics;
+  }, [datasetData.enquiries, datasetData.allMatters, datasetData.recoveredFees]);
   // Feed-row preview toggles (keyed by dataset key)
   const [feedPreviewOpen, setFeedPreviewOpen] = useState<Record<string, boolean>>({});
   const toggleFeedPreview = useCallback((key: string) => {
@@ -914,7 +1320,66 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   }, []);
 
   // Live metrics date range selection
-  const [selectedDateRange, setSelectedDateRange] = useState<'7d' | '30d' | '3mo' | '6mo' | '12mo' | '24mo'>('24mo');
+  const [selectedDateRange, setSelectedDateRange] = useState<'7d' | '30d' | '3mo' | '6mo' | '12mo' | '24mo'>('7d');
+
+  // Helper function to show selected range if data exists, otherwise show actual data range
+  const getActualDataRange = useCallback((data: any[], dateField: string): string => {
+    if (!Array.isArray(data) || data.length === 0) return selectedDateRange;
+    
+    // Manually filter data for the selected range (inline logic to avoid dependency)
+    const now = new Date();
+    let cutoffDate: Date;
+    
+    switch (selectedDateRange) {
+      case '7d':
+        cutoffDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        break;
+      case '30d':
+        cutoffDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        break;
+      case '3mo':
+        cutoffDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+        break;
+      case '6mo':
+        cutoffDate = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000);
+        break;
+      case '12mo':
+        cutoffDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+        break;
+      case '24mo':
+        cutoffDate = new Date(now.getTime() - 730 * 24 * 60 * 60 * 1000);
+        break;
+      default:
+        cutoffDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    }
+    
+    const filteredData = data.filter(item => {
+      const itemDate = new Date(item[dateField]);
+      return !isNaN(itemDate.getTime()) && itemDate >= cutoffDate;
+    });
+    
+    if (filteredData.length > 0) {
+      return selectedDateRange; // Show selected range if data exists for it
+    }
+    
+    // If no data for selected range, calculate actual available range
+    const dates = data
+      .map(item => new Date(item[dateField]))
+      .filter(date => !isNaN(date.getTime()))
+      .sort((a, b) => a.getTime() - b.getTime());
+    
+    if (dates.length === 0) return selectedDateRange;
+    
+    const oldestDate = dates[0];
+    const daysDiff = Math.floor((now.getTime() - oldestDate.getTime()) / (1000 * 60 * 60 * 1000));
+    
+    if (daysDiff <= 7) return '7d';
+    if (daysDiff <= 30) return '30d';
+    if (daysDiff <= 90) return '3mo';
+    if (daysDiff <= 180) return '6mo';
+    if (daysDiff <= 365) return '12mo';
+    return '24mo';
+  }, [selectedDateRange]);
 
   // Helper function to filter data by selected date range
   const getFilteredDataByDateRange = useCallback((data: any[], dateField: string) => {
@@ -1139,13 +1604,36 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       setPpcLoading(true);
       fetchGoogleAdsData(24)
         .then((rows) => {
-          if (!cancelled) setPpcGoogleAdsData(rows || []);
+          if (cancelled) {
+            return;
+          }
+          setPpcGoogleAdsData(rows || []);
+          setPpcGoogleAdsUpdatedAt(Date.now());
         })
         .catch(() => {/* ignore, will fallback to cached */})
         .finally(() => { if (!cancelled) setPpcLoading(false); });
     }
     return () => { cancelled = true; };
   }, [activeView, fetchGoogleAdsData]);
+
+  useEffect(() => {
+    const statusTs = datasetStatus.googleAds?.updatedAt;
+    if (typeof statusTs === 'number' && Number.isFinite(statusTs)) {
+      setPpcGoogleAdsUpdatedAt((prev) => (prev === statusTs ? prev : statusTs));
+    }
+  }, [datasetStatus.googleAds?.updatedAt]);
+
+  const googleAdsLastRefreshTimestamp = useMemo(() => {
+    if (typeof ppcGoogleAdsUpdatedAt === 'number' && Number.isFinite(ppcGoogleAdsUpdatedAt)) {
+      const statusTs = datasetStatus.googleAds?.updatedAt;
+      if (typeof statusTs === 'number' && Number.isFinite(statusTs)) {
+        return Math.max(ppcGoogleAdsUpdatedAt, statusTs);
+      }
+      return ppcGoogleAdsUpdatedAt;
+    }
+    const statusTs = datasetStatus.googleAds?.updatedAt;
+    return typeof statusTs === 'number' && Number.isFinite(statusTs) ? statusTs : null;
+  }, [ppcGoogleAdsUpdatedAt, datasetStatus.googleAds?.updatedAt]);
 
   // Fetch 24 months of Google Analytics data when opening SEO report
   useEffect(() => {
@@ -2283,6 +2771,9 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
         <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
           <PpcReport 
             cachedGoogleAdsData={(ppcGoogleAdsData ?? datasetData.googleAds ?? cachedData.googleAds) || []}
+            ppcIncomeMetrics={ppcIncomeMetrics}
+            isFetching={isFetching || ppcLoading}
+            lastRefreshTimestamp={googleAdsLastRefreshTimestamp ?? undefined}
           />
         </div>
       </div>
@@ -2291,8 +2782,14 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
 
   return (
     <div className="reporting-home-container" style={containerStyle(isDarkMode)}>
-      <section style={heroSurfaceStyle(isDarkMode)}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <section 
+        style={heroSurfaceStyle(isDarkMode)}
+        onMouseEnter={() => setHeroHovered(true)}
+        onMouseLeave={() => setHeroHovered(false)}
+      >
+        <div style={heroRightMarkStyle(isDarkMode, heroHovered)} />
+        <div style={heroRightOverlayStyle(isDarkMode)} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, position: 'relative', zIndex: 2 }}>
           <span
             style={{
               alignSelf: 'flex-start',
@@ -2309,9 +2806,36 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
           >
             Restricted access
           </span>
+          {Array.isArray(datasetData.userData) && datasetData.userData.length > 0 && (
+            <span
+              style={{
+                fontSize: 9,
+                color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(13, 47, 96, 0.5)',
+                fontWeight: 500,
+                fontFamily: 'Raleway, sans-serif',
+                letterSpacing: 0.2,
+              }}
+            >
+              {datasetData.userData.map((user, idx) => {
+                const initials = user.Initials || (user.FullName
+                  ? user.FullName
+                      .split(' ')
+                      .map((n: string) => n[0])
+                      .join('')
+                      .toUpperCase()
+                  : '?');
+                return (
+                  <span key={user.Email || idx}>
+                    {initials}
+                    {idx < (datasetData.userData?.length ?? 0) - 1 && <span style={{ opacity: 0.6, margin: '0 4px' }}>•</span>}
+                  </span>
+                );
+              })}
+            </span>
+          )}
           <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700, fontFamily: 'Raleway, sans-serif' }}>Reporting workspace</h1>
         </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, position: 'relative', zIndex: 2 }}>
           <PrimaryButton
             text={isActivelyLoading ? 'Preparing…' : 'Open management dashboard'}
             onClick={handleOpenDashboard}
@@ -2325,7 +2849,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
             disabled={isActivelyLoading}
           />
         </div>
-        <div style={heroMetaRowStyle}>
+        <div style={{ ...heroMetaRowStyle, position: 'relative', zIndex: 2 }}>
           {heroMetaItems.map((item) => (
             <span
               key={item}
@@ -2355,7 +2879,35 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
           alignItems: 'center',
           marginBottom: 16,
         }}>
-          <h2 style={sectionTitleStyle}>Live metrics</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <h2 style={sectionTitleStyle}>Live metrics</h2>
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '4px 8px',
+              borderRadius: 12,
+              background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.08)',
+              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
+            }}>
+              <FontIcon
+                iconName="Info"
+                style={{
+                  fontSize: 10,
+                  color: isDarkMode ? '#94a3b8' : colours.missedBlue,
+                  opacity: 0.8,
+                }}
+              />
+              <span style={{
+                fontSize: 10,
+                color: isDarkMode ? '#94a3b8' : colours.missedBlue,
+                fontWeight: 500,
+                opacity: 0.9,
+              }}>
+                Targets to be confirmed
+              </span>
+            </div>
+          </div>
           
           {/* Date Range Selector */}
           <div style={{
@@ -2365,7 +2917,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
           }}>
             <span style={{
               fontSize: 11,
-              color: isDarkMode ? '#94a3b8' : '#64748b',
+              color: isDarkMode ? '#94a3b8' : colours.missedBlue,
               fontWeight: 500,
             }}>
               Range:
@@ -2374,19 +2926,35 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               <button
                 key={range}
                 style={{
-                  padding: '4px 8px',
-                  borderRadius: 4,
-                  border: 'none',
+                  padding: '6px 10px',
+                  borderRadius: 6,
+                  border: `1px solid ${range === selectedDateRange 
+                    ? (isDarkMode ? colours.accent : colours.highlight)
+                    : (isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)')}`,
                   fontSize: 10,
                   fontWeight: 600,
                   cursor: 'pointer',
                   background: range === selectedDateRange 
-                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)')
-                    : (isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(241, 245, 249, 0.8)'),
+                    ? (isDarkMode ? `rgba(135, 243, 243, 0.15)` : `rgba(54, 144, 206, 0.08)`)
+                    : (isDarkMode ? 'rgba(71, 85, 105, 0.15)' : 'rgba(148, 163, 184, 0.04)'),
                   color: range === selectedDateRange
-                    ? (isDarkMode ? '#93c5fd' : '#3690CE')
-                    : (isDarkMode ? '#cbd5e1' : '#475569'),
+                    ? (isDarkMode ? colours.accent : colours.highlight)
+                    : (isDarkMode ? '#cbd5e1' : '#64748b'),
                   transition: 'all 0.2s ease',
+                }}
+                onMouseEnter={(e) => {
+                  const btn = e.currentTarget;
+                  if (range !== selectedDateRange) {
+                    btn.style.background = isDarkMode ? 'rgba(71, 85, 105, 0.25)' : 'rgba(148, 163, 184, 0.08)';
+                    btn.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  const btn = e.currentTarget;
+                  if (range !== selectedDateRange) {
+                    btn.style.background = isDarkMode ? 'rgba(71, 85, 105, 0.15)' : 'rgba(148, 163, 184, 0.04)';
+                    btn.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)';
+                  }
                 }}
                 onClick={() => {
                   setSelectedDateRange(range);
@@ -2407,26 +2975,37 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
         }}>
           {/* WIP - Selected Range */}
           <div style={{
-            background: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : 'rgba(248, 250, 252, 0.6)',
-            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(100, 116, 139, 0.18)'}`,
+            background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(13, 47, 96, 0.06)',
+            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(13, 47, 96, 0.15)'}`,
             borderRadius: 8,
             padding: 16,
             position: 'relative',
+            overflow: 'hidden',
           }}>
+            {/* Background pattern */}
+            <div style={{
+              position: 'absolute',
+              top: -20,
+              right: -20,
+              width: '80px',
+              height: '80px',
+              background: `linear-gradient(135deg, ${isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(13, 47, 96, 0.08)'} 0%, transparent 70%)`,
+              borderRadius: '50%',
+            }} />
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
               <div>
                 <h3 style={{
                   margin: 0,
                   fontSize: 13,
                   fontWeight: 600,
-                  color: isDarkMode ? '#f1f5f9' : '#334155',
+                  color: isDarkMode ? colours.accent : colours.missedBlue,
                   marginBottom: 4,
                 }}>
                   WIP
                 </h3>
                 <div style={{
                   fontSize: 11,
-                  color: isDarkMode ? '#94a3b8' : '#64748b',
+                  color: isDarkMode ? '#94a3b8' : colours.missedBlue,
                   opacity: 0.9,
                 }}>
                   Total value
@@ -2435,10 +3014,10 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               
               <span style={{
                 fontSize: 9,
-                color: isDarkMode ? '#64748b' : '#94a3b8',
+                color: isDarkMode ? '#64748b' : colours.missedBlue,
                 fontWeight: 500,
               }}>
-                {selectedDateRange}
+                {getActualDataRange(datasetData.wip || [], 'date')}
               </span>
             </div>
 
@@ -2446,7 +3025,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               <div style={{
                 fontSize: 24,
                 fontWeight: 600,
-                color: colours.blue,
+                color: isDarkMode ? colours.accent : colours.missedBlue,
                 fontFamily: 'system-ui, -apple-system, sans-serif',
                 lineHeight: 1,
                 marginBottom: 4,
@@ -2461,19 +3040,14 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               <div style={{
                 height: 3,
                 borderRadius: 2,
-                background: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)',
+                background: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(13, 47, 96, 0.2)',
                 marginTop: 8,
                 flexGrow: 1,
               }}>
                 <div style={{
                   height: '100%',
-                  width: (() => {
-                    if (!Array.isArray(datasetData.wip)) return '0%';
-                    const filtered = getFilteredDataByDateRange(datasetData.wip, 'date');
-                    const total = filtered.reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0);
-                    return `${Math.min(100, (total / 50000) * 100)}%`;
-                  })(),
-                  background: colours.blue,
+                  width: '25%',
+                  background: `linear-gradient(90deg, ${isDarkMode ? colours.accent : colours.missedBlue} 0%, ${isDarkMode ? colours.blue : colours.darkBlue} 100%)`,
                   borderRadius: 2,
                   transition: 'width 1s ease',
                 }} />
@@ -2483,12 +3057,23 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
 
           {/* Collected Time - Selected Range */}
           <div style={{
-            background: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : 'rgba(248, 250, 252, 0.6)',
-            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(100, 116, 139, 0.18)'}`,
+            background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(13, 47, 96, 0.06)',
+            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(13, 47, 96, 0.15)'}`,
             borderRadius: 8,
             padding: 16,
             position: 'relative',
+            overflow: 'hidden',
           }}>
+            {/* Background pattern */}
+            <div style={{
+              position: 'absolute',
+              top: -20,
+              right: -20,
+              width: '80px',
+              height: '80px',
+              background: `linear-gradient(135deg, ${isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(13, 47, 96, 0.08)'} 0%, transparent 70%)`,
+              borderRadius: '50%',
+            }} />
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div>
@@ -2496,14 +3081,14 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                     margin: 0,
                     fontSize: 13,
                     fontWeight: 600,
-                    color: isDarkMode ? '#f1f5f9' : '#334155',
+                    color: isDarkMode ? colours.accent : colours.missedBlue,
                     marginBottom: 4,
                   }}>
                     Collected Time
                   </h3>
                   <div style={{
                     fontSize: 11,
-                    color: isDarkMode ? '#94a3b8' : '#64748b',
+                    color: isDarkMode ? '#94a3b8' : colours.missedBlue,
                     opacity: 0.9,
                   }}>
                     Total collected
@@ -2536,10 +3121,10 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               </div>
               <span style={{
                 fontSize: 9,
-                color: isDarkMode ? '#64748b' : '#94a3b8',
+                color: isDarkMode ? '#64748b' : colours.missedBlue,
                 fontWeight: 500,
               }}>
-                {selectedDateRange}
+                {getActualDataRange(datasetData.recoveredFees || [], 'date')}
               </span>
             </div>
 
@@ -2547,7 +3132,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               <div style={{
                 fontSize: 24,
                 fontWeight: 600,
-                color: colours.blue,
+                color: isDarkMode ? colours.accent : colours.missedBlue,
                 fontFamily: 'system-ui, -apple-system, sans-serif',
                 lineHeight: 1,
                 marginBottom: 4,
@@ -2564,21 +3149,14 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               <div style={{
                 height: 3,
                 borderRadius: 2,
-                background: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)',
+                background: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(13, 47, 96, 0.2)',
                 marginTop: 8,
                 flexGrow: 1,
               }}>
                 <div style={{
                   height: '100%',
-                  width: (() => {
-                    if (!Array.isArray(datasetData.recoveredFees)) return '0%';
-                    const filtered = getFilteredDataByDateRange(datasetData.recoveredFees, 'date');
-                    // Exclude disbursements (kind = 'Expense') - only count actual fees, same as Management Dashboard
-                    const feesOnly = filtered.filter(item => item.kind !== 'Expense' && item.kind !== 'Product');
-                    const total = feesOnly.reduce((sum, item) => sum + (parseFloat(item.payment_allocated) || 0), 0);
-                    return `${Math.min(100, (total / 30000) * 100)}%`;
-                  })(),
-                  background: colours.blue,
+                  width: '25%',
+                  background: `linear-gradient(90deg, ${isDarkMode ? colours.accent : colours.missedBlue} 0%, ${isDarkMode ? colours.blue : colours.darkBlue} 100%)`,
                   borderRadius: 2,
                   transition: 'width 1s ease',
                 }} />
@@ -2597,20 +3175,31 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
           <div style={{
             padding: '16px 20px',
             borderRadius: 12,
-            background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.04)',
-            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
+            background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(13, 47, 96, 0.06)',
+            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(13, 47, 96, 0.15)'}`,
             position: 'relative',
             overflow: 'hidden',
-          }}>
+            transition: 'all 0.2s ease',
+            cursor: 'default',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.4)' : 'rgba(13, 47, 96, 0.3)';
+            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(13, 47, 96, 0.08)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(13, 47, 96, 0.15)';
+            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(13, 47, 96, 0.06)';
+          }}
+          >
             {/* Background pattern */}
             <div style={{
               position: 'absolute',
-              top: 0,
-              right: 0,
-              width: '40%',
-              height: '100%',
-              background: `linear-gradient(135deg, ${isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)'} 0%, transparent 70%)`,
-              borderRadius: '50% 0 0 50%',
+              top: -20,
+              right: -20,
+              width: '80px',
+              height: '80px',
+              background: `linear-gradient(135deg, ${isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(13, 47, 96, 0.08)'} 0%, transparent 70%)`,
+              borderRadius: '50%',
             }} />
             <div style={{ position: 'relative', zIndex: 1 }}>
               <div style={{
@@ -2621,19 +3210,19 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               }}>
                 <span style={{
                   fontSize: 12,
-                  color: isDarkMode ? '#93c5fd' : '#3690CE',
+                  color: isDarkMode ? colours.accent : colours.missedBlue,
                   fontWeight: 600,
-                  textTransform: 'uppercase',
+                  textTransform: 'none',
                   letterSpacing: 0.5,
                 }}>
                   Enquiries
                 </span>
                 <span style={{
                   fontSize: 9,
-                  color: isDarkMode ? '#64748b' : '#94a3b8',
+                  color: isDarkMode ? '#64748b' : colours.missedBlue,
                   fontWeight: 500,
                 }}>
-                  {selectedDateRange}
+                  {getActualDataRange(datasetData.enquiries || [], 'Date_Created')}
                 </span>
               </div>
               <div style={{
@@ -2653,17 +3242,13 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               <div style={{
                 height: 3,
                 borderRadius: 2,
-                background: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)',
+                background: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(13, 47, 96, 0.2)',
                 marginTop: 8,
               }}>
                 <div style={{
                   height: '100%',
-                  width: (() => {
-                    if (!Array.isArray(datasetData.enquiries)) return '0%';
-                    const filtered = getFilteredDataByDateRange(datasetData.enquiries, 'Date_Created');
-                    return `${Math.min(100, (filtered.length / 100) * 20)}%`;
-                  })(),
-                  background: isDarkMode ? '#3690CE' : '#3690CE',
+                  width: '25%',
+                  background: `linear-gradient(90deg, ${isDarkMode ? colours.accent : colours.missedBlue} 0%, ${isDarkMode ? colours.blue : colours.darkBlue} 100%)`,
                   borderRadius: 2,
                   transition: 'width 1s ease',
                 }} />
@@ -2675,19 +3260,30 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
           <div style={{
             padding: '16px 20px',
             borderRadius: 12,
-            background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.04)',
-            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
+            background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(13, 47, 96, 0.06)',
+            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(13, 47, 96, 0.15)'}`,
             position: 'relative',
             overflow: 'hidden',
-          }}>
+            transition: 'all 0.2s ease',
+            cursor: 'default',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.4)' : 'rgba(13, 47, 96, 0.3)';
+            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(13, 47, 96, 0.08)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(13, 47, 96, 0.15)';
+            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(13, 47, 96, 0.06)';
+          }}
+          >
             <div style={{
               position: 'absolute',
-              top: 0,
-              right: 0,
-              width: '40%',
-              height: '100%',
-              background: `linear-gradient(135deg, ${isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)'} 0%, transparent 70%)`,
-              borderRadius: '50% 0 0 50%',
+              top: -20,
+              right: -20,
+              width: '80px',
+              height: '80px',
+              background: `linear-gradient(135deg, ${isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(13, 47, 96, 0.08)'} 0%, transparent 70%)`,
+              borderRadius: '50%',
             }} />
             <div style={{ position: 'relative', zIndex: 1 }}>
               <div style={{
@@ -2698,49 +3294,64 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               }}>
                 <span style={{
                   fontSize: 12,
-                  color: colours.blue,
+                  color: isDarkMode ? colours.accent : colours.missedBlue,
                   fontWeight: 600,
-                  textTransform: 'uppercase',
+                  textTransform: 'none',
                   letterSpacing: 0.5,
                 }}>
                   Pitches
                 </span>
                 <span style={{
                   fontSize: 9,
-                  color: isDarkMode ? '#64748b' : '#94a3b8',
+                  color: isDarkMode ? '#64748b' : colours.missedBlue,
                   fontWeight: 500,
                 }}>
-                  {selectedDateRange}
+                  {getActualDataRange(datasetData.deals || [], 'PitchedDate')}
                 </span>
               </div>
-              <div style={{
-                fontSize: 28,
-                fontWeight: 800,
-                color: isDarkMode ? '#f1f5f9' : '#334155',
-                fontFamily: 'system-ui, -apple-system, sans-serif',
-                lineHeight: 1,
-                marginBottom: 4,
-              }}>
-                {(() => {
-                  if (!Array.isArray(datasetData.deals)) return '—';
-                  const filtered = getFilteredDataByDateRange(datasetData.deals, 'PitchedDate');
-                  return filtered.length > 0 ? filtered.length.toLocaleString() : '0';
-                })()}
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
+                <div style={{
+                  fontSize: 28,
+                  fontWeight: 800,
+                  color: isDarkMode ? '#f1f5f9' : '#334155',
+                  fontFamily: 'system-ui, -apple-system, sans-serif',
+                  lineHeight: 1,
+                }}>
+                  {(() => {
+                    if (!Array.isArray(datasetData.deals)) return '—';
+                    const filtered = getFilteredDataByDateRange(datasetData.deals, 'PitchedDate');
+                    return filtered.length > 0 ? filtered.length.toLocaleString() : '0';
+                  })()}
+                </div>
+                <div style={{
+                  fontSize: 14,
+                  fontWeight: 600,
+                  color: isDarkMode ? colours.accent : colours.missedBlue,
+                  fontFamily: 'system-ui, -apple-system, sans-serif',
+                  opacity: 0.9,
+                }}>
+                  {(() => {
+                    if (!Array.isArray(datasetData.deals) || !Array.isArray(datasetData.enquiries)) return '';
+                    const filteredDeals = getFilteredDataByDateRange(datasetData.deals, 'PitchedDate');
+                    const filteredEnquiries = getFilteredDataByDateRange(datasetData.enquiries, 'Date_Created');
+                    
+                    if (filteredEnquiries.length === 0) return '0%';
+                    
+                    const conversionRate = (filteredDeals.length / filteredEnquiries.length) * 100;
+                    return `${conversionRate.toFixed(1)}%`;
+                  })()}
+                </div>
               </div>
               <div style={{
                 height: 3,
                 borderRadius: 2,
-                background: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)',
+                background: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(13, 47, 96, 0.2)',
                 marginTop: 8,
               }}>
                 <div style={{
                   height: '100%',
-                  width: (() => {
-                    if (!Array.isArray(datasetData.deals)) return '0%';
-                    const filtered = getFilteredDataByDateRange(datasetData.deals, 'PitchedDate');
-                    return `${Math.min(100, (filtered.length / 50) * 20)}%`;
-                  })(),
-                  background: colours.blue,
+                  width: '25%',
+                  background: `linear-gradient(90deg, ${isDarkMode ? colours.accent : colours.missedBlue} 0%, ${isDarkMode ? colours.blue : colours.darkBlue} 100%)`,
                   borderRadius: 2,
                   transition: 'width 1s ease',
                 }} />
@@ -2752,19 +3363,30 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
           <div style={{
             padding: '16px 20px',
             borderRadius: 12,
-            background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.04)',
-            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
+            background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(13, 47, 96, 0.06)',
+            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(13, 47, 96, 0.15)'}`,
             position: 'relative',
             overflow: 'hidden',
-          }}>
+            transition: 'all 0.2s ease',
+            cursor: 'default',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.4)' : 'rgba(13, 47, 96, 0.3)';
+            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(13, 47, 96, 0.08)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(13, 47, 96, 0.15)';
+            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(13, 47, 96, 0.06)';
+          }}
+          >
             <div style={{
               position: 'absolute',
-              top: 0,
-              right: 0,
-              width: '40%',
-              height: '100%',
-              background: `linear-gradient(135deg, ${isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)'} 0%, transparent 70%)`,
-              borderRadius: '50% 0 0 50%',
+              top: -20,
+              right: -20,
+              width: '80px',
+              height: '80px',
+              background: `linear-gradient(135deg, ${isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(13, 47, 96, 0.08)'} 0%, transparent 70%)`,
+              borderRadius: '50%',
             }} />
             <div style={{ position: 'relative', zIndex: 1 }}>
               <div style={{
@@ -2775,19 +3397,19 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               }}>
                 <span style={{
                   fontSize: 12,
-                  color: colours.blue,
+                  color: isDarkMode ? colours.accent : colours.missedBlue,
                   fontWeight: 600,
-                  textTransform: 'uppercase',
+                  textTransform: 'none',
                   letterSpacing: 0.5,
                 }}>
-                  v2 Instructions
+                  Instructions
                 </span>
                 <span style={{
                   fontSize: 9,
-                  color: isDarkMode ? '#64748b' : '#94a3b8',
+                  color: isDarkMode ? '#64748b' : colours.missedBlue,
                   fontWeight: 500,
                 }}>
-                  {selectedDateRange}
+                  {getActualDataRange(datasetData.instructions || [], 'SubmissionDate')}
                 </span>
               </div>
               <div style={{
@@ -2807,17 +3429,13 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               <div style={{
                 height: 3,
                 borderRadius: 2,
-                background: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)',
+                background: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(13, 47, 96, 0.2)',
                 marginTop: 8,
               }}>
                 <div style={{
                   height: '100%',
-                  width: (() => {
-                    if (!Array.isArray(datasetData.instructions)) return '0%';
-                    const filtered = getFilteredDataByDateRange(datasetData.instructions, 'SubmissionDate');
-                    return `${Math.min(100, (filtered.length / 30) * 20)}%`;
-                  })(),
-                  background: colours.blue,
+                  width: '25%',
+                  background: `linear-gradient(90deg, ${isDarkMode ? colours.accent : colours.missedBlue} 0%, ${isDarkMode ? colours.blue : colours.darkBlue} 100%)`,
                   borderRadius: 2,
                   transition: 'width 1s ease',
                 }} />
@@ -2829,19 +3447,30 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
           <div style={{
             padding: '16px 20px',
             borderRadius: 12,
-            background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.04)',
-            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
+            background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(13, 47, 96, 0.06)',
+            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(13, 47, 96, 0.15)'}`,
             position: 'relative',
             overflow: 'hidden',
-          }}>
+            transition: 'all 0.2s ease',
+            cursor: 'default',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.4)' : 'rgba(13, 47, 96, 0.3)';
+            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(13, 47, 96, 0.08)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(13, 47, 96, 0.15)';
+            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(13, 47, 96, 0.06)';
+          }}
+          >
             <div style={{
               position: 'absolute',
-              top: 0,
-              right: 0,
-              width: '40%',
-              height: '100%',
-              background: `linear-gradient(135deg, ${isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)'} 0%, transparent 70%)`,
-              borderRadius: '50% 0 0 50%',
+              top: -20,
+              right: -20,
+              width: '80px',
+              height: '80px',
+              background: `linear-gradient(135deg, ${isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(13, 47, 96, 0.08)'} 0%, transparent 70%)`,
+              borderRadius: '50%',
             }} />
             <div style={{ position: 'relative', zIndex: 1 }}>
               <div style={{
@@ -2852,19 +3481,19 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               }}>
                 <span style={{
                   fontSize: 12,
-                  color: colours.blue,
+                  color: isDarkMode ? colours.accent : colours.missedBlue,
                   fontWeight: 600,
-                  textTransform: 'uppercase',
+                  textTransform: 'none',
                   letterSpacing: 0.5,
                 }}>
                   Matters
                 </span>
                 <span style={{
                   fontSize: 9,
-                  color: isDarkMode ? '#64748b' : '#94a3b8',
+                  color: isDarkMode ? '#64748b' : colours.missedBlue,
                   fontWeight: 500,
                 }}>
-                  {selectedDateRange}
+                  {getActualDataRange(datasetData.allMatters || [], 'Open Date')}
                 </span>
               </div>
               <div style={{
@@ -2884,17 +3513,13 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               <div style={{
                 height: 3,
                 borderRadius: 2,
-                background: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)',
+                background: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(13, 47, 96, 0.2)',
                 marginTop: 8,
               }}>
                 <div style={{
                   height: '100%',
-                  width: (() => {
-                    if (!Array.isArray(datasetData.allMatters)) return '0%';
-                    const filtered = getFilteredDataByDateRange(datasetData.allMatters, 'Open Date');
-                    return `${Math.min(100, (filtered.length / 200) * 20)}%`;
-                  })(),
-                  background: colours.blue,
+                  width: '25%',
+                  background: `linear-gradient(90deg, ${isDarkMode ? colours.accent : colours.missedBlue} 0%, ${isDarkMode ? colours.blue : colours.darkBlue} 100%)`,
                   borderRadius: 2,
                   transition: 'width 1s ease',
                 }} />
@@ -2930,8 +3555,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                     width: 16,
                     height: 16,
                     borderWidth: 2,
-                    borderTopColor: '#3690CE', // highlight blue
-                    borderLeftColor: '#3690CE',
+                    borderTopColor: isDarkMode ? '#94a3b8' : '#64748b',
+                    borderLeftColor: isDarkMode ? '#94a3b8' : '#64748b',
                     borderBottomColor: 'transparent',
                     borderRightColor: 'transparent',
                   }
@@ -2939,7 +3564,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               />
               <span style={{
                 fontSize: 13,
-                color: '#3690CE', // highlight blue
+                color: isDarkMode ? '#94a3b8' : '#64748b',
                 fontWeight: 500,
               }}>
                 {isStreamingConnected 
@@ -3073,7 +3698,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                           fontSize: 10,
                           padding: '3px 7px',
                           borderRadius: 4,
-                          background: palette.darkBg,
+                          background: isDarkMode ? palette.darkBg : palette.lightBg,
                           color: isDarkMode ? '#f1f5f9' : '#334155',
                           display: 'flex',
                           alignItems: 'center',
@@ -3106,7 +3731,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                               width: 4,
                               height: 4,
                               borderRadius: '50%',
-                              background: palette.dot,
+                              background: (status.status === 'ready' && !isDarkMode) ? '#0d2f60' : palette.dot,
                             }} />
                           )}
                           {palette.label}
@@ -3222,7 +3847,22 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                     padding: '12px 14px',
                     borderRadius: 6,
                     border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(100, 116, 139, 0.15)'}`,
-                    background: isDarkMode ? 'rgba(51, 65, 85, 0.4)' : 'rgba(255, 255, 255, 0.7)',
+                    background: (() => {
+                      const reportState = getButtonState(report.requiredDatasets);
+                      if (isDarkMode) {
+                        return 'rgba(51, 65, 85, 0.4)';
+                      }
+                      // Add state-based background in light mode
+                      switch (reportState) {
+                        case 'ready':
+                          return 'rgba(13, 47, 96, 0.06)'; // Subtle dark blue tint
+                        case 'warming':
+                          return 'rgba(13, 47, 96, 0.04)'; // Very subtle dark blue
+                        case 'neutral':
+                        default:
+                          return 'rgba(255, 255, 255, 0.7)'; // Keep white
+                      }
+                    })(),
                   }}>
                     <div style={{
                       display: 'flex',
@@ -3280,7 +3920,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                                   width: 4,
                                   height: 4,
                                   borderRadius: '50%',
-                                  background: palette.dot,
+                                  background: (statusValue === 'ready' && !isDarkMode) ? '#0d2f60' : palette.dot,
                                 }} />
                                 {dataset?.name || datasetKey}
                               </span>
@@ -3295,10 +3935,40 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                       {report.action === 'dashboard' && (
                         <>
                           <PrimaryButton
-                            text={reportLoadingStates.dashboard ? 'Preparing…' : 'Open dashboard'}
-                            onClick={handleOpenDashboard}
-                            styles={conditionalButtonStyles(isDarkMode, getButtonState(report.requiredDatasets))}
-                            disabled={reportLoadingStates.dashboard}
+                            text={(getButtonState(report.requiredDatasets) === 'ready') ? 'Open dashboard' : 'Preparing…'}
+                            onClick={() => {
+                              const isReady = getButtonState(report.requiredDatasets) === 'ready';
+                              if (isReady) handleOpenDashboard();
+                            }}
+                            styles={(getButtonState(report.requiredDatasets) === 'ready')
+                              ? primaryButtonStyles(isDarkMode)
+                              : {
+                                  root: {
+                                    borderRadius: 8,
+                                    padding: '0 16px',
+                                    height: 34,
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                    color: isDarkMode ? '#94a3b8' : '#64748b',
+                                    border: `1px solid ${colours.highlight}`,
+                                    fontWeight: 500,
+                                    boxShadow: 'none',
+                                    transition: 'all 0.2s ease',
+                                    fontFamily: 'Raleway, sans-serif',
+                                  },
+                                  rootHovered: {
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
+                                  },
+                                  rootPressed: {
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
+                                  },
+                                  rootDisabled: {
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                    color: isDarkMode ? '#94a3b8' : '#64748b',
+                                    border: `1px solid ${colours.highlight}`,
+                                  },
+                                }
+                            }
+                            disabled={getButtonState(report.requiredDatasets) !== 'ready'}
                           />
                           <DefaultButton
                             text="Refresh data"
@@ -3312,10 +3982,40 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                       {report.action === 'annualLeave' && (
                         <>
                           <PrimaryButton
-                            text={reportLoadingStates.annualLeave ? 'Preparing…' : 'Open annual leave report'}
-                            onClick={() => setActiveView('annualLeave')}
-                            styles={conditionalButtonStyles(isDarkMode, getButtonState(report.requiredDatasets))}
-                            disabled={reportLoadingStates.annualLeave}
+                            text={(getButtonState(report.requiredDatasets) === 'ready') ? 'Open annual leave' : 'Preparing…'}
+                            onClick={() => {
+                              const isReady = getButtonState(report.requiredDatasets) === 'ready';
+                              if (isReady) setActiveView('annualLeave');
+                            }}
+                            styles={(getButtonState(report.requiredDatasets) === 'ready')
+                              ? primaryButtonStyles(isDarkMode)
+                              : {
+                                  root: {
+                                    borderRadius: 8,
+                                    padding: '0 16px',
+                                    height: 34,
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                    color: isDarkMode ? '#94a3b8' : '#64748b',
+                                    border: `1px solid ${colours.highlight}`,
+                                    fontWeight: 500,
+                                    boxShadow: 'none',
+                                    transition: 'all 0.2s ease',
+                                    fontFamily: 'Raleway, sans-serif',
+                                  },
+                                  rootHovered: {
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
+                                  },
+                                  rootPressed: {
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
+                                  },
+                                  rootDisabled: {
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                    color: isDarkMode ? '#94a3b8' : '#64748b',
+                                    border: `1px solid ${colours.highlight}`,
+                                  },
+                                }
+                            }
+                            disabled={getButtonState(report.requiredDatasets) !== 'ready'}
                           />
                           <DefaultButton
                             text="Refresh leave data"
@@ -3329,10 +4029,40 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                       {report.action === 'enquiries' && (
                         <>
                           <PrimaryButton
-                            text={reportLoadingStates.enquiries ? 'Preparing…' : 'Open enquiries report'}
-                            onClick={() => setActiveView('enquiries')}
-                            styles={conditionalButtonStyles(isDarkMode, getButtonState(report.requiredDatasets))}
-                            disabled={reportLoadingStates.enquiries}
+                            text={(getButtonState(report.requiredDatasets) === 'ready') ? 'Open enquiries report' : 'Preparing…'}
+                            onClick={() => {
+                              const isReady = getButtonState(report.requiredDatasets) === 'ready';
+                              if (isReady) setActiveView('enquiries');
+                            }}
+                            styles={(getButtonState(report.requiredDatasets) === 'ready')
+                              ? primaryButtonStyles(isDarkMode)
+                              : {
+                                  root: {
+                                    borderRadius: 8,
+                                    padding: '0 16px',
+                                    height: 34,
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                    color: isDarkMode ? '#94a3b8' : '#64748b',
+                                    border: `1px solid ${colours.highlight}`,
+                                    fontWeight: 500,
+                                    boxShadow: 'none',
+                                    transition: 'all 0.2s ease',
+                                    fontFamily: 'Raleway, sans-serif',
+                                  },
+                                  rootHovered: {
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
+                                  },
+                                  rootPressed: {
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
+                                  },
+                                  rootDisabled: {
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                    color: isDarkMode ? '#94a3b8' : '#64748b',
+                                    border: `1px solid ${colours.highlight}`,
+                                  },
+                                }
+                            }
+                            disabled={getButtonState(report.requiredDatasets) !== 'ready'}
                           />
                           <DefaultButton
                             text="Refresh enquiries data"
@@ -3346,10 +4076,40 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                       {report.action === 'metaMetrics' && (
                         <>
                           <PrimaryButton
-                            text={reportLoadingStates.metaMetrics ? 'Preparing…' : 'Open Meta ads'}
-                            onClick={() => setActiveView('metaMetrics')}
-                            styles={conditionalButtonStyles(isDarkMode, getButtonState(report.requiredDatasets))}
-                            disabled={reportLoadingStates.metaMetrics}
+                            text={(getButtonState(report.requiredDatasets) === 'ready') ? 'Open Meta ads' : 'Preparing…'}
+                            onClick={() => {
+                              const isReady = getButtonState(report.requiredDatasets) === 'ready';
+                              if (isReady) setActiveView('metaMetrics');
+                            }}
+                            styles={(getButtonState(report.requiredDatasets) === 'ready')
+                              ? primaryButtonStyles(isDarkMode)
+                              : {
+                                  root: {
+                                    borderRadius: 8,
+                                    padding: '0 16px',
+                                    height: 34,
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                    color: isDarkMode ? '#94a3b8' : '#64748b',
+                                    border: `1px solid ${colours.highlight}`,
+                                    fontWeight: 500,
+                                    boxShadow: 'none',
+                                    transition: 'all 0.2s ease',
+                                    fontFamily: 'Raleway, sans-serif',
+                                  },
+                                  rootHovered: {
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
+                                  },
+                                  rootPressed: {
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
+                                  },
+                                  rootDisabled: {
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                    color: isDarkMode ? '#94a3b8' : '#64748b',
+                                    border: `1px solid ${colours.highlight}`,
+                                  },
+                                }
+                            }
+                            disabled={getButtonState(report.requiredDatasets) !== 'ready'}
                           />
                           <DefaultButton
                             text="Refresh Meta data"
@@ -3363,10 +4123,40 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                       {report.action === 'seoReport' && (
                         <>
                           <PrimaryButton
-                            text={report.disabled ? 'Coming soon' : (reportLoadingStates.seoReport ? 'Preparing…' : 'Open SEO report')}
-                            onClick={() => setActiveView('seoReport')}
-                            styles={conditionalButtonStyles(isDarkMode, getButtonState(report.requiredDatasets))}
-                            disabled={report.disabled || reportLoadingStates.seoReport}
+                            text={report.disabled ? 'ETA 1 day' : ((getButtonState(report.requiredDatasets) === 'ready') ? 'Open SEO report' : 'Preparing…')}
+                            onClick={() => {
+                              const isReady = getButtonState(report.requiredDatasets) === 'ready';
+                              if (!report.disabled && isReady) setActiveView('seoReport');
+                            }}
+                            styles={(getButtonState(report.requiredDatasets) === 'ready')
+                              ? primaryButtonStyles(isDarkMode)
+                              : {
+                                  root: {
+                                    borderRadius: 8,
+                                    padding: '0 16px',
+                                    height: 34,
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                    color: isDarkMode ? '#94a3b8' : '#64748b',
+                                    border: `1px solid ${colours.highlight}`,
+                                    fontWeight: 500,
+                                    boxShadow: 'none',
+                                    transition: 'all 0.2s ease',
+                                    fontFamily: 'Raleway, sans-serif',
+                                  },
+                                  rootHovered: {
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
+                                  },
+                                  rootPressed: {
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
+                                  },
+                                  rootDisabled: {
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                    color: isDarkMode ? '#94a3b8' : '#64748b',
+                                    border: `1px solid ${colours.highlight}`,
+                                  },
+                                }
+                            }
+                            disabled={report.disabled || (getButtonState(report.requiredDatasets) !== 'ready')}
                           />
                           <DefaultButton
                             text="Refresh SEO data"
@@ -3380,10 +4170,40 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                       {report.action === 'ppcReport' && (
                         <>
                           <PrimaryButton
-                            text={report.disabled ? 'Coming soon' : (reportLoadingStates.ppcReport ? 'Preparing…' : 'Open PPC report')}
-                            onClick={() => setActiveView('ppcReport')}
-                            styles={conditionalButtonStyles(isDarkMode, getButtonState(report.requiredDatasets))}
-                            disabled={report.disabled || reportLoadingStates.ppcReport}
+                            text={report.disabled ? 'ETA 1 day' : ((getButtonState(report.requiredDatasets) === 'ready') ? 'Open PPC report' : 'Preparing…')}
+                            onClick={() => {
+                              const isReady = getButtonState(report.requiredDatasets) === 'ready';
+                              if (!report.disabled && isReady) setActiveView('ppcReport');
+                            }}
+                            styles={(getButtonState(report.requiredDatasets) === 'ready' && !report.disabled)
+                              ? primaryButtonStyles(isDarkMode)
+                              : {
+                                  root: {
+                                    borderRadius: 8,
+                                    padding: '0 16px',
+                                    height: 34,
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                    color: isDarkMode ? '#94a3b8' : '#64748b',
+                                    border: `1px solid ${colours.highlight}`,
+                                    fontWeight: 500,
+                                    boxShadow: 'none',
+                                    transition: 'all 0.2s ease',
+                                    fontFamily: 'Raleway, sans-serif',
+                                  },
+                                  rootHovered: {
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
+                                  },
+                                  rootPressed: {
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
+                                  },
+                                  rootDisabled: {
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                    color: isDarkMode ? '#94a3b8' : '#64748b',
+                                    border: `1px solid ${colours.highlight}`,
+                                  },
+                                }
+                            }
+                            disabled={report.disabled || (getButtonState(report.requiredDatasets) !== 'ready')}
                           />
                           <DefaultButton
                             text="Refresh PPC data"
@@ -3419,8 +4239,203 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
         )}
       </section>
 
+      {/* Notes & Suggestions Box */}
+      <section style={sectionSurfaceStyle(isDarkMode)}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+          <FontIcon
+            iconName="FeedbackRequestSolid"
+            style={{
+              fontSize: 14,
+              color: isDarkMode ? colours.accent : colours.missedBlue,
+            }}
+          />
+          <h2 style={sectionTitleStyle}>Feedback</h2>
+        </div>
+        
+        <NotesAndSuggestionsBox isDarkMode={isDarkMode} />
+      </section>
+
       {/* Marketing Data Settings removed (always using 24 months for GA4 and Google Ads) */}
 
+    </div>
+  );
+};
+
+// Notes and Suggestions Component
+interface NotesAndSuggestionsBoxProps {
+  isDarkMode: boolean;
+}
+
+const NotesAndSuggestionsBox: React.FC<NotesAndSuggestionsBoxProps> = ({ isDarkMode }) => {
+  const [message, setMessage] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const [lastSent, setLastSent] = useState<number | null>(null);
+
+  const handleSubmit = async () => {
+    if (!message.trim() || isSending) return;
+
+    setIsSending(true);
+    
+    try {
+      const emailBody = `
+        <div style="font-family: Raleway, Arial, sans-serif; line-height: 1.6; color: #333;">
+          <h3 style="color: #3690CE; margin-bottom: 16px;">Reporting Dashboard Feedback</h3>
+          
+          <div style="background: #f8fafc; padding: 16px; border-radius: 8px; border-left: 4px solid #87F3F3; margin-bottom: 16px;">
+            <p style="margin: 0; font-size: 14px;"><strong>Submitted:</strong> ${new Date().toLocaleString('en-GB', {
+              weekday: 'long',
+              day: 'numeric', 
+              month: 'long',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit'
+            })}</p>
+          </div>
+
+          <div style="margin-bottom: 20px;">
+            <h4 style="margin-bottom: 8px; color: #475569;">Message:</h4>
+            <div style="background: white; padding: 16px; border-radius: 8px; border: 1px solid #e2e8f0;">
+              ${message.replace(/\n/g, '<br>')}
+            </div>
+          </div>
+
+          <div style="font-size: 12px; color: #64748b; border-top: 1px solid #e2e8f0; padding-top: 12px;">
+            <strong>Source:</strong> Helix Hub - Reporting Dashboard<br>
+            <strong>User:</strong> Teams App User<br>
+            <strong>Timestamp:</strong> ${new Date().toISOString()}
+          </div>
+        </div>
+      `;
+
+      const response = await fetch('/api/sendEmail', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email_contents: emailBody,
+          user_email: 'automations@helix-law.com',
+          subject: `Reporting Dashboard Feedback - ${new Date().toLocaleDateString('en-GB')}`,
+          from_email: 'automations@helix-law.com'
+        })
+      });
+
+      if (response.ok) {
+        setMessage('');
+        setLastSent(Date.now());
+      } else {
+        throw new Error('Failed to send feedback');
+      }
+    } catch (error) {
+      console.error('Failed to send feedback:', error);
+      alert('Failed to send feedback. Please try again.');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const canSubmit = message.trim().length > 0 && !isSending;
+  const showSuccessMessage = lastSent && (Date.now() - lastSent) < 5000; // Show for 5 seconds
+
+  return (
+    <div style={{
+      background: isDarkMode ? 'rgba(51, 65, 85, 0.4)' : 'rgba(248, 250, 252, 0.8)',
+      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
+      borderRadius: 12,
+      padding: 20,
+    }}>
+
+
+      {showSuccessMessage && (
+        <div style={{
+          padding: '8px 12px',
+          borderRadius: 8,
+          background: isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)',
+          border: `1px solid ${isDarkMode ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.2)'}`,
+          color: isDarkMode ? '#86efac' : '#166534',
+          fontSize: 12,
+          marginBottom: 12,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+        }}>
+          <FontIcon iconName="CheckMark" style={{ fontSize: 10 }} />
+          Sent! We'll probably ignore it, but thanks anyway.
+        </div>
+      )}
+
+      <textarea
+        value={message}
+        onChange={(e) => setMessage(e.target.value)}
+        placeholder="How can we improve this page?"
+        disabled={isSending}
+        style={{
+          width: '100%',
+          minHeight: 80,
+          padding: 12,
+          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
+          borderRadius: 8,
+          background: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#ffffff',
+          color: isDarkMode ? '#f1f5f9' : '#1f2937',
+          fontSize: 13,
+          fontFamily: 'Raleway, Arial, sans-serif',
+          resize: 'vertical',
+          outline: 'none',
+          transition: 'all 0.2s ease',
+          marginBottom: 12,
+        }}
+        onFocus={(e) => {
+          e.target.style.borderColor = colours.accent;
+          e.target.style.boxShadow = `0 0 0 2px ${colours.accent}20`;
+        }}
+        onBlur={(e) => {
+          e.target.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)';
+          e.target.style.boxShadow = 'none';
+        }}
+      />
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{
+          fontSize: 11,
+          color: isDarkMode ? '#94a3b8' : '#64748b',
+          opacity: 0.8,
+        }}>
+          Delivered to automations@helix-law.com
+        </span>
+        
+        <DefaultButton
+          text={isSending ? 'Sending...' : 'Send Feedback'}
+          onClick={handleSubmit}
+          disabled={!canSubmit}
+          iconProps={isSending ? undefined : { iconName: 'Send' }}
+          styles={{
+            root: {
+              borderRadius: 8,
+              padding: '0 16px',
+              height: 32,
+              background: canSubmit 
+                ? (isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(135, 243, 243, 0.1)')
+                : (isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.05)'),
+              color: canSubmit 
+                ? colours.accent 
+                : (isDarkMode ? '#64748b' : '#94a3b8'),
+              border: `1px solid ${canSubmit 
+                ? (isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(135, 243, 243, 0.2)')
+                : (isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)')}`,
+              fontWeight: 500,
+              fontSize: 12,
+              boxShadow: 'none',
+              transition: 'all 0.2s ease',
+              fontFamily: 'Raleway, sans-serif',
+            },
+            rootHovered: canSubmit ? {
+              background: isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(135, 243, 243, 0.15)',
+              borderColor: isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(135, 243, 243, 0.3)',
+            } : {},
+            rootPressed: canSubmit ? {
+              background: isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(135, 243, 243, 0.2)',
+            } : {},
+          }}
+        />
+      </div>
     </div>
   );
 };
