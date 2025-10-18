@@ -128,11 +128,11 @@ const RiskAssessmentPage: React.FC<RiskAssessmentPageProps> = ({ onBack, instruc
 
     const isComplete = () =>
         Object.values(riskCore).every((v) => v !== '' && v !== 0) &&
-        consideredClientRisk !== undefined &&
-        consideredTransactionRisk !== undefined &&
+        consideredClientRisk === true &&
+        consideredTransactionRisk === true &&
         (consideredTransactionRisk ? transactionRiskLevel !== '' : true) &&
-        consideredFirmWideSanctions !== undefined &&
-        consideredFirmWideAML !== undefined &&
+        consideredFirmWideSanctions === true &&
+        consideredFirmWideAML === true &&
         (riskCore.limitationValue === 1 || limitationDateTbc || !!limitationDate);
 
     const handleContinue = async () => {
@@ -219,22 +219,32 @@ const RiskAssessmentPage: React.FC<RiskAssessmentPageProps> = ({ onBack, instruc
             const responseData = await response.text();
             console.log('✅ Risk assessment submitted successfully:', responseData);
 
-            // Notify parent of new risk assessment so it can refresh UI
+            // Notify parent of new risk assessment so it can refresh UI and update instruction card
             onSave?.(payload);
 
-            // Native in-app toast and inline header status
-            setToast({ visible: true, message: 'Risk assessment saved', type: 'success' });
-            // Briefly show success before navigating back
+            // Show success toast with encouraging message
+            setToast({ 
+                visible: true, 
+                message: `Risk Assessment Complete - ${riskResult}`, 
+                type: 'success' 
+            });
+
+            // Brief delay to let user see the success state, then navigate back
+            // This allows instruction card to display updated risk pill smoothly
             setTimeout(() => {
                 setToast((t) => ({ ...t, visible: false }));
                 onBack();
-            }, 900);
+            }, 1200);
             
         } catch (err) {
             console.error('❌ Risk assessment submit failed', err);
-            setToast({ visible: true, message: 'Failed to save risk assessment', type: 'error' });
+            setToast({ 
+                visible: true, 
+                message: 'Failed to save risk assessment', 
+                type: 'error' 
+            });
             // Auto-hide error after a short delay; stay on page for correction
-            setTimeout(() => setToast((t) => ({ ...t, visible: false })), 2000);
+            setTimeout(() => setToast((t) => ({ ...t, visible: false })), 2500);
         } finally {
             setIsSubmitting(false);
         }
@@ -242,39 +252,73 @@ const RiskAssessmentPage: React.FC<RiskAssessmentPageProps> = ({ onBack, instruc
     };
 
     return (
-        <div className="risk-assessment-container">
-            {/* Header with breadcrumb-style progress */}
+        <div className="risk-assessment-container" style={{
+            animation: isSubmitting ? 'none' : 'slideIn 0.3s ease-out',
+            opacity: isSubmitting && toast.type === 'success' ? 0.95 : 1,
+            transition: toast.type === 'success' && isSubmitting ? 'opacity 0.8s ease-in-out 0.8s' : 'none'
+        }}>
+            {/* Compact Header */}
             <div style={{ 
                 display: 'flex', 
                 justifyContent: 'space-between', 
                 alignItems: 'center', 
-                padding: '20px 24px', 
+                padding: '12px 16px', 
                 borderBottom: `1px solid ${isDarkMode ? colours.dark.border : '#e1dfdd'}`,
                 background: isDarkMode ? colours.dark.sectionBackground : '#fff',
                 color: isDarkMode ? colours.dark.text : undefined,
                 borderRadius: '8px 8px 0 0',
-                marginBottom: '0'
+                marginBottom: '0',
+                gap: 8
             }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 18, fontWeight: 600, letterSpacing: '-0.02em' }}>
-                    <i className="ms-Icon ms-Icon--DocumentSearch" style={{ fontSize: 18, opacity: 0.9 }} />
-                    Risk Assessment
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, letterSpacing: '-0.01em', minWidth: 0 }}>
+                    <i className="ms-Icon ms-Icon--DocumentSearch" style={{ fontSize: 14, opacity: 0.9, flexShrink: 0 }} />
+                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Risk Assessment</span>
                 </div>
 
-                {/* Right side controls */}
+                {/* Right side controls - minimal spacing */}
                 <div style={{ 
                     display: 'flex', 
                     alignItems: 'center', 
-                    gap: 8
+                    gap: 6,
+                    marginLeft: 'auto',
+                    flexShrink: 0
                 }}>
                     {isSubmitting && (
-                        <div aria-live="polite" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
-                            <Spinner size={SpinnerSize.small} />
-                            <span style={{ fontSize: 13, fontWeight: 500, opacity: 0.9 }}>Saving…</span>
+                        <div aria-live="polite" style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '0' }}>
+                            {toast.type === 'success' ? (
+                                <>
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{
+                                        animation: 'checkmark 0.6s ease-out 0.2s both'
+                                    }}>
+                                        <polyline 
+                                            points="20,6 9,17 4,12" 
+                                            stroke="#16a34a" 
+                                            strokeWidth="2" 
+                                            strokeLinecap="round" 
+                                            strokeLinejoin="round"
+                                        />
+                                    </svg>
+                                    <span style={{ fontSize: 11, fontWeight: 600, color: '#16a34a' }}>Saved</span>
+                                </>
+                            ) : (
+                                <>
+                                    <Spinner size={SpinnerSize.small} />
+                                    <span style={{ fontSize: 11, fontWeight: 500, opacity: 0.9, whiteSpace: 'nowrap' }}>Saving…</span>
+                                </>
+                            )}
                         </div>
                     )}
                     {/* Buttons provided by child component; hidden during submit */}
-                    {!isSubmitting && headerButtons.clearAllButton}
-                    {!isSubmitting && headerButtons.jsonButton}
+                    {!isSubmitting && headerButtons.clearAllButton && (
+                        <div style={{ display: 'flex' }}>
+                            {headerButtons.clearAllButton}
+                        </div>
+                    )}
+                    {!isSubmitting && headerButtons.jsonButton && (
+                        <div style={{ display: 'flex' }}>
+                            {headerButtons.jsonButton}
+                        </div>
+                    )}
                     
                     {/* Exit Button */}
                     <button
@@ -284,32 +328,33 @@ const RiskAssessmentPage: React.FC<RiskAssessmentPageProps> = ({ onBack, instruc
                         style={{
                             background: 'transparent',
                             border: 'none',
-                            borderRadius: '4px',
-                            padding: '8px',
-                            fontSize: 16,
-                            color: isDarkMode ? colours.dark.text : '#666',
+                            borderRadius: '3px',
+                            padding: '4px',
+                            fontSize: 14,
+                            color: isDarkMode ? colours.dark.text : '#999',
                             cursor: isSubmitting ? 'not-allowed' : 'pointer',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
                             opacity: isSubmitting ? 0.5 : 1,
                             transition: 'background 0.2s ease, color 0.2s ease',
+                            flexShrink: 0
                         }}
                         onMouseEnter={(e) => {
                             if (!isSubmitting) {
-                                e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)';
+                                e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)';
                                 e.currentTarget.style.color = isDarkMode ? '#fff' : '#333';
                             }
                         }}
                         onMouseLeave={(e) => {
                             if (!isSubmitting) {
                                 e.currentTarget.style.background = 'transparent';
-                                e.currentTarget.style.color = isDarkMode ? colours.dark.text : '#666';
+                                e.currentTarget.style.color = isDarkMode ? colours.dark.text : '#999';
                             }
                         }}
                         title="Close Risk Assessment"
                     >
-                        <i className="ms-Icon ms-Icon--Cancel" style={{ fontSize: 16 }} />
+                        <i className="ms-Icon ms-Icon--Cancel" style={{ fontSize: 14 }} />
                     </button>
                 </div>
             </div>
@@ -317,33 +362,55 @@ const RiskAssessmentPage: React.FC<RiskAssessmentPageProps> = ({ onBack, instruc
             {/* Risk Assessment Content */}
             <div style={{ 
                 opacity: isSubmitting ? 0.7 : 1, 
-                padding: '24px', 
+                padding: '16px', 
                 pointerEvents: isSubmitting ? 'none' : 'auto',
-                background: isDarkMode ? colours.dark.background : '#fafbfc',
+                background: isDarkMode 
+                    ? 'linear-gradient(135deg, #111827 0%, #1f2937 50%, #111827 100%)'
+                    : 'linear-gradient(135deg, #fafbfc 0%, #f3f4f6 50%, #fafbfc 100%)',
                 borderRadius: '0 0 8px 8px',
-                minHeight: '500px'
+                minHeight: '500px',
+                overflow: 'auto',
+                transition: 'opacity 0.3s ease',
+                position: 'relative'
             }}>
-                <RiskAssessment
-                    riskCore={riskCore}
-                    setRiskCore={setRiskCore}
-                    consideredClientRisk={consideredClientRisk}
-                    setConsideredClientRisk={setConsideredClientRisk}
-                    consideredTransactionRisk={consideredTransactionRisk}
-                    setConsideredTransactionRisk={setConsideredTransactionRisk}
-                    transactionRiskLevel={transactionRiskLevel}
-                    setTransactionRiskLevel={setTransactionRiskLevel}
-                    consideredFirmWideSanctions={consideredFirmWideSanctions}
-                    setConsideredFirmWideSanctions={setConsideredFirmWideSanctions}
-                    consideredFirmWideAML={consideredFirmWideAML}
-                    setConsideredFirmWideAML={setConsideredFirmWideAML}
-                    limitationDate={limitationDate}
-                    setLimitationDate={setLimitationDate}
-                    limitationDateTbc={limitationDateTbc}
-                    setLimitationDateTbc={setLimitationDateTbc}
-                    onContinue={handleContinue}
-                    isComplete={isComplete}
-                    onHeaderButtonsChange={handleHeaderButtonsChange}
-                />
+                {isDarkMode && (
+                    <div style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        backgroundImage: `
+                            radial-gradient(circle at 20% 50%, rgba(54, 144, 206, 0.05) 0%, transparent 50%),
+                            radial-gradient(circle at 80% 80%, rgba(34, 160, 107, 0.05) 0%, transparent 50%)
+                        `,
+                        pointerEvents: 'none',
+                        borderRadius: '0 0 8px 8px'
+                    }} />
+                )}
+                <div style={{ position: 'relative', zIndex: 1 }}>
+                    <RiskAssessment
+                        riskCore={riskCore}
+                        setRiskCore={setRiskCore}
+                        consideredClientRisk={consideredClientRisk}
+                        setConsideredClientRisk={setConsideredClientRisk}
+                        consideredTransactionRisk={consideredTransactionRisk}
+                        setConsideredTransactionRisk={setConsideredTransactionRisk}
+                        transactionRiskLevel={transactionRiskLevel}
+                        setTransactionRiskLevel={setTransactionRiskLevel}
+                        consideredFirmWideSanctions={consideredFirmWideSanctions}
+                        setConsideredFirmWideSanctions={setConsideredFirmWideSanctions}
+                        consideredFirmWideAML={consideredFirmWideAML}
+                        setConsideredFirmWideAML={setConsideredFirmWideAML}
+                        limitationDate={limitationDate}
+                        setLimitationDate={setLimitationDate}
+                        limitationDateTbc={limitationDateTbc}
+                        setLimitationDateTbc={setLimitationDateTbc}
+                        onContinue={handleContinue}
+                        isComplete={isComplete}
+                        onHeaderButtonsChange={handleHeaderButtonsChange}
+                    />
+                </div>
             </div>
 
             {/* Clear All Confirmation Dialog */}
@@ -373,8 +440,33 @@ const RiskAssessmentPage: React.FC<RiskAssessmentPageProps> = ({ onBack, instruc
                 </DialogFooter>
             </Dialog>
 
-            {/* CSS animations for completion ticks and pulse animation */}
+            {/* CSS animations for completion ticks, checkmark, and smooth transitions */}
             <style>{`
+                @keyframes slideIn {
+                    from {
+                        opacity: 0;
+                        transform: translateY(-8px);
+                    }
+                    to {
+                        opacity: 1;
+                        transform: translateY(0);
+                    }
+                }
+
+                @keyframes checkmark {
+                    0% {
+                        opacity: 0;
+                        transform: scale(0) rotate(-45deg);
+                    }
+                    50% {
+                        opacity: 1;
+                    }
+                    100% {
+                        opacity: 1;
+                        transform: scale(1) rotate(0deg);
+                    }
+                }
+                
                 @keyframes tickPop {
                     from {
                         opacity: 0;

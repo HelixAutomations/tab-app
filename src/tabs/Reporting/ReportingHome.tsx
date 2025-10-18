@@ -22,6 +22,7 @@ import { getNormalizedEnquirySource } from '../../utils/enquirySource';
 import HomePreview from './HomePreview';
 import EnquiriesReport, { MarketingMetrics } from './EnquiriesReport';
 import { useStreamingDatasets } from '../../hooks/useStreamingDatasets';
+import { fetchWithRetry, fetchJSON } from '../../utils/fetchUtils';
 import markWhite from '../../assets/markwhite.svg';
 import type { PpcIncomeMetrics } from './PpcReport';
 
@@ -100,6 +101,127 @@ const toNumberSafe = (value: unknown): number => {
     return Number.isFinite(numeric) ? numeric : 0;
   }
   return 0;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const extractUserInitials = (userRecords: UserData[] | null | undefined): string | undefined => {
+  if (!Array.isArray(userRecords) || userRecords.length === 0) {
+    return undefined;
+  }
+
+  const first = userRecords[0] as Record<string, unknown>;
+  const candidates = ['Initials', 'initials', 'Fe', 'FE'];
+  for (const key of candidates) {
+    const value = first[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return undefined;
+};
+
+const mapAnnualLeaveRecords = (raw: unknown): AnnualLeaveRecord[] => {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  return raw.reduce<AnnualLeaveRecord[]>((acc, item) => {
+    if (!isRecord(item)) {
+      return acc;
+    }
+
+    const personCandidate = item.person ?? item.fe ?? item.Fe;
+    const startCandidate = item.start_date ?? item.startDate;
+    const endCandidate = item.end_date ?? item.endDate;
+
+    if (typeof personCandidate !== 'string' || typeof startCandidate !== 'string' || typeof endCandidate !== 'string') {
+      return acc;
+    }
+
+    const rawRequestId = item.request_id ?? item.id ?? item.requestId ?? 0;
+    const requestId = typeof rawRequestId === 'number' && Number.isFinite(rawRequestId)
+      ? rawRequestId
+      : Number(rawRequestId) || 0;
+
+    const rawHearingConfirmation = item.hearing_confirmation;
+    let hearingConfirmation: boolean | undefined;
+    if (typeof rawHearingConfirmation === 'boolean') {
+      hearingConfirmation = rawHearingConfirmation;
+    } else if (rawHearingConfirmation != null) {
+      const normalized = String(rawHearingConfirmation).trim().toLowerCase();
+      hearingConfirmation = ['1', 'true', 'yes'].includes(normalized);
+    }
+
+    const rejectionNotes = typeof item.rejection_notes === 'string' && item.rejection_notes.trim().length > 0
+      ? item.rejection_notes
+      : undefined;
+
+    const hearingDetails = typeof item.hearing_details === 'string' && item.hearing_details.trim().length > 0
+      ? item.hearing_details
+      : undefined;
+
+    acc.push({
+      request_id: requestId,
+      fe: personCandidate,
+      start_date: String(startCandidate),
+      end_date: String(endCandidate),
+      reason: typeof item.reason === 'string' ? item.reason : '',
+      status: typeof item.status === 'string' ? item.status : '',
+      days_taken: toNumberSafe(item.days_taken),
+      leave_type: typeof item.leave_type === 'string' ? item.leave_type : undefined,
+      rejection_notes: rejectionNotes,
+      hearing_confirmation: hearingConfirmation,
+      hearing_details: hearingDetails,
+    });
+
+    return acc;
+  }, []);
+};
+
+const mapTeamDataFromPayload = (raw: unknown): TeamData[] => {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  return raw.reduce<TeamData[]>((acc, item) => {
+    if (!isRecord(item)) {
+      return acc;
+    }
+
+    const entry: TeamData = {};
+    const initials = typeof item.Initials === 'string'
+      ? item.Initials
+      : typeof item.initials === 'string'
+        ? item.initials
+        : undefined;
+    if (initials && initials.trim()) {
+      entry['Initials'] = initials.trim();
+    }
+
+    const aow = typeof item.AOW === 'string'
+      ? item.AOW
+      : typeof item.aow === 'string'
+        ? item.aow
+        : undefined;
+    if (aow && aow.trim()) {
+      entry.AOW = aow.trim();
+    }
+
+    const entitlementRaw = item.holiday_entitlement ?? item.holidayEntitlement ?? item.HolidayEntitlement;
+    const entitlement = typeof entitlementRaw === 'number'
+      ? entitlementRaw
+      : typeof entitlementRaw === 'string'
+        ? Number(entitlementRaw)
+        : undefined;
+    if (Number.isFinite(entitlement)) {
+      entry.holiday_entitlement = Number(entitlement);
+    }
+
+    acc.push(entry);
+    return acc;
+  }, []);
 };
 
 const isPpcSourceLabel = (value: unknown): boolean => {
@@ -192,6 +314,14 @@ interface DatasetMap {
   instructions: InstructionSummary[] | null;
 }
 
+interface AnnualLeaveFetchResult {
+  records: AnnualLeaveRecord[];
+  current: AnnualLeaveRecord[];
+  future: AnnualLeaveRecord[];
+  team: TeamData[];
+  userDetails?: Record<string, unknown>;
+}
+
 // Meta Metrics Deal interface for tracking conversion funnel
 interface Deal {
   DealId: number;
@@ -282,21 +412,21 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
     name: 'Enquiries report',
     status: 'Live today',
     action: 'enquiries',
-    requiredDatasets: ['enquiries', 'deals', 'instructions'],
+    requiredDatasets: ['enquiries', 'teamData', 'annualLeave', 'metaMetrics'],
   },
   {
     key: 'annualLeave',
     name: 'Annual leave report',
     status: 'Live today',
     action: 'annualLeave',
-    requiredDatasets: ['annualLeave'],
+    requiredDatasets: ['annualLeave', 'teamData'],
   },
   {
     key: 'metaMetrics',
     name: 'Meta ads',
     status: 'Live today',
     action: 'metaMetrics',
-    requiredDatasets: ['enquiries', 'deals', 'instructions'],
+    requiredDatasets: ['metaMetrics', 'enquiries'],
   },
   {
     key: 'seo',
@@ -304,15 +434,15 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
     status: 'ETA 1 day',
     action: 'seoReport' as const,
     requiredDatasets: ['googleAnalytics', 'googleAds'] as DatasetKey[],
-    disabled: process.env.NODE_ENV === 'production',
+    disabled: true, // Keep disabled for now
   },
   {
     key: 'ppc',
     name: 'PPC report',
-    status: 'ETA 1 day',
+    status: 'Ready',
     action: 'ppcReport' as const,
-    requiredDatasets: ['googleAds', 'metaMetrics'] as DatasetKey[],
-    disabled: process.env.NODE_ENV === 'production',
+    requiredDatasets: ['googleAds', 'enquiries', 'allMatters', 'recoveredFees'] as DatasetKey[],
+    disabled: false, // Enabled in production
   },
   {
     key: 'matters',
@@ -930,6 +1060,13 @@ const REFRESH_PHASES: Array<{ thresholdMs: number; label: string }> = [
   { thresholdMs: Number.POSITIVE_INFINITY, label: 'Finalising dashboard views…' },
 ];
 
+const formatCurrency = (amount: number): string => {
+  if (amount >= 1_000_000) {
+    return `£${(amount / 1_000_000).toFixed(1)}M`;
+  }
+  return `£${(amount / 1000).toFixed(1)}k`;
+};
+
 // Marketing Data Settings Component
 // (Removed MarketingDataSettingsProps; settings UI deleted)
 
@@ -1502,36 +1639,12 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
         // Kick off non-streaming fetchers in parallel
         (async () => {
           try {
-            const [annualLeaveResponse, meta] = await Promise.all([
-              fetch('/api/attendance/annual-leave-all', {
-                method: 'GET',
-                credentials: 'include',
-                headers: { Accept: 'application/json' },
-              }),
+            const [annualLeaveResult, meta] = await Promise.all([
+              fetchAnnualLeaveDataset(false),
               fetchMetaMetrics(),
             ]);
 
-            let annualLeaveData: AnnualLeaveRecord[] = [];
-            if (annualLeaveResponse.ok) {
-              try {
-                const payload = await annualLeaveResponse.json();
-                if (payload.success && payload.all_data) {
-                  annualLeaveData = payload.all_data.map((record: any) => ({
-                    request_id: record.request_id,
-                    fe: record.person,
-                    start_date: record.start_date,
-                    end_date: record.end_date,
-                    reason: record.reason,
-                    status: record.status,
-                    days_taken: record.days_taken,
-                    leave_type: record.leave_type,
-                    rejection_notes: record.rejection_notes,
-                    hearing_confirmation: record.hearing_confirmation,
-                    hearing_details: record.hearing_details,
-                  }));
-                }
-              } catch {/* ignore parse errors */}
-            }
+            const annualLeaveData = annualLeaveResult.records;
 
             const now = Date.now();
             setDatasetData(prev => ({
@@ -1752,6 +1865,60 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     };
   }, [activeView, handleBackToOverview, isDarkMode, setContent]);
 
+  const fetchAnnualLeaveDataset = useCallback(async (forceRefresh: boolean): Promise<AnnualLeaveFetchResult> => {
+    const endpoint = forceRefresh ? '/api/attendance/getAnnualLeave?forceRefresh=true' : '/api/attendance/getAnnualLeave';
+    const initials = extractUserInitials(propUserData);
+
+    let response: Response;
+    try {
+      response = await fetchWithRetry(endpoint, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(initials ? { userInitials: initials } : {}),
+        timeout: 45000, // 45 second timeout (annual leave is a heavier query)
+        retries: 2, // Retry up to 2 times on transient failures
+        retryDelay: 2000, // Start with 2s delay, then exponential backoff
+      });
+    } catch (networkError) {
+      throw new Error(networkError instanceof Error ? networkError.message : 'Network error while fetching annual leave data');
+    }
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      throw new Error(`Annual leave fetch failed: ${response.status} ${response.statusText}${text ? ` – ${text.slice(0, 160)}` : ''}`);
+    }
+
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch (parseError) {
+      throw new Error('Failed to parse annual leave response');
+    }
+
+    if (!isRecord(payload)) {
+      return { records: [], current: [], future: [], team: [], userDetails: undefined };
+    }
+
+    const userDetails = isRecord(payload.user_details) ? payload.user_details : undefined;
+    const successFlag = typeof payload.success === 'boolean' ? payload.success : true;
+
+    if (!successFlag) {
+      return { records: [], current: [], future: [], team: [], userDetails };
+    }
+
+    return {
+      records: mapAnnualLeaveRecords(payload.all_data),
+      current: mapAnnualLeaveRecords(payload.annual_leave),
+      future: mapAnnualLeaveRecords(payload.future_leave),
+      team: mapTeamDataFromPayload(payload.team),
+      userDetails,
+    };
+  }, [propUserData]);
+
   // Marketing metrics fetching function
   const fetchMetaMetrics = useCallback(async (): Promise<MarketingMetrics[]> => {
     debugLog('ReportingHome: fetchMetaMetrics called');
@@ -1761,7 +1928,12 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       const url = `/api/marketing-metrics?daysBack=30`; // Get last 30 days of daily data
       debugLog('ReportingHome: Fetching meta metrics from:', url);
       
-      const response = await fetch(url);
+      const response = await fetchWithRetry(url, {
+        timeout: 30000,
+        retries: 2,
+        retryDelay: 1000,
+      });
+      
       if (!response.ok) {
         throw new Error(`Meta metrics fetch failed: ${response.status} ${response.statusText}`);
       }
@@ -1786,6 +1958,10 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       return dailyMetrics; // Return the array directly as it's already in the correct format
       
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        debugWarn('ReportingHome: Meta metrics request timed out after 30 seconds');
+        return [];
+      }
       console.error('ReportingHome: Meta metrics fetch error:', error);
       debugWarn('ReportingHome: Failed to fetch meta metrics:', error);
       // Return empty array on error to prevent blocking the dashboard
@@ -1794,8 +1970,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   }, []);
 
   // Enhanced refresh function with streaming support
-  const refreshDatasetsWithStreaming = useCallback(async () => {
-    debugLog('ReportingHome: refreshDatasetsWithStreaming called');
+  const performStreamingRefresh = useCallback(async (forceRefresh: boolean) => {
+    debugLog('ReportingHome: refreshDatasetsWithStreaming called', { forceRefresh });
     setHasFetchedOnce(true);
     setCacheState(true); // Persist the fetch state
     setIsFetching(true);
@@ -1813,69 +1989,47 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     });
 
     try {
-      // Start streaming for main datasets
-  console.log('🌊 Starting streaming with datasets:', streamableDatasets);
+      console.log('🌊 Starting streaming with datasets:', streamableDatasets);
       console.log('🌊 EntraID for streaming:', propUserData?.[0]?.EntraID);
-      startStreaming();
+      startStreaming(forceRefresh ? { bypassCache: true } : undefined);
 
-      // Only fetch annual leave and meta metrics if stale (>10 minutes) or missing
       const nowTs = Date.now();
       const tenMinutes = 10 * 60 * 1000;
       const lastAL = datasetStatus.annualLeave?.updatedAt ?? 0;
       const lastMeta = datasetStatus.metaMetrics?.updatedAt ?? 0;
       const lastGA = datasetStatus.googleAnalytics?.updatedAt ?? 0;
       const lastGAds = datasetStatus.googleAds?.updatedAt ?? 0;
-      
-      const shouldFetchAnnualLeave = !cachedData.annualLeave || (nowTs - lastAL) > tenMinutes;
-      const shouldFetchMeta = !cachedData.metaMetrics || (nowTs - lastMeta) > tenMinutes;
-      const shouldFetchGA = !cachedData.googleAnalytics || (nowTs - lastGA) > tenMinutes;
-      const shouldFetchGAds = !cachedData.googleAds || (nowTs - lastGAds) > tenMinutes;
+
+      const shouldFetchAnnualLeave = forceRefresh || !cachedData.annualLeave || (nowTs - lastAL) > tenMinutes;
+      const shouldFetchMeta = forceRefresh || !cachedData.metaMetrics || (nowTs - lastMeta) > tenMinutes;
+      const shouldFetchGA = forceRefresh || !cachedData.googleAnalytics || (nowTs - lastGA) > tenMinutes;
+      const shouldFetchGAds = forceRefresh || !cachedData.googleAds || (nowTs - lastGAds) > tenMinutes;
 
       let annualLeaveData: AnnualLeaveRecord[] = cachedData.annualLeave || [];
       let metaMetricsData: MarketingMetrics[] = cachedData.metaMetrics || [];
       let googleAnalyticsData: GoogleAnalyticsData[] = cachedData.googleAnalytics || [];
       let googleAdsData: GoogleAdsData[] = cachedData.googleAds || [];
+      let refreshedTeamData: TeamData[] | undefined;
 
       if (shouldFetchAnnualLeave || shouldFetchMeta || shouldFetchGA || shouldFetchGAds) {
-        // Update status for datasets being fetched
         setDatasetStatus(prev => ({
           ...prev,
           ...(shouldFetchGA && { googleAnalytics: { status: 'loading', updatedAt: prev.googleAnalytics?.updatedAt ?? null } }),
           ...(shouldFetchGAds && { googleAds: { status: 'loading', updatedAt: prev.googleAds?.updatedAt ?? null } }),
         }));
 
-        const [annualLeaveResponse, metaMetrics, gaData, gAdsData] = await Promise.all([
-          shouldFetchAnnualLeave
-            ? fetch('/api/attendance/annual-leave-all', {
-                method: 'GET',
-                credentials: 'include',
-                headers: { Accept: 'application/json' },
-              })
-            : Promise.resolve(null as unknown as Response),
+        const [annualLeaveResult, metaMetrics, gaData, gAdsData] = await Promise.all([
+          shouldFetchAnnualLeave ? fetchAnnualLeaveDataset(forceRefresh) : Promise.resolve<AnnualLeaveFetchResult | null>(null),
           shouldFetchMeta ? fetchMetaMetrics() : Promise.resolve(metaMetricsData),
           shouldFetchGA ? fetchGoogleAnalyticsData(24) : Promise.resolve(googleAnalyticsData),
           shouldFetchGAds ? fetchGoogleAdsData(24) : Promise.resolve(googleAdsData),
         ]);
 
-        if (shouldFetchAnnualLeave && annualLeaveResponse && annualLeaveResponse.ok) {
-          try {
-            const annualLeavePayload = await annualLeaveResponse.json();
-            if (annualLeavePayload.success && annualLeavePayload.all_data) {
-              annualLeaveData = annualLeavePayload.all_data.map((record: any) => ({
-                request_id: record.request_id,
-                fe: record.person,
-                start_date: record.start_date,
-                end_date: record.end_date,
-                reason: record.reason,
-                status: record.status,
-                days_taken: record.days_taken,
-                leave_type: record.leave_type,
-                rejection_notes: record.rejection_notes,
-                hearing_confirmation: record.hearing_confirmation,
-                hearing_details: record.hearing_details,
-              }));
-            }
-          } catch {/* ignore parse errors */}
+        if (shouldFetchAnnualLeave && annualLeaveResult) {
+          annualLeaveData = annualLeaveResult.records;
+          if (annualLeaveResult.team.length > 0) {
+            refreshedTeamData = annualLeaveResult.team;
+          }
         }
 
         if (shouldFetchMeta) {
@@ -1891,16 +2045,17 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
         }
       }
 
-      // Update non-streaming datasets
       setDatasetData(prev => ({
         ...prev,
         annualLeave: annualLeaveData,
         metaMetrics: metaMetricsData,
         googleAnalytics: googleAnalyticsData,
         googleAds: googleAdsData,
+        ...(refreshedTeamData && refreshedTeamData.length > 0 && (!prev.teamData || prev.teamData.length === 0)
+          ? { teamData: refreshedTeamData }
+          : {}),
       }));
 
-      // Update status for non-streaming datasets
       setDatasetStatus(prev => ({
         ...prev,
         annualLeave: { status: 'ready', updatedAt: shouldFetchAnnualLeave ? nowTs : (prev.annualLeave?.updatedAt ?? nowTs) },
@@ -1909,7 +2064,14 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
         googleAds: { status: 'ready', updatedAt: shouldFetchGAds ? nowTs : (prev.googleAds?.updatedAt ?? nowTs) },
       }));
 
-      cachedData = { ...cachedData, annualLeave: annualLeaveData, metaMetrics: metaMetricsData, googleAnalytics: googleAnalyticsData, googleAds: googleAdsData };
+      cachedData = {
+        ...cachedData,
+        annualLeave: annualLeaveData,
+        metaMetrics: metaMetricsData,
+        googleAnalytics: googleAnalyticsData,
+        googleAds: googleAdsData,
+        ...(refreshedTeamData && refreshedTeamData.length > 0 ? { teamData: refreshedTeamData } : {}),
+      };
       cachedTimestamp = nowTs;
       updateRefreshTimestamp(nowTs, setLastRefreshTimestamp);
 
@@ -1918,8 +2080,16 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       setError(fetchError instanceof Error ? fetchError.message : 'Unknown error');
     }
     // Note: Don't set isFetching(false) here - let the streaming completion handler do it
-    // This ensures we don't clear the loading state while streaming is still active
-  }, [startStreaming, fetchMetaMetrics, streamableDatasets, fetchGoogleAnalyticsData, fetchGoogleAdsData]);
+  }, [
+    startStreaming,
+    fetchAnnualLeaveDataset,
+    fetchMetaMetrics,
+    streamableDatasets,
+    fetchGoogleAnalyticsData,
+    fetchGoogleAdsData,
+  ]);
+
+  const refreshDatasetsWithStreaming = useCallback(async () => performStreamingRefresh(true), [performStreamingRefresh]);
 
   // Scoped refreshers for specific reports
   const refreshAnnualLeaveOnly = useCallback(async () => {
@@ -1928,34 +2098,22 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     setRefreshStartedAt(Date.now());
     setStatusesFor(['annualLeave'], 'loading');
     try {
-      const resp = await fetch('/api/attendance/annual-leave-all', {
-        method: 'GET',
-        credentials: 'include',
-        headers: { Accept: 'application/json' },
-      });
-      let annualLeaveData: AnnualLeaveRecord[] = [];
-      if (resp.ok) {
-        const payload = await resp.json();
-        if (payload.success && payload.all_data) {
-          annualLeaveData = payload.all_data.map((record: any) => ({
-            request_id: record.request_id,
-            fe: record.person,
-            start_date: record.start_date,
-            end_date: record.end_date,
-            reason: record.reason,
-            status: record.status,
-            days_taken: record.days_taken,
-            leave_type: record.leave_type,
-            rejection_notes: record.rejection_notes,
-            hearing_confirmation: record.hearing_confirmation,
-            hearing_details: record.hearing_details,
-          }));
-        }
-      }
-      setDatasetData(prev => ({ ...prev, annualLeave: annualLeaveData }));
+      const result = await fetchAnnualLeaveDataset(true);
+      const annualLeaveData = result.records;
+      setDatasetData(prev => ({
+        ...prev,
+        annualLeave: annualLeaveData,
+        ...(result.team.length > 0 && (!prev.teamData || prev.teamData.length === 0)
+          ? { teamData: result.team }
+          : {}),
+      }));
       const now = Date.now();
       setDatasetStatus(prev => ({ ...prev, annualLeave: { status: 'ready', updatedAt: now } }));
-      cachedData = { ...cachedData, annualLeave: annualLeaveData };
+      cachedData = {
+        ...cachedData,
+        annualLeave: annualLeaveData,
+        ...(result.team.length > 0 ? { teamData: result.team } : {}),
+      };
       cachedTimestamp = now;
   updateRefreshTimestamp(now, setLastRefreshTimestamp);
     } catch (e) {
@@ -1965,7 +2123,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       setIsFetching(false);
       setRefreshStartedAt(null);
     }
-  }, [setStatusesFor]);
+  }, [fetchAnnualLeaveDataset, setStatusesFor]);
 
   const refreshMetaMetricsOnly = useCallback(async () => {
     setIsFetching(true);
@@ -1998,47 +2156,58 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     // Only the datasets this report needs
     const needed: DatasetKey[] = ['enquiries', 'teamData'];
     setStatusesFor(needed, 'loading');
+    
+    const errors: string[] = [];
+    
     try {
       // Start streaming just the needed datasets
       startStreaming({ datasets: needed, bypassCache: true });
-      // Refresh auxiliary non-streaming data in parallel
-      const [annualLeave, meta] = await Promise.all([
-        fetch('/api/attendance/annual-leave-all', {
-          method: 'GET',
-          credentials: 'include',
-          headers: { Accept: 'application/json' },
-        }).then(async r => {
-          if (!r.ok) return [] as AnnualLeaveRecord[];
-          const j = await r.json();
-          if (j.success && j.all_data) {
-            return j.all_data.map((record: any) => ({
-              request_id: record.request_id,
-              fe: record.person,
-              start_date: record.start_date,
-              end_date: record.end_date,
-              reason: record.reason,
-              status: record.status,
-              days_taken: record.days_taken,
-              leave_type: record.leave_type,
-              rejection_notes: record.rejection_notes,
-              hearing_confirmation: record.hearing_confirmation,
-              hearing_details: record.hearing_details,
-            }));
-          }
-          return [] as AnnualLeaveRecord[];
-        }),
-        fetchMetaMetrics(),
-      ]);
-      setDatasetData(prev => ({ ...prev, annualLeave, metaMetrics: meta }));
+      
+      // Refresh auxiliary non-streaming data in parallel with individual error handling
       const now = Date.now();
-      setDatasetStatus(prev => ({
-        ...prev,
-        annualLeave: { status: 'ready', updatedAt: now },
-        metaMetrics: { status: 'ready', updatedAt: now },
-      }));
-      cachedData = { ...cachedData, annualLeave, metaMetrics: meta };
+      
+      // Try to fetch annual leave - non-blocking
+      try {
+        const annualLeaveResult = await fetchAnnualLeaveDataset(true);
+        const annualLeave = annualLeaveResult.records;
+        setDatasetData(prev => ({
+          ...prev,
+          annualLeave,
+          ...(annualLeaveResult.team.length > 0 && (!prev.teamData || prev.teamData.length === 0)
+            ? { teamData: annualLeaveResult.team }
+            : {}),
+        }));
+        setDatasetStatus(prev => ({ ...prev, annualLeave: { status: 'ready', updatedAt: now } }));
+        cachedData = {
+          ...cachedData,
+          annualLeave,
+          ...(annualLeaveResult.team.length > 0 ? { teamData: annualLeaveResult.team } : {}),
+        };
+      } catch (annualLeaveError) {
+        errors.push('Annual leave');
+        console.error('Annual leave fetch failed (non-blocking):', annualLeaveError);
+        setDatasetStatus(prev => ({ ...prev, annualLeave: { status: 'error', updatedAt: now } }));
+      }
+      
+      // Try to fetch meta metrics - non-blocking
+      try {
+        const meta = await fetchMetaMetrics();
+        setDatasetData(prev => ({ ...prev, metaMetrics: meta }));
+        setDatasetStatus(prev => ({ ...prev, metaMetrics: { status: 'ready', updatedAt: now } }));
+        cachedData = { ...cachedData, metaMetrics: meta };
+      } catch (metaError) {
+        errors.push('Meta metrics');
+        console.error('Meta metrics fetch failed (non-blocking):', metaError);
+        setDatasetStatus(prev => ({ ...prev, metaMetrics: { status: 'error', updatedAt: now } }));
+      }
+      
       cachedTimestamp = now;
-  updateRefreshTimestamp(now, setLastRefreshTimestamp);
+      updateRefreshTimestamp(now, setLastRefreshTimestamp);
+      
+      // Show partial error if some datasets failed
+      if (errors.length > 0) {
+        setError(`Some optional datasets failed: ${errors.join(', ')} (core data loaded)`);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to refresh datasets');
       setStatusesFor(needed, 'error');
@@ -2046,7 +2215,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       setIsFetching(false);
       setRefreshStartedAt(null);
     }
-  }, [fetchMetaMetrics, setStatusesFor, startStreaming]);
+  }, [fetchAnnualLeaveDataset, fetchMetaMetrics, setStatusesFor, startStreaming]);
 
   // Sync streaming dataset updates with local state
   useEffect(() => {
@@ -2209,201 +2378,9 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   }, [isStreamingComplete, isStreamingConnected]);
 
   const refreshDatasets = useCallback(async () => {
-    debugLog('ReportingHome: refreshDatasets called');
-    setHasFetchedOnce(true);
-    setCacheState(true); // Persist the fetch state
-    setIsFetching(true);
-    setError(null);
-    setRefreshStartedAt(Date.now());
-
-    setDatasetStatus((prev) => {
-      const next: DatasetStatus = { ...prev };
-      MANAGEMENT_DATASET_KEYS.forEach((key) => {
-        const previousMeta = prev[key];
-        next[key] = { status: 'loading', updatedAt: previousMeta?.updatedAt ?? null };
-      });
-      return next;
-    });
-
-    try {
-      // Fetch both management datasets, annual leave data, and marketing metrics in parallel
-      debugLog('ReportingHome: Starting parallel fetch calls...');
-      const [managementResponse, annualLeaveResponse, metaMetrics] = await Promise.all([
-        (async () => {
-          const url = new URL(REPORTING_ENDPOINT, window.location.origin);
-          // Include current week Clio data in addition to standard datasets
-          // Exclude userData from fetch (we get it from props) and annualLeave (fetched separately)
-          const allDatasets = [
-            ...MANAGEMENT_DATASET_KEYS.filter(key => key !== 'annualLeave' && key !== 'userData'), 
-            'wipClioCurrentWeek'
-          ];
-          debugLog('ReportingHome: Requesting datasets:', allDatasets);
-          url.searchParams.set('datasets', allDatasets.join(','));
-          
-          // Management Dashboard needs all team data, not user-specific data
-          // Don't pass entraId to get team-wide WIP data instead of filtered user data
-          
-          // Force a fresh fetch when user clicks Refresh
-          url.searchParams.set('bypassCache', 'true');
-
-          return fetch(url.toString(), {
-            method: 'GET',
-            credentials: 'include',
-            headers: { Accept: 'application/json' },
-          });
-        })(),
-        // Fetch annual leave data
-        fetch('/api/attendance/annual-leave-all', {
-          method: 'GET',
-          credentials: 'include',
-          headers: { Accept: 'application/json' },
-        }),
-        // Fetch marketing metrics
-        fetchMetaMetrics()
-      ]);
-
-      if (!managementResponse.ok) {
-        const text = await managementResponse.text().catch(() => '');
-        throw new Error(`Failed to fetch datasets: ${managementResponse.status} ${managementResponse.statusText}${text ? ` – ${text.slice(0, 160)}` : ''}`);
-      }
-
-      const managementContentType = managementResponse.headers.get('content-type') || '';
-      if (!managementContentType.toLowerCase().includes('application/json')) {
-        const body = await managementResponse.text().catch(() => '');
-        throw new Error(`Unexpected response (not JSON). Content-Type: ${managementContentType || 'unknown'} – ${body.slice(0, 160)}`);
-      }
-
-      const managementPayload = (await managementResponse.json()) as Partial<DatasetMap> & { 
-        errors?: Record<string, string>;
-        wipClioCurrentWeek?: any;
-        wipCurrentAndLastWeek?: any;
-      };
-
-      // Handle annual leave response
-      let annualLeaveData: AnnualLeaveRecord[] = [];
-      if (annualLeaveResponse.ok) {
-        try {
-          const annualLeavePayload = await annualLeaveResponse.json();
-          if (annualLeavePayload.success && annualLeavePayload.all_data) {
-            annualLeaveData = annualLeavePayload.all_data.map((record: any) => ({
-              request_id: record.request_id,
-              fe: record.person,
-              start_date: record.start_date,
-              end_date: record.end_date,
-              reason: record.reason,
-              status: record.status,
-              days_taken: record.days_taken,
-              leave_type: record.leave_type,
-              rejection_notes: record.rejection_notes,
-              hearing_confirmation: record.hearing_confirmation,
-              hearing_details: record.hearing_details,
-            }));
-          }
-        } catch (annualLeaveError) {
-          debugWarn('Failed to parse annual leave data:', annualLeaveError);
-        }
-      }
-
-      // Merge current week Clio data with historical WIP data
-      let mergedWip = managementPayload.wip ?? cachedData.wip;
-      // wipClioCurrentWeek now returns { current_week: { activities: [...] }, last_week: {...} }
-      const clioCurrentWeek = managementPayload.wipClioCurrentWeek;
-      
-      // Check if we have a merged wipCurrentAndLastWeek from backend that includes current-week activities
-      const hasCurrentWeekMerged = managementPayload.wipCurrentAndLastWeek?.current_week?.activities?.length > 0;
-      
-      debugLog('🔍 Frontend merge debug:', {
-        hasCurrentWeekMerged,
-        currentWeekActivitiesCount: managementPayload.wipCurrentAndLastWeek?.current_week?.activities?.length || 0,
-        clioCurrentWeekActivitiesCount: clioCurrentWeek?.current_week?.activities?.length || 0,
-        historicalWipCount: mergedWip?.length || 0
-      });
-      
-      if (hasCurrentWeekMerged) {
-        // Use the merged current and last week data from backend (includes current-week activities)
-        const currentWeekActivities = managementPayload.wipCurrentAndLastWeek.current_week.activities;
-        debugLog('📊 Using backend-merged current week data:', { 
-          currentWeekEntries: currentWeekActivities.length,
-          historicalWip: mergedWip?.length || 0
-        });
-        
-        // Merge current week activities with historical WIP
-        if (mergedWip && Array.isArray(mergedWip)) {
-          mergedWip = [...mergedWip, ...currentWeekActivities];
-        } else {
-          mergedWip = currentWeekActivities;
-        }
-        
-        debugLog('📊 Final merged WIP count:', mergedWip ? mergedWip.length : 0);
-      } else if (clioCurrentWeek?.current_week?.activities && Array.isArray(clioCurrentWeek.current_week.activities) && mergedWip && Array.isArray(mergedWip)) {
-        // Fallback to old merge logic if backend merge wasn't available
-        const clioWipEntries = clioCurrentWeek.current_week.activities;
-        
-        debugLog('📊 Fallback: Merging Clio current week into WIP:', { 
-          clioEntries: clioWipEntries.length, 
-          historicalWip: mergedWip.length,
-          clioWipSample: clioWipEntries.slice(0, 3).map((e: any) => ({ 
-            date: e.date, 
-            user_id: e.user_id, 
-            hours: e.quantity_in_hours 
-          }))
-        });
-        
-        // Merge raw activities (with user_id preserved) into WIP array
-        mergedWip = [...mergedWip, ...clioWipEntries];
-      }
-
-      const nextData: DatasetMap = {
-        userData: propUserData ?? cachedData.userData, // Use prop, not fetched data
-        teamData: managementPayload.teamData ?? cachedData.teamData,
-        enquiries: managementPayload.enquiries ?? cachedData.enquiries,
-        allMatters: managementPayload.allMatters ?? cachedData.allMatters,
-        wip: mergedWip,
-        recoveredFees: managementPayload.recoveredFees ?? cachedData.recoveredFees,
-        poidData: managementPayload.poidData ?? cachedData.poidData,
-        annualLeave: annualLeaveData,
-        metaMetrics: metaMetrics, // Use fetched meta metrics
-        googleAnalytics: cachedData.googleAnalytics, // Will be updated separately
-        googleAds: cachedData.googleAds, // Will be updated separately
-        deals: managementPayload.deals ?? cachedData.deals, // Deal/pitch data for Meta metrics
-        instructions: managementPayload.instructions ?? cachedData.instructions, // Instruction data for conversion tracking
-      };
-
-      const now = Date.now();
-      cachedData = nextData;
-      cachedTimestamp = now;
-
-      setDatasetData(nextData);
-      setDatasetStatus((prev) => {
-        const next: DatasetStatus = { ...prev };
-        MANAGEMENT_DATASET_KEYS.forEach((key) => {
-          const value = nextData[key];
-          const hasValue = Array.isArray(value) ? value.length > 0 : Boolean(value);
-          next[key] = { status: hasValue ? 'ready' : 'ready', updatedAt: now };
-        });
-        return next;
-      });
-      updateRefreshTimestamp(now, setLastRefreshTimestamp);
-
-      if (managementPayload.errors && Object.keys(managementPayload.errors).length > 0) {
-        setError('Some datasets were unavailable.');
-      }
-    } catch (fetchError) {
-      debugWarn('Failed to refresh reporting datasets:', fetchError);
-      setError(fetchError instanceof Error ? fetchError.message : 'Unknown error');
-      setDatasetStatus((prev) => {
-        const next: DatasetStatus = { ...prev };
-        MANAGEMENT_DATASET_KEYS.forEach((key) => {
-          const previous = prev[key];
-          next[key] = { status: 'error', updatedAt: previous?.updatedAt ?? null };
-        });
-        return next;
-      });
-    } finally {
-      setIsFetching(false);
-      setRefreshStartedAt(null);
-    }
-  }, []);
+    debugLog('ReportingHome: refreshDatasets called (delegating to streaming)');
+    await performStreamingRefresh(true);
+  }, [performStreamingRefresh]);
 
   // Predictive cache loading - preload commonly needed datasets when Reports tab is accessed
   const preloadReportingCache = useCallback(async () => {
@@ -3034,7 +3011,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                   if (!Array.isArray(datasetData.wip)) return '—';
                   const filtered = getFilteredDataByDateRange(datasetData.wip, 'date');
                   const total = filtered.reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0);
-                  return `£${(total / 1000).toFixed(1)}k`;
+                  return formatCurrency(total);
                 })()}
               </div>
               <div style={{
@@ -3124,7 +3101,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                 color: isDarkMode ? '#64748b' : colours.missedBlue,
                 fontWeight: 500,
               }}>
-                {getActualDataRange(datasetData.recoveredFees || [], 'date')}
+                {getActualDataRange(datasetData.recoveredFees || [], 'payment_date')}
               </span>
             </div>
 
@@ -3139,11 +3116,11 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               }}>
                 {(() => {
                   if (!Array.isArray(datasetData.recoveredFees)) return '—';
-                  const filtered = getFilteredDataByDateRange(datasetData.recoveredFees, 'date');
+                  const filtered = getFilteredDataByDateRange(datasetData.recoveredFees, 'payment_date');
                   // Exclude disbursements (kind = 'Expense') - only count actual fees, same as Management Dashboard
                   const feesOnly = filtered.filter(item => item.kind !== 'Expense' && item.kind !== 'Product');
                   const total = feesOnly.reduce((sum, item) => sum + (parseFloat(item.payment_allocated) || 0), 0);
-                  return `£${(total / 1000).toFixed(1)}k`;
+                  return formatCurrency(total);
                 })()}
               </div>
               <div style={{
@@ -4222,7 +4199,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
           </div>
         </div>
 
-        {/* Error Display */}
+        {/* Error Display with Retry */}
         {error && (
           <div style={{
             padding: '10px 14px',
@@ -4233,8 +4210,33 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
             boxShadow: surfaceShadow(isDarkMode),
             border: `1px solid ${isDarkMode ? 'rgba(248, 113, 113, 0.32)' : 'rgba(248, 113, 113, 0.32)'}`,
             marginTop: 16,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
           }}>
-            {error}
+            <span style={{ flex: 1 }}>{error}</span>
+            {!isFetching && (
+              <DefaultButton
+                text="Retry"
+                iconProps={{ iconName: 'Refresh' }}
+                styles={{
+                  root: {
+                    height: 24,
+                    minWidth: 60,
+                    padding: '0 8px',
+                    border: `1px solid ${isDarkMode ? 'rgba(248, 113, 113, 0.42)' : 'rgba(248, 113, 113, 0.42)'}`,
+                    background: isDarkMode ? 'rgba(248, 113, 113, 0.12)' : 'rgba(248, 113, 113, 0.12)',
+                  },
+                  label: { fontSize: 11, fontWeight: 500, color: isDarkMode ? '#fecaca' : '#b91c1c' },
+                  icon: { fontSize: 11, color: isDarkMode ? '#fecaca' : '#b91c1c' },
+                }}
+                onClick={() => {
+                  setError(null);
+                  void refreshDatasetsWithStreaming();
+                }}
+              />
+            )}
           </div>
         )}
       </section>

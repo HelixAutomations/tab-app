@@ -234,7 +234,12 @@ router.post('/', async (req, res) => {
                                 </div>
                         `;
 
-                        const base = process.env.PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 8080}`;
+                        const port = process.env.PORT || 8080;
+                        const isNamedPipe = typeof port === 'string' && port.startsWith('\\\\.\\pipe\\');
+                        const defaultBase = isNamedPipe && process.env.WEBSITE_HOSTNAME
+                            ? `https://${process.env.WEBSITE_HOSTNAME}`
+                            : `http://localhost:${port}`;
+                        const base = process.env.PUBLIC_BASE_URL || defaultBase;
                         const emailPayload = {
                                 user_email: 'lz@helix-law.com', // test recipient for verification
                                 subject,

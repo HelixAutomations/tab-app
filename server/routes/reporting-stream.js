@@ -569,15 +569,24 @@ async function fetchGoogleAnalyticsData(months = 3) {
   });
 
   return new Promise((resolve, reject) => {
+    const port = process.env.PORT || 3000;
+    const isNamedPipe = typeof port === 'string' && port.startsWith('\\\\.\\pipe\\');
+    
     const options = {
-      hostname: 'localhost',
-      port: process.env.PORT || 3000,
       path: `/api/marketing-metrics/ga4?${params}`,
       method: 'GET',
       headers: {
         'Content-Type': 'application/json'
       }
     };
+
+    // Use socketPath for named pipes (Azure iisnode), otherwise use hostname + port
+    if (isNamedPipe) {
+      options.socketPath = port;
+    } else {
+      options.hostname = 'localhost';
+      options.port = port;
+    }
 
     const req = http.request(options, (res) => {
       let data = '';
@@ -618,15 +627,24 @@ async function fetchGoogleAdsData(months = 3) {
   });
 
   return new Promise((resolve, reject) => {
+    const port = process.env.PORT || 3000;
+    const isNamedPipe = typeof port === 'string' && port.startsWith('\\\\.\\pipe\\');
+    
     const options = {
-      hostname: 'localhost',
-      port: process.env.PORT || 3000,
       path: `/api/marketing-metrics/google-ads?${params}`,
       method: 'GET',
       headers: {
         'Content-Type': 'application/json'
       }
     };
+
+    // Use socketPath for named pipes (Azure iisnode), otherwise use hostname + port
+    if (isNamedPipe) {
+      options.socketPath = port;
+    } else {
+      options.hostname = 'localhost';
+      options.port = port;
+    }
 
     const req = http.request(options, (res) => {
       let data = '';
@@ -666,9 +684,10 @@ async function fetchMetaMetrics(daysBack = 30) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const result = await new Promise((resolve, reject) => {
+        const port = process.env.PORT || 3000;
+        const isNamedPipe = typeof port === 'string' && port.startsWith('\\\\.\\pipe\\');
+        
         const options = {
-          hostname: 'localhost',
-          port: process.env.PORT || 3000,
           path: `/api/marketing-metrics?${params}`,
           method: 'GET',
           headers: {
@@ -684,6 +703,14 @@ async function fetchMetaMetrics(daysBack = 30) {
             timeout: 15000 // 15 second socket timeout
           })
         };
+
+        // Use socketPath for named pipes (Azure iisnode), otherwise use hostname + port
+        if (isNamedPipe) {
+          options.socketPath = port;
+        } else {
+          options.hostname = 'localhost';
+          options.port = port;
+        }
 
         const req = http.request(options, (res) => {
           let data = '';

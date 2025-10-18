@@ -83,7 +83,7 @@ async function createOrUpdate(contact, headers) {
     }
 
     const payload = { data: { type: contactType, ...attributes } };
-    console.log('Sending to Clio:', JSON.stringify(payload, null, 2));
+    // SECURITY: Do not log payload - contains PII (names, emails, phone numbers, addresses)
 
     const resp = await fetch(url, { method, headers, body: JSON.stringify(payload) });
     if (!resp.ok) {

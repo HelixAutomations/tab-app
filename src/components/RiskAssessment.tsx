@@ -34,12 +34,10 @@ interface QuestionGroupProps {
 const QuestionGroup: React.FC<QuestionGroupProps> = ({ label, options, selectedKey, onChange, showPrompt = false }) => {
     const { isDarkMode } = useTheme();
     
-    // For yes/no questions, use 2-column grid, otherwise 3-column grid
+    // For yes/no questions, use 2-column grid, otherwise responsive grid
     const isYesNoQuestion = options.length === 2 && 
         options.some(opt => opt.text.toLowerCase() === 'yes') && 
         options.some(opt => opt.text.toLowerCase() === 'no');
-    
-    const gridColumns = isYesNoQuestion ? 2 : 3;
     
     // Check if "No" is selected and we should show the prompt
     const shouldShowPrompt = showPrompt && isYesNoQuestion && selectedKey === 'no';
@@ -60,24 +58,27 @@ const QuestionGroup: React.FC<QuestionGroupProps> = ({ label, options, selectedK
     };
     
     return (
-        <Stack tokens={{ childrenGap: 4 }} styles={{ root: { marginBottom: 8 } }}>
+        <Stack tokens={{ childrenGap: 3 }} styles={{ root: { marginBottom: 6 } }}>
             <div className="question-banner" style={{ 
                 width: '100%', 
                 boxSizing: 'border-box', 
-                fontSize: 11, 
-                padding: '4px 8px', 
-                fontWeight: 700, 
-                color: isDarkMode ? colours.dark.text : '#374151',
+                fontSize: 9, 
+                padding: '3px 6px', 
+                fontWeight: 600, 
+                color: isDarkMode ? colours.dark.text : '#6B7280',
                 textTransform: 'uppercase',
-                letterSpacing: '0.25px'
+                letterSpacing: '0.5px',
+                opacity: 0.8
             }}>
                 {label}
             </div>
             <div 
                 style={{
                     display: 'grid',
-                    gridTemplateColumns: `repeat(${gridColumns}, 1fr)`,
-                    gap: '4px',
+                    gridTemplateColumns: isYesNoQuestion 
+                        ? 'repeat(2, 1fr)' 
+                        : 'repeat(auto-fit, minmax(140px, 1fr))',
+                    gap: '3px',
                     width: '100%'
                 }}
             >
@@ -91,7 +92,7 @@ const QuestionGroup: React.FC<QuestionGroupProps> = ({ label, options, selectedK
                             className="client-details-contact-bigbtn"
                             style={{
                                 background: isSelected 
-                                    ? (isDarkMode ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.2) 0%, rgba(54, 144, 206, 0.1) 100%)' : 'linear-gradient(135deg, #E7F1FF 0%, #F0F7FF 100%)')
+                                    ? (isDarkMode ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.15) 0%, rgba(54, 144, 206, 0.08) 100%)' : 'linear-gradient(135deg, #E7F1FF 0%, #F0F7FF 100%)')
                                     : (isDarkMode ? colours.dark.sectionBackground : '#fff'),
                                 border: isSelected 
                                     ? '1px solid #3690CE' 
@@ -99,22 +100,22 @@ const QuestionGroup: React.FC<QuestionGroupProps> = ({ label, options, selectedK
                                 color: isSelected 
                                     ? (isDarkMode ? colours.blue : '#1B5C85')
                                     : (isDarkMode ? colours.dark.text : '#061733'),
-                                padding: '6px 10px',
-                                fontSize: '12px',
+                                padding: '4px 8px',
+                                fontSize: '10px',
                                 fontWeight: 500,
-                                borderRadius: 6,
+                                borderRadius: 4,
                                 cursor: 'pointer',
-                                transition: 'background 0.18s, border 0.18s, color 0.18s',
+                                transition: 'all 0.15s ease',
                                 textAlign: 'left',
                                 justifyContent: 'flex-start',
                                 display: 'flex',
                                 alignItems: 'center',
-                                minHeight: 36,
-                                boxShadow: isDarkMode ? '0 1px 2px rgba(0,0,0,0.3)' : '0 1px 2px rgba(6,23,51,0.06)',
+                                minHeight: 28,
+                                boxShadow: isDarkMode ? '0 1px 2px rgba(0,0,0,0.2)' : '0 1px 2px rgba(6,23,51,0.04)',
                                 whiteSpace: 'normal',
                                 wordWrap: 'break-word',
                                 hyphens: 'auto',
-                                lineHeight: 1.3
+                                lineHeight: 1.2
                             }}
                             onMouseEnter={(e) => {
                                 if (!isSelected) {
@@ -138,28 +139,28 @@ const QuestionGroup: React.FC<QuestionGroupProps> = ({ label, options, selectedK
             </div>
             {shouldShowPrompt && (
                 <div style={{
-                    background: isDarkMode ? 'rgba(255, 185, 0, 0.1)' : '#FFFDF5',
+                    background: isDarkMode ? 'rgba(255, 185, 0, 0.08)' : '#FFFDF5',
                     borderLeft: '2px solid #FFB900',
-                    padding: '4px 8px',
+                    padding: '3px 6px',
                     color: isDarkMode ? '#fbbf24' : '#8A6D00',
-                    fontSize: 11,
+                    fontSize: 9,
                     fontWeight: 500,
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 6,
-                    marginTop: 4,
-                    borderRadius: 4
+                    gap: 4,
+                    marginTop: 3,
+                    borderRadius: 3
                 }}>
-                    <span style={{ fontSize: 10 }}>Note:</span>
-                    The document can be found
+                    <span style={{ fontSize: 8 }}>📋</span>
+                    Document available
                     <a 
                         href={getDocumentUrl()} 
                         target="_blank"
                         rel="noopener noreferrer"
-                        style={{ color: '#1B5C85', textDecoration: 'underline', cursor: 'pointer' }}
+                        style={{ color: '#1B5C85', textDecoration: 'underline', cursor: 'pointer', fontWeight: 600 }}
                     >
                         here
-                    </a>.
+                    </a>
                 </div>
             )}
         </Stack>
@@ -182,6 +183,141 @@ export interface RiskCore {
     valueOfInstruction: string;
     valueOfInstructionValue: number;
 }
+
+// Modern DatePicker styles from ReportingHome/ManagementDashboard
+const getModernDatePickerStyles = (isDarkMode: boolean): Partial<IDatePickerStyles> => {
+    const baseBorder = isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.18)';
+    const hoverBorder = isDarkMode ? 'rgba(135, 206, 255, 0.5)' : 'rgba(54, 144, 206, 0.4)';
+    const focusBorder = isDarkMode ? '#87ceeb' : colours.blue;
+    const backgroundColour = isDarkMode ? 'rgba(15, 23, 42, 0.9)' : 'rgba(255, 255, 255, 0.95)';
+    const hoverBackground = isDarkMode ? 'rgba(15, 23, 42, 0.95)' : 'rgba(248, 250, 252, 1)';
+    const focusBackground = isDarkMode ? 'rgba(15, 23, 42, 1)' : 'rgba(255, 255, 255, 1)';
+
+    return {
+        root: { 
+            width: 180,
+            '.ms-DatePicker': {
+                fontFamily: 'Raleway, sans-serif !important',
+            }
+        },
+        textField: {
+            root: {
+                fontFamily: 'Raleway, sans-serif !important',
+                width: '100% !important',
+            },
+            fieldGroup: {
+                height: '36px !important',
+                borderRadius: '8px !important',
+                border: `1px solid ${baseBorder} !important`,
+                background: `${backgroundColour} !important`,
+                padding: '0 12px !important',
+                boxShadow: isDarkMode 
+                    ? '0 2px 4px rgba(0, 0, 0, 0.2) !important' 
+                    : '0 1px 3px rgba(15, 23, 42, 0.08) !important',
+                transition: 'all 0.2s ease !important',
+                selectors: {
+                    ':hover': {
+                        border: `1px solid ${hoverBorder} !important`,
+                        background: `${hoverBackground} !important`,
+                        boxShadow: isDarkMode 
+                            ? '0 4px 8px rgba(0, 0, 0, 0.25) !important' 
+                            : '0 2px 6px rgba(15, 23, 42, 0.12) !important',
+                        transform: 'translateY(-1px) !important',
+                    },
+                    ':focus-within': {
+                        border: `1px solid ${focusBorder} !important`,
+                        background: `${focusBackground} !important`,
+                        boxShadow: isDarkMode 
+                            ? `0 0 0 3px rgba(135, 206, 235, 0.1), 0 4px 12px rgba(0, 0, 0, 0.25) !important`
+                            : `0 0 0 3px rgba(54, 144, 206, 0.1), 0 2px 8px rgba(15, 23, 42, 0.15) !important`,
+                        transform: 'translateY(-1px) !important',
+                    }
+                }
+            },
+            field: {
+                fontSize: '13px !important',
+                color: `${isDarkMode ? colours.dark.text : colours.light.text} !important`,
+                fontFamily: 'Raleway, sans-serif !important',
+                fontWeight: '500 !important',
+                background: 'transparent !important',
+                lineHeight: '20px !important',
+                border: 'none !important',
+                outline: 'none !important',
+                padding: '0 !important',
+            },
+        },
+        icon: {
+            color: `${isDarkMode ? colours.blue : colours.blue} !important`,
+            fontSize: '14px !important',
+            fontWeight: 'bold !important',
+            right: '8px !important',
+        },
+        callout: {
+            fontSize: '13px !important',
+            borderRadius: '12px !important',
+            border: `1px solid ${baseBorder} !important`,
+            boxShadow: isDarkMode 
+                ? '0 8px 24px rgba(0, 0, 0, 0.4) !important' 
+                : '0 6px 20px rgba(15, 23, 42, 0.15) !important',
+        },
+        wrapper: { 
+            borderRadius: '12px !important',
+        },
+    };
+};
+
+// Modern Checkbox styles matching ReportingHome/ManagementDashboard
+const getModernCheckboxStyles = (isDarkMode: boolean) => {
+    return {
+        root: {
+            alignItems: 'center',
+            marginTop: '8px',
+        },
+        checkbox: {
+            width: '18px !important',
+            height: '18px !important',
+            borderRadius: '4px !important',
+            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(15, 23, 42, 0.3)'} !important`,
+            background: isDarkMode ? 'rgba(15, 23, 42, 0.9)' : '#ffffff !important',
+            transition: 'all 0.2s ease !important',
+            selectors: {
+                ':hover': {
+                    borderColor: `${isDarkMode ? 'rgba(135, 206, 255, 0.6)' : 'rgba(54, 144, 206, 0.5)'} !important`,
+                    background: `${isDarkMode ? 'rgba(15, 23, 42, 0.95)' : 'rgba(248, 250, 252, 1)'} !important`,
+                    transform: 'translateY(-1px) !important',
+                    boxShadow: isDarkMode 
+                        ? '0 2px 6px rgba(0, 0, 0, 0.15) !important' 
+                        : '0 2px 4px rgba(15, 23, 42, 0.08) !important',
+                },
+                ':focus': {
+                    borderColor: `${colours.blue} !important`,
+                    boxShadow: isDarkMode 
+                        ? `0 0 0 3px rgba(135, 206, 235, 0.15), 0 2px 8px rgba(0, 0, 0, 0.2) !important`
+                        : `0 0 0 3px rgba(54, 144, 206, 0.15), 0 2px 6px rgba(15, 23, 42, 0.1) !important`,
+                }
+            }
+        },
+        checkmark: {
+            color: '#ffffff !important',
+            fontSize: '12px !important',
+            fontWeight: 'bold !important',
+        },
+        text: {
+            fontSize: '13px !important',
+            fontFamily: 'Raleway, sans-serif !important',
+            fontWeight: '500 !important',
+            color: `${isDarkMode ? colours.dark.text : colours.light.text} !important`,
+            marginLeft: '8px !important',
+        },
+        label: {
+            fontSize: '13px !important',
+            fontFamily: 'Raleway, sans-serif !important',
+            fontWeight: '500 !important',
+            color: `${isDarkMode ? colours.dark.text : colours.light.text} !important`,
+            alignItems: 'center !important',
+        }
+    };
+};
 
 export interface RiskAssessmentProps {
     riskCore: RiskCore;
@@ -270,36 +406,15 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
     onHeaderButtonsChange,
 }) => {
     const { isDarkMode } = useTheme();
-    
-    const getDatePickerStyles = (): Partial<IDatePickerStyles> => ({
-        root: { width: 200 },
-        textField: {
-            width: '100%',
-            borderRadius: '0',
-            selectors: {
-                '& .ms-TextField-fieldGroup': {
-                    border: isDarkMode ? `1px solid ${colours.dark.border}` : '1px solid #8a8886',
-                    background: 'transparent',
-                    borderRadius: '0',
-                    height: '32px',
-                },
-                '& .ms-TextField-field': {
-                    padding: '0 12px',
-                    height: '100%',
-                    color: isDarkMode ? colours.dark.text : '#000',
-                },
-            },
-        },
-        icon: { right: 8 },
-    });
 
     const getPrimaryButtonStyles = (): IButtonStyles => ({
         root: {
-            padding: '6px 12px',
+            padding: '4px 12px',
             backgroundColor: isDarkMode ? colours.dark.cta : colours.cta,
             border: 'none',
-            height: '40px',
+            height: '32px',
             fontWeight: '600',
+            fontSize: '11px',
             color: '#ffffff',
             transition: 'background 0.3s ease, box-shadow 0.3s ease',
             transform: 'none !important',
@@ -352,12 +467,13 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
     
     const getDefaultButtonStyles = (): IButtonStyles => ({
         root: {
-            padding: '6px 12px',
+            padding: '4px 12px',
             borderRadius: '4px',
             backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.secondaryButtonBackground,
             border: isDarkMode ? `1px solid ${colours.dark.border}` : 'none',
-            height: '40px',
+            height: '32px',
             fontWeight: 'normal',
+            fontSize: '11px',
             color: isDarkMode ? colours.dark.text : '#000000',
             transition: 'background 0.3s ease, box-shadow 0.3s ease',
             transform: 'none !important',
@@ -505,14 +621,14 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
                             background: isDarkMode ? colours.dark.sectionBackground : '#fff',
                             border: isDarkMode ? `1px solid ${colours.dark.border}` : '1px solid #e1e5e9',
                             borderRadius: 0,
-                            padding: '10px 16px',
-                            fontSize: 13,
+                            padding: '6px 10px',
+                            fontSize: 10,
                             fontWeight: 500,
                             color: '#D65541',
                             cursor: 'pointer',
                             display: 'flex',
                             alignItems: 'center',
-                            gap: 6,
+                            gap: 4,
                             fontFamily: 'Raleway, sans-serif',
                         }}
                         onMouseEnter={(e) => {
@@ -526,7 +642,7 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
                             e.currentTarget.style.boxShadow = '0 1px 2px rgba(6,23,51,0.04)';
                         }}
                     >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
                             <path
                                 d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-10-2-1-2-2-2V6m3 0V4c0-1 1-2 2-2h4c0-1 1-2 2-2v2m-6 5v6m4-6v6"
                                 stroke="currentColor"
@@ -546,8 +662,8 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
                             background: isDarkMode ? colours.dark.cardBackground : '#f8f9fa',
                             border: isDarkMode ? `1px solid ${colours.dark.border}` : '1px solid #e1dfdd',
                             borderRadius: 0,
-                            padding: '10px 12px',
-                            fontSize: 12,
+                            padding: '6px 8px',
+                            fontSize: 10,
                             fontWeight: 500,
                             color: '#3690CE',
                             cursor: 'pointer',
@@ -565,7 +681,7 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
                             e.currentTarget.style.borderColor = isDarkMode ? colours.dark.border : '#e1dfdd';
                         }}
                     >
-                        <i className="ms-Icon ms-Icon--Code" style={{ fontSize: 14 }} />
+                        <i className="ms-Icon ms-Icon--Code" style={{ fontSize: 11 }} />
                     </button>
                 )
             });
@@ -573,13 +689,35 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
     }, [hasDataToClear(), jsonPreviewOpen, onHeaderButtonsChange]);
 
 
-    return (
-        <Stack tokens={{ childrenGap: 12 }} horizontalAlign="center">
+    // Use responsive breakpoint instead of window.innerWidth
+    const [isWideScreen, setIsWideScreen] = useState(true);
 
-            <Stack horizontal tokens={{ childrenGap: 16 }} styles={{ root: { width: '100%' } }}>
-                <Stack tokens={{ childrenGap: 8 }} styles={{ root: { flex: 3 } }}>
+    React.useEffect(() => {
+        const checkScreenSize = () => {
+            setIsWideScreen(window.innerWidth > 768);
+        };
+        
+        checkScreenSize();
+        window.addEventListener('resize', checkScreenSize);
+        return () => window.removeEventListener('resize', checkScreenSize);
+    }, []);
+
+    return (
+        <Stack tokens={{ childrenGap: 8 }} horizontalAlign="center" styles={{ root: { padding: '0 8px' } }}>
+
+            <Stack 
+                horizontal={isWideScreen} 
+                tokens={{ childrenGap: 12 }} 
+                styles={{ 
+                    root: { 
+                        width: '100%',
+                        flexDirection: isWideScreen ? 'row' : 'column'
+                    } 
+                }}
+            >
+                <Stack tokens={{ childrenGap: 6 }} styles={{ root: { flex: isWideScreen ? 3 : 1 } }}>
                     {/* Section: Client & Instruction */}
-                    <div style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? colours.dark.text : '#6B7280', textTransform: 'uppercase', margin: '0 0 2px', opacity: 0.7 }}>Client & Instruction</div>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: isDarkMode ? colours.dark.text : '#6B7280', textTransform: 'uppercase', margin: '0 0 1px', opacity: 0.6 }}>Client & Instruction</div>
                     <QuestionGroup
                         label="Client Type"
                         options={clientTypeOptions}
@@ -629,7 +767,7 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
                         }
                     />
                     {/* Section: Funds */}
-                    <div style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? colours.dark.text : '#6B7280', textTransform: 'uppercase', margin: '4px 0 2px', opacity: 0.7 }}>Funds</div>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: isDarkMode ? colours.dark.text : '#6B7280', textTransform: 'uppercase', margin: '3px 0 1px', opacity: 0.6 }}>Funds</div>
                     <QuestionGroup
                         label="Limitation"
                         options={limitationOptions}
@@ -643,14 +781,17 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
                         }
                     />
                     {[2, 3].includes(riskCore.limitationValue) && (
-                        <Stack tokens={{ childrenGap: 6 }}>
+                        <Stack tokens={{ childrenGap: 4 }} styles={{ root: { marginLeft: 8 } }}>
                             <DatePicker
                                 value={limitationDate}
                                 onSelectDate={(d) => setLimitationDate(d || undefined)}
-                                styles={getDatePickerStyles()}
+                                styles={getModernDatePickerStyles(isDarkMode)}
                                 placeholder="Limitation Date"
                                 formatDate={(d?: Date) => (d ? d.toLocaleDateString('en-GB') : '')}
                                 disabled={limitationDateTbc}
+                                allowTextInput={false}
+                                isMonthPickerVisible={false}
+                                showMonthPickerAsOverlay={true}
                             />
                             <Checkbox
                                 label="Limitation Date TBC"
@@ -659,7 +800,7 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
                                     setLimitationDateTbc(!!c);
                                     if (c) setLimitationDate(undefined);
                                 }}
-                                styles={{ text: { fontSize: 12 } }}
+                                styles={getModernCheckboxStyles(isDarkMode)}
                             />
                         </Stack>
                     )}
@@ -689,26 +830,26 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
                     />
                 </Stack>
 
-                <Stack tokens={{ childrenGap: 8 }} styles={{ root: { flex: 2 } }}>
-                    {/* Summary */}
+                <Stack tokens={{ childrenGap: 6 }} styles={{ root: { flex: isWideScreen ? 2 : 1 } }}>
+                    {/* Score Summary */}
                     <div style={{
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
-                        gap: 6,
-                        padding: '6px 8px',
+                        gap: 4,
+                        padding: '4px 6px',
                         border: isDarkMode ? `1px solid ${colours.dark.border}` : '1px solid #e1e5e9',
-                        borderRadius: 6,
+                        borderRadius: 4,
                         background: isDarkMode 
                             ? colours.dark.sectionBackground
                             : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-                        boxShadow: isDarkMode ? '0 2px 4px rgba(0,0,0,0.3)' : '0 2px 4px rgba(0,0,0,0.05)'
+                        boxShadow: isDarkMode ? '0 1px 3px rgba(0,0,0,0.2)' : '0 1px 3px rgba(0,0,0,0.04)'
                     }}>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? colours.dark.text : '#061733' }}>Score: {riskScore}</div>
+                        <div style={{ fontSize: 9, fontWeight: 600, color: isDarkMode ? colours.dark.text : '#061733' }}>Score: {riskScore}</div>
                         <div style={{
-                            padding: '2px 6px',
+                            padding: '1px 4px',
                             borderRadius: 999,
-                            fontSize: 10,
+                            fontSize: 8,
                             fontWeight: 700,
                             color: '#fff',
                             background: riskResult === 'High Risk' ? '#D65541' : riskResult === 'Medium Risk' ? '#FFB900' : '#22A06B'
@@ -783,7 +924,7 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
                 </Stack>
             </Stack>
 
-            <Stack horizontal tokens={{ childrenGap: 12 }} horizontalAlign="center">
+            <Stack horizontal tokens={{ childrenGap: 8 }} horizontalAlign="center" styles={{ root: { marginTop: 4 } }}>
                 {hasDataToClear() && (
                     <Dialog
                         hidden={!isClearDialogOpen}
@@ -813,23 +954,23 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
             {jsonPreviewOpen && (
                 <div
                     style={{
-                        marginTop: 12,
+                        marginTop: 8,
                         border: isDarkMode ? `1px solid ${colours.dark.border}` : '1px solid #e1dfdd',
-                        borderRadius: 6,
+                        borderRadius: 4,
                         background: isDarkMode ? colours.dark.cardBackground : '#f8f9fa',
                         overflow: 'hidden',
                         width: '100%',
-                        maxWidth: 620,
+                        maxWidth: '100%',
                     }}
                 >
                     <div
                         style={{
-                            padding: 16,
-                            maxHeight: 300,
+                            padding: 8,
+                            maxHeight: 200,
                             overflow: 'auto',
-                            fontSize: 10,
+                            fontSize: 8,
                             fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-                            lineHeight: 1.4,
+                            lineHeight: 1.3,
                             background: isDarkMode ? colours.dark.sectionBackground : '#fff',
                             color: isDarkMode ? colours.dark.text : '#000',
                         }}

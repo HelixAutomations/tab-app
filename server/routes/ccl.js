@@ -34,7 +34,11 @@ function findUserByName(name) {
 }
 
 async function mergeMatterFields(matterId, payload) {
-    const base = `http://localhost:${process.env.PORT || 8080}`;
+    const port = process.env.PORT || 8080;
+    const isNamedPipe = typeof port === 'string' && port.startsWith('\\\\.\\pipe\\');
+    const base = isNamedPipe && process.env.WEBSITE_HOSTNAME
+        ? `https://${process.env.WEBSITE_HOSTNAME}`
+        : `http://localhost:${port}`;
     let matterData = {};
     if (matterId) {
         try {

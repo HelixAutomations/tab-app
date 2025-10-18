@@ -134,7 +134,7 @@ router.post('/', async (req, res) => {
     const tillerResponse = await submitVerification(instructionData);
 
     console.log(`[verify-id] Tiller verification response received for ${instructionRef}`);
-    console.log(`[verify-id] Response:`, JSON.stringify(tillerResponse, null, 2));
+    // SECURITY: Do not log tillerResponse - contains PII
 
     let riskData = null;
     try {
@@ -145,7 +145,7 @@ router.post('/', async (req, res) => {
         instructionData.ClientId
       );
       console.log(`[verify-id] ID verification saved to database for ${instructionRef}`);
-      console.log(`[verify-id] Risk data:`, JSON.stringify(riskData));
+      // SECURITY: Do not log riskData - contains PII
     } catch (err) {
       console.error(`[verify-id] Failed to save Tiller response for ${instructionRef}:`, err.message);
     }

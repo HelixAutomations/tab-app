@@ -923,29 +923,255 @@ const WorkbenchPanel: React.FC<WorkbenchPanelProps> = ({
             )}
 
             {activeTab === 'risk' && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? colours.dark.text : '#374151' }}>Risk Summary</div>
-                  {(() => {
-                    const risk = selectedOverviewItem?.risk || selectedInstruction?.RiskAssessment;
-                    const riskResult = risk?.RiskAssessmentResult?.toString().toLowerCase() || 'pending';
-                    const items = [
-                      { label: 'Assessment Result', value: riskResult || 'pending' },
-                      { label: 'Risk Score', value: risk?.RiskScore ?? 'n/a' },
-                      { label: 'Assessor', value: risk?.RiskAssessor ?? 'n/a' },
-                      { label: 'Reviewed', value: risk?.ComplianceDate ?? 'n/a' }
-                    ];
-                    return items;
-                  })().map((f) => (
-                    <div key={f.label} style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: 10, color: colours.greyText, textTransform: 'uppercase' }}>{f.label}</span>
-                      <span style={{ fontSize: 11 }}>{String(f.value)}</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {selectedInstruction ? (
+                  <>
+                    {/* Risk Score Summary */}
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+                      gap: 6,
+                      marginBottom: 6
+                    }}>
+                      {(() => {
+                        const risk = selectedOverviewItem?.risk || selectedInstruction?.RiskAssessment;
+                        const riskResult = risk?.RiskAssessmentResult?.toString().toLowerCase() || 'pending';
+                        const riskScore = risk?.RiskScore || 0;
+                        const riskColor = riskResult === 'low' || riskResult === 'low risk' ? colours.green : 
+                                         riskResult === 'medium' || riskResult === 'medium risk' ? colours.orange : 
+                                         riskResult === 'high' || riskResult === 'high risk' ? colours.red : colours.greyText;
+                        
+                        return [
+                          { 
+                            label: 'Risk Level', 
+                            value: riskResult === 'pending' ? 'Not Assessed' : 
+                                   riskResult === 'low' || riskResult === 'low risk' ? 'Low Risk' :
+                                   riskResult === 'medium' || riskResult === 'medium risk' ? 'Medium Risk' :
+                                   riskResult === 'high' || riskResult === 'high risk' ? 'High Risk' : 'Unknown',
+                            color: riskColor,
+                            highlight: true
+                          },
+                          { 
+                            label: 'Score', 
+                            value: riskScore > 0 ? riskScore.toString() : 'N/A',
+                            color: riskScore > 0 ? (isDarkMode ? colours.dark.text : '#111827') : colours.greyText
+                          },
+                          { 
+                            label: 'Assessor', 
+                            value: risk?.RiskAssessor || 'Not assigned',
+                            color: risk?.RiskAssessor ? (isDarkMode ? colours.dark.text : '#111827') : colours.greyText
+                          },
+                          { 
+                            label: 'Date', 
+                            value: risk?.ComplianceDate ? new Date(risk.ComplianceDate).toLocaleDateString('en-GB') : 'Not completed',
+                            color: risk?.ComplianceDate ? (isDarkMode ? colours.dark.text : '#111827') : colours.greyText
+                          }
+                        ];
+                      })().map((item) => (
+                        <div 
+                          key={item.label}
+                          style={{
+                            padding: '4px 6px',
+                            border: item.highlight ? `1px solid ${item.color}` : `1px solid ${isDarkMode ? colours.dark.border : '#e2e8f0'}`,
+                            borderRadius: 4,
+                            background: item.highlight 
+                              ? `${item.color}10` 
+                              : (isDarkMode ? colours.dark.sectionBackground : '#f8fafc'),
+                            textAlign: 'center'
+                          }}
+                        >
+                          <div style={{ 
+                            fontSize: 8, 
+                            fontWeight: 600, 
+                            color: colours.greyText, 
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.5px',
+                            marginBottom: 2
+                          }}>
+                            {item.label}
+                          </div>
+                          <div style={{ 
+                            fontSize: 10, 
+                            fontWeight: item.highlight ? 700 : 500,
+                            color: item.color,
+                            lineHeight: 1.2
+                          }}>
+                            {item.value}
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-end', gap: 8 }}>
-                  <button className={operationButtonStyle} onClick={() => handleSystemOperation('assess-risk')}>Assess Risk</button>
-                </div>
+
+                    {/* Risk Factors Grid */}
+                    <div style={{ 
+                      display: 'grid', 
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                      gap: 8 
+                    }}>
+                      {/* Risk Assessment Status */}
+                      <div style={{ 
+                        padding: '6px 8px',
+                        border: `1px solid ${isDarkMode ? colours.dark.border : '#e2e8f0'}`,
+                        borderRadius: 4,
+                        background: isDarkMode ? colours.dark.sectionBackground : '#fff'
+                      }}>
+                        <div style={{ 
+                          fontSize: 9, 
+                          fontWeight: 600, 
+                          color: colours.greyText, 
+                          textTransform: 'uppercase',
+                          marginBottom: 4
+                        }}>
+                          Assessment Status
+                        </div>
+                        {(() => {
+                          const risk = selectedOverviewItem?.risk || selectedInstruction?.RiskAssessment;
+                          const factors = [
+                            { label: 'Client Risk Considered', value: risk?.ClientRiskFactorsConsidered },
+                            { label: 'Transaction Risk Considered', value: risk?.TransactionRiskFactorsConsidered },
+                            { label: 'Sanctions Risk Considered', value: risk?.FirmWideSanctionsRiskConsidered },
+                            { label: 'AML Policy Considered', value: risk?.FirmWideAMLPolicyConsidered }
+                          ];
+                          
+                          return factors.map((factor) => (
+                            <div key={factor.label} style={{ 
+                              display: 'flex', 
+                              justifyContent: 'space-between', 
+                              alignItems: 'center',
+                              marginBottom: 2
+                            }}>
+                              <span style={{ 
+                                fontSize: 9, 
+                                color: colours.greyText,
+                                fontWeight: 500
+                              }}>
+                                {factor.label}:
+                              </span>
+                              <span style={{ 
+                                fontSize: 9,
+                                fontWeight: 600,
+                                color: factor.value === true ? colours.green : 
+                                       factor.value === false ? colours.red : colours.greyText,
+                                padding: '1px 4px',
+                                borderRadius: 2,
+                                background: factor.value === true ? `${colours.green}15` : 
+                                           factor.value === false ? `${colours.red}15` : 'transparent'
+                              }}>
+                                {factor.value === true ? 'YES' : factor.value === false ? 'NO' : 'N/A'}
+                              </span>
+                            </div>
+                          ));
+                        })()}
+                      </div>
+
+                      {/* Risk Details */}
+                      <div style={{ 
+                        padding: '6px 8px',
+                        border: `1px solid ${isDarkMode ? colours.dark.border : '#e2e8f0'}`,
+                        borderRadius: 4,
+                        background: isDarkMode ? colours.dark.sectionBackground : '#fff'
+                      }}>
+                        <div style={{ 
+                          fontSize: 9, 
+                          fontWeight: 600, 
+                          color: colours.greyText, 
+                          textTransform: 'uppercase',
+                          marginBottom: 4
+                        }}>
+                          Risk Components
+                        </div>
+                        {(() => {
+                          const risk = selectedOverviewItem?.risk || selectedInstruction?.RiskAssessment;
+                          const components = [
+                            { label: 'Client Type', value: risk?.ClientType_Value, text: risk?.ClientType },
+                            { label: 'Value of Instruction', value: risk?.ValueOfInstruction_Value, text: risk?.ValueOfInstruction },
+                            { label: 'Source of Funds', value: risk?.SourceOfFunds_Value, text: risk?.SourceOfFunds },
+                            { label: 'Transaction Risk Level', value: null, text: risk?.TransactionRiskLevel }
+                          ];
+                          
+                          return components.slice(0, 4).map((comp) => (
+                            <div key={comp.label} style={{ 
+                              display: 'flex', 
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              marginBottom: 2
+                            }}>
+                              <span style={{ 
+                                fontSize: 9, 
+                                color: colours.greyText,
+                                fontWeight: 500
+                              }}>
+                                {comp.label}:
+                              </span>
+                              <span style={{ 
+                                fontSize: 9,
+                                color: comp.value ? (isDarkMode ? colours.dark.text : '#111827') : colours.greyText,
+                                fontWeight: 500,
+                                textAlign: 'right',
+                                maxWidth: '60%',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis'
+                              }}>
+                                {comp.text || (comp.value ? `Score: ${comp.value}` : 'N/A')}
+                              </span>
+                            </div>
+                          ));
+                        })()}
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div style={{ 
+                      display: 'flex', 
+                      justifyContent: 'space-between', 
+                      alignItems: 'center',
+                      marginTop: 4,
+                      padding: '4px 0'
+                    }}>
+                      <div style={{ 
+                        fontSize: 8, 
+                        color: colours.greyText,
+                        fontStyle: 'italic'
+                      }}>
+                        {(() => {
+                          const risk = selectedOverviewItem?.risk || selectedInstruction?.RiskAssessment;
+                          if (!risk || !risk.RiskAssessmentResult) {
+                            return 'Risk assessment required before proceeding';
+                          }
+                          const expiry = risk.ComplianceExpiry ? new Date(risk.ComplianceExpiry) : null;
+                          if (expiry && expiry < new Date()) {
+                            return 'Risk assessment has expired - reassessment required';
+                          }
+                          return `Assessment valid${expiry ? ` until ${expiry.toLocaleDateString('en-GB')}` : ''}`;
+                        })()}
+                      </div>
+                      <button 
+                        className={operationButtonStyle} 
+                        onClick={() => handleSystemOperation('assess-risk')}
+                        style={{ 
+                          fontSize: 9, 
+                          padding: '4px 8px',
+                          height: 'auto'
+                        }}
+                      >
+                        {(() => {
+                          const risk = selectedOverviewItem?.risk || selectedInstruction?.RiskAssessment;
+                          return risk?.RiskAssessmentResult ? 'Update Risk' : 'Assess Risk';
+                        })()}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div style={{
+                    padding: '12px 0',
+                    textAlign: 'center',
+                    color: colours.greyText,
+                    fontSize: '10px'
+                  }}>
+                    Select an instruction to view risk assessment details
+                  </div>
+                )}
               </div>
             )}
 

@@ -611,4 +611,93 @@ router.put('/deals/:dealId', async (req, res) => {
   }
 });
 
+// Update instruction endpoint - for inline editing of identity fields
+router.patch('/:instructionRef', async (req, res) => {
+  const requestId = generateRequestId();
+  const { instructionRef } = req.params;
+  const updates = req.body;
+  
+  console.log(`[${requestId}] PATCH instruction update for ${instructionRef}:`, updates);
+  
+  if (!instructionRef || !updates || Object.keys(updates).length === 0) {
+    return res.status(400).json({ 
+      error: 'Instruction reference and at least one field to update are required', 
+      requestId 
+    });
+  }
+
+  try {
+    // Build dynamic update query based on provided fields
+    const updateParts = [];
+    const validFields = [
+      'Title', 'FirstName', 'LastName', 'Email', 'Phone', 'Gender', 'Nationality',
+      'PassportNumber', 'DriversLicenseNumber', 'NationalIdNumber', 'Country',
+      'ClientType', 'CompanyName', 'CompanyNumber', 'CompanyCountry'
+    ];
+    
+    const inputParams = [];
+    
+    Object.keys(updates).forEach((field, index) => {
+      if (validFields.includes(field)) {
+        updateParts.push(`${field} = @field${index}`);
+        inputParams.push({ name: `field${index}`, value: updates[field] });
+      }
+    });
+    
+    if (updateParts.length === 0) {
+      return res.status(400).json({ 
+        error: 'No valid fields provided for update', 
+        validFields,
+        requestId 
+      });
+    }
+    
+    const updateQuery = `
+      UPDATE Instructions 
+      SET ${updateParts.join(', ')} 
+      WHERE InstructionRef = @instructionRef
+    `;
+    
+    console.log(`[${requestId}] Executing update query:`, updateQuery);
+    
+    const result = await runQuery((request, s) => {
+      request.input('instructionRef', s.NVarChar, instructionRef);
+      inputParams.forEach(({ name, value }) => {
+        request.input(name, s.NVarChar, value);
+      });
+      return request.query(updateQuery);
+    });
+    
+    if (!result.rowsAffected?.[0]) {
+      console.log(`[${requestId}] Instruction not found: ${instructionRef}`);
+      return res.status(404).json({ error: 'Instruction not found', requestId });
+    }
+    
+    // Fetch the updated instruction to return
+    const updatedResult = await runQuery((request, s) =>
+      request.input('instructionRef', s.NVarChar, instructionRef)
+        .query('SELECT * FROM Instructions WHERE InstructionRef = @instructionRef')
+    );
+    
+    console.log(`[${requestId}] Successfully updated instruction ${instructionRef}`);
+    
+    res.json({
+      success: true,
+      instruction: updatedResult.recordset[0],
+      updatedFields: Object.keys(updates),
+      requestId
+    });
+    
+  } catch (error) {
+    const transient = isTransientSqlError(error);
+    console.error(`[${requestId}] ❌ Error updating instruction${transient ? ' (transient)' : ''}`, error);
+    res.status(transient ? 503 : 500).json({
+      error: 'Failed to update instruction',
+      details: error.message,
+      transient,
+      requestId
+    });
+  }
+});
+
 module.exports = router;

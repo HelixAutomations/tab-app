@@ -16,7 +16,14 @@ function writeSse(res, obj) {
 function getSelfBaseUrl() {
   if (process.env.INTERNAL_BASE_URL) return process.env.INTERNAL_BASE_URL.replace(/\/$/, '');
   if (process.env.WEBSITE_HOSTNAME) return `https://${process.env.WEBSITE_HOSTNAME}`;
+  // For local dev, use standard port; on Azure App Service with iisnode, use external hostname
   const port = process.env.PORT || 8080;
+  // Named pipe detected (Azure iisnode) - use external URL instead
+  if (typeof port === 'string' && port.startsWith('\\\\.\\pipe\\')) {
+    return process.env.WEBSITE_HOSTNAME 
+      ? `https://${process.env.WEBSITE_HOSTNAME}` 
+      : 'http://localhost:8080'; // fallback
+  }
   return `http://localhost:${port}`;
 }
 
