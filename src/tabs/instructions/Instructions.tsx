@@ -1718,7 +1718,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                 onChange={(v) => setShowAllInstructions(v === 'all')}
                 options={[
                   { key: 'mine', label: 'Mine', badge: toggleCounts.mine },
-                  { key: 'all', label: 'All', badge: toggleCounts.all, disabled: !isAdmin && !isLocalhost }
+                  { key: 'all', label: 'All', badge: toggleCounts.all }
                 ]}
               />
               <SegmentedControl

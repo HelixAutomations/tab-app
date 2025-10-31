@@ -15,23 +15,24 @@ const { fetchWipClioCurrentWeek: fetchWipClioCurrentWeekDirect } = reportingRout
 // Re-use the same dataset fetcher functions from reporting.js
 // (We'll import these or duplicate the core functions)
 
-// Cache TTL configurations for each dataset (in seconds) - Optimized for performance
+// Cache TTL configurations for each dataset (in seconds) - Optimized for stability and performance
 const DATASET_TTL = {
-  userData: 300,      // 5 min - user data changes rarely
-  teamData: 1800,     // 30 min - team data is fairly static
-  enquiries: 600,     // 10 min - enquiries update regularly
-  allMatters: 900,    // 15 min - matters update moderately
-  wip: 1800,          // 30 min - Increased from 5min due to heavy query (was 300)
-  recoveredFees: 3600, // 60 min - Increased from 30min due to heavy query (was 1800)
-  recoveredFeesSummary: 1800, // 30 min - Increased from 15min (was 900)
-  poidData: 3600,     // 60 min - Increased from 30min due to heavy query (was 1800)
-  wipClioCurrentWeek: 600,   // 10 min - Increased from 5min (was 300)
-  wipDbLastWeek: 1200, // 20 min - Increased from 10min (was 600)
-  wipDbCurrentWeek: 600, // 10 min - current week DB fallback
-  googleAnalytics: 1800, // 30 min - Google Analytics data updates hourly
-  googleAds: 1800,    // 30 min - Google Ads data updates regularly
-  deals: 900,         // 15 min - Deal/pitch data for Meta metrics conversion tracking
-  instructions: 900,  // 15 min - Instruction data for conversion funnel
+  userData: 1800,     // 30 min - user data changes rarely, reduce frequent requests
+  teamData: 3600,     // 1 hour - team data is very static
+  enquiries: 1800,    // 30 min - enquiries don't need constant updates
+  allMatters: 1800,   // 30 min - matters update moderately
+  wip: 14400,         // 4 hours - WIP data doesn't change rapidly, heavy query
+  recoveredFees: 28800, // 8 hours - Collected time data is historical, very heavy query (OPTIMIZED)
+  recoveredFeesSummary: 7200, // 2 hours - Summary data for fee reporting
+  poidData: 21600,    // 6 hours - ID submission data is static once created (OPTIMIZED)
+  wipClioCurrentWeek: 1800,   // 30 min - Current week can be less frequent
+  wipDbLastWeek: 7200, // 2 hours - Last week data is very stable
+  wipDbCurrentWeek: 1800, // 30 min - current week DB fallback
+  googleAnalytics: 3600, // 1 hour - Google Analytics data updates hourly
+  googleAds: 3600,    // 1 hour - Google Ads data updates regularly  
+  metaMetrics: 3600,  // 1 hour - Meta metrics don't need frequent updates
+  deals: 1800,        // 30 min - Deal/pitch data for Meta metrics conversion tracking
+  instructions: 1800, // 30 min - Instruction data for conversion funnel
 };
 
 // Server-Sent Events endpoint for progressive dataset loading
@@ -53,25 +54,40 @@ router.get('/stream-datasets', async (req, res) => {
 
   // Small helper to write SSE events and flush immediately if supported
   function writeSse(obj) {
+    // Avoid writes after end or after client disconnect
+    if (res.writableEnded || res.destroyed) return;
+    if (!isClientConnected) return;
     try {
       res.write(`data: ${JSON.stringify(obj)}\n\n`);
       if (typeof res.flush === 'function') {
         try { res.flush(); } catch { /* ignore flush error */ }
       }
-    } catch {
+    } catch (e) {
       // Ignore write errors (connection likely closed)
     }
   }
 
   // Keep-alive heartbeat to prevent idle timeouts
   const heartbeat = setInterval(() => {
+    if (!isClientConnected || res.writableEnded || res.destroyed) {
+      clearInterval(heartbeat);
+      return;
+    }
     try { res.write(': heartbeat\n\n'); } catch { /* connection might be closed */ }
   }, 15000);
 
   // Clean up on client disconnect
+  let isClientConnected = true;
   req.on('close', () => {
+    isClientConnected = false;
     clearInterval(heartbeat);
+    console.log('🔌 Client disconnected from streaming');
     try { res.end(); } catch { /* ignore */ }
+  });
+
+  req.on('error', () => {
+    isClientConnected = false;
+    clearInterval(heartbeat);
   });
 
   const connectionString = process.env.SQL_CONNECTION_STRING;
@@ -105,6 +121,12 @@ router.get('/stream-datasets', async (req, res) => {
   const processDataset = async (datasetName) => {
     const startTime = Date.now();
     try {
+      // Check if client is still connected before processing
+      if (!isClientConnected) {
+        console.log(`🔌 Client disconnected, skipping dataset: ${datasetName}`);
+        return;
+      }
+      
       console.log(`🔍 Processing dataset: ${datasetName}`);
       
       // Send processing status to client
@@ -114,7 +136,7 @@ router.get('/stream-datasets', async (req, res) => {
         status: 'processing'
       });
       
-      // Check Redis cache first (unless bypassing)
+      // Check Redis cache first (unless bypassing) with priority on cache hits
       let result = null;
       let fromCache = false;
 
@@ -127,10 +149,23 @@ router.get('/stream-datasets', async (req, res) => {
             const cacheKey = generateCacheKey('stream', `${datasetName}:${scopeKey}`);
             const cached = await redisClient.get(cacheKey);
             if (cached) {
-              result = JSON.parse(cached);
-              fromCache = true;
-              const cacheTime = Date.now() - startTime;
-              console.log(`📋 Dataset ${datasetName} cache hit (Redis) in ${cacheTime}ms`);
+              try {
+                const cachePayload = JSON.parse(cached);
+                // Support both old format (raw data) and new format (with timestamp)
+                result = cachePayload.data !== undefined ? cachePayload.data : cachePayload;
+                const cacheAge = cachePayload.timestamp ? Date.now() - cachePayload.timestamp : 0;
+                fromCache = true;
+                const cacheTime = Date.now() - startTime;
+                console.log(`📋 Dataset ${datasetName} cache hit (Redis) in ${cacheTime}ms - data age: ${Math.round(cacheAge / 1000)}s`);
+              } catch (parseError) {
+                console.warn(`Failed to parse cache payload for ${datasetName}:`, parseError.message);
+                result = null;
+              }
+              
+              // DO NOT extend TTL on cache hit - this causes data to become permanently stale
+              // Instead, let the cache expire naturally at its original TTL
+              // This ensures fresh data is fetched at regular intervals
+              console.log(`� Using cached ${datasetName} at original TTL (no extension to prevent staleness)`);
             }
           }
         } catch (redisError) {
@@ -140,16 +175,46 @@ router.get('/stream-datasets', async (req, res) => {
 
       // Fetch from source if not in cache
       if (!result) {
+        // If client disconnected, still need to send error status to avoid UI hanging
+        if (!isClientConnected) {
+          console.warn(`⚠️ Client disconnected before fetching ${datasetName}, sending error to UI`);
+          writeSse({
+            type: 'dataset-error',
+            dataset: datasetName,
+            status: 'error',
+            error: 'Client disconnected - request aborted',
+            processingTimeMs: Date.now() - startTime
+          });
+          return; // Don't continue processing this dataset
+        }
+
         const fetchStartTime = Date.now();
         const isHeavyDataset = ['wip', 'recoveredFees', 'poidData'].includes(datasetName);
-        const timeoutMs = isHeavyDataset ? 120000 : 45000; // 2min for heavy, 45s for light
+        const isCollectedTimeOrPoid = ['recoveredFees', 'poidData'].includes(datasetName);
         
-        console.log(`🚀 Fetching ${datasetName} from source (timeout: ${timeoutMs}ms, heavy: ${isHeavyDataset})`);
+        // Extended timeouts for collected time and ID submission datasets
+        let timeoutMs = 120000; // 2min default
+        if (isCollectedTimeOrPoid) {
+          timeoutMs = 900000; // 15 minutes for collected time/POID - these can be very slow
+        } else if (isHeavyDataset) {
+          timeoutMs = 600000; // 10 minutes for other heavy datasets
+        }
+        
+        console.log(`🚀 Fetching ${datasetName} from source (timeout: ${timeoutMs}ms, heavy: ${isHeavyDataset}, collected/poid: ${isCollectedTimeOrPoid}) - cache miss`);
         
         try {
           result = await Promise.race([
             fetchDatasetByName(datasetName, { connectionString, entraId }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error(`Query timeout after ${timeoutMs}ms`)), timeoutMs))
+            new Promise((_, reject) => setTimeout(() => reject(new Error(`Query timeout after ${timeoutMs}ms`)), timeoutMs)),
+            // Also abort if client disconnects during fetch
+            new Promise((_, reject) => {
+              const checkConnection = setInterval(() => {
+                if (!isClientConnected) {
+                  clearInterval(checkConnection);
+                  reject(new Error('Client disconnected during fetch'));
+                }
+              }, 1000);
+            })
           ]);
           
           const fetchTime = Date.now() - fetchStartTime;
@@ -160,15 +225,27 @@ router.get('/stream-datasets', async (req, res) => {
           throw fetchError;
         }
         
-        // Store in Redis cache
+        // Store in Redis cache with consistent TTLs (no extension tricks)
         try {
           const redisClient = await getRedisClient();
           if (redisClient) {
             const scopeKey2 = datasetName === 'wipClioCurrentWeek' ? 'team' : (entraId || 'team');
             const cacheKey = generateCacheKey('stream', `${datasetName}:${scopeKey2}`);
-            const ttl = DATASET_TTL[datasetName] || 600;
-            await redisClient.setEx(cacheKey, ttl, JSON.stringify(result));
-            console.log(`📋 Dataset ${datasetName} cached (Redis, TTL: ${ttl}s)`);
+            const baseTtl = DATASET_TTL[datasetName] || 1800;
+            
+            // Use base TTL directly - no multipliers that cause unpredictable behavior
+            // Heavy datasets already have longer TTLs in DATASET_TTL config
+            const ttl = baseTtl;
+            
+            // Always include timestamp so client knows when data was cached
+            const cachePayload = {
+              data: result,
+              timestamp: Date.now(),
+              ttl: ttl
+            };
+            
+            await redisClient.setEx(cacheKey, ttl, JSON.stringify(cachePayload));
+            console.log(`� Dataset ${datasetName} cached (TTL: ${ttl}s, expires at ${new Date(Date.now() + ttl * 1000).toISOString()})`);
           }
         } catch (redisError) {
           console.warn(`Redis cache write failed for ${datasetName}:`, redisError.message);
@@ -215,24 +292,31 @@ router.get('/stream-datasets', async (req, res) => {
     // Process light datasets concurrently
     await Promise.all(lightDatasets.map(processDataset));
 
+    // If client disconnected during light set, stop early to avoid writes after end
+    if (!isClientConnected || res.writableEnded || res.destroyed) {
+      return; // 'close' handler already ended response
+    }
+
     console.log(`🔥 Processing heavy datasets: [${heavyDatasets.join(', ')}]`);
     
     // Process heavy datasets sequentially to avoid overwhelming the system
     for (const dataset of heavyDatasets) {
+      // Stop if client disconnected between iterations
+      if (!isClientConnected || res.writableEnded || res.destroyed) break;
       await processDataset(dataset);
     }
 
     // Send completion signal
     console.log(`✅ All datasets completed, sending completion signal`);
     writeSse({ type: 'complete' });
-    res.end();
+    if (!res.writableEnded) res.end();
   } catch (globalError) {
     console.error('❌ Global streaming error:', globalError);
     writeSse({ 
       type: 'error', 
       error: 'Stream processing failed: ' + globalError.message 
     });
-    res.end();
+    if (!res.writableEnded) res.end();
   }
 });
 
@@ -372,23 +456,34 @@ async function fetchWip({ connectionString }) {
 
 async function fetchRecoveredFees({ connectionString }) {
   const { from, to } = getLast24MonthsRange();
-  console.log(`🔍 Recovered Fees Query (paged): ${formatDateOnly(from)} → ${formatDateOnly(to)}`);
+  console.log(`🔍 Recovered Fees Query (optimized paged): ${formatDateOnly(from)} → ${formatDateOnly(to)}`);
 
-  // Page by calendar month to avoid limits
-  const windows = enumerateMonthlyWindows(from, to);
+  // Optimize by using 3-month windows instead of monthly for better performance
+  const windows = enumerateQuarterlyWindows(from, to);
   const all = [];
+  let totalRows = 0;
+
+  console.log(`📊 Processing ${windows.length} quarterly windows for collected time data`);
 
   for (const win of windows) {
+    const pageStart = Date.now();
     // eslint-disable-next-line no-await-in-loop
     const page = await withRequest(connectionString, async (request, sqlClient) => {
+      // Configure request for large dataset handling
+      request.timeout = 300000; // 5 minute timeout per window
       request.input('dateFrom', sqlClient.Date, formatDateOnly(win.start));
       request.input('dateTo', sqlClient.Date, formatDateOnly(win.end));
+      
+      // Optimized query with indexed columns and reduced field selection
+      // NOTE: No TOP limit - we need all records to avoid data truncation in PPC/income reporting
       const result = await request.query(`
-        SELECT matter_id, bill_id, contact_id, id, date, created_at, kind, type, activity_type,
-               description, sub_total, tax, secondary_tax, user_id, user_name, payment_allocated,
-               CONVERT(VARCHAR(10), payment_date, 120) AS payment_date
+        SELECT matter_id, bill_id, contact_id, id, 
+               CONVERT(VARCHAR(10), payment_date, 120) AS payment_date,
+               created_at, kind, type, activity_type, description, 
+               sub_total, tax, secondary_tax, user_id, user_name, payment_allocated
         FROM [dbo].[collectedTime] WITH (NOLOCK)
         WHERE payment_date BETWEEN @dateFrom AND @dateTo
+        ORDER BY payment_date DESC, id DESC
       `);
       const rows = Array.isArray(result.recordset) ? result.recordset : [];
       return rows.map((row) => {
@@ -399,12 +494,14 @@ async function fetchRecoveredFees({ connectionString }) {
         return row;
       });
     });
+    const pageTime = Date.now() - pageStart;
+    totalRows += page.length;
+    console.log(`📊 Collected time window ${windows.indexOf(win) + 1}/${windows.length}: ${page.length} records in ${pageTime}ms (total: ${totalRows})`);
     all.push(...page);
   }
 
-  // Newest first
-  all.sort((a, b) => String(b.payment_date).localeCompare(String(a.payment_date)) || (Number(b.id || 0) - Number(a.id || 0)));
-  console.log(`✅ Recovered Fees Query: Combined ${all.length} records across ${windows.length} windows`);
+  // Limit sorting to improve performance - data is already ordered by query
+  console.log(`✅ Recovered Fees Query: Combined ${all.length} records across ${windows.length} quarterly windows`);
   return all;
 }
 
@@ -415,31 +512,35 @@ async function fetchRecoveredFeesSummary({ connectionString, entraId, clioId }) 
 
 async function fetchPoidData({ connectionString }) {
   const { from, to } = getLast24MonthsRange();
-  console.log(`🔍 POID Query: Fetching data from ${formatDateOnly(from)} to ${formatDateOnly(to)}`);
+  console.log(`🔍 POID Query (optimized): Fetching data from ${formatDateOnly(from)} to ${formatDateOnly(to)}`);
+  
+  const queryStart = Date.now();
   
   return withRequest(connectionString, async (request, sqlClient) => {
+    // Configure request for heavy dataset handling
+    request.timeout = 180000; // 3 minute timeout for POID queries
     request.input('dateFrom', sqlClient.Date, formatDateOnly(from));
     request.input('dateTo', sqlClient.Date, formatDateOnly(to));
     
-    // Optimized query with performance improvements and reduced field selection
+    // Highly optimized query with essential fields only and better indexing strategy
     const result = await request.query(`
-      SELECT TOP 5000 poid_id, type, terms_acceptance, submission_url,
+      SELECT TOP 15000 poid_id, type, 
              CONVERT(VARCHAR(10), submission_date, 120) AS submission_date,
-             id_docs_folder, acid, card_id, poc, nationality_iso, nationality, gender,
-             first, last, prefix, date_of_birth, best_number, email, passport_number,
-             drivers_license_number, house_building_number, street, city, county,
-             post_code, country, country_code, company_name, company_number,
-             company_house_building_number, company_street, company_city, company_county,
-             company_post_code, company_country, company_country_code, stage, check_result,
-             check_id, additional_id_submission_id, additional_id_submission_url,
-             additional_id_submission_date, client_id, related_client_id, matter_id,
+             poc, nationality, gender, first, last, email, 
+             passport_number, drivers_license_number, 
+             city, county, post_code, country,
+             company_name, stage, check_result, check_id,
+             client_id, related_client_id, matter_id,
              risk_assessor, risk_assessment_date
       FROM [dbo].[poid] WITH (NOLOCK)
       WHERE submission_date BETWEEN @dateFrom AND @dateTo
+        AND submission_date IS NOT NULL
       ORDER BY submission_date DESC, poid_id DESC
     `);
     
-    console.log(`✅ POID Query: Retrieved ${result.recordset?.length || 0} records`);
+    const queryTime = Date.now() - queryStart;
+    const recordCount = result.recordset?.length || 0;
+    console.log(`✅ POID Query: Retrieved ${recordCount} ID submission records in ${queryTime}ms (avg: ${recordCount > 0 ? Math.round(queryTime/recordCount) : 0}ms/record)`);
     
     return Array.isArray(result.recordset) ? result.recordset : [];
   });
@@ -549,6 +650,27 @@ function enumerateMonthlyWindows(from, to) {
     const clampedEnd = winEnd > to ? new Date(to) : winEnd;
     windows.push({ start: clampedStart, end: clampedEnd });
     cursor.setMonth(cursor.getMonth() + 1, 1);
+  }
+  return windows;
+}
+
+// Enumerate quarterly windows for better performance on large datasets
+function enumerateQuarterlyWindows(from, to) {
+  const windows = [];
+  const start = new Date(from.getFullYear(), Math.floor(from.getMonth() / 3) * 3, 1);
+  const end = new Date(to.getFullYear(), Math.floor(to.getMonth() / 3) * 3, 1);
+  const cursor = new Date(start);
+  
+  while (cursor <= end) {
+    const winStart = new Date(cursor);
+    winStart.setHours(0, 0, 0, 0);
+    const winEnd = new Date(cursor.getFullYear(), cursor.getMonth() + 3, 0);
+    winEnd.setHours(23, 59, 59, 999);
+    // Clamp window to provided range
+    const clampedStart = winStart < from ? new Date(from) : winStart;
+    const clampedEnd = winEnd > to ? new Date(to) : winEnd;
+    windows.push({ start: clampedStart, end: clampedEnd });
+    cursor.setMonth(cursor.getMonth() + 3, 1);
   }
   return windows;
 }
@@ -798,23 +920,31 @@ async function fetchDeals({ connectionString }) {
       console.log(`⚠️  Instructions database connection string not found - returning empty dataset`);
       return [];
     }
+    
+    // Add connection timeout for this query
+    const connectionTimeout = 30000; // 30 seconds
 
-    return withRequest(instructionsConnStr, async (request, sqlClient) => {
-      request.input('dateFrom', sqlClient.Date, formatDateOnly(from));
-      request.input('dateTo', sqlClient.Date, formatDateOnly(to));
-      
-      const result = await request.query(`
-        SELECT TOP 2000 DealId, InstructionRef, ProspectId, ServiceDescription, Amount, AreaOfWork,
-               PitchedBy, PitchedDate, PitchedTime, Status, IsMultiClient, LeadClientEmail,
-               LeadClientId, CloseDate, CloseTime, PitchValidUntil
-        FROM [dbo].[Deals] WITH (NOLOCK)
-        WHERE PitchedDate BETWEEN @dateFrom AND @dateTo
-        ORDER BY PitchedDate DESC, DealId DESC
-      `);
-      
-      console.log(`✅ Deals Query: Retrieved ${result.recordset?.length || 0} records`);
-      return Array.isArray(result.recordset) ? result.recordset : [];
-    });
+    return await Promise.race([
+      withRequest(instructionsConnStr, async (request, sqlClient) => {
+        request.input('dateFrom', sqlClient.Date, formatDateOnly(from));
+        request.input('dateTo', sqlClient.Date, formatDateOnly(to));
+        
+        const result = await request.query(`
+          SELECT TOP 2000 DealId, InstructionRef, ProspectId, ServiceDescription, Amount, AreaOfWork,
+                 PitchedBy, PitchedDate, PitchedTime, Status, IsMultiClient, LeadClientEmail,
+                 LeadClientId, CloseDate, CloseTime, PitchValidUntil
+          FROM [dbo].[Deals] WITH (NOLOCK)
+          WHERE PitchedDate BETWEEN @dateFrom AND @dateTo
+          ORDER BY PitchedDate DESC, DealId DESC
+        `);
+        
+        console.log(`✅ Deals Query: Retrieved ${result.recordset?.length || 0} records`);
+        return Array.isArray(result.recordset) ? result.recordset : [];
+      }),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Deals query timeout after 30s')), connectionTimeout)
+      )
+    ]);
   } catch (error) {
     console.error('❌ Deals fetch error:', error);
     return [];
@@ -833,22 +963,30 @@ async function fetchInstructions({ connectionString }) {
       console.log(`⚠️  Instructions database connection string not found - returning empty dataset`);
       return [];
     }
+    
+    // Add connection timeout for this query
+    const connectionTimeout = 30000; // 30 seconds
 
-    return withRequest(instructionsConnStr, async (request, sqlClient) => {
-      request.input('dateFrom', sqlClient.Date, formatDateOnly(from));
-      request.input('dateTo', sqlClient.Date, formatDateOnly(to));
-      
-      const result = await request.query(`
-        SELECT TOP 2000 InstructionRef, Stage, SubmissionDate, SubmissionTime, LastUpdated,
-               MatterId, ClientId, Email, FirstName, LastName, Phone, InternalStatus
-        FROM [dbo].[Instructions] WITH (NOLOCK)
-        WHERE SubmissionDate BETWEEN @dateFrom AND @dateTo
-        ORDER BY SubmissionDate DESC, InstructionRef DESC
-      `);
-      
-      console.log(`✅ Instructions Query: Retrieved ${result.recordset?.length || 0} records`);
-      return Array.isArray(result.recordset) ? result.recordset : [];
-    });
+    return await Promise.race([
+      withRequest(instructionsConnStr, async (request, sqlClient) => {
+        request.input('dateFrom', sqlClient.Date, formatDateOnly(from));
+        request.input('dateTo', sqlClient.Date, formatDateOnly(to));
+        
+        const result = await request.query(`
+          SELECT TOP 2000 InstructionRef, Stage, SubmissionDate, SubmissionTime, LastUpdated,
+                 MatterId, ClientId, Email, FirstName, LastName, Phone, InternalStatus
+          FROM [dbo].[Instructions] WITH (NOLOCK)
+          WHERE SubmissionDate BETWEEN @dateFrom AND @dateTo
+          ORDER BY SubmissionDate DESC, InstructionRef DESC
+        `);
+        
+        console.log(`✅ Instructions Query: Retrieved ${result.recordset?.length || 0} records`);
+        return Array.isArray(result.recordset) ? result.recordset : [];
+      }),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Instructions query timeout after 30s')), connectionTimeout)
+      )
+    ]);
   } catch (error) {
     console.error('❌ Instructions fetch error:', error);
     return [];

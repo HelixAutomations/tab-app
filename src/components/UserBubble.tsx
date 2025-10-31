@@ -7,6 +7,7 @@ import '../app/styles/UserBubble.css';
 import '../app/styles/personas.css';
 import { isAdminUser, isPowerUser } from '../app/admin';
 import { useTheme } from '../app/functionality/ThemeContext';
+import RefreshDataModal from './RefreshDataModal';
 
 interface UserBubbleProps {
     user: UserData;
@@ -16,6 +17,8 @@ interface UserBubbleProps {
     availableUsers?: UserData[] | null;
     onReturnToAdmin?: () => void;
     originalAdminUser?: UserData | null;
+    onRefreshEnquiries?: () => Promise<void> | void;
+    onRefreshMatters?: () => Promise<void> | void;
 }
 
 const AVAILABLE_AREAS = [
@@ -34,11 +37,14 @@ const UserBubble: React.FC<UserBubbleProps> = ({
     availableUsers,
     onReturnToAdmin,
     originalAdminUser,
+    onRefreshEnquiries,
+    onRefreshMatters,
 }) => {
     const [open, setOpen] = useState(false);
     const [isClickToggled, setIsClickToggled] = useState(false);
     const [showDataInspector, setShowDataInspector] = useState(false);
     const [showAdminDashboard, setShowAdminDashboard] = useState(false);
+    const [showRefreshModal, setShowRefreshModal] = useState(false);
     const bubbleRef = useRef<HTMLButtonElement | null>(null);
     const popoverRef = useRef<HTMLDivElement | null>(null);
     const previouslyFocusedElement = useRef<HTMLElement | null>(null);
@@ -321,6 +327,61 @@ const UserBubble: React.FC<UserBubbleProps> = ({
     }
     return (
         <div className="user-bubble-container">
+            {/* Refresh Modal */}
+            {showRefreshModal && (
+                <RefreshDataModal
+                    isOpen={showRefreshModal}
+                    onClose={() => setShowRefreshModal(false)}
+                    onConfirm={async ({ clientCaches, enquiries, matters, reporting }) => {
+                        try {
+                            // Client caches: clear localStorage keys used by app
+                            if (clientCaches) {
+                                const keys = Object.keys(localStorage);
+                                const toRemove = keys.filter(k => {
+                                    const lower = k.toLowerCase();
+                                    return (
+                                        lower.startsWith('enquiries-') ||
+                                        lower.startsWith('normalizedmatters-v5-') ||
+                                        lower.startsWith('vnetmatters-') ||
+                                        lower.startsWith('matters-') ||
+                                        lower === 'allmatters' ||
+                                        lower === 'teamdata' ||
+                                        lower.includes('outstandingbalancesdata')
+                                    );
+                                });
+                                toRemove.forEach(k => localStorage.removeItem(k));
+                            }
+
+                            // Server-side clears via scopes
+                            const clearScopes: string[] = [];
+                            if (reporting) clearScopes.push('reporting');
+                            if (enquiries) clearScopes.push('enquiries');
+                            if (matters) clearScopes.push('unified');
+                            for (const scope of clearScopes) {
+                                try {
+                                    await fetch('/api/cache/clear-cache', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ scope })
+                                    });
+                                } catch (e) {
+                                    // eslint-disable-next-line no-console
+                                    console.warn('Cache clear failed for scope', scope, e);
+                                }
+                            }
+
+                            // Trigger client-side fetches where handlers exist
+                            if (enquiries && onRefreshEnquiries) await onRefreshEnquiries();
+                            if (matters && onRefreshMatters) await onRefreshMatters();
+                        } finally {
+                            setShowRefreshModal(false);
+                            // Provide a simple confirmation
+                            try { window.alert('Refresh complete.'); } catch {}
+                        }
+                    }}
+                />
+            )}
+
             <button
                 type="button"
                 className={`user-bubble-button persona-bubble ${isLocalDev && onAreasChange ? 'clickable-local-dev' : ''}`}
@@ -1266,6 +1327,80 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                     </div>
                                     
                                     <div style={{ display: 'grid', gap: '8px' }}>
+                                        {/* Refresh Data modal opener */}
+                                        <button
+                                            onClick={() => setShowRefreshModal(true)}
+                                            style={{
+                                                width: '100%',
+                                                padding: '12px 14px',
+                                                background: isDarkMode ? 'rgba(148,163,184,0.1)' : 'rgba(241, 245, 249, 0.9)',
+                                                color: isDarkMode ? 'rgba(255,255,255,0.85)' : 'rgba(51, 65, 85, 0.9)',
+                                                border: isDarkMode ? '1px solid rgba(148,163,184,0.2)' : '1px solid rgba(203, 213, 225, 0.5)',
+                                                borderRadius: '10px',
+                                                fontSize: '11px',
+                                                fontWeight: '600',
+                                                cursor: 'pointer',
+                                                transition: 'all 0.2s ease',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '8px'
+                                            }}
+                                            onMouseEnter={(e) => {
+                                                e.currentTarget.style.background = isDarkMode ? 'rgba(148,163,184,0.18)' : 'rgba(226, 232, 240, 0.9)';
+                                                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148,163,184,0.3)' : 'rgba(203, 213, 225, 0.7)';
+                                                e.currentTarget.style.transform = 'translateY(-1px)';
+                                            }}
+                                            onMouseLeave={(e) => {
+                                                e.currentTarget.style.background = isDarkMode ? 'rgba(148,163,184,0.1)' : 'rgba(241, 245, 249, 0.9)';
+                                                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(203, 213, 225, 0.5)';
+                                                e.currentTarget.style.transform = 'translateY(0)';
+                                            }}
+                                        >
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                <path d="M23 4v6h-6" />
+                                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                                            </svg>
+                                            <span>Refresh Data…</span>
+                                        </button>
+                                        {/* Refresh Enquiries (force fresh) - available to all users */}
+                                        {onRefreshEnquiries && (
+                                            <button
+                                                onClick={async () => {
+                                                    try {
+                                                        await onRefreshEnquiries();
+                                                    } finally {
+                                                        closePopover();
+                                                    }
+                                                }}
+                                                style={{
+                                                    width: '100%',
+                                                    padding: '12px 14px',
+                                                    background: isDarkMode ? 'rgba(34,197,94,0.18)' : '#f0fdf4',
+                                                    color: isDarkMode ? '#bbf7d0' : '#217a2b',
+                                                    border: isDarkMode ? '1px solid rgba(34,197,94,0.35)' : '1px solid #b7eb8f',
+                                                    borderRadius: '10px',
+                                                    fontSize: '11px',
+                                                    fontWeight: '600',
+                                                    cursor: 'pointer',
+                                                    transition: 'all 0.2s ease',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '8px'
+                                                }}
+                                                onMouseEnter={(e) => {
+                                                    e.currentTarget.style.transform = 'translateY(-1px)';
+                                                }}
+                                                onMouseLeave={(e) => {
+                                                    e.currentTarget.style.transform = 'translateY(0)';
+                                                }}
+                                            >
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                                    <path d="M23 4v6h-6" />
+                                                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                                                </svg>
+                                                <span>Refresh Enquiries (force fresh)</span>
+                                            </button>
+                                        )}
                                         {/* Return to Admin */}
                                         {originalAdminUser && onReturnToAdmin && (
                                             <button

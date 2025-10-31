@@ -24,10 +24,10 @@ const datasetFetchers = {
     const key = generateCacheKey('rpt', 'teamData');
     return cacheWrapper(key, () => fetchTeamData({ connectionString }), 1800);
   },
-  // 10 min - enquiries update regularly
+  // 5 min - enquiries update regularly; align with client TTL
   enquiries: ({ connectionString }) => {
     const key = generateCacheKey('rpt', 'enquiries');
-    return cacheWrapper(key, () => fetchEnquiries({ connectionString }), 600);
+    return cacheWrapper(key, () => fetchEnquiries({ connectionString }), 300);
   },
   // 15 min - matters update moderately
   allMatters: ({ connectionString }) => {
@@ -233,6 +233,35 @@ module.exports = router;
 
 // Expose selected helpers for reuse in streaming route
 module.exports.fetchWipClioCurrentWeek = fetchWipClioCurrentWeek;
+
+// Allow external routes to clear the in-memory response cache used by this router
+module.exports.clearReportingCache = function clearReportingCache(scope = 'all') {
+  try {
+    if (!(cache instanceof Map)) return 0;
+    let cleared = 0;
+    if (scope === 'all') {
+      cleared = cache.size;
+      cache.clear();
+      return cleared;
+    }
+    // For targeted clears, remove entries whose payload contains the target dataset
+    for (const [key, entry] of cache.entries()) {
+      const data = entry && entry.data;
+      if (!data) continue;
+      if (scope === 'enquiries' && Object.prototype.hasOwnProperty.call(data, 'enquiries')) {
+        cache.delete(key);
+        cleared++;
+      }
+      if (scope === 'matters' && (Object.prototype.hasOwnProperty.call(data, 'allMatters') || Object.prototype.hasOwnProperty.call(data, 'matters'))) {
+        cache.delete(key);
+        cleared++;
+      }
+    }
+    return cleared;
+  } catch {
+    return 0;
+  }
+};
 
 async function fetchUserData({ connectionString, entraId }) {
   if (!entraId) {

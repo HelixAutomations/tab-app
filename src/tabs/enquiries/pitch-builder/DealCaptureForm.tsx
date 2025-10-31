@@ -666,7 +666,7 @@ useLayoutEffect(() => {
           </Text>
           <div className={amountContainerStyle}>
             <span
-              className={mergeStyles(prefixStyle, {
+              className={mergeStyles(prefixStyle(isDarkMode), {
                 border: 'none',
                   background: 'transparent',
                 })}
@@ -681,7 +681,7 @@ useLayoutEffect(() => {
                 onBlur={handleAmountBlur}
                 styles={{
                   root: { flexGrow: 1 },
-                  fieldGroup: amountInputStyle(true),
+                  fieldGroup: amountInputStyle(true, isDarkMode),
                 }}
                 inputMode="decimal"
               />

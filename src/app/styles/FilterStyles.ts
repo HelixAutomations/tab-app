@@ -85,6 +85,22 @@ export const sharedToggleStyle = (isDarkMode: boolean) => ({
     marginRight: '10px',
     color: isDarkMode ? colours.dark.text : colours.light.text,
   },
+  container: {
+    selectors: {
+      '.ms-Toggle-background': {
+        backgroundColor: isDarkMode ? 'rgba(71, 85, 105, 0.6)' : '#d1d5db',
+        border: `1px solid ${isDarkMode ? colours.dark.border : '#d1d5db'}`,
+      },
+      '.ms-Toggle-background.is-checked': {
+        backgroundColor: `${colours.highlight} !important`,
+        borderColor: `${colours.highlight} !important`,
+      },
+      '.ms-Toggle-thumb': {
+        backgroundColor: '#ffffff',
+        border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)'}`,
+      },
+    },
+  },
 });
 
 export const sharedDropdownContainerStyle = (isDarkMode: boolean) =>

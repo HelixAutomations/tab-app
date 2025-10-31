@@ -110,3 +110,23 @@ body {
   background-color: #1a1a1a;
   color: #f3f4f6;
 }
+
+/* Dark mode Toggle component overrides */
+[data-theme="dark"] .ms-Toggle-background {
+  background-color: rgba(71, 85, 105, 0.6) !important;
+  border-color: rgba(71, 85, 105, 0.8) !important;
+}
+
+[data-theme="dark"] .ms-Toggle-background.is-checked {
+  background-color: #3690ce !important;
+  border-color: #3690ce !important;
+}
+
+[data-theme="dark"] .ms-Toggle-thumb {
+  background-color: #ffffff !important;
+  border: 1px solid rgba(255,255,255,0.2) !important;
+}
+
+[data-theme="dark"] .ms-Toggle-text {
+  color: #f3f4f6 !important;
+}

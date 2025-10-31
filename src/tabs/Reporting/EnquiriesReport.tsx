@@ -201,7 +201,8 @@ interface PieChartData {
 const CustomPieLabel = ({ 
   cx, cy, midAngle, innerRadius, outerRadius, name, percent, isDarkMode 
 }: any) => {
-  if (percent < 0.05) return null; // Don't show labels for segments < 5%
+  // Guard invalid values; hide tiny or invalid slices
+  if (typeof percent !== 'number' || !Number.isFinite(percent) || percent < 0.05) return null; // Don't show labels for segments < 5%
   
   const RADIAN = Math.PI / 180;
   const radius = outerRadius + 25; // Position labels outside the pie
@@ -219,7 +220,7 @@ const CustomPieLabel = ({
       fontFamily="'Segoe UI', Tahoma, Geneva, Verdana, sans-serif"
       fontWeight={500}
     >
-      {`${name} ${(percent * 100).toFixed(0)}%`}
+      {`${name} ${Number((percent * 100)).toFixed(0)}%`}
     </text>
   );
 };
@@ -970,6 +971,12 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
   isFetching 
 }) => {
   const { isDarkMode } = useTheme();
+  // Safe formatting helpers
+  const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+  const fmtInt = (v: unknown) => (isNum(v) ? Math.round(v).toLocaleString() : '—');
+  const fmtMoney0 = (v: unknown) => (isNum(v) ? `£${Number(v).toFixed(0)}` : '—');
+  const fmtPct1 = (ratio: unknown) => (isNum(ratio) ? `${(Number(ratio) * 100).toFixed(1)}%` : '—');
+  const fmtK1 = (v: unknown) => (isNum(v) ? `${(Number(v) / 1000).toFixed(1)}k` : '—');
   
   // Add CSS animations for smooth loading
   React.useEffect(() => {
@@ -2944,6 +2951,9 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                 <span style={{ fontWeight: 600, fontSize: 14 }}>Google Analytics</span>
               </div>
               {(() => {
+                if (!Array.isArray(metaMetrics) || metaMetrics.length === 0) {
+                  return <div style={{ fontSize: 12, opacity: 0.6 }}>No data available</div>;
+                }
                 const latest = metaMetrics[metaMetrics.length - 1]?.googleAnalytics;
                 if (!latest) return <div style={{ fontSize: 12, opacity: 0.6 }}>No data available</div>;
                 
@@ -2951,25 +2961,25 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 12 }}>
                     <div>
                       <div style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                        {latest.sessions.toLocaleString()}
+                        {fmtInt(latest.sessions)}
                       </div>
                       <div style={{ opacity: 0.7 }}>Sessions</div>
                     </div>
                     <div>
                       <div style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                        {latest.users.toLocaleString()}
+                        {fmtInt(latest.users)}
                       </div>
                       <div style={{ opacity: 0.7 }}>Users</div>
                     </div>
                     <div>
                       <div style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                        {latest.conversions}
+                        {isNum(latest.conversions) ? latest.conversions : '—'}
                       </div>
                       <div style={{ opacity: 0.7 }}>Conversions</div>
                     </div>
                     <div>
                       <div style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                        {(latest.conversionRate * 100).toFixed(1)}%
+                        {fmtPct1(latest.conversionRate)}
                       </div>
                       <div style={{ opacity: 0.7 }}>Conv. Rate</div>
                     </div>
@@ -2996,6 +3006,9 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                 <span style={{ fontWeight: 600, fontSize: 14 }}>Google Ads</span>
               </div>
               {(() => {
+                if (!Array.isArray(metaMetrics) || metaMetrics.length === 0) {
+                  return <div style={{ fontSize: 12, opacity: 0.6 }}>No data available</div>;
+                }
                 const latest = metaMetrics[metaMetrics.length - 1]?.googleAds;
                 if (!latest) return <div style={{ fontSize: 12, opacity: 0.6 }}>No data available</div>;
                 
@@ -3003,25 +3016,25 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 12 }}>
                     <div>
                       <div style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                        £{latest.cost.toFixed(0)}
+                        {fmtMoney0(latest.cost)}
                       </div>
                       <div style={{ opacity: 0.7 }}>Spend</div>
                     </div>
                     <div>
                       <div style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                        {latest.clicks.toLocaleString()}
+                        {fmtInt(latest.clicks)}
                       </div>
                       <div style={{ opacity: 0.7 }}>Clicks</div>
                     </div>
                     <div>
                       <div style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                        {latest.conversions}
+                        {isNum(latest.conversions) ? latest.conversions : '—'}
                       </div>
                       <div style={{ opacity: 0.7 }}>Conversions</div>
                     </div>
                     <div>
                       <div style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                        £{latest.cpa.toFixed(0)}
+                        {fmtMoney0(latest.cpa)}
                       </div>
                       <div style={{ opacity: 0.7 }}>Cost/Conv</div>
                     </div>
@@ -3048,6 +3061,9 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                 <span style={{ fontWeight: 600, fontSize: 14 }}>Meta Ads</span>
               </div>
               {(() => {
+                if (!Array.isArray(metaMetrics) || metaMetrics.length === 0) {
+                  return <div style={{ fontSize: 12, opacity: 0.6 }}>No data available</div>;
+                }
                 const latest = metaMetrics[metaMetrics.length - 1]?.metaAds;
                 if (!latest) return <div style={{ fontSize: 12, opacity: 0.6 }}>No data available</div>;
                 
@@ -3055,25 +3071,25 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 12 }}>
                     <div>
                       <div style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                        £{latest.spend.toFixed(0)}
+                        {fmtMoney0(latest.spend)}
                       </div>
                       <div style={{ opacity: 0.7 }}>Spend</div>
                     </div>
                     <div>
                       <div style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                        {(latest.reach / 1000).toFixed(1)}k
+                        {fmtK1(latest.reach)}
                       </div>
                       <div style={{ opacity: 0.7 }}>Reach</div>
                     </div>
                     <div>
                       <div style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                        {latest.conversions}
+                        {isNum(latest.conversions) ? latest.conversions : '—'}
                       </div>
                       <div style={{ opacity: 0.7 }}>Conversions</div>
                     </div>
                     <div>
                       <div style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                        {(latest.ctr * 100).toFixed(1)}%
+                        {fmtPct1(latest.ctr)}
                       </div>
                       <div style={{ opacity: 0.7 }}>CTR</div>
                     </div>

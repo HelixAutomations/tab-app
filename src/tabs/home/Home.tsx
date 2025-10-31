@@ -64,7 +64,7 @@ import FormDetails from '../forms/FormDetails';
 import ResourceDetails from '../resources/ResourceDetails';
 
 import HomePanel from './HomePanel';
-import { Context as TeamsContextType } from '@microsoft/teams-js';
+import { app } from '@microsoft/teams-js';
 
 import BespokePanel from '../../app/functionality/BespokePanel';
 
@@ -212,7 +212,7 @@ export interface SnippetEdit {
 }
 
 interface HomeProps {
-  context: TeamsContextType | null;
+  context: app.Context | null;
   userData: any;
   enquiries: any[] | null;
   matters?: NormalizedMatter[]; // Prefer app-provided normalized matters
@@ -226,6 +226,7 @@ interface HomeProps {
   teamData?: TeamData[] | null;
   isInMatterOpeningWorkflow?: boolean;
   onImmediateActionsChange?: (hasActions: boolean) => void;
+  originalAdminUser?: any; // For admin user switching context
 }
 
 interface QuickLink {
@@ -616,6 +617,30 @@ const getISOWeek = (date: Date): number => {
   return Math.round(((d.getTime() - week1.getTime()) / 86400000 + 1) / 7) + 1;
 };
 
+const formatWeekFragment = (date: Date): string => {
+  const isoWeek = getISOWeek(date);
+  return `${date.getFullYear()}-W${String(isoWeek).padStart(2, '0')}`;
+};
+
+// Robust date parser matching ManagementDashboard behaviour
+const parseDateValue = (input: unknown): Date | null => {
+  if (typeof input !== 'string' || input.trim().length === 0) return null;
+  const trimmed = input.trim();
+  const normalised = trimmed.includes('/') && !trimmed.includes('T')
+    ? (() => {
+        // Convert dd/mm/yyyy -> yyyy-mm-dd
+        const parts = trimmed.split('/');
+        if (parts.length === 3) {
+          const [dd, mm, yyyy] = parts;
+          return `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+        }
+        return trimmed;
+      })()
+    : trimmed;
+  const candidate = new Date(normalised);
+  return Number.isNaN(candidate.getTime()) ? null : candidate;
+};
+
 //////////////////////
 // Caching Variables (module-level)
 //////////////////////
@@ -735,7 +760,7 @@ const CognitoForm: React.FC<{ dataKey: string; dataForm: string }> = ({ dataKey,
 // Home Component
 //////////////////////
 
-const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: providedMatters, instructionData: propInstructionData, onAllMattersFetched, onOutstandingBalancesFetched, onPOID6YearsFetched, onTransactionsFetched, teamData, onBoardroomBookingsFetched, onSoundproofBookingsFetched, isInMatterOpeningWorkflow = false, onImmediateActionsChange }) => {
+const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: providedMatters, instructionData: propInstructionData, onAllMattersFetched, onOutstandingBalancesFetched, onPOID6YearsFetched, onTransactionsFetched, teamData, onBoardroomBookingsFetched, onSoundproofBookingsFetched, isInMatterOpeningWorkflow = false, onImmediateActionsChange, originalAdminUser }) => {
   const { isDarkMode, toggleTheme } = useTheme();
   const { setContent } = useNavigatorActions();
   const inTeams = isInTeams();
@@ -1313,7 +1338,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
   const prevWeekStart = new Date(startOfWeek);
   prevWeekStart.setDate(prevWeekStart.getDate() - 7); // Monday of previous week
   prevWeekStart.setHours(0, 0, 0, 0);
-      const prevWeekEnd = new Date(prevToday);
+    const prevWeekEnd = new Date(prevToday);
       const prevMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
       const prevMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0);
 
@@ -1335,79 +1360,88 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
         Call_Taker: enq.Call_Taker || enq.rep,
       }));
 
-      // For LZ user, enquiries are fetched for Alex Cook (AC) at index.tsx level
-      // So we match against AC's identifiers when user is LZ
-      const isLZ = (userInitials || '').toUpperCase() === 'LZ';
-      
-      const matchesUser = (value: string | undefined | null) => {
-        const normalised = (value || '').toLowerCase().trim();
+      // DEBUG: Check if admin mode is active
+      const matchesUser = (enquiry: any) => {
+        // Use exact email matching only - no initials matching to avoid false positives
+        const pocValue = (enquiry.Point_of_Contact || '').toLowerCase().trim();
+        const emailMatch = pocValue === currentUserEmail;
         
-        if (isLZ) {
-          // For LZ, match against Alex Cook's identifiers since that's what we fetched
-          const alexAliases = new Set<string>(['ac', 'alex cook', 'ac@helix-law.com']);
-          return alexAliases.has(normalised);
-        }
-        
-        // Otherwise match against current user's email or initials
-        return normalised === currentUserEmail || normalised === userInitials.toLowerCase().trim();
+        return emailMatch;
       };
 
       const todayCount = normalizedEnquiries.filter((enquiry: any) => {
-        if (!enquiry.Touchpoint_Date) return false;
-        const enquiryDate = new Date(enquiry.Touchpoint_Date);
-        const isToday = enquiryDate.toDateString() === today.toDateString();
-        const matches = matchesUser(enquiry.Point_of_Contact);
-        return isToday && matches;
+        const parsed = parseDateValue(enquiry.Touchpoint_Date);
+        if (!parsed) return false;
+        const isToday = parsed.toDateString() === today.toDateString();
+        return isToday && matchesUser(enquiry);
       }).length;
 
-  const weekToDateCount = normalizedEnquiries.filter((enquiry: any) => {
-        if (!enquiry.Touchpoint_Date) return false;
-        const enquiryDate = new Date(enquiry.Touchpoint_Date);
-        return (
-          enquiryDate >= startOfWeek &&
-          enquiryDate <= today &&
-          matchesUser(enquiry.Point_of_Contact)
-        );
-      }).length;
+        // Debug: show enquiries for this user missing IDs, grouped by week fragment (current month)
+        const enquiriesMissingId = normalizedEnquiries.filter((enquiry: any) => {
+          if (!matchesUser(enquiry)) return false;
+          const value = enquiry.ID ?? enquiry.id;
+          const parsed = parseDateValue(enquiry.Touchpoint_Date);
+          if (!parsed) return false;
+          return (value === undefined || value === null || String(value).trim().length === 0)
+            && parsed >= startOfMonth && parsed <= today;
+        });
 
-      const monthToDateCount = normalizedEnquiries.filter((enquiry: any) => {
-        if (!enquiry.Touchpoint_Date) return false;
-        const enquiryDate = new Date(enquiry.Touchpoint_Date);
-        return (
-          enquiryDate >= startOfMonth &&
-          enquiryDate <= today &&
-          matchesUser(enquiry.Point_of_Contact)
-        );
-      }).length;
+        if (enquiriesMissingId.length > 0) {
+          const rows = enquiriesMissingId.map((enquiry: any) => {
+            const parsed = parseDateValue(enquiry.Touchpoint_Date);
+            const wf = parsed ? formatWeekFragment(parsed) : 'n/a';
+            return {
+              week: wf,
+              date: enquiry.Touchpoint_Date ?? enquiry.datetime ?? null,
+              poc: enquiry.Point_of_Contact ?? enquiry.poc ?? null,
+              email: enquiry.Email ?? enquiry.email ?? null,
+              notes: enquiry.Initial_first_call_notes ?? enquiry.notes ?? null,
+            };
+          });
+          debugLog('⚠️ Home :: enquiries missing IDs (current month, grouped by week)', rows);
+        }
+
+      const countUniqueWeeksInRange = (rangeStart: Date, rangeEnd: Date) => {
+        const startBoundary = new Date(rangeStart);
+        startBoundary.setHours(0, 0, 0, 0);
+        const endBoundary = new Date(rangeEnd);
+        endBoundary.setHours(23, 59, 59, 999);
+        const seen = new Set<string>();
+        let total = 0;
+        for (const enquiry of normalizedEnquiries) {
+          const enquiryDate = parseDateValue(enquiry.Touchpoint_Date);
+          if (!enquiryDate) continue;
+          if (enquiryDate < startBoundary || enquiryDate > endBoundary) continue;
+          if (!matchesUser(enquiry)) continue;
+
+          const rawId = enquiry.ID ?? enquiry.id ?? '';
+          const id = rawId ? String(rawId).trim() : '';
+          const weekFragment = formatWeekFragment(enquiryDate);
+
+          if (!id) {
+            total += 1;
+            continue;
+          }
+
+          const key = `${id}|${weekFragment}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            total += 1;
+          }
+        }
+        return total;
+      };
+
+      const weekToDateCount = countUniqueWeeksInRange(startOfWeek, today);
+      const monthToDateCount = countUniqueWeeksInRange(startOfMonth, today);
 
       const prevTodayCount = normalizedEnquiries.filter((enquiry: any) => {
-        if (!enquiry.Touchpoint_Date) return false;
-        const enquiryDate = new Date(enquiry.Touchpoint_Date);
-        return (
-          enquiryDate.toDateString() === prevToday.toDateString() &&
-          matchesUser(enquiry.Point_of_Contact)
-        );
+        const parsed = parseDateValue(enquiry.Touchpoint_Date);
+        return parsed && parsed.toDateString() === prevToday.toDateString() && matchesUser(enquiry);
       }).length;
 
-  const prevWeekCount = normalizedEnquiries.filter((enquiry: any) => {
-        if (!enquiry.Touchpoint_Date) return false;
-        const enquiryDate = new Date(enquiry.Touchpoint_Date);
-        return (
-          enquiryDate >= prevWeekStart &&
-          enquiryDate <= prevWeekEnd &&
-          matchesUser(enquiry.Point_of_Contact)
-        );
-      }).length;
-
-      const prevMonthCount = normalizedEnquiries.filter((enquiry: any) => {
-        if (!enquiry.Touchpoint_Date) return false;
-        const enquiryDate = new Date(enquiry.Touchpoint_Date);
-        return (
-          enquiryDate >= prevMonthStart &&
-          enquiryDate <= prevMonthEnd &&
-          matchesUser(enquiry.Point_of_Contact)
-        );
-      }).length;
+      const prevWeekCount = countUniqueWeeksInRange(prevWeekStart, prevWeekEnd);
+      const prevMonthCount = countUniqueWeeksInRange(prevMonthStart, prevMonthEnd);
 
       setEnquiriesToday(todayCount);
       setEnquiriesWeekToDate(weekToDateCount);
@@ -2515,26 +2549,10 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       if (!isCurrentMonth) return false;
       // Count only where current user is responsible (or both)
       const role = (m as any).role;
-      return role === 'responsible' || role === 'both';
+      const isRoleMatch = role === 'responsible' || role === 'both';
+      
+      return isRoleMatch;
     }).length;
-
-    // Debug logging (disabled to prevent console spam and re-render noise)
-    if (false) {
-      console.log('Debug - mattersOpenedCount calculation:', {
-        normalizedMattersLength: normalizedMatters?.length || 0,
-        currentMonth,
-        currentYear,
-        mattersOpenedCount,
-        sampleMatters: (normalizedMatters || []).slice(0, 3).map(m => ({
-          openDate: (m as any).openDate,
-          role: (m as any).role,
-          parsedDate: parseOpenDate((m as any).openDate),
-          isCurrentMonth: parseOpenDate((m as any).openDate) ? 
-            parseOpenDate((m as any).openDate)!.getMonth() === currentMonth && 
-            parseOpenDate((m as any).openDate)!.getFullYear() === currentYear : false
-        }))
-      });
-    }
 
     // Firm-wide matters opened this month (secondary metric)
     const firmMattersOpenedCount = (normalizedMatters || []).filter((m) => {
@@ -2750,6 +2768,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     prevEnquiriesMonthToDate,
     annualLeaveRecords,
     userData,
+    currentUserEmail, // ADDED: Fix race condition where userData changes but currentUserEmail hasn't updated yet
     normalizedMatters,
     userInitials, // ADDED so we recalc if userInitials changes
     transformedTeamData,

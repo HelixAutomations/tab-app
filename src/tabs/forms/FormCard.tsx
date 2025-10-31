@@ -15,26 +15,35 @@ import '../../app/styles/FormCard.css'; // Ensure this has your .backdropIcon CS
 import { cardTokens, cardStyles as instructionsCardStyles } from '../instructions/componentTokens';
 
 // invisible change
-const iconButtonStyles = (iconColor: string) => ({
+const iconButtonStyles = (iconColor: string, isDarkMode: boolean) => ({
   root: {
     marginBottom: '8px',
     color: iconColor,
-    backgroundColor: 'transparent',
-    border: 'none',
+    background: 'transparent',
+    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
+    borderRadius: '8px',
+    transition: 'all 0.2s ease',
     selectors: {
       ':hover': {
         backgroundColor: colours.cta,
+        borderColor: colours.cta,
         color: '#ffffff',
+        transform: 'scale(1.05)',
       },
       ':focus': {
         backgroundColor: colours.cta,
+        borderColor: colours.cta,
         color: '#ffffff',
+        outline: `2px solid ${colours.cta}40`,
+        outlineOffset: '2px',
       },
     },
-    height: '24px',
-    width: '24px',
-    padding: '0px',
-    boxShadow: 'none',
+    height: '32px',
+    width: '32px',
+    padding: '4px',
+    boxShadow: isDarkMode
+      ? '0 2px 4px rgba(0, 0, 0, 0.2)'
+      : '0 2px 4px rgba(15, 23, 42, 0.04)',
   },
   icon: {
     fontSize: '16px',
@@ -56,27 +65,25 @@ interface FormCardProps {
 
 const cardStyle = (isDarkMode: boolean) =>
   mergeStyles({
-    padding: '16px',
-    backgroundColor: isDarkMode
-      ? colours.dark.sectionBackground
-      : colours.light.sectionBackground,
-    border: 'none',
-    borderRadius: '12px',
-    boxShadow: isDarkMode
-      ? '0 1px 3px rgba(255, 255, 255, 0.1)'
-      : '0 1px 3px rgba(0, 0, 0, 0.06)',
-    transition: 'box-shadow 0.3s, transform 0.3s, background-color 0.3s',
+    padding: '16px 20px',
+    background: isDarkMode ? 'rgba(17, 24, 39, 0.72)' : 'rgba(255, 255, 255, 0.95)',
+    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.06)'}`,
+    borderRadius: 12,
+    boxShadow: 'none',
+    transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
     cursor: 'pointer',
     display: 'flex',
     flexDirection: 'row',
     alignItems: 'center',
     height: '100%',
-    position: 'relative', // Important for backdropIcon positioning
-    ':hover': {
-      boxShadow: isDarkMode
-        ? '0 4px 16px rgba(255, 255, 255, 0.2)'
-        : componentTokens.card.hover.boxShadow,
-      transform: componentTokens.card.hover.transform,
+    position: 'relative',
+    marginBottom: '8px',
+    selectors: {
+      ':hover': {
+        borderColor: isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(15, 23, 42, 0.12)',
+        boxShadow: isDarkMode ? '0 4px 12px rgba(0, 0, 0, 0.2)' : '0 4px 12px rgba(15, 23, 42, 0.08)',
+        transform: 'translateY(-1px)',
+      },
     },
   });
 
@@ -95,19 +102,23 @@ const textContentStyle = mergeStyles({
   marginLeft: '10px',
 });
 
-const linkTitleStyle = mergeStyles({
-  fontSize: '18px',
+const linkTitleStyle = (isDarkMode: boolean) => mergeStyles({
+  fontSize: '16px',
   fontWeight: '600',
-  color: 'inherit',
-  cursor: 'pointer',
-  marginTop: '0px',
+  color: isDarkMode ? '#ffffff' : '#334155',
+  fontFamily: 'system-ui, -apple-system, sans-serif',
+  letterSpacing: '-0.025em',
+  lineHeight: 1.4,
+  marginBottom: '4px',
+  display: 'block',
 });
 
 const descriptionStyle = (isDarkMode: boolean) =>
   mergeStyles({
-    fontSize: '14px',
-    color: isDarkMode ? colours.dark.subText : colours.light.subText,
-    marginTop: '8px',
+    fontSize: '13px',
+    color: isDarkMode ? 'rgba(204, 204, 204, 0.9)' : 'rgba(100, 116, 139, 0.9)',
+    lineHeight: 1.4,
+    fontFamily: 'system-ui, -apple-system, sans-serif',
   });
 
 const actionsContainerStyle = mergeStyles({
@@ -191,7 +202,7 @@ const FormCard: React.FC<FormCardProps> = React.memo(
               />
             )}
             <div className={textContentStyle}>
-              <Text className={linkTitleStyle}>{link.title}</Text>
+              <Text className={linkTitleStyle(isDarkMode)}>{link.title}</Text>
               {link.description && (
                 <Text className={descriptionStyle(isDarkMode)}>
                   {link.description}
@@ -218,7 +229,7 @@ const FormCard: React.FC<FormCardProps> = React.memo(
                   e.stopPropagation();
                   onCopy && link.url && onCopy(link.url, link.title);
                 }}
-                styles={iconButtonStyles(colours.cta)}
+                styles={iconButtonStyles(colours.cta, isDarkMode)}
               />
             </TooltipHost>
 
@@ -237,7 +248,7 @@ const FormCard: React.FC<FormCardProps> = React.memo(
                   e.stopPropagation();
                   onToggleFavorite();
                 }}
-                styles={iconButtonStyles(colours.cta)}
+                styles={iconButtonStyles(colours.cta, isDarkMode)}
               />
             </TooltipHost>
 
@@ -254,7 +265,7 @@ const FormCard: React.FC<FormCardProps> = React.memo(
                   e.stopPropagation();
                   onGoTo && onGoTo();
                 }}
-                styles={iconButtonStyles(colours.cta)}
+                styles={iconButtonStyles(colours.cta, isDarkMode)}
               />
             </TooltipHost>
           </div>

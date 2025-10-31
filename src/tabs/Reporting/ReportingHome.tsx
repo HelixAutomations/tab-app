@@ -30,6 +30,10 @@ import type { PpcIncomeMetrics } from './PpcReport';
 const STREAM_SNAPSHOT_KEY = 'reporting_stream_snapshot_v1';
 const CACHE_STATE_KEY = 'reporting_cache_state_v1';
 
+// Global refresh state to prevent application-wide refresh spamming
+let globalLastRefresh = 0;
+const GLOBAL_REFRESH_COOLDOWN = 60000; // 1 minute global cooldown
+
 // Persistent cache flags
 const getCacheState = () => {
   try {
@@ -389,6 +393,13 @@ interface DatasetMeta {
 
 type DatasetStatus = Record<DatasetKey, DatasetMeta>;
 
+interface StreamSnapshot {
+  statuses: Partial<DatasetStatus>;
+  isComplete: boolean;
+  hadStream: boolean;
+  ts: number;
+}
+
 interface AvailableReport {
   key: string;
   name: string;
@@ -405,7 +416,8 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
     name: 'Management dashboard',
     status: 'Live today',
     action: 'dashboard',
-    requiredDatasets: ['enquiries', 'allMatters', 'wip', 'recoveredFees', 'teamData', 'userData', 'poidData', 'annualLeave'],
+    // Make ID Submissions (poidData) non-blocking: it's useful but not critical for initial dashboard render
+    requiredDatasets: ['enquiries', 'allMatters', 'wip', 'recoveredFees', 'teamData', 'userData', 'annualLeave'],
   },
   {
     key: 'enquiries',
@@ -1185,6 +1197,10 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     return Boolean(cachedTimestamp) && cacheState.hasFetchedOnce;
   });
   const [refreshStartedAt, setRefreshStartedAt] = useState<number | null>(null);
+  const datasetStatusRef = useRef<DatasetStatus>(datasetStatus);
+  const refreshStartedAtRef = useRef<number | null>(refreshStartedAt);
+  const isStreamingConnectedRef = useRef<boolean>(false);
+  const isFetchingRef = useRef<boolean>(isFetching);
   // PPC-specific Google Ads data (24 months)
   const [ppcGoogleAdsData, setPpcGoogleAdsData] = useState<GoogleAdsData[] | null>(null);
   const [ppcLoading, setPpcLoading] = useState<boolean>(false);
@@ -1556,6 +1572,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   // Add debounced state updates to prevent excessive re-renders
   const debounceTimeoutRef = useRef<NodeJS.Timeout>();
   const pendingStatusUpdatesRef = useRef<Map<DatasetKey, { status: DatasetStatusValue; updatedAt: number | null }>>(new Map());
+  const latestStreamSnapshotRef = useRef<StreamSnapshot | null>(null);
 
   const debouncedSetDatasetStatus = useCallback((updates: Map<DatasetKey, { status: DatasetStatusValue; updatedAt: number | null }>) => {
     if (debounceTimeoutRef.current) {
@@ -1610,67 +1627,62 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     autoStart: false,
   });
 
+  useEffect(() => {
+    datasetStatusRef.current = datasetStatus;
+  }, [datasetStatus]);
+
+  useEffect(() => {
+    refreshStartedAtRef.current = refreshStartedAt;
+  }, [refreshStartedAt]);
+
+  useEffect(() => {
+    isStreamingConnectedRef.current = isStreamingConnected;
+  }, [isStreamingConnected]);
+
+  useEffect(() => {
+    isFetchingRef.current = isFetching;
+  }, [isFetching]);
+
   // Restore in-progress streaming state on mount and auto-resume if not complete
   useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem(STREAM_SNAPSHOT_KEY);
-      if (!raw) return;
-      const snap = JSON.parse(raw);
-      if (snap && snap.statuses) {
-        setDatasetStatus(prev => ({
-          ...prev,
-          ...snap.statuses,
-        }));
-      }
-      // Only auto-resume if the session was incomplete AND it's recent (within 5 minutes)
-      const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
-      const hadStream: boolean = Boolean(snap?.hadStream);
-      if (snap && hadStream && snap.isComplete === false && snap.ts > fiveMinutesAgo) {
-        debugLog('ReportingHome: Resuming incomplete streaming session from', new Date(snap.ts).toLocaleTimeString());
-        setIsFetching(true);
-        setRefreshStartedAt(Date.now());
-        // Ensure non-streaming datasets also refresh once during resume
-        // Mark them as loading if not present
-        setDatasetStatus(prev => ({
-          ...prev,
-          annualLeave: { status: 'loading', updatedAt: prev.annualLeave?.updatedAt ?? null },
-          metaMetrics: { status: 'loading', updatedAt: prev.metaMetrics?.updatedAt ?? null },
-        }));
-        // Kick off non-streaming fetchers in parallel
-        (async () => {
-          try {
-            const [annualLeaveResult, meta] = await Promise.all([
-              fetchAnnualLeaveDataset(false),
-              fetchMetaMetrics(),
-            ]);
-
-            const annualLeaveData = annualLeaveResult.records;
-
-            const now = Date.now();
-            setDatasetData(prev => ({
-              ...prev,
-              annualLeave: annualLeaveData,
-              metaMetrics: meta,
-            }));
-            setDatasetStatus(prev => ({
-              ...prev,
-              annualLeave: { status: 'ready', updatedAt: now },
-              metaMetrics: { status: 'ready', updatedAt: now },
-            }));
-            cachedData = { ...cachedData, annualLeave: annualLeaveData, metaMetrics: meta };
-            cachedTimestamp = now;
-            updateRefreshTimestamp(now, setLastRefreshTimestamp);
-          } catch {/* ignore resume fetch errors */}
-        })();
-        startStreaming();
-      } else if (snap && snap.isComplete === false) {
-        // Clear stale incomplete session
-        debugLog('ReportingHome: Clearing stale streaming session from', new Date(snap.ts).toLocaleTimeString());
-        sessionStorage.removeItem(STREAM_SNAPSHOT_KEY);
-      }
-    } catch {/* ignore */}
-  // startStreaming is stable from hook; using it is intentional
-  }, [startStreaming]);
+    // Only run once on mount, prevent re-triggering on every render
+    let hasRunOnce = false;
+    
+    const resumeSession = () => {
+      if (hasRunOnce) return;
+      hasRunOnce = true;
+      
+      try {
+        const raw = sessionStorage.getItem(STREAM_SNAPSHOT_KEY);
+        if (!raw) return;
+        const snap = JSON.parse(raw);
+        if (snap && snap.statuses) {
+          setDatasetStatus(prev => ({
+            ...prev,
+            ...snap.statuses,
+          }));
+        }
+        // Only auto-resume if the session was incomplete AND it's recent (within 10 minutes) AND not already streaming
+        // Extended window gives users time to navigate back to reporting tab if browser was briefly inactive
+        const tenMinutesAgo = Date.now() - (10 * 60 * 1000);
+        const hadStream: boolean = Boolean(snap?.hadStream);
+        if (snap && hadStream && snap.isComplete === false && snap.ts > tenMinutesAgo && !isStreamingConnected) {
+          debugLog('ReportingHome: Resuming incomplete streaming session from', new Date(snap.ts).toLocaleTimeString());
+          setIsFetching(true);
+          setRefreshStartedAt(Date.now());
+          // Only restart streaming datasets, not non-streaming ones to prevent retriggering
+          startStreaming();
+        } else if (snap && snap.isComplete === false) {
+          // Clear stale incomplete session
+          debugLog('ReportingHome: Clearing stale streaming session from', new Date(snap.ts).toLocaleTimeString());
+          sessionStorage.removeItem(STREAM_SNAPSHOT_KEY);
+        }
+      } catch {/* ignore */}
+    };
+    
+    resumeSession();
+  // Empty dependency array to run only once on mount
+  }, []);
 
   // Persist streaming status snapshot whenever it changes
   useEffect(() => {
@@ -1689,20 +1701,78 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
         Object.values(streamingDatasets).some(s => s.status === 'loading' || s.status === 'ready')
       );
       if (hadStream) {
-        const snapshot = {
-          statuses,
-          isComplete: isStreamingComplete,
-          hadStream: true,
-          ts: Date.now(),
-        };
-        sessionStorage.setItem(STREAM_SNAPSHOT_KEY, JSON.stringify(snapshot));
-      }
-      if (isStreamingComplete) {
-        // Clear snapshot once complete to avoid stale resumes later
+        if (!isStreamingComplete) {
+          const snapshot: StreamSnapshot = {
+            statuses,
+            isComplete: false,
+            hadStream: true,
+            ts: Date.now(),
+          };
+          sessionStorage.setItem(STREAM_SNAPSHOT_KEY, JSON.stringify(snapshot));
+          latestStreamSnapshotRef.current = snapshot;
+        } else {
+          sessionStorage.removeItem(STREAM_SNAPSHOT_KEY);
+          latestStreamSnapshotRef.current = null;
+        }
+      } else {
         sessionStorage.removeItem(STREAM_SNAPSHOT_KEY);
+        latestStreamSnapshotRef.current = null;
       }
     } catch {/* ignore */}
   }, [streamingDatasets, isStreamingComplete, isStreamingConnected, refreshStartedAt]);
+
+  // Cleanup streaming connection on unmount
+  useEffect(() => {
+    return () => {
+      stopStreaming();
+      try {
+        const existing = latestStreamSnapshotRef.current;
+        const isActivelyRefreshing = isFetchingRef.current || isStreamingConnectedRef.current || refreshStartedAtRef.current !== null;
+        
+        // Only persist snapshot if we're mid-refresh or have an incomplete session
+        const shouldPersist = existing 
+          ? (existing.hadStream && !existing.isComplete)
+          : isActivelyRefreshing;
+
+        if (shouldPersist) {
+          const currentStatuses = datasetStatusRef.current;
+          const statuses: Partial<DatasetStatus> = {} as Partial<DatasetStatus>;
+          if (currentStatuses) {
+            Object.entries(currentStatuses).forEach(([key, meta]) => {
+              statuses[key as DatasetKey] = {
+                status: meta.status,
+                updatedAt: meta.updatedAt ?? null,
+              };
+            });
+          }
+
+          const snapshotToPersist: StreamSnapshot = existing && existing.hadStream && !existing.isComplete
+            ? {
+                statuses: Object.keys(existing.statuses).length > 0 ? existing.statuses : statuses,
+                isComplete: false,
+                hadStream: true,
+                ts: Date.now(),
+              }
+            : {
+                statuses,
+                isComplete: false,
+                hadStream: true,
+                ts: Date.now(),
+              };
+
+          sessionStorage.setItem(STREAM_SNAPSHOT_KEY, JSON.stringify(snapshotToPersist));
+          latestStreamSnapshotRef.current = snapshotToPersist;
+          console.log('Persisted incomplete streaming session for resume');
+        } else {
+          // Only clear if we're not mid-refresh
+          if (!isActivelyRefreshing) {
+            sessionStorage.removeItem(STREAM_SNAPSHOT_KEY);
+            latestStreamSnapshotRef.current = null;
+          }
+        }
+      } catch {/* ignore */}
+    };
+  }, [stopStreaming]);
 
   // Optimize timer - update every 2 seconds instead of every second to reduce CPU usage
   useEffect(() => {
@@ -1969,8 +2039,14 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     }
   }, []);
 
-  // Enhanced refresh function with streaming support
+  // Enhanced refresh function with streaming support and better throttling
   const performStreamingRefresh = useCallback(async (forceRefresh: boolean) => {
+    // Prevent triggering if already actively loading
+    if (isFetching && (isStreamingConnected || refreshStartedAt !== null)) {
+      console.log('Refresh already in progress, skipping');
+      return;
+    }
+    
     debugLog('ReportingHome: refreshDatasetsWithStreaming called', { forceRefresh });
     setHasFetchedOnce(true);
     setCacheState(true); // Persist the fetch state
@@ -1994,16 +2070,16 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       startStreaming(forceRefresh ? { bypassCache: true } : undefined);
 
       const nowTs = Date.now();
-      const tenMinutes = 10 * 60 * 1000;
+      const thirtyMinutes = 30 * 60 * 1000; // Extended intervals for auxiliary data
       const lastAL = datasetStatus.annualLeave?.updatedAt ?? 0;
       const lastMeta = datasetStatus.metaMetrics?.updatedAt ?? 0;
       const lastGA = datasetStatus.googleAnalytics?.updatedAt ?? 0;
       const lastGAds = datasetStatus.googleAds?.updatedAt ?? 0;
 
-      const shouldFetchAnnualLeave = forceRefresh || !cachedData.annualLeave || (nowTs - lastAL) > tenMinutes;
-      const shouldFetchMeta = forceRefresh || !cachedData.metaMetrics || (nowTs - lastMeta) > tenMinutes;
-      const shouldFetchGA = forceRefresh || !cachedData.googleAnalytics || (nowTs - lastGA) > tenMinutes;
-      const shouldFetchGAds = forceRefresh || !cachedData.googleAds || (nowTs - lastGAds) > tenMinutes;
+      const shouldFetchAnnualLeave = forceRefresh || !cachedData.annualLeave || (nowTs - lastAL) > thirtyMinutes;
+      const shouldFetchMeta = forceRefresh || !cachedData.metaMetrics || (nowTs - lastMeta) > thirtyMinutes;
+      const shouldFetchGA = forceRefresh || !cachedData.googleAnalytics || (nowTs - lastGA) > thirtyMinutes;
+      const shouldFetchGAds = forceRefresh || !cachedData.googleAds || (nowTs - lastGAds) > thirtyMinutes;
 
       let annualLeaveData: AnnualLeaveRecord[] = cachedData.annualLeave || [];
       let metaMetricsData: MarketingMetrics[] = cachedData.metaMetrics || [];
@@ -2087,12 +2163,62 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     streamableDatasets,
     fetchGoogleAnalyticsData,
     fetchGoogleAdsData,
+    isFetching,
+    isStreamingConnected,
+    refreshStartedAt,
   ]);
 
-  const refreshDatasetsWithStreaming = useCallback(async () => performStreamingRefresh(true), [performStreamingRefresh]);
+  // Enhanced throttling to prevent excessive refresh triggers
+  const refreshDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  const lastRefreshRef = useRef<number>(0);
+  
+  const refreshDatasetsWithStreaming = useCallback(async () => {
+    const now = Date.now();
+    const timeSinceLastRefresh = now - lastRefreshRef.current;
+    const timeSinceGlobalRefresh = now - globalLastRefresh;
+    const minRefreshInterval = 30000; // 30 seconds minimum between refreshes
+    
+    // Check global cooldown first
+    if (timeSinceGlobalRefresh < GLOBAL_REFRESH_COOLDOWN) {
+      console.log(`Global refresh cooldown active: ${Math.round(timeSinceGlobalRefresh / 1000)}s since last global refresh`);
+      return;
+    }
+    
+    // Prevent multiple refresh requests within the minimum interval
+    if (timeSinceLastRefresh < minRefreshInterval) {
+      console.log(`Refresh throttled: only ${Math.round(timeSinceLastRefresh / 1000)}s since last refresh (min: 30s)`);
+      return;
+    }
+    
+    // Clear any pending debounce
+    if (refreshDebounceRef.current) {
+      clearTimeout(refreshDebounceRef.current);
+      refreshDebounceRef.current = null;
+    }
+    
+    // Set debounce to prevent rapid successive calls
+    refreshDebounceRef.current = setTimeout(() => {
+      refreshDebounceRef.current = null;
+    }, 5000); // 5 second debounce window
+    
+    lastRefreshRef.current = now;
+    globalLastRefresh = now; // Update global refresh timestamp
+    // Use cached server data by default for speed; full fresh is available via the global Refresh Data modal
+    return performStreamingRefresh(false);
+  }, [performStreamingRefresh]);
 
-  // Scoped refreshers for specific reports
+  // Scoped refreshers for specific reports with enhanced throttling
   const refreshAnnualLeaveOnly = useCallback(async () => {
+    // Prevent retriggering if already loading or recently completed
+    if (isFetching || (datasetStatus.annualLeave?.status === 'loading')) return;
+    
+    const lastUpdate = datasetStatus.annualLeave?.updatedAt;
+    const fifteenMinutesAgo = Date.now() - (15 * 60 * 1000); // Extended to 15 minutes
+    if (lastUpdate && lastUpdate > fifteenMinutesAgo) {
+      console.log('Annual leave data is recent, skipping refresh');
+      return;
+    }
+    
     setIsFetching(true);
     setError(null);
     setRefreshStartedAt(Date.now());
@@ -2123,9 +2249,19 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       setIsFetching(false);
       setRefreshStartedAt(null);
     }
-  }, [fetchAnnualLeaveDataset, setStatusesFor]);
+  }, [fetchAnnualLeaveDataset, setStatusesFor, isFetching, datasetStatus.annualLeave]);
 
   const refreshMetaMetricsOnly = useCallback(async () => {
+    // Prevent retriggering if already loading or recently completed
+    if (isFetching || (datasetStatus.metaMetrics?.status === 'loading')) return;
+    
+    const lastUpdate = datasetStatus.metaMetrics?.updatedAt;
+    const fifteenMinutesAgo = Date.now() - (15 * 60 * 1000); // Extended to 15 minutes
+    if (lastUpdate && lastUpdate > fifteenMinutesAgo) {
+      console.log('Meta metrics data is recent, skipping refresh');
+      return;
+    }
+    
     setIsFetching(true);
     setError(null);
     setRefreshStartedAt(Date.now());
@@ -2145,7 +2281,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       setIsFetching(false);
       setRefreshStartedAt(null);
     }
-  }, [fetchMetaMetrics, setStatusesFor]);
+  }, [fetchMetaMetrics, setStatusesFor, isFetching, datasetStatus.metaMetrics]);
 
   const refreshEnquiriesScoped = useCallback(async () => {
     setHasFetchedOnce(true);
@@ -2387,15 +2523,17 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     // Check if we have recent cached data to avoid unnecessary preheating
     const cacheState = getCacheState();
     const now = Date.now();
-    const fiveMinutesAgo = now - (5 * 60 * 1000);
+    const thirtyMinutesAgo = now - (30 * 60 * 1000);
     
-    // Only preload if we haven't fetched recently AND cache is stale
+    // Only preload if we haven't fetched once OR cache is older than 30 minutes
     const shouldPreheat = !hasFetchedOnce || 
                           !cacheState.lastCacheTime || 
-                          cacheState.lastCacheTime < fiveMinutesAgo;
+                          cacheState.lastCacheTime < thirtyMinutesAgo;
     
     if (shouldPreheat) {
       const commonDatasets = ['teamData', 'userData', 'enquiries', 'allMatters'];
+      const cacheAgeSeconds = cacheState.lastCacheTime ? Math.round((now - cacheState.lastCacheTime) / 1000) : null;
+      console.log(`🔄 Cache refresh needed: ${!hasFetchedOnce ? 'first load' : `cache age: ${cacheAgeSeconds}s (>30min)`}`);
       debugLog('ReportingHome: Preloading common reporting datasets on tab access:', commonDatasets);
       try {
         await fetch('/api/cache-preheater/preheat', {
@@ -2411,7 +2549,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
         debugWarn('Cache preload failed:', error);
       }
     } else {
-      debugLog('ReportingHome: Skipping cache preheat - recent data available');
+      const cacheAgeSeconds = cacheState.lastCacheTime ? Math.round((now - cacheState.lastCacheTime) / 1000) : 0;
+      console.log(`✅ Using cached data (${cacheAgeSeconds}s old, <30min) - instant load`);
     }
   }, [hasFetchedOnce, propUserData]);
 
@@ -2425,7 +2564,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     return () => clearTimeout(preheatingTimer);
   }, [preloadReportingCache]);
 
-  // Add immediate visual feedback for better perceived performance
+  // More conservative auto-refresh logic to prevent excessive refreshing
   const handleOpenDashboard = useCallback(() => {
     // Immediately show loading state for better UX
     setActiveView('dashboard');
@@ -2433,17 +2572,17 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     // Check if we have recent enough data or need a fresh fetch
     const cacheState = getCacheState();
     const now = Date.now();
-    const tenMinutesAgo = now - (10 * 60 * 1000); // Allow 10 minutes before forcing refresh
+    const thirtyMinutesAgo = now - (30 * 60 * 1000); // Extended to 30 minutes before forcing refresh
     
     const needsFresh = !hasFetchedOnce || 
                        !cacheState.lastCacheTime || 
-                       cacheState.lastCacheTime < tenMinutesAgo;
+                       cacheState.lastCacheTime < thirtyMinutesAgo;
     
     if (needsFresh && !isFetching && !isStreamingConnected) {
-      debugLog('ReportingHome: Opening dashboard with fresh data fetch');
+      console.log('Dashboard needs fresh data (>30min old), triggering refresh');
       void refreshDatasetsWithStreaming(); // Use streaming version
     } else {
-      debugLog('ReportingHome: Opening dashboard with cached data');
+      console.log('Dashboard using cached data (fresh enough)');
     }
   }, [hasFetchedOnce, isFetching, isStreamingConnected, refreshDatasetsWithStreaming]);
 
@@ -2503,6 +2642,38 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       };
     });
   }, [datasetData, datasetStatus, streamingDatasets, isStreamingConnected]);
+
+  // Detect datasets stuck loading for too long and auto-mark as error
+  // Heavy datasets (recoveredFees, poidData) get up to 10min; light datasets get 2min
+  useEffect(() => {
+    if (!refreshStartedAt || !isFetching) return;
+    
+    const timeoutHandle = setInterval(() => {
+      const elapsedMs = Date.now() - refreshStartedAt;
+      
+      datasetSummaries.forEach(summary => {
+        if (summary.status === 'loading') {
+          // Heavy datasets get more time (10 min / 600s)
+          const isHeavy = ['recoveredFees', 'poidData', 'wip'].includes(summary.definition.key);
+          const timeoutMs = isHeavy ? 600000 : 120000; // 10min vs 2min
+          
+          if (elapsedMs > timeoutMs) {
+            const timeoutSec = Math.round(timeoutMs / 1000);
+            console.warn(`⚠️ Dataset ${summary.definition.key} stuck loading for ${Math.round(elapsedMs / 1000)}s (timeout: ${timeoutSec}s) - marking as error`);
+            setDatasetStatus(prev => ({
+              ...prev,
+              [summary.definition.key]: {
+                status: 'error',
+                updatedAt: Date.now(),
+              }
+            }));
+          }
+        }
+      });
+    }, 5000); // Check every 5 seconds
+    
+    return () => clearInterval(timeoutHandle);
+  }, [refreshStartedAt, isFetching, datasetSummaries]);
 
   // Optimize elapsed time calculation with reduced precision to prevent excessive re-renders
   const refreshElapsedMs = useMemo(() => {
@@ -3119,7 +3290,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                   const filtered = getFilteredDataByDateRange(datasetData.recoveredFees, 'payment_date');
                   // Exclude disbursements (kind = 'Expense') - only count actual fees, same as Management Dashboard
                   const feesOnly = filtered.filter(item => item.kind !== 'Expense' && item.kind !== 'Product');
-                  const total = feesOnly.reduce((sum, item) => sum + (parseFloat(item.payment_allocated) || 0), 0);
+                  const total = feesOnly.reduce((sum, item) => sum + (typeof item.payment_allocated === 'number' ? item.payment_allocated : (parseFloat(item.payment_allocated) || 0)), 0);
                   return formatCurrency(total);
                 })()}
               </div>

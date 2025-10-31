@@ -390,6 +390,29 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
   const { isDarkMode } = useTheme();
   // Maintain a local copy so UI reflects changes immediately
   const [localApprovals, setLocalApprovals] = useState<ApprovalEntry[]>(approvals);
+  
+  // Debug log the approvals being passed
+  useEffect(() => {
+    console.log('🏖️ Annual Leave Approvals Component Mounted:', {
+      approvalsCount: approvals.length,
+      futureLeaveCount: futureLeave.length,
+      sampleApprovals: approvals.slice(0, 3).map(a => ({
+        id: a.id,
+        request_id: a.request_id,
+        person: a.person,
+        status: a.status,
+        start_date: a.start_date,
+        end_date: a.end_date
+      }))
+    });
+    
+    // Validate that all approvals have valid IDs
+    const invalidApprovals = approvals.filter(a => !a.id || a.id === 'undefined' || a.id === '');
+    if (invalidApprovals.length > 0) {
+      console.error('⚠️ Found approvals with invalid IDs:', invalidApprovals);
+    }
+  }, [approvals, futureLeave]);
+  
   useEffect(() => {
     setLocalApprovals(approvals);
   }, [approvals]);
@@ -438,17 +461,43 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
     newStatus: string,
     reason: string | null
   ): Promise<void> => {
-  // Always call the Express server directly; CRA proxy handles dev, same-origin handles prod
-  const url = `/api/attendance/updateAnnualLeave`;
+    // Always call the Express server directly; CRA proxy handles dev, same-origin handles prod
+    const url = `/api/attendance/updateAnnualLeave`;
     const payload = { id: leaveId, newStatus, rejection_notes: reason || '' };
+    
+    console.log('🔄 Annual Leave Update Request:', {
+      url,
+      payload,
+      leaveId,
+      newStatus,
+      reason
+    });
+    
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
+    
+    console.log('📡 Annual Leave Update Response:', {
+      status: response.status,
+      statusText: response.statusText,
+      ok: response.ok,
+      headers: Object.fromEntries(response.headers.entries())
+    });
+    
     if (!response.ok) {
-      throw new Error(`Update failed with status ${response.status}: ${response.statusText}`);
+      const errorText = await response.text();
+      console.error('❌ Annual Leave Update Failed:', {
+        status: response.status,
+        statusText: response.statusText,
+        errorText
+      });
+      throw new Error(`Update failed with status ${response.status}: ${response.statusText}. ${errorText}`);
     }
+    
+    const result = await response.json();
+    console.log('✅ Annual Leave Update Success:', result);
   };
 
   function getNickname(initials: string): string {
@@ -516,11 +565,37 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
     const handleAction = async (action: 'approve' | 'reject') => {
       if (isProcessing) return;
       
+      console.log('🎯 Annual Leave Action:', {
+        action,
+        entryId: entry.id,
+        entryRequestId: entry.request_id,
+        entryPerson: entry.person,
+        entryStatus: entry.status,
+        localRejection
+      });
+      
+      // Validate that we have a valid ID
+      if (!entry.id || entry.id === 'undefined' || entry.id === '') {
+        console.error('❌ Invalid entry ID:', entry.id, 'Full entry:', entry);
+        setConfirmationMessage('❌ Error: Invalid leave request ID');
+        setTimeout(() => setConfirmationMessage(''), 5000);
+        return;
+      }
+      
       setProcessingStates(prev => ({ ...prev, [entry.id]: true }));
       
       try {
         const newStatus = action === 'approve' ? 'approved' : 'rejected';
         const reason = action === 'reject' ? localRejection : null;
+        
+        // Validate rejection reason for rejections
+        if (action === 'reject' && (!reason || reason.trim() === '')) {
+          console.warn('❌ Rejection requires a reason');
+          setConfirmationMessage('❌ Please provide a rejection reason');
+          setTimeout(() => setConfirmationMessage(''), 5000);
+          setProcessingStates(prev => ({ ...prev, [entry.id]: false }));
+          return;
+        }
         
         await updateAnnualLeave(entry.id, newStatus, reason);
         
@@ -822,7 +897,7 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
             </div>
             
             {localApprovals.map(entry => (
-              <ApprovalCard key={entry.request_id ? String(entry.request_id) : entry.id} entry={entry} />
+              <ApprovalCard key={entry.id || entry.request_id || `${entry.person}-${entry.start_date}`} entry={entry} />
             ))}
           </Stack>
         )}

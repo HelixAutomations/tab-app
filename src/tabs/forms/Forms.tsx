@@ -41,15 +41,17 @@ interface FormsProps {
 // Styles
 const containerStyle = (isDarkMode: boolean) =>
   mergeStyles({
-    padding: '40px 20px',
-    width: '100%',
-    maxWidth: '1200px',
-    margin: '0 auto',
     minHeight: '100vh',
-    backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
+    width: '100%',
+    padding: '26px 30px 40px',
+    background: isDarkMode 
+      ? 'linear-gradient(135deg, #0f172a 0%, #1e293b 30%, #334155 65%, #475569 100%)'
+      : 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 25%, #e2e8f0 65%, #cbd5e1 100%)',
+    color: isDarkMode ? colours.dark.text : colours.light.text,
     display: 'flex',
     flexDirection: 'column',
-    transition: 'background-color 0.3s',
+    gap: 18,
+    transition: 'background 0.3s ease, color 0.3s ease',
     fontFamily: 'Raleway, sans-serif',
   });
 
@@ -58,9 +60,14 @@ const headerStyle = (isDarkMode: boolean) =>
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: '20px',
+    marginBottom: '24px',
     flexWrap: 'wrap',
-    gap: '10px',
+    gap: '16px',
+    padding: '0',
+    background: 'transparent',
+    border: 'none',
+    borderRadius: 0,
+    boxShadow: 'none',
   });
 
 const mainContentStyle = (isDarkMode: boolean) =>
@@ -68,54 +75,50 @@ const mainContentStyle = (isDarkMode: boolean) =>
     flex: 1,
     display: 'flex',
     flexDirection: 'column',
-    gap: '30px',
-    paddingBottom: '40px', // Added padding to create gap before footer
+    gap: '18px',
   });
 
 const sectionStyle = (isDarkMode: boolean) =>
   mergeStyles({
-    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-    border: '1px solid transparent',
-    borderRadius: '8px',
-    padding: '30px',
-    boxSizing: 'border-box',
-    boxShadow: isDarkMode
-      ? '0 2px 4px rgba(255, 255, 255, 0.1)'
-      : '0 2px 4px rgba(0, 0, 0, 0.05)',
-    transition: 'background-color 0.3s, border 0.3s, box-shadow 0.3s',
-    marginBottom: '40px',
-    selectors: {
-      '&:last-child': {
-        marginBottom: '0px',
-      },
-    },
+    background: isDarkMode ? 'rgba(15, 23, 42, 0.88)' : '#FFFFFF',
+    borderRadius: 12,
+    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.06)'}`,
+    boxShadow: isDarkMode ? '0 2px 10px rgba(0, 0, 0, 0.22)' : '0 2px 8px rgba(15, 23, 42, 0.06)',
+    padding: '20px 22px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 12,
+    transition: 'all 0.3s ease',
   });
 
 const sectionHeaderStyleCustom = (isDarkMode: boolean) =>
   mergeStyles({
-    fontSize: '20px',
-    fontWeight: '700',
+    margin: 0,
+    fontSize: 16,
+    fontWeight: 600,
+    fontFamily: 'Raleway, sans-serif',
     color: isDarkMode ? colours.dark.text : colours.light.text,
-    marginBottom: '20px',
-    marginTop: '0px',
+    marginBottom: '12px',
   });
 
 const resourceGridStyle = mergeStyles({
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-  gap: '24px',
-  paddingTop: '15px',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))',
+  gap: '20px',
+  paddingTop: '8px',
+  maxWidth: '100%',
 });
 
 const footerStyle = (isDarkMode: boolean) =>
   mergeStyles({
-    padding: '20px',
-    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-    borderRadius: '8px',
-    marginTop: 'auto',
+    background: isDarkMode ? 'rgba(15, 23, 42, 0.88)' : '#FFFFFF',
+    borderRadius: 12,
+    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.06)'}`,
+    boxShadow: isDarkMode ? '0 2px 10px rgba(0, 0, 0, 0.22)' : '0 2px 8px rgba(15, 23, 42, 0.06)',
+    padding: '20px 22px',
     display: 'flex',
     flexDirection: 'column',
-    gap: '10px',
+    gap: 12,
     color: isDarkMode ? colours.dark.text : colours.light.text,
     fontFamily: 'Raleway, sans-serif',
   });
@@ -250,13 +253,27 @@ const Forms: React.FC<FormsProps> = ({ userData, matters }) => {
     <div className={containerStyle(isDarkMode)}>
       {/* Header */}
       <header className={headerStyle(isDarkMode)}>
+        <Text 
+          styles={{
+            root: {
+              fontSize: '24px',
+              fontWeight: '600',
+              color: isDarkMode ? colours.dark.text : colours.light.text,
+              letterSpacing: '-0.025em',
+              fontFamily: 'Raleway, sans-serif',
+              margin: 0,
+            }
+          }}
+        >
+          Forms & Processes
+        </Text>
         <div className={sharedSearchBoxContainerStyle(isDarkMode)}>
           <SearchBox
-            placeholder="Search forms..."
+            placeholder="Search forms and processes..."
             value={searchQuery}
             onChange={(_, newValue) => setSearchQuery(newValue || '')}
             styles={sharedSearchBoxStyle(isDarkMode)}
-            aria-label="Search forms"
+            aria-label="Search forms and processes"
           />
         </div>
       </header>

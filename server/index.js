@@ -62,6 +62,7 @@ const outstandingBalancesRouter = require('./routes/outstandingBalances');
 const transactionsRouter = require('./routes/transactions');
 const marketingMetricsRouter = require('./routes/marketing-metrics');
 const cachePreheaterRouter = require('./routes/cache-preheater');
+const clearCacheRouter = require('./routes/clearCache');
 const { userContextMiddleware } = require('./middleware/userContext');
 
 const app = express();
@@ -169,6 +170,7 @@ app.use('/api/reporting-stream', reportingStreamRouter);
 app.use('/api/home-metrics', homeMetricsStreamRouter);
 app.use('/api/marketing-metrics', marketingMetricsRouter);
 app.use('/api/cache-preheater', cachePreheaterRouter);
+app.use('/api/cache', clearCacheRouter);
 
 // IMPORTANT: Attendance routes must come BEFORE proxy routes to avoid conflicts
 app.use('/api/attendance', attendanceRouter);

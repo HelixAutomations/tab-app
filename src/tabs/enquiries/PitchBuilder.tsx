@@ -4259,7 +4259,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
 
   const bodyWrapperStyle = mergeStyles({
     padding: 16,
-    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+    backgroundColor: 'transparent',
     borderBottomLeftRadius: 0,
     borderBottomRightRadius: 0,
     display: 'flex',
@@ -4619,33 +4619,21 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
   return (
     <Stack className={containerStyle}>
       {/* Client Info Header - Navigator Integrated */}
-      <div style={{ 
-        padding: '12px 20px', 
-        borderBottom: `1px solid ${isDarkMode ? colours.dark.border : '#e1e4e8'}`,
-        background: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          {/* Integrated verification & client header */}
-          <div style={{ flex: 1, minWidth: 280 }}>
-            <VerificationSummary
-              isDarkMode={isDarkMode}
-              userData={effectiveUserData}
-              enquiry={enquiry}
-              amount={amount}
-              passcode={dealPasscode}
-              usedPitchRoute={usedPitchRoute}
-              onPreview={(url) => {
-                try {
-                  window.open(url, '_blank', 'noopener');
-                } catch (_) {
-                  // no-op fallback
-                }
-              }}
-            />
-          </div>
-
-        </div>
-      </div>
+      <VerificationSummary
+        isDarkMode={isDarkMode}
+        userData={effectiveUserData}
+        enquiry={enquiry}
+        amount={amount}
+        passcode={dealPasscode}
+        usedPitchRoute={usedPitchRoute}
+        onPreview={(url) => {
+          try {
+            window.open(url, '_blank', 'noopener');
+          } catch (_) {
+            // no-op fallback
+          }
+        }}
+      />
 
       <main className={bodyWrapperStyle}>
         {/* Content Sections - Streamlined */}

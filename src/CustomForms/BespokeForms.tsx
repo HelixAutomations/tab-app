@@ -7,7 +7,6 @@ import {
   Toggle,
   PrimaryButton,
   DefaultButton,
-  VirtualizedComboBox,
   ComboBox,
   IComboBox,
   IComboBoxOption,
@@ -106,28 +105,32 @@ export const amountContainerStyle = mergeStyles({
   height: `${INPUT_HEIGHT}px`,
 });
 
-export const prefixStyle = mergeStyles({
+export const prefixStyle = (isDarkMode: boolean) => mergeStyles({
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
   width: '50px',
   height: '100%',
-  backgroundColor: colours.light.sectionBackground,
-  border: `1px solid ${colours.highlight}`,
+  backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : colours.light.sectionBackground,
+  border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : colours.highlight}`,
   borderRight: 'none',
+  borderTopLeftRadius: '8px',
+  borderBottomLeftRadius: '8px',
   fontWeight: 'bold',
   padding: '0 5px',
+  color: isDarkMode ? colours.dark.text : colours.light.text,
 });
 
-export const amountInputStyle = (hasPrefix: boolean) =>
+export const amountInputStyle = (hasPrefix: boolean, isDarkMode: boolean) =>
   mergeStyles({
     flexGrow: 1,
     width: '100%',
     height: '100%',
-    border: `1px solid ${colours.highlight}`,
+    border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : colours.highlight}`,
     borderRadius: 0,
     padding: '5px',
-    backgroundColor: colours.light.sectionBackground,
+    backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : colours.light.sectionBackground,
+    color: isDarkMode ? colours.dark.text : colours.light.text,
     boxSizing: 'border-box',
     appearance: 'textfield',
     selectors: {
@@ -147,16 +150,20 @@ export const amountInputStyle = (hasPrefix: boolean) =>
     },
   });
 
-export const toggleStyle = mergeStyles({
+export const toggleStyle = (isDarkMode: boolean) => mergeStyles({
   height: `${INPUT_HEIGHT}px`,
-  backgroundColor: componentTokens.toggleButton.base.backgroundColor,
-  color: componentTokens.toggleButton.base.color,
-  border: componentTokens.toggleButton.base.border,
+  backgroundColor: isDarkMode ? colours.dark.inputBackground : componentTokens.toggleButton.base.backgroundColor,
+  color: isDarkMode ? colours.dark.text : componentTokens.toggleButton.base.color,
+  border: isDarkMode 
+    ? `1px solid ${colours.dark.border}` 
+    : componentTokens.toggleButton.base.border,
   borderRadius: componentTokens.toggleButton.base.borderRadius,
   padding: componentTokens.toggleButton.base.padding,
   selectors: {
     ':hover': {
-      backgroundColor: componentTokens.toggleButton.hover.backgroundColor,
+      backgroundColor: isDarkMode 
+        ? colours.dark.cardHover 
+        : componentTokens.toggleButton.hover.backgroundColor,
     },
   },
 });
@@ -236,16 +243,7 @@ const MatterReferenceDropdown: React.FC<MatterReferenceDropdownProps> = ({
   value,
   isDarkMode,
 }) => {
-  const [filterText, setFilterText] = React.useState<string>('');
-  const [debouncedFilter, setDebouncedFilter] = React.useState<string>('');
-
-  // Debounce filter text to reduce filtering churn while typing
-  React.useEffect(() => {
-    const id = setTimeout(() => setDebouncedFilter(filterText), 150);
-    return () => clearTimeout(id);
-  }, [filterText]);
-
-  // Create clean options from matters data with performance optimization
+  // Create clean options from matters data
   const options = React.useMemo<IComboBoxOption[]>(() => {
     if (!matters || matters.length === 0) {
       return [];
@@ -262,116 +260,115 @@ const MatterReferenceDropdown: React.FC<MatterReferenceDropdownProps> = ({
       .map((m) => {
         const displayNum = m.displayNumber || m.matterId || '';
         const desc = m.description || '';
+        const feeEarner = m.responsibleSolicitor || '';
+        
+        let text = displayNum;
+        if (feeEarner) {
+          text += ` • ${feeEarner}`;
+        }
+        if (desc) {
+          text += ` | ${desc}`;
+        }
+        
         return {
           key: displayNum,
-          text: desc ? `${displayNum} - ${desc}` : displayNum,
+          text: text,
         };
       });
   }, [matters]);
 
-  // Optimized filtering function
-  const handleResolveOptions = React.useCallback((comboBoxOptions: IComboBoxOption[]): IComboBoxOption[] => {
-    if (!debouncedFilter || debouncedFilter.length < 2) {
-      return options.slice(0, 50); // Show only first 50 when no filter
-    }
-
-    const lowercaseFilter = debouncedFilter.toLowerCase();
-    return options
-      .filter(option => 
-        option.text.toLowerCase().includes(lowercaseFilter) ||
-        option.key.toString().toLowerCase().includes(lowercaseFilter)
-      )
-      .slice(0, 100); // Limit filtered results to 100
-  }, [options, debouncedFilter]);
-
-  // Handle input change with debouncing effect
-  const handleInputValueChange = React.useCallback((inputValue: string) => {
-    setFilterText(inputValue || '');
-  }, []);
-
-  // Handle selection change
-  const handleChange = React.useCallback((event: React.FormEvent<IComboBox>, option?: IComboBoxOption, index?: number, inputValue?: string) => {
-    const newValue = option ? option.key as string : inputValue || '';
-    handleInputChange(field.name, newValue);
-  }, [field.name, handleInputChange]);
-
   return (
     <div>
       <div className="question-banner">{field.label}</div>
-      <VirtualizedComboBox
+      <style>
+        {`
+          input[list]::-webkit-calendar-picker-indicator {
+            display: none !important;
+          }
+          
+          /* Style the datalist dropdown */
+          datalist {
+            background-color: ${isDarkMode ? '#1f2937' : '#ffffff'} !important;
+            border: 1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.5)' : 'rgba(209, 213, 219, 0.8)'} !important;
+            border-radius: 8px !important;
+            box-shadow: ${isDarkMode ? '0 10px 25px rgba(0, 0, 0, 0.4)' : '0 10px 25px rgba(0, 0, 0, 0.1)'} !important;
+            max-height: 300px !important;
+            overflow-y: auto !important;
+          }
+          
+          /* Style the datalist options */
+          option {
+            padding: 12px 16px !important;
+            font-size: 14px !important;
+            line-height: 1.5 !important;
+            color: ${isDarkMode ? '#f3f4f6' : '#374151'} !important;
+            background-color: ${isDarkMode ? '#1f2937' : '#ffffff'} !important;
+            border-bottom: 1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.2)' : 'rgba(229, 231, 235, 0.6)'} !important;
+            cursor: pointer !important;
+            transition: all 0.15s ease !important;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+          }
+          
+          option:hover {
+            background-color: ${isDarkMode ? '#374151' : '#f8fafc'} !important;
+            color: ${isDarkMode ? '#ffffff' : '#111827'} !important;
+          }
+          
+          option:last-child {
+            border-bottom: none !important;
+          }
+          
+          /* Better spacing and layout for the content */
+          #matter-options-datalist option {
+            white-space: normal !important;
+            word-wrap: break-word !important;
+            overflow-wrap: break-word !important;
+            max-width: 500px !important;
+            display: block !important;
+            position: relative !important;
+          }
+          
+          /* Enhanced visual hierarchy */
+          option::before {
+            content: '📋' !important;
+            margin-right: 8px !important;
+            opacity: 0.6 !important;
+          }
+        `}
+      </style>
+      <input
+        type="text"
         placeholder="Select or enter Matter Reference"
         required={field.required}
-        options={options}
-        allowFreeform={true}
-        autoComplete="on"
-        // Use text-only control to avoid selectedKey/text conflicts with freeform
-        text={value || ''}
-        onInputValueChange={handleInputValueChange}
-        onChange={handleChange}
-        onResolveOptions={handleResolveOptions}
+        value={value || ''}
+        onChange={(e) => handleInputChange(field.name, e.target.value)}
         disabled={isSubmitting}
-        useComboBoxAsMenuWidth={true}
-        calloutProps={{ calloutMaxHeight: 320 }}
-        onRenderOption={(item) => (
-          <span
-            style={{
-              display: 'block',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              maxWidth: '100%'
-            }}
-            title={item?.text}
-          >
-            {item?.text}
-          </span>
-        )}
-        styles={{
-          root: { 
-            width: '100%',
-            height: `${INPUT_HEIGHT}px`,
-          },
-          input: {
-            height: `${INPUT_HEIGHT}px`,
-            lineHeight: `${INPUT_HEIGHT}px`,
-            padding: '0 12px',
-            border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : colours.highlight}`,
-            borderRadius: '8px',
-            fontSize: '14px',
-            backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : '#ffffff',
-            color: isDarkMode ? colours.dark.text : colours.light.text,
-          },
-          callout: {
-            maxHeight: 320,
-            zIndex: 1100,
-            backgroundColor: isDarkMode ? '#0f172a' : '#ffffff',
-          },
-          optionsContainer: {
-            maxHeight: 320,
-            overflowY: 'auto',
-            backgroundColor: isDarkMode ? '#0f172a' : '#ffffff',
-            selectors: {
-              '.ms-ComboBox-option': {
-                minHeight: '36px !important',
-                padding: '8px 12px !important',
-                fontSize: '14px !important',
-                lineHeight: '1.3 !important',
-                whiteSpace: 'nowrap',
-                textOverflow: 'ellipsis',
-                overflow: 'hidden',
-                color: `${isDarkMode ? colours.dark.text : colours.light.text} !important`,
-                backgroundColor: `${isDarkMode ? '#0f172a' : '#ffffff'} !important`,
-              },
-              '.ms-ComboBox-option:hover': {
-                backgroundColor: `${isDarkMode ? '#1e293b' : '#f3f4f6'} !important`,
-              },
-              '.is-checked': {
-                backgroundColor: `${isDarkMode ? '#1e293b' : '#e0f2fe'} !important`,
-              },
-            },
-          },
+        list="matter-options-datalist"
+        style={{
+          width: '100%',
+          height: `${INPUT_HEIGHT}px`,
+          lineHeight: `${INPUT_HEIGHT}px`,
+          padding: '0 32px 0 12px',
+          border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : colours.highlight}`,
+          borderRadius: '8px',
+          fontSize: '14px',
+          backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : '#ffffff',
+          color: isDarkMode ? colours.dark.text : colours.light.text,
+          boxSizing: 'border-box',
+          appearance: 'none',
+          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='${isDarkMode ? '%23f3f4f6' : '%23061733'}' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+          backgroundRepeat: 'no-repeat',
+          backgroundPosition: 'right 12px center',
+          backgroundSize: '18px',
+          cursor: 'pointer',
         }}
       />
+      <datalist id="matter-options-datalist">
+        {options.map((opt) => (
+          <option key={opt.key} value={opt.text}>
+          </option>
+        ))}
+      </datalist>
     </div>
   );
 };
@@ -602,7 +599,27 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                       offText={field.offText}
                       onChange={(_, checked) => handleInputChange(field.name, !!checked)}
                       disabled={isSubmitting}
-                      styles={{ root: toggleStyle }}
+                      styles={{
+                        root: toggleStyle(isDarkMode),
+                        container: {
+                          selectors: {
+                            '.ms-Toggle-background': {
+                              backgroundColor: isDarkMode ? colours.dark.border : '#d1d5db',
+                              border: `1px solid ${isDarkMode ? colours.dark.border : '#d1d5db'}`,
+                            },
+                            '.ms-Toggle-background.is-checked': {
+                              backgroundColor: `${colours.highlight} !important`,
+                              borderColor: `${colours.highlight} !important`,
+                            },
+                            '.ms-Toggle-thumb': {
+                              backgroundColor: isDarkMode ? colours.dark.text : '#ffffff',
+                            },
+                          },
+                        },
+                        label: {
+                          color: isDarkMode ? colours.dark.text : colours.light.text,
+                        },
+                      }}
                     />
                     {field.name === 'Is the amount you are sending over £50,000?' &&
                       formValues[field.name] === true && (
@@ -699,7 +716,7 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                     {questionBanner}
                     {field.prefix ? (
                       <div className={amountContainerStyle}>
-                        <span className={prefixStyle}>{field.prefix}</span>
+                        <span className={prefixStyle(isDarkMode)}>{field.prefix}</span>
                         <input
                           type="number"
                           required={field.required}
@@ -713,7 +730,9 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                             width: '100%',
                             height: '100%',
                             border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : colours.highlight}`,
-                            borderRadius: '8px',
+                            borderTopRightRadius: '8px',
+                            borderBottomRightRadius: '8px',
+                            borderLeft: 'none',
                             padding: '0 12px',
                             boxSizing: 'border-box',
                             backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : '#ffffff',

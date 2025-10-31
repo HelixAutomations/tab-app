@@ -71,11 +71,18 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
   }, []);
 
   const start = useCallback((override?: { datasets?: string[]; bypassCache?: boolean }) => {
-    // Close existing connection first
+    // Close existing connection first and clear timeouts
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
     }
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    
+    // Reset all states cleanly
+    setDatasetStates({});
     setIsConnected(false);
     setIsComplete(false);
 
@@ -107,11 +114,14 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
     let freshCount = 0;
     let freshElapsed = 0;
 
+    console.log(`🚀 Starting reporting stream for: ${effectiveDatasets.join(', ')}${effectiveBypass ? ' (bypass cache)' : ''}`);
+
     eventSource.onopen = () => {
       setIsConnected(true);
       setIsComplete(false);
+      console.log('📡 Connected to streaming endpoint');
       
-      // Set a timeout to mark stuck datasets as error after 5 minutes
+      // Set a timeout to mark stuck datasets as error after 10 minutes
       timeoutRef.current = setTimeout(() => {
         console.warn('Streaming timeout reached - marking incomplete datasets as error');
         setDatasetStates(prev => {
@@ -121,7 +131,7 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
               next[dataset] = {
                 ...next[dataset],
                 status: 'error',
-                error: 'Timeout: Dataset took too long to load (>5min)',
+                error: 'Timeout: Dataset took too long to load (>10min)',
                 updatedAt: Date.now(),
                 elapsedMs: starts[dataset] ? Date.now() - starts[dataset] : undefined,
               };
@@ -132,7 +142,7 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
         });
         setIsComplete(true);
         stop();
-      }, 300000); // 5 minutes timeout (300 seconds)
+      }, 600000); // 10 minutes timeout (600 seconds)
     };
 
     eventSource.onmessage = (event) => {
@@ -173,6 +183,9 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
                   freshElapsed += elapsed;
                 }
               }
+              const cacheLabel = update.cached ? '📦 (cached)' : '🔄 (fresh)';
+              const elapsedMs = started ? Date.now() - started : 0;
+              console.log(`✅ ${update.dataset} ready ${cacheLabel} in ${elapsedMs}ms (${update.count || 0} rows)`);
               setDatasetStates(prev => ({
                 ...prev,
                 [update.dataset!]: {
@@ -223,10 +236,10 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
               : 0;
             // eslint-disable-next-line no-console
             console.info(
-              `Reporting stream: ${cachedCount + freshCount} datasets in ${Math.round(totalElapsed)}ms | cached: ${cachedCount}` +
-              (cachedCount ? ` (avg ${avgCached}ms)` : '') +
-              ` | fresh: ${freshCount}` + (freshCount ? ` (avg ${avgFresh}ms)` : '') +
-              (estSaved ? ` | est. saved ~${Math.round(estSaved)}ms` : '')
+              `✨ Reporting complete in ${Math.round(totalElapsed)}ms | ` +
+              `📦 cached: ${cachedCount}${cachedCount ? ` (avg ${avgCached}ms)` : ''} | ` +
+              `🔄 fresh: ${freshCount}${freshCount ? ` (avg ${avgFresh}ms)` : ''}` +
+              (estSaved ? ` | ⚡ saved ~${Math.round(estSaved)}ms by caching` : '')
             );
             stop(); // Close the connection
             break;
@@ -241,10 +254,30 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
       // eslint-disable-next-line no-console
       console.error('Reporting stream connection error:', error, 'state:', eventSource.readyState);
       setIsConnected(false);
-      // Don't call stop() here to avoid circular dependency, just close directly
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-        eventSourceRef.current = null;
+      
+      // Only close if connection is permanently failed (readyState 2) 
+      // EventSource will auto-retry for temporary network issues (readyState 0)
+      if (eventSource.readyState === EventSource.CLOSED) {
+        if (eventSourceRef.current) {
+          eventSourceRef.current.close();
+          eventSourceRef.current = null;
+        }
+        // Mark remaining loading datasets as error to prevent infinite loading
+        setDatasetStates(prev => {
+          const next = { ...prev };
+          Object.keys(next).forEach(dataset => {
+            if (next[dataset].status === 'loading') {
+              next[dataset] = {
+                ...next[dataset],
+                status: 'error',
+                error: 'Connection failed',
+                updatedAt: Date.now(),
+              };
+            }
+          });
+          return next;
+        });
+        setIsComplete(true);
       }
     };
   }, [datasets, entraId, bypassCache]);

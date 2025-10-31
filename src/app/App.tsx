@@ -7,8 +7,7 @@ import FormsModal from '../components/FormsModal';
 import ResourcesModal from '../components/ResourcesModal';
 import { NavigatorProvider } from './functionality/NavigatorContext';
 import { colours } from './styles/colours';
-import * as microsoftTeams from '@microsoft/teams-js';
-import { Context as TeamsContextType } from '@microsoft/teams-js';
+import { app } from '@microsoft/teams-js';
 import { Matter, UserData, Enquiry, Tab, TeamData, POID, Transaction, BoardroomBooking, SoundproofPodBooking, InstructionData, NormalizedMatter } from './functionality/types';
 import { hasActiveMatterOpening } from './functionality/matterOpeningUtils';
 import localIdVerifications from '../localData/localIdVerifications.json';
@@ -28,7 +27,7 @@ const ReportingHome = lazy(() => import('../tabs/Reporting/ReportingHome')); // 
 const CallHub = lazy(() => import('../tabs/CallHub/CallHub'));
 
 interface AppProps {
-  teamsContext: TeamsContextType | null;
+  teamsContext: app.Context | null;
   userData: UserData[] | null;
   enquiries: Enquiry[] | null;
   matters: NormalizedMatter[];
@@ -41,6 +40,7 @@ interface AppProps {
   onReturnToAdmin?: () => void;
   originalAdminUser?: UserData | null;
   onRefreshEnquiries?: () => Promise<void>;
+  onRefreshMatters?: () => Promise<void>;
 }
 
 const App: React.FC<AppProps> = ({
@@ -57,6 +57,7 @@ const App: React.FC<AppProps> = ({
   onReturnToAdmin,
   originalAdminUser,
   onRefreshEnquiries,
+  onRefreshMatters,
 }) => {
   const [activeTab, setActiveTab] = useState('home');
   const systemPrefersDark = typeof window !== 'undefined' && window.matchMedia
@@ -112,7 +113,7 @@ const App: React.FC<AppProps> = ({
     }
   }, []);
 
-  const teamsTheme = teamsContext?.theme ? teamsContext.theme.toLowerCase() : undefined;
+  const teamsTheme = teamsContext?.app?.theme ? teamsContext.app.theme.toLowerCase() : undefined;
   const themeName = (persistedTheme as string | null) ?? teamsTheme ?? hostTheme;
   const isDarkMode = themeName === 'dark' || themeName === 'contrast' || (!themeName && systemPrefersDark);
 
@@ -652,6 +653,7 @@ const App: React.FC<AppProps> = ({
             teamData={teamData}
             isInMatterOpeningWorkflow={isInMatterOpeningWorkflow}
             onImmediateActionsChange={setHasImmediateActions}
+            originalAdminUser={originalAdminUser}
           />
         );
       case 'enquiries':
@@ -712,6 +714,7 @@ const App: React.FC<AppProps> = ({
             onSoundproofBookingsFetched={handleSoundproofBookingsFetched}
             teamData={teamData}
             onImmediateActionsChange={setHasImmediateActions}
+            originalAdminUser={originalAdminUser}
           />
         );
     }
@@ -755,6 +758,8 @@ const App: React.FC<AppProps> = ({
             onReturnToAdmin={onReturnToAdmin}
             originalAdminUser={originalAdminUser}
             hasImmediateActions={hasImmediateActions}
+            onRefreshEnquiries={onRefreshEnquiries}
+            onRefreshMatters={onRefreshMatters}
           />
           {/* Navigator wrapper ensures correct layering and clickability */}
           <div className="app-navigator">

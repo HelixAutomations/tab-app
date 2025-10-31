@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { IconButton, Text, SearchBox, Stack, Modal, ActionButton } from "@fluentui/react";
 import { useTheme } from "../app/functionality/ThemeContext";
+import { colours } from "../app/styles/colours";
 import { formSections } from "../tabs/forms/formsData";
 import { FormItem, UserData, NormalizedMatter, TeamData } from "../app/functionality/types";
 import FormEmbed from "./FormEmbed";
@@ -55,8 +56,8 @@ const FormItemComponent: React.FC<{
             padding: '16px 20px',
             borderRadius: '12px',
             cursor: 'pointer',
-            backgroundColor: isDarkMode ? '#1a1a1a' : '#ffffff',
-            border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
+            backgroundColor: isDarkMode ? 'rgba(17, 24, 39, 0.72)' : '#ffffff',
+            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(0,0,0,0.06)'}`,
             transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
             animation: `modalItemFadeIn 0.4s ease ${index * 0.05}s both`,
             marginBottom: '8px',
@@ -67,12 +68,12 @@ const FormItemComponent: React.FC<{
                 width: '40px',
                 height: '40px',
                 borderRadius: '10px',
-                backgroundColor: isDarkMode ? '#2a2a2a' : '#f8f9fa',
+                backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.8)' : '#f8f9fa',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 fontSize: '18px',
-                color: isDarkMode ? '#8a8a8a' : '#6a6a6a',
+                color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : '#6a6a6a',
             }}>
                 <IconButton
                     iconProps={{ iconName: getFormIcon(item.icon) }}
@@ -197,7 +198,10 @@ const FormsModal: React.FC<FormsModalProps> = ({
                         maxHeight: 'none',
                         margin: 0,
                         borderRadius: 0,
-                        backgroundColor: isDarkMode ? '#0f0f0f' : '#ffffff',
+                        // Use reporting-style dark background to avoid pure-black feel
+                        background: isDarkMode
+                            ? 'linear-gradient(135deg, #0f172a 0%, #1e293b 30%, #334155 65%, #475569 100%)'
+                            : '#ffffff',
                     },
                     // Keep the modal container fixed-height but avoid trapping scroll here
                     scrollableContent: {
@@ -219,7 +223,7 @@ const FormsModal: React.FC<FormsModalProps> = ({
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
-                        backgroundColor: isDarkMode ? '#1a1a1a' : '#fafbfc',
+                        background: isDarkMode ? colours.dark.sectionBackground : '#fafbfc',
                     }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                             <ActionButton
@@ -230,7 +234,7 @@ const FormsModal: React.FC<FormsModalProps> = ({
                                         minWidth: 40,
                                         height: 40,
                                         borderRadius: '10px',
-                                        backgroundColor: isDarkMode ? '#2a2a2a' : '#f0f2f5',
+                                        backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.8)' : '#f0f2f5',
                                     }
                                 }}
                             />
@@ -249,7 +253,7 @@ const FormsModal: React.FC<FormsModalProps> = ({
                                     minWidth: 40,
                                     height: 40,
                                     borderRadius: '10px',
-                                    backgroundColor: isDarkMode ? '#2a2a2a' : '#f0f2f5',
+                                    backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.8)' : '#f0f2f5',
                                 }
                             }}
                         />
@@ -285,7 +289,7 @@ const FormsModal: React.FC<FormsModalProps> = ({
             isOpen={isOpen}
             onDismiss={onDismiss}
             isBlocking={false}
-            styles={{
+                styles={{
                 main: {
                     width: '100vw',
                     height: '100vh',
@@ -293,7 +297,9 @@ const FormsModal: React.FC<FormsModalProps> = ({
                     maxHeight: 'none',
                     margin: 0,
                     borderRadius: 0,
-                    backgroundColor: isDarkMode ? '#0f0f0f' : '#ffffff',
+                    background: isDarkMode
+                        ? 'linear-gradient(135deg, #0f172a 0%, #1e293b 30%, #334155 65%, #475569 100%)'
+                        : '#ffffff',
                 },
                 scrollableContent: {
                     height: '100vh',
@@ -309,8 +315,8 @@ const FormsModal: React.FC<FormsModalProps> = ({
                 {/* Header */}
                 <div style={{
                     padding: '32px 64px',
-                    borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
-                    backgroundColor: isDarkMode ? '#1a1a1a' : '#fafbfc',
+                    borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(0,0,0,0.06)'}`,
+                    background: isDarkMode ? 'rgba(15, 23, 42, 0.88)' : '#fafbfc',
                 }}>
                     <div style={{
                         maxWidth: '1400px',
@@ -341,7 +347,7 @@ const FormsModal: React.FC<FormsModalProps> = ({
                                         minWidth: 48,
                                         height: 48,
                                         borderRadius: '12px',
-                                        backgroundColor: isDarkMode ? '#2a2a2a' : '#f0f2f5',
+                                        backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.8)' : '#f0f2f5',
                                     }
                                 }}
                             />
@@ -355,9 +361,9 @@ const FormsModal: React.FC<FormsModalProps> = ({
                                 root: {
                                     maxWidth: '500px',
                                     borderRadius: '16px',
-                                    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
-                                    backgroundColor: isDarkMode ? '#2a2a2a' : '#ffffff',
-                                    boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(0,0,0,0.06)'}`,
+                                    backgroundColor: isDarkMode ? 'rgba(17, 24, 39, 0.72)' : '#ffffff',
+                                    boxShadow: isDarkMode ? '0 2px 10px rgba(0, 0, 0, 0.22)' : '0 2px 8px rgba(0,0,0,0.08)',
                                 },
                                 field: {
                                     backgroundColor: 'transparent',

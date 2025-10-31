@@ -385,7 +385,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                     color: '#8b949e',
                     fontWeight: 500
                 }}>
-                    Risk assessment
+                    Risk Assessment
                 </div>
                 
                 {/* Basic Summary Row */}
@@ -461,7 +461,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                             color: '#666',
                             marginBottom: '6px'
                         }}>
-                            Risk factor details
+                            Risk Factor Details
                         </div>
                         
                         <div style={{
@@ -707,7 +707,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                         color: '#8b949e',
                         fontWeight: 500
                     }}>
-                        Client compliance
+                        Client Compliance
                     </div>
                     
                     {/* Lead Client */}
@@ -826,7 +826,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                         color: '#3690CE',
                                         marginBottom: '8px'
                                     }}>
-                                        ID verification details
+                                        ID Verification Details
                                     </div>
                                     
                                     <div style={{
@@ -1061,7 +1061,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                                 marginBottom: '6px',
                                                 fontFamily: 'Raleway, sans-serif'
                                             }}>
-                                                Company information
+                                                Company Information
                                             </div>
                                             
                                             <div style={{
@@ -1111,7 +1111,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                                 marginBottom: '6px',
                                                 fontFamily: 'Raleway, sans-serif'
                                             }}>
-                                                Registered address
+                                                Registered Address
                                             </div>
                                             <div style={{
                                                 fontSize: '0.7rem',
@@ -1331,7 +1331,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                             color: '#666',
                                             marginBottom: '8px'
                                         }}>
-                                            ID verification details
+                                            ID Verification Details
                                         </div>
                                         
                                         <div style={{
@@ -1566,7 +1566,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                                     marginBottom: '6px',
                                                     fontFamily: 'Raleway, sans-serif'
                                                 }}>
-                                                    Company information
+                                                    Company Information
                                                 </div>
                                                 
                                                 <div style={{
@@ -1616,7 +1616,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                                     marginBottom: '6px',
                                                     fontFamily: 'Raleway, sans-serif'
                                                 }}>
-                                                    Registered address
+                                                    Registered Address
                                                 </div>
                                                 <div style={{
                                                     fontSize: '0.7rem',

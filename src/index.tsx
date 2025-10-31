@@ -4,7 +4,7 @@ import "./app/styles/index.css";
 import App from "./app/App";
 import { createTheme, ThemeProvider } from "@fluentui/react";
 import { colours } from "./app/styles/colours";
-import * as microsoftTeams from "@microsoft/teams-js";
+import { app, pages } from "@microsoft/teams-js";
 import { isInTeams } from "./app/functionality/isInTeams";
 import { Matter, UserData, Enquiry, TeamData, NormalizedMatter } from "./app/functionality/types";
 import { mergeMattersFromSources } from "./utils/matterNormalization";
@@ -15,6 +15,8 @@ import { getProxyBaseUrl } from "./utils/getProxyBaseUrl";
 import { initializeIcons } from "@fluentui/react";
 import Loading from "./app/styles/Loading";
 import ErrorBoundary from "./components/ErrorBoundary";
+import UserSelectionDialog from "./components/UserSelectionDialog";
+import PasscodeDialog from "./components/PasscodeDialog";
 const Data = lazy(() => import("./tabs/Data"));
 
 // Initialize icons once, but defer to idle to speed first paint
@@ -47,6 +49,10 @@ const customTheme = createTheme({
 });
 
 const proxyBaseUrl = getProxyBaseUrl();
+
+// Detect local development by hostname
+const isLocalDevEnv = typeof window !== 'undefined' &&
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
 const resolveSystemDarkMode = () => {
   if (typeof window === "undefined" || !window.matchMedia) {
@@ -97,7 +103,7 @@ if (typeof window !== 'undefined') {
 // In-memory cache for large datasets that exceed localStorage quota
 // This persists for the session but doesn't use localStorage
 const inMemoryCache = new Map<string, { data: any; timestamp: number }>();
-const MEMORY_CACHE_TTL = 15 * 60 * 1000; // 15 minutes
+const MEMORY_CACHE_TTL = 5 * 60 * 1000; // 5 minutes (align with server enquiries TTL)
 
 function getMemoryCachedData<T>(key: string): T | null {
   const cached = inMemoryCache.get(key);
@@ -197,23 +203,26 @@ async function fetchEnquiries(
   dateTo: string,
   userAow: string = '',
   userInitials: string = '',
-  fetchAll: boolean = false // New parameter to fetch all enquiries without filtering
+  fetchAll: boolean = false, // New parameter to fetch all enquiries without filtering
+  bypassCache: boolean = false // When true, ignore client caches (used on refresh)
 ): Promise<Enquiry[]> {
   const cacheKey = `enquiries-${email}-${dateFrom}-${dateTo}-${userAow}`;
   
-  // Try in-memory cache first (for large datasets)
-  const memCached = getMemoryCachedData<Enquiry[]>(cacheKey);
-  if (memCached) {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('📦 Using cached enquiries from memory:', memCached.length);
+  if (!bypassCache) {
+    // Try in-memory cache first (for large datasets)
+    const memCached = getMemoryCachedData<Enquiry[]>(cacheKey);
+    if (memCached) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('📦 Using cached enquiries from memory:', memCached.length);
+      }
+      return memCached;
     }
-    return memCached;
-  }
-  
-  // Try localStorage cache (for smaller datasets)
-  const cached = getCachedData<Enquiry[]>(cacheKey);
-  if (cached) {
-    return cached;
+    
+    // Try localStorage cache (for smaller datasets)
+    const cached = getCachedData<Enquiry[]>(cacheKey);
+    if (cached) {
+      return cached;
+    }
   }
 
   // Primary source: use server-side routes to avoid browser CORS issues
@@ -341,18 +350,48 @@ async function fetchEnquiries(
     // Legacy enquiries error is non-blocking
   }
 
-  // De-duplicate by ID to avoid duplicates when sources overlap
-  if (Array.isArray(enquiries) && enquiries.length > 1) {
+  // Filter out enquiries with placeholder emails that cause false duplicates
+  // These emails get reused for different people, making IDs unreliable
+  const placeholderEmails = ['noemail@noemail.com', 'prospects@helix-law.com'];
+  const validEnquiries = enquiries.filter((e: any) => {
+    const email = (e.Email || e.email || '').toLowerCase();
+    return !placeholderEmails.includes(email);
+  });
+
+  // De-duplicate by ID + Week to avoid duplicates when sources overlap
+  // Same person with enquiries in different weeks are kept separate (genuinely distinct matters)
+  // Multiple calls within the same week are treated as one enquiry (follow-ups)
+  if (Array.isArray(validEnquiries) && validEnquiries.length > 1) {
     const seen = new Set<string>();
     const deduped: Enquiry[] = [] as unknown as Enquiry[];
-    for (const e of enquiries as unknown as any[]) {
+    for (const e of validEnquiries as unknown as any[]) {
       const id = (e && (e.ID || e.id)) ? String(e.ID || e.id) : '';
-      if (!id || !seen.has(id)) {
-        if (id) seen.add(id);
+      const dateStr = (e && (e.Touchpoint_Date || e.datetime)) ? String(e.Touchpoint_Date || e.datetime).split('T')[0] : '';
+      
+      // Calculate ISO week number (year + week) for consistent deduplication
+      let weekKey = '';
+      if (dateStr) {
+        const d = new Date(dateStr);
+        if (!isNaN(d.getTime())) {
+          const year = d.getFullYear();
+          // Get Monday of the week
+          const dayOfWeek = d.getDay() || 7; // Sunday = 7
+          const monday = new Date(d);
+          monday.setDate(d.getDate() - dayOfWeek + 1);
+          const weekNum = Math.ceil(((monday.getTime() - new Date(year, 0, 1).getTime()) / 86400000 + 1) / 7);
+          weekKey = `${year}-W${weekNum}`;
+        }
+      }
+      
+      const key = `${id}|${weekKey}`;
+      if (!id || !seen.has(key)) {
+        if (id) seen.add(key);
         deduped.push(e as Enquiry);
       }
     }
     enquiries = deduped;
+  } else {
+    enquiries = validEnquiries;
   }
 
   // Apply area-of-work filtering based on user's AOW (only for unclaimed enquiries)
@@ -682,7 +721,7 @@ async function fetchTeamData(): Promise<TeamData[] | null> {
 // Main component
 const AppWithContext: React.FC = () => {
   const [teamsContext, setTeamsContext] =
-    useState<microsoftTeams.Context | null>(null);
+    useState<app.Context | null>(null);
   const [userData, setUserData] = useState<UserData[] | null>(null);
   const [originalAdminUser, setOriginalAdminUser] = useState<UserData | null>(null);
   const [enquiries, setEnquiries] = useState<Enquiry[] | null>(null);
@@ -690,6 +729,8 @@ const AppWithContext: React.FC = () => {
   const [teamData, setTeamData] = useState<TeamData[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showUserSelection, setShowUserSelection] = useState(false);
+  const [showPasscode, setShowPasscode] = useState(false);
   
   // Local development state for area selection
   const [localSelectedAreas, setLocalSelectedAreas] = useState<string[]>(['Commercial', 'Construction', 'Property']);
@@ -699,16 +740,54 @@ const AppWithContext: React.FC = () => {
     if (!userData || !userData[0]) return;
     
     try {
+      // Flush server-side enquiries cache before fetching fresh data
+      try {
+        await fetch('/api/cache/clear-cache', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scope: 'enquiries' })
+        });
+      } catch (flushErr) {
+        console.warn('Cache flush failed (non-blocking):', flushErr);
+      }
+
       const { dateFrom, dateTo } = getDateRange();
       const userEmail = userData[0].Email || "";
-      const userAow = userData[0].AOW || "";
+      // Don't apply AOW filtering when admin has switched users - show all enquiries like Management Dashboard
+      const userAow = originalAdminUser ? "" : (userData[0].AOW || "");
       const userInitials = userData[0].Initials || "";
 
-      const enquiriesRes = await fetchEnquiries(userEmail, dateFrom, dateTo, userAow, userInitials);
+      const enquiriesRes = await fetchEnquiries(userEmail, dateFrom, dateTo, userAow, userInitials, false, true);
       setEnquiries(enquiriesRes);
       
     } catch (error) {
       console.error('❌ Error refreshing enquiries:', error);
+    }
+  };
+
+  // Refresh matters function - clears local caches and fetches normalized matters for current user
+  const refreshMatters = async () => {
+    if (!userData || !userData[0]) return;
+
+    try {
+      // Clear localStorage caches related to matters
+      const keys = Object.keys(localStorage);
+      const toRemove = keys.filter(k => {
+        const lower = k.toLowerCase();
+        return (
+          lower.startsWith('normalizedmatters-v5-') ||
+          lower.startsWith('vnetmatters-') ||
+          lower.startsWith('matters-') ||
+          lower === 'allmatters'
+        );
+      });
+      toRemove.forEach(k => localStorage.removeItem(k));
+
+      const fullName = (userData[0].FullName || `${userData[0].First || ''} ${userData[0].Last || ''}`.trim());
+      const normalized = await fetchAllMatterSources(fullName);
+      setMatters(normalized);
+    } catch (err) {
+      console.error('❌ Error refreshing matters:', err);
     }
   };
 
@@ -776,11 +855,16 @@ const AppWithContext: React.FC = () => {
       const userInitials = normalized.Initials || "";
       const enquiriesEmail = normalized.Email || "";
       
+      // Don't apply AOW filtering when admin has switched users - show all enquiries like Management Dashboard
+      // We check if originalAdminUser exists OR will exist after this switch
+      const isAdminSwitch = originalAdminUser || (userData && userData[0]);
+      const userAow = isAdminSwitch ? "" : (normalized.AOW || "");
+      
       const enquiriesRes = await fetchEnquiries(
         enquiriesEmail,
         dateFrom,
         dateTo,
-        normalized.AOW || '',
+        userAow,
         userInitials
       );
       setEnquiries(enquiriesRes);
@@ -801,178 +885,293 @@ const AppWithContext: React.FC = () => {
     }
   };
 
+  // Handle user selection from dialog (outside Teams)
+  const handleUserSelected = async (userKey: string) => {
+    setShowUserSelection(false);
+    setLoading(true);
+
+    try {
+      // Initialize user data from team data with selected areas
+      const { default: teamUserData } = await import('./localData/team-sql-data.json');
+
+      // Find the selected user's data by initials (case insensitive)
+      const selectedUserData = (teamUserData as any[]).find((user: any) =>
+        String(user.Initials || '').toLowerCase() === String(userKey || '').toLowerCase()
+      ) || (teamUserData as any[]).find((user: any) => user.status === 'active') || (teamUserData as any[])[0];
+
+      setTeamsContext({
+        user: {
+          id: "local",
+          userPrincipalName: selectedUserData?.Email || 'lz@helix-law.com',
+        },
+        app: {
+          theme: "default",
+        },
+      } as app.Context);
+
+      const initialUserData = [{
+        ...selectedUserData,
+        AOW: localSelectedAreas.join(', ')
+      }];
+
+      setUserData(initialUserData as UserData[]);
+
+      // For local development, also test the dual enquiries fetching
+      const { dateFrom, dateTo } = getDateRange();
+      const fullName = `${initialUserData[0].First} ${initialUserData[0].Last}`.trim();
+
+      try {
+        // Try to fetch enquiries independently first
+        let enquiriesRes: Enquiry[] = [];
+        try {
+          const userInitials = initialUserData[0].Initials || "";
+          const enquiriesEmail = initialUserData[0].Email || "";
+
+          enquiriesRes = await fetchEnquiries(
+            enquiriesEmail,
+            dateFrom,
+            dateTo,
+            initialUserData[0].AOW || "",
+            userInitials,
+          );
+
+        } catch (enquiriesError) {
+          console.warn('⚠️ Enquiries API failed, using fallback:', enquiriesError);
+          const { getLiveLocalEnquiries } = await import('./tabs/home/Home');
+          enquiriesRes = getLiveLocalEnquiries(initialUserData[0].Email) as Enquiry[];
+        }
+
+        // Try to fetch matters separately (don't block enquiries)
+        let normalizedMatters: NormalizedMatter[] = [];
+        try {
+          normalizedMatters = await fetchAllMatterSources(fullName);
+
+        } catch (mattersError) {
+          console.warn('⚠️ Matters API failed, using fallback:', mattersError);
+          const { default: localMatters } = await import('./localData/localMatters.json');
+          const fallbackMatters = mergeMattersFromSources([], localMatters as unknown as Matter[], [], fullName);
+          normalizedMatters = fallbackMatters;
+        }
+
+        setEnquiries(enquiriesRes);
+        setMatters(normalizedMatters);
+      } catch (err) {
+        console.error('❌ Unexpected error in local dev:', err);
+
+        const { getLiveLocalEnquiries } = await import('./tabs/home/Home');
+        const { default: localMatters } = await import('./localData/localMatters.json');
+        const fallbackEnquiries = getLiveLocalEnquiries(initialUserData[0].Email) as Enquiry[];
+        const fallbackMatters = mergeMattersFromSources([], localMatters as unknown as Matter[], [], fullName);
+
+        setEnquiries(fallbackEnquiries);
+        setMatters(fallbackMatters);
+      }
+
+      // Prefer live team data via server route even in local dev; fallback to local JSON
+      try {
+        const liveTeam = await fetchTeamData();
+        if (liveTeam && Array.isArray(liveTeam) && liveTeam.length > 0) {
+          setTeamData(liveTeam);
+        } else {
+          const { default: localTeamData } = await import('./localData/team-sql-data.json');
+          setTeamData(localTeamData as TeamData[]);
+        }
+      } catch {
+        const { default: localTeamData } = await import('./localData/team-sql-data.json');
+        setTeamData(localTeamData as TeamData[]);
+      }
+
+      setLoading(false);
+    } catch (error) {
+      console.error('❌ Error setting up user:', error);
+      setError('Failed to initialize user data');
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     const initializeTeamsAndFetchData = async () => {
       if (inTeams && !useLocalData) {
         try {
-          microsoftTeams.initialize();
-          microsoftTeams.getContext((ctx) => {
-            setTeamsContext(ctx);
-            setLoading(false);
+          // Use Teams SDK v2 Promise-based API with timeout protection
+          const initPromise = app.initialize();
+          const timeout = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('SDK initialization timed out')), 10000)
+          );
+          
+          await Promise.race([initPromise, timeout]);
+          
+          const ctx = await app.getContext();
+          setTeamsContext(ctx);
+          setLoading(false);
 
-            const objectId = ctx.userObjectId || "";
-            if (!objectId) {
-              setError("Missing Teams context objectId.");
+          const objectId = ctx.user?.id || "";
+          if (!objectId) {
+            setError("Missing Teams context objectId.");
+            return;
+          }
+
+          const { dateFrom, dateTo } = getDateRange();
+
+          const primeUserDependentData = (profile: UserData[]) => {
+            const primaryUser = profile?.[0];
+            if (!primaryUser) {
               return;
             }
 
-            const { dateFrom, dateTo } = getDateRange();
+            const fullName =
+              `${primaryUser?.First ?? ''} ${primaryUser?.Last ?? ''}`.trim();
 
-            const primeUserDependentData = (profile: UserData[]) => {
-              const primaryUser = profile?.[0];
-              if (!primaryUser) {
-                return;
-              }
+            // Use actual user's email and initials - no overrides
+            const userInitials = primaryUser.Initials || "";
+            const enquiriesEmail = primaryUser.Email || "";
 
-              const fullName =
-                `${primaryUser?.First ?? ''} ${primaryUser?.Last ?? ''}`.trim();
+            fetchEnquiries(
+              enquiriesEmail,
+              dateFrom,
+              dateTo,
+              primaryUser.AOW || "",
+              userInitials,
+            ).then(setEnquiries).catch(err => {
+              console.warn('Enquiries load failed, using empty array:', err);
+              setEnquiries([]);
+            });
 
-              // Use actual user's email and initials - no overrides
-              const userInitials = primaryUser.Initials || "";
-              const enquiriesEmail = primaryUser.Email || "";
-
-              fetchEnquiries(
-                enquiriesEmail,
-                dateFrom,
-                dateTo,
-                primaryUser.AOW || "",
-                userInitials,
-              ).then(setEnquiries).catch(err => {
-                console.warn('Enquiries load failed, using empty array:', err);
-                setEnquiries([]);
+            fetchAllMatterSources(fullName)
+              .then(setMatters)
+              .catch(err => {
+                console.warn('Matters load failed, using empty array:', err);
+                setMatters([]);
               });
 
-              fetchAllMatterSources(fullName)
-                .then(setMatters)
-                .catch(err => {
-                  console.warn('Matters load failed, using empty array:', err);
-                  setMatters([]);
-                });
+            fetchTeamData()
+              .then(setTeamData)
+              .catch(err => {
+                console.warn('Team data load failed, using null:', err);
+                setTeamData(null);
+              });
+          };
 
-              fetchTeamData()
-                .then(setTeamData)
-                .catch(err => {
-                  console.warn('Team data load failed, using null:', err);
-                  setTeamData(null);
-                });
-            };
-
-            fetchUserData(objectId)
-              .then((userDataRes) => {
-                setUserData(userDataRes);
-                if (!Array.isArray(userDataRes) || userDataRes.length === 0) {
-                  console.warn('User data fetch returned no records for objectId:', objectId);
-                  setError('We could not load your profile details. Some data may be unavailable.');
-                  setEnquiries([]);
-                  setMatters([]);
-                  setTeamData(null);
-                  return;
-                }
-                primeUserDependentData(userDataRes);
-              })
-              .catch((userErr) => {
-                console.error("Failed to load user data:", userErr);
-                setError("Failed to load user profile. Please refresh.");
-                setUserData([]);
+          fetchUserData(objectId)
+            .then((userDataRes) => {
+              setUserData(userDataRes);
+              if (!Array.isArray(userDataRes) || userDataRes.length === 0) {
+                console.warn('User data fetch returned no records for objectId:', objectId);
+                setError('We could not load your profile details. Some data may be unavailable.');
                 setEnquiries([]);
                 setMatters([]);
                 setTeamData(null);
-              });
-          });
+                return;
+              }
+              primeUserDependentData(userDataRes);
+            })
+            .catch((userErr) => {
+              console.error("Failed to load user data:", userErr);
+              setError("Failed to load user profile. Please refresh.");
+              setUserData([]);
+              setEnquiries([]);
+              setMatters([]);
+              setTeamData(null);
+            });
         } catch (err: any) {
           console.error("Error initializing Teams:", err);
           setError(err.message || "Failed to initialize Teams.");
           setLoading(false);
         }
       } else {
-
-
-        setTeamsContext({
-          userObjectId: "local",
-          userPrincipalName: "lz@helix-law.com",
-          theme: "default",
-        } as microsoftTeams.Context);
-        
-        // Initialize local user data with selected areas
-        const { default: localUserData } = await import('./localData/localUserData.json');
-        const initialUserData = [{
-          ...localUserData[0],
-          AOW: localSelectedAreas.join(', ')
-        }];
-
-        setUserData(initialUserData as UserData[]);
-        
-        // For local development, also test the dual enquiries fetching
-        const { dateFrom, dateTo } = getDateRange();
-        const fullName = `${initialUserData[0].First} ${initialUserData[0].Last}`.trim();
-
-        try {
-
-          // Try to fetch enquiries independently first
-          let enquiriesRes: Enquiry[] = [];
+        // No Teams context found
+        if (isLocalDevEnv) {
+          // Local development: skip prompts and use default local user
           try {
-            // Use actual user's email and initials - no overrides
-            const userInitials = initialUserData[0].Initials || "";
-            const enquiriesEmail = initialUserData[0].Email || "";
-            
-            enquiriesRes = await fetchEnquiries(
-              enquiriesEmail,
-              dateFrom,
-              dateTo,
-              initialUserData[0].AOW || "",
-              userInitials,
-            );
-            
-          } catch (enquiriesError) {
-            console.warn('⚠️ Enquiries API failed, using fallback:', enquiriesError);
-            const { getLiveLocalEnquiries } = await import('./tabs/home/Home');
-            enquiriesRes = getLiveLocalEnquiries(initialUserData[0].Email) as Enquiry[];
-          }
-          
-          // Try to fetch matters separately (don't block enquiries)
-          let normalizedMatters: NormalizedMatter[] = [];
-          try {
-            normalizedMatters = await fetchAllMatterSources(fullName);
-            
-          } catch (mattersError) {
-            console.warn('⚠️ Matters API failed, using fallback:', mattersError);
-            // Create fallback normalized matters from local data
-            const { default: localMatters } = await import('./localData/localMatters.json');
-            const fallbackMatters = mergeMattersFromSources([], localMatters as unknown as Matter[], [], fullName);
-            normalizedMatters = fallbackMatters;
-          }
+            setTeamsContext({
+              user: {
+                id: "local",
+                userPrincipalName: "lz@helix-law.com",
+              },
+              app: {
+                theme: "default",
+              },
+            } as app.Context);
 
-          // Removed extra local-dev fetchAllMatters test call to avoid duplicate requests
+            // Initialize local user data with selected areas
+            const { default: localUserData } = await import('./localData/localUserData.json');
+            const initialUserData = [{
+              ...localUserData[0],
+              AOW: localSelectedAreas.join(', ')
+            }];
+            setUserData(initialUserData as UserData[]);
 
-          setEnquiries(enquiriesRes);
-          setMatters(normalizedMatters);
-        } catch (err) {
-          console.error('❌ Unexpected error in local dev:', err);
-          
-          // Fallback to local sample data with normalization
-          const { getLiveLocalEnquiries } = await import('./tabs/home/Home');
-          const { default: localMatters } = await import('./localData/localMatters.json');
-          const fallbackEnquiries = getLiveLocalEnquiries(initialUserData[0].Email) as Enquiry[];
-          const fallbackMatters = mergeMattersFromSources([], localMatters as unknown as Matter[], [], fullName);
-          
-          setEnquiries(fallbackEnquiries);
-          setMatters(fallbackMatters);
-        }
-        
-        // Prefer live team data via server route even in local dev; fallback to local JSON
-        try {
-          const liveTeam = await fetchTeamData();
-          if (liveTeam && Array.isArray(liveTeam) && liveTeam.length > 0) {
-            setTeamData(liveTeam);
-          } else {
-            const { default: localTeamData } = await import('./localData/team-sql-data.json');
-            setTeamData(localTeamData as TeamData[]);
+            // Fetch enquiries and matters
+            const { dateFrom, dateTo } = getDateRange();
+            const fullName = `${initialUserData[0].First} ${initialUserData[0].Last}`.trim();
+
+            try {
+              // Enquiries
+              let enquiriesRes: Enquiry[] = [];
+              try {
+                const userInitials = initialUserData[0].Initials || "";
+                const enquiriesEmail = initialUserData[0].Email || "";
+                enquiriesRes = await fetchEnquiries(
+                  enquiriesEmail,
+                  dateFrom,
+                  dateTo,
+                  initialUserData[0].AOW || "",
+                  userInitials,
+                );
+              } catch (enquiriesError) {
+                console.warn('⚠️ Enquiries API failed, using fallback:', enquiriesError);
+                const { getLiveLocalEnquiries } = await import('./tabs/home/Home');
+                enquiriesRes = getLiveLocalEnquiries(initialUserData[0].Email) as Enquiry[];
+              }
+
+              // Matters
+              let normalizedMatters: NormalizedMatter[] = [];
+              try {
+                normalizedMatters = await fetchAllMatterSources(fullName);
+              } catch (mattersError) {
+                console.warn('⚠️ Matters API failed, using fallback:', mattersError);
+                const { default: localMatters } = await import('./localData/localMatters.json');
+                const fallbackMatters = mergeMattersFromSources([], localMatters as unknown as Matter[], [], fullName);
+                normalizedMatters = fallbackMatters;
+              }
+
+              setEnquiries(enquiriesRes);
+              setMatters(normalizedMatters);
+            } catch (err) {
+              console.error('❌ Unexpected error in local dev:', err);
+              const { getLiveLocalEnquiries } = await import('./tabs/home/Home');
+              const { default: localMatters } = await import('./localData/localMatters.json');
+              const fallbackEnquiries = getLiveLocalEnquiries(initialUserData[0].Email) as Enquiry[];
+              const fallbackMatters = mergeMattersFromSources([], localMatters as unknown as Matter[], [], fullName);
+              setEnquiries(fallbackEnquiries);
+              setMatters(fallbackMatters);
+            }
+
+            // Team data (prefer live; fallback to local JSON)
+            try {
+              const liveTeam = await fetchTeamData();
+              if (liveTeam && Array.isArray(liveTeam) && liveTeam.length > 0) {
+                setTeamData(liveTeam);
+              } else {
+                const { default: localTeamData } = await import('./localData/team-sql-data.json');
+                setTeamData(localTeamData as TeamData[]);
+              }
+            } catch {
+              const { default: localTeamData } = await import('./localData/team-sql-data.json');
+              setTeamData(localTeamData as TeamData[]);
+            }
+
+            setLoading(false);
+          } catch (e) {
+            console.error('❌ Local init failed:', e);
+            setLoading(false);
           }
-        } catch {
-          const { default: localTeamData } = await import('./localData/team-sql-data.json');
-          setTeamData(localTeamData as TeamData[]);
+        } else {
+          // Production (outside Teams): require passcode before selection
+          setLoading(false);
+          setShowPasscode(true);
         }
-        setLoading(false);
+        return;
       }
     };
 
@@ -995,6 +1194,18 @@ const AppWithContext: React.FC = () => {
         onReturnToAdmin={returnToAdmin}
         originalAdminUser={originalAdminUser}
         onRefreshEnquiries={refreshEnquiries}
+        onRefreshMatters={refreshMatters}
+      />
+      <PasscodeDialog
+        isOpen={showPasscode}
+        onVerified={() => {
+          setShowPasscode(false);
+          setShowUserSelection(true);
+        }}
+      />
+      <UserSelectionDialog
+        isOpen={showUserSelection}
+        onUserSelected={handleUserSelected}
       />
     </>
   );

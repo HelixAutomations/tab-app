@@ -1808,7 +1808,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
       
       <Stack tokens={{ childrenGap: 8 }} styles={{ root: { marginTop: 0 } }}>
         {/* Direct content without Email Composer container */}
-        <div style={{ padding: '0 0 16px 0' }}>
+        <div style={{ padding: 0 }}>
           {/* Scenario Picker - Modern Professional Design */}
           <div style={{
             background: isDarkMode 
@@ -1820,24 +1820,11 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
             boxShadow: isDarkMode 
               ? '0 20px 44px rgba(2, 6, 17, 0.72)'
               : '0 16px 40px rgba(13, 47, 96, 0.18)',
-            marginBottom: 20,
+            marginBottom: 0,
             fontFamily: 'Raleway, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
             position: 'relative',
             transition: 'all 0.25s ease'
           }}>
-            {/* Refined accent border */}
-            <div style={{
-              position: 'absolute',
-              top: 0,
-              left: '50%',
-              transform: 'translateX(-50%)',
-              width: '60px',
-              height: '3px',
-              background: isDarkMode 
-                ? `linear-gradient(90deg, ${colours.blue}, ${colours.darkBlue})`
-                : `linear-gradient(90deg, ${colours.blue}, ${colours.darkBlue})`,
-              borderRadius: '0 0 8px 8px'
-            }}></div>
             
             <div 
               style={{

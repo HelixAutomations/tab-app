@@ -5,3 +5,6 @@
 [submodule "enquiry-processing-v2"]
 	path = enquiry-processing-v2
 	url = git@github.com:HelixAutomations/enquiry-processing-v2.git
+[submodule "submodules/tab-app-clone"]
+	path = submodules/tab-app-clone
+	url = git@github.com:cb-helix25/tab-app-clone.git

@@ -19,6 +19,7 @@ const opLog = require('./utils/opLog');
 const { DefaultAzureCredential } = require('@azure/identity');
 const { SecretClient } = require('@azure/keyvault-secrets');
 const refreshRouter = require('./routes/refresh');
+const clearCacheRouter = require('./routes/clearCache');
 const keysRouter = require('./routes/keys');
 const matterRequestsRouter = require('./routes/matterRequests');
 const opponentsRouter = require('./routes/opponents');
@@ -32,7 +33,6 @@ const getMattersRouter = require('./routes/getMatters');
 const riskAssessmentsRouter = require('./routes/riskAssessments');
 const bundleRouter = require('./routes/bundle');
 const proxyToAzureFunctionsRouter = require('./routes/proxyToAzureFunctions');
-
 const enquiriesRouter = require('./routes/enquiries');
 const enquiriesUnifiedRouter = require('./routes/enquiries-unified');
 const enquiryEmailsRouter = require('./routes/enquiryEmails');
@@ -54,8 +54,11 @@ const reportingRouter = require('./routes/reporting');
 const reportingStreamRouter = require('./routes/reporting-stream');
 const marketingMetricsRouter = require('./routes/marketing-metrics');
 const poidRouter = require('./routes/poid');
+const homeMetricsStreamRouter = require('./routes/home-metrics-stream');
+const transactionsRouter = require('./routes/transactions');
 const futureBookingsRouter = require('./routes/futureBookings');
 const outstandingBalancesRouter = require('./routes/outstandingBalances');
+const cachePreheaterRouter = require('./routes/cache-preheater');
 // const { router: cclRouter, CCL_DIR } = require('./routes/ccl');
 
 // Initialize ops log (loads recent entries and ensures log dir)
@@ -65,7 +68,7 @@ const app = express();
 // Enable gzip compression if available, but skip SSE endpoints
 if (compression) {
     app.use((req, res, next) => {
-        if (req.path.startsWith('/api/reporting-stream')) {
+        if (req.path.startsWith('/api/reporting-stream') || req.path.startsWith('/api/home-metrics')) {
             res.setHeader('Cache-Control', 'no-cache, no-transform');
             return next();
         }
@@ -105,6 +108,7 @@ if (process.env.NODE_ENV !== 'production') {
 }
 app.use(express.json());
 app.use('/api/refresh', refreshRouter);
+app.use('/api/cache', clearCacheRouter);
 app.use('/api/matter-requests', matterRequestsRouter);
 app.use('/api/opponents', opponentsRouter);
 app.use('/api/risk-assessments', riskAssessmentsRouter);
@@ -142,7 +146,10 @@ app.use('/api/pitch-team', pitchTeamRouter);
 app.use('/api', sendEmailRouter);
 app.use('/api/reporting', reportingRouter);
 app.use('/api/reporting-stream', reportingStreamRouter);
+app.use('/api/home-metrics', homeMetricsStreamRouter);
 app.use('/api/marketing-metrics', marketingMetricsRouter);
+app.use('/api/transactions', transactionsRouter);
+app.use('/api/cache-preheater', cachePreheaterRouter);
 
 // IMPORTANT: Attendance routes must come BEFORE proxy routes to avoid conflicts
 app.use('/api/attendance', attendanceRouter);

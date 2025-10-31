@@ -49,7 +49,7 @@ import { useTheme } from '../../app/functionality/ThemeContext';
 import { useNavigatorActions } from '../../app/functionality/NavigatorContext';
 import UnclaimedEnquiries from './UnclaimedEnquiries';
 import FilterBanner from '../../components/filter/FilterBanner';
-import { Context as TeamsContextType } from '@microsoft/teams-js';
+import { app } from '@microsoft/teams-js';
 import AreaCountCard from './AreaCountCard';
 import 'rc-slider/assets/index.css';
 import '../../app/styles/NavigatorPivot.css';
@@ -89,7 +89,7 @@ interface MonthlyCount {
 }
 
 interface EnquiriesProps {
-  context?: TeamsContextType | null;
+  context?: app.Context | null;
   enquiries: Enquiry[] | null;
   userData: UserData[] | null;
   poidData: POID[];

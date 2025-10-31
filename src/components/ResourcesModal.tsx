@@ -1,6 +1,7 @@
 ﻿import React, { useState, useEffect, useCallback } from 'react';
 import { IconButton, Text, SearchBox, Modal, ActionButton, MessageBar, MessageBarType } from '@fluentui/react';
 import { useTheme } from '../app/functionality/ThemeContext';
+import { colours } from '../app/styles/colours';
 import './PremiumModal.css';
 
 // Import Custom SVG Icons (original provider logos)
@@ -63,12 +64,12 @@ const ResourceItemComponent: React.FC<{
                 padding: '20px 24px',
                 borderRadius: '16px',
                 cursor: 'pointer',
-                backgroundColor: isDarkMode ? '#1a1a1a' : '#ffffff',
-                border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
+                backgroundColor: isDarkMode ? 'rgba(17, 24, 39, 0.72)' : '#ffffff',
+                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(0,0,0,0.06)'}`,
                 transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
                 animation: `modalItemFadeIn 0.4s ease ${index * 0.03}s both`,
                 marginBottom: '12px',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+                boxShadow: isDarkMode ? '0 2px 10px rgba(0, 0, 0, 0.22)' : '0 2px 8px rgba(0,0,0,0.04)',
             }}
         >
             <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
@@ -76,12 +77,12 @@ const ResourceItemComponent: React.FC<{
                     width: '48px',
                     height: '48px',
                     borderRadius: '12px',
-                    backgroundColor: isDarkMode ? '#2a2a2a' : '#f8f9fa',
+                    backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.8)' : '#f8f9fa',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     fontSize: '20px',
-                    color: isDarkMode ? '#8a8a8a' : '#6a6a6a',
+                    color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : '#6a6a6a',
                 }}>
                     <IconButton
                         iconProps={{ iconName }}
@@ -281,7 +282,9 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                     maxHeight: 'none',
                     margin: 0,
                     borderRadius: 0,
-                    backgroundColor: isDarkMode ? '#0f0f0f' : '#ffffff',
+                    background: isDarkMode
+                        ? 'linear-gradient(135deg, #0f172a 0%, #1e293b 30%, #334155 65%, #475569 100%)'
+                        : '#ffffff',
                 },
                 scrollableContent: {
                     height: '100vh',
@@ -297,8 +300,8 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                 {/* Header */}
                 <div style={{
                     padding: '32px 64px',
-                    borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
-                    backgroundColor: isDarkMode ? '#1a1a1a' : '#fafbfc',
+                    borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(0,0,0,0.06)'}`,
+                    background: isDarkMode ? 'rgba(15, 23, 42, 0.88)' : '#fafbfc',
                 }}>
                     <div style={{
                         maxWidth: '1400px',
@@ -329,7 +332,7 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                         minWidth: 48,
                                         height: 48,
                                         borderRadius: '12px',
-                                        backgroundColor: isDarkMode ? '#2a2a2a' : '#f0f2f5',
+                                        backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.8)' : '#f0f2f5',
                                     }
                                 }}
                             />
@@ -343,9 +346,9 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                 root: {
                                     maxWidth: '500px',
                                     borderRadius: '16px',
-                                    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
-                                    backgroundColor: isDarkMode ? '#2a2a2a' : '#ffffff',
-                                    boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(0,0,0,0.06)'}`,
+                                    backgroundColor: isDarkMode ? 'rgba(17, 24, 39, 0.72)' : '#ffffff',
+                                    boxShadow: isDarkMode ? '0 2px 10px rgba(0, 0, 0, 0.22)' : '0 2px 8px rgba(0,0,0,0.08)',
                                 },
                                 field: {
                                     backgroundColor: 'transparent',
@@ -398,11 +401,11 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                                     padding: '20px 24px',
                                                     borderRadius: '16px',
                                                     cursor: 'default',
-                                                    backgroundColor: isDarkMode ? '#1a1a1a' : '#ffffff',
-                                                    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
+                                                    backgroundColor: isDarkMode ? 'rgba(17, 24, 39, 0.72)' : '#ffffff',
+                                                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(0,0,0,0.06)'}`,
                                                     transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
                                                     animation: `modalItemFadeIn 0.4s ease ${(sectionIndex * 2 + index) * 0.03}s both`,
-                                                    boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+                                                    boxShadow: isDarkMode ? '0 2px 10px rgba(0, 0, 0, 0.22)' : '0 2px 8px rgba(0,0,0,0.04)',
                                                 }}
                                             >
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
@@ -410,12 +413,12 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                                         width: '48px',
                                                         height: '48px',
                                                         borderRadius: '12px',
-                                                        backgroundColor: isDarkMode ? '#2a2a2a' : '#f8f9fa',
+                                                        backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.8)' : '#f8f9fa',
                                                         display: 'flex',
                                                         alignItems: 'center',
                                                         justifyContent: 'center',
                                                         fontSize: '20px',
-                                                        color: isDarkMode ? '#8a8a8a' : '#6a6a6a',
+                                                        color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : '#6a6a6a',
                                                     }}>
                                                         {[asanaIcon, nuclinoIcon, clioIcon, netdocumentsIcon, activecampaignIcon, bundledocsIcon, leapsomeIcon, harveyIcon, lexisnexisIcon, thompsonReutersIcon, landRegistryIcon].includes(resource.icon) ? (
                                                             <img 

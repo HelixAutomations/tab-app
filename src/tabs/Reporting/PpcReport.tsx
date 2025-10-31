@@ -817,6 +817,36 @@ const PpcReport: React.FC<PpcReportProps> = ({
     return result;
   }, [filteredGoogleAdsData, daysBetween]);
 
+  // Calculate all-time metrics for KPI cards consistency with income when rangeKey === 'all'
+  const allTimeMetrics = useMemo(() => {
+    debugLog('PpcReport: calculating all-time metrics from full data:', googleAdsData);
+    
+    const totalImpressions = googleAdsData.reduce((sum, row) => sum + (row.impressions || 0), 0);
+    const totalClicks = googleAdsData.reduce((sum, row) => sum + (row.clicks || 0), 0);
+    const totalCost = googleAdsData.reduce((sum, row) => sum + (row.cost || 0), 0);
+    const totalConversions = googleAdsData.reduce((sum, row) => sum + (row.conversions || 0), 0);
+    
+    // Calculate working days (days with actual spend) from all data
+    const workingDays = googleAdsData.filter(row => (row.cost || 0) > 0).length;
+    const totalDays = googleAdsData.length;
+    const effectiveDays = workingDays > 0 ? workingDays : totalDays;
+    
+    const result = {
+      totalImpressions,
+      totalClicks,
+      totalCost,
+      totalConversions,
+      averageImpressionsPerDay: effectiveDays > 0 ? totalImpressions / effectiveDays : 0,
+      averageClicksPerDay: effectiveDays > 0 ? totalClicks / effectiveDays : 0,
+      averageCostPerDay: effectiveDays > 0 ? totalCost / effectiveDays : 0,
+      averageConversionsPerDay: effectiveDays > 0 ? totalConversions / effectiveDays : 0,
+      workingDays,
+    };
+    
+    debugLog('PpcReport: calculated all-time metrics:', result);
+    return result;
+  }, [googleAdsData]);
+
   const performanceMetrics = useMemo(() => ([
     {
       key: 'impressions',
@@ -993,7 +1023,11 @@ const PpcReport: React.FC<PpcReportProps> = ({
   const totalIncomeAllTime = ppcIncomeMetrics?.summary.totalRevenue ?? 0;
   const incomeWithin7Days = ppcIncomeMetrics?.summary.revenue7d ?? 0;
   const incomeWithin30Days = ppcIncomeMetrics?.summary.revenue30d ?? 0;
-  const roasActual = summaryMetrics.totalCost > 0 ? selectedRangeRevenue / summaryMetrics.totalCost : 0;
+  
+  // Use consistent metrics for ROAS calculation - both revenue and spend from same period
+  const relevantSpend = rangeKey === 'all' ? allTimeMetrics.totalCost : summaryMetrics.totalCost;
+  const roasActual = relevantSpend > 0 ? selectedRangeRevenue / relevantSpend : 0;
+  
   const unmatchedCount = ppcIncomeMetrics?.debug?.unmatchedCount ?? ppcIncomeMetrics?.unmatchedPayments?.length ?? 0;
 
   const isCustomRange = rangeKey === 'custom';
@@ -1208,10 +1242,10 @@ const PpcReport: React.FC<PpcReportProps> = ({
         </div>
       </div>
 
-      {/* Key KPI Cards - Focus on Spend and Income */}
+  {/* Key KPI Cards - Spend and Income */}
       <div style={{ 
         display: 'grid', 
-        gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', 
+        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
         gap: 20, 
         marginBottom: 24 
       }}>
@@ -1220,12 +1254,18 @@ const PpcReport: React.FC<PpcReportProps> = ({
             <span style={{ fontSize: 14, fontWeight: 600 }}>Ad Spend</span>
           </div>
           <span style={{ fontSize: 32, fontWeight: 700, color: colours.red }}>
-            {formatCurrency(summaryMetrics.totalCost)}
+            {formatCurrency(rangeKey === 'all' ? allTimeMetrics.totalCost : summaryMetrics.totalCost)}
           </span>
           <span style={{ fontSize: 12, opacity: 0.6 }}>
-            {formatCurrency(summaryMetrics.averageCostPerDay)}/day avg across {summaryMetrics.workingDays} working {summaryMetrics.workingDays === 1 ? 'day' : 'days'}
+            {rangeKey === 'all' 
+              ? `${formatCurrency(allTimeMetrics.averageCostPerDay)}/day avg across ${allTimeMetrics.workingDays} working ${allTimeMetrics.workingDays === 1 ? 'day' : 'days'} (all-time)`
+              : `${formatCurrency(summaryMetrics.averageCostPerDay)}/day avg across ${summaryMetrics.workingDays} working ${summaryMetrics.workingDays === 1 ? 'day' : 'days'}`
+            }
           </span>
         </div>
+
+
+
 
         <div style={summaryChipStyle(isDarkMode)}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: 0.8 }}>

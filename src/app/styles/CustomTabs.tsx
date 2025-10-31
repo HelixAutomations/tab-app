@@ -41,6 +41,8 @@ interface CustomTabsProps {
   onReturnToAdmin?: () => void;
   originalAdminUser?: UserData | null;
   hasImmediateActions?: boolean;
+  onRefreshEnquiries?: () => Promise<void> | void;
+  onRefreshMatters?: () => Promise<void> | void;
 }
 
 const customPivotStyles = (_isDarkMode: boolean): Partial<IPivotStyles> => ({
@@ -86,6 +88,8 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
   onReturnToAdmin,
   originalAdminUser,
   hasImmediateActions = false,
+  onRefreshEnquiries,
+  onRefreshMatters,
 }) => {
   const { isDarkMode } = useTheme();
   const pivotWrapRef = React.useRef<HTMLDivElement | null>(null);
@@ -284,6 +288,8 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
           onUserChange={onUserChange}
           onReturnToAdmin={onReturnToAdmin}
           originalAdminUser={originalAdminUser}
+          onRefreshEnquiries={onRefreshEnquiries}
+          onRefreshMatters={onRefreshMatters}
         />
       )}
     </div>

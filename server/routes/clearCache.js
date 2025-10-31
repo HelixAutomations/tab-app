@@ -1,5 +1,6 @@
 const express = require('express');
 const { getRedisClient } = require('../utils/redisClient');
+const reporting = require('./reporting');
 
 const router = express.Router();
 
@@ -26,6 +27,15 @@ router.post('/clear-cache', async (req, res) => {
         await redisClient.del(reportingKeys);
         clearedKeys.push(...reportingKeys);
       }
+      // Also clear in-memory reporting response cache
+      try {
+        const cleared = typeof reporting.clearReportingCache === 'function'
+          ? reporting.clearReportingCache('all')
+          : 0;
+        if (cleared > 0) {
+          console.log(`🧹 Cleared in-memory reporting cache entries: ${cleared}`);
+        }
+      } catch {}
     }
     
     if (scope === 'clio' || scope === 'all') {
@@ -44,6 +54,26 @@ router.post('/clear-cache', async (req, res) => {
         await redisClient.del(unifiedKeys);
         clearedKeys.push(...unifiedKeys);
       }
+    }
+
+    if (scope === 'enquiries' || scope === 'all') {
+      // Clear helix-core enquiries dataset keys and reporting enquiries
+      const hcKeys = await redisClient.keys('hc:enquiries:*');
+      const rptEnq = await redisClient.keys('rpt:enquiries*');
+      const toDelete = [...hcKeys, ...rptEnq];
+      if (toDelete.length > 0) {
+        await redisClient.del(toDelete);
+        clearedKeys.push(...toDelete);
+      }
+      // Clear in-memory response cache entries that include enquiries
+      try {
+        const cleared = typeof reporting.clearReportingCache === 'function'
+          ? reporting.clearReportingCache('enquiries')
+          : 0;
+        if (cleared > 0) {
+          console.log(`🧹 Cleared in-memory reporting cache (enquiries): ${cleared}`);
+        }
+      } catch {}
     }
     
     console.log(`🗑️ Cache cleared: ${clearedKeys.length} keys (scope: ${scope})`);

@@ -60,78 +60,78 @@ export const VerificationSummary: React.FC<VerificationSummaryProps> = ({
       .vs-pulse { animation: vs-pulse 900ms ease-out 1; }
       .vs-cascade { animation: cascadeIn 0.6s ease-out; }
       .vs-main-container {
-        background: linear-gradient(135deg, rgba(5, 12, 26, 0.98) 0%, rgba(9, 22, 44, 0.94) 52%, rgba(13, 35, 63, 0.9) 100%);
-        border: 1px solid rgba(125, 211, 252, 0.28);
-        border-radius: 16px;
-        padding: 20px;
-        box-shadow: 0 20px 44px rgba(2, 6, 17, 0.72);
-        backdrop-filter: blur(12px);
-        border-left: 3px solid rgba(125, 211, 252, 0.7);
+        background: linear-gradient(135deg, rgba(7, 16, 32, 0.94) 0%, rgba(11, 30, 55, 0.86) 100%);
+        border: 1px solid rgba(125, 211, 252, 0.24);
+        border-bottom: 1px solid rgba(125, 211, 252, 0.24);
+        border-radius: 0;
+        padding: 12px 16px;
+        box-shadow: none;
+        backdrop-filter: blur(6px);
         margin-bottom: 16px;
       }
       .vs-main-container.light {
-        background: linear-gradient(135deg, rgba(248, 250, 252, 0.96) 0%, rgba(255, 255, 255, 0.94) 100%);
-        border: 1px solid rgba(148, 163, 184, 0.25);
-        box-shadow: 0 8px 24px rgba(13, 47, 96, 0.16);
-        border-left: 3px solid rgba(59, 130, 246, 0.6);
-      }
-      .vs-section-card {
-        background: linear-gradient(135deg, rgba(7, 16, 32, 0.94) 0%, rgba(11, 30, 55, 0.86) 100%);
-        border: 1px solid rgba(125, 211, 252, 0.24);
-        border-radius: 12px;
-        padding: 16px;
-        box-shadow: 0 8px 16px rgba(2, 6, 17, 0.4);
-        backdrop-filter: blur(8px);
-        transition: all 0.25s ease;
-      }
-      .vs-section-card.light {
         background: linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%);
         border: 1px solid rgba(148, 163, 184, 0.22);
-        box-shadow: 0 4px 12px rgba(13, 47, 96, 0.08);
+        border-bottom: 1px solid rgba(148, 163, 184, 0.22);
+        box-shadow: none;
+      }
+      .vs-section-card {
+        background: transparent;
+        border: none;
+        border-radius: 0;
+        padding: 0;
+        box-shadow: none;
+        backdrop-filter: none;
+        transition: none;
+      }
+      .vs-section-card.light {
+        background: transparent;
+        border: none;
+        box-shadow: none;
       }
       .vs-section-card:hover {
-        transform: translateY(-2px);
+        transform: none;
       }
       .vs-section-card.dark:hover {
-        box-shadow: 0 12px 20px rgba(2, 6, 17, 0.6);
+        box-shadow: none;
       }
       .vs-section-card.light:hover {
-        box-shadow: 0 8px 16px rgba(13, 47, 96, 0.12);
+        box-shadow: 0 2px 8px rgba(13, 47, 96, 0.1);
       }
       .vs-grid { 
         display: grid; 
-        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); 
-        gap: 16px; 
-        padding: 4px;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); 
+        gap: 8px; 
+        padding: 2px;
       }
       @media (max-width: 680px) { 
         .vs-grid { 
           grid-template-columns: 1fr; 
-          gap: 12px; 
+          gap: 6px; 
         } 
       }
       .vs-columns { 
         display: grid; 
-        grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); 
-        gap: 24px; 
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); 
+        gap: 12px; 
         align-items: start; 
       }
       @media (max-width: 880px) { 
         .vs-columns { 
           grid-template-columns: 1fr; 
-          gap: 20px; 
+          gap: 10px; 
         } 
       }
       .vs-prospect-grid { 
         display: grid; 
-        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); 
-        gap: 16px; 
-        padding: 4px;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); 
+        gap: 8px; 
+        padding: 2px;
       }
       @media (max-width: 680px) { 
         .vs-prospect-grid { 
           grid-template-columns: 1fr; 
-          gap: 12px; 
+          gap: 6px; 
         } 
       }
     `;
@@ -185,23 +185,35 @@ export const VerificationSummary: React.FC<VerificationSummaryProps> = ({
   return (
     <div 
       aria-label="Prefill data" 
-      className={`vs-main-container vs-cascade ${isDarkMode ? '' : 'light'}`}
+      className={`vs-columns vs-cascade`}
+      style={{
+        background: isDarkMode 
+          ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.94) 0%, rgba(11, 30, 55, 0.86) 100%)'
+          : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
+        border: 'none',
+        borderBottom: isDarkMode 
+          ? '1px solid rgba(125, 211, 252, 0.24)'
+          : '1px solid rgba(148, 163, 184, 0.22)',
+        borderRadius: '0',
+        padding: '12px 16px',
+        backdropFilter: 'blur(6px)',
+        marginBottom: '0'
+      }}
     >
       {/* Two-column content: left Prospect, right Prefill */}
-      <div className="vs-columns">
         {/* Left: Prospect details */}
         <div className={`vs-section-card ${isDarkMode ? 'dark' : 'light'}`}>
-          <div style={{ padding: '4px 0 8px 0' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+          <div style={{ padding: '2px 0 4px 0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
               <div style={{ 
                 color: isDarkMode ? '#7DD3FC' : colours.light.highlight, 
-                fontSize: '14px', 
+                fontSize: '12px', 
                 fontWeight: '600',
                 display: 'flex', 
                 alignItems: 'center', 
-                gap: '8px' 
+                gap: '6px' 
               }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <circle cx="12" cy="8" r="4" stroke="currentColor" strokeWidth="2" />
                   <rect x="4" y="15" width="16" height="6" rx="3" stroke="currentColor" strokeWidth="2" />
                 </svg>
@@ -209,11 +221,11 @@ export const VerificationSummary: React.FC<VerificationSummaryProps> = ({
               </div>
             </div>
             <div style={{ 
-              height: '2px', 
+              height: '1px', 
               background: isDarkMode 
-                ? 'linear-gradient(90deg, rgba(125, 211, 252, 0.4) 0%, rgba(125, 211, 252, 0.1) 100%)' 
-                : 'linear-gradient(90deg, rgba(54, 144, 206, 0.4) 0%, rgba(54, 144, 206, 0.1) 100%)', 
-              margin: '0 0 16px 0',
+                ? 'linear-gradient(90deg, rgba(125, 211, 252, 0.3) 0%, rgba(125, 211, 252, 0.05) 100%)' 
+                : 'linear-gradient(90deg, rgba(54, 144, 206, 0.3) 0%, rgba(54, 144, 206, 0.05) 100%)', 
+              margin: '0 0 10px 0',
               borderRadius: '1px'
             }} />
             <div className="vs-prospect-grid">
@@ -222,18 +234,18 @@ export const VerificationSummary: React.FC<VerificationSummaryProps> = ({
             </div>
             {/* Contact Information - Enhanced Display */}
             {(clientEmail || clientPhone) && (
-              <div style={{ marginTop: '16px' }}>
+              <div style={{ marginTop: '10px' }}>
                 <div style={{ 
                   color: modernSubtle, 
-                  fontSize: '12px', 
+                  fontSize: '10px', 
                   fontWeight: '500',
                   textTransform: 'uppercase',
-                  letterSpacing: '0.5px',
-                  marginBottom: '8px'
+                  letterSpacing: '0.4px',
+                  marginBottom: '6px'
                 }}>
                   Contact Information
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                   {clientEmail && <ContactChip label={clientEmail} kind="mail" subtle={modernSubtle} isDarkMode={isDarkMode} accent={modernAccent} />}
                   {clientPhone && <ContactChip label={clientPhone} kind="phone" subtle={modernSubtle} isDarkMode={isDarkMode} accent={modernAccent} />}
                 </div>
@@ -244,17 +256,17 @@ export const VerificationSummary: React.FC<VerificationSummaryProps> = ({
 
         {/* Right: Prefill data used in placeholders */}
         <div className={`vs-section-card ${isDarkMode ? 'dark' : 'light'}`}>
-          <div style={{ padding: '4px 0 8px 0' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+          <div style={{ padding: '2px 0 4px 0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
               <div style={{ 
                 color: isDarkMode ? '#7DD3FC' : colours.light.highlight, 
-                fontSize: '14px', 
+                fontSize: '12px', 
                 fontWeight: '600',
                 display: 'flex', 
                 alignItems: 'center', 
-                gap: '8px' 
+                gap: '6px' 
               }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
                   <path d="M12 7v10M7 12h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                 </svg>
@@ -262,11 +274,11 @@ export const VerificationSummary: React.FC<VerificationSummaryProps> = ({
               </div>
             </div>
             <div style={{ 
-              height: '2px', 
+              height: '1px', 
               background: isDarkMode 
-                ? 'linear-gradient(90deg, rgba(125, 211, 252, 0.4) 0%, rgba(125, 211, 252, 0.1) 100%)' 
-                : 'linear-gradient(90deg, rgba(54, 144, 206, 0.4) 0%, rgba(54, 144, 206, 0.1) 100%)', 
-              margin: '0 0 16px 0',
+                ? 'linear-gradient(90deg, rgba(125, 211, 252, 0.3) 0%, rgba(125, 211, 252, 0.05) 100%)' 
+                : 'linear-gradient(90deg, rgba(54, 144, 206, 0.3) 0%, rgba(54, 144, 206, 0.05) 100%)', 
+              margin: '0 0 10px 0',
               borderRadius: '1px'
             }} />
             <div className="vs-grid">
@@ -278,7 +290,6 @@ export const VerificationSummary: React.FC<VerificationSummaryProps> = ({
           </div>
         </div>
       </div>
-    </div>
   );
 };
 
@@ -321,19 +332,19 @@ const ContactChip: React.FC<{
       style={{
         display: 'inline-flex', 
         alignItems: 'center', 
-        gap: '8px',
-        padding: '8px 12px', 
-        borderRadius: '10px', 
+        gap: '6px',
+        padding: '6px 10px', 
+        borderRadius: '8px', 
         background: bg,
         border: `1px solid ${border}`, 
-        fontSize: '13px',
+        fontSize: '12px',
         fontWeight: '500',
         color: isDarkMode ? '#F1F5F9' : '#1E293B',
         cursor: 'pointer',
         transition: 'all 0.2s ease',
         transform: isHovered ? 'translateY(-1px)' : 'translateY(0)',
         boxShadow: isHovered 
-          ? (isDarkMode ? '0 4px 12px rgba(2, 6, 17, 0.4)' : '0 4px 12px rgba(13, 47, 96, 0.1)')
+          ? (isDarkMode ? '0 2px 6px rgba(2, 6, 17, 0.3)' : '0 2px 6px rgba(13, 47, 96, 0.08)')
           : 'none'
       }}
       title={label}
@@ -398,21 +409,21 @@ const KV: React.FC<{
       style={{
         display: 'flex',
         flexDirection: 'column',
-        gap: '8px',
-        padding: '16px 18px',
-        borderRadius: '12px',
+        gap: '4px',
+        padding: '10px 12px',
+        borderRadius: '8px',
         background: isHovered 
           ? (isDarkMode ? 'rgba(125, 211, 252, 0.12)' : 'rgba(54, 144, 206, 0.08)')
           : (isDarkMode ? 'rgba(7, 16, 32, 0.6)' : 'rgba(248, 250, 252, 0.8)'),
         border: `1px solid ${isDarkMode 
           ? (isHovered ? 'rgba(125, 211, 252, 0.3)' : 'rgba(125, 211, 252, 0.15)') 
           : (isHovered ? 'rgba(54, 144, 206, 0.25)' : 'rgba(148, 163, 184, 0.2)')}`,
-        transition: 'all 0.25s ease',
+        transition: 'all 0.2s ease',
         cursor: copyable && value !== '—' ? 'pointer' : 'default',
         transform: isHovered ? 'translateY(-1px)' : 'translateY(0)',
         boxShadow: isHovered 
-          ? (isDarkMode ? '0 8px 16px rgba(2, 6, 17, 0.4)' : '0 4px 12px rgba(13, 47, 96, 0.1)')
-          : (isDarkMode ? '0 4px 8px rgba(2, 6, 17, 0.2)' : '0 2px 6px rgba(13, 47, 96, 0.05)')
+          ? (isDarkMode ? '0 4px 10px rgba(2, 6, 17, 0.3)' : '0 2px 8px rgba(13, 47, 96, 0.08)')
+          : (isDarkMode ? '0 2px 4px rgba(2, 6, 17, 0.15)' : '0 1px 3px rgba(13, 47, 96, 0.04)')
       }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -420,50 +431,50 @@ const KV: React.FC<{
     >
       <div style={{ 
         color: subtle, 
-        fontSize: '12px', 
+        fontSize: '10px', 
         fontWeight: '600',
         textTransform: 'uppercase',
-        letterSpacing: '0.8px',
+        letterSpacing: '0.6px',
         display: 'flex',
         alignItems: 'center',
-        gap: '6px'
+        gap: '4px'
       }}>
         <div style={{
-          width: '3px',
-          height: '3px',
+          width: '2px',
+          height: '2px',
           borderRadius: '50%',
           background: isDarkMode ? '#7DD3FC' : colours.light.highlight
         }} />
         {label}
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         <span style={{ 
           color: text, 
-          fontSize: '15px',
-          fontWeight: '700', 
+          fontSize: '13px',
+          fontWeight: '600', 
           fontFamily: mono 
             ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' 
             : undefined,
-          lineHeight: '1.4'
+          lineHeight: '1.3'
         }}>
           {value}
         </span>
         {copyable && value !== '—' && (
           <div
             style={{ 
-              opacity: isHovered ? 1 : 0.5,
-              transition: 'all 0.25s ease',
+              opacity: isHovered ? 1 : 0.4,
+              transition: 'all 0.2s ease',
               color: copied ? '#10B981' : (isDarkMode ? '#7DD3FC' : colours.light.highlight),
               transform: copied ? 'scale(1.1)' : 'scale(1)'
             }}
           >
             {copied ? (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <circle cx="12" cy="12" r="10" fill="currentColor" opacity="0.2"/>
                 <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             ) : (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="2"/>
                 <rect x="2" y="2" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="2"/>
               </svg>

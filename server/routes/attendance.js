@@ -806,11 +806,31 @@ router.post('/annual-leave', async (req, res) => {
 router.post('/updateAnnualLeave', async (req, res) => {
   try {
     const { id, newStatus, rejection_notes } = req.body;
+    
+    console.log('🔄 Annual Leave Update Request:', {
+      id,
+      newStatus,
+      rejection_notes,
+      idType: typeof id,
+      parsedId: parseInt(id, 10),
+      isValidId: !isNaN(parseInt(id, 10))
+    });
 
     if (!id || !newStatus) {
+      console.error('❌ Missing required fields:', { id, newStatus });
       return res.status(400).json({
         success: false,
         error: "Missing 'id' or 'newStatus' in request body."
+      });
+    }
+    
+    // Validate ID is a valid number
+    const parsedId = parseInt(id, 10);
+    if (isNaN(parsedId)) {
+      console.error('❌ Invalid ID format:', { id, parsedId });
+      return res.status(400).json({
+        success: false,
+        error: `Invalid ID format: '${id}'. Expected a numeric value.`
       });
     }
 
@@ -834,8 +854,9 @@ router.post('/updateAnnualLeave', async (req, res) => {
     const projectDataConnStr = `Server=tcp:helix-database-server.database.windows.net,1433;Initial Catalog=helix-project-data;Persist Security Info=False;User ID=helix-database-server;Password=${password};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;`;
 
     // Update the record
-  const updateResult = await attendanceQuery(projectDataConnStr, (req, sql) =>
-      req.input('id', sql.Int, parseInt(id, 10))
+    console.log('🔄 Executing SQL update for request_id:', parsedId);
+    const updateResult = await attendanceQuery(projectDataConnStr, (req, sql) =>
+      req.input('id', sql.Int, parsedId)
         .input('newStatus', sql.VarChar(50), newStatus)
         .input('rejectionNotes', sql.NVarChar(sql.MAX), rejection_notes || "")
         .query(`
@@ -849,8 +870,14 @@ router.post('/updateAnnualLeave', async (req, res) => {
            WHERE [request_id] = @id;
         `)
     );
+    
+    console.log('📊 SQL Update Result:', {
+      rowsAffected: updateResult.rowsAffected,
+      recordset: updateResult.recordset
+    });
 
     if (updateResult.rowsAffected[0] === 0) {
+      console.error('❌ No rows affected - record not found:', { parsedId, newStatus });
       return res.status(404).json({
         success: false,
         error: `No record found with ID ${id}, or the status transition is invalid.`

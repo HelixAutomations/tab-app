@@ -1083,9 +1083,47 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     return value >= activeStart && value <= endOfDay;
   };
 
-  const filteredEnquiries = useMemo(() => (
-    enquiries.filter((entry) => withinRange(parseDateValue(entry.Touchpoint_Date)))
-  ), [enquiries, activeStart, activeEnd]);
+  const filteredEnquiries = useMemo(() => {
+    // First: Filter out placeholder emails that cause false duplicates (same ID reused for different people)
+    const placeholderEmails = ['noemail@noemail.com', 'prospects@helix-law.com'];
+    const validEnquiries = enquiries.filter((e) => {
+      const email = ((e as any).Email || (e as any).email || '').toLowerCase();
+      return !placeholderEmails.includes(email);
+    });
+    
+    // Second: Filter by date range
+    const filtered = validEnquiries.filter((entry) => withinRange(parseDateValue(entry.Touchpoint_Date)));
+    
+    // Third: Deduplicate by ID + Week (same person with enquiries in different weeks = different matters)
+    // Multiple calls within same week = follow-ups, count as one enquiry
+    const seen = new Set<string>();
+    const deduped: typeof filtered = [];
+    for (const e of filtered) {
+      const id = String((e as any).ID || (e as any).id || '');
+      const dateStr = (e.Touchpoint_Date || '').toString().split('T')[0];
+      
+      // Calculate ISO week number
+      let weekKey = '';
+      if (dateStr) {
+        const d = new Date(dateStr);
+        if (!isNaN(d.getTime())) {
+          const year = d.getFullYear();
+          const dayOfWeek = d.getDay() || 7;
+          const monday = new Date(d);
+          monday.setDate(d.getDate() - dayOfWeek + 1);
+          const weekNum = Math.ceil(((monday.getTime() - new Date(year, 0, 1).getTime()) / 86400000 + 1) / 7);
+          weekKey = `${year}-W${weekNum}`;
+        }
+      }
+      
+      const key = `${id}|${weekKey}`;
+      if (!id || !seen.has(key)) {
+        if (id) seen.add(key);
+        deduped.push(e);
+      }
+    }
+    return deduped;
+  }, [enquiries, activeStart, activeEnd]);
 
   const filteredMatters = useMemo(() => (
     matters.filter((entry) => {
