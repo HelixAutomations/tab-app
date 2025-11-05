@@ -138,7 +138,6 @@ const QuickActionsCard: React.FC<QuickActionsCardProps> = ({
 }) => {
   const [hovered, setHovered] = React.useState(false);
   const [showLabel, setShowLabel] = React.useState(false);
-  const [forceUpdate, setForceUpdate] = React.useState(0);
 
   // Get icon components
   const getIcons = (iconName: string) => {
@@ -187,20 +186,18 @@ const QuickActionsCard: React.FC<QuickActionsCardProps> = ({
       onClick={disabled ? undefined : onClick}
       role="button"
       tabIndex={disabled ? -1 : 0}
-      style={{...style, transform: `translateZ(${forceUpdate}px)`}}
+      style={style}
       onMouseEnter={() => {
         setHovered(true);
         if (!alwaysShowText) {
           setShowLabel(true);
         }
-        setForceUpdate(prev => prev + 1);
       }}
       onMouseLeave={() => {
         setHovered(false);
         if (!alwaysShowText) {
           setShowLabel(false);
         }
-        setForceUpdate(prev => prev + 1);
       }}
       onKeyPress={(e) => {
         if (!disabled && (e.key === 'Enter' || e.key === ' ')) {

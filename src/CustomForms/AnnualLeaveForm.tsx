@@ -9,6 +9,7 @@ import { DateRangePicker, Range, RangeKeyDict } from 'react-date-range';
 import { addDays, eachDayOfInterval, format } from 'date-fns';
 import 'react-date-range/dist/styles.css';
 import 'react-date-range/dist/theme/default.css';
+import '../app/styles/CustomDateRange.css';
 import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles, sharedDecisionButtonStyles } from '../app/styles/ButtonStyles';
 import HelixAvatar from '../assets/helix avatar.png';
 import GreyHelixMark from '../assets/grey helix mark.png'; // Not currently used
@@ -34,11 +35,24 @@ interface DateRangeSelection {
 
 const initialFormFields: FormField[] = [];
 
-const buttonStylesFixedWidth = {
-  root: { ...(sharedPrimaryButtonStyles.root as object), width: '150px' },
-  rootHovered: { ...(sharedPrimaryButtonStyles.rootHovered as object) },
-  rootPressed: { ...(sharedPrimaryButtonStyles.rootPressed as object) },
-};
+const accentOutlineButtonStyles = (isDarkMode: boolean) => ({
+  root: {
+    width: '150px',
+    backgroundColor: 'transparent',
+    color: isDarkMode ? colours.accent : colours.highlight,
+    borderColor: isDarkMode ? colours.accent : colours.highlight,
+    borderWidth: '1.5px',
+    fontWeight: '600' as const,
+  },
+  rootHovered: {
+    backgroundColor: isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.08)',
+    borderColor: isDarkMode ? colours.accent : colours.highlight,
+  },
+  rootPressed: {
+    backgroundColor: isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.12)',
+    borderColor: isDarkMode ? colours.accent : colours.highlight,
+  },
+});
 
 const buttonStylesFixedWidthSecondary = {
   root: { ...(sharedDefaultButtonStyles.root as object), width: '150px' },
@@ -47,13 +61,15 @@ const buttonStylesFixedWidthSecondary = {
 };
 
 const infoBoxStyle = (isDarkMode: boolean): React.CSSProperties => ({
-  backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.grey,
-  boxShadow: isDarkMode ? '0 2px 6px rgba(0, 0, 0, 0.3)' : '0 2px 6px rgba(0, 0, 0, 0.1)',
-  padding: '20px',
-  borderRadius: '4px',
+  backgroundColor: isDarkMode ? 'rgba(17, 24, 39, 0.60)' : 'rgba(255, 255, 255, 0.75)',
+  boxShadow: isDarkMode ? '0 6px 16px rgba(0, 0, 0, 0.30)' : '0 6px 16px rgba(2, 6, 23, 0.08)',
+  padding: '16px',
+  borderRadius: '12px',
   animation: 'dropIn 0.3s ease forwards',
   marginBottom: '20px',
-  border: `1px solid ${isDarkMode ? colours.dark.border : 'transparent'}`,
+  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(15, 23, 42, 0.08)'}`,
+  backdropFilter: 'blur(6px)',
+  WebkitBackdropFilter: 'blur(6px)'
 });
 
 const labelStyle: React.CSSProperties = {
@@ -69,58 +85,72 @@ const valueStyle: React.CSSProperties = {
   // Note: color is applied contextually based on theme
 };
 
-// Columns for the historical leave list
-const historyColumns: IColumn[] = [
+// Compact columns for the historical leave list
+const getHistoryColumns = (isDarkMode: boolean): IColumn[] => [
   {
-    key: 'start_date',
-    name: 'Start Date',
-    fieldName: 'start_date',
-    minWidth: 100,
-    maxWidth: 120,
-    isResizable: true,
-    onRender: (item: AnnualLeaveRecord) => format(new Date(item.start_date), 'd MMM yyyy'),
+    key: 'dates',
+    name: 'Dates',
+    fieldName: 'dates',
+    minWidth: 140,
+    maxWidth: 180,
+    isResizable: false,
+    onRender: (item: AnnualLeaveRecord) => (
+      <Text style={{ fontSize: '13px', color: isDarkMode ? colours.dark.text : colours.light.text }}>
+        {format(new Date(item.start_date), 'd MMM')} - {format(new Date(item.end_date), 'd MMM yyyy')}
+      </Text>
+    ),
   },
   {
-    key: 'end_date',
-    name: 'End Date',
-    fieldName: 'end_date',
-    minWidth: 100,
-    maxWidth: 120,
-    isResizable: true,
-    onRender: (item: AnnualLeaveRecord) => format(new Date(item.end_date), 'd MMM yyyy'),
-  },
-  {
-    key: 'reason',
-    name: 'Reason',
-    fieldName: 'reason',
-    minWidth: 150,
-    isResizable: true,
+    key: 'days_taken',
+    name: 'Days',
+    fieldName: 'days_taken',
+    minWidth: 50,
+    maxWidth: 60,
+    isResizable: false,
+    onRender: (item: AnnualLeaveRecord) => (
+      <Text style={{ fontSize: '13px', fontWeight: 600, color: isDarkMode ? colours.accent : colours.highlight }}>
+        {item.days_taken ?? 'N/A'}
+      </Text>
+    ),
   },
   {
     key: 'status',
     name: 'Status',
     fieldName: 'status',
-    minWidth: 80,
+    minWidth: 90,
     maxWidth: 100,
-    isResizable: true,
+    isResizable: false,
+    onRender: (item: AnnualLeaveRecord) => {
+      const statusColors: { [key: string]: string } = {
+        'Approved': isDarkMode ? colours.green : '#059669',
+        'Pending': isDarkMode ? colours.yellow : '#d97706',
+        'Rejected': isDarkMode ? colours.cta : '#dc2626',
+      };
+      return (
+        <Text style={{ 
+          fontSize: '12px', 
+          fontWeight: 600,
+          color: statusColors[item.status] || (isDarkMode ? colours.dark.subText : colours.greyText),
+          textTransform: 'uppercase',
+          letterSpacing: '0.5px'
+        }}>
+          {item.status}
+        </Text>
+      );
+    },
   },
   {
-    key: 'days_taken',
-    name: 'Days Taken',
-    fieldName: 'days_taken',
-    minWidth: 80,
-    maxWidth: 100,
-    isResizable: true,
-    onRender: (item: AnnualLeaveRecord) => item.days_taken ?? 'N/A',
-  },
-  {
-    key: 'leave_type',
-    name: 'Leave Type',
+    key: 'type',
+    name: 'Type',
     fieldName: 'leave_type',
-    minWidth: 100,
-    maxWidth: 120,
-    isResizable: true,
-    onRender: (item: AnnualLeaveRecord) => item.leave_type || 'N/A',
+    minWidth: 80,
+    maxWidth: 100,
+    isResizable: false,
+    onRender: (item: AnnualLeaveRecord) => (
+      <Text style={{ fontSize: '13px', color: isDarkMode ? colours.dark.subText : colours.greyText }}>
+        {item.leave_type || 'Standard'}
+      </Text>
+    ),
   },
 ];
 
@@ -322,123 +352,7 @@ function AnnualLeaveForm({
       .sort((a, b) => new Date(b.start_date).getTime() - new Date(a.start_date).getTime());
   }, [allLeaveRecords, userData]);
 
-  function renderSidePanel() {
-    if (selectedLeaveType === 'standard') {
-      return (
-        <Stack
-          tokens={{ childrenGap: 10 }}
-          style={{
-            minWidth: '300px',
-            border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-            padding: '10px',
-            borderRadius: '4px',
-            backgroundColor: 'transparent',
-          }}
-        >
-          <Text style={{ fontSize: '14px', fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-            Total Days Requested
-          </Text>
-          <Text style={{ fontSize: '18px', fontWeight: 400, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-            {totalDays} {totalDays !== 1 ? 'days' : 'day'}
-          </Text>
-          <div style={{ borderTop: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`, margin: '20px 0' }} />
-          <Stack tokens={{ childrenGap: 5 }}>
-            <Text style={labelStyle}>Annual Holiday Entitlement</Text>
-            {userData?.[0]?.holiday_entitlement != null ? (
-              <Text style={{ ...valueStyle, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                {userData[0].holiday_entitlement} {userData[0].holiday_entitlement !== 1 ? 'days' : 'day'}
-              </Text>
-            ) : (
-              <Text style={{ ...valueStyle, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                N/A
-              </Text>
-            )}
-            <Text style={labelStyle}>Days taken so far this year</Text>
-            <Text style={{ ...valueStyle, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-              {safeTotals.standard} {safeTotals.standard !== 1 ? 'days' : 'day'}
-            </Text>
-            <Text style={labelStyle}>Days Remaining</Text>
-            <Text style={{ ...valueStyle, color: effectiveRemaining < 0 ? colours.cta : isDarkMode ? colours.dark.text : colours.light.text }}>
-              {effectiveRemaining} {effectiveRemaining !== 1 ? 'days' : 'day'}
-            </Text>
-          </Stack>
-        </Stack>
-      );
-    } else if (selectedLeaveType === 'purchase') {
-      const purchaseRemaining = 5 - safeTotals.unpaid - totalDays; // "Purchase" uses "unpaid"
-      return (
-        <Stack
-          tokens={{ childrenGap: 10 }}
-          style={{
-            minWidth: '300px',
-            border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-            padding: '10px',
-            borderRadius: '4px',
-            backgroundColor: 'transparent',
-          }}
-        >
-          <Text style={{ fontSize: '14px', fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-            Total Purchase Days Requested
-          </Text>
-          <Text style={{ fontSize: '18px', fontWeight: 400, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-            {totalDays} {totalDays !== 1 ? 'days' : 'day'}
-          </Text>
-          <div style={{ borderTop: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`, margin: '20px 0' }} />
-          <Stack tokens={{ childrenGap: 5 }}>
-            <Text style={labelStyle}>Purchase Leave Entitlement</Text>
-            <Text style={{ ...valueStyle, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-              5 days
-            </Text>
-            <Text style={labelStyle}>Purchase Days Taken so far</Text>
-            <Text style={{ ...valueStyle, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-              {safeTotals.unpaid} {safeTotals.unpaid !== 1 ? 'days' : 'day'}
-            </Text>
-            <Text style={labelStyle}>Purchase Days Remaining</Text>
-            <Text style={{ ...valueStyle, color: purchaseRemaining < 0 ? colours.cta : isDarkMode ? colours.dark.text : colours.light.text }}>
-              {purchaseRemaining} {purchaseRemaining !== 1 ? 'days' : 'day'}
-            </Text>
-          </Stack>
-        </Stack>
-      );
-    } else if (selectedLeaveType === 'sale') {
-      const saleRemaining = 5 - safeTotals.sale - totalDays; // "Sell" uses "sale"
-      return (
-        <Stack
-          tokens={{ childrenGap: 10 }}
-          style={{
-            minWidth: '300px',
-            border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-            padding: '10px',
-            borderRadius: '4px',
-            backgroundColor: 'transparent',
-          }}
-        >
-          <Text style={{ fontSize: '14px', fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-            Total Sell Days Requested
-          </Text>
-          <Text style={{ fontSize: '18px', fontWeight: 400, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-            {totalDays} {totalDays !== 1 ? 'days' : 'day'}
-          </Text>
-          <div style={{ borderTop: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`, margin: '20px 0' }} />
-          <Stack tokens={{ childrenGap: 5 }}>
-            <Text style={labelStyle}>Sell Leave Entitlement</Text>
-            <Text style={{ ...valueStyle, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-              5 days
-            </Text>
-            <Text style={labelStyle}>Sell Days Taken so far</Text>
-            <Text style={{ ...valueStyle, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-              {safeTotals.sale} {safeTotals.sale !== 1 ? 'days' : 'day'}
-            </Text>
-            <Text style={labelStyle}>Sell Days Remaining</Text>
-            <Text style={{ ...valueStyle, color: saleRemaining < 0 ? colours.cta : isDarkMode ? colours.dark.text : colours.light.text }}>
-              {saleRemaining} {saleRemaining !== 1 ? 'days' : 'day'}
-            </Text>
-          </Stack>
-        </Stack>
-      );
-    }
-    return null;
-  }
+  // Removed renderSidePanel - now integrated into main layout
 
   function renderTeamLeaveConflicts() {
     if (!groupedLeave.length) return null;
@@ -514,6 +428,43 @@ function AnnualLeaveForm({
             display: inline-block !important;
             visibility: visible !important;
             opacity: 1 !important;
+          }
+          .rdrDateRangePickerWrapper {
+            display: flex !important;
+            width: 100% !important;
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+          }
+          .rdrDateRangeWrapper,
+          .rdrCalendarWrapper,
+          .rdrMonths {
+            width: 100% !important;
+            max-width: none !important;
+            flex: 1 1 100% !important;
+          }
+          .rdrMonths {
+            justify-content: center !important;
+          }
+          .rdrMonth {
+            width: 100% !important;
+            max-width: none !important;
+            flex: 1 1 100% !important;
+            padding: 16px 12px !important;
+          }
+          .rdrDefinedRangesWrapper {
+            display: none !important;
+            width: 0 !important;
+            min-width: 0 !important;
+            max-width: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: none !important;
+          }
+          .rdrStaticRanges,
+          .rdrInputRanges {
+            display: none !important;
           }
         `}
         {isDarkMode && `
@@ -633,10 +584,30 @@ function AnnualLeaveForm({
             onCancel={() => {}}
             isSubmitting={isSubmitting}
             matters={[]}
+            hideButtons={true}
           >
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '20px' }}>
-              <Stack style={{ flex: 1 }} tokens={{ childrenGap: 10 }}>
-                <Stack horizontal tokens={{ childrenGap: 10 }} styles={{ root: { width: '100%' } }}>
+            {/* Header Section: Leave Type + Summary Stats */}
+            <div style={{ 
+              display: 'grid', 
+              gridTemplateColumns: 'minmax(0, 1fr) auto',
+              gap: '20px',
+              marginBottom: '16px',
+              alignItems: 'start'
+            }}>
+              {/* Leave Type Selection */}
+              <div>
+                <Text style={{ 
+                  fontSize: '13px', 
+                  fontWeight: 600, 
+                  color: isDarkMode ? colours.dark.subText : colours.greyText,
+                  marginBottom: '8px',
+                  display: 'block',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px'
+                }}>
+                  Leave Type
+                </Text>
+                <Stack horizontal tokens={{ childrenGap: 8 }} wrap>
                   {leaveTypeOptions.map((option) => {
                     const isSelected = selectedLeaveType === option.key;
                     return (
@@ -649,16 +620,121 @@ function AnnualLeaveForm({
                     );
                   })}
                 </Stack>
+              </div>
+
+              {/* Compact Summary Panel */}
+              <div style={{
+                minWidth: '240px',
+                padding: '12px 16px',
+                borderRadius: '8px',
+                background: isDarkMode ? 'rgba(31, 41, 55, 0.55)' : 'rgba(255, 255, 255, 0.85)',
+                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(15, 23, 42, 0.08)'}`,
+                boxShadow: isDarkMode ? '0 2px 8px rgba(0,0,0,0.25)' : '0 2px 8px rgba(2,6,23,0.06)',
+              }}>
+                <Stack tokens={{ childrenGap: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                    <Text style={{ fontSize: '12px', color: isDarkMode ? colours.dark.subText : colours.greyText, fontWeight: 600 }}>
+                      Days Requested
+                    </Text>
+                    <Text style={{ fontSize: '20px', fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+                      {totalDays}
+                    </Text>
+                  </div>
+                  <div style={{ height: '1px', background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(15, 23, 42, 0.06)' }} />
+                  {selectedLeaveType === 'standard' && (
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                        <Text style={{ color: isDarkMode ? colours.dark.subText : colours.greyText }}>Entitlement</Text>
+                        <Text style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>{holidayEntitlement}</Text>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                        <Text style={{ color: isDarkMode ? colours.dark.subText : colours.greyText }}>Used</Text>
+                        <Text style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>{safeTotals.standard}</Text>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                        <Text style={{ color: isDarkMode ? colours.dark.subText : colours.greyText }}>Remaining</Text>
+                        <Text style={{ 
+                          fontWeight: 700, 
+                          color: effectiveRemaining < 0 ? colours.cta : (isDarkMode ? colours.accent : colours.highlight)
+                        }}>
+                          {effectiveRemaining}
+                        </Text>
+                      </div>
+                    </>
+                  )}
+                  {selectedLeaveType === 'purchase' && (
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                        <Text style={{ color: isDarkMode ? colours.dark.subText : colours.greyText }}>Purchase Limit</Text>
+                        <Text style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>5</Text>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                        <Text style={{ color: isDarkMode ? colours.dark.subText : colours.greyText }}>Used</Text>
+                        <Text style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>{safeTotals.unpaid}</Text>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                        <Text style={{ color: isDarkMode ? colours.dark.subText : colours.greyText }}>Remaining</Text>
+                        <Text style={{ 
+                          fontWeight: 700, 
+                          color: (5 - safeTotals.unpaid - totalDays) < 0 ? colours.cta : (isDarkMode ? colours.accent : colours.highlight)
+                        }}>
+                          {5 - safeTotals.unpaid - totalDays}
+                        </Text>
+                      </div>
+                    </>
+                  )}
+                  {selectedLeaveType === 'sale' && (
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                        <Text style={{ color: isDarkMode ? colours.dark.subText : colours.greyText }}>Sell Limit</Text>
+                        <Text style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>5</Text>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                        <Text style={{ color: isDarkMode ? colours.dark.subText : colours.greyText }}>Used</Text>
+                        <Text style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>{safeTotals.sale}</Text>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                        <Text style={{ color: isDarkMode ? colours.dark.subText : colours.greyText }}>Remaining</Text>
+                        <Text style={{ 
+                          fontWeight: 700, 
+                          color: (5 - safeTotals.sale - totalDays) < 0 ? colours.cta : (isDarkMode ? colours.accent : colours.highlight)
+                        }}>
+                          {5 - safeTotals.sale - totalDays}
+                        </Text>
+                      </div>
+                    </>
+                  )}
+                </Stack>
+              </div>
+            </div>
+
+            {/* Date Ranges Section */}
+            <div style={{ marginBottom: '16px' }}>
+              <Text style={{ 
+                fontSize: '13px', 
+                fontWeight: 600, 
+                color: isDarkMode ? colours.dark.subText : colours.greyText,
+                marginBottom: '8px',
+                display: 'block',
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px'
+              }}>
+                Select Dates
+              </Text>
+              <Stack tokens={{ childrenGap: 12 }}>
                 {dateRanges.map((range, index) => (
                   <Stack
                     key={index}
-                    tokens={{ childrenGap: 5 }}
+                    tokens={{ childrenGap: 8 }}
                     style={{
                       animation: 'fadeIn 0.5s ease forwards',
-                      border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : colours.light.border}`,
+                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(15, 23, 42, 0.08)'}`,
                       padding: '12px',
                       borderRadius: '12px',
-                      background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : 'transparent',
+                      background: isDarkMode ? 'rgba(31, 41, 55, 0.55)' : 'rgba(255, 255, 255, 0.85)',
+                      boxShadow: isDarkMode ? '0 2px 8px rgba(0,0,0,0.25)' : '0 2px 8px rgba(2,6,23,0.06)',
+                      backdropFilter: 'blur(6px)',
+                      WebkitBackdropFilter: 'blur(6px)'
                     }}
                   >
                     <DateRangePicker
@@ -688,191 +764,355 @@ function AnnualLeaveForm({
                       months={1}
                       direction="horizontal"
                       rangeColors={[colours.highlight]}
+                      staticRanges={[]}
+                      inputRanges={[]}
                     />
+                    
+                    {/* Half Day Options */}
+                    <div style={{
+                      marginTop: '12px',
+                      padding: '12px',
+                      borderRadius: '10px',
+                      background: isDarkMode ? 'rgba(135, 243, 243, 0.06)' : 'rgba(54, 144, 206, 0.06)',
+                      border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.18)' : 'rgba(54, 144, 206, 0.15)'}`,
+                    }}>
+                      <Stack tokens={{ childrenGap: 10 }}>
+                        <Text 
+                          style={{ 
+                            fontSize: '12px', 
+                            fontWeight: 700,
+                            color: isDarkMode ? colours.accent : colours.highlight,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.6px',
+                            margin: '0 0 4px 0'
+                          }}
+                        >
+                          Half-Day Options
+                        </Text>
+                        <Stack horizontal tokens={{ childrenGap: 12 }} wrap>
+                          {/* Start Half-Day */}
+                          <div style={{
+                            flex: '1 1 calc(50% - 6px)',
+                            minWidth: '160px',
+                            padding: '10px',
+                            borderRadius: '8px',
+                            background: range.halfDayStart 
+                              ? (isDarkMode ? 'rgba(135, 243, 243, 0.14)' : 'rgba(54, 144, 206, 0.12)')
+                              : (isDarkMode ? 'rgba(31, 41, 55, 0.5)' : 'rgba(255, 255, 255, 0.7)'),
+                            border: `1px solid ${range.halfDayStart
+                              ? (isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(54, 144, 206, 0.28)')
+                              : (isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(15, 23, 42, 0.06)')}`,
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease',
+                            transform: range.halfDayStart ? 'scale(1.02)' : 'scale(1)',
+                          }}>
+                            <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
+                              <input
+                                type="checkbox"
+                                id={`halfDayStart_${index}`}
+                                checked={range.halfDayStart || false}
+                                onChange={(e) => {
+                                  const updatedRanges = [...dateRanges];
+                                  updatedRanges[index] = { ...range, halfDayStart: e.target.checked };
+                                  setDateRanges(updatedRanges);
+                                }}
+                                style={{
+                                  width: '20px',
+                                  height: '20px',
+                                  cursor: 'pointer',
+                                  accentColor: isDarkMode ? colours.accent : colours.highlight,
+                                  flexShrink: 0
+                                }}
+                              />
+                              <Stack tokens={{ childrenGap: 2 }} style={{ flex: 1 }}>
+                                <label 
+                                  htmlFor={`halfDayStart_${index}`}
+                                  style={{ 
+                                    fontSize: '13px',
+                                    fontWeight: 600,
+                                    color: isDarkMode ? colours.dark.text : colours.light.text,
+                                    cursor: 'pointer',
+                                    userSelect: 'none',
+                                    margin: 0
+                                  }}
+                                >
+                                  Start PM
+                                </label>
+                                <Text 
+                                  style={{ 
+                                    fontSize: '11px',
+                                    color: isDarkMode ? 'rgba(203, 213, 225, 0.72)' : 'rgba(100, 116, 139, 0.8)',
+                                    lineHeight: '1.4',
+                                    margin: 0
+                                  }}
+                                >
+                                  0.5 day
+                                </Text>
+                              </Stack>
+                            </Stack>
+                          </div>
+                          
+                          {/* End Half-Day */}
+                          <div style={{
+                            flex: '1 1 calc(50% - 6px)',
+                            minWidth: '160px',
+                            padding: '10px',
+                            borderRadius: '8px',
+                            background: range.halfDayEnd 
+                              ? (isDarkMode ? 'rgba(135, 243, 243, 0.14)' : 'rgba(54, 144, 206, 0.12)')
+                              : (isDarkMode ? 'rgba(31, 41, 55, 0.5)' : 'rgba(255, 255, 255, 0.7)'),
+                            border: `1px solid ${range.halfDayEnd
+                              ? (isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(54, 144, 206, 0.28)')
+                              : (isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(15, 23, 42, 0.06)')}`,
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease',
+                            transform: range.halfDayEnd ? 'scale(1.02)' : 'scale(1)',
+                          }}>
+                            <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
+                              <input
+                                type="checkbox"
+                                id={`halfDayEnd_${index}`}
+                                checked={range.halfDayEnd || false}
+                                onChange={(e) => {
+                                  const updatedRanges = [...dateRanges];
+                                  updatedRanges[index] = { ...range, halfDayEnd: e.target.checked };
+                                  setDateRanges(updatedRanges);
+                                }}
+                                style={{
+                                  width: '20px',
+                                  height: '20px',
+                                  cursor: 'pointer',
+                                  accentColor: isDarkMode ? colours.accent : colours.highlight,
+                                  flexShrink: 0
+                                }}
+                              />
+                              <Stack tokens={{ childrenGap: 2 }} style={{ flex: 1 }}>
+                                <label 
+                                  htmlFor={`halfDayEnd_${index}`}
+                                  style={{ 
+                                    fontSize: '13px',
+                                    fontWeight: 600,
+                                    color: isDarkMode ? colours.dark.text : colours.light.text,
+                                    cursor: 'pointer',
+                                    userSelect: 'none',
+                                    margin: 0
+                                  }}
+                                >
+                                  End AM
+                                </label>
+                                <Text 
+                                  style={{ 
+                                    fontSize: '11px',
+                                    color: isDarkMode ? 'rgba(203, 213, 225, 0.72)' : 'rgba(100, 116, 139, 0.8)',
+                                    lineHeight: '1.4',
+                                    margin: 0
+                                  }}
+                                >
+                                  0.5 day
+                                </Text>
+                              </Stack>
+                            </Stack>
+                          </div>
+                        </Stack>
+                      </Stack>
+                    </div>
+
                     <DefaultButton
-                      text="Remove Range"
+                      text="Remove"
                       onClick={() => handleRemoveDateRange(index)}
-                      /* use a registered icon name - 'Cancel' is available in the Fluent icons set */
                       iconProps={{ iconName: 'Cancel' }}
-                      styles={buttonStylesFixedWidthSecondary}
+                      styles={{
+                        ...buttonStylesFixedWidthSecondary,
+                        root: { ...buttonStylesFixedWidthSecondary.root, width: '120px', marginTop: '12px' }
+                      }}
                     />
                   </Stack>
                 ))}
                 <div
                   style={{
-                    border: `2px dashed ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : colours.light.border}`,
+                    border: `1.5px dashed ${isDarkMode ? 'rgba(135, 243, 243, 0.45)' : 'rgba(54, 144, 206, 0.45)'}`,
                     borderRadius: '12px',
-                    width: '100%',
-                    height: '60px',
+                    height: '52px',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     cursor: 'pointer',
-                    backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : colours.light.sectionBackground,
+                    backgroundColor: isDarkMode ? 'rgba(17, 24, 39, 0.45)' : 'rgba(255,255,255,0.75)',
                     transition: 'all 0.2s ease',
                   }}
                   onClick={handleAddDateRange}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(30, 41, 59, 0.6)' : '#f8fafc';
-                    e.currentTarget.style.borderColor = colours.blue;
+                    e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.08)';
+                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(135, 243, 243, 0.65)' : 'rgba(54, 144, 206, 0.65)';
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(15, 23, 42, 0.5)' : colours.light.sectionBackground;
-                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(125, 211, 252, 0.24)' : colours.light.border;
+                    e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(17, 24, 39, 0.45)' : 'rgba(255,255,255,0.75)';
+                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(135, 243, 243, 0.45)' : 'rgba(54, 144, 206, 0.45)';
                   }}
                 >
                   <Icon iconName="Add" style={{ 
-                    fontSize: 20, 
-                    color: colours.blue, 
+                    fontSize: 18,
+                    color: isDarkMode ? colours.accent : colours.highlight,
                     marginRight: 8,
                   }} />
                   <Text style={{ 
                     color: isDarkMode ? colours.dark.text : colours.light.text, 
-                    fontSize: '14px',
-                    fontWeight: 500,
+                    fontSize: '13px',
+                    fontWeight: 600,
                   }}>
-                    {dateRanges.length === 0 ? 'Add Holiday' : 'Add Another Holiday'}
+                    {dateRanges.length === 0 ? 'Add Date Range' : 'Add Another Range'}
                   </Text>
                 </div>
-                <TextField
-                  label="Notes (Optional)"
-                  placeholder="Enter any additional notes"
-                  value={notes}
-                  onChange={(e, newVal) => setNotes(newVal || '')}
-                  styles={{
-                    root: {
-                      '.ms-Label': {
-                        color: `${isDarkMode ? colours.dark.text : colours.light.text} !important`,
-                      },
+              </Stack>
+            </div>
+
+            {/* Additional Details Section */}
+            <Stack tokens={{ childrenGap: 12 }}>
+              <TextField
+                label="Additional Notes (Optional)"
+                placeholder="Reason for leave, handover notes, etc."
+                value={notes}
+                onChange={(e, newVal) => setNotes(newVal || '')}
+                styles={{
+                  root: {
+                    '.ms-Label': {
+                      color: `${isDarkMode ? colours.dark.text : colours.light.text} !important`,
+                      fontSize: '13px',
+                      fontWeight: 600,
                     },
-                    fieldGroup: {
-                      borderRadius: '4px',
-                      border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                      backgroundColor: isDarkMode ? colours.dark.inputBackground : colours.light.inputBackground,
-                      selectors: {
-                        ':hover': { borderColor: isDarkMode ? colours.dark.cta : colours.light.cta },
-                        ':focus': { borderColor: isDarkMode ? colours.dark.cta : colours.light.cta },
-                      },
+                  },
+                  fieldGroup: {
+                    borderRadius: '8px',
+                    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                    backgroundColor: isDarkMode ? colours.dark.inputBackground : colours.light.inputBackground,
+                    selectors: {
+                      ':hover': { borderColor: isDarkMode ? colours.accent : colours.highlight },
+                      ':focus': { borderColor: isDarkMode ? colours.accent : colours.highlight },
                     },
-                    field: {
-                      color: isDarkMode ? colours.dark.text : colours.light.text,
-                    },
-                    subComponentStyles: {
-                      label: {
-                        root: {
-                          color: isDarkMode ? colours.dark.text : colours.light.text,
-                        },
-                      },
-                    },
-                  }}
-                  multiline
-                  rows={3}
-                />
-                <Stack tokens={{ childrenGap: 10 }}>
-                  <Stack horizontal tokens={{ childrenGap: 5 }} verticalAlign="center">
-                    <Text style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                      I confirm there are no hearings during my planned absence...
+                  },
+                  field: {
+                    color: isDarkMode ? colours.dark.text : colours.light.text,
+                    fontSize: '13px',
+                  },
+                }}
+                multiline
+                rows={2}
+              />
+
+              {/* Hearing Confirmation */}
+              <div style={{
+                padding: '12px',
+                borderRadius: '8px',
+                background: isDarkMode ? 'rgba(31, 41, 55, 0.35)' : 'rgba(255, 255, 255, 0.65)',
+                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(15, 23, 42, 0.06)'}`,
+              }}>
+                <Stack tokens={{ childrenGap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Text style={{ fontSize: '13px', fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+                      No hearings scheduled during this absence
                     </Text>
-                    <TooltipHost content="Usually leave will not be approved...">
-                      <Icon iconName="Info" styles={{ root: { fontSize: 16, cursor: 'pointer' } }} />
+                    <TooltipHost content="Leave requests may not be approved if hearings are scheduled">
+                      <Icon iconName="Info" styles={{ root: { fontSize: 14, cursor: 'pointer', color: isDarkMode ? colours.dark.subText : colours.greyText } }} />
                     </TooltipHost>
-                  </Stack>
+                  </div>
                   <ChoiceGroup
                     selectedKey={hearingConfirmation || undefined}
                     options={[
-                      { key: 'yes', text: 'Yes' },
-                      { key: 'no', text: 'No' },
+                      { key: 'yes', text: 'Confirmed' },
+                      { key: 'no', text: 'Hearings scheduled' },
                     ]}
                     onChange={(ev, option) => setHearingConfirmation(option?.key || null)}
-                    label="Please select an option"
                     styles={{
                       flexContainer: {
                         display: 'flex',
-                        gap: '10px',
+                        gap: '12px',
                       },
                       label: {
-                        color: isDarkMode ? colours.dark.text : colours.light.text,
+                        display: 'none',
                       },
                     }}
                   />
                   {hearingConfirmation === 'no' && (
                     <TextField
-                      label="There are the following hearings taking place..."
+                      placeholder="Please provide hearing details..."
                       value={hearingDetails}
                       onChange={(e, newVal) => setHearingDetails(newVal || '')}
                       styles={{
-                        root: {
-                          '.ms-Label': {
-                            color: `${isDarkMode ? colours.dark.text : colours.light.text} !important`,
-                          },
-                        },
                         fieldGroup: {
-                          borderRadius: '4px',
+                          borderRadius: '6px',
                           border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                           backgroundColor: isDarkMode ? colours.dark.inputBackground : colours.light.inputBackground,
                           selectors: {
-                            ':hover': { borderColor: isDarkMode ? colours.dark.cta : colours.light.cta },
-                            ':focus': { borderColor: isDarkMode ? colours.dark.cta : colours.light.cta },
+                            ':hover': { borderColor: isDarkMode ? colours.accent : colours.highlight },
+                            ':focus': { borderColor: isDarkMode ? colours.accent : colours.highlight },
                           },
                         },
                         field: {
                           color: isDarkMode ? colours.dark.text : colours.light.text,
-                        },
-                        subComponentStyles: {
-                          label: {
-                            root: {
-                              color: isDarkMode ? colours.dark.text : colours.light.text,
-                            },
-                          },
+                          fontSize: '13px',
                         },
                       }}
                       multiline
-                      rows={3}
+                      rows={2}
                     />
                   )}
                 </Stack>
-                <Stack horizontal tokens={{ childrenGap: 10 }}>
-                  <DefaultButton
-                    text="Clear"
-                    onClick={handleClear}
-                    styles={buttonStylesFixedWidthSecondary}
-                  />
-                  <DefaultButton
-                    text="Submit"
-                    className="custom-submit-button"
-                    styles={buttonStylesFixedWidth}
-                    onClick={handleSubmit}
-                    disabled={isSubmitting || totalDays === 0}
-                  />
-                </Stack>
-                {confirmationMessage && (
-                  <Text style={{ 
-                    marginTop: 10, 
-                    fontWeight: 'bold', 
-                    color: colours.green,
-                    padding: '8px 12px',
-                    backgroundColor: isDarkMode ? 'rgba(32, 178, 108, 0.1)' : 'rgba(32, 178, 108, 0.05)',
-                    borderRadius: '4px',
-                    border: `1px solid ${colours.green}`
-                  }}>
-                    {confirmationMessage}
-                  </Text>
-                )}
-                {errorMessage && (
-                  <Text style={{ 
-                    marginTop: 10, 
-                    fontWeight: 'bold', 
-                    color: colours.red,
-                    padding: '8px 12px',
-                    backgroundColor: isDarkMode ? 'rgba(214, 85, 65, 0.1)' : 'rgba(214, 85, 65, 0.05)',
-                    borderRadius: '4px',
-                    border: `1px solid ${colours.red}`
-                  }}>
-                    {errorMessage}
-                  </Text>
-                )}
+              </div>
+            </Stack>
+
+            {/* Actions and Feedback */}
+            <div style={{ marginTop: '16px' }}>
+              <Stack horizontal tokens={{ childrenGap: 10 }} styles={{ root: { marginBottom: '12px' } }}>
+                <DefaultButton
+                  text="Clear All"
+                  onClick={handleClear}
+                  iconProps={{ iconName: 'Clear' }}
+                  styles={buttonStylesFixedWidthSecondary}
+                />
+                <DefaultButton
+                  text={isSubmitting ? 'Submitting...' : 'Submit Request'}
+                  className="custom-submit-button"
+                  styles={accentOutlineButtonStyles(isDarkMode)}
+                  onClick={handleSubmit}
+                  disabled={isSubmitting || totalDays === 0}
+                  iconProps={{ iconName: 'Send' }}
+                />
               </Stack>
-              {renderSidePanel()}
+              
+              {confirmationMessage && (
+                <div style={{ 
+                  fontWeight: 600,
+                  fontSize: '13px',
+                  color: isDarkMode ? '#86efac' : '#166534',
+                  padding: '10px 14px',
+                  backgroundColor: isDarkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.10)',
+                  borderRadius: '8px',
+                  border: `1px solid ${isDarkMode ? 'rgba(34, 197, 94, 0.28)' : 'rgba(34, 197, 94, 0.25)'}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}>
+                  <Icon iconName="CheckMark" />
+                  {confirmationMessage}
+                </div>
+              )}
+              {errorMessage && (
+                <div style={{ 
+                  fontWeight: 600,
+                  fontSize: '13px',
+                  color: isDarkMode ? '#fca5a5' : '#7f1d1d',
+                  padding: '10px 14px',
+                  backgroundColor: isDarkMode ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.10)',
+                  borderRadius: '8px',
+                  border: `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.28)' : 'rgba(239, 68, 68, 0.25)'}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}>
+                  <Icon iconName="ErrorBadge" />
+                  {errorMessage}
+                </div>
+              )}
             </div>
           </BespokeForm>
         </div>
@@ -890,39 +1130,110 @@ function AnnualLeaveForm({
             </div>
           </div>
         )}
-        <Stack tokens={{ childrenGap: 10 }}>
+
+        {/* Leave History Section */}
+        <div style={{ marginTop: '24px' }}>
           <Text
             style={{
-              fontSize: '18px',
+              fontSize: '13px',
               fontWeight: 600,
-              color: isDarkMode ? colours.dark.text : colours.light.text,
+              color: isDarkMode ? colours.dark.subText : colours.greyText,
+              marginBottom: '10px',
+              display: 'block',
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px'
             }}
           >
             Your Leave History
           </Text>
-          <DetailsList
-            items={userLeaveHistory}
-            columns={historyColumns}
-            setKey="set"
-            layoutMode={DetailsListLayoutMode.justified}
-            selectionMode={SelectionMode.none}
-            styles={{
-              root: {
-                backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-                borderRadius: '4px',
-                boxShadow: '0 2px 6px rgba(0, 0, 0, 0.1)',
-              },
-              headerWrapper: {
-                backgroundColor: isDarkMode ? colours.dark.grey : colours.light.grey,
-              },
-            }}
-          />
-          {userLeaveHistory.length === 0 && (
-            <Text style={{ color: isDarkMode ? colours.dark.text : colours.light.text, fontStyle: 'italic' }}>
-              No leave history available.
-            </Text>
+          {userLeaveHistory.length > 0 ? (
+            <div style={{
+              backgroundColor: isDarkMode ? 'rgba(31, 41, 55, 0.55)' : 'rgba(255, 255, 255, 0.95)',
+              borderRadius: '12px',
+              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(15, 23, 42, 0.08)'}`,
+              overflow: 'hidden',
+              backdropFilter: 'blur(6px)',
+              boxShadow: isDarkMode ? '0 2px 8px rgba(0, 0, 0, 0.25)' : '0 2px 8px rgba(0, 0, 0, 0.06)'
+            }}>
+              <DetailsList
+                items={userLeaveHistory}
+                columns={getHistoryColumns(isDarkMode)}
+                setKey="set"
+                layoutMode={DetailsListLayoutMode.justified}
+                selectionMode={SelectionMode.none}
+                compact={false}
+                styles={{
+                  root: {
+                    backgroundColor: 'transparent',
+                    '.ms-DetailsRow': {
+                      backgroundColor: 'transparent',
+                      borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(15, 23, 42, 0.05)'}`,
+                      minHeight: '48px'
+                    },
+                    '.ms-DetailsRow:last-child': {
+                      borderBottom: 'none'
+                    },
+                    '.ms-DetailsRow:hover': {
+                      backgroundColor: isDarkMode ? 'rgba(135, 243, 243, 0.06)' : 'rgba(54, 144, 206, 0.04)',
+                    },
+                    '.ms-DetailsRow-cell': {
+                      paddingTop: '12px',
+                      paddingBottom: '12px'
+                    }
+                  },
+                  headerWrapper: {
+                    backgroundColor: isDarkMode ? 'rgba(17, 24, 39, 0.5)' : 'rgba(248, 250, 252, 0.8)',
+                    borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(15, 23, 42, 0.08)'}`,
+                    '.ms-DetailsHeader': {
+                      paddingTop: '0px',
+                      borderTop: 'none'
+                    },
+                    '.ms-DetailsHeader-cell': {
+                      height: '40px',
+                      lineHeight: '40px'
+                    },
+                    '.ms-DetailsHeader-cellTitle': {
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      color: isDarkMode ? colours.dark.subText : colours.greyText,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.8px'
+                    }
+                  },
+                  contentWrapper: {
+                    backgroundColor: 'transparent'
+                  }
+                }}
+              />
+            </div>
+          ) : (
+            <div style={{
+              padding: '24px',
+              textAlign: 'center',
+              backgroundColor: isDarkMode ? 'rgba(31, 41, 55, 0.5)' : 'rgba(255, 255, 255, 0.9)',
+              borderRadius: '12px',
+              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(15, 23, 42, 0.08)'}`,
+              backdropFilter: 'blur(6px)'
+            }}>
+              <Icon 
+                iconName="CalendarMirrored" 
+                style={{ 
+                  fontSize: '32px', 
+                  color: isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.25)',
+                  marginBottom: '8px'
+                }} 
+              />
+              <Text style={{ 
+                color: isDarkMode ? colours.dark.subText : colours.greyText, 
+                fontStyle: 'italic',
+                fontSize: '13px',
+                display: 'block'
+              }}>
+                No leave history available.
+              </Text>
+            </div>
           )}
-        </Stack>
+        </div>
       </Stack>
     </>
   );

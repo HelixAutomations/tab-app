@@ -16,6 +16,7 @@ interface TimeMetric {
   dialTarget?: number;
   count?: number;
   prevCount?: number;
+  secondary?: number;
 }
 
 interface EnquiryMetric {
@@ -67,7 +68,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
     switch (direction) {
       case 'up': return '#10B981'; // Green
       case 'down': return '#EF4444'; // Red
-      default: return isDarkMode ? '#9CA3AF' : '#6B7280'; // Gray
+      default: return isDarkMode ? colours.accent : '#6B7280'; // Accent cyan in dark mode for visibility
     }
   };
 
@@ -358,7 +359,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
       <div style={{
         background: isDarkMode 
           ? 'linear-gradient(135deg, #0B1224 0%, #0F1B33 100%)'
-          : `linear-gradient(135deg, ${colours.light.cardBackground} 0%, rgba(54, 144, 206, 0.05) 100%)`,
+          : colours.light.cardBackground,
         borderRadius: '8px',
         border: isDarkMode 
           ? `1px solid ${colours.dark.border}` 
@@ -457,7 +458,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
               key={metric.title}
               style={{
                 background: isDarkMode 
-                  ? colours.dark.cardBackground
+                  ? 'linear-gradient(135deg, rgba(31, 41, 55, 1) 0%, rgba(17, 24, 39, 1) 100%)'
                   : colours.light.cardBackground,
                 borderRadius: '8px',
                 padding: '20px',
@@ -494,12 +495,12 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                   height: '28px',
                   borderRadius: '6px',
                   background: isDarkMode 
-                    ? 'rgba(59, 130, 246, 0.1)'
-                    : 'rgba(59, 130, 246, 0.1)',
+                    ? 'rgba(135, 243, 243, 0.1)'
+                    : 'rgba(54, 144, 206, 0.1)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  color: '#3B82F6',
+                  color: isDarkMode ? colours.accent : colours.highlight,
                 }}>
                   <Icon size={14} />
                 </div>
@@ -559,7 +560,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                     letterSpacing: '-0.025em',
                   }}
                 />
-                {isTimeMetric(metric) && metric.isTimeMoney && metric.money && (
+                {isTimeMetric(metric) && metric.isTimeMoney && (metric.money ?? 0) > 0 && (
                   <AnimatedValueWithEnabled
                     value={metric.money || 0}
                     formatter={(n) => formatCurrency(Math.round(n))}
@@ -611,7 +612,9 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                       height: '100%',
                       background: progress >= 100 
                         ? `linear-gradient(90deg, ${colours.green} 0%, rgba(32, 178, 108, 0.8) 100%)`
-                        : `linear-gradient(90deg, ${colours.highlight} 0%, rgba(54, 144, 206, 0.8) 100%)`,
+                        : isDarkMode
+                        ? `linear-gradient(90deg, ${colours.highlight} 0%, ${colours.accent} 100%)`
+                        : colours.highlight,
                       borderRadius: '3px',
                       transition: enableAnimationThisMount ? 'width 0.3s ease' : 'none',
                     }} />
@@ -652,7 +655,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                   key={metric.title}
                   style={{
                     background: isDarkMode 
-                      ? colours.dark.cardBackground
+                      ? 'linear-gradient(135deg, rgba(31, 41, 55, 1) 0%, rgba(17, 24, 39, 1) 100%)'
                       : colours.light.cardBackground,
                     borderRadius: '8px',
                     padding: '20px',
@@ -680,12 +683,12 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                       gap: '8px',
                     }}>
                       <Icon size={16} style={{
-                        color: isDarkMode ? colours.dark.iconColor : colours.light.iconColor,
+                        color: isDarkMode ? colours.accent : colours.highlight,
                       }} />
                       <span style={{
                         fontSize: '13px',
                         fontWeight: 500,
-                        color: isDarkMode ? colours.dark.subText : colours.light.subText,
+                        color: isDarkMode ? colours.accent : colours.highlight,
                       }}>
                         {metric.title}
                       </span>
@@ -724,8 +727,20 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                     />
                   </div>
 
-                  {/* Show previous month value for money-only metrics */}
-                  {isTimeMetric(metric) && metric.isMoneyOnly && prevValue > 0 && (
+                  {/* Show firm total for metrics with secondary value */}
+                  {isTimeMetric(metric) && metric.secondary !== undefined && (
+                    <div style={{
+                      fontSize: '11px',
+                      fontWeight: 500,
+                      color: isDarkMode ? '#9CA3AF' : '#6B7280',
+                      marginBottom: '8px',
+                    }}>
+                      Firm total: {formatCurrency(metric.secondary)}
+                    </div>
+                  )}
+
+                  {/* Show previous month value for money-only metrics without secondary */}
+                  {isTimeMetric(metric) && metric.isMoneyOnly && prevValue > 0 && metric.secondary === undefined && (
                     <div style={{
                       fontSize: '11px',
                       fontWeight: 500,
@@ -736,7 +751,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                     </div>
                   )}
 
-                  {isTimeMetric(metric) && metric.isTimeMoney && metric.money && (
+                  {isTimeMetric(metric) && metric.isTimeMoney && (metric.money ?? 0) > 0 && (
                     <div style={{
                       fontSize: '12px',
                       color: isDarkMode ? colours.dark.subText : colours.light.subText,
@@ -788,7 +803,9 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                           height: '100%',
                           background: progress >= 100 
                             ? `linear-gradient(90deg, ${colours.green} 0%, rgba(32, 178, 108, 0.8) 100%)`
-                            : `linear-gradient(90deg, ${colours.highlight} 0%, rgba(54, 144, 206, 0.8) 100%)`,
+                            : isDarkMode
+                            ? `linear-gradient(90deg, ${colours.highlight} 0%, ${colours.accent} 100%)`
+                            : colours.highlight,
                           borderRadius: '3px',
                           transition: enableAnimationThisMount ? 'width 0.3s ease' : 'none',
                         }} />

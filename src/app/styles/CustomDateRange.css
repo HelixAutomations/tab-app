@@ -1,24 +1,475 @@
 /* invisible change 2 */
 /* src/app/styles/CustomDateRange.css */
 
+/* HIDE THE WHITE BOX - empty sidebar wrapper */
+.rdrDefinedRangesWrapper {
+  display: none !important;
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  overflow: hidden !important;
+  flex: 0 !important;
+}
+
+.rdrStaticRanges,
+.rdrInputRanges {
+  display: none !important;
+}
+
+.rdrDateRangePickerWrapper {
+  display: flex !important;
+  width: 100% !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+.rdrDateRangeWrapper,
+.rdrCalendarWrapper,
+.rdrMonths {
+  width: 100% !important;
+  max-width: none !important;
+  flex: 1 1 100% !important;
+}
+
+.rdrMonths {
+  justify-content: center !important;
+}
+
+.rdrMonth {
+  width: 100% !important;
+  max-width: none !important;
+  flex: 1 1 100% !important;
+  padding: 16px 12px !important;
+}
+
+/* Reset default library fills on day elements so overlays control visuals */
 .rdrDaySelected,
 .rdrDayInRange,
 .rdrDayInPreview {
-  background-color: #3690CE !important;
-  border-color: #3690CE !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
 }
 
-.rdrDaySelected .rdrDayNumber span,
-.rdrDayInRange .rdrDayNumber span,
-.rdrDayInPreview .rdrDayNumber span {
-  color: #061733 !important;
-}
-
+/* Hover handled later via inset outline; keep default text color */
 .rdrDayHovered {
-  background-color: #3690CE !important;
-  border-color: #3690CE !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
 }
 
-.rdrDayHovered .rdrDayNumber span {
+/* Dark mode overrides */
+body.theme-dark .rdrDateRangePickerWrapper {
+  background: transparent !important;
+  border: none !important;
+  backdrop-filter: none !important;
+}
+
+/* Dark mode calendar wrapper */
+body.theme-dark .rdrCalendarWrapper {
+  background: transparent !important;
+  color: #f3f4f6 !important;
+}
+
+/* Dark mode month/year controls */
+body.theme-dark .rdrMonthAndYearWrapper {
+  background: rgba(31, 41, 55, 0.5) !important;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  padding: 8px;
+}
+
+body.theme-dark .rdrMonthPicker select,
+body.theme-dark .rdrYearPicker select {
+  background: rgba(31, 41, 55, 0.8) !important;
+  color: #f3f4f6 !important;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+body.theme-dark .rdrMonthPicker select:hover,
+body.theme-dark .rdrYearPicker select:hover {
+  background: rgba(31, 41, 55, 0.95) !important;
+  border-color: #87F3F3;
+}
+
+/* Dark mode navigation buttons */
+body.theme-dark .rdrNextPrevButton {
+  background: rgba(31, 41, 55, 0.6) !important;
+  border-radius: 6px;
+}
+
+body.theme-dark .rdrNextPrevButton:hover {
+  background: rgba(31, 41, 55, 0.9) !important;
+}
+
+body.theme-dark .rdrNextPrevButton i {
+  border-color: transparent #87F3F3 transparent transparent !important;
+}
+
+body.theme-dark .rdrPprevButton i {
+  border-color: transparent transparent transparent #87F3F3 !important;
+}
+
+/* Dark mode month name and weekdays */
+body.theme-dark .rdrMonthName {
+  color: #f3f4f6 !important;
+  font-weight: 600;
+}
+
+body.theme-dark .rdrWeekDay {
+  color: rgba(243, 244, 246, 0.65) !important;
+  font-weight: 500;
+}
+
+/* Dark mode days */
+body.theme-dark .rdrDay {
+  color: #f3f4f6 !important;
+}
+
+body.theme-dark .rdrDayNumber span {
+  color: #f3f4f6 !important;
+}
+
+body.theme-dark .rdrDayPassive .rdrDayNumber span {
+  color: rgba(243, 244, 246, 0.35) !important;
+}
+
+body.theme-dark .rdrDayToday .rdrDayNumber span::after {
+  background: #87F3F3 !important;
+}
+
+body.theme-dark .rdrDayDisabled {
+  background-color: rgba(148, 163, 184, 0.05) !important;
+}
+
+body.theme-dark .rdrDayDisabled .rdrDayNumber span {
+  color: rgba(243, 244, 246, 0.25) !important;
+  text-decoration: line-through;
+}
+
+/* Dark mode selected/in-range with cyan accent */
+/* Dark mode: also clear day-level fills; overlays provide the pill */
+body.theme-dark .rdrDaySelected,
+body.theme-dark .rdrDayInRange,
+body.theme-dark .rdrDayInPreview {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+body.theme-dark .rdrDaySelected .rdrDayNumber span,
+body.theme-dark .rdrDayInRange .rdrDayNumber span,
+body.theme-dark .rdrDayInPreview .rdrDayNumber span {
   color: #061733 !important;
+  font-weight: 600 !important;
+}
+
+body.theme-dark .rdrDayHovered {
+  background-color: rgba(135, 243, 243, 0.15) !important;
+  border-color: #87F3F3 !important;
+}
+
+body.theme-dark .rdrDayHovered .rdrDayNumber span {
+  color: #87F3F3 !important;
+}
+
+body.theme-dark .rdrStartEdge,
+body.theme-dark .rdrEndEdge {
+  color: #87F3F3 !important;
+}
+
+/* Dark mode date display inputs */
+body.theme-dark .rdrDateDisplayWrapper {
+  background: rgba(31, 41, 55, 0.5) !important;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+body.theme-dark .rdrDateDisplay {
+  border-bottom: none !important;
+}
+
+body.theme-dark .rdrDateInput {
+  background: rgba(31, 41, 55, 0.6) !important;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 6px;
+}
+
+body.theme-dark .rdrDateInput input {
+  color: #f3f4f6 !important;
+}
+
+body.theme-dark .rdrDateDisplayItemActive {
+  border-color: #87F3F3 !important;
+  background: rgba(135, 243, 243, 0.12) !important;
+}
+
+/* Dark mode static ranges sidebar */
+body.theme-dark .rdrDefinedRangesWrapper {
+  background: rgba(17, 24, 39, 0.85) !important;
+  border-right: 1px solid rgba(148, 163, 184, 0.18) !important;
+}
+
+body.theme-dark .rdrStaticRange {
+  background: transparent !important;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.08) !important;
+}
+
+body.theme-dark .rdrStaticRange:hover {
+  background: rgba(135, 243, 243, 0.08) !important;
+}
+
+body.theme-dark .rdrStaticRange:hover .rdrStaticRangeLabel {
+  background: transparent !important;
+}
+
+body.theme-dark .rdrStaticRangeLabel {
+  color: #f3f4f6 !important;
+}
+
+body.theme-dark .rdrInputRange {
+  background: transparent !important;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+}
+
+body.theme-dark .rdrInputRange input {
+  background: rgba(31, 41, 55, 0.6) !important;
+  color: #f3f4f6 !important;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 4px;
+}
+
+body.theme-dark .rdrInputRange span {
+  color: rgba(243, 244, 246, 0.75) !important;
+}
+
+/* Light mode subtle improvements */
+body.theme-light .rdrCalendarWrapper {
+  background: rgba(255, 255, 255, 0.95) !important;
+}
+
+body.theme-light .rdrDateRangePickerWrapper {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* ==========================
+   Unified selection styling
+   ========================== */
+
+/* Remove preview flicker and borders when hovering/dragging */
+.rdrDayStartPreview,
+.rdrDayInPreview,
+.rdrDayEndPreview {
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  pointer-events: none !important;
+  z-index: 0 !important;
+}
+
+/* Also suppress generic preview layer */
+.rdrDayPreview {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  pointer-events: none !important;
+  z-index: 0 !important;
+}
+
+/* Suppress connector preview overlays (bar between start and hovered end) */
+.rdrInPreview,
+.rdrStartPreview,
+.rdrEndPreview {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  pointer-events: none !important;
+  z-index: 0 !important;
+}
+
+/* Remove focus outline flicker on day buttons */
+.rdrDay:focus {
+  outline: none !important;
+}
+
+/* Light mode: make start, end and in-range look consistent */
+body.theme-light .rdrDayInRange,
+body.theme-light .rdrDaySelected {
+  background: rgba(54, 144, 206, 0.18) !important; /* soft blue fill */
+  border-color: rgba(54, 144, 206, 0.28) !important;
+}
+
+/* Light mode: unify the internal connecting segment and single-day selection */
+body.theme-light .rdrInRange,
+body.theme-light .rdrSelected {
+  background: rgba(54, 144, 206, 0.18) !important;
+  color: rgba(54, 144, 206, 0.28) !important; /* in case theme uses currentColor */
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Dark mode: unified cyan fill */
+body.theme-dark .rdrDayInRange,
+body.theme-dark .rdrDaySelected {
+  background: rgba(135, 243, 243, 0.22) !important; /* soft cyan fill */
+  border-color: rgba(135, 243, 243, 0.35) !important;
+}
+
+/* Dark mode: unify the internal connecting segment and single-day selection */
+body.theme-dark .rdrInRange,
+body.theme-dark .rdrSelected {
+  background: rgba(135, 243, 243, 0.22) !important;
+  color: rgba(135, 243, 243, 0.35) !important; /* in case theme uses currentColor */
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Start/End edges: rounded "pill" ends that match the fill */
+body.theme-light .rdrStartEdge,
+body.theme-light .rdrEndEdge {
+  background: rgba(54, 144, 206, 0.26) !important;
+  border: none !important;
+  border-radius: 10px !important;
+}
+
+body.theme-dark .rdrStartEdge,
+body.theme-dark .rdrEndEdge {
+  background: rgba(135, 243, 243, 0.30) !important;
+  border: none !important;
+  border-radius: 10px !important;
+}
+
+/* Explicit radii per side so connectors meet chips cleanly */
+body.theme-light .rdrStartEdge { border-top-right-radius: 0 !important; border-bottom-right-radius: 0 !important; }
+body.theme-light .rdrEndEdge   { border-top-left-radius: 0 !important;  border-bottom-left-radius: 0 !important; }
+body.theme-dark .rdrStartEdge  { border-top-right-radius: 0 !important; border-bottom-right-radius: 0 !important; }
+body.theme-dark .rdrEndEdge    { border-top-left-radius: 0 !important;  border-bottom-left-radius: 0 !important; }
+
+/* Single-day selection pill */
+body.theme-light .rdrSelected { border-radius: 10px !important; }
+body.theme-dark  .rdrSelected { border-radius: 10px !important; }
+
+/* Harmonize day numbers inside the selection for readability */
+body.theme-light .rdrDayInRange .rdrDayNumber span,
+body.theme-light .rdrDaySelected .rdrDayNumber span {
+  color: #061733 !important;
+  font-weight: 700 !important;
+  text-shadow: none !important;
+}
+
+body.theme-dark .rdrDayInRange .rdrDayNumber span,
+body.theme-dark .rdrDaySelected .rdrDayNumber span {
+  color: #061733 !important; /* dark text on cyan for contrast */
+  font-weight: 700 !important;
+  text-shadow: none !important;
+}
+
+/* Keep non-selected days readable */
+body.theme-light .rdrDay:not(.rdrDayInRange):not(.rdrDaySelected) .rdrDayNumber span {
+  color: #061733 !important;
+}
+
+body.theme-dark .rdrDay:not(.rdrDayInRange):not(.rdrDaySelected) .rdrDayNumber span {
+  color: #f3f4f6 !important;
+}
+
+/* Smooth transitions on selection changes */
+.rdrDay,
+.rdrDayInRange,
+.rdrDaySelected,
+.rdrStartEdge,
+.rdrEndEdge {
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+/* Layering: keep numbers above fills and previews below */
+.rdrDayNumber {
+  position: relative !important;
+  z-index: 3 !important;
+}
+
+.rdrInRange,
+.rdrSelected,
+.rdrStartEdge,
+.rdrEndEdge {
+  position: absolute !important;
+  top: 50% !important;
+  left: 0 !important;
+  right: 0 !important;
+  transform: translateY(-50%) !important;
+  height: 2.1em !important;
+  pointer-events: none !important;
+}
+
+/* Place connector under edges; keep selected/edges above */
+.rdrInRange { z-index: 1 !important; border-radius: 0 !important; }
+.rdrSelected { z-index: 2 !important; }
+.rdrStartEdge { z-index: 2 !important; }
+.rdrEndEdge { z-index: 2 !important; }
+
+/* Ensure the connecting bar doesn't round its own corners; edges handle rounding */
+.rdrInRange {
+  border-radius: 0 !important;
+}
+
+/* Make hover state non-opaque to avoid hiding numbers before confirm */
+.rdrDayHovered {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+body.theme-light .rdrDayHovered {
+  box-shadow: inset 0 0 0 1px rgba(54, 144, 206, 0.35) !important;
+}
+body.theme-dark .rdrDayHovered {
+  box-shadow: inset 0 0 0 1px rgba(135, 243, 243, 0.35) !important;
+}
+
+/* Light mode text visibility fixes - need !important to override inline styles */
+body.theme-light .rdrDay,
+.rdrDay {
+  color: #061733 !important;
+}
+
+body.theme-light .rdrDayNumber span,
+.rdrDayNumber span {
+  color: #061733 !important;
+}
+
+body.theme-light .rdrMonthName,
+.rdrMonthName {
+  color: #061733 !important;
+}
+
+body.theme-light .rdrWeekDay,
+.rdrWeekDay {
+  color: rgba(6, 23, 51, 0.65) !important;
+}
+
+body.theme-light .rdrDayPassive .rdrDayNumber span,
+.rdrDayPassive .rdrDayNumber span {
+  color: rgba(6, 23, 51, 0.35) !important;
+}
+
+body.theme-light .rdrMonthPicker select,
+body.theme-light .rdrYearPicker select,
+.rdrMonthPicker select,
+.rdrYearPicker select {
+  color: #061733 !important;
+}
+
+/* Also fix the date display inputs */
+.rdrDateInput input {
+  color: #061733 !important;
+}
+
+body.theme-light .rdrDateDisplayItemActive {
+  color: #3690CE !important;
 }

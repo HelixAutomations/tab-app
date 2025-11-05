@@ -1,3 +1,15 @@
+//
+// ⚠️  IMPORTANT: THIS FILE IS NOT THE MAIN SERVER FILE! ⚠️
+// 
+// The actual server that runs in development/production is server/index.js
+// 
+// When adding new routes:
+// 1. Add the require() statement to server/index.js
+// 2. Add the app.use() registration to server/index.js
+// 3. DO NOT add routes here - they will be ignored!
+//
+// This file appears to be legacy/backup - the main server is server/index.js
+//
 const path = require('path');
 
 // Provide a fetch implementation when running on Node versions
@@ -49,6 +61,8 @@ const teamDataRouter = require('./routes/teamData');
 const userDataRouter = require('./routes/userData');
 const pitchTeamRouter = require('./routes/pitchTeam');
 const sendEmailRouter = require('./routes/sendEmail');
+const forwardEmailRouter = require('./routes/forwardEmail');
+const searchInboxRouter = require('./routes/searchInbox');
 const attendanceRouter = require('./routes/attendance');
 const reportingRouter = require('./routes/reporting');
 const reportingStreamRouter = require('./routes/reporting-stream');
@@ -131,6 +145,7 @@ app.use('/api/enquiry-emails', enquiryEmailsRouter);
 // Update enquiry endpoint - moved to enquiries-unified/update
 // app.post('/api/update-enquiry', require('../api/update-enquiry'));
 app.post('/api/update-deal', require('./routes/updateDeal'));
+app.post('/api/deal-capture', require('./routes/dealCapture'));
 app.use('/api/pitches', pitchesRouter);
 app.use('/api/matters', mattersRouter);
 app.use('/api/matters-unified', mattersUnifiedRouter);
@@ -144,6 +159,8 @@ app.use('/api/team-data', teamDataRouter);
 app.use('/api/user-data', userDataRouter);
 app.use('/api/pitch-team', pitchTeamRouter);
 app.use('/api', sendEmailRouter);
+app.use('/api', forwardEmailRouter);
+app.use('/api', searchInboxRouter);
 app.use('/api/reporting', reportingRouter);
 app.use('/api/reporting-stream', reportingStreamRouter);
 app.use('/api/home-metrics', homeMetricsStreamRouter);

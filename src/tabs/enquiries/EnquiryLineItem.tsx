@@ -8,7 +8,7 @@ import { colours } from '../../app/styles/colours';
 import RatingIndicator from './RatingIndicator';
 import { useTheme } from '../../app/functionality/ThemeContext';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 
 // Animation keyframes for action drop-in
 const dropInAnimation = keyframes({
@@ -56,6 +56,15 @@ if (typeof document !== 'undefined') {
       100% {
         opacity: 1;
         transform: translateY(0) scale(1);
+      }
+    }
+    
+    @keyframes fadeIn {
+      0% {
+        opacity: 0;
+      }
+      100% {
+        opacity: 1;
       }
     }
   `;
@@ -137,10 +146,12 @@ interface EnquiryLineItemProps {
   enquiry: Enquiry;
   onSelect: (enquiry: Enquiry) => void;
   onRate: (enquiryId: string) => void;
+  onRatingChange?: (enquiryId: string, newRating: string) => Promise<void>;
   onPitch?: (enquiry: Enquiry) => void;
   teamData?: TeamData[] | null;
   isLast?: boolean;
   userAOW?: string[]; // List of user's areas of work (lowercase)
+  onFilterByPerson?: (initials: string) => void; // Handler to filter by person
   /**
    * Flag indicating this enquiry originated from the new direct getEnquiries route (not legacy/space data).
    * Used for transitional UI (e.g., pulsing claim indicator) before full component split.
@@ -180,7 +191,7 @@ const getAreaColor = (area: string): string => {
     case 'employment':
       return colours.yellow;
     default:
-      return colours.cta;
+      return colours.greyText;
   }
 };
 
@@ -188,10 +199,12 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
   enquiry,
   onSelect,
   onRate,
+  onRatingChange,
   onPitch,
   teamData,
   isLast,
   userAOW,
+  onFilterByPerson,
   isNewSource = false,
   promotionStatus = null,
 }) => {
@@ -199,6 +212,36 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
 
   // State for global notes reveal (hidden until chevron on far right is clicked)
   const [notesExpanded, setNotesExpanded] = useState(false);
+  
+  // Rating inline update states
+  const [showRatingMenu, setShowRatingMenu] = useState(false);
+  const [isUpdatingRating, setIsUpdatingRating] = useState(false);
+  const [localRating, setLocalRating] = useState(enquiry.Rating || '');
+  const ratingMenuRef = useRef<HTMLDivElement>(null);
+
+  // Handle rating change
+  const handleRatingChange = async (newRating: string) => {
+    if (!onRatingChange || isUpdatingRating) return;
+    
+    setIsUpdatingRating(true);
+    setLocalRating(newRating); // Optimistic update
+    setShowRatingMenu(false);
+    
+    try {
+      await onRatingChange(enquiry.ID, newRating);
+      // Success feedback handled by parent
+    } catch (error) {
+      console.error('Failed to update rating:', error);
+      setLocalRating(enquiry.Rating || ''); // Revert on error
+    } finally {
+      setIsUpdatingRating(false);
+    }
+  };
+
+  // Sync local rating with prop changes
+  useEffect(() => {
+    setLocalRating(enquiry.Rating || '');
+  }, [enquiry.Rating]);
 
   // Notes formatting helpers
   const normalizeNotes = (raw: string): string => {
@@ -422,32 +465,38 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
   });
 
   const actionBadgeStyle = mergeStyles({
-    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
-    color: isDarkMode ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)',
-    border: 'none',
-    borderRadius: 6,
+    background: 'transparent',
+    color: isDarkMode ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)',
+    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)'}`,
+    backdropFilter: 'blur(8px)',
     padding: '6px 12px',
-    fontSize: '10.5px',
-    fontWeight: '600',
-    fontFamily: 'Raleway, sans-serif',
+    borderRadius: 16,
+    fontSize: 10,
+    fontWeight: 600,
     cursor: 'pointer',
-    transition: 'all 0.15s ease',
-    boxShadow: 'none',
-    height: '32px',
-    minWidth: '40px',
-    display: 'flex',
+    minHeight: 30,
+    opacity: 0.75,
+    transform: 'translateY(0) scale(1)',
+    transition: 'all .25s cubic-bezier(.4,0,.2,1)',
+    display: 'inline-flex',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: '6px',
-    whiteSpace: 'nowrap',
+    gap: 5,
+    lineHeight: 1,
     selectors: {
       ':hover': {
-        backgroundColor: 'rgba(102, 170, 232, 0.15)',
+        background: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)',
         color: colours.highlight,
-        transform: 'translateY(-0.5px)',
+        borderRadius: 14,
+        borderColor: colours.highlight,
+        transform: 'translateY(-1px) scale(1.02)',
+        opacity: 1,
+        boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
       },
       ':active': {
-        transform: 'translateY(0)',
+        background: isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)',
+        color: colours.blue,
+        borderRadius: 14,
+        transform: 'scale(0.97)'
       },
     },
   });
@@ -491,37 +540,41 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
     backgroundColor: rating 
       ? (rating === 'Good' ? 'rgba(102, 170, 232, 0.15)' : 
          rating === 'Neutral' ? 'rgba(128, 128, 128, 0.15)' : 'rgba(244, 67, 54, 0.15)')
-      : (isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'),
+      : 'rgba(54, 144, 206, 0.06)',
     color: rating 
       ? (rating === 'Good' ? colours.blue : 
          rating === 'Neutral' ? colours.grey : colours.cta)
-      : (isDarkMode ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)'),
-  border: 'none',
-  borderRadius: 6,
-  padding: '6px 12px',
-  fontSize: '10.5px',
-  fontWeight: '600',
-  fontFamily: 'Raleway, sans-serif',
-  cursor: 'pointer',
-  transition: 'all 0.15s ease',
-  boxShadow: 'none',
-  height: '32px',
-  minWidth: '40px',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  gap: '6px',
+      : 'rgba(54, 144, 206, 0.75)',
+    border: rating 
+      ? 'none' 
+      : `1px solid rgba(54, 144, 206, 0.25)`,
+    borderRadius: 6,
+    padding: '6px 12px',
+    fontSize: '10.5px',
+    fontWeight: '600',
+    fontFamily: 'Raleway, sans-serif',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+    boxShadow: !rating ? '0 0 0 1px rgba(54, 144, 206, 0.1)' : 'none',
+    height: '32px',
+    minWidth: '40px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '6px',
     whiteSpace: 'nowrap',
     selectors: {
       ':hover': {
         backgroundColor: rating 
           ? (rating === 'Good' ? 'rgba(102, 170, 232, 0.25)' : 
              rating === 'Neutral' ? 'rgba(128, 128, 128, 0.25)' : 'rgba(244, 67, 54, 0.25)')
-          : 'rgba(102, 170, 232, 0.15)',
+          : 'rgba(54, 144, 206, 0.12)',
         color: rating 
           ? (rating === 'Good' ? colours.blue : 
              rating === 'Neutral' ? colours.grey : colours.cta)
           : colours.highlight,
+        borderColor: !rating ? colours.highlight : undefined,
+        boxShadow: !rating ? '0 2px 10px rgba(54, 144, 206, 0.15)' : undefined,
         transform: 'translateY(-0.5px)',
       },
       ':active': {
@@ -665,19 +718,33 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
         {enquiry.Area_of_Work && (
           <span style={{ position: 'absolute', top: 18, right: 14, display: 'flex', alignItems: 'flex-end', zIndex: 2 }}>
             <span style={{
-              display: 'flex', alignItems: 'center', gap: 7, fontSize: 10, padding: '2px 10px 2px 8px', borderRadius: 12,
-              background: 'rgba(102,170,232,0.15)', color: areaColor, fontWeight: 600, letterSpacing: .3, textTransform: 'uppercase',
-              boxShadow: '0 1px 4px 0 rgba(33,56,82,0.07)', position: 'relative'
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 10,
+              fontWeight: 600,
+              padding: '4px 10px',
+              borderRadius: 6,
+              backgroundColor: isDarkMode 
+                ? `${areaColor}25` 
+                : `${areaColor}15`,
+              color: areaColor,
+              textTransform: 'uppercase',
+              letterSpacing: 0.8,
+              border: `1px solid ${isDarkMode ? `${areaColor}40` : `${areaColor}30`}`,
+              boxShadow: isDarkMode 
+                ? `0 2px 8px ${areaColor}20` 
+                : `0 2px 8px ${areaColor}15`
             }}>
               {enquiry.Area_of_Work?.toLowerCase().includes('other') || enquiry.Area_of_Work?.toLowerCase().includes('unsure') ? 'Other' : enquiry.Area_of_Work}
-              <span className={pulseDot} aria-hidden="true" />
-              <span style={{ fontSize: 10, color: '#b0b8c9', fontWeight: 600 }}>{formatDate(enquiry.Touchpoint_Date)}</span>
+              <span style={{ fontSize: 10, color: isDarkMode ? 'rgba(176, 184, 201, 0.8)' : 'rgba(100, 116, 139, 0.8)', fontWeight: 600, marginLeft: 2 }}>
+                {formatDate(enquiry.Touchpoint_Date)}
+              </span>
             </span>
           </span>
         )}
         {/* Name + inline ID */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
-          <span className={pulseDotInlineStyle(getAreaColor(enquiry.Area_of_Work))} aria-hidden="true" />
           <Text variant="medium" styles={{ root: { fontWeight: 600, color: isDarkMode ? '#fff' : '#0d2538', lineHeight: 1.2 } }}>
             {(enquiry.First_Name || '') + ' ' + (enquiry.Last_Name || '')}
           </Text>
@@ -703,8 +770,46 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
   {/* Meta (value & contact) */}
   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 11, color: isDarkMode ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)', fontWeight: 500, marginTop: 6, marginLeft: 10 }}>
           {enquiry.Value && <span style={{ fontWeight: 600 }}>{enquiry.Value}</span>}
-          {enquiry.Email && <span style={{ cursor: 'copy' }} onClick={e => { e.stopPropagation(); navigator?.clipboard?.writeText(enquiry.Email); }}>{enquiry.Email}</span>}
-          {enquiry.Phone_Number && <span style={{ cursor: 'copy' }} onClick={e => { e.stopPropagation(); navigator?.clipboard?.writeText(enquiry.Phone_Number || ''); }}>{enquiry.Phone_Number}</span>}
+          {enquiry.Email && (
+            <span 
+              style={{ 
+                cursor: 'copy',
+                fontSize: '11px',
+                color: isDarkMode ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)',
+                fontFamily: 'Consolas, Monaco, monospace',
+                transition: 'all 0.2s ease'
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.color = isDarkMode ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.85)';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.color = isDarkMode ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)';
+              }}
+              onClick={e => { e.stopPropagation(); navigator?.clipboard?.writeText(enquiry.Email); }}
+            >
+              {enquiry.Email}
+            </span>
+          )}
+          {enquiry.Phone_Number && (
+            <span 
+              style={{ 
+                cursor: 'copy',
+                fontSize: '11px',
+                color: isDarkMode ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)',
+                fontFamily: 'Consolas, Monaco, monospace',
+                transition: 'all 0.2s ease'
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.color = isDarkMode ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.85)';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.color = isDarkMode ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)';
+              }}
+              onClick={e => { e.stopPropagation(); navigator?.clipboard?.writeText(enquiry.Phone_Number || ''); }}
+            >
+              {enquiry.Phone_Number}
+            </span>
+          )}
         </div>
         {/* Notes clamp */}
         {hasNotes && (
@@ -795,10 +900,11 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
   // Dynamic grid layout (claimed only)
   const mainContentStyle = mergeStyles({
     flex: 1,
-    display: 'grid',
-    gridTemplateColumns: '2.9fr 1.9fr 1.2fr 90px auto',
+    display: 'flex',
+    flexDirection: 'row',
     alignItems: 'center',
-    gap: '20px',
+    justifyContent: 'space-between',
+    gap: '16px',
     width: '100%',
   });
 
@@ -811,104 +917,44 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
       {/* Main line item */}
       <div className={lineItemStyle} onClick={handleClick}>
         {/* Standalone pulse removed: integrated into AoW pill for unclaimed */}
-        {/* Main content grid */}
+        {/* Main content - simplified horizontal layout */}
         <div className={mainContentStyle}>
-        {/* Name, Company (+ Contact for unclaimed) */}
-        <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-            <CopyableText 
-              value={`${enquiry.First_Name} ${enquiry.Last_Name}`} 
-              className={nameStyle} 
-              label="Name" 
-            />
-            <span style={{
-              fontSize: '10px',
-              color: isDarkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)',
-              fontWeight: '500',
-              lineHeight: 1
-            }}>
-              ID {enquiry.ID}
-            </span>
-            {promotionStatus && (
+          {/* Left: Name + basic info */}
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap' }}>
+              <CopyableText 
+                value={`${enquiry.First_Name} ${enquiry.Last_Name}`} 
+                className={nameStyle} 
+                label="Name" 
+              />
               <span style={{
-                fontSize: 10,
-                fontWeight: 600,
-                padding: '2px 6px',
-                borderRadius: 4,
-                backgroundColor: promotionStatus === 'instruction'
-                  ? (isDarkMode ? 'rgba(76, 175, 80, 0.15)' : 'rgba(232, 245, 232, 0.6)')
-                  : (isDarkMode ? 'rgba(33, 150, 243, 0.15)' : 'rgba(227, 242, 253, 0.6)'),
-                color: promotionStatus === 'instruction'
-                  ? (isDarkMode ? 'rgba(76, 175, 80, 0.85)' : 'rgba(46, 125, 50, 0.8)')
-                  : (isDarkMode ? 'rgba(33, 150, 243, 0.85)' : 'rgba(21, 101, 192, 0.85)'),
-                textTransform: 'uppercase' as const,
-                letterSpacing: 0.5,
-                opacity: 0.9
+                fontSize: '10px',
+                color: isDarkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)',
+                fontWeight: '500',
+                lineHeight: 1
               }}>
-                {promotionStatus === 'instruction' ? 'Instructed' : 'Pitched'}
+                ID {enquiry.ID}
               </span>
-            )}
-          </div>
-          {enquiry.Company && (
-            <div className={companyStyle} style={{ 
-              whiteSpace: 'nowrap', 
-              overflow: 'hidden', 
-              textOverflow: 'ellipsis' 
-            }}>
-              {enquiry.Company}
-            </div>
-          )}
-          {/* Inline contact details for unclaimed */}
-          {!isClaimed && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
-              {enquiry.Email ? (
-                <CopyableText 
-                  value={enquiry.Email} 
-                  className={emailStyle} 
-                  label="Email" 
-                />
-              ) : (
-                <span style={{ fontSize: 11, color: 'rgba(0,0,0,0.35)', fontStyle: 'italic' }}>
-                  {isDarkMode ? '—' : '—'}
-                </span>
-              )}
-              {enquiry.Phone_Number ? (
-                <CopyableText 
-                  value={enquiry.Phone_Number} 
-                  className={emailStyle} 
-                  label="Phone" 
-                />
-              ) : (
-                <span style={{ fontSize: 11, color: 'rgba(0,0,0,0.35)', fontStyle: 'italic' }}>
-                  {isDarkMode ? '—' : '—'}
+              {promotionStatus && (
+                <span style={{
+                  fontSize: 10,
+                  fontWeight: 600,
+                  padding: '2px 6px',
+                  borderRadius: 4,
+                  backgroundColor: promotionStatus === 'instruction'
+                    ? (isDarkMode ? 'rgba(76, 175, 80, 0.15)' : 'rgba(232, 245, 232, 0.6)')
+                    : (isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(227, 242, 253, 0.6)'),
+                  color: promotionStatus === 'instruction'
+                    ? (isDarkMode ? 'rgba(76, 175, 80, 0.85)' : 'rgba(46, 125, 50, 0.8)')
+                    : colours.highlight,
+                  textTransform: 'uppercase' as const,
+                  letterSpacing: 0.5
+                }}>
+                  {promotionStatus === 'instruction' ? 'Instructed' : 'Pitched'}
                 </span>
               )}
             </div>
-          )}
-        </div>
-
-        {/* Area & Value - Combined (dot + area text for unclaimed, dot only for claimed) */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
-            {/* Area pill - show full pill for unclaimed, just dot for claimed */}
-            {!isClaimed ? (
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                background: isDarkMode ? 'rgba(255,255,255,0.07)' : '#e9ecef',
-                color: getAreaColor(enquiry.Area_of_Work),
-                padding: '4px 12px',
-                borderRadius: 16,
-                fontSize: 10,
-                fontWeight: 600,
-                border: isDarkMode ? '1px solid rgba(255,255,255,0.12)' : '1px solid #d5d9dd',
-                lineHeight: 1.1,
-                whiteSpace: 'nowrap'
-              }}>
-                <span>{enquiry.Area_of_Work?.toLowerCase().includes('other') || enquiry.Area_of_Work?.toLowerCase().includes('unsure') ? 'Other' : enquiry.Area_of_Work}</span>
-              </div>
-            ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
               <span 
                 style={{ 
                   width: 8, 
@@ -919,62 +965,76 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
                 }}
                 title={enquiry.Area_of_Work?.toLowerCase().includes('other') || enquiry.Area_of_Work?.toLowerCase().includes('unsure') ? 'Other' : enquiry.Area_of_Work}
               />
-            )}
+              <div style={{
+                fontSize: 12,
+                fontWeight: 600,
+                color: isDarkMode ? colours.dark.text : colours.light.text
+              }}>
+                {enquiry.Value ? formatCurrency(enquiry.Value) : 'Not specified'}
+              </div>
+            </div>
+          </div>
+
+          {/* Center: Date */}
+          <div style={{ textAlign: 'right' }}>
             <div style={{
-              fontSize: 12,
-              fontWeight: 600,
+              fontSize: '12px',
+              fontWeight: '500',
               color: isDarkMode ? colours.dark.text : colours.light.text
             }}>
-              {enquiry.Value ? formatCurrency(enquiry.Value) : 'Not specified'}
+              {formatDate(enquiry.Touchpoint_Date)}
             </div>
           </div>
-          {enquiry.Type_of_Work && (
-            <div style={{
-              fontSize: 11,
-              color: isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.7)',
-              fontWeight: 500,
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis'
-            }}>
-              {enquiry.Type_of_Work}
+
+          {/* Claimer badge */}
+          {isClaimed && claimer && (
+            <div 
+              style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 24 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  const initials = claimer.Initials || (claimer.Email?.split('@')[0]?.slice(0, 2).toUpperCase());
+                  if (initials && onFilterByPerson) {
+                    onFilterByPerson(initials);
+                  }
+                }}
+                title={`Filter by ${claimer['Full Name'] || claimer.Email || 'this person'}`}
+                style={{
+                  width: 24,
+                  height: 24,
+                  borderRadius: '50%',
+                  background: isDarkMode ? 'rgba(102,170,232,0.12)' : 'rgba(102,170,232,0.12)',
+                  color: colours.highlight,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: 700,
+                  fontSize: 12,
+                  border: `1px solid ${colours.highlight}50`,
+                  letterSpacing: '0.2px',
+                  userSelect: 'none',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  padding: 0,
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = isDarkMode ? 'rgba(102,170,232,0.22)' : 'rgba(102,170,232,0.22)';
+                  e.currentTarget.style.borderColor = colours.highlight;
+                  e.currentTarget.style.transform = 'scale(1.1)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = isDarkMode ? 'rgba(102,170,232,0.12)' : 'rgba(102,170,232,0.12)';
+                  e.currentTarget.style.borderColor = `${colours.highlight}50`;
+                  e.currentTarget.style.transform = 'scale(1)';
+                }}
+              >
+                {claimer.Initials || (claimer.Email?.split('@')[0]?.slice(0, 2).toUpperCase())}
+              </button>
             </div>
           )}
-        </div>
-
-        {/* Date only - ID moved to name section */}
-        <div style={{ textAlign: 'right' }}>
-          <div style={{
-            fontSize: '12px',
-            fontWeight: '500',
-            color: isDarkMode ? colours.dark.text : colours.light.text
-          }}>
-            {formatDate(enquiry.Touchpoint_Date)}
-          </div>
-        </div>
-        {isClaimed && (
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 24 }}>
-            {claimer && (
-              <div style={{
-                width: 24,
-                height: 24,
-                borderRadius: '50%',
-                background: isDarkMode ? 'rgba(102,170,232,0.12)' : 'rgba(102,170,232,0.12)',
-                color: colours.highlight,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontWeight: 700,
-                fontSize: 12,
-                border: `1px solid ${colours.highlight}50`,
-                letterSpacing: '0.2px',
-                userSelect: 'none',
-              }}>
-                {claimer.Initials || (claimer.Email?.split('@')[0]?.slice(0, 2).toUpperCase())}
-              </div>
-            )}
-          </div>
-        )}
 
         {/* Actions & global notes chevron (far right) */}
   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end', minWidth: 0 }}>
@@ -1002,7 +1062,7 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
 
               <button
                 className={actionBadgeStyle}
-                onClick={(e) => { e.stopPropagation(); enquiry.Email && (window.location.href = `mailto:${enquiry.Email}?subject=Your%20Enquiry&bcc=1day@followupthen.com`); }}
+                onClick={(e) => { e.stopPropagation(); enquiry.Email && (window.location.href = `mailto:${enquiry.Email}?subject=Your%20Enquiry`); }}
                 title="Email"
                 style={{ padding: '6px 12px' }}
               >
@@ -1010,20 +1070,35 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
                 <span style={{ fontSize: 11, fontWeight: 600 }}>Email</span>
               </button>
 
+              {/* Rating button */}
               <button
-                className={ratingBadgeStyle(enquiry.Rating)}
-                onClick={(e) => { e.stopPropagation(); onRate(enquiry.ID); }}
-                title={enquiry.Rating ? `Rating: ${enquiry.Rating}` : 'Rate Enquiry'}
-                style={{ padding: '6px 12px' }}
+                className={ratingBadgeStyle(localRating)}
+                onClick={(e) => { 
+                  e.stopPropagation(); 
+                  if (onRatingChange) {
+                    setShowRatingMenu(true);
+                  } else {
+                    onRate(enquiry.ID);
+                  }
+                }}
+                title={localRating ? `Rating: ${localRating}` : 'Rate quality of this enquiry'}
+                style={{ 
+                  padding: localRating ? '6px 12px' : '6px 10px',
+                  opacity: isUpdatingRating ? 0.6 : (!localRating ? 0.7 : 1),
+                  cursor: isUpdatingRating ? 'wait' : 'pointer',
+                }}
+                disabled={isUpdatingRating}
               >
                 <Icon 
-                  iconName={enquiry.Rating 
-                    ? (enquiry.Rating === 'Poor' ? 'DislikeSolid' : enquiry.Rating === 'Neutral' ? 'Like' : 'LikeSolid')
-                    : 'Like'
+                  iconName={localRating 
+                    ? (localRating === 'Poor' ? 'StatusErrorFull' : localRating === 'Neutral' ? 'CircleRing' : 'FavoriteStarFill')
+                    : 'FavoriteStar'
                   }
                   style={{ fontSize: '12px' }}
                 />
-                <span style={{ fontSize: 11, fontWeight: 600, minWidth: 24, textAlign: 'center' }}>{enquiry.Rating || 'Rate'}</span>
+                <span style={{ fontSize: 11, fontWeight: 600, minWidth: 24, textAlign: 'center' }}>
+                  {isUpdatingRating ? '...' : (localRating || 'Rate?')}
+                </span>
               </button>
             </>
           )}
@@ -1075,6 +1150,144 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
               {/* Keeping minimal (no duplicates) to avoid clutter. */}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Rating Modal - Popup overlay */}
+      {showRatingMenu && onRatingChange && (
+        <div
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowRatingMenu(false);
+          }}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.4)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000,
+            animation: 'fadeIn 0.2s ease',
+          }}
+        >
+          <div
+            ref={ratingMenuRef}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: isDarkMode ? 'rgba(40,40,40,0.98)' : 'rgba(255,255,255,0.98)',
+              border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)'}`,
+              borderRadius: 12,
+              boxShadow: isDarkMode 
+                ? '0 12px 48px rgba(0,0,0,0.7)' 
+                : '0 12px 48px rgba(0,0,0,0.2)',
+              minWidth: 280,
+              overflow: 'hidden',
+              animation: 'dropIn 0.25s cubic-bezier(0.16,1,0.3,1)',
+            }}
+          >
+            {/* Header */}
+            <div style={{
+              padding: '16px 20px',
+              borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}>
+              <Text style={{
+                fontSize: 15,
+                fontWeight: 600,
+                color: isDarkMode ? 'rgba(255,255,255,0.95)' : 'rgba(0,0,0,0.95)',
+              }}>
+                Rate Enquiry
+              </Text>
+              <button
+                onClick={() => setShowRatingMenu(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: 4,
+                  color: isDarkMode ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Icon iconName="Cancel" style={{ fontSize: 16 }} />
+              </button>
+            </div>
+
+            {/* Rating options */}
+            <div style={{ padding: '8px 0' }}>
+              {[
+                { value: 'Good', icon: 'FavoriteStarFill', color: colours.blue, label: 'Good quality enquiry' },
+                { value: 'Neutral', icon: 'CircleRing', color: colours.grey, label: 'Average enquiry' },
+                { value: 'Poor', icon: 'StatusErrorFull', color: colours.cta, label: 'Poor quality enquiry' },
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleRatingChange(option.value);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '14px 20px',
+                    border: 'none',
+                    background: localRating === option.value 
+                      ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)')
+                      : 'transparent',
+                    color: isDarkMode ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.9)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    fontSize: 14,
+                    fontWeight: localRating === option.value ? 600 : 500,
+                    transition: 'background 0.2s',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = isDarkMode 
+                      ? 'rgba(255,255,255,0.08)' 
+                      : 'rgba(0,0,0,0.04)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = localRating === option.value 
+                      ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)')
+                      : 'transparent';
+                  }}
+                >
+                  <Icon 
+                    iconName={option.icon} 
+                    style={{ fontSize: 18, color: option.color }} 
+                  />
+                  <div style={{ flex: 1, textAlign: 'left' }}>
+                    <div style={{ fontWeight: 600 }}>{option.value}</div>
+                    <div style={{ 
+                      fontSize: 12, 
+                      color: isDarkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)',
+                      marginTop: 2
+                    }}>
+                      {option.label}
+                    </div>
+                  </div>
+                  {localRating === option.value && (
+                    <Icon 
+                      iconName="CheckMark" 
+                      style={{ 
+                        fontSize: 14, 
+                        color: option.color 
+                      }} 
+                    />
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       )}
     </div>

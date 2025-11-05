@@ -270,31 +270,38 @@ const NewEnquiryLineItem: React.FC<NewEnquiryLineItemProps> = ({
   });
 
   const actionBadgeStyle = mergeStyles({
-    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
-    color: isDarkMode ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)',
-    border: 'none',
-    borderRadius: '16px',
-    padding: '4px 10px',
-    fontSize: '10px',
-    fontWeight: '600',
-    fontFamily: 'Raleway, sans-serif',
+    background: 'transparent',
+    color: isDarkMode ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)',
+    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)'}`,
+    backdropFilter: 'blur(8px)',
+    padding: '6px 12px',
+    borderRadius: 16,
+    fontSize: 10,
+    fontWeight: 600,
     cursor: 'pointer',
-    transition: 'all 0.15s ease',
-    boxShadow: 'none',
-    height: '24px',
-    minWidth: '35px',
-    display: 'flex',
+    minHeight: 30,
+    opacity: 0.75,
+    transform: 'translateY(0) scale(1)',
+    transition: 'all .25s cubic-bezier(.4,0,.2,1)',
+    display: 'inline-flex',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: '4px',
+    gap: 5,
+    lineHeight: 1,
     selectors: {
       ':hover': {
-        backgroundColor: 'rgba(102, 170, 232, 0.15)',
+        background: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)',
         color: colours.highlight,
-        transform: 'translateY(-0.5px)',
+        borderRadius: 14,
+        borderColor: colours.highlight,
+        transform: 'translateY(-1px) scale(1.02)',
+        opacity: 1,
+        boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
       },
       ':active': {
-        transform: 'translateY(0)',
+        background: isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)',
+        color: colours.blue,
+        borderRadius: 14,
+        transform: 'scale(0.97)'
       },
     },
   });
@@ -303,12 +310,14 @@ const NewEnquiryLineItem: React.FC<NewEnquiryLineItemProps> = ({
     backgroundColor: rating 
       ? (rating === 'good' ? 'rgba(102, 170, 232, 0.15)' : 
          rating === 'neutral' ? 'rgba(128, 128, 128, 0.15)' : 'rgba(244, 67, 54, 0.15)')
-      : (isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'),
+      : 'rgba(54, 144, 206, 0.06)',
     color: rating 
       ? (rating === 'good' ? colours.blue : 
          rating === 'neutral' ? colours.grey : colours.cta)
-      : (isDarkMode ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)'),
-    border: 'none',
+      : 'rgba(54, 144, 206, 0.75)',
+    border: rating 
+      ? 'none' 
+      : `1px solid rgba(54, 144, 206, 0.25)`,
     borderRadius: '16px',
     padding: '4px 10px',
     fontSize: '10px',
@@ -316,7 +325,7 @@ const NewEnquiryLineItem: React.FC<NewEnquiryLineItemProps> = ({
     fontFamily: 'Raleway, sans-serif',
     cursor: 'pointer',
     transition: 'all 0.15s ease',
-    boxShadow: 'none',
+    boxShadow: !rating ? '0 0 0 1px rgba(54, 144, 206, 0.1)' : 'none',
     height: '24px',
     minWidth: '35px',
     display: 'flex',
@@ -328,11 +337,12 @@ const NewEnquiryLineItem: React.FC<NewEnquiryLineItemProps> = ({
         backgroundColor: rating 
           ? (rating === 'good' ? 'rgba(102, 170, 232, 0.25)' : 
              rating === 'neutral' ? 'rgba(128, 128, 128, 0.25)' : 'rgba(244, 67, 54, 0.25)')
-          : 'rgba(102, 170, 232, 0.15)',
+          : 'rgba(54, 144, 206, 0.12)',
         color: rating 
           ? (rating === 'good' ? colours.blue : 
              rating === 'neutral' ? colours.grey : colours.cta)
           : colours.highlight,
+        boxShadow: !rating ? '0 2px 10px rgba(54, 144, 206, 0.15)' : undefined,
         transform: 'translateY(-0.5px)',
       },
       ':active': {
@@ -500,7 +510,7 @@ const NewEnquiryLineItem: React.FC<NewEnquiryLineItemProps> = ({
               onClick={(e) => {
                 e.stopPropagation();
                 if (enquiry.email) {
-                  window.location.href = `mailto:${enquiry.email}?subject=Your%20Enquiry&bcc=1day@followupthen.com`;
+                  window.location.href = `mailto:${enquiry.email}?subject=Your%20Enquiry`;
                 }
               }}
               title="Email"

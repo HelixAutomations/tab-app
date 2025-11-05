@@ -34,7 +34,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [activeFilter, setActiveFilter] = useState<string>('Active');
   const [activeAreaFilter, setActiveAreaFilter] = useState<string>('All');
-  const [activeRoleFilter, setActiveRoleFilter] = useState<string>('All');
+  const [activeRoleFilter, setActiveRoleFilter] = useState<string>('Responsible');
   // Debug inspector removed with MatterApiDebugger
   // Scope & dataset selection
   const [scope, setScope] = useState<'mine' | 'all'>('mine');
@@ -205,21 +205,21 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
   useEffect(() => {
     if (!selected) {
       console.log('🔄 Setting new FilterBanner content for Matters');
-      const filterOptions = isAdmin ? ['All', 'Active', 'Closed', 'Requests'] : ['All', 'Active', 'Closed'];
       setContent(
         <FilterBanner
           seamless
           dense
+          collapsibleSearch
           primaryFilter={{
-            value: activeFilter,
+            value: activeFilter === 'All' ? 'Active' : activeFilter,
             onChange: setActiveFilter,
-            options: filterOptions.map(o => ({ key: o === 'Requests' ? 'Matter Requests' : o, label: o })),
+            options: ['Active', 'Closed'].map(o => ({ key: o, label: o })),
             ariaLabel: "Filter matters by status"
           }}
           secondaryFilter={{
-            value: activeRoleFilter,
+            value: activeRoleFilter === 'All' ? 'Responsible' : activeRoleFilter,
             onChange: setActiveRoleFilter,
-            options: ['All','Responsible','Originating'].map(o => ({ key: o, label: o })),
+            options: ['Responsible','Originating'].map(o => ({ key: o, label: o })),
             ariaLabel: "Filter matters by role"
           }}
           search={{
@@ -254,62 +254,127 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
             </div>
           )}
 
-          {/* Scope + Layout (moved out of admin panel) */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, transform: 'scale(0.96)', transformOrigin: 'left center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 11, fontWeight: 500, color: isDarkMode ? colours.dark.text : colours.light.text }}>Scope:</span>
-              <SegmentedControl
-                id="matters-scope-seg"
-                ariaLabel="Scope mine or all"
-                value={scope}
-                onChange={(k) => setScope(k as 'mine' | 'all')}
-                options={[
-                  { key: 'mine', label: 'Mine', badge: scopeCounts.mine },
-                  { key: 'all', label: 'All', badge: scopeCounts.all, disabled: !isAdmin }
-                ]}
-              />
+          {/* Secondary controls row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {/* Scope filter */}
+            <SegmentedControl
+              id="matters-scope-seg"
+              ariaLabel="Scope mine or all"
+              value={scope}
+              onChange={(k) => setScope(k as 'mine' | 'all')}
+              options={[
+                { key: 'mine', label: 'Mine', badge: scopeCounts.mine },
+                { key: 'all', label: 'All', badge: scopeCounts.all, disabled: !isAdmin }
+              ]}
+            />
+
+            {/* Layout toggle with icons */}
+            <div 
+              role="group" 
+              aria-label="Layout: choose 1 or 2 columns"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                height: 28,
+                padding: '2px 4px',
+                background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                borderRadius: 14,
+                fontFamily: 'Raleway, sans-serif',
+              }}
+            >
+              <button
+                type="button"
+                title="Single column layout"
+                aria-label="Single column layout"
+                aria-pressed={!twoColumn}
+                onClick={() => setTwoColumn(false)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 22,
+                  height: 22,
+                  background: !twoColumn ? '#FFFFFF' : 'transparent',
+                  border: 'none',
+                  borderRadius: 11,
+                  cursor: 'pointer',
+                  transition: 'all 200ms ease',
+                  opacity: !twoColumn ? 1 : 0.6,
+                  boxShadow: !twoColumn 
+                    ? (isDarkMode
+                        ? '0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.24)'
+                        : '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)')
+                    : 'none',
+                }}
+              >
+                <Icon
+                  iconName="SingleColumn"
+                  style={{
+                    fontSize: 10,
+                    color: !twoColumn 
+                      ? (isDarkMode ? '#1f2937' : '#1f2937')
+                      : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
+                  }}
+                />
+              </button>
+              <button
+                type="button"
+                title="Two column layout"
+                aria-label="Two column layout"
+                aria-pressed={twoColumn}
+                onClick={() => setTwoColumn(true)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 22,
+                  height: 22,
+                  background: twoColumn ? '#FFFFFF' : 'transparent',
+                  border: 'none',
+                  borderRadius: 11,
+                  cursor: 'pointer',
+                  transition: 'all 200ms ease',
+                  opacity: twoColumn ? 1 : 0.6,
+                  boxShadow: twoColumn 
+                    ? (isDarkMode
+                        ? '0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.24)'
+                        : '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)')
+                    : 'none',
+                }}
+              >
+                <Icon
+                  iconName="DoubleColumn"
+                  style={{
+                    fontSize: 10,
+                    color: twoColumn 
+                      ? (isDarkMode ? '#1f2937' : '#1f2937')
+                      : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
+                  }}
+                />
+              </button>
             </div>
-            <div style={{ width: 1, height: 18, background: 'rgba(0,0,0,0.12)' }} />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 11, fontWeight: 500, color: isDarkMode ? colours.dark.text : colours.light.text }}>Layout:</span>
-              <SegmentedControl
-                id="matters-layout-seg"
-                ariaLabel="Toggle layout one or two columns"
-                value={twoColumn ? 'two' : 'one'}
-                onChange={(k) => setTwoColumn(k === 'two')}
-                options={[
-                  { key: 'one', label: '1' },
-                  { key: 'two', label: '2' }
-                ]}
-              />
-            </div>
-          </div>
-          {/* Admin controls (debug + data toggle) for admin or localhost */}
-          {(isAdmin || isLocalhost) && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 6 }}>
+
+            {/* Admin data toggle */}
+            {(isAdmin || isLocalhost) && (
               <div
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: 8,
-                  padding: '2px 8px',
-                  height: 32,
-                  borderRadius: 10,
-                  background: isDarkMode ? '#5a4a12' : colours.highlightYellow,
-                  border: isDarkMode ? '1px solid #806c1d' : '1px solid #e2c56a',
-                  boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
+                  padding: '4px 10px',
+                  height: 28,
+                  borderRadius: 14,
+                  background: isDarkMode ? 'rgba(255,193,7,0.15)' : 'rgba(255,193,7,0.12)',
+                  border: `1px solid ${isDarkMode ? 'rgba(255,193,7,0.3)' : 'rgba(255,193,7,0.25)'}`,
                   fontSize: 10,
                   fontWeight: 600,
-                  color: isDarkMode ? '#ffe9a3' : '#5d4700'
+                  color: isDarkMode ? '#ffd54f' : '#f57c00'
                 }}
-                title="Admin Debugger (alex, luke, cass only)"
+                title="Admin controls (alex, luke, cass only)"
               >
-                <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? '#ffe9a3' : '#5d4700', marginRight: 4 }}>
-                  Admin Only
-                </span>
-                <span style={{ fontSize: 10, whiteSpace: 'nowrap' }}>Showing {filtered.length}/{datasetCount}</span>
-                <div style={{ width: 1, height: 16, background: 'rgba(0,0,0,0.2)' }} />
-                {/* Debugger button removed */}
+                <span style={{ fontSize: 10, whiteSpace: 'nowrap' }}>{filtered.length}/{datasetCount}</span>
+                <div style={{ width: 1, height: 14, background: 'currentColor', opacity: 0.3 }} />
                 <ToggleSwitch
                   id="matters-new-data-toggle"
                   checked={useNewData}
@@ -320,8 +385,8 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
                   ariaLabel="Toggle dataset between legacy and new"
                 />
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </FilterBanner>
       );
     } else {

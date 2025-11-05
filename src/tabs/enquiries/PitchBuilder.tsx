@@ -2974,7 +2974,8 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
       }
 
       const numericAmount = options?.background ? 0 : parseFloat(amount.replace(/,/g, '')) || 0;
-      const url = `${getProxyBaseUrl()}/${process.env.REACT_APP_INSERT_DEAL_PATH}?code=${process.env.REACT_APP_INSERT_DEAL_CODE}`;
+      // Updated to use server route instead of Azure Function
+      const url = `/api/deal-capture`;
       
       // Show initial loading state (only for foreground operations)
       if (!options?.background) {

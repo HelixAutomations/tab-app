@@ -152,6 +152,7 @@ const InstructionOverview: React.FC<InstructionOverviewProps> = ({
                     compliance={compliance}
                     documentCount={documentCount}
                     expanded
+                    anySelected={false}
                 />
             )}
         </div>

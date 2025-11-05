@@ -110,9 +110,12 @@ const TwoLayerFilter: React.FC<TwoLayerFilterProps> = ({
     display: 'flex',
     alignItems: 'center',
     gap: 16,
-    width: '100%',
+    // Allow the filter to size to its content so sibling controls can sit alongside
+    width: 'auto',
+    maxWidth: '100%',
+    flex: '0 1 auto',
     ...style,
-  };
+  } as React.CSSProperties;
 
   const segmentStyle = {
     display: 'flex',

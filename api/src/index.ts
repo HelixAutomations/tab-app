@@ -16,6 +16,7 @@ import "./functions/getEnquiries";
 // getFutureBookings migrated to Express server route /api/future-bookings
 // import "./functions/getFutureBookings";
 import "./functions/getInstructionData";
+import "./functions/getPitchHistory";
 import "./functions/getMatterOverview";
 import "./functions/getMatters";
 import "./functions/getMatterSpecificActivities";

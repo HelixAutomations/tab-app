@@ -236,11 +236,12 @@ async function fetchEnquiries(
     if (dateFrom) params.set('dateFrom', dateFrom);
     if (dateTo) params.set('dateTo', dateTo);
     params.set('includeTeamInbox', 'true');
+    if (bypassCache) params.set('bypassCache', 'true'); // Pass bypass flag to server
     if (fetchAll) {
       params.set('fetchAll', 'true');
-      params.set('limit', '1500'); // Higher limit for "All" view
+      params.set('limit', '999999'); // No effective cap for "All" view
     } else {
-      params.set('limit', '900'); // Lower limit for personal view
+      params.set('limit', '999999'); // No effective cap for personal view
     }
     
     const primaryUrl = `/api/enquiries-unified?${params.toString()}`;
@@ -1117,6 +1118,8 @@ const AppWithContext: React.FC = () => {
                   dateTo,
                   initialUserData[0].AOW || "",
                   userInitials,
+                  false,  // fetchAll
+                  true    // bypassCache - FORCE FRESH DATA on initial load to avoid stale cache
                 );
               } catch (enquiriesError) {
                 console.warn('⚠️ Enquiries API failed, using fallback:', enquiriesError);

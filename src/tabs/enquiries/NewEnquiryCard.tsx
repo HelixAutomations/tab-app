@@ -45,6 +45,9 @@ interface CopyableTextProps {
 
 const CopyableText: React.FC<CopyableTextProps> = ({ value, className, label }) => {
   const [copied, copy] = useCopyToClipboard();
+  const [isHovered, setIsHovered] = React.useState(false);
+  const { isDarkMode } = useTheme();
+  
   return (
     <span
       className={className}
@@ -53,7 +56,30 @@ const CopyableText: React.FC<CopyableTextProps> = ({ value, className, label }) 
         e.stopPropagation();
         copy(value);
       }}
-      style={{ display: 'inline-block', position: 'relative', cursor: 'pointer' }}
+      onMouseEnter={(e) => {
+        setIsHovered(true);
+        e.currentTarget.style.color = isDarkMode ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)';
+        e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
+      }}
+      onMouseLeave={(e) => {
+        setIsHovered(false);
+        e.currentTarget.style.color = isDarkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)';
+        e.currentTarget.style.backgroundColor = 'transparent';
+      }}
+      style={{ 
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '6px',
+        position: 'relative', 
+        cursor: 'pointer',
+        fontSize: '11px',
+        fontFamily: 'Consolas, Monaco, monospace',
+        color: isDarkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)',
+        padding: '3px 6px',
+        borderRadius: '4px',
+        backgroundColor: 'transparent',
+        transition: 'all 0.2s ease'
+      }}
     >
       {value}
       {copied && (
@@ -226,15 +252,7 @@ const NewEnquiryCard: React.FC<NewEnquiryCardProps> = ({
   });
 
   const emailStyles = mergeStyles({
-    fontSize: '14px',
-    color: isDarkMode ? colours.dark.subText : colours.light.subText,
-    cursor: 'pointer',
-    transition: 'color 0.2s',
-    selectors: {
-      ':hover': {
-        color: areaColor,
-      },
-    },
+    // Styles handled inline in CopyableText component
   });
 
   const metaGridStyles = mergeStyles({
@@ -247,9 +265,9 @@ const NewEnquiryCard: React.FC<NewEnquiryCardProps> = ({
   const metaItemStyles = mergeStyles({
     display: 'flex',
     alignItems: 'center',
-    gap: '8px',
-    fontSize: '14px',
-    color: isDarkMode ? colours.dark.text : colours.light.text,
+    gap: '6px',
+    fontSize: '10px',
+    color: isDarkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)',
   });
 
   const valueStyles = mergeStyles({
@@ -329,7 +347,7 @@ const NewEnquiryCard: React.FC<NewEnquiryCardProps> = ({
   const handleEmail = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (enquiry.email) {
-      window.location.href = `mailto:${enquiry.email}?subject=Your%20Enquiry&bcc=1day@followupthen.com`;
+      window.location.href = `mailto:${enquiry.email}?subject=Your%20Enquiry`;
     }
   };
 
@@ -397,7 +415,11 @@ const NewEnquiryCard: React.FC<NewEnquiryCardProps> = ({
       {/* Phone number */}
       {enquiry.phone && (
         <div className={metaItemStyles} style={{ marginBottom: '8px' }}>
-          <FaPhone style={{ color: areaColor }} />
+          <FaPhone style={{ 
+            fontSize: '11px',
+            color: 'inherit',
+            opacity: 0.7
+          }} />
           <CopyableText value={enquiry.phone} label="Phone" />
         </div>
       )}

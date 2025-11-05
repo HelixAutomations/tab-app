@@ -1,17 +1,16 @@
 /* invisible change 2 */
 .app-navigator {
-    position: sticky;
-    top: 48px;
+    position: relative;
     /* Lower z-index to avoid overlapping Immediate Actions and other content */
     z-index: 2;
     display: flex;
     flex-direction: column;
-    gap: 6px; /* compact spacing */
+    gap: 4px; /* compact spacing */
 }
 
 /* Ensure inner controls align compactly inside the premium card */
 .navigator-card {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 4px;
 }

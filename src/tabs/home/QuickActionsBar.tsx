@@ -24,35 +24,29 @@ interface QuickActionsBarProps {
     onToggleTheme?: () => void;
 }
 
-const ACTION_BAR_HEIGHT = 30; // More compact header height
+const ACTION_BAR_HEIGHT = 32; // Align with quick action chip height for steady layout
 
 const quickLinksStyle = (isDarkMode: boolean, highlighted: boolean, seamless: boolean) =>
     mergeStyles({
-        // Slightly lighter than CustomTabs nav bar for visual hierarchy
-        background: isDarkMode
-            ? 'linear-gradient(135deg, #081A36 0%, #0A1E3D 100%)'
-            : `linear-gradient(135deg, #FFFFFF 0%, ${colours.light.grey} 100%)`,
+        // Transparent background - sits inside Navigator
+        background: 'transparent',
 
-        // Hairline borders top/bottom for structure (omit when seamless)
-        borderTop: seamless ? 'none' : `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(6,23,51,0.06)'}`,
-        borderBottom: seamless ? 'none' : `1px solid ${isDarkMode ? 'rgba(0,0,0,0.35)' : 'rgba(6,23,51,0.08)'}`,
+        // Subtle separators to align with immediate actions hierarchy
+        borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(148, 163, 184, 0.28)'}`,
+        borderBottom: `1px solid ${isDarkMode ? 'rgba(55, 65, 81, 0.38)' : 'rgba(209, 213, 219, 0.65)'}`,
         
-    // Remove backdrop blur for crisp overlay
-    backdropFilter: 'none',
+        // No backdrop filter
+        backdropFilter: 'none',
+        WebkitBackdropFilter: 'none',
         
-        // Professional shadows (removed when seamless)
-        boxShadow: seamless
-            ? 'none'
-            : (isDarkMode
-                ? '0 4px 6px rgba(0, 0, 0, 0.30)'
-                : '0 4px 6px rgba(6, 23, 51, 0.07)'),
+        // No shadow
+        boxShadow: 'none',
         
-        // Layout stability - padding with more vertical spacing above and below
-        // Align content to left (remove excessive left padding)
-        padding: '8px 10px',
-        minHeight: ACTION_BAR_HEIGHT,
-        height: 46, // Even more compact height
-    transition: 'all 0.35s cubic-bezier(0.25, 0.8, 0.25, 1)',
+    // Compact padding aligned with portal gutter
+    padding: '6px 16px',
+    minHeight: ACTION_BAR_HEIGHT + 12,
+        height: 'auto',
+        transition: 'all 0.2s ease',
         
         // Flex layout: row so content reveals inline to the right of the label
         display: 'flex',
@@ -64,32 +58,24 @@ const quickLinksStyle = (isDarkMode: boolean, highlighted: boolean, seamless: bo
         overflowX: 'hidden',
         overflowY: 'hidden',
         
-        // Position and layering
-        // Render inline within Navigator without sticky offset so it touches CustomTabs
+        // Position within Navigator
         position: 'relative',
-        zIndex: 200,
+        zIndex: 1,
         
-        // More compact rounding
+        // No border radius
         borderRadius: 0,
 
-        // Full-bleed: negate Navigator padding (Navigator has ~12px X and ~8px Y padding)
-        // This makes the background span edge-to-edge and visually touch the tabs above.
-        marginLeft: -12,
-        marginRight: -12,
-        width: 'calc(100% + 24px)',
-        marginTop: -8,
+        // Full width within Navigator
+    marginLeft: 0,
+    marginRight: 0,
+        width: '100%',
+        marginTop: 0,
+        
+        // No spacing - flush with Navigator
+        marginBottom: 0,
         
         // Layout containment for performance
         contain: 'layout style',
-        
-        // Highlighted state with smooth scaling
-        ...(highlighted && !seamless && {
-            transform: 'scale(1.0025)',
-            filter: 'brightness(1.02)',
-            boxShadow: isDarkMode
-                ? '0 6px 14px rgba(0, 0, 0, 0.28)'
-                : '0 6px 14px rgba(6, 23, 51, 0.10)',
-        }),
         
         // Hide scrollbars while maintaining functionality
         selectors: {
@@ -133,8 +119,9 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
             return 0;
         }
         const chipWidth = 44;
+        const backButtonWidth = 26; // 24px button + 2px margin
         const horizontalPadding = 8;
-        return chipCount * chipWidth + horizontalPadding;
+        return chipCount * chipWidth + backButtonWidth + horizontalPadding;
     }, [quickActions.length]);
     const containerRef = React.useRef<HTMLDivElement>(null);
     const barRef = React.useRef<HTMLDivElement>(null);
@@ -389,11 +376,11 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
                 style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 0,
-                    paddingTop: collapsed ? 0 : 2,
-                    paddingBottom: collapsed ? 0 : 2,
+                    gap: 6,
+                    paddingTop: 2,
+                    paddingBottom: 2,
                     flexWrap: 'nowrap',
-                    overflowX: 'hidden', // Hide overflow instead of scrolling
+                    overflowX: 'visible', // Allow labels to show fully
                     msOverflowStyle: 'none',
                     scrollbarWidth: 'none',
                     flex: collapsed ? '0 0 0' : '0 1 auto',
@@ -405,11 +392,10 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
                     opacity: collapsed ? 0 : 1,
                     pointerEvents: collapsed ? 'none' : 'auto',
                     transition: 'max-width 220ms ease, flex 220ms ease, opacity 180ms ease',
-                    // One big container box with subtle border
-                    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(6,23,51,0.1)'}`,
-                    borderColor: collapsed ? 'transparent' : undefined,
-                    borderRadius: collapsed ? 0 : 8,
-                    padding: collapsed ? 0 : '0px 4px', // Horizontal padding only; vertical handled above
+                    // No border - clean look
+                    border: 'none',
+                    borderRadius: 0,
+                    padding: 0, // No padding
                     background: 'transparent', // No fill
                 }}
             >
@@ -451,27 +437,14 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
                         panelActive={panelActive && selected === action.title}
                         alwaysShowText={labelsExpanded}
                         style={{
-                            '--card-index': index,
-                            // Remove individual boxes - transparent background, no border, no shadow
-                            '--card-bg': 'transparent',
-                            '--card-border': 'transparent',
-                            '--card-hover': isDarkMode 
-                                ? 'rgba(255,255,255,0.08)'
-                                : 'rgba(6,23,51,0.08)',
-                            '--card-selected': isDarkMode 
-                                ? 'rgba(255,255,255,0.12)'
-                                : 'rgba(6,23,51,0.12)',
-                            '--card-shadow': 'none',
                             height: '32px',
                             opacity: (isLoading && selected !== action.title) ? 0.6 : 1,
                             filter: (isLoading && selected === action.title) 
                                 ? 'brightness(1.06)'
                                 : 'none',
                             borderRadius: 6, // Subtle rounding for hover area
-                            // Cascading animation
-                            animation: `quickActionCascade 0.3s ease-out ${index * 0.05}s both`,
-                            transform: 'translateX(-10px)',
-                            animationFillMode: 'forwards',
+                            // Cascading animation - simplified fade in
+                            animation: `quickActionCascade 0.2s ease-out ${index * 0.03}s both`,
                         } as React.CSSProperties}
                     />
                 ))}

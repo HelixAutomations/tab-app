@@ -28,6 +28,7 @@ interface Props {
   onToggleSelect?: (enquiry: Enquiry) => void;
   userData?: any; // For pitch builder
   promotionStatus?: 'pitch' | 'instruction' | null;
+  onFilterByPerson?: (initials: string) => void; // Added: filter by initials from chip
 }
 
 /**
@@ -48,6 +49,7 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
   onToggleSelect,
   userData,
   promotionStatus,
+  onFilterByPerson,
 }) => {
   const { isDarkMode } = useTheme();
   const [showActions, setShowActions] = useState(false);
@@ -65,6 +67,8 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
     Initial_first_call_notes: enquiry.Initial_first_call_notes || ''
   });
   const [isSaving, setIsSaving] = useState(false);
+  const [copiedEmail, setCopiedEmail] = useState(false);
+  const [copiedPhone, setCopiedPhone] = useState(false);
   // Removed inline pitch builder modal usage; pitch now handled by parent detail view
   const clampRef = useRef<HTMLDivElement>(null);
   const [isOverflowing, setIsOverflowing] = useState(false);
@@ -206,28 +210,34 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
   
   const card = mergeStyles({
     position: 'relative',
-    margin: '6px 0', // Reduced margin to match instruction cards
-    borderRadius: 8,
-    padding: '12px 18px',
+    margin: '6px 0',
+    borderRadius: 10,
+    padding: '12px',
     background: selected 
       ? selectedBg
-      : (isDarkMode ? '#0f172a' : bgGradientLight), // Solid dark background to match instruction cards
-    opacity: promotionStatus ? 0.6 : 1,
+      : (isDarkMode 
+          ? 'rgba(15, 23, 42, 0.85)' // Semi-transparent dark to match page background
+          : 'rgba(255, 255, 255, 0.92)'), // Semi-transparent light
+    backdropFilter: 'blur(12px)', // Blur effect matching page background
+    WebkitBackdopFilter: 'blur(12px)', // Safari support
+    opacity: 1, // Removed fade - will use badge instead
     // Responsive padding
     '@media (max-width: 768px)': {
-      padding: '10px 14px',
+      padding: '10px 12px',
     },
     '@media (max-width: 480px)': {
       padding: '8px 12px',
-      borderRadius: 6,
+      borderRadius: 8,
     },
     border: selected || clickedForActions 
       ? selectedBorder
-      : `1px solid ${isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(0,0,0,0.08)'}`,
-    borderLeft: `2px solid ${selected ? areaColor : (isDarkMode ? areaColor : `${areaColor}60`)}`, // Override just the left side
+      : `1px solid ${isDarkMode ? 'rgba(148,163,184,0.15)' : 'rgba(0,0,0,0.06)'}`,
+    borderLeft: `3px solid ${selected ? areaColor : (isDarkMode ? areaColor : `${areaColor}80`)}`, // Slightly thicker accent
     boxShadow: selected
       ? selectedShadow
-      : (isDarkMode ? 'none' : '0 4px 6px rgba(0, 0, 0, 0.07)'),
+      : (isDarkMode 
+          ? '0 2px 8px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2)' // Subtle shadow in dark mode
+          : '0 4px 12px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04)'), // Softer shadow in light
     display: 'flex',
     flexDirection: 'column',
     gap: 6,
@@ -241,16 +251,23 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
       ':hover': isCardClickable ? {
         transform: selected ? 'translateY(-3px)' : 'translateY(-1px)', 
         boxShadow: selected 
-          ? (isDarkMode ? `0 2px 8px rgba(0,0,0,0.9)` : `0 12px 40px ${areaColor}50, 0 4px 12px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.2)`)
-          : (isDarkMode ? '0 1px 3px rgba(0,0,0,0.6)' : '0 8px 24px rgba(0,0,0,0.12)'),
-        border: `1px solid ${areaColor}`, // Change the main border to area color on hover
-        borderLeft: `2px solid ${areaColor}`, // Keep left border consistent
+          ? (isDarkMode 
+              ? `0 4px 16px rgba(0,0,0,0.5), 0 2px 8px ${areaColor}40` 
+              : `0 12px 32px ${areaColor}30, 0 6px 16px rgba(0,0,0,0.12)`)
+          : (isDarkMode 
+              ? `0 4px 12px rgba(0,0,0,0.4), 0 2px 6px ${areaColor}20` 
+              : '0 8px 20px rgba(0,0,0,0.1), 0 2px 6px rgba(0,0,0,0.06)'),
+        border: `1px solid ${areaColor}60`, // Subtle area color border on hover
+        borderLeft: `3px solid ${areaColor}`, // Maintain left accent
+        background: isDarkMode 
+          ? 'rgba(15, 23, 42, 0.95)' // Slightly more opaque on hover
+          : 'rgba(255, 255, 255, 0.98)',
       } : { 
         borderColor: selected || clickedForActions ? areaColor : areaColor
       },
       ':active': isCardClickable ? { transform: selected ? 'translateY(-1px)' : 'translateY(0)' } : {},
       ':focus-within': { 
-        outline: `2px solid ${areaColor}40`, // Thinner outline
+        outline: `2px solid ${areaColor}40`,
         outlineOffset: '2px',
         borderColor: areaColor 
       },
@@ -260,8 +277,8 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
   const actionButtons = [
     { key: 'pitch', icon: 'Send', label: 'Pitch', onClick: () => { onPitch ? onPitch(enquiry) : onSelect(enquiry); } },
     { key: 'call', icon: 'Phone', label: 'Call', onClick: () => enquiry.Phone_Number && (window.location.href = `tel:${enquiry.Phone_Number}`) },
-    { key: 'email', icon: 'Mail', label: 'Email', onClick: () => enquiry.Email && (window.location.href = `mailto:${enquiry.Email}?subject=Your%20Enquiry&bcc=1day@followupthen.com`) },
-    { key: 'rate', icon: 'Like', label: 'Rate', onClick: () => onRate(enquiry.ID) },
+    { key: 'email', icon: 'Mail', label: 'Email', onClick: () => enquiry.Email && (window.location.href = `mailto:${enquiry.Email}?subject=Your%20Enquiry`) },
+    { key: 'rate', icon: 'FavoriteStar', label: 'Rate', onClick: () => onRate(enquiry.ID) },
     ...(canEdit && !isEditing ? [{ key: 'edit', icon: 'Edit', label: 'Edit', onClick: handleEditClick }] : []),
   ];
 
@@ -316,13 +333,84 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
         position: 'absolute',
         top: 12,
         right: 12,
-        zIndex: 2
+        zIndex: 2,
+        display: 'flex',
+        width: 'fit-content'
       }}>
         <EnquiryBadge 
           enquiry={enquiry}
           onAreaChange={onAreaChange ? (enquiryId, newArea) => onAreaChange(enquiryId, newArea) : undefined}
         />
       </div>
+
+      {/* Fee earner badge - bottom right (click to filter by person) */}
+      {(() => {
+        // Always render a badge. If claimer is missing, derive initials from POC email.
+        const pocEmail = (enquiry.Point_of_Contact || '').toString();
+        const derivedFromEmail = pocEmail.includes('@')
+          ? pocEmail.split('@')[0].slice(0, 2).toUpperCase()
+          : '';
+        const nameInitials = (claimer?.['Full Name'] || '')
+          .split(' ')
+          .filter(Boolean)
+          .map(n => n[0])
+          .join('')
+          .toUpperCase();
+        const emailInitials = (claimer?.Email || '')
+          .split('@')[0]
+          ?.slice(0, 2)
+          .toUpperCase();
+        const displayInitials = (claimer?.Initials || nameInitials || emailInitials || derivedFromEmail || '??');
+        const title = claimer?.['Full Name'] || claimer?.Email || pocEmail || 'Person';
+        const canFilter = Boolean(displayInitials && onFilterByPerson);
+        return (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ position: 'absolute', bottom: 12, right: 12, zIndex: 2 }}
+          >
+            <button
+              title={`Filter by ${title}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                if (canFilter) onFilterByPerson!(displayInitials);
+              }}
+              disabled={!canFilter}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                padding: '4px 10px',
+                borderRadius: 6,
+                background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)',
+                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'}`,
+                fontSize: 11,
+                fontWeight: 600,
+                color: isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)',
+                letterSpacing: 0.3,
+                textTransform: 'uppercase' as const,
+                whiteSpace: 'nowrap' as const,
+                cursor: canFilter ? 'pointer' : 'default',
+                opacity: canFilter ? 1 : 0.7,
+                transition: 'all 0.2s ease',
+                backgroundClip: 'padding-box',
+              }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.background = isDarkMode ? 'rgba(148, 163, 184, 0.22)' : 'rgba(148, 163, 184, 0.18)';
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.background = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)';
+              }}
+            >
+              <Icon
+                iconName="Contact"
+                styles={{ root: { fontSize: 11, color: isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)' } }}
+              />
+              <span>{displayInitials}</span>
+            </button>
+          </div>
+        );
+      })()}
 
       {/* Name + ID inline */}
       <div style={{ 
@@ -456,22 +544,16 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
             fontFamily: 'Consolas, Monaco, monospace', 
             padding: '1px 6px',
             transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-            opacity: isEnteringEdit ? 0.7 : 1
-          }}>ID {enquiry.ID}</span>
-        )}
-        {promotionStatus && (
-          <span style={{
-            fontSize: 10,
-            fontWeight: 500,
-            padding: '2px 6px',
-            borderRadius: 4,
-            backgroundColor: promotionStatus === 'instruction' ? (isDarkMode ? 'rgba(76, 175, 80, 0.15)' : 'rgba(232, 245, 232, 0.6)') : (isDarkMode ? 'rgba(33, 150, 243, 0.15)' : 'rgba(227, 242, 253, 0.6)'),
-            color: promotionStatus === 'instruction' ? (isDarkMode ? 'rgba(76, 175, 80, 0.8)' : 'rgba(46, 125, 50, 0.7)') : (isDarkMode ? 'rgba(33, 150, 243, 0.8)' : 'rgba(21, 101, 192, 0.7)'),
-            textTransform: 'uppercase',
-            letterSpacing: 0.5,
-            opacity: 0.85
+            opacity: isEnteringEdit ? 0.7 : 1,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4
           }}>
-            {promotionStatus === 'instruction' ? 'Instructed' : 'Pitched'}
+            <svg width="11" height="11" viewBox="0 0 66.45 100" style={{ fill: 'currentcolor', opacity: 0.7 }}>
+              <path d="m.33,100c0-3.95-.23-7.57.13-11.14.12-1.21,1.53-2.55,2.68-3.37,6.52-4.62,13.15-9.1,19.73-13.64,10.22-7.05,20.43-14.12,30.64-21.18.21-.14.39-.32.69-.57-5.82-4.03-11.55-8-17.27-11.98C25.76,30.37,14.64,22.57,3.44,14.88.97,13.19-.08,11.07.02,8.16.1,5.57.04,2.97.04,0c.72.41,1.16.62,1.56.9,10.33,7.17,20.66,14.35,30.99,21.52,9.89,6.87,19.75,13.79,29.68,20.59,3.26,2.23,4.78,5.03,3.97,8.97-.42,2.05-1.54,3.59-3.24,4.77-8.94,6.18-17.88,12.36-26.82,18.55-10.91,7.55-21.82,15.1-32.73,22.65-.98.68-2,1.32-3.12,2.05Z"/>
+              <path d="m36.11,48.93c-2.74,1.6-5.04,3.21-7.56,4.35-2.25,1.03-4.37-.1-6.27-1.4-5.1-3.49-10.17-7.01-15.25-10.53-2.01-1.39-4.05-2.76-5.99-4.25-.5-.38-.91-1.17-.96-1.8-.13-1.59-.06-3.19-.03-4.79.02-1.32.25-2.57,1.57-3.27,1.4-.74,2.72-.36,3.91.46,3.44,2.33,6.85,4.7,10.26,7.06,6.22,4.3,12.43,8.6,18.65,12.91.39.27.76.57,1.67,1.25Z"/>
+            </svg>
+            {enquiry.ID}
           </span>
         )}
       </div>
@@ -485,7 +567,8 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
         color: isDarkMode ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)', 
         fontWeight: 500, 
         marginTop: 6, 
-        marginLeft: onToggleSelect ? 26 : 2,
+        marginLeft: onToggleSelect ? 26 : 0,
+        paddingLeft: 2,
         transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
         opacity: isExitingEdit ? 0.7 : 1,
         transform: isEnteringEdit ? 'translateY(-2px)' : 'translateY(0)'
@@ -589,10 +672,90 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
           <>
             {enquiry.Value && <span style={{ fontWeight: 600, transition: 'all 0.3s ease' }}>{enquiry.Value}</span>}
             {enquiry.Company && <span style={{ transition: 'all 0.3s ease' }}>{enquiry.Company}</span>}
-            {enquiry.Email && <span style={{ cursor: 'copy', transition: 'all 0.3s ease' }} onClick={e => { e.stopPropagation(); navigator?.clipboard?.writeText(enquiry.Email); }}>{enquiry.Email}</span>}
+            {enquiry.Email && (
+              <span 
+                style={{ 
+                  cursor: 'pointer', 
+                  transition: 'all 0.2s ease',
+                  fontSize: '11px',
+                  color: copiedEmail 
+                    ? (isDarkMode ? '#4ade80' : '#16a34a')
+                    : (isDarkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)'),
+                  fontFamily: 'Consolas, Monaco, monospace',
+                  padding: '3px 0',
+                  borderRadius: '4px',
+                  backgroundColor: 'transparent',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }} 
+                onClick={e => { 
+                  e.stopPropagation(); 
+                  navigator?.clipboard?.writeText(enquiry.Email);
+                  setCopiedEmail(true);
+                  setTimeout(() => setCopiedEmail(false), 1200);
+                }}
+                onMouseEnter={e => {
+                  if (!copiedEmail) {
+                    e.currentTarget.style.color = isDarkMode ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)';
+                    e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
+                  }
+                }}
+                onMouseLeave={e => {
+                  if (!copiedEmail) {
+                    e.currentTarget.style.color = isDarkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)';
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                  }
+                }}
+                title={copiedEmail ? 'Copied!' : 'Click to copy email'}
+              >
+                <Icon iconName="Mail" styles={{ root: { fontSize: 10 } }} />
+                {enquiry.Email}
+              </span>
+            )}
           </>
         )}
-        {enquiry.Phone_Number && <span style={{ cursor: 'copy', transition: 'all 0.3s ease' }} onClick={e => { e.stopPropagation(); navigator?.clipboard?.writeText(enquiry.Phone_Number!); }}>{enquiry.Phone_Number}</span>}
+        {enquiry.Phone_Number && (
+          <span 
+            style={{ 
+              cursor: 'pointer', 
+              transition: 'all 0.2s ease',
+              fontSize: '11px',
+              color: copiedPhone
+                ? (isDarkMode ? '#4ade80' : '#16a34a')
+                : (isDarkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)'),
+              fontFamily: 'Consolas, Monaco, monospace',
+              padding: '3px 0',
+              borderRadius: '4px',
+              backgroundColor: 'transparent',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px'
+            }} 
+            onClick={e => { 
+              e.stopPropagation(); 
+              navigator?.clipboard?.writeText(enquiry.Phone_Number!);
+              setCopiedPhone(true);
+              setTimeout(() => setCopiedPhone(false), 1200);
+            }}
+            onMouseEnter={e => {
+              if (!copiedPhone) {
+                e.currentTarget.style.color = isDarkMode ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)';
+                e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
+              }
+            }}
+            onMouseLeave={e => {
+              if (!copiedPhone) {
+                e.currentTarget.style.color = isDarkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)';
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }
+            }}
+            title={copiedPhone ? 'Copied!' : 'Click to copy phone'}
+          >
+            <Icon iconName="Phone" styles={{ root: { fontSize: 10 } }} />
+            {enquiry.Phone_Number}
+          </span>
+        )}
       </div>
 
       {/* Notes clamp */}
@@ -757,11 +920,9 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
         display: 'flex', 
         flexDirection: 'column', 
         marginTop: 6, 
-        transition: 'all 0.4s cubic-bezier(.4,0,.2,1)', 
-        maxHeight: (showActions || selected || clickedForActions || isEditing) ? (isEditing ? 140 : 80) : 0, 
-        paddingTop: (showActions || selected || clickedForActions || isEditing) ? 8 : 0, 
-        paddingBottom: (showActions || selected || clickedForActions || isEditing) ? 8 : 0, 
-        overflow: 'hidden',
+        transition: 'all 0.3s cubic-bezier(.4,0,.2,1)', 
+        paddingTop: 8, 
+        paddingBottom: 8, 
         opacity: isExitingEdit ? 0.7 : 1,
         transform: isEnteringEdit ? 'translateY(-2px)' : 'translateY(0)'
       }}>
@@ -818,48 +979,136 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
             opacity: isEnteringEdit ? 0.7 : 1,
             transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
           }}>
-            {actionButtons.map((btn, idx) => {
+            {/* Show pitched/instructed badge in action area if present */}
+            {promotionStatus && (
+              <button
+                onClick={(e) => { 
+                  e.stopPropagation(); 
+                  if (onPitch) {
+                    onPitch(enquiry);
+                  } else {
+                    onSelect(enquiry);
+                  }
+                }}
+                className={mergeStyles({
+                  background: promotionStatus === 'instruction' 
+                    ? (isDarkMode ? 'rgba(76, 175, 80, 0.25)' : 'rgba(76, 175, 80, 0.15)') 
+                    : colours.highlight,
+                  color: promotionStatus === 'instruction' 
+                    ? (isDarkMode ? '#4ade80' : '#16a34a') 
+                    : '#fff',
+                  border: `1px solid ${promotionStatus === 'instruction'
+                    ? (isDarkMode ? 'rgba(76, 175, 80, 0.3)' : 'rgba(76, 175, 80, 0.25)')
+                    : (isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.25)')}`,
+                  backdropFilter: 'blur(8px)',
+                  padding: '6px 12px',
+                  borderRadius: 16,
+                  fontSize: 10,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  minHeight: 30,
+                  opacity: 0.8,
+                  transform: 'translateY(0) scale(1)',
+                  transition: 'all .25s cubic-bezier(.4,0,.2,1)',
+                  boxShadow: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  lineHeight: 1,
+                  textTransform: 'uppercase' as const,
+                  letterSpacing: '0.8px',
+                  selectors: {
+                    ':hover': { 
+                      background: promotionStatus === 'instruction' 
+                        ? (isDarkMode ? 'rgba(76, 175, 80, 0.35)' : 'rgba(76, 175, 80, 0.25)')
+                        : colours.blue,
+                      borderRadius: 14,
+                      borderColor: promotionStatus === 'instruction'
+                        ? (isDarkMode ? 'rgba(76, 175, 80, 0.5)' : 'rgba(76, 175, 80, 0.4)')
+                        : colours.blue,
+                      transform: 'translateY(-1px) scale(1.02)',
+                      opacity: 1,
+                      boxShadow: promotionStatus === 'instruction'
+                        ? (isDarkMode ? '0 3px 12px rgba(76, 175, 80, 0.25)' : '0 2px 10px rgba(76, 175, 80, 0.2)')
+                        : '0 3px 12px rgba(54, 144, 206, 0.25)'
+                    },
+                    ':active': { 
+                      borderRadius: 14, 
+                      transform: 'scale(0.97)' 
+                    },
+                  },
+                })}
+              >
+                <Icon iconName={promotionStatus === 'instruction' ? 'CompletedSolid' : 'Send'} styles={{ root: { fontSize: 12, lineHeight: 1 } }} />
+                {promotionStatus === 'instruction' ? 'Instructed' : 'Pitched'}
+              </button>
+            )}
+            {actionButtons.filter(btn => btn.key !== 'pitch' || !promotionStatus).map((btn, idx) => {
               const delay = (showActions || selected || clickedForActions) ? (!hasAnimatedActions ? 120 + idx * 70 : idx * 70) : (actionButtons.length - 1 - idx) * 65;
               const isRate = btn.key === 'rate';
               const isPitch = btn.key === 'pitch';
               const isEdit = btn.key === 'edit';
+              const hasNoRating = isRate && !enquiry.Rating;
               return (
                 <button
                   key={btn.key}
                   onClick={(e) => { e.stopPropagation(); btn.onClick(); }}
                   className={mergeStyles({
-                    background: isPitch ? colours.highlight : 'transparent',
-                    color: isPitch ? '#fff' : colours.greyText,
-                    border: `1px solid ${isPitch ? colours.highlight : 'transparent'}`,
+                    background: isPitch 
+                      ? colours.highlight 
+                      : (hasNoRating ? 'rgba(54, 144, 206, 0.06)' : 'transparent'),
+                    color: isPitch 
+                      ? '#fff' 
+                      : (hasNoRating ? 'rgba(54, 144, 206, 0.75)' : (isDarkMode ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)')),
+                    border: `1px solid ${isPitch 
+                      ? colours.highlight 
+                      : (hasNoRating 
+                          ? 'rgba(54, 144, 206, 0.25)' 
+                          : (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)'))}`,
                     backdropFilter: 'blur(8px)',
-                    padding: '8px 14px',
-                    borderRadius: 18,
-                    fontSize: 10.5,
+                    padding: isRate ? '5px 9px' : '6px 12px',
+                    borderRadius: 16,
+                    fontSize: 10,
                     fontWeight: 600,
                     cursor: 'pointer',
-                    minHeight: 34,
-                    opacity: showActions || selected ? 1 : 0,
-                    transform: showActions || selected ? 'translateY(0) scale(1)' : 'translateY(6px) scale(.96)',
-                    transition: 'opacity .4s cubic-bezier(.4,0,.2,1), transform .4s cubic-bezier(.4,0,.2,1), background .25s, color .25s, border .25s, border-radius .35s cubic-bezier(.4,0,.2,1)',
-                    transitionDelay: `${delay}ms`,
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                    minHeight: 30,
+                    opacity: isRate && hasNoRating ? 0.8 : (isRate ? 0.65 : 0.75),
+                    transform: 'translateY(0) scale(1)',
+                    transition: 'all .25s cubic-bezier(.4,0,.2,1)',
+                    boxShadow: hasNoRating ? '0 0 0 1px rgba(54, 144, 206, 0.1)' : 'none',
                     display: 'inline-flex',
                     alignItems: 'center',
-                    gap: 6,
+                    gap: 5,
                     lineHeight: 1,
                     selectors: {
                       ':hover': { 
-                        background: isPitch ? colours.blue : '#f4f6f8', 
-                        color: isPitch ? '#fff' : colours.blue, 
+                        background: isPitch 
+                          ? colours.blue 
+                          : (hasNoRating 
+                              ? 'rgba(54, 144, 206, 0.12)' 
+                              : (isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)')),
+                        color: isPitch 
+                          ? '#fff' 
+                          : (hasNoRating 
+                              ? colours.highlight 
+                              : colours.highlight),
                         borderRadius: 14,
-                        borderColor: isPitch ? colours.blue : 'transparent',
-                        transform: 'translateY(-1px)'
+                        borderColor: isPitch 
+                          ? colours.blue 
+                          : (hasNoRating ? colours.highlight : colours.highlight),
+                        transform: 'translateY(-1px) scale(1.02)',
+                        opacity: 1,
+                        boxShadow: isPitch 
+                          ? '0 3px 12px rgba(54, 144, 206, 0.25)' 
+                          : (hasNoRating ? '0 2px 10px rgba(54, 144, 206, 0.15)' : '0 2px 8px rgba(0,0,0,0.08)')
                       },
                       ':active': { 
-                        background: isPitch ? colours.blue : '#e3f1fb', 
+                        background: isPitch 
+                          ? colours.blue 
+                          : (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)'),
                         color: isPitch ? '#fff' : colours.blue, 
                         borderRadius: 14, 
-                        transform: 'scale(0.95)' 
+                        transform: 'scale(0.97)' 
                       },
                     },
                   })}

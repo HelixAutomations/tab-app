@@ -28,7 +28,9 @@ const getOverlayStyle = (offsetTop: number, isClosing: boolean, variant: 'side' 
     left: 0,
     right: 0,
     bottom: 0,
-    background: 'rgba(0, 0, 0, 0.4)',
+    background: variant === 'modal' ? 'rgba(0, 0, 0, 0.35)' : 'rgba(0, 0, 0, 0.4)',
+    backdropFilter: variant === 'modal' ? 'blur(6px)' : undefined,
+    WebkitBackdropFilter: variant === 'modal' ? 'blur(6px)' : undefined,
     display: 'flex',
     justifyContent: variant === 'side' ? 'flex-end' : 'center',
     alignItems: variant === 'side' ? 'stretch' : 'center',
@@ -45,15 +47,17 @@ const getOverlayStyle = (offsetTop: number, isClosing: boolean, variant: 'side' 
 // Clean panel styling
 const getPanelStyle = (width: string, isClosing: boolean, isDarkMode: boolean, variant: 'side' | 'modal') =>
   mergeStyles({
-    background: isDarkMode ? colours.dark.background : colours.light.background,
-  width: variant === 'side' ? (width || '480px') : (width || 'min(95vw, 1400px)'),
+    background: variant === 'modal'
+      ? (isDarkMode ? 'rgba(17, 24, 39, 0.72)' : 'rgba(255, 255, 255, 0.78)')
+      : (isDarkMode ? colours.dark.background : colours.light.background),
+    width: variant === 'side' ? (width || '480px') : (width || 'min(95vw, 1400px)'),
     maxWidth: variant === 'side' ? '90vw' : '95vw',
     height: variant === 'side' ? '100%' : 'auto',
     minHeight: 0,
     maxHeight: variant === 'side' ? 'none' : 'calc(100vh - 40px)',
     boxShadow: isDarkMode
-      ? (variant === 'side' ? '-4px 0 16px rgba(0, 0, 0, 0.3)' : '0 10px 30px rgba(0,0,0,0.35)')
-      : (variant === 'side' ? '-4px 0 16px rgba(0, 0, 0, 0.15)' : '0 10px 30px rgba(0,0,0,0.15)'),
+      ? (variant === 'side' ? '-4px 0 16px rgba(0, 0, 0, 0.3)' : '0 10px 30px rgba(0, 0, 0, 0.35)')
+      : (variant === 'side' ? '-4px 0 16px rgba(0, 0, 0, 0.15)' : '0 10px 30px rgba(2, 6, 23, 0.10)'),
     borderRadius: variant === 'side' ? 0 : 12,
     display: 'flex',
     flexDirection: 'column',
@@ -63,6 +67,11 @@ const getPanelStyle = (width: string, isClosing: boolean, isDarkMode: boolean, v
     transition: variant === 'side' ? 'transform 0.25s ease-out' : 'transform 0.18s ease-out',
     overflow: 'hidden',
     margin: variant === 'modal' ? 'auto' : undefined,
+    border: variant === 'modal'
+      ? (isDarkMode ? '1px solid rgba(148, 163, 184, 0.18)' : '1px solid rgba(15, 23, 42, 0.08)')
+      : undefined,
+    backdropFilter: variant === 'modal' ? 'blur(10px)' : undefined,
+    WebkitBackdropFilter: variant === 'modal' ? 'blur(10px)' : undefined,
   });
 
 // Simple header

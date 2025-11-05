@@ -16,6 +16,7 @@ import {
   Modal,
   initializeIcons,
 } from '@fluentui/react';
+import OperationStatusToast from './pitch-builder/OperationStatusToast';
 import IconAreaFilter from '../../components/filter/IconAreaFilter';
 import {
   BarChart,
@@ -40,8 +41,7 @@ import ClaimedEnquiryCard from './ClaimedEnquiryCard';
 import GroupedEnquiryCard from './GroupedEnquiryCard';
 import { GroupedEnquiry, getMixedEnquiryDisplay, isGroupedEnquiry } from './enquiryGrouping';
 import PitchBuilder from './PitchBuilder';
-import EnquiryCalls from './EnquiryCalls';
-import EnquiryEmails from './EnquiryEmails';
+import EnquiryTimeline from './EnquiryTimeline';
 import { colours } from '../../app/styles/colours';
 import SegmentedControl from '../../components/filter/SegmentedControl';
 import { isAdminUser, hasInstructionsAccess } from '../../app/admin';
@@ -49,6 +49,7 @@ import { useTheme } from '../../app/functionality/ThemeContext';
 import { useNavigatorActions } from '../../app/functionality/NavigatorContext';
 import UnclaimedEnquiries from './UnclaimedEnquiries';
 import FilterBanner from '../../components/filter/FilterBanner';
+import CreateContactModal from './CreateContactModal';
 import { app } from '@microsoft/teams-js';
 import AreaCountCard from './AreaCountCard';
 import 'rc-slider/assets/index.css';
@@ -175,6 +176,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [allEnquiries, setAllEnquiries] = useState<(Enquiry & { __sourceType: 'new' | 'legacy' })[]>([]);
   // Display subset after applying dataset toggle
   const [displayEnquiries, setDisplayEnquiries] = useState<(Enquiry & { __sourceType: 'new' | 'legacy' })[]>([]);
+  // Team-wide dataset for suppression index (includes other users' claimed enquiries)
+  const [teamWideEnquiries, setTeamWideEnquiries] = useState<(Enquiry & { __sourceType: 'new' | 'legacy' })[]>([]);
   // Loading state to prevent flickering
   const [isLoadingAllData, setIsLoadingAllData] = useState<boolean>(false);
   // Track if we've already fetched all data to prevent duplicate calls
@@ -293,6 +296,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       
       setAllEnquiries(normalizedEnquiries);
       setDisplayEnquiries(normalizedEnquiries);
+      setTeamWideEnquiries(normalizedEnquiries); // Store team-wide data for suppression
       
       debugLog('✅ State updated with normalized enquiries');
       
@@ -311,8 +315,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const { setContent } = useNavigatorActions();
   const [selectedEnquiry, setSelectedEnquiry] = useState<Enquiry | null>(null);
   const [twoColumn, setTwoColumn] = useState<boolean>(false);
-  // Scope toggle (Mine vs All) for claimed enquiries - admin-only feature, default to Mine
-  const [showMineOnly, setShowMineOnly] = useState<boolean>(true); // Default to showing only Mine for admin users
+  const isLocalhost = (typeof window !== 'undefined') && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+  // Check if running in VSCode webview (userAgent contains 'Code')
+  const isVSCodeWebview = (typeof navigator !== 'undefined') && navigator.userAgent.includes('Code');
+  // Scope toggle - always default to "Mine" for focused workflow
+  const [showMineOnly, setShowMineOnly] = useState<boolean>(true);
   // Removed pagination states
   // const [currentPage, setCurrentPage] = useState<number>(1);
   // const enquiriesPerPage = 12;
@@ -323,6 +330,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [isSuccessVisible, setIsSuccessVisible] = useState<boolean>(false);
   const [activeSubTab, setActiveSubTab] = useState<string>('Pitch');
   const [showUnclaimedBoard, setShowUnclaimedBoard] = useState<boolean>(false);
+  const [isCreateContactModalOpen, setIsCreateContactModalOpen] = useState<boolean>(false);
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<{ oldest: string; newest: string } | null>(null);
   const [isSearchActive, setSearchActive] = useState<boolean>(false);
@@ -337,7 +345,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [nextRefreshIn, setNextRefreshIn] = useState<number>(30 * 60); // 30 minutes in seconds
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const isLocalhost = (typeof window !== 'undefined') && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+  // Track recent updates to prevent overwriting with stale prop data
+  const recentUpdatesRef = useRef<Map<string, { field: string; value: any; timestamp: number }>>(new Map());
   // Admin check (match Matters logic) – be robust to spaced keys and fallbacks
   const userRec: any = (userData && userData[0]) ? userData[0] : {};
   const userRole: string = (userRec.Role || userRec.role || '').toString();
@@ -360,11 +369,30 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [debugLoading, setDebugLoading] = useState(false);
   const [debugError, setDebugError] = useState<string | null>(null);
   
+  // Toast notification state (using OperationStatusToast)
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string>('');
+  const [toastDetails, setToastDetails] = useState<string>('');
+  const [toastType, setToastType] = useState<'success' | 'error' | 'info' | 'warning'>('success');
+  
   // Navigation state variables  
   const [activeState, setActiveState] = useState<string>('Claimed');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedAreas, setSelectedAreas] = useState<string[]>([]);
   const [userManuallyChangedAreas, setUserManuallyChangedAreas] = useState(false);
+  const [selectedPersonInitials, setSelectedPersonInitials] = useState<string | null>(null);
+
+  // Prevent stale person filter from hiding items when toggling scope or tab
+  useEffect(() => {
+    if (selectedPersonInitials) {
+      debugLog('🧹 Clearing selected person filter due to scope/tab change', {
+        clearing: selectedPersonInitials,
+        showMineOnly,
+        activeState
+      });
+      setSelectedPersonInitials(null);
+    }
+  }, [showMineOnly, activeState]);
 
   // CRITICAL DEBUG: Log incoming enquiries prop
   React.useEffect(() => {
@@ -405,6 +433,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       showMineOnly,
       currentDisplayCount: displayEnquiries.length
     });
+    // If we've already fetched the unified dataset, keep it as the source of truth
+    // to avoid clobbering with smaller prop datasets when toggling Mine/All.
+    if (hasFetchedAllData.current) {
+      debugLog('🔒 Keeping unified dataset (skip prop normalization)', { hasFetched: hasFetchedAllData.current });
+      return;
+    }
     
     if (!enquiries) {
       setAllEnquiries([]);
@@ -424,9 +458,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     
     const normalised: (Enquiry & { __sourceType: 'new' | 'legacy'; [k: string]: unknown })[] = enquiries.map((raw: any) => {
       const sourceType = detectSourceType(raw);
+      const enquiryId = raw.ID || raw.id?.toString();
+      
       const rec: Enquiry & { __sourceType: 'new' | 'legacy'; [k: string]: unknown } = {
         ...raw,
-        ID: raw.ID || raw.id?.toString(),
+        ID: enquiryId,
         Touchpoint_Date: raw.Touchpoint_Date || raw.datetime,
         Point_of_Contact: raw.Point_of_Contact || raw.poc,
         Area_of_Work: raw.Area_of_Work || raw.aow,
@@ -443,6 +479,15 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         source: raw.source || raw.Ultimate_Source || 'originalForward',
         __sourceType: sourceType
       };
+      
+      // Check if this enquiry has a recent update that should override prop data
+      const recentUpdate = recentUpdatesRef.current.get(enquiryId);
+      if (recentUpdate && Date.now() - recentUpdate.timestamp < 5000) {
+        // Apply the recent update to preserve user's change
+        (rec as any)[recentUpdate.field] = recentUpdate.value;
+        debugLog('🔒 Preserving recent update for', enquiryId, ':', recentUpdate.field, '=', recentUpdate.value);
+      }
+      
       return rec;
     });
     const newCount = normalised.filter(r => r.__sourceType === 'new').length;
@@ -468,9 +513,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     
     // If admin is in "All" mode and we have fetched unified data, show all data
     const userEmail = userData?.[0]?.Email?.toLowerCase() || '';
-    if (isAdmin && !showMineOnly && hasFetchedAllData.current && allEnquiries.length > 1000) {
-  debugLog('👑 Admin All mode - showing unified data:', allEnquiries.length);
-      setDisplayEnquiries(allEnquiries);
+    if (isAdmin && !showMineOnly && hasFetchedAllData.current) {
+      const source = teamWideEnquiries.length > 0 ? teamWideEnquiries : allEnquiries;
+      debugLog('👑 Admin All mode - showing unified data:', source.length);
+      setDisplayEnquiries(source);
       return;
     }
     
@@ -497,23 +543,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   // Initialize selected areas with user's areas + Other/Unsure
   useEffect(() => {
-    console.log('🎯 Enquiries: Area sync useEffect triggered:', {
-      hasUserData: !!userData,
-      userDataLength: userData?.length || 0,
-      userAOW: userData?.[0]?.AOW,
-      currentSelectedAreas: selectedAreas,
-      userManuallyChangedAreas
-    });
-    
     // Don't override if user has manually changed areas
     if (userManuallyChangedAreas) {
-      console.log('🎯 Enquiries: Skipping auto-sync because user manually changed areas');
       return;
     }
     
     if (userData && userData.length > 0 && userData[0].AOW) {
       const userAOW = userData[0].AOW.split(',').map(a => a.trim());
-      console.log('🎯 Enquiries: Processing user AOW:', userAOW);
       
       // Check if this would actually change the selection
       const newSelection = [...userAOW];
@@ -526,24 +562,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       const newSorted = [...newSelection].sort();
       const isActuallyDifferent = JSON.stringify(currentSorted) !== JSON.stringify(newSorted);
       
-      console.log('🎯 Enquiries: Area comparison:', {
-        current: currentSorted,
-        new: newSorted,
-        isDifferent: isActuallyDifferent
-      });
-      
       if (isActuallyDifferent) {
-        console.log('🎯 Enquiries: Setting selectedAreas to:', newSelection);
         setSelectedAreas(newSelection);
-      } else {
-        console.log('🎯 Enquiries: No change needed, areas already match');
       }
     }
   }, [userData, userManuallyChangedAreas]); // Added userManuallyChangedAreas to dependencies
 
   // Custom handler for manual area changes to prevent useEffect overrides
   const handleManualAreaChange = useCallback((newAreas: string[]) => {
-    console.log('🎯 Enquiries: User manually changed areas to:', newAreas);
     setUserManuallyChangedAreas(true);
     setSelectedAreas(newAreas);
   }, []);
@@ -561,6 +587,19 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     }
   }, [userData]);
 
+  // Fetch team-wide data on mount for suppression index (runs once)
+  useEffect(() => {
+    if (teamWideEnquiries.length === 0 && !isLoadingAllData && !hasFetchedAllData.current) {
+      debugLog('🌐 Fetching team-wide enquiries for suppression index');
+      fetchAllEnquiries().then((data) => {
+        if (data && data.length > 0) {
+          setTeamWideEnquiries(data);
+          debugLog('✅ Team-wide suppression data loaded:', data.length);
+        }
+      });
+    }
+  }, []); // Run once on mount
+
   // Fetch all enquiries when user switches to "All" mode and current dataset is too small
   useEffect(() => {
     if (isLoadingAllData) return; // Prevent multiple concurrent fetches
@@ -570,21 +609,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     
   debugLog('🔄 Toggle useEffect triggered:', { isAdmin, showMineOnly, userEmail, hasData: displayEnquiries.length });
     
-    // When switching to "Mine" mode, ensure displayEnquiries has the full dataset for filtering
-    // BUT don't reset fetch flag if we already have all data - this prevents infinite loops
     if (showMineOnly) {
-      if (allEnquiries.length > 0) {
-        debugLog('🔄 Mine mode - setting displayEnquiries to allEnquiries for filtering:', allEnquiries.length);
-        setDisplayEnquiries(allEnquiries);
-      }
-      // Don't reset hasFetchedAllData.current here - it causes infinite loops
+      // Use whatever dataset we have; do not clear unified fetch flag to preserve All availability
+      const source = allEnquiries.length > 0 ? allEnquiries : teamWideEnquiries;
+      debugLog('🔄 Mine mode - using current dataset for filtering:', source.length);
+      setDisplayEnquiries(source);
       return;
-    }
-    
-    // Also reset if we previously fetched only new data (29 records) and need unified data
-    if (displayEnquiries.length < 100 && allEnquiries.length < 100) {
-      debugLog('🔄 Resetting fetch flag - previous fetch may have been incomplete');
-      hasFetchedAllData.current = false;
     }
     
     // If admin toggles to "All" and we don't have comprehensive data, fetch complete dataset
@@ -595,7 +625,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       debugLog('🔄 BR switched to All mode but only has 1 enquiry - fetching complete dataset');
       fetchAllEnquiries();
     }
-  }, [showMineOnly, userData, fetchAllEnquiries, isAdmin]); // Removed isLoadingAllData from deps
+  }, [showMineOnly, userData, fetchAllEnquiries, isAdmin, teamWideEnquiries, allEnquiries, displayEnquiries.length]); // keep effect stable
 
   const [currentSliderStart, setCurrentSliderStart] = useState<number>(0);
   const [currentSliderEnd, setCurrentSliderEnd] = useState<number>(0);
@@ -660,13 +690,204 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     []
   );
 
+  
+
+  // Temporary dedupe during platform transition: prefer Claimed > Triaged > Unclaimed and prefer v2 over legacy on ties
+  const dedupedEnquiries = useMemo(() => {
+    if (!displayEnquiries || displayEnquiries.length === 0) return [] as (Enquiry & { __sourceType: 'new' | 'legacy' })[];
+
+    // Basic triaged detection (aligned with Reporting heuristics)
+    const isTriagedPoc = (value: string): boolean => {
+      const v = (value || '').toLowerCase();
+      if (!v) return false;
+      return v.includes('triage') || v.includes('triaged');
+    };
+
+    const statusRank = (pocRaw: string): number => {
+      const v = (pocRaw || '').toLowerCase().trim();
+      if (!v || v === 'team@helix-law.com' || v === 'team' || v === 'anyone' || v === 'unassigned' || v === 'unknown' || v === 'n/a') return 0; // Unclaimed
+      if (isTriagedPoc(v)) return 1; // Triaged
+      return 2; // Claimed
+    };
+
+    const parseDate = (val: unknown): Date | null => {
+      if (!val || typeof val !== 'string') return null;
+      const d = new Date(val);
+      return isNaN(d.getTime()) ? null : d;
+    };
+
+    const createdAt = (e: any): Date => {
+      return (
+        parseDate(e.Touchpoint_Date) ||
+        parseDate(e.datetime) ||
+        parseDate(e.claim) ||
+        new Date(0)
+      ) as Date;
+    };
+
+    const timeBucketKey = (d: Date, mins = 180): string => {
+      if (!d || isNaN(d.getTime())) return 'invalid';
+      const day = d.toISOString().split('T')[0];
+      const bucket = Math.floor((d.getUTCHours() * 60 + d.getUTCMinutes()) / mins);
+      return `${day}#${bucket}`;
+    };
+    const dayKey = (d: Date): string => {
+      if (!d || isNaN(d.getTime())) return 'invalid';
+      return d.toISOString().split('T')[0];
+    };
+
+  const normEmail = (s: unknown): string => (typeof s === 'string' ? s.trim().toLowerCase() : '');
+  const normPhone = (s: unknown): string => (typeof s === 'string' ? s.replace(/\D/g, '').slice(-7) : '');
+
+    const fuzzyKey = (e: any): string => {
+      const d = createdAt(e);
+      const day = dayKey(d);
+      const email = normEmail(e.Email || e.email);
+      const phone = normPhone(e.Phone_Number || e.phone);
+      const aow = (e.Area_of_Work || e.aow || '').toString().toLowerCase();
+      const name = [e.First_Name || e.first || '', e.Last_Name || e.last || '']
+        .map((x: string) => (x || '').trim().toLowerCase())
+        .filter(Boolean)
+        .join(' ');
+      const contact = email || phone || name || 'unknown';
+      const poc = ((e.Point_of_Contact || (e as any).poc || '') as string).toString().trim().toLowerCase();
+      // Strong signal: if email or phone present, group per day
+      // In mine-only view, also include POC in the key so different assignees don't collapse into one
+      if (email || phone) return showMineOnly ? `${contact}|${poc}|${day}` : `${contact}|${day}`;
+      // Weak signal (name only): include AoW per day to avoid false merges
+      return `${contact}|${aow}|${day}`;
+    };
+
+    const isV2 = (e: any): boolean => {
+      if (e.__sourceType) return e.__sourceType === 'new';
+      // fallback heuristic
+      return 'id' in e || 'datetime' in e || 'stage' in e || 'claim' in e;
+    };
+
+    const currentUserEmail = (userData?.[0]?.Email || '').toLowerCase();
+    const pickBetter = (a: any, b: any): any => {
+      // If we're in Mine view, bias towards the record assigned to the current user
+      if (showMineOnly && currentUserEmail) {
+        const aPoc = (a.Point_of_Contact || a.poc || '').toLowerCase();
+        const bPoc = (b.Point_of_Contact || b.poc || '').toLowerCase();
+        const aMine = aPoc === currentUserEmail;
+        const bMine = bPoc === currentUserEmail;
+        if (aMine !== bMine) return aMine ? a : b;
+      }
+      const rankA = statusRank(a.Point_of_Contact || a.poc || '');
+      const rankB = statusRank(b.Point_of_Contact || b.poc || '');
+      if (rankA !== rankB) return rankA > rankB ? a : b;
+      const v2A = isV2(a);
+      const v2B = isV2(b);
+      if (v2A !== v2B) return v2A ? a : b;
+      // newer wins
+      const da = createdAt(a);
+      const db = createdAt(b);
+      return (da.getTime() >= db.getTime()) ? a : b;
+    };
+
+    // Avoid over-merging distinct enquiries: only merge when we have a strong identity match
+    const sameIdentity = (a: any, b: any): boolean => {
+      const aEmail = normEmail(a.Email || a.email);
+      const bEmail = normEmail(b.Email || b.email);
+      if (aEmail && bEmail) return aEmail === bEmail;
+      const aPhone = normPhone(a.Phone_Number || a.phone);
+      const bPhone = normPhone(b.Phone_Number || b.phone);
+      if (aPhone && bPhone) return aPhone === bPhone;
+      // If both email and phone are missing/empty, don't assume identity match
+      return false;
+    };
+
+    let uniqueSuffix = 0;
+    const map = new Map<string, any>();
+    
+    for (const e of displayEnquiries) {
+      const baseKey = fuzzyKey(e);
+      const existing = map.get(baseKey);
+      
+      if (!existing) {
+        map.set(baseKey, e);
+      } else {
+        // If IDs differ and we don't have a strong identity match (email/phone), keep both
+        const existingId = String(existing.ID || (existing as any).id || '');
+        const eId = String(e.ID || (e as any).id || '');
+        const idsDiffer = existingId && eId && existingId !== eId;
+        const identityMatch = sameIdentity(existing, e);
+        
+        if (idsDiffer && !identityMatch) {
+          uniqueSuffix += 1;
+          map.set(`${baseKey}#${uniqueSuffix}`, e);
+          continue;
+        }
+        map.set(baseKey, pickBetter(existing, e));
+      }
+    }
+    
+    return Array.from(map.values()) as (Enquiry & { __sourceType: 'new' | 'legacy' })[];
+  }, [displayEnquiries, showMineOnly, userData]);
+
+  // Build a suppression index: if a claimed record exists for the same contact on the same day, suppress unclaimed copies
+  // IMPORTANT: Use teamWideEnquiries (includes all team members' claims), not allEnquiries (may be filtered to current user)
+  const claimedContactDaySet = useMemo(() => {
+    const normEmail = (s: unknown): string => (typeof s === 'string' ? s.trim().toLowerCase() : '');
+    const normPhone = (s: unknown): string => (typeof s === 'string' ? s.replace(/\D/g, '').slice(-7) : '');
+    const dayKey = (val: unknown): string => {
+      if (!val || typeof val !== 'string') return 'invalid';
+      const d = new Date(val);
+      if (isNaN(d.getTime())) return 'invalid';
+      return d.toISOString().split('T')[0];
+    };
+    const isTriaged = (p: string) => (p || '').toLowerCase().includes('triage');
+    const set = new Set<string>();
+    let claimedCount = 0;
+    for (const e of teamWideEnquiries) {
+      const poc = (e.Point_of_Contact || (e as any).poc || '').toLowerCase();
+      const claimed = poc && !unclaimedEmails.includes(poc) && !isTriaged(poc);
+      if (!claimed) continue;
+      claimedCount++;
+      const email = normEmail((e as any).Email || (e as any).email);
+      const phone = normPhone((e as any).Phone_Number || (e as any).phone);
+      const name = [
+        (e as any).First_Name || (e as any).first || '',
+        (e as any).Last_Name || (e as any).last || ''
+      ]
+        .map((x: string) => (x || '').trim().toLowerCase())
+        .filter(Boolean)
+        .join(' ');
+      const contact = email || phone || name || 'unknown';
+      const day = dayKey((e as any).Touchpoint_Date || (e as any).datetime || (e as any).claim);
+      const key = `${contact}|${day}`;
+      set.add(key);
+    }
+    return set;
+  }, [teamWideEnquiries, unclaimedEmails]);
+
   const unclaimedEnquiries = useMemo(
-    () =>
-      displayEnquiries.filter((e) => {
+    () => {
+      const result = dedupedEnquiries.filter((e) => {
         const poc = (e.Point_of_Contact || (e as any).poc || '').toLowerCase();
-        return poc === 'team@helix-law.com';
-      }),
-    [displayEnquiries]
+        if (poc !== 'team@helix-law.com') return false;
+        // suppression: if claimed exists for same contact/day, hide
+        const email = typeof (e as any).Email === 'string' ? (e as any).Email.toLowerCase() : (typeof (e as any).email === 'string' ? (e as any).email.toLowerCase() : '');
+        const phone = typeof (e as any).Phone_Number === 'string' ? (e as any).Phone_Number.replace(/\D/g, '').slice(-7) : (typeof (e as any).phone === 'string' ? (e as any).phone.replace(/\D/g, '').slice(-7) : '');
+        const name = [
+          (e as any).First_Name || (e as any).first || '',
+          (e as any).Last_Name || (e as any).last || ''
+        ]
+          .map((x: string) => (x || '').trim().toLowerCase())
+          .filter(Boolean)
+          .join(' ');
+        const contact = email || phone || name || 'unknown';
+        const dateStr = (e as any).Touchpoint_Date || (e as any).datetime || (e as any).claim || '';
+        const d = new Date(dateStr);
+        const day = isNaN(d.getTime()) ? 'invalid' : d.toISOString().split('T')[0];
+        const key = `${contact}|${day}`;
+        return !claimedContactDaySet.has(key);
+      });
+      
+      return result;
+    },
+    [dedupedEnquiries, claimedContactDaySet]
   );
 
   // Count of today's unclaimed enquiries
@@ -745,16 +966,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   }, [enquiriesInSliderRange]);
 
   const handleSubTabChange = useCallback((key: string) => {
-    // Prevent switching to Calls or Emails if Pitch Builder is open
-    if (activeSubTab === 'Pitch' && (key === 'Calls' || key === 'Emails')) {
-      return;
-    }
-    // Prevent switching to Calls or Emails in production
-    if (!isLocalhost && (key === 'Calls' || key === 'Emails')) {
-      return;
-    }
     setActiveSubTab(key);
-  }, [activeSubTab, isLocalhost]);
+  }, []);
 
   const handleSelectEnquiry = useCallback((enquiry: Enquiry) => {
     setSelectedEnquiry(enquiry);
@@ -892,12 +1105,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       if (Object.keys(updates).length === 0) return;
 
       // Call the save function - using direct API call to avoid dependency issues
-      const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-      const updateUrl = isLocalhost 
-        ? '/api/enquiries-unified/update'
-        : `${getProxyBaseUrl()}/${process.env.REACT_APP_UPDATE_ENQUIRY_PATH}?code=${process.env.REACT_APP_UPDATE_ENQUIRY_CODE}`;
-      
-      const response = await fetch(updateUrl, {
+      const response = await fetch('/api/enquiries-unified/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ID: updatedEnquiry.ID, ...updates }),
@@ -929,13 +1137,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   const handleAreaChange = useCallback(async (enquiryId: string, newArea: string) => {
     try {
-      // Get the appropriate update endpoint
-      const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-      const updateUrl = isLocalhost 
-        ? '/api/enquiries-unified/update' // Local development route
-        : `${getProxyBaseUrl()}/${process.env.REACT_APP_UPDATE_ENQUIRY_PATH}?code=${process.env.REACT_APP_UPDATE_ENQUIRY_CODE}`;
-      
-      const response = await fetch(updateUrl, {
+      // Track this update to prevent it from being overwritten by stale prop data
+      recentUpdatesRef.current.set(enquiryId, {
+        field: 'Area_of_Work',
+        value: newArea,
+        timestamp: Date.now()
+      });
+
+      const response = await fetch('/api/enquiries-unified/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ID: enquiryId, Area_of_Work: newArea }),
@@ -943,10 +1152,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
       if (!response.ok) {
         const errorText = await response.text();
+        // Remove from recent updates if failed
+        recentUpdatesRef.current.delete(enquiryId);
         throw new Error(`Failed to update enquiry area: ${errorText}`);
       }
 
-      // Update local state
+      // Update local state - create new array references to trigger re-renders
       const updateEnquiry = (enquiry: Enquiry & { __sourceType: 'new' | 'legacy' }): Enquiry & { __sourceType: 'new' | 'legacy' } => {
         if (enquiry.ID === enquiryId) {
           return { ...enquiry, Area_of_Work: newArea };
@@ -954,26 +1165,43 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         return enquiry;
       };
 
-      setAllEnquiries(prev => prev.map(updateEnquiry));
-      setDisplayEnquiries(prev => prev.map(updateEnquiry));
+      // Update allEnquiries first, then let the useEffect handle displayEnquiries
+      setAllEnquiries(prev => {
+        const updated = prev.map(updateEnquiry);
+        // Also immediately update displayEnquiries to prevent visual glitch
+        setDisplayEnquiries(prevDisplay => prevDisplay.map(updateEnquiry));
+        return updated;
+      });
+
+      // Clear this update from tracking after 5 seconds
+      setTimeout(() => {
+        recentUpdatesRef.current.delete(enquiryId);
+      }, 5000);
+      
+      // Show success toast
+      setToastMessage(`Area updated`);
+      setToastDetails(`Enquiry area changed to ${newArea}`);
+      setToastType('success');
+      setToastVisible(true);
+      setTimeout(() => setToastVisible(false), 3000);
       
   debugLog('✅ Enquiry area updated successfully:', enquiryId, 'to', newArea);
       
     } catch (error) {
       console.error('Failed to update enquiry area:', error);
+      // Show error toast
+      setToastMessage(`Failed to update area`);
+      setToastDetails(error instanceof Error ? error.message : 'Unknown error');
+      setToastType('error');
+      setToastVisible(true);
+      setTimeout(() => setToastVisible(false), 5000);
       throw error;
     }
   }, []);
 
   const handleSaveEnquiry = useCallback(async (enquiryId: string, updates: Partial<Enquiry>) => {
     try {
-      // Get the appropriate update endpoint
-      const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-      const updateUrl = isLocalhost 
-        ? '/api/enquiries-unified/update' // Local development route
-        : `${getProxyBaseUrl()}/${process.env.REACT_APP_UPDATE_ENQUIRY_PATH}?code=${process.env.REACT_APP_UPDATE_ENQUIRY_CODE}`;
-      
-      const response = await fetch(updateUrl, {
+      const response = await fetch('/api/enquiries-unified/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ID: enquiryId, ...updates }),
@@ -1002,170 +1230,148 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     }
   }, []);
 
-  const handleEditRating = useCallback(async (id: string, newRating: string) => {
+  const handleRatingChange = useCallback(async (enquiryId: string, newRating: string) => {
     try {
-      const response = await fetch(
-        `${getProxyBaseUrl()}/${process.env.REACT_APP_UPDATE_RATING_PATH}?code=${process.env.REACT_APP_UPDATE_RATING_CODE}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ID: id, Rating: newRating }),
-        }
-      );
-      if (response.ok) {
-        // No longer update localEnquiries; only update via API and refresh if needed
-        setIsSuccessVisible(true);
-      } else {
+      // Track this update to prevent it from being overwritten by stale prop data
+      recentUpdatesRef.current.set(enquiryId, {
+        field: 'Rating',
+        value: newRating,
+        timestamp: Date.now()
+      });
+
+      const response = await fetch('/api/enquiries-unified/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ID: enquiryId, Rating: newRating }),
+      });
+
+      if (!response.ok) {
         const errorText = await response.text();
-        console.error('Failed to update rating:', errorText);
+        // Remove from recent updates if failed
+        recentUpdatesRef.current.delete(enquiryId);
+        throw new Error(`Failed to update enquiry rating: ${errorText}`);
       }
+
+      // Update local state - create new array references to trigger re-renders
+      const updateEnquiry = (enquiry: Enquiry & { __sourceType: 'new' | 'legacy' }): Enquiry & { __sourceType: 'new' | 'legacy' } => {
+        if (enquiry.ID === enquiryId) {
+          return { ...enquiry, Rating: newRating as 'Good' | 'Neutral' | 'Poor' };
+        }
+        return enquiry;
+      };
+
+      // Update allEnquiries first, then let the useEffect handle displayEnquiries
+      setAllEnquiries(prev => {
+        const updated = prev.map(updateEnquiry);
+        // Also immediately update displayEnquiries to prevent visual glitch
+        setDisplayEnquiries(prevDisplay => prevDisplay.map(updateEnquiry));
+        return updated;
+      });
+
+      // Clear this update from tracking after 5 seconds
+      setTimeout(() => {
+        recentUpdatesRef.current.delete(enquiryId);
+      }, 5000);
+      
+      // Show success toast with real-time feedback
+      setToastMessage(`Rating updated`);
+      setToastDetails(`Enquiry rated as ${newRating}`);
+      setToastType('success');
+      setToastVisible(true);
+      setTimeout(() => setToastVisible(false), 3000);
+      
+      debugLog('✅ Enquiry rating updated successfully:', enquiryId, 'to', newRating);
+      
     } catch (error) {
-      console.error('Error updating rating:', error);
+      console.error('Failed to update enquiry rating:', error);
+      // Show error toast
+      setToastMessage(`Failed to update rating`);
+      setToastDetails(error instanceof Error ? error.message : 'Unknown error');
+      setToastType('error');
+      setToastVisible(true);
+      setTimeout(() => setToastVisible(false), 5000);
+      throw error;
     }
   }, []);
 
   const submitRating = useCallback(async () => {
     if (ratingEnquiryId && currentRating) {
-      await handleEditRating(ratingEnquiryId, currentRating);
-      setIsSuccessVisible(true);
-      closeRateModal();
+      try {
+        // Use handleRatingChange which has proper state updates and toast feedback
+        await handleRatingChange(ratingEnquiryId, currentRating);
+        closeRateModal();
+      } catch (error) {
+        console.error('Error submitting rating:', error);
+        // Error toast already shown by handleRatingChange
+      }
     }
-  }, [ratingEnquiryId, currentRating, handleEditRating, closeRateModal]);
+  }, [ratingEnquiryId, currentRating, handleRatingChange, closeRateModal]);
+
+  // Handler to filter by person initials
+  const handleFilterByPerson = useCallback((initials: string) => {
+    setSelectedPersonInitials(prev => prev === initials ? null : initials); // Toggle filter
+  }, []);
 
   const filteredEnquiries = useMemo(() => {
-    let filtered = displayEnquiries; // Use full dataset, not slider range
+    let filtered = dedupedEnquiries; // Use deduped full dataset, not slider range
 
     const userEmail = userData && userData[0] && userData[0].Email
       ? userData[0].Email.toLowerCase()
       : '';
 
-    // Always use the actual user's email - no local overrides
     const effectiveUserEmail = userEmail;
-
-    // Debug logging for BR
-    if (userEmail.includes('br@') || userEmail.includes('brendan')) {
-      debugLog('🐛 BR DEBUG - Enquiries filtering:', {
-        userEmail,
-        effectiveUserEmail,
-        activeState,
-        showMineOnly,
-        totalEnquiriesBeforeFilter: displayEnquiries.length
-      });
-      
-      // Show sample of all POCs before filtering
-      const allPOCs = displayEnquiries.slice(0, 20).map(e => 
-        (e.Point_of_Contact || (e as any).poc || '').toLowerCase()
-      );
-  debugLog('📧 All POCs in dataset (first 20):', allPOCs);
-      
-      // Count by POC
-      const pocCounts: Record<string, number> = {};
-      displayEnquiries.forEach(e => {
-        const poc = (e.Point_of_Contact || (e as any).poc || '').toLowerCase();
-        pocCounts[poc] = (pocCounts[poc] || 0) + 1;
-      });
-  debugLog('📊 POC counts:', pocCounts);
-    }
-
-    // Add detailed logging for data flow debugging
-    debugLog('🔍 Data Flow Debug:', {
-      activeState,
-      showMineOnly,
-      isAdmin,
-      allEnquiriesCount: allEnquiries.length,
-      displayEnquiriesCount: displayEnquiries.length,
-      enquiriesInSliderRangeCount: displayEnquiries.length,
-      filteredStartCount: filtered.length,
-      effectiveUserEmail,
-      userEmail
-    });
-
-    // CRITICAL DEBUG: Log first few POCs to see what we're working with
-    if (filtered.length > 0) {
-      const pocSamples = filtered.slice(0, 10).map(e => ({
-        ID: e.ID,
-        POC: e.Point_of_Contact || (e as any).poc,
-        isUnclaimed: unclaimedEmails.includes((e.Point_of_Contact || (e as any).poc || '').toLowerCase())
-      }));
-      debugLog('📋 CRITICAL - POC samples before Claimed filter:', pocSamples);
-    } else {
-      debugLog('⚠️ CRITICAL - filtered array is EMPTY before Claimed filter!');
-    }
 
     // Filter by activeState first (supports Claimed, Unclaimed, etc.)
     if (activeState === 'Claimed') {
       if (showMineOnly || !isAdmin) {
-  debugLog('🔍 Filtering for Mine Only - looking for:', effectiveUserEmail);
-        
-        // DEBUG: Show available claimed POCs first
-        const claimedEnquiries = filtered.filter(enquiry => {
-          const poc = (enquiry.Point_of_Contact || (enquiry as any).poc || '').toLowerCase();
-          const isUnclaimed = unclaimedEmails.includes(poc);
-          return !isUnclaimed && poc && poc.trim() !== '';
-        });
-        
-        const claimedPOCs = claimedEnquiries.reduce((acc: any, enq) => {
-          const poc = (enq.Point_of_Contact || (enq as any).poc || '').toLowerCase();
-          acc[poc] = (acc[poc] || 0) + 1;
-          return acc;
-        }, {});
-        
-  debugLog('🔍 MINE DEBUG - Available claimed POCs:', claimedPOCs);
-  debugLog('🔍 MINE DEBUG - Total claimed enquiries available:', claimedEnquiries.length);
-  debugLog('🔍 MINE DEBUG - Looking for exact match:', effectiveUserEmail);
-  debugLog('🔍 MINE DEBUG - User has claimed enquiries:', claimedPOCs[effectiveUserEmail] || 0);
+        // Mine only view
+        const beforeCount = filtered.length;
+        const mineItems: any[] = [];
         
         filtered = filtered.filter(enquiry => {
           const poc = (enquiry.Point_of_Contact || (enquiry as any).poc || '').toLowerCase();
           const matches = effectiveUserEmail ? poc === effectiveUserEmail : false;
-          if (userEmail.includes('br@') || userEmail.includes('lz@')) {
-            debugLog('📧 Enquiry POC:', poc, 'matches:', matches);
+          if (matches) {
+            mineItems.push(enquiry);
           }
           return matches;
         });
+        
+        console.log(`[MINE-ONLY] ${beforeCount} → ${filtered.length} items`);
+        mineItems.forEach(item => {
+          const id = String(item.ID || (item as any).id || '');
+          const poc = String(item.Point_of_Contact || (item as any).poc || '');
+          console.log(`  ✓ ID=${id} POC=${poc}`);
+        });
       } else {
-        debugLog('🌍 Filtering for All Claimed enquiries (Admin Mode)');
-        debugLog('📊 Total enquiries before filtering:', filtered.length);
-        debugLog('📊 Unclaimed emails to exclude:', unclaimedEmails);
-        debugLog('🔍 PRODUCTION DEBUG - Current user admin status:', isAdmin);
-        debugLog('🔍 PRODUCTION DEBUG - Current showMineOnly setting:', showMineOnly);
-        
-        // Show sample of data we're working with
-        if (filtered.length > 0) {
-          const samples = filtered.slice(0, 3).map(e => ({
-            ID: e.ID,
-            POC: e.Point_of_Contact || (e as any).poc,
-            CallTaker: e.Call_Taker || (e as any).rep
-          }));
-          debugLog('📋 Sample enquiries:', samples);
-        }
-        
-        // For admin "All" mode, we want to show enquiries that have been claimed by ANYONE
-        // This means any enquiry that doesn't have the default unclaimed POC
+        // Admin "All" mode - show all claimed (anyone's)
         filtered = filtered.filter(enquiry => {
           const poc = (enquiry.Point_of_Contact || (enquiry as any).poc || '').toLowerCase();
-          
-          // An enquiry is "claimed" if it has a POC that's NOT in the unclaimed emails list
-          // The unclaimed list contains placeholder emails like 'team@helix-law.com'
           const isUnclaimed = unclaimedEmails.includes(poc);
-          const isClaimed = !isUnclaimed && poc && poc.trim() !== '';
-          
-          return isClaimed;
+          return !isUnclaimed && poc && poc.trim() !== '';
         });
-        
-        debugLog('📊 Total claimed enquiries after filtering:', filtered.length);
-        debugLog('🔍 PRODUCTION DEBUG - Sample of filtered claimed enquiries:', filtered.slice(0, 5).map(e => ({
-          ID: e.ID,
-          POC: e.Point_of_Contact || (e as any).poc,
-          Area: e.Area_of_Work,
-          Date: e.Touchpoint_Date
-        })));
       }
     } else if (activeState === 'Claimable') {
       filtered = filtered.filter(enquiry => {
         // Handle both old and new schema
         const poc = (enquiry.Point_of_Contact || (enquiry as any).poc || '').toLowerCase();
-        return unclaimedEmails.includes(poc);
+        if (!unclaimedEmails.includes(poc)) return false;
+        // suppression against claimed same-day same-contact
+        const email = typeof (enquiry as any).Email === 'string' ? (enquiry as any).Email.toLowerCase() : (typeof (enquiry as any).email === 'string' ? (enquiry as any).email.toLowerCase() : '');
+        const phone = typeof (enquiry as any).Phone_Number === 'string' ? (enquiry as any).Phone_Number.replace(/\D/g, '').slice(-7) : (typeof (enquiry as any).phone === 'string' ? (enquiry as any).phone.replace(/\D/g, '').slice(-7) : '');
+        const name = [
+          (enquiry as any).First_Name || (enquiry as any).first || '',
+          (enquiry as any).Last_Name || (enquiry as any).last || ''
+        ]
+          .map((x: string) => (x || '').trim().toLowerCase())
+          .filter(Boolean)
+          .join(' ');
+        const contact = email || phone || name || 'unknown';
+        const dateStr = (enquiry as any).Touchpoint_Date || (enquiry as any).datetime || (enquiry as any).claim || '';
+        const d = new Date(dateStr);
+        const day = isNaN(d.getTime()) ? 'invalid' : d.toISOString().split('T')[0];
+        const key = `${contact}|${day}`;
+        return !claimedContactDaySet.has(key);
       });
     }
 
@@ -1232,8 +1438,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           );
         });
       }
-    } else if (selectedAreas.length > 0) {
-      // Apply area filter to all enquiry states consistently
+    } else if (selectedAreas.length > 0 && activeState !== 'Claimed') {
+      // Apply area filter to non-Claimed states; keep Claimed view unfiltered by AoW to avoid hiding user's items on entry
       filtered = filtered.filter(enquiry => {
         const enquiryArea = (enquiry.Area_of_Work || '').toLowerCase().trim();
         
@@ -1270,35 +1476,30 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         enquiry.ID?.toLowerCase().includes(term)
       );
     }
-    
-    // Final debug logging - ALWAYS show for Claimed view
-    debugLog('🎯 FINAL FILTER RESULT:', {
-      finalCount: filtered.length,
-      activeState,
-      showMineOnly,
-      searchTerm: searchTerm.trim(),
-      selectedAreas,
-      selectedAreasCount: selectedAreas.length
-    });
-    
-    if (activeState === 'Claimed') {
-      debugLog('� CLAIMED VIEW - Final result:', {
-        claimedCount: filtered.length,
-        showMineOnly,
-        effectiveUserEmail,
-        samplePOCs: filtered.slice(0, 5).map(e => e.Point_of_Contact || (e as any).poc)
+
+    // Apply person filter (filter by assigned person initials)
+    if (selectedPersonInitials) {
+      filtered = filtered.filter(enquiry => {
+        const poc = (enquiry.Point_of_Contact || (enquiry as any).poc || '').toLowerCase();
+        const matchingPerson = teamData?.find(t => t.Email?.toLowerCase() === poc);
+        const initialsFromTeam = matchingPerson?.Initials || matchingPerson?.Email?.split('@')[0]?.slice(0, 2).toUpperCase();
+        const initialsFromEmail = poc ? poc.split('@')[0].slice(0, 2).toUpperCase() : undefined;
+        const computed = initialsFromTeam || initialsFromEmail;
+        return computed === selectedPersonInitials;
       });
     }
     
     return filtered;
   }, [
-    displayEnquiries, // Use full dataset, not slider range
+    dedupedEnquiries, // Use deduped full dataset, not slider range
     userData,
     activeState,
     selectedAreas,
     searchTerm,
     showMineOnly,
     unclaimedEmails,
+    selectedPersonInitials,
+    teamData,
   ]);
 
   // Removed pagination logic
@@ -1446,8 +1647,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         {activeSubTab === 'Pitch' && (
           <PitchBuilder enquiry={enquiry} userData={userData} />
         )}
-        {isLocalhost && activeSubTab === 'Calls' && <EnquiryCalls enquiry={enquiry} />}
-        {isLocalhost && activeSubTab === 'Emails' && <EnquiryEmails enquiry={enquiry} />}
+        {activeSubTab === 'Timeline' && (
+          <EnquiryTimeline 
+            enquiry={enquiry} 
+            userInitials={userData && userData[0] ? userData[0].Initials : undefined}
+            userEmail={userData?.[0]?.Email}
+          />
+        )}
       </>
     ),
   [activeSubTab, userData, isLocalhost]
@@ -1594,11 +1800,16 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   function containerStyle(dark: boolean) {
     return mergeStyles({
-      background: dark ? colours.darkBlue : '#ffffff',
+      background: dark 
+        ? 'rgba(15, 23, 42, 0.78)' 
+        : 'rgba(248, 250, 252, 0.92)',
+      backdropFilter: 'blur(12px)',
+      WebkitBackdropFilter: 'blur(12px)',
       minHeight: '100vh',
       boxSizing: 'border-box',
       color: dark ? colours.light.text : colours.dark.text,
       position: 'relative',
+      borderTop: dark ? '1px solid rgba(148,163,184,0.12)' : '1px solid rgba(148,163,184,0.10)',
       '&::before': {
         content: '""',
         position: 'fixed',
@@ -1667,8 +1878,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                   value={showMineOnly ? 'mine' : 'all'}
                   onChange={(v) => setShowMineOnly(v === 'mine')}
                   options={[
-                    { key: 'mine', label: 'Mine' },
-                    { key: 'all', label: 'All' }
+                    { key: 'mine', label: 'Mine', disabled: activeState === 'Claimable' },
+                    { key: 'all', label: 'All', disabled: activeState === 'Claimable' }
                   ]}
                 />
               )}
@@ -1767,64 +1978,160 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           refresh={{
             onRefresh: handleManualRefresh,
             isLoading: isRefreshing,
-            nextUpdateTime: formatTimeRemaining(nextRefreshIn),
-            collapsible: true
+            nextUpdateTime: nextRefreshIn ? formatTimeRemaining(nextRefreshIn) : undefined,
           }}
         >
+          <button
+            type="button"
+            title="Create new contact/enquiry"
+            aria-label="Create new contact"
+            onClick={() => setIsCreateContactModalOpen(true)}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              height: 28,
+              padding: '0 10px',
+              borderRadius: 14,
+              border: isDarkMode ? '1px solid rgba(102,170,232,0.3)' : '1px solid rgba(102,170,232,0.3)',
+              background: isDarkMode ? 'rgba(102,170,232,0.12)' : 'rgba(102,170,232,0.08)',
+              cursor: 'pointer',
+              fontSize: 12,
+              fontFamily: 'Raleway, sans-serif',
+              color: colours.highlight,
+              fontWeight: 600,
+              transition: 'all 200ms ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = isDarkMode ? 'rgba(102,170,232,0.18)' : 'rgba(102,170,232,0.14)';
+              e.currentTarget.style.borderColor = colours.highlight;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = isDarkMode ? 'rgba(102,170,232,0.12)' : 'rgba(102,170,232,0.08)';
+              e.currentTarget.style.borderColor = isDarkMode ? 'rgba(102,170,232,0.3)' : 'rgba(102,170,232,0.3)';
+            }}
+          >
+            <Icon iconName="AddFriend" style={{ fontSize: 14 }} />
+            <span>Create Contact</span>
+          </button>
+          {isAdmin && (
+            <button
+              type="button"
+              title="Open enquiries report"
+              aria-label="Open enquiries report"
+              onClick={() => {
+                // Dispatch custom event to navigate to reporting tab
+                window.dispatchEvent(new CustomEvent('navigateToReporting'));
+              }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                height: 28,
+                padding: '0 10px',
+                borderRadius: 14,
+                border: isDarkMode ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(0,0,0,0.12)',
+                background: 'transparent',
+                cursor: 'pointer',
+                fontSize: 12,
+                fontFamily: 'Raleway, sans-serif',
+                color: isDarkMode ? '#E5E7EB' : '#0F172A',
+                transition: 'all 200ms ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)';
+                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)';
+              }}
+            >
+              <Icon iconName="BarChartVertical" style={{ fontSize: 14 }} />
+              <span>Report</span>
+            </button>
+          )}
+          {selectedPersonInitials && (
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                height: 28,
+                padding: '0 10px',
+                borderRadius: 14,
+                border: `1px solid ${colours.highlight}50`,
+                background: isDarkMode ? 'rgba(102,170,232,0.12)' : 'rgba(102,170,232,0.12)',
+                fontSize: 12,
+                fontFamily: 'Raleway, sans-serif',
+                color: colours.highlight,
+                fontWeight: 600,
+              }}
+            >
+              <Icon iconName="Contact" style={{ fontSize: 14 }} />
+              <span>{selectedPersonInitials}</span>
+              <button
+                onClick={() => setSelectedPersonInitials(null)}
+                title="Clear person filter"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 16,
+                  height: 16,
+                  border: 'none',
+                  background: 'transparent',
+                  cursor: 'pointer',
+                  padding: 0,
+                  color: colours.highlight,
+                  opacity: 0.7,
+                  transition: 'opacity 0.2s',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.7'; }}
+              >
+                <Icon iconName="Cancel" style={{ fontSize: 12 }} />
+              </button>
+            </div>
+          )}
         </FilterBanner>
       );
     } else {
       // Detail mode: reuse FilterBanner space with back button + tabs (same visual position as claimed/unclaimed bar)
       setContent(
         <FilterBanner
-          seamless
+          seamless={false}
           dense
           sticky={false}
+          leftAction={
+            <IconButton
+              iconProps={{ iconName: 'ChevronLeft' }}
+              onClick={handleBackToList}
+              title="Back to enquiries list"
+              ariaLabel="Back to enquiries list"
+              styles={{
+                root: {
+                  width: 32,
+                  height: 32,
+                },
+                rootHovered: {
+                  backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : '#e7f1ff',
+                }
+              }}
+            />
+          }
           primaryFilter={{
             value: activeSubTab,
             onChange: (key) => {
-              // Prevent switching to Calls or Emails if Pitch Builder is open
-              if (activeSubTab === 'Pitch' && (key === 'Calls' || key === 'Emails')) {
-                return;
-              }
-              // Prevent switching to Calls or Emails in production
-              if (!isLocalhost && (key === 'Calls' || key === 'Emails')) {
-                return;
-              }
               setActiveSubTab(key);
             },
             options: [
               { key: 'Pitch', label: 'Pitch Builder' },
-              ...(isLocalhost ? [
-                { key: 'Calls', label: 'Calls' },
-                { key: 'Emails', label: 'Emails' }
-              ] : [])
+              { key: 'Timeline', label: 'Timeline' }
             ],
             ariaLabel: "Switch between enquiry detail tabs"
           }}
-        >
-          <IconButton
-            iconProps={{ iconName: 'ChevronLeft' }}
-            onClick={handleBackToList}
-            title="Back to enquiries list"
-            ariaLabel="Back to enquiries list"
-            styles={{
-              root: {
-                width: 32,
-                height: 32,
-                marginRight: 8,
-                backgroundColor: isDarkMode ? colours.dark.sectionBackground : '#f3f3f3',
-                border: '1px solid #e1dfdd',
-                borderRadius: 4,
-                order: -1, // Ensure it appears first
-              },
-              rootHovered: {
-                backgroundColor: '#e7f1ff',
-                borderColor: '#3690CE',
-              }
-            }}
-          />
-        </FilterBanner>
+        />
       );
     }
     return () => setContent(null);
@@ -1852,6 +2159,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   return (
     <div className={containerStyle(isDarkMode)}>
+      {/* Toast Notification - Using OperationStatusToast for real-time feedback */}
+      <OperationStatusToast
+        visible={toastVisible}
+        message={toastMessage}
+        details={toastDetails}
+        type={toastType}
+        icon={toastType === 'success' ? 'CheckMark' : undefined}
+      />
 
         <Stack
           tokens={{ childrenGap: 20 }}
@@ -2008,11 +2323,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   groupedEnquiry={item}
                                   onSelect={handleSelectEnquiry}
                                   onRate={handleRate}
+                                  onRatingChange={handleRatingChange}
                                   onPitch={handleSelectEnquiry}
                                   teamData={teamData}
                                   isLast={isLast}
                                   userAOW={userAOW}
                                   getPromotionStatus={getPromotionStatusSimple}
+                                  onFilterByPerson={handleFilterByPerson}
                                 />
                               );
                             } else {
@@ -2046,6 +2363,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   userData={userData}
                                   isLast={isLast}
                                   promotionStatus={getPromotionStatusSimple(item)}
+                                  onFilterByPerson={handleFilterByPerson}
                                 />
                               );
                             }
@@ -2081,63 +2399,165 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         </MessageBar>
       )}
 
-      <Modal
-        isOpen={isRateModalOpen}
-        onDismiss={closeRateModal}
-        isBlocking={false}
-        containerClassName={mergeStyles({
-          maxWidth: 600,
-          padding: '30px',
-          borderRadius: '12px',
-          backgroundColor: isDarkMode
-            ? colours.dark.sectionBackground
-            : colours.light.sectionBackground,
-          color: isDarkMode ? colours.dark.text : colours.light.text,
-          fontFamily: 'Raleway, sans-serif',
-        })}
-        styles={{ main: { maxWidth: '600px', margin: 'auto' } }}
-        aria-labelledby="rate-modal"
-      >
-        <Stack tokens={{ childrenGap: 20 }}>
-          <Text
-            variant="xxLarge"
-            styles={{
-              root: {
-                fontWeight: '700',
-                color: isDarkMode ? colours.dark.text : colours.light.text,
-                fontFamily: 'Raleway, sans-serif',
-              },
+      {/* Rating Modal - Inline style */}
+      {isRateModalOpen && (
+        <div
+          onClick={closeRateModal}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.4)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000,
+            animation: 'fadeIn 0.2s ease',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: isDarkMode ? 'rgba(15,23,42,0.98)' : '#fff',
+              borderRadius: 12,
+              padding: '24px 20px',
+              minWidth: 360,
+              maxWidth: 480,
+              boxShadow: isDarkMode
+                ? '0 10px 40px rgba(0,0,0,0.5)'
+                : '0 10px 40px rgba(0,0,0,0.15)',
+              border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
             }}
           >
-            Rate
-          </Text>
-          <Text
-            variant="medium"
-            styles={{
-              root: {
-                color: isDarkMode ? colours.dark.text : colours.light.text,
-                fontFamily: 'Raleway, sans-serif',
-              },
-            }}
-          >
-            Please select a rating:
-          </Text>
-          {renderRatingOptions()}
-          <Stack horizontal tokens={{ childrenGap: 15 }} horizontalAlign="end">
-            <PrimaryButton
-              text="Submit"
-              onClick={submitRating}
-              disabled={!currentRating}
-              styles={{ root: { fontFamily: 'Raleway, sans-serif' } }}
-            />
-            <DefaultButton
-              text="Cancel"
-              onClick={closeRateModal}
-              styles={{ root: { fontFamily: 'Raleway, sans-serif' } }}
-            />
-          </Stack>
-        </Stack>
-      </Modal>
+            {/* Header */}
+            <div style={{
+              padding: '0 0 16px 0',
+              borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}>
+              <Text style={{
+                fontSize: 18,
+                fontWeight: 600,
+                color: isDarkMode ? 'rgba(255,255,255,0.95)' : 'rgba(0,0,0,0.95)',
+              }}>
+                Rate Enquiry
+              </Text>
+              <button
+                onClick={closeRateModal}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: 4,
+                  color: isDarkMode ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Icon iconName="Cancel" style={{ fontSize: 16 }} />
+              </button>
+            </div>
+
+            {/* Rating options */}
+            <div style={{ padding: '8px 0' }}>
+              {[
+                { value: 'Good', icon: 'FavoriteStarFill', color: colours.blue, label: 'Good quality enquiry' },
+                { value: 'Neutral', icon: 'CircleRing', color: colours.grey, label: 'Average enquiry' },
+                { value: 'Poor', icon: 'StatusErrorFull', color: colours.cta, label: 'Poor quality enquiry' },
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  onClick={() => {
+                    setCurrentRating(option.value);
+                    submitRating();
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '14px 20px',
+                    border: 'none',
+                    background: currentRating === option.value 
+                      ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)')
+                      : 'transparent',
+                    color: isDarkMode ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.9)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    fontSize: 14,
+                    fontWeight: currentRating === option.value ? 600 : 500,
+                    transition: 'background 0.2s',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = isDarkMode 
+                      ? 'rgba(255,255,255,0.08)' 
+                      : 'rgba(0,0,0,0.04)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = currentRating === option.value 
+                      ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)')
+                      : 'transparent';
+                  }}
+                >
+                  <Icon 
+                    iconName={option.icon} 
+                    style={{ fontSize: 18, color: option.color }} 
+                  />
+                  <div style={{ flex: 1, textAlign: 'left' }}>
+                    <div style={{ fontWeight: 600 }}>{option.value}</div>
+                    <div style={{ 
+                      fontSize: 12, 
+                      color: isDarkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)',
+                      marginTop: 2
+                    }}>
+                      {option.label}
+                    </div>
+                  </div>
+                  {currentRating === option.value && (
+                    <Icon 
+                      iconName="CheckMark" 
+                      style={{ 
+                        fontSize: 14, 
+                        color: option.color 
+                      }} 
+                    />
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Contact Modal */}
+      <CreateContactModal
+        isOpen={isCreateContactModalOpen}
+        onDismiss={() => setIsCreateContactModalOpen(false)}
+        onSuccess={async (enquiryId) => {
+          setToastMessage('Contact created successfully');
+          setToastDetails(`New enquiry record created (ID: ${enquiryId})`);
+          setToastType('success');
+          setToastVisible(true);
+          
+          // Immediately trigger refresh to show the new enquiry
+          if (onRefreshEnquiries) {
+            try {
+              await onRefreshEnquiries();
+              console.log('✅ Enquiries refreshed successfully after contact creation');
+            } catch (err) {
+              console.error('❌ Failed to refresh enquiries:', err);
+            }
+          }
+          
+          setTimeout(() => setToastVisible(false), 4000);
+        }}
+        userEmail={userData?.[0]?.Email}
+        teamData={teamData}
+      />
         </Stack>
 
     </div>

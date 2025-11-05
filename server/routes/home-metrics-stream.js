@@ -4,6 +4,9 @@ const { getRedisClient, generateCacheKey } = require('../utils/redisClient');
 
 // Helper: write SSE event safely
 function writeSse(res, obj) {
+  // Check if stream is still writable
+  if (res.writableEnded || res.destroyed) return;
+  
   try {
     res.write(`data: ${JSON.stringify(obj)}\n\n`);
     if (typeof res.flush === 'function') {
@@ -61,11 +64,23 @@ router.get('/stream', async (req, res) => {
     try { res.flushHeaders(); } catch { /* ignore */ }
   }
 
+  // Track if connection is closed
+  let isClosed = false;
+  
   // Heartbeat
   const heartbeat = setInterval(() => {
-    try { res.write(': heartbeat\n\n'); } catch { /* ignore */ }
+    if (!isClosed && !res.writableEnded) {
+      try { res.write(': heartbeat\n\n'); } catch { /* ignore */ }
+    }
   }, 15000);
-  req.on('close', () => { clearInterval(heartbeat); try { res.end(); } catch { /* ignore */ } });
+  
+  req.on('close', () => { 
+    isClosed = true;
+    clearInterval(heartbeat); 
+    try { 
+      if (!res.writableEnded) res.end(); 
+    } catch { /* ignore */ } 
+  });
 
   // Parse metrics from query
   const metrics = typeof req.query.metrics === 'string'
@@ -143,8 +158,15 @@ router.get('/stream', async (req, res) => {
 
   // Send completion and give the socket a moment to flush before closing
   writeSse(res, { type: 'complete' });
+  
+  // Clear heartbeat and close connection
+  clearInterval(heartbeat);
+  isClosed = true;
+  
   setTimeout(() => {
-    try { res.end(); } catch { /* ignore */ }
+    try { 
+      if (!res.writableEnded) res.end(); 
+    } catch { /* ignore */ }
   }, 50);
 });
 

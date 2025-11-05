@@ -7,6 +7,7 @@ const router = express.Router();
 // Import our copied Tiller integration utilities
 const { submitVerification } = require('../utils/tillerApi');
 const { insertIDVerification } = require('../utils/idVerificationDb');
+const { deleteCachePattern, CACHE_CONFIG } = require('../utils/redisClient');
 
 const { getTeamData } = require('../utils/teamData');
 const { sql, getPool } = require('../utils/db');
@@ -148,6 +149,16 @@ router.post('/', async (req, res) => {
       // SECURITY: Do not log riskData - contains PII
     } catch (err) {
       console.error(`[verify-id] Failed to save Tiller response for ${instructionRef}:`, err.message);
+    }
+
+    // Invalidate unified/instructions caches so fresh data is fetched
+    try {
+      await Promise.all([
+        deleteCachePattern(`${CACHE_CONFIG.PREFIXES.UNIFIED}:*`),
+        deleteCachePattern(`${CACHE_CONFIG.PREFIXES.INSTRUCTIONS}:*`)
+      ]);
+    } catch (e) {
+      console.warn('[verify-id] Cache invalidation failed (submit):', e?.message || e);
     }
 
     return res.status(200).json({
@@ -336,6 +347,16 @@ router.post('/:instructionRef/request-documents', async (req, res) => {
           `)
       );
 
+      // Invalidate caches post-update
+      try {
+        await Promise.all([
+          deleteCachePattern(`${CACHE_CONFIG.PREFIXES.UNIFIED}:*`),
+          deleteCachePattern(`${CACHE_CONFIG.PREFIXES.INSTRUCTIONS}:*`)
+        ]);
+      } catch (e) {
+        console.warn('[verify-id] Cache invalidation failed (request-documents):', e?.message || e);
+      }
+
       res.json({
         success: true,
         message: 'Document request email sent successfully',
@@ -428,6 +449,16 @@ router.post('/:instructionRef/approve', async (req, res) => {
     } catch (emailError) {
       console.error('Failed to send verification email:', emailError);
       // Don't fail the approval if email fails, just log it
+    }
+
+    // Invalidate caches post-approval
+    try {
+      await Promise.all([
+        deleteCachePattern(`${CACHE_CONFIG.PREFIXES.UNIFIED}:*`),
+        deleteCachePattern(`${CACHE_CONFIG.PREFIXES.INSTRUCTIONS}:*`)
+      ]);
+    } catch (e) {
+      console.warn('[verify-id] Cache invalidation failed (approve):', e?.message || e);
     }
 
     res.json({
@@ -987,6 +1018,16 @@ router.post('/:instructionRef/test-state', async (req, res) => {
     request.input('stage', sql.VarChar(50), instructionStage);
     
     await request.query(updateInstructionQuery);
+
+    // Invalidate caches after test-state mutation
+    try {
+      await Promise.all([
+        deleteCachePattern(`${CACHE_CONFIG.PREFIXES.UNIFIED}:*`),
+        deleteCachePattern(`${CACHE_CONFIG.PREFIXES.INSTRUCTIONS}:*`)
+      ]);
+    } catch (e) {
+      console.warn('[verify-id] Cache invalidation failed (test-state):', e?.message || e);
+    }
 
     res.json({
       success: true,

@@ -39,6 +39,78 @@ async function getDbConfig() {
   return dbConfig;
 }
 
+// DELETE /api/payments/delete - Delete or archive a payment record
+router.delete('/delete', async (req, res) => {
+    try {
+        const { paymentId, archive } = req.body;
+        
+        if (!paymentId) {
+            return res.status(400).json({ error: 'Payment ID is required' });
+        }
+
+        console.log(`${archive ? '📦 Archiving' : '🗑️ Deleting'} payment: ${paymentId}`);
+
+        // Get database configuration
+        const config = await getDbConfig();
+        
+        // Connect to database
+        const pool = await sql.connect(config);
+        
+        if (archive) {
+            // Archive: Update internal_status to 'archived'
+            const result = await pool.request()
+                .input('paymentId', sql.NVarChar, paymentId)
+                .query(`
+                    UPDATE Payments 
+                    SET internal_status = 'archived',
+                        updated_at = GETDATE()
+                    WHERE id = @paymentId
+                `);
+
+            await pool.close();
+
+            if (result.rowsAffected[0] === 0) {
+                return res.status(404).json({ error: 'Payment not found' });
+            }
+
+            console.log(`✅ Payment ${paymentId} archived successfully`);
+            res.json({
+                success: true,
+                message: 'Payment archived successfully',
+                paymentId
+            });
+        } else {
+            // Delete: Permanently remove from database
+            const result = await pool.request()
+                .input('paymentId', sql.NVarChar, paymentId)
+                .query(`
+                    DELETE FROM Payments 
+                    WHERE id = @paymentId
+                `);
+
+            await pool.close();
+
+            if (result.rowsAffected[0] === 0) {
+                return res.status(404).json({ error: 'Payment not found' });
+            }
+
+            console.log(`✅ Payment ${paymentId} deleted successfully`);
+            res.json({
+                success: true,
+                message: 'Payment deleted successfully',
+                paymentId
+            });
+        }
+
+    } catch (error) {
+        console.error('Error removing payment:', error);
+        res.status(500).json({ 
+            error: 'Failed to remove payment',
+            details: error.message 
+        });
+    }
+});
+
 // GET /api/payments/:instructionRef - Get payment details for an instruction
 router.get('/:instructionRef', async (req, res) => {
     try {
@@ -54,7 +126,7 @@ router.get('/:instructionRef', async (req, res) => {
         // Connect to database
         const pool = await sql.connect(config);
         
-        // Query payments table for this instruction
+        // Query payments table for this instruction (exclude archived payments)
         const result = await pool.request()
             .input('instructionRef', sql.NVarChar, instructionRef)
             .query(`
@@ -77,6 +149,7 @@ router.get('/:instructionRef', async (req, res) => {
                     receipt_url
                 FROM Payments 
                 WHERE instruction_ref = @instructionRef 
+                AND (internal_status IS NULL OR internal_status != 'archived')
                 ORDER BY created_at DESC
             `);
 

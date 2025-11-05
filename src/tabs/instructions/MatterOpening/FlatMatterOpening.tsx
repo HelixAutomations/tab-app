@@ -1,7 +1,7 @@
 //
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react'; // invisible change
 // invisible change 2.2
-import { Stack, PrimaryButton, Dialog, DialogType, DialogFooter, DefaultButton } from '@fluentui/react';
+import { Stack, PrimaryButton, Dialog, DialogType, DialogFooter, DefaultButton, IconButton } from '@fluentui/react';
 import MinimalSearchBox from './MinimalSearchBox';
 import { POID, TeamData, UserData, InstructionData } from '../../../app/functionality/types';
 import ClientDetails from '../ClientDetails';
@@ -13,6 +13,7 @@ import './MatterOpeningResponsive.css';
 import { useTheme } from '../../../app/functionality/ThemeContext';
 import { colours } from '../../../app/styles/colours';
 import { useNavigatorActions } from '../../../app/functionality/NavigatorContext';
+import FilterBanner from '../../../components/filter/FilterBanner';
 import {
     practiceAreasByArea,
     getGroupColor,
@@ -1722,9 +1723,112 @@ const handleClearAll = () => {
 
     // Track failing step for summary display
     const [failureSummary, setFailureSummary] = useState<string>('');
+    
+    // Local userData state for fallback when prop is missing
+    const [fallbackUserData, setFallbackUserData] = useState<UserData[] | null>(null);
+    const [userDataLoading, setUserDataLoading] = useState(false);
+    
+    // Fallback function to fetch userData if not provided via props
+    const fetchUserDataFallback = async (entraId: string): Promise<UserData[] | null> => {
+        if (!entraId) {
+            console.warn('⚠️ [fetchUserDataFallback] No Entra ID provided');
+            return null;
+        }
+        
+        setUserDataLoading(true);
+        console.log(`🔄 [fetchUserDataFallback] Fetching user data for Entra ID: ${entraId}`);
+        
+        try {
+            const response = await fetch('/api/user-data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userObjectId: entraId })
+            });
+            
+            if (!response.ok) {
+                console.error('❌ [fetchUserDataFallback] Failed to fetch user data:', response.status);
+                return null;
+            }
+            
+            const data = await response.json();
+            console.log('✅ [fetchUserDataFallback] User data fetched successfully:', data);
+            setFallbackUserData(data);
+            return data;
+        } catch (error) {
+            console.error('❌ [fetchUserDataFallback] Error fetching user data:', error);
+            return null;
+        } finally {
+            setUserDataLoading(false);
+        }
+    };
+    
+    // Get effective userData (prop or fallback)
+    const effectiveUserData = userData || fallbackUserData;
 
     // Process matter opening steps defined in processingActions
     const simulateProcessing = async () => {
+        let workingUserData = effectiveUserData;
+        
+        // CRITICAL: Validate userData is loaded before processing - try fallback if missing
+        if (!workingUserData || !Array.isArray(workingUserData) || workingUserData.length === 0) {
+            console.warn('⚠️ [simulateProcessing] userData missing, attempting fallback fetch...');
+            
+            // Try to get Entra ID from teamData by matching userInitials
+            let entraId: string | null = null;
+            if (teamData && Array.isArray(teamData) && userInitials) {
+                const teamMember = teamData.find((t: any) => 
+                    (t.Initials || t.initials || '').toLowerCase() === userInitials.toLowerCase()
+                );
+                entraId = teamMember?.['Entra ID'] || (teamMember as any)?.EntraID || null;
+                console.log('🔍 [simulateProcessing] Found Entra ID from teamData:', { userInitials, entraId: entraId ? entraId.substring(0, 8) + '...' : null });
+            }
+            
+            if (entraId) {
+                const fallbackData = await fetchUserDataFallback(entraId);
+                if (fallbackData && fallbackData.length > 0) {
+                    console.log('✅ [simulateProcessing] Fallback userData loaded successfully');
+                    workingUserData = fallbackData;
+                } else {
+                    const errorMsg = 'User profile data could not be loaded. Please refresh the page and try again.';
+                    setFailureSummary(`Failed at: Pre-validation – ${errorMsg}`);
+                    setProcessingLogs([`❌ Pre-validation: ${errorMsg}`]);
+                    setProcessingSteps(prev => prev.map((s, idx) => idx === 0 ? { ...s, status: 'error', message: errorMsg } : s));
+                    setDebugInspectorOpen(true);
+                    console.error('❌ [simulateProcessing] userData validation failed after fallback:', { userData, fallbackUserData, userInitials });
+                    return { url: '' };
+                }
+            } else {
+                const errorMsg = 'User profile data not loaded and Entra ID not found. Please refresh the page and try again.';
+                setFailureSummary(`Failed at: Pre-validation – ${errorMsg}`);
+                setProcessingLogs([`❌ Pre-validation: ${errorMsg}`]);
+                setProcessingSteps(prev => prev.map((s, idx) => idx === 0 ? { ...s, status: 'error', message: errorMsg } : s));
+                setDebugInspectorOpen(true);
+                console.error('❌ [simulateProcessing] userData validation failed - no Entra ID available:', { userData, fallbackUserData, userInitials, hasTeamData: !!teamData });
+                return { url: '' };
+            }
+        }
+
+        // Validate required Asana credentials are present
+        const user = workingUserData[0];
+        if (!user.ASANASecret && !user.ASANA_Secret) {
+            const errorMsg = 'Asana credentials missing from user profile. Please contact support.';
+            setFailureSummary(`Failed at: Pre-validation – ${errorMsg}`);
+            setProcessingLogs([`❌ Pre-validation: ${errorMsg}`]);
+            setProcessingSteps(prev => prev.map((s, idx) => idx === 0 ? { ...s, status: 'error', message: errorMsg } : s));
+            setDebugInspectorOpen(true);
+            console.error('❌ [simulateProcessing] Asana credentials validation failed:', { user });
+            return { url: '' };
+        }
+
+        console.log('✅ [simulateProcessing] Pre-validation passed:', {
+            userInitials,
+            hasUserData: !!workingUserData,
+            userDataLength: workingUserData?.length,
+            hasAsanaSecret: !!(user.ASANASecret || user.ASANA_Secret),
+            hasAsanaClientID: !!(user.ASANAClient_ID || user.ASANAClientID),
+            userDataSource: workingUserData === userData ? 'prop' : 'fallback'
+        });
+
         setIsProcessing(true);
         setProcessingOpen(true);
         setProcessingLogs([]);
@@ -1744,7 +1848,8 @@ const handleClearAll = () => {
             for (let i = 0; i < processingActions.length; i++) {
                 const action = processingActions[i];
                 setCurrentActionIndex(i);
-                const result = await action.run(generateSampleJson(), userInitials, userData);
+                // Use workingUserData which may be from fallback
+                const result = await action.run(generateSampleJson(), userInitials, workingUserData);
                 const message = typeof result === 'string' ? result : result.message;
                 setProcessingSteps(prev => prev.map((s, idx) => idx === i ? { ...s, status: 'success', message } : s));
                 setProcessingLogs(prev => [...prev, `✓ ${message}`]);
@@ -1989,252 +2094,220 @@ ${JSON.stringify(debugInfo, null, 2)}
 
     const showProcessingSection = processingSteps.some(s => s.status !== 'pending');
 
-    // Set navigator content with breadcrumbs and Clear All button
+    // Set navigator content with breadcrumb stepper (matching FilterBanner aesthetic)
     useEffect(() => {
-        // Immediate content update without delay to prevent jolting
         setContent(
-            <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                width: '100%',
-                padding: '0 8px'
-            }}>
-                {/* Back button and Breadcrumbs */}
-                <div style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: 6,
-                    fontSize: 14,
-                    flex: 1
-                }}>
-                    {/* Back button */}
-                    <button
+            <FilterBanner
+                seamless={false}
+                dense
+                sticky={false}
+                leftAction={
+                    <IconButton
+                        iconProps={{ iconName: 'ChevronLeft' }}
                         onClick={handleGoBack}
-                        style={{
-                            background: 'none',
-                            border: 'none',
-                            color: '#666',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 4,
-                            padding: '6px 8px',
-                            borderRadius: 4,
-                            fontSize: '14px',
-                            fontWeight: 400,
-                            transition: 'all 0.15s ease'
+                        title="Back to instructions"
+                        ariaLabel="Back to instructions"
+                        styles={{
+                            root: {
+                                width: 32,
+                                height: 32,
+                            },
+                            rootHovered: {
+                                backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : '#e7f1ff',
+                            }
                         }}
-                        onMouseEnter={(e) => {
-                            e.currentTarget.style.color = '#3690CE';
-                            e.currentTarget.style.backgroundColor = '#f0f8ff';
-                        }}
-                        onMouseLeave={(e) => {
-                            e.currentTarget.style.color = '#666';
-                            e.currentTarget.style.backgroundColor = 'transparent';
-                        }}
-                        title="Go back to previous page"
-                    >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                            <path d="M19 12H5M12 19l-7-7 7-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    />
+                }
+                primaryFilter={
+                    <div style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: 6,
+                        fontSize: 13,
+                        fontFamily: 'Raleway, sans-serif'
+                    }}>
+                        <button
+                            onClick={handleBackToClients}
+                            style={{
+                                color: currentStep === 0 ? '#3690CE' : (clientsStepComplete ? '#666' : '#999'),
+                                fontWeight: currentStep === 0 ? 600 : 500,
+                                backgroundColor: currentStep === 0 ? 'rgba(54, 144, 206, 0.08)' : 'transparent',
+                                whiteSpace: 'nowrap',
+                                flexShrink: 0,
+                                minHeight: '28px',
+                                border: 'none',
+                                padding: '4px 10px',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                fontSize: '13px',
+                                transition: 'all 0.15s ease'
+                            }}
+                            onMouseEnter={(e) => {
+                                if (currentStep !== 0) {
+                                    e.currentTarget.style.backgroundColor = 'rgba(0, 0, 0, 0.04)';
+                                }
+                            }}
+                            onMouseLeave={(e) => {
+                                if (currentStep !== 0) {
+                                    e.currentTarget.style.backgroundColor = 'transparent';
+                                }
+                            }}
+                        >
+                            {clientsStepComplete && currentStep !== 0 ? (
+                                <div style={{ 
+                                    width: 16,
+                                    height: 16,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    borderRadius: '50%',
+                                    background: '#20b26c',
+                                    color: '#fff'
+                                }}>
+                                    <svg width="9" height="8" viewBox="0 0 24 24" fill="none">
+                                        <polyline points="5,13 10,18 19,7" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                    </svg>
+                                </div>
+                            ) : (
+                                <i className="ms-Icon ms-Icon--People" style={{ fontSize: 13 }} />
+                            )}
+                            Select Parties
+                        </button>
+                        
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, opacity: 0.35 }}>
+                            <path d="M9 6l6 6-6 6" stroke={isDarkMode ? '#9ca3af' : 'currentColor'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                         </svg>
-                        Back
-                    </button>
-                    
-                    <span style={{ color: '#ddd', margin: '0 2px' }}>|</span>
-                    
-                    <button
-                        onClick={handleBackToClients}
-                        style={{
-                            color: currentStep === 0 ? '#3690CE' : '#666',
-                            fontWeight: currentStep === 0 ? 500 : 400,
-                            backgroundColor: 'transparent',
-                            whiteSpace: 'nowrap',
-                            flexShrink: 0,
-                            minHeight: '28px',
-                            border: 'none',
-                            padding: '4px 8px',
-                            borderRadius: '6px',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 4,
-                            fontSize: '13px',
-                            transition: 'all 0.15s ease'
-                        }}
-                        onMouseEnter={(e) => {
-                            if (currentStep !== 0) {
-                                e.currentTarget.style.backgroundColor = '#f8f9fa';
-                            }
-                        }}
-                        onMouseLeave={(e) => {
-                            if (currentStep !== 0) {
-                                e.currentTarget.style.backgroundColor = 'transparent';
-                            }
-                        }}
-                    >
-                        {clientsStepComplete && currentStep !== 0 ? (
-                            <div style={{ 
-                                width: 12,
-                                height: 12,
-                                display: 'inline-flex',
+                        
+                        <button 
+                            onClick={handleBackToForm}
+                            disabled={currentStep === 0 || !clientsStepComplete}
+                            style={{ 
+                                background: currentStep === 1 ? 'rgba(54, 144, 206, 0.08)' : 'transparent',
+                                border: 'none', 
+                                color: currentStep === 1 ? '#3690CE' : (!clientsStepComplete ? '#ccc' : '#666'),
+                                cursor: (currentStep === 0 || !clientsStepComplete) ? 'not-allowed' : 'pointer',
+                                display: 'flex',
                                 alignItems: 'center',
-                                justifyContent: 'center',
-                                borderRadius: '50%',
-                                background: '#20b26c',
-                                color: '#fff'
-                            }}>
-                                <svg width="6" height="5" viewBox="0 0 24 24" fill="none">
-                                    <polyline points="5,13 10,18 19,7" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"/>
-                                </svg>
-                            </div>
-                        ) : (
-                            <i className="ms-Icon ms-Icon--People" style={{ fontSize: 12 }} />
-                        )}
-                        Select Parties
-                    </button>
-                    
-                    <span style={{ color: '#ccc', fontSize: '12px' }}>›</span>
-                    
-                    <button 
-                        onClick={handleBackToForm}
-                        disabled={currentStep === 0 || !clientsStepComplete}
-                        style={{ 
-                            background: 'transparent', 
-                            border: 'none', 
-                            color: currentStep === 1 ? '#3690CE' : (!clientsStepComplete ? '#ccc' : '#666'),
-                            cursor: (currentStep === 0 || !clientsStepComplete) ? 'not-allowed' : 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 4,
-                            padding: '4px 8px',
-                            borderRadius: '6px',
-                            fontWeight: currentStep === 1 ? 500 : 400,
-                            fontSize: '13px',
-                            whiteSpace: 'nowrap',
-                            flexShrink: 0,
-                            minHeight: '28px',
-                            transition: 'all 0.15s ease'
-                        }}
-                        onMouseEnter={(e) => {
-                            if (currentStep !== 1 && clientsStepComplete && currentStep !== 0) {
-                                e.currentTarget.style.backgroundColor = '#f8f9fa';
-                            }
-                        }}
-                        onMouseLeave={(e) => {
-                            if (currentStep !== 1) {
-                                e.currentTarget.style.backgroundColor = 'transparent';
-                            }
-                        }}
-                    >
-                        {currentStep === 2 ? (
-                            <div style={{ 
-                                width: 12,
-                                height: 12,
-                                display: 'inline-flex',
+                                gap: 6,
+                                padding: '4px 10px',
+                                borderRadius: '6px',
+                                fontWeight: currentStep === 1 ? 600 : 500,
+                                fontSize: '13px',
+                                whiteSpace: 'nowrap',
+                                flexShrink: 0,
+                                minHeight: '28px',
+                                transition: 'all 0.15s ease'
+                            }}
+                            onMouseEnter={(e) => {
+                                if (currentStep !== 1 && clientsStepComplete && currentStep !== 0) {
+                                    e.currentTarget.style.backgroundColor = 'rgba(0, 0, 0, 0.04)';
+                                }
+                            }}
+                            onMouseLeave={(e) => {
+                                if (currentStep !== 1) {
+                                    e.currentTarget.style.backgroundColor = currentStep === 1 ? 'rgba(54, 144, 206, 0.08)' : 'transparent';
+                                }
+                            }}
+                        >
+                            {currentStep === 2 ? (
+                                <div style={{ 
+                                    width: 16,
+                                    height: 16,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    borderRadius: '50%',
+                                    background: '#20b26c',
+                                    color: '#fff'
+                                }}>
+                                    <svg width="9" height="8" viewBox="0 0 24 24" fill="none">
+                                        <polyline points="5,13 10,18 19,7" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                    </svg>
+                                </div>
+                            ) : (
+                                <i className="ms-Icon ms-Icon--OpenFolderHorizontal" style={{ fontSize: 13 }} />
+                            )}
+                            Build Matter
+                        </button>
+                        
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, opacity: 0.35 }}>
+                            <path d="M9 6l6 6-6 6" stroke={isDarkMode ? '#9ca3af' : 'currentColor'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                        
+                        <button
+                            onClick={handleGoToReview}
+                            disabled={!matterStepComplete}
+                            style={{
+                                background: currentStep === 2 ? 'rgba(54, 144, 206, 0.08)' : 'transparent',
+                                border: 'none',
+                                color: currentStep === 2 ? '#3690CE' : (!matterStepComplete ? '#ccc' : '#666'),
+                                cursor: !matterStepComplete ? 'not-allowed' : 'pointer',
+                                display: 'flex',
                                 alignItems: 'center',
-                                justifyContent: 'center',
-                                borderRadius: '50%',
-                                background: '#20b26c',
-                                color: '#fff'
-                            }}>
-                                <svg width="6" height="5" viewBox="0 0 24 24" fill="none">
-                                    <polyline points="5,13 10,18 19,7" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"/>
-                                </svg>
-                            </div>
-                        ) : (
-                            <i className="ms-Icon ms-Icon--OpenFolderHorizontal" style={{ fontSize: 12 }} />
-                        )}
-                        Build Matter
-                    </button>
-                    
-                    <span style={{ color: '#ccc', fontSize: '12px' }}>›</span>
-                    
-                    <button
-                        onClick={handleGoToReview}
-                        disabled={!matterStepComplete}
-                        style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: currentStep === 2 ? '#3690CE' : (!matterStepComplete ? '#ccc' : '#666'),
-                            cursor: !matterStepComplete ? 'not-allowed' : 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 4,
-                            padding: '4px 8px',
-                            borderRadius: '6px',
-                            fontWeight: currentStep === 2 ? 500 : 400,
-                            fontSize: '13px',
-                            whiteSpace: 'nowrap',
-                            flexShrink: 0,
-                            minHeight: '28px',
-                            transition: 'all 0.15s ease'
-                        }}
-                        onMouseEnter={(e) => {
-                            if (currentStep !== 2 && matterStepComplete) {
-                                e.currentTarget.style.backgroundColor = '#f8f9fa';
-                            }
-                        }}
-                        onMouseLeave={(e) => {
-                            if (currentStep !== 2) {
-                                e.currentTarget.style.backgroundColor = 'transparent';
-                            }
-                        }}
-                    >
-                        {currentStep === 2 && summaryConfirmed ? (
-                            <div style={{ 
-                                width: 12,
-                                height: 12,
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                borderRadius: '50%',
-                                background: '#20b26c',
-                                color: '#fff'
-                            }}>
-                                <svg width="6" height="5" viewBox="0 0 24 24" fill="none">
-                                    <polyline points="5,13 10,18 19,7" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"/>
-                                </svg>
-                            </div>
-                        ) : (
-                            <i className="ms-Icon ms-Icon--CheckList" style={{ fontSize: 12 }} />
-                        )}
-                        Review and Confirm
-                    </button>
-                </div>
-
-                {/* Search and Clear All */}
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    {/* Search (only step 0) */}
-                    {currentStep === 0 && showPoidSelection && !((pendingClientType === 'Individual' || pendingClientType === 'Company') && selectedPoidIds.length > 0) && (
-                        <div style={{ position: 'relative' }}>
-                            <MinimalSearchBox
-                                value={poidSearchTerm}
-                                onChange={setPoidSearchTerm}
-                                focused={searchBoxFocused}
-                                onRequestOpen={() => setSearchBoxFocused(true)}
-                                onRequestClose={() => setSearchBoxFocused(false)}
-                            />
-                        </div>
-                    )}
-                    
-                    {hasDataToClear() && (
+                                gap: 6,
+                                padding: '4px 10px',
+                                borderRadius: '6px',
+                                fontWeight: currentStep === 2 ? 600 : 500,
+                                fontSize: '13px',
+                                whiteSpace: 'nowrap',
+                                flexShrink: 0,
+                                minHeight: '28px',
+                                transition: 'all 0.15s ease'
+                            }}
+                            onMouseEnter={(e) => {
+                                if (currentStep !== 2 && matterStepComplete) {
+                                    e.currentTarget.style.backgroundColor = 'rgba(0, 0, 0, 0.04)';
+                                }
+                            }}
+                            onMouseLeave={(e) => {
+                                if (currentStep !== 2) {
+                                    e.currentTarget.style.backgroundColor = currentStep === 2 ? 'rgba(54, 144, 206, 0.08)' : 'transparent';
+                                }
+                            }}
+                        >
+                            {currentStep === 2 && summaryConfirmed ? (
+                                <div style={{ 
+                                    width: 16,
+                                    height: 16,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    borderRadius: '50%',
+                                    background: '#20b26c',
+                                    color: '#fff'
+                                }}>
+                                    <svg width="9" height="8" viewBox="0 0 24 24" fill="none">
+                                        <polyline points="5,13 10,18 19,7" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                    </svg>
+                                </div>
+                            ) : (
+                                <i className="ms-Icon ms-Icon--CheckList" style={{ fontSize: 13 }} />
+                            )}
+                            Review and Confirm
+                        </button>
+                    </div>
+                }
+                secondaryFilter={
+                    hasDataToClear() ? (
                         <button 
                             type="button" 
                             onClick={handleClearAll} 
                             style={{
                                 background: 'none',
                                 border: '1px solid #e5e7eb',
-                                borderRadius: 4,
-                                padding: '4px 8px',
+                                borderRadius: 6,
+                                padding: '4px 10px',
                                 fontSize: 12,
-                                fontWeight: 500,
+                                fontWeight: 600,
                                 color: '#D65541',
                                 cursor: 'pointer',
                                 transition: 'all 0.15s ease',
                                 display: 'flex',
                                 alignItems: 'center',
-                                gap: 4,
+                                gap: 6,
                                 whiteSpace: 'nowrap',
                                 height: '28px'
                             }}
@@ -2247,7 +2320,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                 e.currentTarget.style.borderColor = '#e5e7eb';
                             }}
                         >
-                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
                                 <path 
                                     d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c0-1 1-2 2-2v2m-6 5v6m4-6v6" 
                                     stroke="currentColor" 
@@ -2262,29 +2335,37 @@ ${JSON.stringify(debugInfo, null, 2)}
                                     background: '#D65541',
                                     color: '#fff',
                                     borderRadius: '50%',
-                                    width: '14px',
-                                    height: '14px',
+                                    width: '16px',
+                                    height: '16px',
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
-                                    fontSize: '9px',
+                                    fontSize: '10px',
                                     fontWeight: 600,
-                                    marginLeft: '2px'
                                 }}>
                                     {getFieldCount()}
                                 </span>
                             )}
                         </button>
-                    )}
-                </div>
-            </div>
+                    ) : undefined
+                }
+                search={
+                    currentStep === 0 && showPoidSelection && !((pendingClientType === 'Individual' || pendingClientType === 'Company') && selectedPoidIds.length > 0)
+                        ? {
+                            value: poidSearchTerm,
+                            onChange: setPoidSearchTerm,
+                            placeholder: 'Search parties...'
+                        }
+                        : undefined
+                }
+            />
         );
         
         // Cleanup when component unmounts
         return () => {
             setContent(null);
         };
-    }, [setContent, currentStep, clientsStepComplete, matterStepComplete, summaryConfirmed, hasDataToClear, getFieldCount, showPoidSelection, pendingClientType, selectedPoidIds, poidSearchTerm, searchBoxFocused, handleBackToClients, handleBackToForm, handleGoToReview, handleClearAll]);
+    }, [setContent, currentStep, clientsStepComplete, matterStepComplete, summaryConfirmed, hasDataToClear, getFieldCount, showPoidSelection, pendingClientType, selectedPoidIds, poidSearchTerm, handleBackToClients, handleBackToForm, handleGoToReview, handleClearAll, handleGoBack, isDarkMode]);
 
     // Render the horizontal sliding carousel
     return (
@@ -4120,10 +4201,44 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                         )}
                                                     </span>
                                                 </label>
+                                                {userDataLoading && (
+                                                    <div style={{
+                                                        marginBottom: 12,
+                                                        padding: '8px 12px',
+                                                        background: 'rgba(59, 130, 246, 0.1)',
+                                                        border: '1px solid rgba(59, 130, 246, 0.3)',
+                                                        borderRadius: 6,
+                                                        fontSize: 12,
+                                                        color: '#1e40af',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: 8
+                                                    }}>
+                                                        <span style={{ fontSize: 14 }}>🔄</span>
+                                                        <span>Loading user profile data...</span>
+                                                    </div>
+                                                )}
+                                                {(!effectiveUserData || !Array.isArray(effectiveUserData) || effectiveUserData.length === 0) && !userDataLoading && (
+                                                    <div style={{
+                                                        marginBottom: 12,
+                                                        padding: '8px 12px',
+                                                        background: 'rgba(245, 158, 11, 0.1)',
+                                                        border: '1px solid rgba(245, 158, 11, 0.3)',
+                                                        borderRadius: 6,
+                                                        fontSize: 12,
+                                                        color: '#92400e',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: 8
+                                                    }}>
+                                                        <span style={{ fontSize: 14 }}>⚠️</span>
+                                                        <span>User profile data not loaded. Please refresh the page before opening the matter.</span>
+                                                    </div>
+                                                )}
                                                 <button
                                                     type="button"
                                                     onClick={() => {
-                                                        if (!confirmAcknowledge || processingStarted) return;
+                                                        if (!confirmAcknowledge || processingStarted || !effectiveUserData || !Array.isArray(effectiveUserData) || effectiveUserData.length === 0 || userDataLoading) return;
                                                         setSummaryConfirmed(true);
                                                         setEditsAfterConfirmation(false);
                                                         // Kick off processing immediately so status header & steps align
@@ -4142,23 +4257,23 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                             }
                                                         }, 200);
                                                     }}
-                                                    disabled={!confirmAcknowledge}
+                                                    disabled={!confirmAcknowledge || !userData || !Array.isArray(userData) || userData.length === 0}
                                                     style={{
-                                                        background: confirmAcknowledge 
+                                                        background: (confirmAcknowledge && userData && Array.isArray(userData) && userData.length > 0)
                                                             ? 'linear-gradient(135deg, #D65541 0%, #B83C2B 100%)' 
                                                             : '#f3f4f6',
-                                                        color: confirmAcknowledge ? '#fff' : '#9ca3af',
-                                                        border: confirmAcknowledge 
+                                                        color: (confirmAcknowledge && userData && Array.isArray(userData) && userData.length > 0) ? '#fff' : '#9ca3af',
+                                                        border: (confirmAcknowledge && userData && Array.isArray(userData) && userData.length > 0)
                                                             ? '1px solid #B83C2B' 
                                                             : '1px solid #d1d5db',
                                                         borderRadius: 6,
                                                         padding: '10px 18px',
                                                         fontSize: 13,
                                                         fontWeight: 600,
-                                                        cursor: confirmAcknowledge ? 'pointer' : 'not-allowed',
+                                                        cursor: (confirmAcknowledge && userData && Array.isArray(userData) && userData.length > 0) ? 'pointer' : 'not-allowed',
                                                         transition: 'all 0.15s ease',
                                                         minWidth: 110,
-                                                        boxShadow: confirmAcknowledge 
+                                                        boxShadow: (confirmAcknowledge && userData && Array.isArray(userData) && userData.length > 0)
                                                             ? '0 2px 4px rgba(214,85,65,0.2)' 
                                                             : 'none'
                                                     }}

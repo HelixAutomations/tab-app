@@ -105,6 +105,67 @@ function mapPerson(client, instructionRef) {
     };
 }
 
+function mapCompany(client, instructionRef) {
+    const verification = client.verification || {};
+    const phone =
+        client.best_number ||
+        client.company_details?.phone ||
+        client.phone ||
+        client.Phone ||
+        null;
+
+    const expiry =
+        verification.check_expiry ||
+        client.check_expiry ||
+        client.CheckExpiry ||
+        client.checkExpiry;
+
+    const tillerId =
+        verification.check_id || client.check_id || client.EIDCheckId || client.checkId || null;
+
+    const checkResult = verification.check_result || client.check_result;
+    const idType = checkResult === 'DriversLicense' ? 142570 : 142567;
+
+    const customFieldValues = [];
+    if (instructionRef) {
+        customFieldValues.push({ value: instructionRef, custom_field: { id: 380728 } });
+    }
+    if (expiry) {
+        customFieldValues.push({ value: expiry, custom_field: { id: 235702 } });
+    }
+    customFieldValues.push({ value: idType, custom_field: { id: 235699 } });
+    if (tillerId) {
+        customFieldValues.push({ value: tillerId, custom_field: { id: 286228 } });
+    }
+    if (client.company_details?.number) {
+        customFieldValues.push({ value: client.company_details.number, custom_field: { id: 368788 } });
+    }
+
+    return {
+        type: 'Company',
+        name: client.company_details?.name || null,
+        email_addresses: client.email
+            ? [{ name: 'Work', address: client.email || client.Email, default_email: true }]
+            : [],
+        phone_numbers: phone
+            ? [{ name: 'Work', number: phone, default_number: true }]
+            : [],
+        addresses: client.company_details?.address
+            ? [
+                {
+                    name: 'Work',
+                    street: `${client.company_details.address.house_number || ''} ${client.company_details.address.street || ''}`.trim(),
+                    city: client.company_details.address.city || '',
+                    province: client.company_details.address.county || '',
+                    postal_code: client.company_details.address.post_code || '',
+                    country: client.company_details.address.country || ''
+                }
+            ]
+            : [],
+        custom_field_values: customFieldValues
+    };
+}
+
 const router = express.Router();
 router.post('/', async (req, res) => {
     const { formData, initials } = req.body || {};
@@ -138,7 +199,15 @@ router.post('/', async (req, res) => {
         if (!first) {
             throw new Error('Missing client details for contact');
         }
-        const contactPayload = mapPerson(first, instruction_ref);
+        
+        // Choose the appropriate mapper based on client type
+        let contactPayload;
+        if (client_type === 'Company') {
+            contactPayload = mapCompany(first, instruction_ref);
+        } else {
+            contactPayload = mapPerson(first, instruction_ref);
+        }
+        
         const contactResult = await createOrUpdate(contactPayload, headers);
         const pid = contactResult.data.id;
 

@@ -10,7 +10,6 @@ import {
   FaWpforms,
   FaBookOpen,
   FaChartLine,
-  FaHeadset,
 } from 'react-icons/fa';
 import { colours } from './colours';
 import './CustomTabs.css';
@@ -45,16 +44,16 @@ interface CustomTabsProps {
   onRefreshMatters?: () => Promise<void> | void;
 }
 
-const customPivotStyles = (_isDarkMode: boolean): Partial<IPivotStyles> => ({
+const customPivotStyles = (isDarkMode: boolean): Partial<IPivotStyles> => ({
   root: {
     display: 'flex',
     alignItems: 'center',
     height: 48,
   },
   link: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: 600,
-    color: '#ffffff',
+    color: isDarkMode ? 'rgba(255, 255, 255, 0.65)' : 'rgba(6, 23, 51, 0.75)',
     padding: '0 12px',
     lineHeight: 48,
     position: 'relative',
@@ -154,21 +153,19 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
   const getTabIcon = (key: string) => {
     switch (key) {
       case 'enquiries':
-        return <FaInbox size={18} />; // intake
+        return <FaInbox size={16} />; // intake
       case 'instructions':
-        return <FaClipboardList size={18} />; // triage/detail
+        return <FaClipboardList size={16} />; // triage/detail
       case 'matters':
-        return <FaFolderOpen size={18} />; // execution
+        return <FaFolderOpen size={16} />; // execution
       case 'forms':
-        return <FaWpforms size={18} />; // similar to resources but distinct
+        return <FaWpforms size={16} />; // similar to resources but distinct
       case 'resources':
-        return <FaBookOpen size={18} />; // knowledge base
+        return <FaBookOpen size={16} />; // knowledge base
       case 'reporting':
-        return <FaChartLine size={18} />; // admin/analytics
-      case 'callhub':
-        return <FaHeadset size={18} />; // admin/local dev
+        return <FaChartLine size={16} />; // admin/analytics
       default:
-        return <FaClipboardList size={18} />;
+        return <FaClipboardList size={16} />;
     }
   };
 
@@ -176,16 +173,25 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
     <div
       className={`customTabsContainer ${iconOnly ? 'iconOnlyTabs' : ''}`}
       style={{
-        backgroundColor: colours.darkBlue,
+        background: isDarkMode
+          ? 'linear-gradient(135deg, rgba(7, 16, 32, 1) 0%, rgba(11, 30, 55, 1) 100%)'
+          : '#FFFFFF',
+        backdropFilter: isDarkMode ? 'blur(16px) saturate(180%)' : 'none',
+        WebkitBackdropFilter: isDarkMode ? 'blur(16px) saturate(180%)' : 'none',
         display: 'flex',
         alignItems: 'center',
         padding: '0 24px',
         height: 48,
-        borderBottom: `1px solid ${colours.darkBlue}`,
+        borderBottom: isDarkMode 
+          ? '1px solid rgba(125, 211, 252, 0.15)' 
+          : '1px solid rgba(0, 0, 0, 0.06)',
+        boxShadow: isDarkMode
+          ? '0 2px 12px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.3)'
+          : '0 2px 8px rgba(0, 0, 0, 0.08)',
         position: 'sticky',
         top: 0,
         zIndex: 2000, // Keep tab bar above downstream sticky navigator content
-        transition: 'background-color 0.3s',
+        transition: 'all 0.2s ease',
       }}
     >
       <div
@@ -194,25 +200,41 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
         role="button"
         tabIndex={0}
         aria-label="Home"
-        style={{ color: '#ffffff', marginRight: '16px', display: 'flex', alignItems: 'center', gap: '16px' }}
+        style={{ 
+          color: selectedKey === 'home' ? colours.highlight : (isDarkMode ? '#ffffff' : '#061733'), 
+          marginRight: '16px', 
+          display: 'flex', 
+          alignItems: 'center',
+          width: '38px',
+          justifyContent: 'flex-start'
+        }}
       >
-        <div style={{ position: 'relative' }}>
+        <div style={{ 
+          position: 'relative', 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'center', 
+          width: '20px', 
+          height: '20px',
+          transition: 'transform 0.3s ease'
+        }}>
           <AiOutlineHome className="icon-outline" size={20} />
           <AiFillHome className="icon-filled" size={20} />
         </div>
-        {hasImmediateActions && (
-          <div style={{ flexShrink: 0, width: 8, height: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div
-              style={{
-                width: '6px',
-                height: '6px',
-                backgroundColor: '#D65541',
-                borderRadius: '50%',
-                animation: 'pulse-red 2s infinite'
-              }}
-            />
-          </div>
-        )}
+        <div
+          style={{
+            width: '6px',
+            height: '6px',
+            backgroundColor: '#D65541',
+            borderRadius: '50%',
+            animation: 'pulse-red 2s infinite',
+            marginLeft: '12px',
+            flexShrink: 0,
+            opacity: hasImmediateActions && selectedKey !== 'home' ? 1 : 0,
+            transform: hasImmediateActions && selectedKey !== 'home' ? 'scale(1)' : 'scale(0)',
+            transition: 'opacity 0.3s ease, transform 0.3s ease'
+          }}
+        />
       </div>
       {/* Vertical separator */}
       <div
@@ -232,6 +254,7 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
         aria-label={ariaLabel || 'Custom Tabs'}
         styles={customPivotStyles(isDarkMode)}
         className="customPivot"
+        overflowBehavior="none"
         >
         {/* Hidden item to occupy selection when Home is active */}
         <PivotItem itemKey="home" headerText="Home" headerButtonProps={{ style: { display: 'none' } }} />

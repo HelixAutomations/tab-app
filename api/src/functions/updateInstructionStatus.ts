@@ -52,6 +52,18 @@ export async function updateInstructionStatusHandler(req: HttpRequest, context: 
         await updateStatusInSQL(instructionRef, stage, internalStatus, overrideReason, userInitials, context);
         context.log("Successfully updated instruction status in SQL database.");
 
+        // If the stage is "matter opened", update the corresponding deal to closed
+        if (stage === "matter opened") {
+            context.log("Matter opened - updating corresponding deal status to closed");
+            try {
+                await closeDealViaServer(instructionRef, context);
+                context.log("Successfully closed deal for instruction:", instructionRef);
+            } catch (dealError) {
+                context.error("Failed to close deal, but instruction status was updated:", dealError);
+                // Don't fail the whole request if deal update fails
+            }
+        }
+
         return {
             status: 200,
             body: JSON.stringify({ 
@@ -189,6 +201,32 @@ async function updateStatusInSQL(
 
         connection.connect();
     });
+}
+
+// Function to close deal when instruction matter is opened - calls server route
+async function closeDealViaServer(instructionRef: string, context?: InvocationContext): Promise<void> {
+    // Call the server endpoint instead of doing SQL directly
+    const serverUrl = process.env.SERVER_URL || 'http://localhost:8080';
+    const endpoint = `${serverUrl}/api/deals/close-by-instruction`;
+    
+    context?.log(`Calling server endpoint: ${endpoint}`);
+    
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ instructionRef })
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        context?.error(`Server endpoint failed: ${response.status} ${response.statusText}`, errorData);
+        throw new Error(`Failed to close deal: ${errorData.error || response.statusText}`);
+    }
+
+    const result = await response.json();
+    context?.log('Deal closed via server:', result);
 }
 
 // Helper function to parse SQL connection string

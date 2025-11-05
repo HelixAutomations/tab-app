@@ -55,6 +55,63 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Close deal when matter is opened
+router.post('/close-by-instruction', async (req, res) => {
+  const { instructionRef } = req.body;
+  
+  console.log(`🎯 CLOSE DEAL ENDPOINT HIT - Instruction Ref: ${instructionRef}`);
+  
+  if (!instructionRef) {
+    console.log('❌ Bad request - missing instructionRef');
+    return res.status(400).json({ error: 'instructionRef is required' });
+  }
+
+  try {
+    console.log('🔗 Getting database configuration...');
+    const config = await getDbConfig();
+    console.log('🔗 Connecting to database...');
+    const pool = await sql.connect(config);
+    
+    const now = new Date();
+    const updateQuery = `
+      UPDATE Deals 
+      SET Status = @status,
+          CloseDate = @closeDate,
+          CloseTime = @closeTime
+      WHERE InstructionRef = @instructionRef
+    `;
+    
+    console.log(`Closing deal for instruction ${instructionRef}`);
+    
+    const result = await pool.request()
+      .input('status', sql.NVarChar, 'closed')
+      .input('closeDate', sql.Date, now)
+      .input('closeTime', sql.Time, now)
+      .input('instructionRef', sql.NVarChar, instructionRef)
+      .query(updateQuery);
+    
+    if (result.rowsAffected[0] === 0) {
+      console.log(`⚠️ No deal found for instruction ${instructionRef}`);
+      return res.status(404).json({ 
+        success: false, 
+        message: 'No deal found for this instruction reference' 
+      });
+    }
+    
+    console.log(`✅ Deal for instruction ${instructionRef} closed successfully`);
+    
+    res.json({
+      success: true,
+      message: 'Deal closed successfully',
+      instructionRef
+    });
+    
+  } catch (error) {
+    console.error('Error closing deal:', error);
+    res.status(500).json({ error: 'Failed to close deal', details: error.message });
+  }
+});
+
 // Update deal endpoint
 router.put('/:dealId', async (req, res) => {
   const dealId = parseInt(req.params.dealId);

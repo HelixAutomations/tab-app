@@ -77,6 +77,7 @@ const RelatedClientsSection: React.FC<RelatedClientsSectionProps> = ({
   const [relatedClients, setRelatedClients] = useState<ClioClient[]>([]);
   const [mainClient, setMainClient] = useState<ClioClient | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMainClient, setIsLoadingMainClient] = useState(false);
   const [isLoadingCustomFields, setIsLoadingCustomFields] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showLookupModal, setShowLookupModal] = useState(false);
@@ -130,6 +131,7 @@ const RelatedClientsSection: React.FC<RelatedClientsSectionProps> = ({
   const loadMainClient = async (clientId: string) => {
     try {
       console.log('Loading main client with ID:', clientId);
+      setIsLoadingMainClient(true);
       setIsLoadingCustomFields(true);
       
       // Load basic client data
@@ -159,6 +161,7 @@ const RelatedClientsSection: React.FC<RelatedClientsSectionProps> = ({
       console.error('Error loading main client:', error);
       setMainClient(null);
     } finally {
+      setIsLoadingMainClient(false);
       setIsLoadingCustomFields(false);
     }
   };
@@ -612,6 +615,49 @@ const RelatedClientsSection: React.FC<RelatedClientsSectionProps> = ({
   };
 
   const leadClientCard = () => {
+    if (isLoadingMainClient) {
+      return (
+        <Stack
+          horizontalAlign="center"
+          verticalAlign="center"
+          styles={{
+            root: {
+              padding: '40px 20px',
+              backgroundColor: isDarkMode ? colours.dark.background : '#f8f9fa',
+              borderRadius: '8px',
+              border: `1px solid ${isDarkMode ? colours.dark.border : '#e1e5e9'}`,
+              textAlign: 'center'
+            }
+          }}
+        >
+          <div style={{ 
+            width: 32, 
+            height: 32, 
+            border: `3px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
+            borderTop: `3px solid ${colours.blue}`,
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite',
+            marginBottom: '12px'
+          }} />
+          <Text
+            variant="small"
+            style={{
+              color: isDarkMode ? 'rgba(226, 232, 240, 0.72)' : colours.greyText,
+              fontWeight: 500
+            }}
+          >
+            Loading client from Clio...
+          </Text>
+          <style>{`
+            @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+          `}</style>
+        </Stack>
+      );
+    }
+
     if (!mainClient) {
       return (
         <Stack
@@ -765,61 +811,56 @@ const RelatedClientsSection: React.FC<RelatedClientsSectionProps> = ({
                 Originating Deal
               </Text>
             </Stack>
-            {originDeal.stage && (
-              <Stack horizontalAlign="end" tokens={{ childrenGap: 2 }}>
+            <Stack horizontalAlign="end" tokens={{ childrenGap: 2 }}>
+              {originDeal.stage && (
                 <Text
                   variant="small"
                   style={{
-                    color: isDarkMode ? 'rgba(226, 232, 240, 0.72)' : colours.greyText,
+                    color: originDeal.stage.toLowerCase() === 'closed' || originDeal.stage.toLowerCase() === 'won'
+                      ? colours.green
+                      : isDarkMode ? 'rgba(226, 232, 240, 0.72)' : colours.greyText,
                     textTransform: 'uppercase',
                     letterSpacing: '0.04em',
-                    fontSize: '10px'
+                    fontSize: '10px',
+                    fontWeight: 600
                   }}
                 >
                   {originDeal.stage}
                 </Text>
-                {originDeal.stage.toUpperCase() === 'PITCHED' && originDeal.pitchedAt && (
-                  <Text
-                    variant="small"
-                    style={{
-                      color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : '#6b7280',
-                      fontSize: '9px',
-                      fontWeight: 400
-                    }}
-                  >
-                    {new Date(originDeal.pitchedAt).toLocaleString('en-GB', {
-                      day: '2-digit',
-                      month: '2-digit',
-                      year: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      hour12: false
-                    })}
-                  </Text>
-                )}
-              </Stack>
-            )}
+              )}
+              {originDeal.stage?.toUpperCase() === 'PITCHED' && originDeal.pitchedAt && (
+                <Text
+                  variant="small"
+                  style={{
+                    color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : '#6b7280',
+                    fontSize: '9px',
+                    fontWeight: 400
+                  }}
+                >
+                  {new Date(originDeal.pitchedAt).toLocaleString('en-GB', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                  })}
+                </Text>
+              )}
+            </Stack>
           </Stack>
 
-          <Stack tokens={{ childrenGap: 8 }}>
+          {originDeal.service && (
             <Text
-              variant="mediumPlus"
-              style={{
-                fontWeight: 600,
-                color: isDarkMode ? '#e2e8f0' : '#0f172a'
+              variant="small"
+              style={{ 
+                color: isDarkMode ? 'rgba(226, 232, 240, 0.72)' : colours.greyText,
+                lineHeight: 1.4
               }}
             >
-              {originDeal.title || 'Deal summary unavailable'}
+              {originDeal.service}
             </Text>
-            {originDeal.service && (
-              <Text
-                variant="small"
-                style={{ color: isDarkMode ? 'rgba(226, 232, 240, 0.72)' : colours.greyText }}
-              >
-                Service: {originDeal.service}
-              </Text>
-            )}
-          </Stack>
+          )}
 
           <Stack horizontal tokens={{ childrenGap: 16 }}>
             <Stack>
@@ -834,15 +875,43 @@ const RelatedClientsSection: React.FC<RelatedClientsSectionProps> = ({
               >
                 Deal Value
               </Text>
-              <Text
-                variant="medium"
-                style={{
-                  fontWeight: 600,
-                  color: isDarkMode ? '#f8fafc' : '#0f172a'
-                }}
-              >
-                {amountValue}
-              </Text>
+              <Stack tokens={{ childrenGap: 2 }}>
+                <Text
+                  variant="medium"
+                  style={{
+                    fontWeight: 600,
+                    color: isDarkMode ? '#f8fafc' : '#0f172a'
+                  }}
+                >
+                  {amountValue}
+                </Text>
+                <Text
+                  variant="xSmall"
+                  style={{
+                    color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : '#6b7280',
+                    fontSize: '9px',
+                    fontStyle: 'italic'
+                  }}
+                >
+                  exc. VAT
+                </Text>
+                {originDeal.amount && typeof originDeal.amount === 'number' && (
+                  <Text
+                    variant="xSmall"
+                    style={{
+                      color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : '#475569',
+                      fontSize: '9px',
+                      fontWeight: 600
+                    }}
+                  >
+                    {new Intl.NumberFormat('en-GB', {
+                      style: 'currency',
+                      currency: originDeal.currency || 'GBP',
+                      maximumFractionDigits: 0
+                    }).format(originDeal.amount * 1.2)} inc. VAT
+                  </Text>
+                )}
+              </Stack>
             </Stack>
 
             <Stack>

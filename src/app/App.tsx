@@ -1,5 +1,7 @@
 import React, { useState, useEffect, lazy, Suspense, useMemo } from 'react';
 import CustomTabs from './styles/CustomTabs';
+import './styles/index.css';
+import './styles/ImmediateActionsPortal.css';
 import { ThemeProvider, useTheme } from './functionality/ThemeContext';
 import Navigator from '../components/Navigator';
 import { useNavigatorActions } from './functionality/NavigatorContext';
@@ -24,7 +26,6 @@ const Enquiries = lazy(() => import('../tabs/enquiries/Enquiries'));
 const Instructions = lazy(() => import('../tabs/instructions/Instructions'));
 const Matters = lazy(() => import('../tabs/matters/Matters'));
 const ReportingHome = lazy(() => import('../tabs/Reporting/ReportingHome')); // Replace ReportingCode with ReportingHome
-const CallHub = lazy(() => import('../tabs/CallHub/CallHub'));
 
 interface AppProps {
   teamsContext: app.Context | null;
@@ -127,6 +128,15 @@ const App: React.FC<AppProps> = ({
         body.dataset.theme = isDarkMode ? 'dark' : 'light';
         body.classList.toggle('theme-dark', isDarkMode);
         body.classList.toggle('theme-light', !isDarkMode);
+      }
+      
+      // Also update the immediate actions portal background
+      const portalElement = document.getElementById('app-level-immediate-actions');
+      if (portalElement) {
+        // Clear any previously applied inline backgrounds so theme changes don't leave artefacts
+        portalElement.style.removeProperty('background');
+        portalElement.style.removeProperty('background-color');
+        portalElement.style.removeProperty('color');
       }
     }
   }, [isDarkMode]);
@@ -351,13 +361,18 @@ const App: React.FC<AppProps> = ({
     const handleNavigateToEnquiries = () => {
       setActiveTab('enquiries');
     };
+    const handleNavigateToReporting = () => {
+      setActiveTab('reporting');
+    };
 
     window.addEventListener('navigateToInstructions', handleNavigateToInstructions);
     window.addEventListener('navigateToEnquiries', handleNavigateToEnquiries);
+    window.addEventListener('navigateToReporting', handleNavigateToReporting);
 
     return () => {
       window.removeEventListener('navigateToInstructions', handleNavigateToInstructions);
       window.removeEventListener('navigateToEnquiries', handleNavigateToEnquiries);
+      window.removeEventListener('navigateToReporting', handleNavigateToReporting);
     };
   }, []);
 
@@ -498,8 +513,9 @@ const App: React.FC<AppProps> = ({
               inst.assignedTo === targetInitials
             );
           }
-          // For pitched deals, check the assignee or POC
+          // For pitched deals, check PitchedBy, assignee, or POC
           return item.deals.some((deal: any) => 
+            deal.PitchedBy === targetInitials ||
             deal.assignedTo === targetInitials || 
             deal.poc === targetInitials
           );
@@ -591,15 +607,6 @@ const App: React.FC<AppProps> = ({
     const showInstructionsTab = hasInstructionsAccess(currentUser);
     const showReportsTab = isAdmin;
 
-    // Call Hub visibility logic - show in localhost OR for specific users in production
-    const CALL_HUB_USERS = ['CB', 'LZ'] as const;  // replace with actual initials
-    const showCallHub =
-      isLocalhost ||
-      CALL_HUB_USERS.includes(currentUser?.Initials?.toUpperCase() as any);
-
-    // Debug logging for tab permissions
-
-
     return [
       { key: 'enquiries', text: 'Enquiries' },
       ...(showInstructionsTab ? [{ key: 'instructions', text: 'Instructions' }] : []),
@@ -608,7 +615,6 @@ const App: React.FC<AppProps> = ({
       { key: 'forms', text: 'Forms', disabled: true }, // Disabled tab that triggers modal
       { key: 'resources', text: 'Resources', disabled: true }, // Disabled tab that triggers modal
       ...(showReportsTab ? [{ key: 'reporting', text: 'Reports' }] : []),
-      ...(showCallHub ? [{ key: 'callhub', text: 'Call Hub' }] : []),
     ];
   }, [userData]);
 
@@ -697,8 +703,6 @@ const App: React.FC<AppProps> = ({
         );
       case 'reporting':
         return <ReportingHome userData={userData} teamData={teamData} />;
-      case 'callhub':
-        return <CallHub />;
       default:
         return (
           <Home
@@ -770,12 +774,13 @@ const App: React.FC<AppProps> = ({
           {activeTab === 'home' && (
             <div
               id="app-level-immediate-actions"
+              className="immediate-actions-portal"
               style={{
-                // Ensure the area behind the ImmediateActionsBar matches the app background
-                background: isDarkMode ? colours.dark.background : colours.light.background,
-                // Remove white space above by pulling up to touch Navigator
-                marginTop: '-8px',
-              }}
+                position: 'relative',
+                zIndex: 1,
+                paddingInline: '16px',
+                color: 'inherit',
+              } as React.CSSProperties}
             />
           )}
           

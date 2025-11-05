@@ -1,5 +1,16 @@
 const path = require('path');
 
+//
+// 🟢 THIS IS THE MAIN SERVER FILE - server/index.js 🟢
+//
+// When adding new routes:
+// 1. Add require('./routes/yourRoute') in the imports section below
+// 2. Add app.use('/api/your-path', yourRouter) in the route registration section
+// 3. Restart the server to pick up new routes
+//
+// Note: server/server.js is NOT the main server file - ignore it when adding routes!
+//
+
 // Ensure `fetch` is available for route handlers when running on
 // versions of Node.js that do not provide it natively. Without this
 // check, calls to `fetch` would throw a ReferenceError and surface as
@@ -40,6 +51,7 @@ const pitchesRouter = require('./routes/pitches');
 const paymentsRouter = require('./routes/payments');
 const instructionDetailsRouter = require('./routes/instruction-details');
 const instructionsRouter = require('./routes/instructions');
+const updateInstructionStatusRouter = require('./routes/updateInstructionStatus');
 const documentsRouter = require('./routes/documents');
 const enquiriesUnifiedRouter = require('./routes/enquiries-unified');
 const mattersUnifiedRouter = require('./routes/mattersUnified');
@@ -52,6 +64,9 @@ const proxyToAzureFunctionsRouter = require('./routes/proxyToAzureFunctions');
 const fileMapRouter = require('./routes/fileMap');
 const opsRouter = require('./routes/ops');
 const sendEmailRouter = require('./routes/sendEmail');
+const forwardEmailRouter = require('./routes/forwardEmail');
+const searchInboxRouter = require('./routes/searchInbox');
+const callrailCallsRouter = require('./routes/callrailCalls');
 const attendanceRouter = require('./routes/attendance');
 const reportingRouter = require('./routes/reporting');
 const reportingStreamRouter = require('./routes/reporting-stream');
@@ -150,14 +165,22 @@ app.use('/api/ops', opsRouter);
 // Email route (server-based). Expose under both /api and / to match existing callers.
 app.use('/api', sendEmailRouter);
 app.use('/', sendEmailRouter);
+// Forward email route for timeline email forwarding functionality
+app.use('/api', forwardEmailRouter);
+// Search inbox route for email sync functionality
+app.use('/api', searchInboxRouter);
+// CallRail calls route for call tracking sync functionality
+app.use('/api', callrailCallsRouter);
 // app.post('/api/update-enquiry', require('../api/update-enquiry')); // Moved to enquiries-unified/update
 // Register deal update endpoints (used by instruction cards editing)
 app.post('/api/update-deal', require('./routes/updateDeal'));
+app.post('/api/deal-capture', require('./routes/dealCapture'));
 app.use('/api/deals', require('./routes/dealUpdate'));
 app.use('/api/pitches', pitchesRouter);
 app.use('/api/payments', paymentsRouter);
 app.use('/api/instruction-details', instructionDetailsRouter);
 app.use('/api/instructions', instructionsRouter);
+app.use('/api/update-instruction-status', updateInstructionStatusRouter);
 app.use('/api/documents', documentsRouter);
 app.use('/api/verify-id', verifyIdRouter);
 app.use('/api/test-db', testDbRouter);

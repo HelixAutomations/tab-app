@@ -43,12 +43,17 @@ module.exports = async function (context, req) {
 
   const body = req.body || {};
   const { 
-    serviceDescription, amount, areaOfWork, prospectId, pitchedBy, isMultiClient, leadClientEmail, clients, passcode,
+    serviceDescription, 
+    initialScopeDescription, // Frontend sends this name
+    amount, areaOfWork, prospectId, pitchedBy, isMultiClient, leadClientEmail, clients, passcode,
     // Pitch content fields
     emailSubject, emailBody, emailBodyHtml, reminders, notes
   } = body;
 
-  if (!serviceDescription || amount == null || !areaOfWork || !pitchedBy) {
+  // Accept either field name for service description
+  const finalServiceDescription = serviceDescription || initialScopeDescription;
+
+  if (!finalServiceDescription || amount == null || !areaOfWork || !pitchedBy) {
     context.res = { status: 400, body: 'Missing required fields' };
     return;
   }
@@ -60,7 +65,7 @@ module.exports = async function (context, req) {
     // Check for recent duplicate deals (same ProspectId, similar ServiceDescription, within last 5 minutes)
     const duplicateCheck = await pool.request()
       .input('ProspectId', sql.Int, prospectId || null)
-      .input('ServiceDescription', sql.NVarChar(255), serviceDescription)
+      .input('ServiceDescription', sql.NVarChar(255), finalServiceDescription)
       .query(`
         SELECT TOP 1 DealId, Passcode
         FROM Deals 
@@ -85,7 +90,7 @@ module.exports = async function (context, req) {
     const dealResult = await pool.request()
       .input('InstructionRef', sql.NVarChar(50), instructionRef)
       .input('ProspectId', sql.Int, prospectId || null)
-      .input('ServiceDescription', sql.NVarChar(sql.MAX), serviceDescription)
+      .input('ServiceDescription', sql.NVarChar(sql.MAX), finalServiceDescription)
       .input('Amount', sql.Money, amount)
       .input('AreaOfWork', sql.NVarChar(100), areaOfWork)
       .input('PitchedBy', sql.NVarChar(100), pitchedBy)
@@ -105,23 +110,27 @@ module.exports = async function (context, req) {
 
     const dealId = dealResult.recordset[0].DealId;
 
-    // Insert pitch content if provided
-    if (emailBody || emailSubject || reminders || notes) {
-      await pool.request()
-        .input('DealId', sql.Int, dealId)
-        .input('InstructionRef', sql.NVarChar(50), instructionRef)
-        .input('ProspectId', sql.Int, prospectId || null)
-        .input('Amount', sql.Money, amount)
-        .input('ServiceDescription', sql.NVarChar(500), serviceDescription)
-        .input('EmailSubject', sql.NVarChar(255), emailSubject || null)
-        .input('EmailBody', sql.NVarChar(sql.MAX), emailBody || null)
-        .input('EmailBodyHtml', sql.NVarChar(sql.MAX), emailBodyHtml || null)
-        .input('Reminders', sql.NVarChar(sql.MAX), reminders ? JSON.stringify(reminders) : null)
-        .input('CreatedBy', sql.NVarChar(100), pitchedBy)
-        .input('Notes', sql.NVarChar(sql.MAX), notes || null)
-        .query(`INSERT INTO PitchContent (DealId, InstructionRef, ProspectId, Amount, ServiceDescription, EmailSubject, EmailBody, EmailBodyHtml, Reminders, CreatedBy, Notes)
-                VALUES (@DealId, @InstructionRef, @ProspectId, @Amount, @ServiceDescription, @EmailSubject, @EmailBody, @EmailBodyHtml, @Reminders, @CreatedBy, @Notes)`);
-    }
+    // Always insert pitch content to preserve email body/subject
+    // Convert empty strings to null for proper database storage
+    const cleanEmailSubject = (emailSubject && emailSubject.trim()) ? emailSubject : null;
+    const cleanEmailBody = (emailBody && emailBody.trim()) ? emailBody : null;
+    const cleanEmailBodyHtml = (emailBodyHtml && emailBodyHtml.trim()) ? emailBodyHtml : null;
+    const cleanNotes = (notes && notes.trim()) ? notes : null;
+    
+    await pool.request()
+      .input('DealId', sql.Int, dealId)
+      .input('InstructionRef', sql.NVarChar(50), instructionRef)
+      .input('ProspectId', sql.Int, prospectId || null)
+      .input('Amount', sql.Money, amount)
+      .input('ServiceDescription', sql.NVarChar(sql.MAX), finalServiceDescription) // Now unlimited
+      .input('EmailSubject', sql.NVarChar(255), cleanEmailSubject)
+      .input('EmailBody', sql.NVarChar(sql.MAX), cleanEmailBody)
+      .input('EmailBodyHtml', sql.NVarChar(sql.MAX), cleanEmailBodyHtml)
+      .input('Reminders', sql.NVarChar(sql.MAX), reminders ? JSON.stringify(reminders) : null)
+      .input('CreatedBy', sql.NVarChar(100), pitchedBy)
+      .input('Notes', sql.NVarChar(sql.MAX), cleanNotes)
+      .query(`INSERT INTO PitchContent (DealId, InstructionRef, ProspectId, Amount, ServiceDescription, EmailSubject, EmailBody, EmailBodyHtml, Reminders, CreatedBy, Notes)
+              VALUES (@DealId, @InstructionRef, @ProspectId, @Amount, @ServiceDescription, @EmailSubject, @EmailBody, @EmailBodyHtml, @Reminders, @CreatedBy, @Notes)`);
 
     if (isMultiClient && Array.isArray(clients)) {
       for (const c of clients) {

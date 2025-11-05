@@ -1098,6 +1098,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   const [currentTime, setCurrentTime] = useState(() => new Date());
   const [activeView, setActiveView] = useState<'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport' | 'ppcReport'>('overview');
   const [heroHovered, setHeroHovered] = useState(false);
+  const [isDataSourcesExpanded, setIsDataSourcesExpanded] = useState(false);
   // (Removed marketing data settings state; always fetch 24 months)
   
   // Memoize handlers to prevent recreation on every render
@@ -2996,6 +2997,13 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
             styles={subtleButtonStyles(isDarkMode)}
             disabled={isActivelyLoading}
           />
+          <DefaultButton
+            text={reportLoadingStates.enquiries ? 'Refreshing enquiries…' : 'Refresh enquiries'}
+            onClick={refreshEnquiriesScoped}
+            styles={subtleButtonStyles(isDarkMode)}
+            disabled={reportLoadingStates.enquiries}
+            iconProps={{ iconName: 'BarChartVertical' }}
+          />
         </div>
         <div style={{ ...heroMetaRowStyle, position: 'relative', zIndex: 2 }}>
           {heroMetaItems.map((item) => (
@@ -3739,40 +3747,65 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
           background: isDarkMode ? 'rgba(30, 41, 59, 0.4)' : 'rgba(248, 250, 252, 0.6)',
         }}>
           <div style={{ padding: 20 }}>
-            {/* Data Sources - Only visible when refreshing */}
+            {/* Data Sources - Collapsible section */}
             <div style={{
-              maxHeight: (isActivelyLoading || isStreamingConnected) ? '1000px' : '0px',
-              overflow: 'hidden',
-              opacity: (isActivelyLoading || isStreamingConnected) ? 1 : 0,
-              transition: 'all 0.3s ease-in-out',
-              marginBottom: (isActivelyLoading || isStreamingConnected) ? 24 : 0,
+              marginBottom: 24,
             }}>
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                margin: '0 0 8px 0',
-              }}>
-                <h3 style={{
-                  margin: 0,
-                  fontSize: 15,
-                  fontWeight: 600,
-                  color: isDarkMode ? '#e2e8f0' : '#475569',
+              <div 
+                onClick={() => setIsDataSourcesExpanded(!isDataSourcesExpanded)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  cursor: 'pointer',
+                  padding: '8px 0',
+                  transition: 'opacity 0.2s',
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.opacity = '0.7'}
+                onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+              >
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
                 }}>
-                  Data Sources
-                </h3>
+                  <h3 style={{
+                    margin: 0,
+                    fontSize: 15,
+                    fontWeight: 600,
+                    color: isDarkMode ? '#e2e8f0' : '#475569',
+                  }}>
+                    Data Sources
+                  </h3>
+                  <span style={{
+                    fontSize: 10,
+                    padding: '2px 6px',
+                    borderRadius: 8,
+                    background: isDarkMode ? 'rgba(71, 85, 105, 0.4)' : 'rgba(241, 245, 249, 0.8)',
+                    color: isDarkMode ? '#cbd5e1' : '#475569',
+                    fontWeight: 500,
+                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
+                  }}>
+                    {DATASETS.length}
+                  </span>
+                </div>
                 <span style={{
-                  fontSize: 10,
-                  padding: '2px 6px',
-                  borderRadius: 8,
-                  background: isDarkMode ? 'rgba(71, 85, 105, 0.4)' : 'rgba(241, 245, 249, 0.8)',
-                  color: isDarkMode ? '#cbd5e1' : '#475569',
-                  fontWeight: 500,
-                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
+                  fontSize: 12,
+                  color: isDarkMode ? '#94a3b8' : '#64748b',
+                  transition: 'transform 0.2s',
+                  transform: isDataSourcesExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
                 }}>
-                  {DATASETS.length}
+                  ▼
                 </span>
               </div>
+              
+              <div style={{
+                maxHeight: isDataSourcesExpanded ? '2000px' : '0px',
+                overflow: 'hidden',
+                opacity: isDataSourcesExpanded ? 1 : 0,
+                transition: 'all 0.3s ease-in-out',
+                marginTop: isDataSourcesExpanded ? 8 : 0,
+              }}>
               <div style={{ display: 'grid', gap: 6 }}>
                 {DATASETS.map((definition) => {
                   const status = datasetStatus[definition.key];
@@ -3976,6 +4009,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                     </div>
                   );
                 })}
+              </div>
               </div>
             </div>
 

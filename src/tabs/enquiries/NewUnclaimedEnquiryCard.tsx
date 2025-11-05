@@ -130,14 +130,14 @@ const NewUnclaimedEnquiryCard: React.FC<Props> = ({ enquiry, onSelect, onAreaCha
     position: 'relative',
     margin: '6px 0', // Reduced margin to match instruction cards
     borderRadius: 8,
-    padding: '12px 18px',
+    padding: '12px',
     background: selected 
       ? selectedBg
       : (isDarkMode ? '#0f172a' : bgGradientLight), // Solid dark background to match instruction cards
     opacity: promotionStatus ? 0.6 : 1,
     // Responsive padding
     '@media (max-width: 768px)': {
-      padding: '10px 14px',
+      padding: '10px 12px',
     },
     '@media (max-width: 480px)': {
       padding: '8px 12px',
@@ -233,8 +233,17 @@ const NewUnclaimedEnquiryCard: React.FC<Props> = ({ enquiry, onSelect, onAreaCha
         borderBottomLeftRadius: 12,
       }} />
 
-      {/* Badge */}
-      <EnquiryBadge enquiry={enquiry} isClaimed={false} showPulse={true} onAreaChange={onAreaChange} />
+      {/* Badge - positioned with consistent margin */}
+      <div style={{
+        position: 'absolute',
+        top: 12,
+        right: 12,
+        zIndex: 2,
+        display: 'flex',
+        width: 'fit-content'
+      }}>
+        <EnquiryBadge enquiry={enquiry} isClaimed={false} showPulse={true} onAreaChange={onAreaChange} />
+      </div>
 
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
@@ -264,8 +273,8 @@ const NewUnclaimedEnquiryCard: React.FC<Props> = ({ enquiry, onSelect, onAreaCha
             fontWeight: 500,
             padding: '2px 6px',
             borderRadius: 4,
-            backgroundColor: promotionStatus === 'instruction' ? (isDarkMode ? 'rgba(76, 175, 80, 0.15)' : 'rgba(232, 245, 232, 0.6)') : (isDarkMode ? 'rgba(33, 150, 243, 0.15)' : 'rgba(227, 242, 253, 0.6)'),
-            color: promotionStatus === 'instruction' ? (isDarkMode ? 'rgba(76, 175, 80, 0.8)' : 'rgba(46, 125, 50, 0.7)') : (isDarkMode ? 'rgba(33, 150, 243, 0.8)' : 'rgba(21, 101, 192, 0.7)'),
+            backgroundColor: promotionStatus === 'instruction' ? (isDarkMode ? 'rgba(76, 175, 80, 0.15)' : 'rgba(232, 245, 232, 0.6)') : (isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(227, 242, 253, 0.6)'),
+            color: promotionStatus === 'instruction' ? (isDarkMode ? 'rgba(76, 175, 80, 0.8)' : 'rgba(46, 125, 50, 0.7)') : colours.highlight,
             textTransform: 'uppercase',
             letterSpacing: 0.5,
             opacity: 0.85

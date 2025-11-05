@@ -61,11 +61,12 @@ export const sharedSearchBoxStyle = (isDarkMode: boolean) => ({
   height: '100%',
   lineHeight: '32px',
     color: isDarkMode ? colours.dark.text : colours.light.text,
-    fontSize: '14px',
+    fontSize: '12px',
     outline: 'none',
     '::placeholder': {
       color: isDarkMode ? '#aaaaaa' : '#888888',
       opacity: 1,
+      fontSize: '12px',
     },
   },
   icon: {

@@ -6,19 +6,23 @@ import { colours } from '../../app/styles/colours';
 import SegmentedControl from './SegmentedControl';
 import { sharedSearchBoxStyle } from '../../app/styles/FilterStyles';
 
-// Add spin animation CSS
-const spinAnimation = `
+// Add animation CSS
+const animations = `
   @keyframes spin {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
   }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateX(-4px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
 `;
 
 // Inject CSS into head if not already present
-if (typeof document !== 'undefined' && !document.querySelector('#refresh-spin-animation')) {
+if (typeof document !== 'undefined' && !document.querySelector('#filter-banner-animations')) {
   const style = document.createElement('style');
-  style.id = 'refresh-spin-animation';
-  style.textContent = spinAnimation;
+  style.id = 'filter-banner-animations';
+  style.textContent = animations;
   document.head.appendChild(style);
 }
 
@@ -28,6 +32,9 @@ export interface FilterOption {
 }
 
 export interface FilterBannerProps {
+  // Left section action (e.g., back button) - separated with border like home in CustomTabs
+  leftAction?: React.ReactNode;
+  
   // Primary filter (status/type) - can be React node or SegmentedControl props
   primaryFilter?: React.ReactNode | {
     value: string;
@@ -78,6 +85,7 @@ export interface FilterBannerProps {
  * Shared filter banner component for consistent styling across all tabs
  */
 const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
+  leftAction,
   primaryFilter,
   secondaryFilter,
   search,
@@ -96,35 +104,35 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
 
   const containerStyle = mergeStyles({
     display: 'flex',
-    alignItems: 'center',
-    gap: dense ? 6 : 12,
-    rowGap: dense ? 6 : 8,
+    alignItems: 'stretch',
+    gap: 0,
     padding: seamless
-      ? (dense ? '0' : '8px 12px')
-      : (dense ? '0' : '12px 20px'),
+      ? (dense ? '4px 8px' : '8px 12px')
+      : (dense ? '4px 8px' : '12px 20px'),
     background: seamless ? 'transparent' : (isDarkMode 
-      ? 'linear-gradient(135deg, rgba(31, 39, 50, 0.95) 0%, rgba(25, 32, 41, 0.98) 100%)'
-      : 'linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.98) 100%)'),
-    backdropFilter: seamless ? 'none' : 'blur(12px)',
-    WebkitBackdropFilter: seamless ? 'none' : 'blur(12px)',
+      ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.75) 0%, rgba(11, 30, 55, 0.7) 100%)'
+      : 'rgb(255, 255, 255)'),
+    backdropFilter: seamless ? 'none' : (isDarkMode ? 'blur(16px) saturate(180%)' : 'none'),
+    WebkitBackdropFilter: seamless ? 'none' : (isDarkMode ? 'blur(16px) saturate(180%)' : 'none'),
     borderBottom: seamless ? 'none' : (isDarkMode 
-      ? '1px solid rgba(255, 255, 255, 0.08)' 
+      ? '1px solid rgba(125, 211, 252, 0.15)' 
       : '1px solid rgba(0, 0, 0, 0.06)'),
     boxShadow: seamless ? 'none' : (isDarkMode
-      ? '0 2px 8px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05)'
-      : '0 2px 8px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8)'),
+      ? '0 2px 12px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.3)'
+      : '0 2px 8px rgba(0, 0, 0, 0.08)'),
     fontFamily: 'Raleway, sans-serif',
-    flexWrap: 'wrap',
-  minHeight: dense ? 44 : 56,
-  // Center wrapped rows vertically within the banner for better balance
-  alignContent: 'center',
+    minHeight: 48,
+    height: 'auto',
     ...(sticky && {
       position: 'sticky',
       top: topOffset,
-      zIndex: 1000,
+      zIndex: 2000,
     }),
+    transition: '0.2s',
+    width: '100%',
+    boxSizing: 'border-box',
     selectors: {
-      '@media (max-width: 600px)': {
+      '@media (max-width: 400px)': {
         padding: '10px 16px',
         gap: 8,
         rowGap: 8,
@@ -144,7 +152,7 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
   // Keep items centered within their row; when wrapping, center the row group
   alignContent: 'center',
     selectors: {
-      '@media (max-width: 600px)': {
+      '@media (max-width: 400px)': {
         width: '100%',
         justifyContent: 'space-between',
       }
@@ -158,12 +166,12 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
     flex: '0 0 auto',
     minWidth: collapsibleSearch && !searchOpen ? 0 : 240,
     selectors: {
-      '@media (max-width: 900px)': {
+      '@media (max-width: 700px)': {
         marginLeft: 0,
         flex: '1 0 auto',
         minWidth: 'auto',
       },
-      '@media (max-width: 600px)': {
+      '@media (max-width: 400px)': {
         width: '100%',
         flex: '1 1 100%',
       }
@@ -179,7 +187,7 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
     flex: '0 0 auto',
   alignContent: 'center',
     selectors: {
-      '@media (max-width: 600px)': {
+      '@media (max-width: 400px)': {
         width: '100%',
         justifyContent: 'center',
       }
@@ -195,14 +203,14 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
     flex: '0 1 auto',
     flexWrap: 'nowrap',
     selectors: {
-      '@media (max-width: 900px)': {
+      '@media (max-width: 700px)': {
         marginLeft: 0,
         width: '100%',
         justifyContent: 'space-between',
         flexWrap: 'wrap',
         gap: 8,
       },
-      '@media (max-width: 600px)': {
+      '@media (max-width: 400px)': {
         gap: 8,
       }
     }
@@ -213,52 +221,91 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
     alignItems: 'center',
     flex: '0 0 auto',
     selectors: {
-      '@media (max-width: 900px)': {
+      '@media (max-width: 700px)': {
         marginLeft: 0,
+      }
+    }
+  });
+
+  const mainContentStyle = mergeStyles({
+    display: 'flex',
+    alignItems: 'center',
+    gap: dense ? 6 : 12,
+    rowGap: dense ? 6 : 8,
+    flexWrap: 'wrap',
+    alignContent: 'center',
+    flex: 1,
+    minWidth: 0,
+    paddingLeft: 12,
+    selectors: {
+      '@media (max-width: 400px)': {
+        gap: 8,
+        rowGap: 8,
+        width: '100%',
+        paddingLeft: 0,
       }
     }
   });
 
   return (
     <div className={containerStyle}>
-      {/* Primary and Secondary Filters */}
-      {(primaryFilter || secondaryFilter) && (
-        <div className={filtersContainerStyle}>
-          {primaryFilter && (
-            React.isValidElement(primaryFilter) ? primaryFilter : (
-              <SegmentedControl
-                id={`${(primaryFilter as any).ariaLabel.toLowerCase().replace(/\s+/g, '-')}-filter`}
-                ariaLabel={(primaryFilter as any).ariaLabel}
-                value={(primaryFilter as any).value}
-                onChange={(primaryFilter as any).onChange}
-                options={(primaryFilter as any).options}
-              />
-            )
-          )}
-          {secondaryFilter && (
-            React.isValidElement(secondaryFilter) ? secondaryFilter : (
-              <SegmentedControl
-                id={`${(secondaryFilter as any).ariaLabel.toLowerCase().replace(/\s+/g, '-')}-filter`}
-                ariaLabel={(secondaryFilter as any).ariaLabel}
-                value={(secondaryFilter as any).value}
-                onChange={(secondaryFilter as any).onChange}
-                options={(secondaryFilter as any).options}
-              />
-            )
-          )}
-        </div>
+      {/* Left Action Section (e.g., back button) */}
+      {leftAction && (
+        <>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            paddingLeft: 8,
+            paddingRight: 12,
+            borderRight: isDarkMode ? '1px solid rgba(0, 0, 0, 0.04)' : '1px solid rgba(0, 0, 0, 0.04)',
+            flexShrink: 0,
+            justifyContent: 'center',
+          }}>
+            {leftAction}
+          </div>
+        </>
       )}
 
-      {/* Additional Actions */}
-      {children && (
-        <div className={actionsContainerStyle}>
-          {children}
-        </div>
-      )}
+      {/* Main content wrapper */}
+      <div className={mainContentStyle}>
+        {/* Primary and Secondary Filters */}
+        {(primaryFilter || secondaryFilter) && (
+          <div className={filtersContainerStyle}>
+            {primaryFilter && (
+              React.isValidElement(primaryFilter) ? primaryFilter : (
+                <SegmentedControl
+                  id={`${(primaryFilter as any).ariaLabel.toLowerCase().replace(/\s+/g, '-')}-filter`}
+                  ariaLabel={(primaryFilter as any).ariaLabel}
+                  value={(primaryFilter as any).value}
+                  onChange={(primaryFilter as any).onChange}
+                  options={(primaryFilter as any).options}
+                />
+              )
+            )}
+            {secondaryFilter && (
+              React.isValidElement(secondaryFilter) ? secondaryFilter : (
+                <SegmentedControl
+                  id={`${(secondaryFilter as any).ariaLabel.toLowerCase().replace(/\s+/g, '-')}-filter`}
+                  ariaLabel={(secondaryFilter as any).ariaLabel}
+                  value={(secondaryFilter as any).value}
+                  onChange={(secondaryFilter as any).onChange}
+                  options={(secondaryFilter as any).options}
+                />
+              )
+            )}
+          </div>
+        )}
 
-      {/* Right-side: Search + Refresh grouped to wrap together */}
-      {(search || refresh) && (
-        <div className={rightClusterStyle}>
+        {/* Additional Actions */}
+        {children && (
+          <div className={actionsContainerStyle}>
+            {children}
+          </div>
+        )}
+
+        {/* Right-side: Search + Refresh grouped to wrap together */}
+        {(search || refresh) && (
+          <div className={rightClusterStyle}>
           {search && (
             <div className={searchContainerStyle}>
               {collapsibleSearch && !searchOpen && !search.value ? (
@@ -301,102 +348,135 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
 
           {refresh && (
             <div className={refreshContainerStyle}>
-              {refresh.collapsible && !refreshOpen ? (
-                <button
-                  type="button"
-                  aria-label="Show refresh options"
-                  onClick={() => setRefreshOpen(true)}
-                  disabled={refresh.isLoading}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: 28,
-                    height: 28,
-                    borderRadius: 6,
-                    border: isDarkMode ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(0,0,0,0.12)',
-                    background: 'transparent',
-                    cursor: refresh.isLoading ? 'not-allowed' : 'pointer',
-                    color: isDarkMode ? '#E5E7EB' : '#0F172A',
-                    opacity: refresh.isLoading ? 0.6 : 1
-                  }}
-                >
-                  <Icon
-                    iconName={refresh.isLoading ? "Sync" : "Refresh"}
-                    style={{ 
-                      fontSize: 14,
-                      animation: refresh.isLoading ? 'spin 1s linear infinite' : 'none'
-                    }}
-                  />
-                </button>
-              ) : (
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    padding: '4px 12px',
-                    height: 32,
-                    lineHeight: '24px',
-                    borderRadius: 16,
-                    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)',
-                    border: isDarkMode ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(0,0,0,0.08)',
-                    fontSize: 12,
-                    color: isDarkMode ? colours.dark.highlight : colours.light.highlight,
-                  }}
-                  onBlur={() => {
-                    if (refresh.collapsible) setRefreshOpen(false);
-                  }}
-                >
-                  <Icon
-                    iconName={refresh.isLoading ? "Sync" : "Clock"}
-                    style={{ 
-                      fontSize: 14, 
-                      color: isDarkMode ? colours.dark.highlight : colours.light.highlight,
-                      animation: refresh.isLoading ? 'spin 1s linear infinite' : 'none'
-                    }}
-                  />
-                  {refresh.nextUpdateTime && (
-                    <span style={{ fontSize: 11, fontWeight: 500 }}>
-                      Next: {refresh.nextUpdateTime}
-                    </span>
-                  )}
-                  <button
-                    onClick={refresh.onRefresh}
-                    disabled={refresh.isLoading}
-                    title="Refresh now"
+              <button
+                type="button"
+                aria-label={refreshOpen ? "Hide refresh details" : "Show refresh details"}
+                onClick={() => setRefreshOpen(!refreshOpen)}
+                disabled={refresh.isLoading}
+                onMouseEnter={() => !refresh.isLoading && setRefreshOpen(true)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: refreshOpen ? 6 : 0,
+                  height: 28,
+                  padding: refreshOpen ? '0 10px 0 8px' : '0',
+                  minWidth: 28,
+                  borderRadius: 14,
+                  border: isDarkMode ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(0,0,0,0.12)',
+                  background: 'transparent',
+                  cursor: refresh.isLoading ? 'not-allowed' : 'pointer',
+                  color: isDarkMode ? '#cbd5e1' : '#64748b',
+                  fontSize: 10,
+                  fontFamily: 'Raleway, sans-serif',
+                  fontWeight: 500,
+                  transition: 'all 0.2s ease',
+                  position: 'relative',
+                  overflow: 'hidden',
+                }}
+                onMouseLeave={() => {
+                  if (refresh.collapsible) {
+                    setTimeout(() => setRefreshOpen(false), 300);
+                  }
+                }}
+              >
+                {/* Countdown progress indicator */}
+                {refresh.nextUpdateTime && !refresh.isLoading && (
+                  <div
                     style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 4,
-                      padding: '4px 8px',
-                      border: isDarkMode ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.1)',
-                      borderRadius: 4,
-                      backgroundColor: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
-                      color: isDarkMode ? colours.dark.text : colours.light.text,
-                      fontSize: 11,
-                      fontWeight: 500,
-                      fontFamily: 'Raleway, sans-serif',
-                      cursor: refresh.isLoading ? 'not-allowed' : 'pointer',
-                      transition: '0.15s',
-                      opacity: refresh.isLoading ? 0.6 : 0.8,
+                      position: 'absolute',
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      height: 2,
+                      background: isDarkMode 
+                        ? 'linear-gradient(90deg, rgba(54, 144, 206, 0.4) 0%, rgba(54, 144, 206, 0.15) 100%)'
+                        : 'linear-gradient(90deg, rgba(54, 144, 206, 0.5) 0%, rgba(54, 144, 206, 0.2) 100%)',
+                      borderRadius: '0 0 14px 14px',
+                      opacity: refreshOpen ? 0.6 : 0.4,
+                      transition: 'opacity 0.2s',
                     }}
-                  >
-                    <Icon
-                      iconName={refresh.isLoading ? "Sync" : "Refresh"}
-                      style={{ 
-                        fontSize: 12,
-                        animation: refresh.isLoading ? 'spin 1s linear infinite' : 'none'
+                  />
+                )}
+                
+                <Icon
+                  iconName={refresh.isLoading ? "Sync" : "Clock"}
+                  style={{ 
+                    fontSize: 12,
+                    color: isDarkMode ? '#94a3b8' : '#64748b',
+                    animation: refresh.isLoading ? 'spin 1s linear infinite' : 'none',
+                    transition: 'transform 0.2s',
+                    transform: refreshOpen ? 'scale(1)' : 'scale(1.1)',
+                  }}
+                />
+                
+                {refreshOpen && refresh.nextUpdateTime && !refresh.isLoading && (
+                  <>
+                    <span style={{
+                      fontSize: 10,
+                      opacity: 0.8,
+                      whiteSpace: 'nowrap',
+                      animation: 'fadeIn 0.15s ease',
+                    }}>
+                      {refresh.nextUpdateTime}
+                    </span>
+                    <span
+                      role="button"
+                      aria-label="Refresh now"
+                      tabIndex={0}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!refresh.isLoading) refresh.onRefresh();
                       }}
-                    />
-                    <span>Update Now</span>
-                  </button>
-                </div>
-              )}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          if (!refresh.isLoading) refresh.onRefresh();
+                        }
+                      }}
+                      title="Refresh now"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        padding: 0,
+                        marginLeft: 2,
+                        border: 'none',
+                        background: 'transparent',
+                        cursor: refresh.isLoading ? 'not-allowed' : 'pointer',
+                        color: 'inherit',
+                        outline: 'none'
+                      }}
+                    >
+                      <Icon
+                        iconName="Refresh"
+                        style={{ 
+                          fontSize: 11,
+                          opacity: 0.7,
+                          transition: 'opacity 0.15s',
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.opacity = '1')}
+                        onMouseLeave={(e) => (e.currentTarget.style.opacity = '0.7')}
+                      />
+                    </span>
+                  </>
+                )}
+                
+                {refreshOpen && refresh.isLoading && (
+                  <span style={{
+                    fontSize: 10,
+                    opacity: 0.7,
+                    animation: 'fadeIn 0.15s ease',
+                  }}>
+                    Updating…
+                  </span>
+                )}
+              </button>
             </div>
           )}
-        </div>
-      )}
+          </div>
+        )}
+      </div>
     </div>
   );
 });

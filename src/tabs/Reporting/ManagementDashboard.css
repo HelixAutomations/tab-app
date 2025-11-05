@@ -4,13 +4,13 @@
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 20px;
+  border-radius: 12px;
   box-shadow: 
     0 8px 32px rgba(0, 0, 0, 0.12),
     0 2px 8px rgba(0, 0, 0, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 0.1);
-  padding: 28px;
-  margin: 16px;
+  padding: 12px;
+  margin: 0;
   transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
   position: relative;
   overflow: hidden;
@@ -103,7 +103,7 @@
   font-family: 'Raleway', sans-serif;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
   transition: background 0.3s ease, color 0.3s ease;
 }
 
@@ -242,14 +242,14 @@
   animation: slideInFromLeft 0.6s ease-out forwards;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
 }
 
 .filter-toolbar__top {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
-  gap: 8px;
+  gap: 6px;
   width: 100%;
 }
 
@@ -262,20 +262,20 @@
   display: flex;
   flex-wrap: wrap;
   align-items: stretch;
-  gap: 8px;
+  gap: 6px;
   flex: 1;
 }
 
 .date-stamp-group {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 
 .date-pickers {
   flex: 0 0 auto;
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 
 .filter-toolbar__presets {
@@ -288,10 +288,10 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  padding: 10px 14px;
+  padding: 6px 8px;
   border-radius: 10px;
   border: 1px solid transparent;
-  row-gap: 8px;
+  row-gap: 6px;
   flex: 1;
 }
 
@@ -327,7 +327,7 @@
 .filter-toolbar__actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   margin-left: auto;
   flex: 0 0 auto;
 }
@@ -335,7 +335,7 @@
 .filter-toolbar__bottom {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 8px;
   width: 100%;
   align-items: flex-start;
 }
@@ -343,7 +343,7 @@
 .filter-toolbar__roles {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 8px;
   width: 100%;
   align-items: flex-start;
 }
@@ -360,7 +360,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 6px 10px;
+  padding: 4px 8px;
   border-radius: 6px;
   font-size: 11px;
   font-weight: 500;
@@ -368,7 +368,7 @@
   letter-spacing: 0.02em;
   user-select: none;
   gap: 6px;
-  min-height: 32px;
+  min-height: 28px;
   border: 1px solid transparent;
 }
 
@@ -407,8 +407,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border-radius: 6px;
   border: 1px solid rgba(148, 163, 184, 0.4);
   background: rgba(255, 255, 255, 0.9);
@@ -451,7 +451,7 @@
   position: absolute;
   top: 100%;
   right: 0;
-  margin-top: 8px;
+  margin-top: 6px;
   padding: 12px;
   border-radius: 8px;
   border: 1px solid rgba(148, 163, 184, 0.4);
@@ -489,7 +489,7 @@
 }
 
 .filter-group-container {
-  padding: 10px 14px;
+  padding: 6px 8px;
   border-radius: 10px;
   border: 1px solid transparent;
 }
@@ -511,7 +511,7 @@
 .team-slicer-buttons {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px;
 }
 
 .team-slicer-buttons .ms-Button {
@@ -539,7 +539,7 @@
 .role-slicer-buttons {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px;
 }
 
 .role-slicer-buttons .ms-Button {
@@ -598,7 +598,7 @@
 .metrics-table-header {
   display: grid;
   grid-template-columns: 160px repeat(5, 1fr);
-  padding: 10px 12px;
+  padding: 6px 8px;
   font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
@@ -645,7 +645,7 @@
 .metrics-table-row {
   display: grid;
   grid-template-columns: 160px repeat(5, 1fr);
-  padding: 10px 12px;
+  padding: 6px 8px;
   font-size: 13px;
   transition: background 0.3s ease, color 0.3s ease;
   opacity: 0;
@@ -702,7 +702,7 @@
 .metrics-table-row span {
   display: flex;
   align-items: center;
-  padding: 2px 0;
+  padding: 1px 0;
 }
 
 
@@ -757,4 +757,64 @@
   --highlight: #3690ce;
   --darkBlue: #061733;
   --grey: #666;
+}
+
+/* Charts: show details on hover only (clean by default) */
+.chart-card {
+  position: relative;
+}
+
+/* Remove inter-column gap until hover to avoid blank space */
+.chart-card .chart-flex {
+  gap: 0;
+}
+.chart-card:hover .chart-flex {
+  gap: 20px;
+}
+
+/* Hide Recharts outer labels until hover for a cleaner look */
+.chart-card .recharts-pie-labels {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.chart-card:hover .recharts-pie-labels {
+  opacity: 1;
+}
+
+/* Smooth shade transitions on sectors */
+.chart-card .recharts-sector {
+  transition: filter 0.25s ease, opacity 0.25s ease;
+  filter: saturate(0.92) brightness(1.02);
+  opacity: 0.95;
+}
+.chart-card:hover .recharts-sector {
+  filter: saturate(1) brightness(1);
+  opacity: 1;
+}
+
+/* Collapse the right-side details (top 3 lists) until hover */
+.chart-card .chart-details {
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transform: translateY(-4px);
+  transition: max-height 0.25s ease, opacity 0.2s ease, transform 0.2s ease;
+  pointer-events: none;
+  /* Reclaim width when hidden */
+  flex: 0 0 0 !important;
+  width: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  height: 0 !important;
+  min-height: 0 !important;
+}
+.chart-card:hover .chart-details {
+  max-height: 480px;
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+  flex: 1 1 auto !important;
+  width: auto !important;
+  height: auto !important;
+  min-height: 180px !important;
 }

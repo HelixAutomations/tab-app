@@ -7,7 +7,7 @@
  * any local state derived from these scenarios without requiring a manual remount.
  * Only increment this manually when you change the scenarios content.
  */
-export const SCENARIOS_VERSION: number = 3;
+export const SCENARIOS_VERSION: number = 4;
 
 export type Scenario = {
   /** Stable id for persistence */
@@ -45,9 +45,9 @@ I look forward to speaking with you.`
     id: 'before-call-no-call',
     name: 'Before call — No call',
     subject: 'Pitch before call — No call',
-  body: `Thank you for your enquiry to Helix Law. We’re a specialist firm of solicitors and we only deal with litigation and disputes. We act nationally. Before taking things further it is obviously incredibly important that you consider cost; benefit, and that it stacks up for you and for us for you to incur legal costs. With this in mind I have set out below some details that I hope help in relation to your enquiry so that you make a decision before we go ahead with a call or a paid review and advice.
+  body: `Thank you for your enquiry to Helix Law. We're a specialist firm of solicitors and we only deal with litigation and disputes. We act nationally.
 
-We haven’t yet spoken but I have reviewed the details and information you have helpfully provided, thank you. You appear to be in a dispute with [INSERT] relating to [INSERT] and you have confirmed that [INSERT].
+We haven't yet spoken but I have reviewed the details and information you have helpfully provided, thank you. You appear to be in a dispute with [INSERT] relating to [INSERT] and you have confirmed that [INSERT].
 
 The dispute with [INSERT] creates difficulty for obvious reasons and you have asked [INSERT].
 
@@ -122,5 +122,21 @@ Please confirm your instructions by clicking [InstructLink]. This single link wi
 Once provided I will briefly review this to confirm our time and cost estimate is accurate and we will then open a file. At that stage you will receive our Client Care Letter formally confirming the terms of our retainer.
 
 I hope the above and our call have been useful and of course come back to me if I can help you further. I look forward to assisting you with this.`
+  },
+  {
+    id: 'cfa',
+    name: 'CFA',
+    subject: 'Your Enquiry - Helix Law',
+    body: `Thanks for your email. I am a [ROLE] and specialise in [INSERT].
+
+As a starting point, please email me a brief summary of your situation and dispute — including the background, current position, your losses and how you've calculated them. I will review this and we can take it from there.
+
+I note you are enquiring about alternative no win no fee funding. We aren't obliged to offer that type of funding and will only do so where it stacks up for you and for us.
+
+In that context, please provide as much focussed/relevant information as you can, illustrating your case and who it is against, and we can consider this further.
+
+At this stage there is no cost or obligation.
+
+I look forward to hearing from you.`
   }
 ];

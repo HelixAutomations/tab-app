@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Icon } from '@fluentui/react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Icon, MessageBar, MessageBarType } from '@fluentui/react';
 import { Enquiry } from '../../app/functionality/types';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
@@ -116,16 +116,24 @@ const EnquiryBadge: React.FC<Props> = ({
   claimer, 
   isClaimed = false,
   showPulse = false,
-  onAreaChange: _onAreaChange
+  onAreaChange
 }) => {
   const { isDarkMode } = useTheme();
   const [isVisible, setIsVisible] = useState(false);
+  const [showAreaMenu, setShowAreaMenu] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [localArea, setLocalArea] = useState(enquiry.Area_of_Work || '');
 
   // Cascade animation on mount
   useEffect(() => {
     const timer = setTimeout(() => setIsVisible(true), 100);
     return () => clearInterval(timer);
   }, []);
+
+  // Update local area when enquiry changes
+  useEffect(() => {
+    setLocalArea(enquiry.Area_of_Work || '');
+  }, [enquiry.Area_of_Work]);
 
   const formatDate = (dateStr: string) => {
     if (!dateStr) return '';
@@ -137,7 +145,7 @@ const EnquiryBadge: React.FC<Props> = ({
   };
 
   const areaColor = (() => {
-    const area = enquiry.Area_of_Work?.toLowerCase() || '';
+    const area = localArea?.toLowerCase() || '';
     if (area.includes('commercial')) return colours.blue;
     if (area.includes('construction')) return colours.orange;
     if (area.includes('property')) return colours.green;
@@ -147,7 +155,7 @@ const EnquiryBadge: React.FC<Props> = ({
   })();
 
   const areaIconName = (() => {
-    const a = enquiry.Area_of_Work?.toLowerCase() || '';
+    const a = localArea?.toLowerCase() || '';
     if (a.includes('commercial')) return 'CityNext'; // Commercial law - business/work
     if (a.includes('construction')) return 'Build';
     if (a.includes('property')) return 'Home';
@@ -163,14 +171,53 @@ const EnquiryBadge: React.FC<Props> = ({
   const subtleText = isDarkMode ? 'rgba(225,232,245,0.8)' : 'rgba(76,90,110,0.85)';
 
   const isNewData = enquiry.__sourceType === 'new' || ((enquiry as any).datetime && (enquiry as any).claim);
+  
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Handle area change
+  const handleAreaChange = async (newArea: string) => {
+    if (!onAreaChange || isUpdating) return;
+    
+    setIsUpdating(true);
+    setLocalArea(newArea); // Optimistic update
+    setShowAreaMenu(false);
+    
+    try {
+      await onAreaChange(enquiry.ID, newArea);
+      // Success feedback handled by parent
+    } catch (error) {
+      console.error('Failed to update area:', error);
+      setLocalArea(enquiry.Area_of_Work || ''); // Revert on error
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  // Close menu on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowAreaMenu(false);
+      }
+    };
+    if (showAreaMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showAreaMenu]);
+
+  const areaOptions = [
+    { value: 'Commercial', color: colours.blue, icon: 'CityNext' },
+    { value: 'Construction', color: colours.orange, icon: 'Build' },
+    { value: 'Property', color: colours.green, icon: 'Home' },
+    { value: 'Employment', color: colours.yellow, icon: 'People' },
+    { value: 'Other', color: colours.greyText, icon: 'Help' }
+  ];
 
   return (
     <>
       {/* Single unified pill container - compact design */}
-      <div style={{ 
-        position: 'absolute', 
-        top: 10, 
-        right: 10, 
+      <div ref={menuRef} style={{ 
         display: 'flex', 
         alignItems: 'center',
         gap: 8,
@@ -183,38 +230,139 @@ const EnquiryBadge: React.FC<Props> = ({
         opacity: isVisible ? 0.97 : 0,
         transform: isVisible ? 'translateX(0) scale(1)' : 'translateX(8px) scale(0.99)',
         transition: 'opacity 0.35s ease, transform 0.35s ease, background 0.3s ease, border-color 0.3s ease',
-        boxShadow: badgeShadow,
-        zIndex: 1
+        boxShadow: badgeShadow
       }}>
         {/* Area icon + label - clickable for reassignment */}
-        {enquiry.Area_of_Work && (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4,
-              color: areaColor,
-              position: 'relative',
-              padding: '2px 4px',
-              borderRadius: 5,
-            }}
-          >
-            <Icon iconName={areaIconName} styles={{ root: { fontSize: 12, opacity: 0.9 } }} />
-            <span style={{ textTransform: 'uppercase', letterSpacing: 0.5, fontSize: 10.5, fontWeight: 600 }}>
-              {enquiry.Area_of_Work?.toLowerCase().includes('other') || enquiry.Area_of_Work?.toLowerCase().includes('unsure') ? 'Other' : enquiry.Area_of_Work}
-            </span>
-          </div>
-        )}
+        {(() => {
+          const aow = localArea?.toLowerCase() || '';
+          if (!localArea) return null;
+          
+          // Determine display text
+          let displayText = localArea;
+          if (aow.includes('facebook') || aow.includes('lead') || aow.includes('source') || aow.includes('other') || aow.includes('unsure')) {
+            displayText = 'Other';
+          }
+          
+          return (
+            <div style={{ position: 'relative' }}>
+              <div
+                onClick={(e) => {
+                  if (onAreaChange) {
+                    e.stopPropagation();
+                    setShowAreaMenu(!showAreaMenu);
+                  }
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  color: areaColor,
+                  padding: '2px 4px',
+                  borderRadius: 5,
+                  cursor: onAreaChange ? 'pointer' : 'default',
+                  transition: 'all 0.2s ease',
+                  background: showAreaMenu ? `${areaColor}15` : 'transparent',
+                  opacity: isUpdating ? 0.5 : 1,
+                  pointerEvents: isUpdating ? 'none' : 'auto'
+                }}
+              >
+                {isUpdating ? (
+                  <Icon iconName="ProgressRingDots" styles={{ root: { fontSize: 12, animation: 'spin 1s linear infinite' } }} />
+                ) : (
+                  <Icon iconName={areaIconName} styles={{ root: { fontSize: 12, opacity: 0.9 } }} />
+                )}
+                <span style={{ textTransform: 'uppercase', letterSpacing: 0.5, fontSize: 10.5, fontWeight: 600 }}>
+                  {displayText}
+                </span>
+                {onAreaChange && !isUpdating && (
+                  <Icon iconName="ChevronDown" styles={{ root: { fontSize: 8, opacity: 0.6 } }} />
+                )}
+              </div>
+              
+              {/* Dropdown menu */}
+              {showAreaMenu && onAreaChange && (
+                <div style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  marginTop: 4,
+                  background: isDarkMode ? '#1e293b' : '#ffffff',
+                  border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(0,0,0,0.1)'}`,
+                  borderRadius: 8,
+                  boxShadow: isDarkMode 
+                    ? '0 4px 16px rgba(0,0,0,0.4)' 
+                    : '0 4px 16px rgba(0,0,0,0.15)',
+                  overflow: 'hidden',
+                  zIndex: 1000,
+                  minWidth: 140
+                }}>
+                  {areaOptions.map(option => (
+                    <div
+                      key={option.value}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleAreaChange(option.value);
+                      }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '8px 12px',
+                        cursor: 'pointer',
+                        background: localArea === option.value 
+                          ? `${option.color}15` 
+                          : 'transparent',
+                        borderLeft: `3px solid ${localArea === option.value ? option.color : 'transparent'}`,
+                        transition: 'all 0.15s ease',
+                        color: isDarkMode ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.85)',
+                        fontSize: 11,
+                        fontWeight: 500
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = `${option.color}20`;
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = localArea === option.value 
+                          ? `${option.color}15` 
+                          : 'transparent';
+                      }}
+                    >
+                      <Icon 
+                        iconName={option.icon} 
+                        styles={{ root: { fontSize: 12, color: option.color } }} 
+                      />
+                      <span>{option.value}</span>
+                      {localArea === option.value && (
+                        <Icon 
+                          iconName="CheckMark" 
+                          styles={{ root: { fontSize: 10, color: option.color, marginLeft: 'auto' } }} 
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
-        {/* Separator dot - more subtle */}
-        {enquiry.Area_of_Work && (
-          <span style={{ 
-            width: 2, 
-            height: 2, 
-            borderRadius: '50%', 
-            background: `${areaColor}80`
-          }} />
-        )}
+        {/* Separator dot - more subtle (only show if area was displayed) */}
+        {(() => {
+          const aow = enquiry.Area_of_Work?.toLowerCase() || '';
+          const shouldShowArea = enquiry.Area_of_Work && 
+            !aow.includes('facebook') && 
+            !aow.includes('lead') && 
+            !aow.includes('source');
+          
+          return shouldShowArea ? (
+            <span style={{ 
+              width: 2, 
+              height: 2, 
+              borderRadius: '50%', 
+              background: `${areaColor}50`
+            }} />
+          ) : null;
+        })()}
 
         {/* Date section - timeline effect for claimed new data */}
         <div style={{ 
@@ -311,13 +459,21 @@ const EnquiryBadge: React.FC<Props> = ({
         )}
       </div>
 
-      {/* Inject pulse keyframes once */}
-      {showPulse && (() => {
-        if (typeof document !== 'undefined' && !document.getElementById('pulseEnquiryKeyframes')) {
-          const styleEl = document.createElement('style');
-          styleEl.id = 'pulseEnquiryKeyframes';
-          styleEl.textContent = '@keyframes pulseEnquiry {0%{transform:scale(.85);opacity:.6}50%{transform:scale(1.25);opacity:1}100%{transform:scale(.85);opacity:.6}}';
-          document.head.appendChild(styleEl);
+      {/* Inject keyframes once */}
+      {(() => {
+        if (typeof document !== 'undefined') {
+          if (showPulse && !document.getElementById('pulseEnquiryKeyframes')) {
+            const pulseEl = document.createElement('style');
+            pulseEl.id = 'pulseEnquiryKeyframes';
+            pulseEl.textContent = '@keyframes pulseEnquiry {0%{transform:scale(.85);opacity:.6}50%{transform:scale(1.25);opacity:1}100%{transform:scale(.85);opacity:.6}}';
+            document.head.appendChild(pulseEl);
+          }
+          if (!document.getElementById('spinKeyframes')) {
+            const spinEl = document.createElement('style');
+            spinEl.id = 'spinKeyframes';
+            spinEl.textContent = '@keyframes spin {from{transform:rotate(0deg)}to{transform:rotate(360deg)}}';
+            document.head.appendChild(spinEl);
+          }
         }
         return null;
       })()}

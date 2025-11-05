@@ -155,8 +155,8 @@ const OverridePills: React.FC<OverridePillsProps> = ({
           break;
       }
 
-      const response = await fetch('/api/updateInstructionStatus', {
-        method: 'PUT',
+      const response = await fetch('/api/update-instruction-status', {
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },

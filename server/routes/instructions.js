@@ -289,7 +289,8 @@ router.get('/', async (req, res) => {
       paymentsResult,
       mattersResult,
       dealsForInstructionsResult,
-      jointClientsResult
+      jointClientsResult,
+      pitchContentResult
     ] = await Promise.all([
       instructionRefs.length
         ? runQuery((request, s) => {
@@ -339,6 +340,13 @@ router.get('/', async (req, res) => {
             bind(request, s.Int);
             return request.query(`SELECT * FROM DealJointClients WHERE DealId IN (${clause}) ORDER BY DealJointClientId`);
           })
+        : Promise.resolve(emptyRecordset),
+      dealIds.length
+        ? runQuery((request, s) => {
+            const { clause, bind } = createInClause(dealIds, 'pitchDeal');
+            bind(request, s.Int);
+            return request.query(`SELECT * FROM PitchContent WHERE DealId IN (${clause}) ORDER BY CreatedAt DESC`);
+          })
         : Promise.resolve(emptyRecordset)
     ]);
 
@@ -348,6 +356,7 @@ router.get('/', async (req, res) => {
     const paymentsByRef = groupByKey(paymentsResult.recordset, 'instruction_ref');
     const mattersByRef = groupByKey(mattersResult.recordset, 'InstructionRef');
     const jointClientsByDeal = groupByKey(jointClientsResult.recordset, 'DealId');
+    const pitchContentByDeal = groupByKey(pitchContentResult.recordset, 'DealId');
 
     const dealsCatalog = new Map();
     for (const dealItem of deals) {
@@ -369,6 +378,9 @@ router.get('/', async (req, res) => {
         return;
       }
       dealItem.jointClients = jointClientsByDeal.get(dealItem.DealId) || [];
+      // Attach pitch content if available (take most recent)
+      const pitchContents = pitchContentByDeal.get(dealItem.DealId) || [];
+      dealItem.pitchContent = pitchContents.length > 0 ? pitchContents[0] : null;
     };
 
     dealsCatalog.forEach(enrichDeal);

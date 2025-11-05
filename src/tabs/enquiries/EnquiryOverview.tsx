@@ -280,7 +280,7 @@ const EnquiryOverview: React.FC<EnquiryOverviewProps> = ({
               onClick={(e) => {
                 e.stopPropagation(); // Prevent triggering parent click handlers
                 window.location.href = enquiry.Email
-                  ? `mailto:${enquiry.Email}?subject=Your%20Enquiry&bcc=1day@followupthen.com`
+                  ? `mailto:${enquiry.Email}?subject=Your%20Enquiry`
                   : '#';
               }}
               title="Email"

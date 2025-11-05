@@ -51,8 +51,9 @@ export const getActionableInstructions = (
             } else if (poidPassed || eidResult === 'passed') {
                 verifyIdStatus = 'complete';  
             } else {
-                // Stage complete but no clear result - assume review needed
-                verifyIdStatus = 'review';
+                // Stage complete but no clear result should be treated as "received"
+                // so the UI prompts to Verify ID rather than incorrectly showing Review.
+                verifyIdStatus = 'received';
             }
         } else if (!eid && (!item.electronicIDChecks || item.electronicIDChecks.length === 0)) {
             const proofOfIdComplete = instruction?.proofOfIdComplete || instruction?.ProofOfIdComplete;
@@ -63,7 +64,10 @@ export const getActionableInstructions = (
             verifyIdStatus = 'review';
         }
         
-        const documentStatus = instruction.DocumentsReceived ? 'complete' : 'pending';
+        // Documents are optional and typically arrive with payment. Once paid, don't block on docs.
+        const documentStatus = instruction.DocumentsReceived
+            ? 'complete'
+            : (paymentStatus === 'complete' ? 'complete' : 'pending');
         
         const risk = item.riskAssessments && item.riskAssessments[0];
         const riskResultRaw = risk?.RiskAssessmentResult?.toString().toLowerCase() ?? "";
@@ -75,14 +79,16 @@ export const getActionableInstructions = (
         const nextActionStep = 
             verifyIdStatus !== 'complete' ? 'id' :
             paymentStatus !== 'complete' ? 'payment' :
-            documentStatus !== 'complete' ? 'documents' :
+            // Documents are non-blocking once payment is complete; don't gate flow on docs.
             riskStatus !== 'complete' ? 'risk' :
             'ccl'; // Include CCL as final step
 
         // For localhost, add matter opening after core workflow steps (ID + payment)
-        const needsMatterOpening = isLocalhost && matterLinked && 
-            verifyIdStatus === 'complete' && 
-            paymentStatus === 'complete';
+        // Only suggest Matter Opening (dev helper) after ID, payment, and risk are complete, and only if not already linked.
+        const needsMatterOpening = isLocalhost && !matterLinked &&
+            verifyIdStatus === 'complete' &&
+            paymentStatus === 'complete' &&
+            riskStatus === 'complete';
 
         // Check if any steps need review (red status)
         const hasIdReview = verifyIdStatus === 'review';

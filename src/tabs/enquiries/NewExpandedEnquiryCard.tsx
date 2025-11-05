@@ -413,7 +413,7 @@ const NewExpandedEnquiryCard: React.FC<NewExpandedEnquiryCardProps> = ({
               onClick={(e) => {
                 e.stopPropagation();
                 window.location.href = enquiry.email
-                  ? `mailto:${enquiry.email}?subject=Your%20Enquiry&bcc=1day@followupthen.com`
+                  ? `mailto:${enquiry.email}?subject=Your%20Enquiry`
                   : '#';
               }}
               title="Email"

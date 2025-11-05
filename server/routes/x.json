@@ -1,0 +1,18 @@
+[
+  {
+    "PitchContentId": 1,
+    "DealId": 501,
+    "InstructionRef": null,
+    "ProspectId": 208,
+    "Amount": 1500.00,
+    "ServiceDescription": "Initial informal steer; scope to be confirmed after call",
+    "EmailSubject": "Your Enquiry",
+    "EmailBody": "Hello Luke,\n\nThank you for your enquiry to Helix Law. We're a specialist firm of solicitors and we only deal with litigation and disputes. We act nationally.\n\nTo confirm our instructions please click <a href=\"https://instruct.helix-law.com/pitch\" class=\"instruct-link\" style=\"color: #3690CE; text-decoration: underline;\" target=\"_blank\" rel=\"noopener noreferrer\">Instruct Helix Law</a>. This single link will verify your identity, request core documents and allow you to pay our funds on account.\n\nAs soon as you have completed this step we will be able to open a file and move this forward immediately. A retainer will be created with us when we send you our Client Care Letter in due course and it is only at that point that your instructions will be confirmed.\n\nI hope the above is helpful and look forward to assisting you with this.",
+    "EmailBodyHtml": "Hello Luke,\n\nThank you for your enquiry to Helix Law. We're a specialist firm of solicitors and we only deal with litigation and disputes. We act nationally.\n\nTo confirm our instructions please click <a href=\"https://instruct.helix-law.com/pitch\" class=\"instruct-link\" style=\"color: #3690CE; text-decoration: underline;\" target=\"_blank\" rel=\"noopener noreferrer\">Instruct Helix Law</a>. This single link will verify your identity, request core documents and allow you to pay our funds on account.\n\nAs soon as you have completed this step we will be able to open a file and move this forward immediately. A retainer will be created with us when we send you our Client Care Letter in due course and it is only at that point that your instructions will be confirmed.\n\nI hope the above is helpful and look forward to assisting you with this.",
+    "Reminders": "[]",
+    "CreatedAt": "2025-10-31T19:27:00.9767628",
+    "CreatedBy": "LZ",
+    "LastModified": "2025-10-31T19:27:00.9767628",
+    "Notes": "test item"
+  }
+]

@@ -4,6 +4,7 @@ import { Spinner, SpinnerSize, mergeStyles, keyframes } from '@fluentui/react';
 import { FaCheck } from 'react-icons/fa';
 import ImmediateActionChip, { ImmediateActionCategory } from './ImmediateActionChip';
 import { colours } from '../../app/styles/colours';
+import { useTheme } from '../../app/functionality/ThemeContext';
 
 interface Action {
     title: string;
@@ -11,66 +12,57 @@ interface Action {
     icon: string;
     disabled?: boolean; // For greyed out production features
     category?: ImmediateActionCategory;
+    count?: number; // Badge count displayed on the right
 }
 
 interface ImmediateActionsBarProps {
-    isDarkMode: boolean;
+    isDarkMode?: boolean;
     immediateActionsReady: boolean;
     immediateActionsList: Action[];
     highlighted?: boolean;
     seamless?: boolean;
 }
 
-const ACTION_BAR_HEIGHT = 36;
+const ACTION_BAR_HEIGHT = 48;
 const HIDE_DELAY_MS = 3000; // Auto-hide delay when there is nothing to action
 
-// Distinct container for immediate actions styled as an app-level tray
+// Purpose-built container with subtle styling to blend with app
 const immediateActionsContainerStyle = (
     isDarkMode: boolean,
-    highlighted: boolean
+    highlighted: boolean,
+    hasActions: boolean
 ) =>
     mergeStyles({
-        // Position as app-level tray extending from Navigator
+        // Position within Navigator
         position: 'relative',
-        zIndex: 10, // Much lower z-index to avoid blocking navigation
+        zIndex: 1,
         
-        // Distinct tray background (darker, inkier than QuickActions in dark; softer blue tint in light)
-        background: isDarkMode
-            // Deep navy with subtle gloss to distinguish from navigator
-            ? 'linear-gradient(135deg, #0B1224 0%, #0F1B33 50%, #0B1328 100%)'
-            : 'linear-gradient(135deg, #FFFFFF 0%, #F3F7FC 100%)',
+        // Let background inherit from parent to avoid boxed feel
+        background: 'transparent',
         
-        // Subtle top hairline to separate from QuickActions while keeping a seamless feel
-        borderTop: isDarkMode
-            ? '1px solid rgba(255,255,255,0.04)'
-            : '1px solid rgba(6,23,51,0.06)',
+        // No backdrop filter
+        backdropFilter: 'none',
+        WebkitBackdropFilter: 'none',
+        
+        // Light separation only when actions present
+        borderTop: 'none',
         borderBottom: 'none',
-        borderRadius: '0', // No corner rounding
+        borderRadius: 0,
         
-        // Softer, professional shadow per style guide
-        boxShadow: isDarkMode
-            ? '0 4px 6px rgba(0, 0, 0, 0.28)'
-            : '0 4px 6px rgba(6, 23, 51, 0.07)',
+        // No shadow
+        boxShadow: 'none',
         
-    // Full width at app level
-    margin: '0',
-
-    // Layout - balanced padding above and below immediate actions
-    padding: '8px 10px',
-        transition: 'all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)',
+        // Comfortable padding
+        marginTop: '0',
+        marginLeft: '0',
+        marginRight: '0',
+        marginBottom: '0',
+        padding: hasActions ? '12px 0 16px' : '0',
+        transition: 'all 0.25s ease',
         
-        // Highlighted state for notifications
+        // Highlighted state - still subtle but slightly more visible
         ...(highlighted && {
-            transform: 'translateY(-1px)',
-            boxShadow: isDarkMode
-                ? '0 4px 8px rgba(54, 144, 206, 0.25)'
-                : '0 4px 8px rgba(54, 144, 206, 0.20)',
-            borderColor: isDarkMode 
-                ? 'rgba(54, 144, 206, 0.2)' 
-                : 'rgba(54, 144, 206, 0.15)',
-            background: isDarkMode
-                ? 'linear-gradient(135deg, #1E293B 0%, #334155 100%)'
-                : 'linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%)',
+            opacity: 1,
         }),
     });
 
@@ -86,22 +78,82 @@ const barStyle = (
         boxShadow: 'none',
         border: 'none',
         
-        // Layout
+        // Flexible layout - actions flow naturally without fixed slots
         padding: '0',
         display: 'flex',
-        flexDirection: 'row',
-    gap: '8px',
-        overflowX: 'auto',
-        msOverflowStyle: 'none',
-        scrollbarWidth: 'none',
-        alignItems: 'center',
-        height: ACTION_BAR_HEIGHT,
+        flexWrap: 'wrap',
+        gap: '10px',
+        alignItems: 'stretch',
+        minHeight: hasImmediateActions ? ACTION_BAR_HEIGHT : 'auto',
         
-        selectors: {
-            '::-webkit-scrollbar': {
-                display: 'none',
+        // Children flex to fill space elegantly
+        '& > *': {
+            flex: '1 1 auto',
+            minWidth: 160,
+            maxWidth: 240,
+        },
+        
+        // Responsive: adjust minimum card width on smaller screens
+        '@media (max-width: 768px)': {
+            gap: '8px',
+            '& > *': {
+                minWidth: 140,
+                maxWidth: 200,
             },
         },
+        '@media (max-width: 480px)': {
+            gap: '6px',
+            '& > *': {
+                minWidth: 120,
+                flex: '1 1 100%',
+            },
+        },
+    });
+
+// Success message container for "Nothing to Action" state
+const successMessageStyle = (isDarkMode: boolean) =>
+    mergeStyles({
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '16px 20px',
+        borderRadius: 10,
+        background: isDarkMode 
+            ? 'linear-gradient(135deg, rgba(115, 171, 96, 0.12), rgba(115, 171, 96, 0.06))'
+            : 'linear-gradient(135deg, rgba(115, 171, 96, 0.08), rgba(115, 171, 96, 0.04))',
+        border: isDarkMode 
+            ? '1px solid rgba(115, 171, 96, 0.25)' 
+            : '1px solid rgba(115, 171, 96, 0.2)',
+        transition: 'all 0.3s ease',
+        gap: 12,
+        minHeight: 54,
+        width: '100%',
+        boxShadow: isDarkMode
+            ? '0 2px 8px rgba(0, 0, 0, 0.2)'
+            : '0 1px 3px rgba(15, 23, 42, 0.08)',
+    });
+
+// Loading state container
+const loadingStateStyle = (isDarkMode: boolean) =>
+    mergeStyles({
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'flex-start',
+        padding: '16px 20px',
+        borderRadius: 10,
+        background: isDarkMode 
+            ? 'rgba(54, 144, 206, 0.06)'
+            : 'rgba(54, 144, 206, 0.03)',
+        border: isDarkMode 
+            ? '1px solid rgba(54, 144, 206, 0.2)' 
+            : '1px solid rgba(54, 144, 206, 0.15)',
+        minHeight: 54,
+        width: 'auto',
+        maxWidth: '100%',
+        alignSelf: 'flex-start',
+        flexShrink: 0,
+        gap: 12,
+        gridColumn: '1 / -1', // Span full width
     });
 
 const fadeInKeyframes = keyframes({
@@ -143,6 +195,30 @@ const noActionsTextClass = mergeStyles({
     animation: `${fadeInKeyframes} 0.3s ease-out`,
 });
 
+const readDarkModeFromDom = (): boolean | undefined => {
+    if (typeof document === 'undefined') {
+        return undefined;
+    }
+    const body = document.body;
+    if (!body) {
+        return undefined;
+    }
+    const themeAttr = body.dataset?.theme?.toLowerCase();
+    if (themeAttr === 'dark' || themeAttr === 'contrast') {
+        return true;
+    }
+    if (themeAttr === 'light' || themeAttr === 'default') {
+        return false;
+    }
+    if (body.classList.contains('theme-dark')) {
+        return true;
+    }
+    if (body.classList.contains('theme-light')) {
+        return false;
+    }
+    return undefined;
+};
+
 const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
     isDarkMode,
     immediateActionsReady,
@@ -150,6 +226,18 @@ const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
     highlighted = false,
     seamless = false,
 }) => {
+    const { isDarkMode: contextDarkMode } = useTheme();
+    const resolvedIsDarkMode = React.useMemo(() => {
+        if (typeof contextDarkMode === 'boolean') {
+            return contextDarkMode;
+        }
+        if (typeof isDarkMode === 'boolean') {
+            return isDarkMode;
+        }
+        const fromDom = readDarkModeFromDom();
+        return typeof fromDom === 'boolean' ? fromDom : false;
+    }, [contextDarkMode, isDarkMode]);
+
     const [visible, setVisible] = useState(true);
     const [autoHidden, setAutoHidden] = useState(false);
     const computedVisible = (immediateActionsList.length > 0 || !immediateActionsReady) ? true : visible;
@@ -197,52 +285,122 @@ const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
         };
     }, [immediateActionsReady, immediateActionsList.length]);
 
+    const hasActions = immediateActionsList.length > 0;
+
     return (
         <div
-            className={immediateActionsContainerStyle(isDarkMode, highlighted)}
+            className={immediateActionsContainerStyle(resolvedIsDarkMode, highlighted, hasActions)}
             style={{
                 height: computedVisible ? 'auto' : 0,
                 overflow: 'hidden',
                 opacity: computedVisible ? 1 : 0,
-                transform: computedVisible ? 'translateY(0)' : 'translateY(-10px)',
+                transform: computedVisible ? 'translateY(0)' : 'translateY(-8px)',
                 transition: 'height 0.3s ease, opacity 0.3s ease, transform 0.3s ease',
                 pointerEvents: (computedVisible && immediateActionsReady) ? 'auto' : 'none',
-                // When hidden (height: 0), also remove hairline and spacing to avoid visible seam in dark mode
+                // When hidden, remove all spacing
                 borderTop: computedVisible ? undefined : 'none',
                 padding: computedVisible ? undefined : 0,
                 marginTop: computedVisible ? undefined : 0,
                 marginBottom: computedVisible ? undefined : 0,
             }}
         >
-            {/* Removed animated accent; using a static label instead */}
+            {/* Header label for immediate actions */}
+            {hasActions && immediateActionsReady && (
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    marginBottom: 10,
+                    paddingBottom: 8,
+                    borderBottom: resolvedIsDarkMode 
+                        ? '1px solid rgba(148, 163, 184, 0.15)'
+                        : '1px solid rgba(0, 0, 0, 0.08)',
+                }}>
+                    <span style={{
+                        fontSize: 13,
+                        fontWeight: 700,
+                        letterSpacing: '0.5px',
+                            whiteSpace: 'nowrap',
+                        color: resolvedIsDarkMode ? '#F3F4F6' : '#0F172A',
+                        opacity: 0.9,
+                    }}>
+                        To Do
+                    </span>
+                    <span style={{
+                        marginLeft: 'auto',
+                        fontSize: 12,
+                        fontWeight: 600,
+                        padding: '2px 8px',
+                        borderRadius: 10,
+                        background: resolvedIsDarkMode 
+                            ? 'rgba(135, 243, 243, 0.2)'
+                            : 'rgba(214, 85, 65, 0.15)',
+                        color: resolvedIsDarkMode ? '#87F3F3' : '#DC2626',
+                    }}>
+                        {immediateActionsList.length} {immediateActionsList.length === 1 ? 'item' : 'items'}
+                    </span>
+                </div>
+            )}
+            
+            {/* Content area with improved states */}
             <div
                 className={barStyle(
-                    isDarkMode,
-                    immediateActionsList.length > 0,
+                    resolvedIsDarkMode,
+                    hasActions,
                     highlighted,
                     seamless
                 )}
             >
                 {!immediateActionsReady ? (
-                    <Spinner size={SpinnerSize.small} />
+                    // Loading state - clean, centered
+                    <div className={loadingStateStyle(resolvedIsDarkMode)}>
+                        <Spinner size={SpinnerSize.medium} />
+                        <span style={{ 
+                            fontSize: 14, 
+                            fontWeight: 500,
+                            color: resolvedIsDarkMode ? colours.dark.text : colours.light.text,
+                            whiteSpace: 'normal',
+                            maxWidth: '100%',
+                        }}>
+                            Checking for immediate actions...
+                        </span>
+                    </div>
                 ) : immediateActionsList.length === 0 ? (
-                    <div className={noActionsClass}>
+                    // Success state - nothing to action
+                    <div className={successMessageStyle(resolvedIsDarkMode)}>
                         <div className={noActionsIconClass}>
                             <FaCheck />
                         </div>
-                        <div className={noActionsTextClass}>Nothing to Action.</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <span style={{ 
+                                fontSize: 14, 
+                                fontWeight: 600,
+                                color: resolvedIsDarkMode ? colours.dark.text : colours.light.text,
+                            }}>
+                                All Clear
+                            </span>
+                            <span style={{ 
+                                fontSize: 12, 
+                                opacity: 0.8,
+                                color: resolvedIsDarkMode ? colours.dark.text : colours.light.text,
+                            }}>
+                                No immediate actions required at this time
+                            </span>
+                        </div>
                     </div>
                 ) : (
+                    // Actions present - display all chips naturally
                     <>
                         {immediateActionsList.map((action) => (
                             <ImmediateActionChip
                                 key={action.title}
                                 title={action.title}
                                 icon={action.icon}
-                                isDarkMode={isDarkMode}
+                                isDarkMode={resolvedIsDarkMode}
                                 onClick={action.onClick}
                                 disabled={action.disabled}
                                 category={action.category}
+                                count={action.count}
                             />
                         ))}
                     </>

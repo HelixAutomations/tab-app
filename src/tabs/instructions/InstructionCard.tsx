@@ -6,6 +6,8 @@ import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import OperationStatusToast from '../enquiries/pitch-builder/OperationStatusToast';
 import { TeamData } from '../../app/functionality/types';
+import { ProgressIndicator } from '../../components/feedback/FeedbackComponents';
+import { createTransition, ANIMATION_DURATION, EASING } from '../../app/styles/animations';
 import {
   FaUser,
   FaUsers,
@@ -59,6 +61,7 @@ export interface InstructionCardProps {
   instruction: any | null;
   index: number;
   selected?: boolean;
+  anySelected?: boolean;
   onSelect?: () => void;
   onToggle?: () => void;
   expanded?: boolean;
@@ -76,6 +79,13 @@ export interface InstructionCardProps {
     firstName?: string;
     lastName?: string;
     PitchedBy?: string;
+    pitchContent?: {
+      EmailSubject?: string;
+      EmailBody?: string;
+      EmailBodyHtml?: string;
+      CreatedAt?: string;
+      CreatedBy?: string;
+    } | null;
   };
   onDealEdit?: (dealId: number, updates: { ServiceDescription?: string; Amount?: number }) => Promise<void>;
   prospectId?: number;
@@ -181,6 +191,7 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
   instruction,
   index,
   selected = false,
+  anySelected = false,
   onSelect,
   onToggle,
   expanded = false,
@@ -351,8 +362,8 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
 
       const { stage, internalStatus } = statusMapping[status];
 
-      const response = await fetch('/api/updateInstructionStatus', {
-        method: 'PUT',
+      const response = await fetch('/api/update-instruction-status', {
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
@@ -513,6 +524,10 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
           60%{box-shadow:0 0 0 10px rgba(54,144,206,0);}
           100%{box-shadow:0 0 0 0 rgba(54,144,206,0);}
         }
+        @keyframes subtlePulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.85; transform: scale(1.02); }
+        }
         @keyframes spin {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
@@ -536,6 +551,39 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
             opacity: 1;
             transform: translateY(0);
           }
+        }
+        
+        /* Chip hover expand animation */
+        .instruction-chip {
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        }
+        
+        .instruction-chip-label {
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        }
+        
+        .instruction-chip:hover {
+          gap: 6px !important;
+          padding: 4px 10px !important;
+          box-shadow: 0 2px 6px rgba(54, 144, 206, 0.15) !important;
+          opacity: 0.95 !important;
+        }
+        
+        .instruction-chip:hover .instruction-chip-label {
+          max-width: 200px !important;
+          opacity: 1 !important;
+          transform: translateX(0) !important;
+        }
+        
+        .instruction-chip-wrapper.expanded .instruction-chip {
+          gap: 6px !important;
+          padding: 4px 10px !important;
+        }
+        
+        .instruction-chip-wrapper.expanded .instruction-chip-label {
+          max-width: 200px !important;
+          opacity: 1 !important;
+          transform: translateX(0) !important;
         }
       `;
       document.head.appendChild(styleTag);
@@ -618,9 +666,17 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
     // Get the most recent payment
     const latestPayment = paymentData[0]; // Already sorted by created_at DESC in API
     
-    // A payment is complete if both payment_status is 'succeeded' AND internal_status is 'completed' or 'paid'
-    if (latestPayment.payment_status === 'succeeded' && 
+    // A payment is complete if:
+    // - payment_status is 'succeeded', 'confirmed', or 'requires_capture' AND internal_status is 'completed' or 'paid'
+    // - OR internal_status is 'completed' or 'paid' regardless of payment_status
+    if ((latestPayment.payment_status === 'succeeded' || 
+         latestPayment.payment_status === 'confirmed' ||
+         latestPayment.payment_status === 'requires_capture') && 
         (latestPayment.internal_status === 'completed' || latestPayment.internal_status === 'paid')) {
+      return 'complete';
+    }
+    // Also mark as complete if internal_status shows completion even without gateway success
+    if (latestPayment.internal_status === 'completed' || latestPayment.internal_status === 'paid') {
       return 'complete';
     }
     // Explicitly surface processing status when gateway reports it
@@ -663,6 +719,24 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
   // New pre-ID step: Instruction/Pitch capture (integrated from pitches). Complete if a deal/service exists.
   const hasDeal = !!(deal);
   const instructionCaptureStatus = hasDeal ? 'complete' : 'pending';
+
+  // Calculate instruction completion progress (0-100)
+  const calculateInstructionProgress = (): number => {
+    if (isPitchedDeal) {
+      // For pitched deals, only count the deal itself as progress
+      return hasDeal ? 100 : 0;
+    }
+    
+    const completedSteps = [
+      verifyIdStatus === 'complete',
+      paymentStatus === 'complete',
+      (documentsToUse?.length ?? 0) > 0,
+      riskStatus === 'complete',
+      matterStatus === 'complete'
+    ].filter(Boolean).length;
+    
+    return (completedSteps / 5) * 100;
+  };
 
   // Pitch date formatting (used for timeline status & detail) – use local time and fallback to deal when missing
   let pitchWhen: string | null = null;
@@ -872,11 +946,10 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
     ? null // Pitched deals don't have an auto-active next action
     : isInitialised ? 'initialised' :
     instructionCaptureStatus !== 'complete' ? 'instruction' :
-    paymentStatus !== 'complete' ? 'payment' :
-    documentStatus !== 'complete' ? 'documents' :
     verifyIdStatus !== 'complete' ? 'id' :
-    matterStatus !== 'complete' ? 'matter' : // Moved matter before risk
+    paymentStatus !== 'complete' ? 'payment' :
     riskStatus !== 'complete' ? 'risk' :
+    matterStatus !== 'complete' ? 'matter' :
     cclStatus !== 'complete' ? 'ccl' : null;
 
   // Get next action label and icon
@@ -910,13 +983,17 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
     ? `#1e293b` // Solid dark blue-grey for code-like feel
     : `linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)`;
   
+  const cardBorderColor = isDarkMode 
+    ? colours.accent 
+    : (isPitchedDeal ? colours.highlight : colours.missedBlue);
+  
   const selectedBorder = isDarkMode
-    ? `1px solid ${areaColor}`
-    : `1px solid ${areaColor}`;
+    ? `1px solid ${cardBorderColor}`
+    : `1px solid ${cardBorderColor}`;
     
   const selectedShadow = isDarkMode
     ? `0 1px 3px rgba(0,0,0,0.8)` // Minimal shadow in dark mode
-    : `0 8px 32px ${areaColor}25, 0 4px 16px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.8)`;
+    : `0 8px 32px ${cardBorderColor}25, 0 4px 16px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.8)`;
   
   const cardClass = mergeStyles({
     position: 'relative',
@@ -925,7 +1002,7 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
     background: selected 
       ? selectedBg
       : (isDarkMode ? '#0f172a' : bgGradientLight), // Solid dark background instead of gradient
-    opacity: 1,
+    opacity: anySelected && !selected ? 0.8 : 1,
     // Responsive padding
     '@media (max-width: 768px)': {
       padding: '10px 14px',
@@ -937,7 +1014,7 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
     border: selected || clickedForActions 
       ? selectedBorder
       : `1px solid ${isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(0,0,0,0.08)'}`,
-    borderLeft: `2px solid ${selected ? areaColor : (isDarkMode ? areaColor : `${areaColor}60`)}`, // Override just the left side
+    borderLeft: `2px solid ${cardBorderColor}${selected ? '' : (isDarkMode ? '' : '60')}`,
     boxShadow: selected
       ? selectedShadow
       : (isDarkMode ? 'none' : '0 4px 6px rgba(0, 0, 0, 0.07)'),
@@ -955,16 +1032,16 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
       ':hover': {
         // no transform on hover
         boxShadow: selected 
-          ? (isDarkMode ? `0 2px 8px rgba(0,0,0,0.9)` : `0 12px 40px ${areaColor}50, 0 4px 12px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.2)`)
+          ? (isDarkMode ? `0 2px 8px rgba(0,0,0,0.9)` : `0 12px 40px ${cardBorderColor}50, 0 4px 12px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.2)`)
           : (isDarkMode ? '0 1px 3px rgba(0,0,0,0.6)' : '0 8px 24px rgba(0,0,0,0.12)'),
-        border: `1px solid ${areaColor}`, // Change the main border to area color on hover
-        borderLeft: `2px solid ${areaColor}`, // Keep left border consistent
+        border: `1px solid ${cardBorderColor}`,
+        borderLeft: `2px solid ${cardBorderColor}`,
       },
       ':active': { },
       ':focus-within': { 
-        outline: `2px solid ${areaColor}40`, // Thinner outline
+        outline: `2px solid ${cardBorderColor}40`,
         outlineOffset: '2px',
-        borderColor: areaColor 
+        borderColor: cardBorderColor 
       },
     },
   });
@@ -1056,9 +1133,6 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
           {selected && <Icon iconName="CheckMark" styles={{ root: { fontSize: 12, color: '#fff' } }} />}
         </button>
       )}
-
-      {/* Left accent bar */}
-      <span style={{ position: 'absolute', top: 0, left: 0, bottom: 0, width: 2, background: areaColor, opacity: .95, pointerEvents: 'none' }} />
       
   {/* Header: Primary identifier + area chip */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6, paddingLeft: onToggle ? 26 : 0, justifyContent: 'space-between' }}>
@@ -1178,43 +1252,45 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
           })()}
           </span>
         </div>
-        {areaOfWork && (
+      </div>
+
+      {/* Date and Area badge - top right positioned like enquiry cards */}
+      <div style={{
+        position: 'absolute',
+        top: 10,
+        right: 10,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '6px 12px',
+        borderRadius: 8,
+        background: isDarkMode 
+          ? 'rgba(15, 23, 42, 0.95)' 
+          : 'rgba(255, 255, 255, 0.95)',
+        border: `1px solid ${areaColor}`,
+        fontSize: 10.5,
+        fontWeight: 500,
+        opacity: 0.97,
+        transform: selected ? 'translateX(0) scale(1)' : 'translateX(0) scale(1)',
+        transition: 'opacity 0.35s, transform 0.35s, background 0.3s, border-color 0.3s',
+        boxShadow: 'none',
+        zIndex: 1
+      }}>
+        {/* Area badge with dropdown */}
+        <div style={{ position: 'relative' }}>
           <div
             style={{
-              marginLeft: 'auto',
-              padding: '6px 12px',
-              borderRadius: 14,
-              fontSize: 11,
-              fontWeight: 700,
-              color: selected 
-                ? (isDarkMode ? '#ffffff' : areaColor)
-                : areaColor,
-              border: selected
-                ? (isDarkMode ? `1px solid ${areaColor}` : `1px solid ${areaColor}`) // Thinner border
-                : `1px solid ${areaColor}`,
-              backgroundColor: selected
-                ? (isDarkMode ? `${areaColor}20` : `${areaColor}10`)
-                : 'transparent',
-              textTransform: 'uppercase',
-              letterSpacing: 0.6,
-              whiteSpace: 'nowrap',
               display: 'flex',
               alignItems: 'center',
-              gap: '6px',
-              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-              boxShadow: 'none' // Simplified - no shadows
-            }}
-            onMouseEnter={(e) => {
-              if (!selected) {
-                e.currentTarget.style.backgroundColor = `${areaColor}12`;
-                e.currentTarget.style.boxShadow = 'none'; // No shadows on hover
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (!selected) {
-                e.currentTarget.style.backgroundColor = 'transparent';
-                e.currentTarget.style.boxShadow = 'none';
-              }
+              gap: 4,
+              color: areaColor,
+              padding: '2px 4px',
+              borderRadius: 5,
+              cursor: 'pointer',
+              transition: '0.2s',
+              background: 'transparent',
+              opacity: 1,
+              pointerEvents: 'auto'
             }}
           >
             <Icon 
@@ -1222,66 +1298,100 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
               styles={{ 
                 root: { 
                   fontSize: '12px', 
-                  color: areaColor,
-                  opacity: 0.9,
-                  display: 'flex',
-                  alignItems: 'center',
-                  lineHeight: 1
+                  color: areaColor
                 } 
               }} 
             />
             <span style={{ 
-              display: 'flex',
-              alignItems: 'center',
-              lineHeight: 1
+              textTransform: 'uppercase',
+              letterSpacing: 0.5,
+              fontSize: 10.5,
+              fontWeight: 600
             }}>
               {getAreaDisplayText(areaOfWork)}
             </span>
-            
-            {/* Simple status indicator dot */}
-            {selected && (
-              <>
-                <span style={{ 
-                  width: 3, 
-                  height: 3, 
-                  borderRadius: '50%', 
-                  backgroundColor: isDarkMode ? 'rgba(255,255,255,0.5)' : `${areaColor}80`,
-                  marginLeft: 2
-                }} />
-                <span style={{
-                  fontSize: 9,
-                  fontWeight: 500,
-                  opacity: 0.8,
-                  textTransform: 'none',
-                  letterSpacing: 0.3
-                }}>
-                  {(() => {
-                    // Show instruction status or date info
-                    if (instruction?.InstructionRef) {
-                      return `#${instruction.InstructionRef.toString().slice(-4)}`;
-                    }
-                    if (instruction?.Created_Date) {
-                      try {
-                        const date = new Date(instruction.Created_Date);
-                        const now = new Date();
-                        const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
-                        if (diffDays === 0) return 'Today';
-                        if (diffDays === 1) return '1d';
-                        if (diffDays < 7) return `${diffDays}d`;
-                        if (diffDays < 30) return `${Math.floor(diffDays / 7)}w`;
-                        return `${Math.floor(diffDays / 30)}m`;
-                      } catch {
-                        return 'Active';
-                      }
-                    }
-                    return 'Active';
-                  })()}
-                </span>
-              </>
-            )}
+            <Icon 
+              iconName="ChevronDown" 
+              styles={{ 
+                root: { 
+                  fontSize: '10px', 
+                  color: areaColor
+                } 
+              }} 
+            />
           </div>
-        )}
-        
+        </div>
+
+        {/* Separator dot */}
+        <span style={{
+          width: 2,
+          height: 2,
+          borderRadius: '50%',
+          background: `${areaColor}50`
+        }} />
+
+        {/* Date chips */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          flexShrink: 0,
+          whiteSpace: 'nowrap',
+          color: isDarkMode ? 'rgba(255,255,255,0.65)' : 'rgba(76, 90, 110, 0.85)',
+          fontSize: '9.5px'
+        }}>
+          {(() => {
+            // Get instruction date
+            const instructionDate = instruction?.Date_Created || instruction?.date_created || instruction?.InstructionDate || instruction?.instructionDate || instruction?.Created_Date || instruction?.DateCreated || deal?.PitchedDate;
+            if (instructionDate) {
+              try {
+                const date = new Date(instructionDate);
+                if (!isNaN(date.getTime())) {
+                  const formattedDate = format(date, 'd MMM');
+                  const relativeTime = formatDistanceToNow(date, { addSuffix: false })
+                    .replace(' days', 'd').replace(' day', 'd')
+                    .replace(' weeks', 'w').replace(' week', 'w')
+                    .replace(' months', 'm').replace(' month', 'm')
+                    .replace(' years', 'y').replace(' year', 'y')
+                    .replace('about ', '').replace('over ', '~')
+                    .toUpperCase();
+                  return (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                      <span style={{
+                        whiteSpace: 'nowrap',
+                        color: isDarkMode ? 'rgba(255,255,255,0.88)' : 'rgba(18, 34, 54, 0.88)'
+                      }}>
+                        {formattedDate}
+                      </span>
+                      <span style={{
+                        fontSize: '9.5px',
+                        color: 'rgba(117, 132, 158, 0.95)',
+                        fontWeight: 500,
+                        letterSpacing: '0.5px',
+                        userSelect: 'all',
+                        fontFamily: 'Consolas, Monaco, monospace',
+                        background: 'rgba(148, 174, 220, 0.12)',
+                        borderRadius: '4px',
+                        padding: '2px 6px',
+                        display: 'inline-block',
+                        whiteSpace: 'nowrap',
+                        verticalAlign: 'middle',
+                        opacity: 0.95
+                      }}
+                      title={instructionDate}
+                      >
+                        {relativeTime}
+                      </span>
+                    </div>
+                  );
+                }
+              } catch (e) {
+                // Invalid date
+              }
+            }
+            return null;
+          })()}
+        </div>
       </div>
 
       {/* Meta: contact + identifiers (chips) */}
@@ -1303,54 +1413,31 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
           const contactValue = solicitorContact;
 
           const chipBase = {
-            color: selected 
-              ? (isDarkMode ? '#ffffff' : '#ffffff') // White text for both when selected
-              : (isDarkMode ? '#e2e8f0' : 'rgba(0,0,0,0.7)'), // Higher contrast text
-            fontSize: '12px',
+            color: isDarkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)',
+            fontSize: '11px',
             cursor: 'pointer' as const,
-            padding: '6px 12px', // constant padding to avoid size jump
-            borderRadius: '14px', // constant radius
-            transition: 'color 0.3s ease, background-color 0.3s ease, border-color 0.3s ease',
+            padding: '3px 6px',
+            borderRadius: '4px',
+            transition: 'all 0.2s ease',
             display: 'flex',
             alignItems: 'center',
-            gap: '8px',
-            border: selected 
-              ? (isDarkMode ? `1px solid ${colours.blue}` : `1px solid ${colours.blue}`) // Same border for both modes
-              : (isDarkMode ? '1px solid #334155' : '1px solid rgba(0,0,0,0.14)'), // Solid border in dark mode
-            backgroundColor: selected 
-              ? (isDarkMode ? '#334155' : colours.blue) // Dark slate for dark mode, blue for light mode
-              : (isDarkMode ? '#1e293b' : 'rgba(0,0,0,0.04)'), // Solid background
-            boxShadow: selected 
-              ? 'none' // No shadow in either mode for consistency
-              : 'none',
-            fontWeight: 400 // Regular weight, not bold
+            gap: '6px',
+            border: 'none',
+            backgroundColor: 'transparent',
+            boxShadow: 'none',
+            fontWeight: 400
           };
 
           const onHover = (el: HTMLElement) => {
-            if (!selected) {
-              el.style.borderColor = isDarkMode ? colours.blue : colours.blue;
-              el.style.color = colours.blue;
-              el.style.backgroundColor = isDarkMode ? '#475569' : 'rgba(59, 130, 246, 0.08)'; // Solid hover in dark mode
-              el.style.boxShadow = 'none'; // No shadow to avoid perceived growth
-            } else {
-              el.style.boxShadow = 'none';
-              el.style.backgroundColor = isDarkMode ? '#475569' : 'rgba(59, 130, 246, 0.12)';
-            }
+            el.style.color = isDarkMode ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)';
+            el.style.backgroundColor = isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
           };
           const onLeave = (el: HTMLElement) => {
-            if (!selected) {
-              el.style.color = isDarkMode ? '#e2e8f0' : 'rgba(0,0,0,0.6)';
-              el.style.borderColor = isDarkMode ? '#334155' : 'rgba(0,0,0,0.12)';
-              el.style.backgroundColor = isDarkMode ? '#1e293b' : 'rgba(0,0,0,0.04)';
-              el.style.boxShadow = 'none';
-            } else {
-              // Restore the selected chip styles from chipBase
-              el.style.boxShadow = 'none';
-              el.style.backgroundColor = isDarkMode ? '#334155' : colours.blue; // Match chipBase selected styles
-              el.style.color = '#ffffff'; // White text for selected chips
-              el.style.borderColor = colours.blue; // Blue border for selected chips
-            }
-          };          return (
+            el.style.color = isDarkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)';
+            el.style.backgroundColor = 'transparent';
+          };
+          
+          return (
             <>
               {email && (
                 <div
@@ -1361,11 +1448,12 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
                   title={`Click to copy email: ${email}`}
                 >
                   <FaEnvelope style={{ 
-                    fontSize: '12px', 
-                    color: selected ? (isDarkMode ? '#ffffff' : '#ffffff') : 'inherit', // White when selected
-                    transition: 'color 0.2s ease' 
+                    fontSize: '11px', 
+                    color: 'inherit',
+                    transition: 'color 0.2s ease',
+                    opacity: 0.7
                   }} />
-                  <span style={{ fontFamily: 'Consolas, Monaco, monospace', fontSize: '11px' }}>{email}</span>
+                  <span style={{ fontFamily: 'Consolas, Monaco, monospace', fontSize: '10px' }}>{email}</span>
                 </div>
               )}
               {phone && (
@@ -1377,11 +1465,12 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
                   title={`Click to copy phone: ${phone}`}
                 >
                   <FaPhone style={{ 
-                    fontSize: '12px', 
-                    color: selected ? (isDarkMode ? '#ffffff' : '#ffffff') : 'inherit', // White when selected
-                    transition: 'color 0.2s ease' 
+                    fontSize: '11px', 
+                    color: 'inherit',
+                    transition: 'color 0.2s ease',
+                    opacity: 0.7
                   }} />
-                  <span style={{ fontFamily: 'Consolas, Monaco, monospace', fontSize: '11px' }}>{phone}</span>
+                  <span style={{ fontFamily: 'Consolas, Monaco, monospace', fontSize: '10px' }}>{phone}</span>
                 </div>
               )}
               {instructionRefVal && (
@@ -1393,10 +1482,11 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
                   title={`Instruction Ref: ${instructionRefVal}`}
                 >
                   <FaFileAlt style={{ 
-                    fontSize: '12px',
-                    color: selected ? (isDarkMode ? '#ffffff' : '#ffffff') : 'inherit' // White when selected
+                    fontSize: '11px',
+                    color: 'inherit',
+                    opacity: 0.7
                   }} />
-                  <span style={{ fontFamily: 'Consolas, Monaco, monospace', fontSize: '11px' }}>{instructionRefVal}</span>
+                  <span style={{ fontFamily: 'Consolas, Monaco, monospace', fontSize: '10px' }}>{instructionRefVal}</span>
                 </div>
               )}
               {prospectVal && (
@@ -1408,19 +1498,18 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
                   title={`Prospect ID: ${prospectVal}`}
                 >
                   <svg 
-                    width="12" 
-                    height="12" 
+                    width="11" 
+                    height="11" 
                     viewBox="0 0 66.45 100" 
                     style={{ 
-                      fill: selected 
-                        ? (isDarkMode ? '#ffffff' : '#ffffff') // White when selected
-                        : (isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.7)')
+                      fill: 'currentColor',
+                      opacity: 0.7
                     }}
                   >
                     <path d="m.33,100c0-3.95-.23-7.57.13-11.14.12-1.21,1.53-2.55,2.68-3.37,6.52-4.62,13.15-9.1,19.73-13.64,10.22-7.05,20.43-14.12,30.64-21.18.21-.14.39-.32.69-.57-5.82-4.03-11.55-8-17.27-11.98C25.76,30.37,14.64,22.57,3.44,14.88.97,13.19-.08,11.07.02,8.16.1,5.57.04,2.97.04,0c.72.41,1.16.62,1.56.9,10.33,7.17,20.66,14.35,30.99,21.52,9.89,6.87,19.75,13.79,29.68,20.59,3.26,2.23,4.78,5.03,3.97,8.97-.42,2.05-1.54,3.59-3.24,4.77-8.94,6.18-17.88,12.36-26.82,18.55-10.91,7.55-21.82,15.1-32.73,22.65-.98.68-2,1.32-3.12,2.05Z"/>
                     <path d="m36.11,48.93c-2.74,1.6-5.04,3.21-7.56,4.35-2.25,1.03-4.37-.1-6.27-1.4-5.1-3.49-10.17-7.01-15.25-10.53-2.01-1.39-4.05-2.76-5.99-4.25-.5-.38-.91-1.17-.96-1.8-.13-1.59-.06-3.19-.03-4.79.02-1.32.25-2.57,1.57-3.27,1.4-.74,2.72-.36,3.91.46,3.44,2.33,6.85,4.7,10.26,7.06,6.22,4.3,12.43,8.6,18.65,12.91.39.27.76.57,1.67,1.25Z"/>
                   </svg>
-                  <span style={{ fontFamily: 'Consolas, Monaco, monospace', fontSize: '11px' }}>{prospectVal}</span>
+                  <span style={{ fontFamily: 'Consolas, Monaco, monospace', fontSize: '10px' }}>{prospectVal}</span>
                 </div>
               )}
               {contactValue && (
@@ -1432,8 +1521,9 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
                   title={`Solicitor/Contact: ${contactValue}`}
                 >
                   <FaUser style={{ 
-                    fontSize: '12px',
-                    color: selected ? (isDarkMode ? '#ffffff' : '#ffffff') : 'inherit' // White when selected
+                    fontSize: '11px',
+                    color: 'inherit',
+                    opacity: 0.7
                   }} />
                   <span style={{ fontFamily: 'Consolas, Monaco, monospace', fontSize: '11px' }}>
                     {(() => {
@@ -1599,6 +1689,29 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
               }}>
                 {deal?.ServiceDescription || 'No service description'}
               </div>
+              {/* Show pitch email subject if available */}
+              {deal?.pitchContent?.EmailSubject && (
+                <div style={{
+                  fontSize: 11,
+                  fontWeight: 400,
+                  color: isDarkMode ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)',
+                  lineHeight: 1.3,
+                  marginTop: 4,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6
+                }}>
+                  <FaEnvelope style={{ fontSize: 10 }} />
+                  <span style={{ 
+                    display: '-webkit-box',
+                    WebkitLineClamp: 1,
+                    WebkitBoxOrient: 'vertical' as any,
+                    overflow: 'hidden'
+                  }}>
+                    {deal.pitchContent.EmailSubject}
+                  </span>
+                </div>
+              )}
               <div style={{
                 fontSize: 12,
                 fontWeight: 700,
@@ -1613,6 +1726,22 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Progress Indicator */}
+      {!isPitchedDeal && calculateInstructionProgress() > 0 && (
+        <div style={{ 
+          marginTop: 8,
+          marginLeft: onToggle ? 26 : 0,
+        }}>
+          <ProgressIndicator
+            value={calculateInstructionProgress()}
+            showPercentage={false}
+            size="small"
+            color={cardBorderColor}
+            isDarkMode={isDarkMode}
+          />
         </div>
       )}
 
@@ -1655,7 +1784,7 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
             gap: '8px',
             whiteSpace: 'nowrap',
             width: '100%',
-            overflow: 'hidden'
+            overflow: 'visible'
           }}>
           {(() => {
             const keySteps = [] as Array<{ key: string; label: string; status: string; icon: React.ReactNode; clickable: boolean; onClick: (() => void) | null }>;
@@ -1685,11 +1814,15 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
               onClick: (() => onOpenWorkbench?.('payments')) as any
             });
             
-            // Documents
+            // Documents - don't show as pending if payment complete (same session)
             keySteps.push({
               key: 'documents',
               label: 'Docs',
-              status: documentsToUse && documentsToUse.length > 0 ? `${documentsToUse.length} Uploaded` : 'Pending',
+              status: documentsToUse && documentsToUse.length > 0 
+                ? `${documentsToUse.length} Uploaded` 
+                : paymentStatus === 'complete' 
+                  ? 'Not Required' 
+                  : 'Pending',
               icon: <FaFileAlt />,
               clickable: true,
               onClick: (() => onOpenWorkbench?.('documents')) as any
@@ -1759,26 +1892,55 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
                 }
               })();
 
+              const isNextAction = step.key === nextActionStep;
+              
               return (
-                <div key={step.key} style={{ flex: '0 1 auto', minWidth: 0 }}>
+                <div key={step.key} style={{ flex: '0 1 auto', minWidth: 0 }} className={`instruction-chip-wrapper ${selected ? 'expanded' : ''}`}>
                   <div
+                    className="instruction-chip"
                     style={{
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      gap: '6px',
+                      gap: selected ? '6px' : '0px',
                       cursor: step.clickable ? 'pointer' : 'default',
-                      padding: '6px clamp(6px, 1vw, 10px)', // constant padding
-                      borderRadius: 12,
-                      backgroundColor: 'transparent',
-                      border: 'none',
-                      transition: 'color 0.2s ease',
-                      minHeight: '28px', // constant height
+                      padding: selected ? '4px 10px' : '6px',
+                      borderRadius: 6,
+                      backgroundColor: (() => {
+                        const statusText = step.status.toLowerCase();
+                        if (statusText.includes('complete') || statusText.includes('paid') || statusText.includes('assessed') || statusText.includes('opened') || statusText.includes('verified') || statusText.includes('uploaded') || statusText.includes('generated')) {
+                          return isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)';
+                        } else if (statusText.includes('review') || statusText.includes('high risk')) {
+                          return isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)';
+                        } else if (statusText.includes('processing') || statusText.includes('under review')) {
+                          return isDarkMode ? 'rgba(251, 191, 36, 0.15)' : 'rgba(251, 191, 36, 0.1)';
+                        } else {
+                          return isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.1)';
+                        }
+                      })(),
+                      border: (() => {
+                        // Next action gets highlighted border
+                        if (isNextAction) {
+                          return `1px solid ${cardBorderColor}`;
+                        }
+                        const statusText = step.status.toLowerCase();
+                        if (statusText.includes('complete') || statusText.includes('paid') || statusText.includes('assessed') || statusText.includes('opened') || statusText.includes('verified') || statusText.includes('uploaded') || statusText.includes('generated')) {
+                          return `1px solid ${colours.green}30`;
+                        } else if (statusText.includes('review') || statusText.includes('high risk')) {
+                          return '1px solid rgba(239, 68, 68, 0.3)';
+                        } else if (statusText.includes('processing') || statusText.includes('under review')) {
+                          return '1px solid rgba(251, 191, 36, 0.3)';
+                        } else {
+                          return '1px solid rgba(148, 163, 184, 0.3)';
+                        }
+                      })(),
+                      boxShadow: 'none',
+                      animation: isNextAction ? 'subtlePulse 2s ease-in-out infinite' : 'none',
+                      minHeight: '24px',
                       minWidth: 0,
                       flex: '0 1 auto',
                       position: 'relative',
-                      overflow: 'visible',
-                      boxShadow: 'none',
+                      overflow: 'hidden',
                       fontWeight: 600,
                       whiteSpace: 'nowrap'
                     }}
@@ -1788,86 +1950,55 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
                         step.onClick();
                       }
                     }}
-                    onMouseEnter={(e) => {
-                      // no transform scaling on hover to avoid size changes
-                      // Show status text on pill hover
-                      const statusEl = e.currentTarget.querySelector('.status-text') as HTMLElement;
-                      if (statusEl) {
-                        statusEl.style.display = 'block';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      // no transform scaling reset needed
-                      // Hide status text when not hovering
-                      const statusEl = e.currentTarget.querySelector('.status-text') as HTMLElement;
-                      if (statusEl) {
-                        statusEl.style.display = 'none';
-                      }
-                    }}
                   >
                     {/* Icon with status color */}
                     <div style={{
-                      fontSize: '12px',
+                      fontSize: '10px',
                       color: (() => {
                         const statusText = step.status.toLowerCase();
                         if (statusText.includes('complete') || statusText.includes('paid') || statusText.includes('assessed') || statusText.includes('opened') || statusText.includes('verified') || statusText.includes('uploaded') || statusText.includes('generated')) {
-                          return colours.green; // Use Helix green for complete
+                          return colours.green;
                         } else if (statusText.includes('review') || statusText.includes('high risk')) {
-                          return '#ef4444'; // Red for review/issues
+                          return '#ef4444';
                         } else if (statusText.includes('processing') || statusText.includes('under review')) {
-                          return '#f59e0b'; // Amber for in progress
+                          return '#f59e0b';
                         } else {
-                          return isDarkMode ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)'; // Grey for pending/not ready
+                          return colours.highlight;
                         }
-                      })()
+                      })(),
+                      flexShrink: 0
                     }}>
                       {step.icon}
                     </div>
                     
-                    {/* Label - always visible */}
-                    <div style={{
-                      fontSize: 'clamp(10px, 1vw, 11px)',
-                      fontWeight: 600,
-                      color: selected 
-                        ? (isDarkMode ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.8)')
-                        : (isDarkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)'),
-                      letterSpacing: '0.2px',
-                      whiteSpace: 'nowrap',
-                      transition: 'all 0.3s ease'
-                    }}>
-                      {step.label}
-                    </div>
-                    
-                    {/* Status text - only show on pill hover */}
+                    {/* Label and Status - animated expand/collapse */}
                     <div 
-                      className="status-text"
+                      className="instruction-chip-label"
                       style={{
-                        display: 'none',
-                        fontSize: 'clamp(9px, 0.9vw, 10px)',
-                        fontWeight: 500,
+                        fontSize: '9px',
+                        fontWeight: 600,
                         color: (() => {
                           const statusText = step.status.toLowerCase();
                           if (statusText.includes('complete') || statusText.includes('paid') || statusText.includes('assessed') || statusText.includes('opened') || statusText.includes('verified') || statusText.includes('uploaded') || statusText.includes('generated')) {
-                            return colours.green; // Use Helix green for complete
+                            return colours.green;
                           } else if (statusText.includes('review') || statusText.includes('high risk')) {
-                            return '#ef4444'; // Red for review/issues
+                            return '#ef4444';
                           } else if (statusText.includes('processing') || statusText.includes('under review')) {
-                            return '#f59e0b'; // Amber for in progress
+                            return '#f59e0b';
                           } else {
-                            return selected 
-                              ? (isDarkMode ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)')
-                              : (isDarkMode ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)'); // Grey for pending/not ready
+                            return colours.highlight;
                           }
                         })(),
-                        lineHeight: 1.1,
-                        marginLeft: '4px',
-                        animation: 'fadeIn 0.2s ease-out',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.3px',
                         whiteSpace: 'nowrap',
-                        textShadow: selected 
-                          ? (isDarkMode ? '0 1px 2px rgba(0,0,0,0.3)' : '0 1px 2px rgba(255,255,255,0.8)') 
-                          : 'none'
-                      }}>
-                      {step.status}
+                        maxWidth: selected ? '200px' : '0px',
+                        opacity: selected ? 1 : 0,
+                        overflow: 'hidden',
+                        transform: selected ? 'translateX(0)' : 'translateX(-10px)'
+                      }}
+                    >
+                      {step.label} {step.status}
                     </div>
                   </div>
 

@@ -647,6 +647,38 @@ const MatterOperations: React.FC<MatterOperationsProps> = ({
             </span>
           </div>
 
+          {matterData.isLoading ? (
+            <div style={{ 
+              padding: '40px 20px', 
+              textAlign: 'center',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 12
+            }}>
+              <div style={{ 
+                width: 32, 
+                height: 32, 
+                border: `3px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
+                borderTop: `3px solid ${colours.blue}`,
+                borderRadius: '50%',
+                animation: 'spin 1s linear infinite'
+              }} />
+              <div style={{ 
+                fontSize: 12, 
+                color: mutedText(isDarkMode),
+                fontWeight: 500
+              }}>
+                Loading matter from Clio...
+              </div>
+              <style>{`
+                @keyframes spin {
+                  0% { transform: rotate(0deg); }
+                  100% { transform: rotate(360deg); }
+                }
+              `}</style>
+            </div>
+          ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div style={{
               display: 'flex',
@@ -830,6 +862,7 @@ const MatterOperations: React.FC<MatterOperationsProps> = ({
               </div>
             )}
           </div>
+          )}
         </div>
       </div>
       <style>

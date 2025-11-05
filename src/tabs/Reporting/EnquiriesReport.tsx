@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   DatePicker,
   DayOfWeek,
@@ -235,6 +236,7 @@ const PieChartComponent: React.FC<{
 }> = ({ data, title, isDarkMode, type, activeFilter, onSliceClick }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [displayData, setDisplayData] = useState<PieChartData[]>([]);
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
   useEffect(() => {
     setIsLoading(true);
@@ -252,21 +254,16 @@ const PieChartComponent: React.FC<{
     }
   };
 
-  if (data.length === 0) {
-    return (
-      <div style={{ 
-        height: 220, 
-        display: 'flex', 
-        alignItems: 'center', 
-        justifyContent: 'center', 
-        opacity: 0.7,
-        color: isDarkMode ? colours.dark.text : colours.light.text,
-        transition: 'all 0.3s ease-in-out'
-      }}>
-        No data in range.
-      </div>
-    );
-  }
+  const total = useMemo(() => displayData.reduce((acc, cur) => acc + (Number(cur.value) || 0), 0), [displayData]);
+  const activeIndex = useMemo(() => {
+    if (hoveredIndex != null) return hoveredIndex;
+    if (activeFilter) {
+      const idx = displayData.findIndex(d => d.name === activeFilter);
+      return idx >= 0 ? idx : null;
+    }
+    return null;
+  }, [hoveredIndex, activeFilter, displayData]);
+  const activeEntry = activeIndex != null ? displayData[activeIndex] : null;
 
   return (
     <div style={{ 
@@ -289,16 +286,18 @@ const PieChartComponent: React.FC<{
           Loading...
         </div>
       )}
+      {displayData.length > 0 ? (
       <ResponsiveContainer width="100%" height={220}>
         <PieChart>
           <Pie
             data={displayData}
             cx="50%"
             cy="50%"
+            innerRadius={45}
             outerRadius={70}
             fill="#8884d8"
             dataKey="value"
-            label={(props) => <CustomPieLabel {...props} isDarkMode={isDarkMode} />}
+            label={false}
             labelLine={false}
             stroke={isDarkMode ? '#1f2937' : '#ffffff'}
             strokeWidth={1}
@@ -319,6 +318,8 @@ const PieChartComponent: React.FC<{
                   transition: 'all 0.3s ease-in-out',
                   cursor: 'pointer'
                 }}
+                onMouseEnter={() => setHoveredIndex(index)}
+                onMouseLeave={() => setHoveredIndex(null)}
               />
             ))}
           </Pie>
@@ -340,6 +341,49 @@ const PieChartComponent: React.FC<{
           />
         </PieChart>
       </ResponsiveContainer>
+      ) : (
+        <div style={{ 
+          height: 220, 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'center', 
+          opacity: 0.7,
+          color: isDarkMode ? colours.dark.text : colours.light.text,
+          transition: 'all 0.3s ease-in-out'
+        }}>
+          No data in range.
+        </div>
+      )}
+      {/* Center label inside donut hole */}
+      <div
+        style={{
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          textAlign: 'center',
+          pointerEvents: 'none',
+          lineHeight: 1.2
+        }}
+      >
+        <div style={{
+          fontSize: 12,
+          fontWeight: 700,
+          color: isDarkMode ? colours.dark.text : colours.light.text,
+          opacity: 0.9
+        }}>
+          {activeEntry ? activeEntry.name : title}
+        </div>
+        <div style={{
+          fontSize: 11,
+          fontWeight: 600,
+          color: activeEntry ? activeEntry.color : (isDarkMode ? colours.accent : colours.highlight)
+        }}>
+          {activeEntry
+            ? `${Math.round(activeEntry.value).toLocaleString()} • ${total > 0 ? Math.round((activeEntry.value / total) * 100) : 0}%`
+            : `Total ${Math.round(total).toLocaleString()}`}
+        </div>
+      </div>
       {activeFilter && (
         <div style={{
           position: 'absolute',
@@ -923,7 +967,7 @@ function containerStyle(isDark: boolean): React.CSSProperties {
   return {
     display: 'flex',
     flexDirection: 'column',
-    gap: 16,
+    gap: 8,
     background: 'transparent',
     padding: 0,
     minHeight: '100%',
@@ -933,10 +977,10 @@ function containerStyle(isDark: boolean): React.CSSProperties {
 function surface(isDark: boolean, overrides: React.CSSProperties = {}): React.CSSProperties {
   return {
     background: isDark ? 'rgba(15, 23, 42, 0.88)' : '#FFFFFF',
-    borderRadius: 12,
+    borderRadius: 10,
     border: `1px solid ${isDark ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.06)'}`,
     boxShadow: isDark ? '0 2px 10px rgba(0, 0, 0, 0.22)' : '0 2px 8px rgba(15, 23, 42, 0.06)',
-    padding: 16,
+    padding: 12,
     ...overrides,
   };
 }
@@ -944,7 +988,7 @@ function surface(isDark: boolean, overrides: React.CSSProperties = {}): React.CS
 const grid: React.CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(12, 1fr)',
-  gap: 12,
+  gap: 8,
 };
 
 const pill: React.CSSProperties = {
@@ -958,8 +1002,57 @@ const pill: React.CSSProperties = {
 };
 
 function sectionTitle(): React.CSSProperties {
-  return { fontSize: 16, fontWeight: 600, margin: 0 };
+  // More compact section headings
+  return { fontSize: 14, fontWeight: 600, margin: 0 };
 }
+
+// Helpers: extract email and area-of-work (AoW) from mixed legacy/new shapes
+const getEnquiryEmail = (e: any): string => {
+  const candidates = [e?.Email, e?.email, e?.Email_Address, e?.contact_email];
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim()) return c.trim();
+  }
+  return '';
+};
+
+type AowKey = 'property' | 'construction' | 'commercial' | 'employment' | 'general';
+const normalizeAow = (raw: unknown): AowKey => {
+  const s = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+  if (!s) return 'general';
+  if (s.includes('property') || s.includes('landlord') || s.includes('tenant')) return 'property';
+  if (s.includes('construct') || s.includes('builder') || s.includes('building')) return 'construction';
+  if (s.includes('commercial') || s.includes('business') || s.includes('contract')) return 'commercial';
+  if (s.includes('employment') || s.includes('dismissal') || s.includes('work')) return 'employment';
+  if ((['property','construction','commercial','employment'] as ReadonlyArray<string>).includes(s)) {
+    return s as AowKey;
+  }
+  return 'general';
+};
+
+const getEnquiryAow = (e: any): AowKey => {
+  const candidates = [
+    e?.Area_of_Work,
+    e?.area_of_work,
+    e?.Area,
+    e?.Practice,
+    e?.aow,
+    e?.service,
+  ];
+  for (const c of candidates) {
+    const n = normalizeAow(c);
+    if (n !== 'general') return n;
+  }
+  return 'general';
+};
+
+const aowMeta: Record<AowKey, { label: string; color: string; icon: string }> = {
+  // Align colours to the established Area-of-Work palette used elsewhere in the app
+  property:     { label: 'Property',     color: colours.green,  icon: 'Home' },
+  construction: { label: 'Construction', color: colours.orange, icon: 'Build' },
+  commercial:   { label: 'Commercial',   color: colours.blue,   icon: 'Briefcase' },
+  employment:   { label: 'Employment',   color: colours.yellow, icon: 'Work' },
+  general:      { label: 'General',      color: colours.cta,    icon: 'Info' },
+};
 
 const EnquiriesReport: React.FC<EnquiriesReportProps> = ({ 
   enquiries, 
@@ -977,6 +1070,13 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
   const fmtMoney0 = (v: unknown) => (isNum(v) ? `£${Number(v).toFixed(0)}` : '—');
   const fmtPct1 = (ratio: unknown) => (isNum(ratio) ? `${(Number(ratio) * 100).toFixed(1)}%` : '—');
   const fmtK1 = (v: unknown) => (isNum(v) ? `${(Number(v) / 1000).toFixed(1)}k` : '—');
+  // Normalize percent-like values that may be supplied as either a ratio (0..1) or percentage (0..100)
+  const normalizePct = (v: unknown): number | null => {
+    if (!isNum(v)) return null;
+    const n = Number(v);
+    // If value is > 1, assume it's a percentage (e.g. 3.2 means 3.2%) and convert to ratio
+    return n > 1 ? n / 100 : n;
+  };
   
   // Add CSS animations for smooth loading
   React.useEffect(() => {
@@ -1009,6 +1109,8 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
   const [sourceFilter, setSourceFilter] = useState<string | null>(null);
   const [mocFilter, setMocFilter] = useState<string | null>(null);
   const [pocFilter, setPocFilter] = useState<string | null>(null);
+  const [showMarketing, setShowMarketing] = useState<boolean>(false);
+  const [showCharts, setShowCharts] = useState<boolean>(false);
   
   // Modal state for showing underlying data
   const [modalData, setModalData] = useState<{
@@ -1319,6 +1421,90 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
 
   const filtered = useMemo(() => filteredEntries.map((entry) => entry.enquiry), [filteredEntries]);
 
+  // Temporary dedupe during platform transition: prefer Claimed/Triaged over Unclaimed, prefer v2 over legacy on ties
+  // Additionally collapse "new space" (v2) dupes that can appear within short time windows with different ids.
+  const reconciledEntries = useMemo(() => {
+    type Entry = typeof filteredEntries[number];
+    const statusRank = (e: any): number => {
+      const pocRaw = getPocRaw(e).toLowerCase();
+      if (!pocRaw || pocRaw === 'team@helix-law.com' || pocRaw === 'team' || pocRaw === 'anyone' || pocRaw === 'unassigned' || pocRaw === 'unknown' || pocRaw === 'n/a') return 0; // Unclaimed
+      if (isTriagedPoc(pocRaw)) return 1; // Triaged
+      return 2; // Claimed
+    };
+    const isV2 = (e: any): boolean => Boolean((e as any)?.aow || (e as any)?.first || (e as any)?.point_of_contact || (e as any)?.enquiry_id || (e as any)?.instructionsId);
+    const normalize = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v)).trim().toLowerCase();
+    const onlyDigits = (v: string): string => v.replace(/\D+/g, '');
+    const createdAt = (e: any): Date | null => {
+      // Try several fields across legacy/new
+      return (
+        parseDate((e as any).Date_Created) ||
+        parseDate((e as any).datetime) ||
+        parseDate((e as any).Touchpoint_Date) ||
+        parseDate((e as any).claim) ||
+        null
+      );
+    };
+    const dateKey = (e: any): string => {
+      const d = createdAt(e);
+      if (!d) return 'nodate';
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+    // Fuzzy key: collapse likely dupes created within a short window by same contact (email/phone) and AoW
+    const timeBucketKey = (d: Date | null, minutes: number = 180): string => {
+      if (!d) return 'tb:nodate';
+      const ms = minutes * 60 * 1000;
+      const bucket = Math.floor(d.getTime() / ms) * ms;
+      const bd = new Date(bucket);
+      const y = bd.getFullYear();
+      const m = String(bd.getMonth() + 1).padStart(2, '0');
+      const day = String(bd.getDate()).padStart(2, '0');
+      const hh = String(bd.getHours()).padStart(2, '0');
+      return `tb:${y}-${m}-${day}T${hh}:00`;
+    };
+    const fuzzyKey = (e: any): string => {
+      const email = normalize((e as any).Email || (e as any).email);
+      const phone = onlyDigits(normalize((e as any).Phone_Number || (e as any).phone || ''));
+      const first = normalize((e as any).First_Name || (e as any).first);
+      const last = normalize((e as any).Last_Name || (e as any).last);
+      const aow = getEnquiryAow(e);
+      const bucket = timeBucketKey(createdAt(e));
+      if (email || phone) {
+        return `fk:${email || 'noemail'}|${phone || 'nophone'}|a:${aow}|${bucket}`;
+      }
+      return `fk:nm:${first}|${last}|a:${aow}|${bucket}`;
+    };
+    // Stable key fallback (explicit ids) for when fuzzy signals are missing
+    const stableIdKey = (e: any): string | null => {
+      const explicitId = (e as any).EnquiryId || (e as any).enquiry_id || (e as any)['Unique ID'] || (e as any).Unique_ID || (e as any).ID || (e as any).id || (e as any).ConversationId || (e as any).conversation_id || (e as any).lead_id || (e as any).acid || (e as any).card_id;
+      return explicitId ? `id:${String(explicitId)}` : null;
+    };
+    // Back-compat day-level key (used when nothing else available)
+    const dayNameKey = (e: any): string => {
+      const first = normalize((e as any).First_Name || (e as any).first);
+      const last = normalize((e as any).Last_Name || (e as any).last);
+      return `nm:${first}|${last}|d:${dateKey(e)}`;
+    };
+
+    const bestByKey = new Map<string, { entry: Entry; rank: number; v2: boolean }>();
+    for (const entry of filteredEntries) {
+      const e = entry.enquiry;
+      // Prefer fuzzy grouping to collapse v2 dupes even when ids differ.
+      const key = fuzzyKey(e) || stableIdKey(e) || dayNameKey(e);
+      const rank = statusRank(e);
+      const v2 = isV2(e);
+      const existing = bestByKey.get(key);
+      if (!existing || rank > existing.rank || (rank === existing.rank && v2 && !existing.v2)) {
+        bestByKey.set(key, { entry, rank, v2 });
+      }
+    }
+    return Array.from(bestByKey.values()).map(v => v.entry);
+  }, [filteredEntries]);
+
+  const filteredDeduped = useMemo(() => reconciledEntries.map((e) => e.enquiry), [reconciledEntries]);
+
   const memberCounts = useMemo(() => {
     const counts = new Map<string, number>();
     filteredEntries.forEach(({ member }) => {
@@ -1360,7 +1546,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
     : quickRanges.find((entry) => entry.key === rangeKey)?.label ?? 'All';
 
   const stats = useMemo(() => {
-    const total = filtered.length;
+    const total = filteredDeduped.length;
     const bySource = new Map<string, number>();
     const byMOC = new Map<string, number>();
     const byPoc = new Map<string, number>();
@@ -1380,7 +1566,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
       return true;
     };
 
-    filtered.forEach((e: any) => {
+    filteredDeduped.forEach((e: any) => {
       const src = getSource(e);
       const moc = getMOC(e);
       bySource.set(src, (bySource.get(src) || 0) + 1);
@@ -1399,7 +1585,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
     const wdForRate = Math.max(1, wdRaw); // avoid divide-by-zero; do not alter displayed badge count
     const perDay = total / wdForRate;
     return { total, perDay, bySource, byMOC, byPoc, workingDays: wdRaw, claimed, unclaimed };
-  }, [filtered, range]);
+  }, [filteredDeduped, range]);
 
   const workingDaysLabel = range
     ? `${stats.workingDays} working days in selected range`
@@ -1408,7 +1594,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
   // Group recent enquiries by day for progressive loading (timeline style)
   const dayGroups = useMemo(() => {
     const groupsMap = new Map<string, any[]>();
-    for (const e of filtered) {
+    for (const e of filteredDeduped) {
       const d0 = parseDate((e as any).Touchpoint_Date);
       if (!d0 || isNaN(d0.getTime())) continue;
       const y = d0.getFullYear();
@@ -1422,7 +1608,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
     return Array.from(groupsMap.entries())
       .sort((a, b) => (a[0] < b[0] ? 1 : -1))
       .map(([date, items]) => ({ date, items }));
-  }, [filtered]);
+  }, [filteredDeduped]);
   // Infinite scroll over date groups
   const [visibleGroupCount, setVisibleGroupCount] = useState<number>(3);
   const sentinelRef = React.useRef<HTMLDivElement | null>(null);
@@ -1445,6 +1631,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
   const topSources = useMemo(() => Array.from(stats.bySource.entries()).sort((a,b)=>b[1]-a[1]).slice(0,6), [stats.bySource]);
   const topMOCs = useMemo(() => Array.from(stats.byMOC.entries()).sort((a,b)=>b[1]-a[1]).slice(0,6), [stats.byMOC]);
   const topPocs = useMemo(() => Array.from(stats.byPoc.entries()).sort((a,b)=>b[1]-a[1]).slice(0,10), [stats.byPoc]);
+  // Chart details lists: always show top 5; no expand/collapse hover needed
   
   // Pie chart data
   const sourcesPieData: PieChartData[] = useMemo(() => 
@@ -1470,15 +1657,15 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
 
   // Line chart data - dynamic aggregation based on time range
   const lineChartData = useMemo(() => {
-    if (!filtered || filtered.length === 0) return [];
+    if (!filteredDeduped || filteredDeduped.length === 0) return [];
     
     // Determine aggregation level based on rangeKey
     const getAggregationConfig = (range: RangeKey) => {
       // Calculate actual date span for the filtered data
       const getActualDateSpan = () => {
-        if (!filtered || filtered.length === 0) return 0;
+        if (!filteredDeduped || filteredDeduped.length === 0) return 0;
         
-        const dates = filtered
+        const dates = filteredDeduped
           .map(e => parseDate(e.Date_Created))
           .filter(Boolean)
           .sort((a, b) => a!.getTime() - b!.getTime());
@@ -1535,7 +1722,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
     // Group enquiries by aggregation level
     const aggregatedGroups = new Map<string, { count: number; startDate: Date; endDate: Date; isWeekend?: boolean }>();
     
-    filtered.forEach(enquiry => {
+    filteredDeduped.forEach(enquiry => {
       const createdDate = parseDate(enquiry.Date_Created);
       if (!createdDate) return;
       
@@ -2043,7 +2230,14 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
 
   // Reassignment functionality
   const teamMemberOptions = useMemo(() => {
-    return teamMembers
+    const specialOptions = [
+      { value: 'team@helix-law.com', text: '⚪ Unclaimed (Team)', initials: '—', email: 'team@helix-law.com' },
+      { value: 'property@helix-law.com', text: '🏘️ Property Department', initials: 'PR', email: 'property@helix-law.com' },
+      { value: 'commercial@helix-law.com', text: '💼 Commercial Department', initials: 'CO', email: 'commercial@helix-law.com' },
+      { value: 'construction@helix-law.com', text: '🏗️ Construction Department', initials: 'CN', email: 'construction@helix-law.com' },
+    ];
+    
+    const memberOptions = teamMembers
       .filter(member => member.isActive)
       .map(member => ({
         value: member.email || member.display,
@@ -2051,16 +2245,22 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
         initials: member.initials,
         email: member.email
       }));
+    
+    return [...specialOptions, ...memberOptions];
   }, [teamMembers]);
 
   const handleReassignClick = useCallback((enquiryId: string, event: React.MouseEvent) => {
     event.stopPropagation();
+    event.preventDefault();
+    console.log('Reassignment clicked for enquiry:', enquiryId);
     const rect = event.currentTarget.getBoundingClientRect();
-    setReassignmentDropdown({
+    const dropdownData = {
       enquiryId,
       x: rect.left,
       y: rect.bottom + 5
-    });
+    };
+    console.log('Setting dropdown data:', dropdownData);
+    setReassignmentDropdown(dropdownData);
   }, []);
 
   const handleReassignmentSelect = useCallback(async (selectedValue: string) => {
@@ -2494,7 +2694,103 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
           )}
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-            {quickRanges.map(r => {
+            {/* All */}
+            {quickRanges.slice(0, 1).map(r => {
+              const active = isActive(r.key);
+              return (
+                <DefaultButton
+                  key={r.key}
+                  text={r.label}
+                  onClick={() => handleRangeSelect(r.key)}
+                  styles={getRangeButtonStyles(isDarkMode, active, false)}
+                />
+              );
+            })}
+            <div style={{ 
+              color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(148, 163, 184, 0.5)', 
+              fontSize: 16, 
+              fontWeight: 300, 
+              padding: '0 4px',
+              userSelect: 'none'
+            }}>|</div>
+            {/* Today, Yesterday */}
+            {quickRanges.slice(1, 3).map(r => {
+              const active = isActive(r.key);
+              return (
+                <DefaultButton
+                  key={r.key}
+                  text={r.label}
+                  onClick={() => handleRangeSelect(r.key)}
+                  styles={getRangeButtonStyles(isDarkMode, active, false)}
+                />
+              );
+            })}
+            <div style={{ 
+              color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(148, 163, 184, 0.5)', 
+              fontSize: 16, 
+              fontWeight: 300, 
+              padding: '0 4px',
+              userSelect: 'none'
+            }}>|</div>
+            {/* This Week, Last Week */}
+            {quickRanges.slice(3, 5).map(r => {
+              const active = isActive(r.key);
+              return (
+                <DefaultButton
+                  key={r.key}
+                  text={r.label}
+                  onClick={() => handleRangeSelect(r.key)}
+                  styles={getRangeButtonStyles(isDarkMode, active, false)}
+                />
+              );
+            })}
+            <div style={{ 
+              color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(148, 163, 184, 0.5)', 
+              fontSize: 16, 
+              fontWeight: 300, 
+              padding: '0 4px',
+              userSelect: 'none'
+            }}>|</div>
+            {/* This Month, Last Month */}
+            {quickRanges.slice(5, 7).map(r => {
+              const active = isActive(r.key);
+              return (
+                <DefaultButton
+                  key={r.key}
+                  text={r.label}
+                  onClick={() => handleRangeSelect(r.key)}
+                  styles={getRangeButtonStyles(isDarkMode, active, false)}
+                />
+              );
+            })}
+            <div style={{ 
+              color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(148, 163, 184, 0.5)', 
+              fontSize: 16, 
+              fontWeight: 300, 
+              padding: '0 4px',
+              userSelect: 'none'
+            }}>|</div>
+            {/* Last 90 Days, This Quarter */}
+            {quickRanges.slice(7, 9).map(r => {
+              const active = isActive(r.key);
+              return (
+                <DefaultButton
+                  key={r.key}
+                  text={r.label}
+                  onClick={() => handleRangeSelect(r.key)}
+                  styles={getRangeButtonStyles(isDarkMode, active, false)}
+                />
+              );
+            })}
+            <div style={{ 
+              color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(148, 163, 184, 0.5)', 
+              fontSize: 16, 
+              fontWeight: 300, 
+              padding: '0 4px',
+              userSelect: 'none'
+            }}>|</div>
+            {/* Year To Date, Current Year */}
+            {quickRanges.slice(9, 11).map(r => {
               const active = isActive(r.key);
               return (
                 <DefaultButton
@@ -2926,12 +3222,34 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
       {/* Marketing Metrics Section */}
       {metaMetrics && metaMetrics.length > 0 && (
         <div style={surface(isDarkMode)}>
-          <h3 style={sectionTitle()}>Marketing Performance</h3>
-          <div style={{ 
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <h3 style={sectionTitle()}>Marketing Performance</h3>
+            <button
+              type="button"
+              onClick={() => setShowMarketing(v => !v)}
+              aria-expanded={showMarketing}
+              title={showMarketing ? 'Collapse metrics' : 'Expand metrics'}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '4px 8px',
+                borderRadius: 8,
+                border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.22)' : 'rgba(13,47,96,0.12)'}`,
+                background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(6,23,51,0.03)',
+                color: isDarkMode ? colours.dark.text : colours.light.text,
+                cursor: 'pointer'
+              }}
+            >
+              <Icon iconName={showMarketing ? 'ChevronUp' : 'ChevronDown'} style={{ fontSize: 12 }} />
+              <span style={{ fontSize: 12, fontWeight: 600 }}>{showMarketing ? 'Hide' : 'Show'}</span>
+            </button>
+          </div>
+          {showMarketing && (<div style={{ 
             display: 'grid', 
             gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', 
             gap: 20, 
-            marginTop: 16 
+            marginTop: 8 
           }}>
             {/* Google Analytics Card */}
             <div style={{
@@ -2979,7 +3297,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                     </div>
                     <div>
                       <div style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                        {fmtPct1(latest.conversionRate)}
+                        {fmtPct1(normalizePct(latest.conversionRate))}
                       </div>
                       <div style={{ opacity: 0.7 }}>Conv. Rate</div>
                     </div>
@@ -3033,9 +3351,18 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                       <div style={{ opacity: 0.7 }}>Conversions</div>
                     </div>
                     <div>
-                      <div style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                        {fmtMoney0(latest.cpa)}
-                      </div>
+                      {(() => {
+                        const cpaValue = (isNum(latest.cpa) && latest.cpa > 0)
+                          ? latest.cpa
+                          : (isNum(latest.cost) && isNum(latest.conversions) && latest.conversions > 0
+                              ? latest.cost / latest.conversions
+                              : null);
+                        return (
+                          <div style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+                            {cpaValue !== null ? fmtMoney0(cpaValue) : '—'}
+                          </div>
+                        );
+                      })()}
                       <div style={{ opacity: 0.7 }}>Cost/Conv</div>
                     </div>
                   </div>
@@ -3089,7 +3416,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                     </div>
                     <div>
                       <div style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                        {fmtPct1(latest.ctr)}
+                        {fmtPct1(normalizePct(latest.ctr))}
                       </div>
                       <div style={{ opacity: 0.7 }}>CTR</div>
                     </div>
@@ -3097,19 +3424,44 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                 );
               })()}
             </div>
-          </div>
+          </div>)}
         </div>
       )}
 
-      <div style={grid}>
+      <div style={surface(isDarkMode, { marginTop: 8 })}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <h3 style={sectionTitle()}>Charts</h3>
+          <button
+            type="button"
+            onClick={() => setShowCharts(v => !v)}
+            aria-expanded={showCharts}
+            title={showCharts ? 'Collapse charts' : 'Expand charts'}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '4px 8px',
+              borderRadius: 8,
+              border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.22)' : 'rgba(13,47,96,0.12)'}`,
+              background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(6,23,51,0.03)',
+              color: isDarkMode ? colours.dark.text : colours.light.text,
+              cursor: 'pointer'
+            }}
+          >
+            <Icon iconName={showCharts ? 'ChevronUp' : 'ChevronDown'} style={{ fontSize: 12 }} />
+            <span style={{ fontSize: 12, fontWeight: 600 }}>{showCharts ? 'Hide' : 'Show'}</span>
+          </button>
+        </div>
+        {showCharts && (
+        <div style={grid}>
         <div style={{ gridColumn: 'span 4' }}>
-          <div style={surface(isDarkMode)}>
+          <div className="chart-card" style={surface(isDarkMode)}>
             <h3 style={sectionTitle()}>Top sources</h3>
-            <div style={{ 
+            <div className="chart-flex" style={{ 
               display: 'flex', 
               flexDirection: window.innerWidth < 1200 ? 'column' : 'row',
-              gap: 20, 
-              marginTop: 16 
+              gap: 0, 
+              marginTop: 8 
             }}>
               <div style={{ 
                 flex: window.innerWidth < 1200 ? 'none' : 1,
@@ -3124,7 +3476,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                   onSliceClick={(value) => openModal('source', value)}
                 />
               </div>
-              <div style={{ 
+              <div className="chart-details" style={{ 
                 flex: window.innerWidth < 1200 ? 'none' : 1,
                 display: 'flex', 
                 flexDirection: 'column', 
@@ -3134,16 +3486,14 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                 marginTop: window.innerWidth < 1200 ? 16 : 0,
                 transition: 'all 0.3s ease-in-out'
               }}>
-                {topSources.map(([name, count], index) => (
+                {topSources.slice(0, 5).map(([name, count], index) => (
                   <div key={name} style={{ 
                     display: 'flex', 
                     justifyContent: 'space-between', 
                     alignItems: 'center',
                     borderBottom: `1px dashed ${isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(15,23,42,0.08)'}`, 
                     padding: '8px 0',
-                    fontSize: '14px',
-                    opacity: 0,
-                    animation: `fadeInUp 0.4s ease-out ${index * 0.1}s forwards`
+                    fontSize: '14px'
                   }}>
                     <span style={{ color: isDarkMode ? colours.dark.text : colours.light.text }}>{name}</span>
                     <span style={{ 
@@ -3167,13 +3517,13 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
           </div>
         </div>
         <div style={{ gridColumn: 'span 4' }}>
-          <div style={surface(isDarkMode)}>
+          <div className="chart-card" style={surface(isDarkMode)}>
             <h3 style={sectionTitle()}>Contact methods</h3>
-            <div style={{ 
+            <div className="chart-flex" style={{ 
               display: 'flex', 
               flexDirection: window.innerWidth < 1200 ? 'column' : 'row',
-              gap: 20, 
-              marginTop: 16 
+              gap: 0, 
+              marginTop: 8 
             }}>
               <div style={{ 
                 flex: window.innerWidth < 1200 ? 'none' : 1,
@@ -3188,7 +3538,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                   onSliceClick={(value) => openModal('moc', value)}
                 />
               </div>
-              <div style={{ 
+              <div className="chart-details" style={{ 
                 flex: window.innerWidth < 1200 ? 'none' : 1,
                 display: 'flex', 
                 flexDirection: 'column', 
@@ -3198,16 +3548,14 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                 marginTop: window.innerWidth < 1200 ? 16 : 0,
                 transition: 'all 0.3s ease-in-out'
               }}>
-                {topMOCs.map(([name, count], index) => (
+                {topMOCs.slice(0, 5).map(([name, count], index) => (
                   <div key={name} style={{ 
                     display: 'flex', 
                     justifyContent: 'space-between', 
                     alignItems: 'center',
                     borderBottom: `1px dashed ${isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(15,23,42,0.08)'}`, 
                     padding: '8px 0',
-                    fontSize: '14px',
-                    opacity: 0,
-                    animation: `fadeInUp 0.4s ease-out ${index * 0.1}s forwards`
+                    fontSize: '14px'
                   }}>
                     <span style={{ color: isDarkMode ? colours.dark.text : colours.light.text }}>{name}</span>
                     <span style={{ 
@@ -3231,13 +3579,13 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
           </div>
         </div>
         <div style={{ gridColumn: 'span 4' }}>
-          <div style={surface(isDarkMode)}>
+          <div className="chart-card" style={surface(isDarkMode)}>
             <h3 style={sectionTitle()}>By fee earner</h3>
-            <div style={{ 
+            <div className="chart-flex" style={{ 
               display: 'flex', 
               flexDirection: window.innerWidth < 1200 ? 'column' : 'row',
-              gap: 20, 
-              marginTop: 16 
+              gap: 0, 
+              marginTop: 8 
             }}>
               <div style={{ 
                 flex: window.innerWidth < 1200 ? 'none' : 1,
@@ -3252,7 +3600,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                   onSliceClick={(value) => openModal('poc', value)}
                 />
               </div>
-              <div style={{ 
+              <div className="chart-details" style={{ 
                 flex: window.innerWidth < 1200 ? 'none' : 1,
                 display: 'flex', 
                 flexDirection: 'column', 
@@ -3262,16 +3610,14 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                 marginTop: window.innerWidth < 1200 ? 16 : 0,
                 transition: 'all 0.3s ease-in-out'
               }}>
-                {topPocs.map(([name, count], index) => (
+                {topPocs.slice(0, 5).map(([name, count], index) => (
                   <div key={name} style={{ 
                     display: 'flex', 
                     justifyContent: 'space-between', 
                     alignItems: 'center',
                     borderBottom: `1px dashed ${isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(15,23,42,0.08)'}`, 
                     padding: '8px 0',
-                    fontSize: '14px',
-                    opacity: 0,
-                    animation: `fadeInUp 0.4s ease-out ${index * 0.1}s forwards`
+                    fontSize: '14px'
                   }}>
                     <span style={{ color: isDarkMode ? colours.dark.text : colours.light.text }}>{name}</span>
                     <span style={{ 
@@ -3294,6 +3640,8 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
             </div>
           </div>
         </div>
+        </div>
+        )}
       </div>
 
       <div style={surface(isDarkMode)}>
@@ -3444,8 +3792,68 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                     {collapsedDays.has(grp.date) ? (
                       /* Collapsed Summary View */
                       (() => {
-                        const summary = dailySummaries.get(grp.date);
-                        if (!summary) return null;
+                        // Calculate summary from filteredItems (respecting day-level filters)
+                        let unclaimed = 0;
+                        let claimed = 0;
+                        let triaged = 0;
+                        const claimerCounts = new Map<string, { count: number; display: string }>();
+
+                        filteredItems.forEach((enquiry: any) => {
+                          const pocRaw = getPocRaw(enquiry) || '';
+                          const isTriaged = isTriagedPoc(pocRaw);
+                          
+                          if (isTriaged) {
+                            triaged++;
+                          }
+
+                          if (!pocRaw || pocRaw.toLowerCase() === 'team@helix-law.com') {
+                            unclaimed++;
+                          } else {
+                            claimed++;
+                            
+                            // Track claimer
+                            const initials = getInitials(pocRaw);
+                            const member = teamMembers.find((m: TeamMember) => 
+                              m.initials === initials || 
+                              m.email?.toLowerCase() === pocRaw.toLowerCase() ||
+                              m.normalizedName.includes(pocRaw.toLowerCase())
+                            );
+                            
+                            if (member) {
+                              const existing = claimerCounts.get(member.initials) || { count: 0, display: member.display };
+                              claimerCounts.set(member.initials, { 
+                                count: existing.count + 1, 
+                                display: member.display 
+                              });
+                            }
+                          }
+                        });
+
+                        // Get top 3 claimers
+                        const topClaimers = Array.from(claimerCounts.entries())
+                          .map(([initials, data]) => ({ initials, ...data }))
+                          .sort((a, b) => b.count - a.count)
+                          .slice(0, 3);
+
+                        // Find non-claimers
+                        const activeTeamMembers = teamMembers.filter((member: TeamMember) => member.isActive);
+                        const claimerInitials = new Set(claimerCounts.keys());
+                        const nonClaimers = activeTeamMembers
+                          .filter((member: TeamMember) => !claimerInitials.has(member.initials))
+                          .map((member: TeamMember) => ({
+                            initials: member.initials,
+                            display: member.display,
+                            onLeave: isOnAnnualLeave(member.initials, grp.date)
+                          }));
+
+                        const summary = {
+                          unclaimed,
+                          claimed,
+                          triaged,
+                          topClaimers,
+                          nonClaimers,
+                          totalEnquiries: filteredItems.length
+                        };
                         
                         return (
                           <div style={{ 
@@ -3596,7 +4004,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                         <div
                           style={{
                             display: 'grid',
-                            gridTemplateColumns: 'minmax(220px, 1fr) 220px 160px 120px',
+                            gridTemplateColumns: 'minmax(220px, 1fr) 220px 110px 220px 160px 120px',
                             gap: 8,
                             margin: '6px 0 10px',
                             opacity: isHovered ? 0.8 : 0.45,
@@ -3629,6 +4037,10 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                               color: isDarkMode ? '#e2e8f0' : '#1f2937'
                             }}
                           />
+                          {/* Email (no filter for now, spacer to align columns) */}
+                          <div />
+                          {/* Area of Work (no filter for now) */}
+                          <div />
                           <input
                             value={filters.taker}
                             onChange={(event) => updateDayFilter(grp.date, 'taker', event.target.value)}
@@ -3661,19 +4073,24 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                       </select>
                     </div>
 
-                    {/* Group rows: Name | Point of contact | Call taker | Status */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) 220px 160px 120px', gap: 8 }}>
+                    {/* Group rows: Name | Email | Area | Point of contact | Call taker | Status */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) 220px 110px 220px 160px 120px', gap: 8 }}>
                       <div style={{ fontSize: 11, fontWeight: 600, opacity: 0.55 }}>Name</div>
+                      <div style={{ fontSize: 11, fontWeight: 600, opacity: 0.55 }}>Email</div>
+                      <div style={{ fontSize: 11, fontWeight: 600, opacity: 0.55 }}>Area</div>
                       <div style={{ fontSize: 11, fontWeight: 600, opacity: 0.55 }}>Point of contact</div>
                       <div style={{ fontSize: 11, fontWeight: 600, opacity: 0.55 }}>Call taker</div>
                       <div style={{ fontSize: 11, fontWeight: 600, opacity: 0.55 }}>Status</div>
                       {displayItems.length === 0 && (
-                        <div style={{ gridColumn: '1 / span 4', fontSize: 11, opacity: 0.6, padding: '8px 0' }}>
+                        <div style={{ gridColumn: '1 / span 6', fontSize: 11, opacity: 0.6, padding: '8px 0' }}>
                           No enquiries match the filters for this day.
                         </div>
                       )}
                       {displayItems.map((e: any, idx2: number) => {
                         const name = e.Client_Name || e.Description || e.Client || `${e.First_Name || ''} ${e.Last_Name || ''}`.trim() || '-';
+                        const emailVal = getEnquiryEmail(e);
+                        const aowKey = getEnquiryAow(e);
+                        const aow = aowMeta[aowKey];
                         const stageStr = typeof e.stage === 'string' ? e.stage.toLowerCase() : (typeof (e as any).Stage === 'string' ? (e as any).Stage.toLowerCase() : '');
                         const statusStr = typeof (e as any).Status === 'string' ? (e as any).Status.toLowerCase() : (typeof (e as any).status === 'string' ? (e as any).status.toLowerCase() : '');
                         // Heuristics to identify Deal vs Instruction
@@ -3759,18 +4176,27 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                           opacity: 0.9,
                           cursor: 'pointer'
                         };
-                        const pocLabel = isUnclaimed ? 'Unclaimed' : (isTriaged ? 'Triaged' : (e.Point_of_Contact as string));
+                        // For triaged items, extract department name from email
+                        const getTriagedLabel = (poc: string): string => {
+                          const lower = poc.toLowerCase();
+                          if (lower.includes('property')) return 'Property';
+                          if (lower.includes('commercial')) return 'Commercial';
+                          if (lower.includes('construction')) return 'Construction';
+                          return 'Triaged';
+                        };
+                        
+                        const pocLabel = isUnclaimed ? 'Unclaimed' : (isTriaged ? getTriagedLabel(e.Point_of_Contact as string) : (e.Point_of_Contact as string));
                         const pocStyle: React.CSSProperties = (isUnclaimed || isTriaged)
                           ? {
                               ...subtleBadge,
                               background: isTriaged
-                                ? (isDarkMode ? 'rgba(71,85,105,0.18)' : 'rgba(100,116,139,0.12)') // dark grey for Triaged
+                                ? (isDarkMode ? 'rgba(59,130,246,0.12)' : 'rgba(59,130,246,0.08)') // blue for Triaged departments
                                 : (isDarkMode ? 'rgba(220,38,38,0.12)' : 'rgba(220,38,38,0.08)'),
                               border: isTriaged
-                                ? (isDarkMode ? '1px solid rgba(148,163,184,0.35)' : '1px solid rgba(100,116,139,0.28)')
+                                ? (isDarkMode ? '1px solid rgba(96,165,250,0.28)' : '1px solid rgba(59,130,246,0.18)')
                                 : (isDarkMode ? '1px solid rgba(248,113,113,0.28)' : '1px solid rgba(220,38,38,0.18)'),
                               color: isTriaged
-                                ? (isDarkMode ? '#CBD5E1' : '#334155')
+                                ? (isDarkMode ? '#93c5fd' : '#1d4ed8')
                                 : (isDarkMode ? '#fda4af' : '#b91c1c'),
                             }
                           : {};
@@ -3818,6 +4244,10 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                           boxShadow: isDarkMode ? '0 1px 2px rgba(0,0,0,0.35)' : '0 1px 2px rgba(15,23,42,0.08)',
                           marginRight: 8, cursor: 'pointer'
                         };
+                        const isV2Entry = Boolean((e as any)?.aow || (e as any)?.first || (e as any)?.point_of_contact || (e as any)?.enquiry_id || (e as any)?.instructionsId);
+                        const v2Pill: React.CSSProperties = isDarkMode
+                          ? { display: 'inline-flex', alignItems: 'center', padding: '1px 6px', borderRadius: 999, fontSize: 9, fontWeight: 700, color: '#93c5fd', background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(147,197,253,0.28)', marginLeft: 4 }
+                          : { display: 'inline-flex', alignItems: 'center', padding: '1px 6px', borderRadius: 999, fontSize: 9, fontWeight: 700, color: colours.highlight, background: 'rgba(54,144,206,0.08)', border: '1px solid rgba(54,144,206,0.18)', marginLeft: 4 };
                         return (
                           <React.Fragment key={idx2}>
                             <div style={{ ...rowDim, ...nameCellExtra, ...highlightedCellStyle, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -3829,13 +4259,42 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                               >
                                 {migrationIndicator.icon}
                               </span>
+                              {isV2Entry && (
+                                <span title="New platform" style={v2Pill}>v2</span>
+                              )}
+                            </div>
+                            <div style={{ ...rowDim, ...highlightedCellStyle, display: 'flex', alignItems: 'center', gap: 6 }}>
+                              {emailVal ? (
+                                <a href={`mailto:${emailVal}`} style={{ fontSize: 10, color: isDarkMode ? colours.accent : colours.blue, textDecoration: 'none' }}>
+                                  {emailVal}
+                                </a>
+                              ) : (
+                                <span style={{ fontSize: 10, opacity: 0.5 }}>—</span>
+                              )}
+                            </div>
+                            <div style={{ ...rowDim, ...highlightedCellStyle, display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span title={aow.label} aria-label={aow.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{
+                                  width: 18,
+                                  height: 18,
+                                  borderRadius: 999,
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                                  border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.25)' : 'rgba(15,23,42,0.12)'}`
+                                }}>
+                                  <Icon iconName={aow.icon} style={{ fontSize: 10, color: aow.color }} />
+                                </span>
+                                <span style={{ fontSize: 10, opacity: 0.8 }}>{aow.label}</span>
+                              </span>
                             </div>
                             <div
                               style={{ ...rowDim, ...highlightedCellStyle, display: 'flex', alignItems: 'center', gap: 6 }}
-                              onMouseEnter={() => { if (isClaimedEntry) setHoverHighlight({ date: grp.date, poc: pocRaw }); }}
+                              onMouseEnter={() => { if (isClaimedEntry || isTriaged) setHoverHighlight({ date: grp.date, poc: pocRaw }); }}
                               onMouseLeave={() => { if (isRowHighlighted) setHoverHighlight(null); }}
                             >
-                              {isClaimedEntry && (
+                              {(isClaimedEntry || isTriaged) && e.Point_of_Contact && (
                                 <span
                                   title={`${pocLabel} - Click to reassign`}
                                   aria-label={`${pocLabel} - Click to reassign`}
@@ -3873,12 +4332,12 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                                     position: 'relative',
                                     transition: 'all 0.2s ease'
                                   }}
-                                  title={`${pocLabel} - Click to assign`}
+                                  title={`${pocLabel}${isTriaged ? ' department' : ''} - Click to ${isUnclaimed ? 'assign' : 'reassign'}`}
                                   onClick={(event) => handleReassignClick((e as any).ID || (e as any).id || `${gIdx}-${idx2}`, event)}
                                 >
                                   {pocLabel}
                                   <Icon 
-                                    iconName="AddFriend" 
+                                    iconName={isTriaged ? "Group" : "AddFriend"}
                                     style={{ 
                                       fontSize: 8, 
                                       marginLeft: 4,
@@ -4780,19 +5239,21 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
       </Dialog>
 
       {/* Reassignment Dropdown */}
-      {reassignmentDropdown && (
+      {reassignmentDropdown && createPortal(
         <div
           className="reassignment-dropdown"
           style={{
             position: 'fixed',
             left: reassignmentDropdown.x,
             top: reassignmentDropdown.y,
-            zIndex: 9999,
+            zIndex: 99999,
             minWidth: 250,
-            background: isDarkMode ? 'rgba(15, 23, 42, 0.98)' : 'rgba(255, 255, 255, 0.98)',
-            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'}`,
+            maxHeight: 400,
+            overflowY: 'auto',
+            background: isDarkMode ? '#1e293b' : '#ffffff',
+            border: `2px solid ${isDarkMode ? '#3b82f6' : '#2563eb'}`,
             borderRadius: 8,
-            boxShadow: isDarkMode ? '0 8px 24px rgba(0, 0, 0, 0.4)' : '0 6px 20px rgba(15, 23, 42, 0.15)',
+            boxShadow: '0 20px 50px rgba(0, 0, 0, 0.6)',
             padding: 16,
           }}
         >
@@ -4849,7 +5310,8 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
           }}>
             Click outside to cancel
           </div>
-        </div>
+        </div>,
+        document.body
       )}
       
       {/* Data Modal */}

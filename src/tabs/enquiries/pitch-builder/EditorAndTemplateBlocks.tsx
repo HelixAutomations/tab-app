@@ -1205,6 +1205,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   const [showSendValidation, setShowSendValidation] = useState<boolean>(false);
   // Editable To field in modal
   const [editableTo, setEditableTo] = useState<string>(to || '');
+  // Editable CC field in modal
+  const [editableCc, setEditableCc] = useState<string>(cc || '');
   // Rich text mode is always enabled for WYSIWYG experience
   const richTextMode = true;
 
@@ -1212,6 +1214,11 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   React.useEffect(() => {
     setEditableTo(to || '');
   }, [to]);
+
+  // Update editable CC when prop changes
+  React.useEffect(() => {
+    setEditableCc(cc || '');
+  }, [cc]);
 
   // Helper: reset editor to a fresh state
   const resetEditor = useCallback(() => {
@@ -1809,34 +1816,11 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
       <Stack tokens={{ childrenGap: 8 }} styles={{ root: { marginTop: 0 } }}>
         {/* Direct content without Email Composer container */}
         <div style={{ padding: 0 }}>
-          {/* Scenario Picker - Modern Professional Design */}
-          <div style={{
-            background: isDarkMode 
-              ? 'linear-gradient(135deg, rgba(5, 12, 26, 0.98) 0%, rgba(9, 22, 44, 0.94) 52%, rgba(13, 35, 63, 0.9) 100%)'
-              : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-            borderRadius: '16px',
-            padding: '24px',
-            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.26)' : 'rgba(148, 163, 184, 0.16)'}`,
-            boxShadow: isDarkMode 
-              ? '0 20px 44px rgba(2, 6, 17, 0.72)'
-              : '0 16px 40px rgba(13, 47, 96, 0.18)',
-            marginBottom: 0,
-            fontFamily: 'Raleway, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-            position: 'relative',
-            transition: 'all 0.25s ease'
-          }}>
-            
+          {/* Scenario selector - collapses after selection */}
+          {selectedScenarioId && (
             <div 
               style={{
-                fontSize: '17px',
-                fontWeight: 600,
-                color: isDarkMode ? colours.dark.text : '#0F172A',
-                marginBottom: isTemplatesCollapsed ? 0 : '20px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: '12px',
-                padding: '12px 20px',
+                padding: '12px 16px',
                 background: isDarkMode 
                   ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.94) 0%, rgba(11, 30, 55, 0.86) 100%)'
                   : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
@@ -1844,29 +1828,29 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : 'rgba(148, 163, 184, 0.22)'}`,
                 cursor: 'pointer',
                 transition: 'all 0.3s ease',
-                backdropFilter: 'blur(12px)'
+                marginBottom: isTemplatesCollapsed ? '24px' : '16px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '12px'
               }}
               onClick={() => setIsTemplatesCollapsed(!isTemplatesCollapsed)}
               onMouseEnter={(e) => {
                 if (isDarkMode) {
                   e.currentTarget.style.background = 'linear-gradient(135deg, rgba(10, 20, 40, 0.96) 0%, rgba(15, 35, 65, 0.9) 100%)';
                   e.currentTarget.style.borderColor = 'rgba(54, 144, 206, 0.4)';
-                  e.currentTarget.style.transform = 'translateY(-1px)';
                 } else {
                   e.currentTarget.style.background = 'linear-gradient(135deg, #FAFBFC 0%, #F1F5F9 100%)';
                   e.currentTarget.style.borderColor = 'rgba(54, 144, 206, 0.3)';
-                  e.currentTarget.style.transform = 'translateY(-1px)';
                 }
               }}
               onMouseLeave={(e) => {
                 if (isDarkMode) {
                   e.currentTarget.style.background = 'linear-gradient(135deg, rgba(7, 16, 32, 0.94) 0%, rgba(11, 30, 55, 0.86) 100%)';
                   e.currentTarget.style.borderColor = 'rgba(125, 211, 252, 0.24)';
-                  e.currentTarget.style.transform = 'translateY(0)';
                 } else {
                   e.currentTarget.style.background = 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)';
                   e.currentTarget.style.borderColor = 'rgba(148, 163, 184, 0.22)';
-                  e.currentTarget.style.transform = 'translateY(0)';
                 }
               }}
             >
@@ -1875,53 +1859,47 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   padding: '8px',
                   borderRadius: '8px',
                   background: (() => {
-                    if (selectedScenarioId) {
-                      switch(selectedScenarioId) {
-                        case 'before-call-call':
-                          return isDarkMode 
-                            ? 'linear-gradient(135deg, rgba(96, 165, 250, 0.2) 0%, rgba(54, 144, 206, 0.15) 100%)'
-                            : 'linear-gradient(135deg, rgba(54, 144, 206, 0.1) 0%, rgba(96, 165, 250, 0.08) 100%)';
-                        case 'before-call-no-call':
-                          return isDarkMode
-                            ? 'linear-gradient(135deg, rgba(251, 191, 36, 0.2) 0%, rgba(217, 119, 6, 0.15) 100%)'
-                            : 'linear-gradient(135deg, rgba(217, 119, 6, 0.1) 0%, rgba(251, 191, 36, 0.08) 100%)';
-                        case 'after-call-probably-cant-assist':
-                          return isDarkMode
-                            ? 'linear-gradient(135deg, rgba(248, 113, 113, 0.2) 0%, rgba(220, 38, 38, 0.15) 100%)'
-                            : 'linear-gradient(135deg, rgba(220, 38, 38, 0.1) 0%, rgba(248, 113, 113, 0.08) 100%)';
-                        case 'after-call-want-instruction':
-                          return isDarkMode
-                            ? 'linear-gradient(135deg, rgba(74, 222, 128, 0.2) 0%, rgba(5, 150, 105, 0.15) 100%)'
-                            : 'linear-gradient(135deg, rgba(5, 150, 105, 0.1) 0%, rgba(74, 222, 128, 0.08) 100%)';
-                        default:
-                          return isDarkMode
-                            ? 'linear-gradient(135deg, rgba(148, 163, 184, 0.2) 0%, rgba(107, 114, 128, 0.15) 100%)'
-                            : 'linear-gradient(135deg, rgba(107, 114, 128, 0.1) 0%, rgba(148, 163, 184, 0.08) 100%)';
-                      }
-                    } else {
-                      // Default blue background when no template selected
-                      return isDarkMode 
-                        ? 'linear-gradient(135deg, rgba(96, 165, 250, 0.2) 0%, rgba(54, 144, 206, 0.15) 100%)'
-                        : 'linear-gradient(135deg, rgba(54, 144, 206, 0.1) 0%, rgba(96, 165, 250, 0.08) 100%)';
+                    switch(selectedScenarioId) {
+                      case 'before-call-call':
+                        return isDarkMode 
+                          ? 'linear-gradient(135deg, rgba(96, 165, 250, 0.2) 0%, rgba(54, 144, 206, 0.15) 100%)'
+                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.1) 0%, rgba(96, 165, 250, 0.08) 100%)';
+                      case 'before-call-no-call':
+                        return isDarkMode
+                          ? 'linear-gradient(135deg, rgba(251, 191, 36, 0.2) 0%, rgba(217, 119, 6, 0.15) 100%)'
+                          : 'linear-gradient(135deg, rgba(217, 119, 6, 0.1) 0%, rgba(251, 191, 36, 0.08) 100%)';
+                      case 'after-call-probably-cant-assist':
+                        return isDarkMode
+                          ? 'linear-gradient(135deg, rgba(248, 113, 113, 0.2) 0%, rgba(220, 38, 38, 0.15) 100%)'
+                          : 'linear-gradient(135deg, rgba(220, 38, 38, 0.1) 0%, rgba(248, 113, 113, 0.08) 100%)';
+                      case 'after-call-want-instruction':
+                        return isDarkMode
+                          ? 'linear-gradient(135deg, rgba(74, 222, 128, 0.2) 0%, rgba(5, 150, 105, 0.15) 100%)'
+                          : 'linear-gradient(135deg, rgba(5, 150, 105, 0.1) 0%, rgba(74, 222, 128, 0.08) 100%)';
+                      case 'cfa':
+                        return isDarkMode
+                          ? 'linear-gradient(135deg, rgba(168, 85, 247, 0.2) 0%, rgba(139, 92, 246, 0.15) 100%)'
+                          : 'linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(168, 85, 247, 0.08) 100%)';
+                      default:
+                        return isDarkMode
+                          ? 'linear-gradient(135deg, rgba(148, 163, 184, 0.2) 0%, rgba(107, 114, 128, 0.15) 100%)'
+                          : 'linear-gradient(135deg, rgba(107, 114, 128, 0.1) 0%, rgba(148, 163, 184, 0.08) 100%)';
                     }
                   })(),
                   border: (() => {
-                    if (selectedScenarioId) {
-                      switch(selectedScenarioId) {
-                        case 'before-call-call':
-                          return `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`;
-                        case 'before-call-no-call':
-                          return `1px solid ${isDarkMode ? 'rgba(251, 191, 36, 0.3)' : 'rgba(217, 119, 6, 0.2)'}`;
-                        case 'after-call-probably-cant-assist':
-                          return `1px solid ${isDarkMode ? 'rgba(248, 113, 113, 0.3)' : 'rgba(220, 38, 38, 0.2)'}`;
-                        case 'after-call-want-instruction':
-                          return `1px solid ${isDarkMode ? 'rgba(74, 222, 128, 0.3)' : 'rgba(5, 150, 105, 0.2)'}`;
-                        default:
-                          return `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(107, 114, 128, 0.2)'}`;
-                      }
-                    } else {
-                      // Default blue border when no template selected
-                      return `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`;
+                    switch(selectedScenarioId) {
+                      case 'before-call-call':
+                        return `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`;
+                      case 'before-call-no-call':
+                        return `1px solid ${isDarkMode ? 'rgba(251, 191, 36, 0.3)' : 'rgba(217, 119, 6, 0.2)'}`;
+                      case 'after-call-probably-cant-assist':
+                        return `1px solid ${isDarkMode ? 'rgba(248, 113, 113, 0.3)' : 'rgba(220, 38, 38, 0.2)'}`;
+                      case 'after-call-want-instruction':
+                        return `1px solid ${isDarkMode ? 'rgba(74, 222, 128, 0.3)' : 'rgba(5, 150, 105, 0.2)'}`;
+                      case 'cfa':
+                        return `1px solid ${isDarkMode ? 'rgba(168, 85, 247, 0.3)' : 'rgba(139, 92, 246, 0.2)'}`;
+                      default:
+                        return `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(107, 114, 128, 0.2)'}`;
                     }
                   })(),
                   display: 'flex',
@@ -1930,71 +1908,64 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 }}>
                   {(() => {
                     const iconSize = 16;
-                    
-                    if (selectedScenarioId) {
-                      // Get the specific color for the selected template
-                      const iconColor = (() => {
-                        switch(selectedScenarioId) {
-                          case 'before-call-call': return isDarkMode ? colours.blue : colours.blue;
-                          case 'before-call-no-call': return isDarkMode ? '#FBBF24' : '#D97706';
-                          case 'after-call-probably-cant-assist': return isDarkMode ? '#F87171' : '#DC2626';
-                          case 'after-call-want-instruction': return isDarkMode ? '#4ADE80' : '#059669';
-                          default: return isDarkMode ? '#94A3B8' : '#6B7280';
-                        }
-                      })();
-                      
-                      // Show the selected template's icon with its specific color
+                    const iconColor = (() => {
                       switch(selectedScenarioId) {
-                        case 'before-call-call':
-                          return (
-                            <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2">
-                              <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.86 19.86 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.86 19.86 0 0 1 2.1 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.66 12.66 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.66 12.66 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
-                            </svg>
-                          );
-                        case 'before-call-no-call':
-                          return (
-                            <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2">
-                              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
-                              <polyline points="22,6 12,13 2,6"/>
-                            </svg>
-                          );
-                        case 'after-call-probably-cant-assist':
-                          return (
-                            <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2">
-                              <circle cx="12" cy="12" r="10"/>
-                              <path d="M15 9l-6 6M9 9l6 6"/>
-                            </svg>
-                          );
-                        case 'after-call-want-instruction':
-                          return (
-                            <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2">
-                              <path d="M9 12l2 2 4-4"/>
-                              <circle cx="12" cy="12" r="10"/>
-                            </svg>
-                          );
-                        default:
-                          return (
-                            <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2">
-                              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                              <line x1="9" y1="9" x2="15" y2="15"/>
-                              <line x1="15" y1="9" x2="9" y2="15"/>
-                            </svg>
-                          );
+                        case 'before-call-call': return colours.blue;
+                        case 'before-call-no-call': return isDarkMode ? '#FBBF24' : '#D97706';
+                        case 'after-call-probably-cant-assist': return isDarkMode ? '#F87171' : '#DC2626';
+                        case 'after-call-want-instruction': return isDarkMode ? '#4ADE80' : '#059669';
+                        case 'cfa': return isDarkMode ? '#A855F7' : '#8B5CF6';
+                        default: return isDarkMode ? '#94A3B8' : '#6B7280';
                       }
-                    } else {
-                      // Default lightning bolt icon when no template is selected
-                      const defaultIconColor = colours.blue;
-                      return <FaBolt style={{ fontSize: iconSize, color: defaultIconColor }} />;
+                    })();
+                    
+                    switch(selectedScenarioId) {
+                      case 'before-call-call':
+                        return (
+                          <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2">
+                            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.86 19.86 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.86 19.86 0 0 1 2.1 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.66 12.66 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.66 12.66 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
+                          </svg>
+                        );
+                      case 'before-call-no-call':
+                        return (
+                          <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2">
+                            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                            <polyline points="22,6 12,13 2,6"/>
+                          </svg>
+                        );
+                      case 'after-call-probably-cant-assist':
+                        return (
+                          <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <path d="M15 9l-6 6M9 9l6 6"/>
+                          </svg>
+                        );
+                      case 'after-call-want-instruction':
+                        return (
+                          <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2">
+                            <path d="M9 12l2 2 4-4"/>
+                            <circle cx="12" cy="12" r="10"/>
+                          </svg>
+                        );
+                      case 'cfa':
+                        return (
+                          <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2">
+                            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                            <polyline points="2,17 12,22 22,17"/>
+                            <polyline points="2,12 12,17 22,12"/>
+                          </svg>
+                        );
+                      default:
+                        return null;
                     }
                   })()}
                 </div>
-                <div>
-                  <div style={{ fontSize: '17px', fontWeight: 600 }}>
-                    {selectedScenarioId ? 
-                      (SCENARIOS.find(s => s.id === selectedScenarioId)?.name || 'Template Selected') :
-                      'Pitch Templates'
-                    }
-                  </div>
+                <div style={{ 
+                  fontSize: '15px', 
+                  fontWeight: 600,
+                  color: isDarkMode ? colours.dark.text : '#0F172A'
+                }}>
+                  {SCENARIOS.find(s => s.id === selectedScenarioId)?.name || 'Template Selected'}
                 </div>
               </div>
               <div style={{
@@ -2009,27 +1980,17 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 }
               </div>
             </div>
-            
-            {!isTemplatesCollapsed && (
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: window.innerWidth < 1024 ? '1fr' : 'repeat(2, 1fr)',
-                gap: '20px',
-                padding: '20px',
-                background: isDarkMode
-                  ? 'linear-gradient(135deg, rgba(5, 12, 26, 0.98) 0%, rgba(9, 22, 44, 0.94) 52%, rgba(13, 35, 63, 0.9) 100%)'
-                  : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-                borderRadius: '16px',
-                border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : 'rgba(148, 163, 184, 0.18)'}`,
-                boxShadow: isDarkMode
-                  ? '0 18px 32px rgba(2, 6, 17, 0.58)'
-                  : '0 12px 28px rgba(13, 47, 96, 0.12)',
-                backdropFilter: 'blur(12px)',
-                animation: 'cascadeIn 0.4s ease-out',
-                opacity: 1,
-                transform: 'translateY(0)'
-              }}>
-                {SCENARIOS.map((s, index) => (
+          )}
+          
+          {/* Scenario choice buttons */}
+          {(!selectedScenarioId || !isTemplatesCollapsed) && (
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: window.innerWidth < 1024 ? '1fr' : 'repeat(2, 1fr)',
+              gap: '20px',
+              marginBottom: '24px'
+            }}>
+              {SCENARIOS.map((s, index) => (
                   <button
                     key={s.id}
                     type="button"
@@ -2045,12 +2006,14 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                           return 'Polite decline with alternative suggestions and review request';
                         case 'after-call-want-instruction':
                           return 'Formal proposal with comprehensive costs and next steps';
+                        case 'cfa':
+                          return 'Quick response for no-win-no-fee enquiries with clear expectations';
                         default:
                           return 'Standard professional response template';
                       }
                     })()}`}
                     role="radio"
-                    tabIndex={0}
+                    tabIndex={-1}
                     onClick={() => {
                       setSelectedScenarioId(s.id);
                       setIsTemplatesCollapsed(true);
@@ -2084,12 +2047,21 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                           onScopeDescriptionChange?.(placeholderDesc);
                         }
                       }
+
+                      // CFA scenario: auto-set minimal amount and implied description
+                      if (s.id === 'cfa') {
+                        const cfaDesc = 'CFA enquiry - initial response only';
+                        setScopeDescription(cfaDesc);
+                        onScopeDescriptionChange?.(cfaDesc);
+                        setAmountValue('0.99');
+                        onAmountChange?.('0.99');
+                      }
                     }}
                     style={{
                       position: 'relative',
                       background: selectedScenarioId === s.id
                         ? (isDarkMode
-                          ? 'linear-gradient(135deg, rgba(5, 12, 26, 0.95) 0%, rgba(9, 22, 44, 0.92) 52%, rgba(13, 35, 63, 0.9) 100%)'
+                          ? 'linear-gradient(135deg, rgba(13, 28, 56, 0.95) 0%, rgba(17, 36, 68, 0.92) 52%, rgba(20, 45, 82, 0.9) 100%)'
                           : 'linear-gradient(135deg, rgba(248, 250, 252, 0.98) 0%, rgba(255, 255, 255, 0.95) 100%)')
                         : (isDarkMode
                           ? 'linear-gradient(135deg, rgba(11, 22, 43, 0.88) 0%, rgba(13, 30, 56, 0.8) 100%)'
@@ -2107,7 +2079,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                       textAlign: 'left',
                       minHeight: '140px',
                       boxShadow: selectedScenarioId === s.id
-                        ? (isDarkMode ? '0 10px 36px rgba(54, 144, 206, 0.35), 0 0 0 1px rgba(54, 144, 206, 0.22) inset' : '0 6px 24px rgba(54, 144, 206, 0.25), 0 0 0 1px rgba(54, 144, 206, 0.12) inset')
+                        ? (isDarkMode ? '0 12px 42px rgba(54, 144, 206, 0.45), 0 0 0 1px rgba(54, 144, 206, 0.35) inset, 0 4px 16px rgba(96, 165, 250, 0.2)' : '0 6px 24px rgba(54, 144, 206, 0.25), 0 0 0 1px rgba(54, 144, 206, 0.12) inset')
                         : (isDarkMode ? '0 6px 18px rgba(4, 9, 20, 0.55)' : '0 3px 12px rgba(13, 47, 96, 0.08)'),
                       opacity: 0,
                       animationFillMode: 'forwards',
@@ -2139,21 +2111,6 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                       }
                     }}
                   >
-                    {/* Modern selection indicator */}
-                    {selectedScenarioId === s.id && (
-                      <div style={{
-                        position: 'absolute',
-                        top: '-2px',
-                        left: '-2px',
-                        right: '-2px',
-                        bottom: '-2px',
-                        background: `linear-gradient(135deg, ${colours.blue}, ${colours.darkBlue})`,
-                        borderRadius: '14px',
-                        zIndex: -1,
-                        animation: 'pulseGlow 2s infinite'
-                      }}></div>
-                    )}
-                    
                     <div className="scenario-card-content" style={{
                       display: 'flex',
                       flexDirection: 'column',
@@ -2174,6 +2131,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                                 case 'before-call-no-call': return isDarkMode ? 'rgba(251, 191, 36, 0.2)' : 'rgba(251, 191, 36, 0.1)';
                                 case 'after-call-probably-cant-assist': return isDarkMode ? 'rgba(239, 68, 68, 0.2)' : 'rgba(239, 68, 68, 0.1)';
                                 case 'after-call-want-instruction': return isDarkMode ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.1)';
+                                case 'cfa': return isDarkMode ? 'rgba(168, 85, 247, 0.2)' : 'rgba(168, 85, 247, 0.1)';
                                 default: return isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.1)';
                               }
                             })();
@@ -2200,6 +2158,10 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                                   return isDarkMode
                                     ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.35) 0%, rgba(134, 239, 172, 0.28) 100%)'
                                     : 'linear-gradient(135deg, rgba(34, 197, 94, 0.22) 0%, rgba(74, 222, 128, 0.16) 100%)';
+                                case 'cfa':
+                                  return isDarkMode
+                                    ? 'linear-gradient(135deg, rgba(168, 85, 247, 0.35) 0%, rgba(192, 132, 252, 0.28) 100%)'
+                                    : 'linear-gradient(135deg, rgba(139, 92, 246, 0.22) 0%, rgba(168, 85, 247, 0.16) 100%)';
                                 default:
                                   return isDarkMode
                                     ? 'linear-gradient(135deg, rgba(148, 163, 184, 0.35) 0%, rgba(203, 213, 225, 0.28) 100%)'
@@ -2215,6 +2177,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                               case 'before-call-no-call': return isDarkMode ? 'rgba(251, 191, 36, 0.3)' : 'rgba(251, 191, 36, 0.2)';
                               case 'after-call-probably-cant-assist': return isDarkMode ? 'rgba(239, 68, 68, 0.3)' : 'rgba(239, 68, 68, 0.2)';
                               case 'after-call-want-instruction': return isDarkMode ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.2)';
+                              case 'cfa': return isDarkMode ? 'rgba(168, 85, 247, 0.3)' : 'rgba(168, 85, 247, 0.2)';
                               default: return isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)';
                             }
                           })()}`,
@@ -2237,6 +2200,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                                 case 'before-call-no-call': return isDarkMode ? '#FBBF24' : '#D97706';
                                 case 'after-call-probably-cant-assist': return isDarkMode ? '#F87171' : '#DC2626';
                                 case 'after-call-want-instruction': return isDarkMode ? '#4ADE80' : '#059669';
+                                case 'cfa': return isDarkMode ? '#A855F7' : '#8B5CF6';
                                 default: return isDarkMode ? '#94A3B8' : '#6B7280';
                               }
                             })();
@@ -2267,6 +2231,14 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2">
                                     <path d="M9 12l2 2 4-4"/>
                                     <circle cx="12" cy="12" r="10"/>
+                                  </svg>
+                                );
+                              case 'cfa':
+                                return (
+                                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2">
+                                    <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                                    <polyline points="2,17 12,22 22,17"/>
+                                    <polyline points="2,12 12,17 22,12"/>
                                   </svg>
                                 );
                               default:
@@ -2308,6 +2280,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                                   return 'Polite decline • Alternative suggestions • Review request';
                                 case 'after-call-want-instruction':
                                   return 'Formal proposal • Comprehensive costs • Next steps';
+                                case 'cfa':
+                                  return 'No-win-no-fee enquiry • Quick response • Clear expectations';
                                 default:
                                   return 'Standard professional response template';
                               }
@@ -2349,10 +2323,9 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     </div>
                   </button>
                 ))}
-              </div>
-            )}
             </div>
-            {/* Scenario hot-update handled via top-level useEffect */}
+          )}
+          {/* Scenario hot-update handled via top-level useEffect */}
             
             {/* Only show the rest of the form after a template is selected */}
             {selectedScenarioId && (
@@ -3611,16 +3584,16 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
             <div style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '16px',
-              marginBottom: '24px',
-              paddingBottom: '20px',
-              padding: '32px 32px 20px 32px',
+              gap: '12px',
+              marginBottom: '16px',
+              paddingBottom: '14px',
+              padding: '20px 20px 14px 20px',
               borderBottom: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`
             }}>
               <div style={{
-                width: '48px',
-                height: '48px',
-                borderRadius: '8px',
+                width: '40px',
+                height: '40px',
+                borderRadius: '6px',
                 background: isDarkMode 
                   ? 'rgba(71, 85, 105, 0.3)'
                   : 'rgba(241, 245, 249, 0.8)',
@@ -3629,19 +3602,19 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 alignItems: 'center',
                 justifyContent: 'center',
                 boxShadow: isDarkMode 
-                  ? '0 4px 8px rgba(0, 0, 0, 0.2)' 
-                  : '0 2px 6px rgba(0, 0, 0, 0.08)'
+                  ? '0 2px 4px rgba(0, 0, 0, 0.2)' 
+                  : '0 1px 3px rgba(0, 0, 0, 0.08)'
               }}>
                 <FaPaperPlane style={{ 
-                  fontSize: '20px', 
+                  fontSize: '18px', 
                   color: colours.blue
                 }} />
               </div>
               <div>
                 <h3 style={{
-                  margin: '0 0 4px 0',
+                  margin: '0 0 2px 0',
                   color: isDarkMode ? '#E0F2FE' : '#0F172A',
-                  fontSize: '24px',
+                  fontSize: '20px',
                   fontWeight: '700',
                   letterSpacing: '-0.02em',
                   lineHeight: '1.2'
@@ -3651,7 +3624,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 <p style={{
                   margin: 0,
                   color: isDarkMode ? 'rgba(224, 242, 254, 0.7)' : '#64748B',
-                  fontSize: '14px',
+                  fontSize: '13px',
                   fontWeight: '500',
                   letterSpacing: '-0.005em'
                 }}>
@@ -3664,36 +3637,36 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
             <div style={{
               flex: 1,
               overflowY: 'auto',
-              padding: '0 32px',
-              maxHeight: 'calc(85vh - 160px)' // Leave space for header and buttons
+              padding: '0 20px',
+              maxHeight: 'calc(85vh - 140px)' // Leave space for header and buttons
             }}>
             
             {/* Recipients Section - Enhanced Design */}
             <div style={{ 
-              marginBottom: '24px',
-              padding: '20px',
+              marginBottom: '16px',
+              padding: '14px',
               background: isDarkMode 
                 ? 'rgba(30, 41, 59, 0.4)' 
                 : 'rgba(248, 250, 252, 0.6)',
               border: isDarkMode 
                 ? '1px solid rgba(148, 163, 184, 0.2)' 
                 : '1px solid rgba(226, 232, 240, 0.7)',
-              borderRadius: '8px',
+              borderRadius: '6px',
               backdropFilter: 'blur(4px)',
               boxShadow: isDarkMode 
-                ? '0 4px 8px rgba(0, 0, 0, 0.15)' 
-                : '0 2px 6px rgba(0, 0, 0, 0.05)'
+                ? '0 2px 4px rgba(0, 0, 0, 0.15)' 
+                : '0 1px 3px rgba(0, 0, 0, 0.05)'
             }}>
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '12px',
-                marginBottom: '18px'
+                gap: '10px',
+                marginBottom: '12px'
               }}>
                 <div style={{
-                  width: '32px',
-                  height: '32px',
-                  borderRadius: '6px',
+                  width: '28px',
+                  height: '28px',
+                  borderRadius: '5px',
                   background: isDarkMode 
                     ? 'rgba(71, 85, 105, 0.4)'
                     : 'rgba(241, 245, 249, 0.8)',
@@ -3703,13 +3676,13 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(203, 213, 225, 0.6)'}`
                 }}>
                   <FaUsers style={{ 
-                    fontSize: '14px', 
+                    fontSize: '13px', 
                     color: colours.blue
                   }} />
                 </div>
                 <h4 style={{
                   margin: 0,
-                  fontSize: '18px',
+                  fontSize: '16px',
                   fontWeight: '650',
                   color: isDarkMode ? '#E0F2FE' : '#0F172A',
                   letterSpacing: '-0.01em'
@@ -3718,13 +3691,13 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 </h4>
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {/* Sender (From) field */}
                 <div style={{ 
                   display: 'flex', 
                   alignItems: 'flex-start',
-                  gap: '12px',
-                  padding: '10px 0',
+                  gap: '10px',
+                  padding: '8px 0',
                   borderBottom: isDarkMode 
                     ? '1px solid rgba(71, 85, 105, 0.4)' 
                     : '1px solid rgba(226, 232, 240, 0.5)'
@@ -3752,8 +3725,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 <div style={{ 
                   display: 'flex', 
                   alignItems: 'flex-start',
-                  gap: '12px',
-                  padding: '10px 0',
+                  gap: '10px',
+                  padding: '8px 0',
                   borderBottom: isDarkMode 
                     ? '1px solid rgba(71, 85, 105, 0.4)' 
                     : '1px solid rgba(226, 232, 240, 0.5)'
@@ -3798,40 +3771,62 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   />
                 </div>
                 
-                {cc && (
-                  <div style={{ 
-                    display: 'flex', 
-                    alignItems: 'flex-start',
-                    gap: '12px',
-                    padding: '10px 0',
-                    borderBottom: isDarkMode 
-                      ? '1px solid rgba(71, 85, 105, 0.4)' 
-                      : '1px solid rgba(226, 232, 240, 0.5)'
-                  }}>
-                    <span style={{ 
-                      fontWeight: '650', 
-                      color: isDarkMode ? '#94A3B8' : '#64748B',
-                      fontSize: '13px',
-                      minWidth: '55px',
-                      letterSpacing: '0.025em',
-                      textTransform: 'uppercase'
-                    }}>CC:</span>
-                    <span style={{ 
-                      color: isDarkMode ? '#CBD5E1' : '#334155',
-                      fontSize: '14px',
-                      fontWeight: '500',
+                {/* CC field - always visible and editable */}
+                <div style={{ 
+                  display: 'flex', 
+                  alignItems: 'flex-start',
+                  gap: '10px',
+                  padding: '8px 0',
+                  borderBottom: isDarkMode 
+                    ? '1px solid rgba(71, 85, 105, 0.4)' 
+                    : '1px solid rgba(226, 232, 240, 0.5)'
+                }}>
+                  <span style={{ 
+                    fontWeight: '650', 
+                    color: isDarkMode ? '#94A3B8' : '#64748B',
+                    fontSize: '13px',
+                    minWidth: '55px',
+                    letterSpacing: '0.025em',
+                    textTransform: 'uppercase',
+                    paddingTop: '8px'
+                  }}>CC:</span>
+                  <input
+                    type="text"
+                    value={editableCc}
+                    onChange={(e) => setEditableCc(e.target.value)}
+                    placeholder="Enter CC email addresses (optional)..."
+                    style={{
                       flex: 1,
-                      lineHeight: '1.4'
-                    }}>{cc}</span>
-                  </div>
-                )}
+                      padding: '8px 12px',
+                      border: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.4)' : 'rgba(226, 232, 240, 0.6)'}`,
+                      borderRadius: '6px',
+                      background: isDarkMode ? '#374151' : '#FFFFFF',
+                      color: isDarkMode ? '#F3F4F6' : '#1F2937',
+                      fontSize: '14px',
+                      fontWeight: '400',
+                      lineHeight: '1.4',
+                      outline: 'none',
+                      transition: 'border-color 0.2s ease, box-shadow 0.2s ease'
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = colours.blue;
+                      e.target.style.boxShadow = isDarkMode 
+                        ? `0 0 0 1px rgba(54, 144, 206, 0.3)` 
+                        : `0 0 0 1px rgba(54, 144, 206, 0.2)`;
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = isDarkMode ? 'rgba(71, 85, 105, 0.4)' : 'rgba(226, 232, 240, 0.6)';
+                      e.target.style.boxShadow = 'none';
+                    }}
+                  />
+                </div>
                 
                 {/* BCC field */}
                 <div style={{ 
                   display: 'flex', 
                   alignItems: 'flex-start',
-                  gap: '12px',
-                  padding: '10px 0'
+                  gap: '10px',
+                  padding: '8px 0'
                 }}>
                   <span style={{ 
                     fontWeight: '650', 
@@ -3856,22 +3851,22 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
 
             {/* Sent Items Confirmation - Passive Info */}
             <div style={{
-              marginBottom: '20px',
-              padding: '16px 18px',
+              marginBottom: '14px',
+              padding: '12px 14px',
               background: isDarkMode 
                 ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.08) 0%, rgba(22, 163, 74, 0.06) 100%)'
                 : 'linear-gradient(135deg, rgba(34, 197, 94, 0.06) 0%, rgba(22, 163, 74, 0.04) 100%)',
               border: isDarkMode 
                 ? '1px solid rgba(34, 197, 94, 0.25)' 
                 : '1px solid rgba(34, 197, 94, 0.2)',
-              borderRadius: '10px',
+              borderRadius: '6px',
               display: 'flex',
               alignItems: 'center',
-              gap: '12px'
+              gap: '10px'
             }}>
               <div style={{
-                width: '20px',
-                height: '20px',
+                width: '18px',
+                height: '18px',
                 borderRadius: '4px',
                 background: isDarkMode 
                   ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.3) 0%, rgba(22, 163, 74, 0.2) 100%)'
@@ -3883,22 +3878,22 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 flexShrink: 0
               }}>
                 <FaCheck style={{ 
-                  fontSize: '10px', 
+                  fontSize: '9px', 
                   color: isDarkMode ? '#4ADE80' : '#16A34A'
                 }} />
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{
-                  fontSize: '14px',
+                  fontSize: '13px',
                   fontWeight: '600',
                   color: isDarkMode ? '#4ADE80' : '#15803D',
-                  marginBottom: '2px',
+                  marginBottom: '1px',
                   letterSpacing: '-0.005em'
                 }}>
                   Email will be saved to your Sent Items
                 </div>
                 <div style={{
-                  fontSize: '12px',
+                  fontSize: '11px',
                   color: isDarkMode ? 'rgba(74, 222, 128, 0.8)' : 'rgba(21, 128, 61, 0.7)',
                   lineHeight: '1.3'
                 }}>
@@ -3914,13 +3909,13 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   ? colours.dark.inputBackground 
                   : 'linear-gradient(135deg, #FEFEFE 0%, #F9FAFB 100%)',
                 border: `1px solid ${isDarkMode ? colours.dark.border : '#E5E7EB'}`,
-                borderRadius: '8px',
-                padding: '14px',
-                marginBottom: '16px'
+                borderRadius: '6px',
+                padding: '12px',
+                marginBottom: '14px'
               }}>
                 <h4 style={{
-                  margin: '0 0 12px 0',
-                  fontSize: '16px',
+                  margin: '0 0 10px 0',
+                  fontSize: '15px',
                   fontWeight: '600',
                   color: isDarkMode ? colours.dark.text : colours.darkBlue,
                   letterSpacing: '-0.005em'
@@ -3930,15 +3925,16 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 
                 {/* Replace Subject with Service Description */}
                 {scopeDescription && (
-                  <div style={{ fontSize: '13px', marginBottom: '8px' }}>
-                    <span style={{ fontWeight: '600', color: isDarkMode ? colours.dark.text : '#6B7280' }}>Service Description:</span>
+                  <div style={{ fontSize: '12px', marginBottom: '6px' }}>
+                    <span style={{ fontWeight: '600', color: isDarkMode ? '#94A3B8' : '#6B7280' }}>Service Description:</span>
                     <div style={{ 
-                      marginTop: '4px',
+                      marginTop: '3px',
                       color: isDarkMode ? colours.dark.text : colours.darkBlue,
                       lineHeight: '1.4',
                       maxHeight: '60px',
                       overflow: 'hidden',
-                      textOverflow: 'ellipsis'
+                      textOverflow: 'ellipsis',
+                      fontSize: '13px'
                     }}>
                       {scopeDescription.length > 150 ? `${scopeDescription.substring(0, 150)}...` : scopeDescription}
                     </div>
@@ -3946,12 +3942,13 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 )}
                 
                 {amountValue && (
-                  <div style={{ marginBottom: '8px', fontSize: '13px' }}>
-                    <span style={{ fontWeight: '600', color: isDarkMode ? colours.dark.text : '#6B7280' }}>Amount:</span>
+                  <div style={{ marginBottom: '6px', fontSize: '12px' }}>
+                    <span style={{ fontWeight: '600', color: isDarkMode ? '#94A3B8' : '#6B7280' }}>Amount:</span>
                     <div style={{ 
-                      marginTop: '4px',
-                      color: isDarkMode ? colours.blue : colours.darkBlue,
-                      fontWeight: 600
+                      marginTop: '3px',
+                      color: isDarkMode ? colours.dark.text : colours.darkBlue,
+                      fontWeight: 600,
+                      fontSize: '13px'
                     }}>
                       £{parseFloat(amountValue).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} + VAT
                     </div>
@@ -3959,62 +3956,31 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 )}
               </div>
             )}
-            
-            {/* Debug/Support Info Box */}
-            <div style={{
-              background: isDarkMode 
-                ? 'rgba(54, 144, 206, 0.1)' 
-                : 'linear-gradient(135deg, rgba(54, 144, 206, 0.03) 0%, rgba(96, 165, 250, 0.08) 100%)',
-              border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.15)'}`,
-              borderRadius: '8px',
-              padding: '12px',
-              marginBottom: '24px',
-              fontSize: '13px',
-              fontFamily: 'Raleway, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
-            }}>
-              <h4 style={{
-                margin: '0 0 12px 0',
-                fontSize: '16px',
-                fontWeight: '600',
-                color: isDarkMode ? colours.dark.text : colours.darkBlue,
-                letterSpacing: '-0.005em'
-              }}>
-                Support BCC (auto-added)
-              </h4>
-              <div style={{ 
-                color: isDarkMode ? colours.blue : colours.darkBlue,
-                fontFamily: 'inherit',
-                fontSize: '12px',
-                fontWeight: '500'
-              }}>
-                cb@helix-law.com
-              </div>
-            </div>
 
             {/* Processing Status Section */}
             <div style={{
               background: isDarkMode ? '#374151' : '#F9FAFB',
               border: isDarkMode ? '1px solid #4B5563' : '1px solid #E5E7EB',
               borderRadius: '6px',
-              padding: '16px',
-              marginBottom: '20px'
+              padding: '12px',
+              marginBottom: '14px'
             }}>
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '12px',
-                marginBottom: '20px'
+                gap: '10px',
+                marginBottom: '12px'
               }}>
                 <div style={{
-                  width: '24px',
-                  height: '24px',
+                  width: '20px',
+                  height: '20px',
                   borderRadius: '4px',
                   background: isDarkMode ? '#6B7280' : '#9CA3AF',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center'
                 }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ 
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ 
                     color: 'white'
                   }}>
                     <circle cx="12" cy="12" r="3" fill="currentColor"/>
@@ -4024,7 +3990,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 </div>
                 <h4 style={{
                   margin: 0,
-                  fontSize: '18px',
+                  fontSize: '15px',
                   fontWeight: '650',
                   color: isDarkMode ? '#E0F2FE' : '#0F172A',
                   letterSpacing: '-0.01em'
@@ -4032,22 +3998,22 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   Processing Status
                 </h4>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {/* Deal Creation Status */}
                 <div style={{ 
                   display: 'flex', 
                   alignItems: 'center', 
-                  gap: '16px', 
-                  padding: '16px 18px',
-                  borderRadius: '8px',
+                  gap: '12px', 
+                  padding: '10px 12px',
+                  borderRadius: '6px',
                   background: isDarkMode ? '#374151' : '#F9FAFB',
                   border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
                   transition: 'all 0.2s ease'
                 }}>
                   {/* Status Icon */}
                   <div style={{ 
-                    width: '24px', 
-                    height: '24px', 
+                    width: '20px', 
+                    height: '20px', 
                     display: 'flex', 
                     alignItems: 'center', 
                     justifyContent: 'center',
@@ -4055,22 +4021,22 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     background: isDarkMode ? '#6B7280' : '#9CA3AF'
                   }}>
                     {(dealCreationInProgress || dealStatus === 'processing') ? (
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ 
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ 
                         color: 'white',
                         animation: 'spin 1s linear infinite'
                       }}>
                         <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                       </svg>
                     ) : dealStatus === 'ready' ? (
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ color: 'white' }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: 'white' }}>
                         <path d="M20 6L9 17L4 12" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
                       </svg>
                     ) : dealStatus === 'error' ? (
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ color: 'white' }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: 'white' }}>
                         <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                       </svg>
                     ) : (
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ color: isDarkMode ? colours.dark.text : '#9CA3AF' }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: isDarkMode ? colours.dark.text : '#9CA3AF' }}>
                         <circle cx="12" cy="8" r="2" stroke="currentColor" strokeWidth="2"/>
                         <path d="M12 14c-4 0-6 2-6 4v2h12v-2c0-2-2-4-6-4z" stroke="currentColor" strokeWidth="2"/>
                       </svg>
@@ -4080,8 +4046,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     <div style={{ 
                       fontWeight: '500', 
                       color: isDarkMode ? '#F3F4F6' : '#374151',
-                      marginBottom: '4px',
-                      fontSize: '14px'
+                      marginBottom: '2px',
+                      fontSize: '13px'
                     }}>
                       {(dealCreationInProgress || dealStatus === 'processing')
                         ? 'Saving Pitch Details'
@@ -4112,17 +4078,17 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 <div style={{ 
                   display: 'flex', 
                   alignItems: 'center', 
-                  gap: '16px', 
-                  padding: '16px 18px',
-                  borderRadius: '8px',
+                  gap: '12px', 
+                  padding: '10px 12px',
+                  borderRadius: '6px',
                   background: isDarkMode ? '#374151' : '#F9FAFB',
                   border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
                   transition: 'all 0.2s ease'
                 }}>
                   {/* Email Icon */}
                   <div style={{ 
-                    width: '24px', 
-                    height: '24px', 
+                    width: '20px', 
+                    height: '20px', 
                     display: 'flex', 
                     alignItems: 'center', 
                     justifyContent: 'center',
@@ -4130,18 +4096,18 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     background: isDarkMode ? '#6B7280' : '#9CA3AF'
                   }}>
                     {(emailStatus === 'processing' || modalSending) ? (
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ 
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ 
                         color: 'white',
                         animation: 'spin 1s linear infinite'
                       }}>
                         <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                       </svg>
                     ) : emailStatus === 'sent' ? (
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ color: 'white' }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: 'white' }}>
                         <path d="M20 6L9 17L4 12" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
                       </svg>
                     ) : emailStatus === 'error' ? (
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ color: 'white' }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: 'white' }}>
                         <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                       </svg>
                     ) : (
@@ -4196,9 +4162,9 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                             <span style={{ fontWeight: 500 }}>Primary:</span> {editableTo.split(',').length > 1 ? `${editableTo.split(',').length} recipients` : editableTo.trim()}
                           </div>
                         )}
-                        {cc && (
+                        {editableCc && (
                           <div style={{ fontSize: 11, color: isDarkMode ? colours.dark.text : '#64748B', marginBottom: 3 }}>
-                            <span style={{ fontWeight: 500 }}>CC:</span> {cc.split(',').length > 1 ? `${cc.split(',').length} recipients` : cc.trim()}
+                            <span style={{ fontWeight: 500 }}>CC:</span> {editableCc.split(',').length > 1 ? `${editableCc.split(',').length} recipients` : editableCc.trim()}
                           </div>
                         )}
                         {(bcc || feeEarnerEmail) && (
@@ -4233,15 +4199,15 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
             {/* Enhanced Action Buttons */}
             <div style={{
               display: 'flex',
-              gap: '16px',
+              gap: '12px',
               justifyContent: 'flex-end',
-              padding: '24px 32px',
+              padding: '16px 20px',
               borderTop: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.2)' : 'rgba(148, 163, 184, 0.25)'}`
             }}>
               <button
                 onClick={() => { if (!modalSending) setShowSendConfirmModal(false); }}
                 style={{
-                  padding: '12px 24px',
+                  padding: '10px 20px',
                   border: isDarkMode 
                     ? '1px solid rgba(148, 163, 184, 0.3)' 
                     : '1px solid rgba(203, 213, 225, 0.6)',
@@ -4249,15 +4215,15 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     ? 'rgba(51, 65, 85, 0.6)' 
                     : 'rgba(248, 250, 252, 0.9)',
                   color: isDarkMode ? '#CBD5E1' : '#475569',
-                  borderRadius: '10px',
+                  borderRadius: '8px',
                   cursor: modalSending ? 'not-allowed' : 'pointer',
-                  fontSize: '14px',
+                  fontSize: '13px',
                   fontWeight: '600',
                   transition: 'background-color 0.2s ease',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '8px',
-                  minWidth: '100px',
+                  gap: '6px',
+                  minWidth: '90px',
                   justifyContent: 'center'
                 }}
                 disabled={modalSending}
@@ -4306,8 +4272,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     setModalSending(true);
                     setHasSentEmail(true);
                     // Update recipients before sending if callback provided
-                    if (onRecipientsChange && editableTo !== to) {
-                      onRecipientsChange(editableTo, cc, bcc);
+                    if (onRecipientsChange && (editableTo !== to || editableCc !== cc)) {
+                      onRecipientsChange(editableTo, editableCc, bcc);
                     }
                     await handleSendEmailWithProcessing();
                   } finally {
@@ -4315,23 +4281,23 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   }
                 }}
                 style={{
-                  padding: '14px 36px',
+                  padding: '10px 24px',
                   border: 'none',
                   background: modalSending 
                     ? 'rgba(148, 163, 184, 0.8)' 
                     : `linear-gradient(135deg, ${colours.cta}, #e74c3c)`,
                   color: '#FFFFFF',
-                  borderRadius: '12px',
+                  borderRadius: '8px',
                   cursor: modalSending ? 'not-allowed' : 'pointer',
-                  fontSize: '15px',
+                  fontSize: '13px',
                   fontWeight: '700',
                   letterSpacing: '0.02em',
                   textTransform: 'uppercase',
                   transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '10px',
-                  minWidth: '160px',
+                  gap: '8px',
+                  minWidth: '140px',
                   justifyContent: 'center',
                   transform: modalSending ? 'none' : 'translateY(0px)',
                   boxShadow: modalSending 

@@ -585,14 +585,18 @@ async function queryUserAnnualLeave(initials: string, config: any, context: Invo
                 leaveEntries.forEach(entry => {
                     if (entry.leave_type && typeof entry.days_taken === "number") {
                         const lt = entry.leave_type.toLowerCase();
-                        if (lt === "standard" && entry.status.toLowerCase() === "booked") {
+                        const status = entry.status.toLowerCase();
+                        
+                        // Count approved and booked leave toward totals (not rejected or requested)
+                        if (lt === "standard" && (status === "booked" || status === "approved")) {
                             total_standard += entry.days_taken;
-                        } else if (lt === "unpaid") {
+                        } else if (lt === "unpaid" && (status === "booked" || status === "approved")) {
                             total_unpaid += entry.days_taken;
-                        } else if (lt === "sale") { // Changed from "purchase" to "sale"
+                        } else if (lt === "sale" && (status === "booked" || status === "approved")) {
                             total_sale += entry.days_taken;
                         }
-                        if (entry.status.toLowerCase() === "rejected" && entry.rejection_notes) {
+                        
+                        if (status === "rejected" && entry.rejection_notes) {
                             total_rejected += entry.days_taken;
                         }
                     }

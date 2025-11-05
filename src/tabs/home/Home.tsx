@@ -337,10 +337,22 @@ const helixWatermarkSvg = (dark: boolean) => {
 
 const containerStyle = (isDarkMode: boolean) =>
   mergeStyles({
-    background: isDarkMode ? colours.darkBlue : '#ffffff',
+    // Model the Immediate Actions banner surface, but keep it subtly distinct
+    // Light: softly frosted light surface; Dark: translucent slate surface
+    background: isDarkMode
+      ? 'linear-gradient(135deg, rgba(15,23,42,0.72) 0%, rgba(17,24,39,0.74) 50%, rgba(15,23,42,0.72) 100%)'
+      : colours.light.background,
+    backdropFilter: 'none',
+    WebkitBackdropFilter: 'none',
+    color: isDarkMode ? '#f3f4f6' : '#061733',
     minHeight: '100vh',
     boxSizing: 'border-box',
     position: 'relative',
+    // Subtle separation so it doesn't visually merge with the Immediate Actions banner
+    borderTop: isDarkMode ? '1px solid rgba(148,163,184,0.12)' : '1px solid rgba(148,163,184,0.10)',
+    boxShadow: isDarkMode
+      ? 'inset 0 1px 0 rgba(255,255,255,0.04), 0 10px 30px rgba(0,0,0,0.20)'
+      : 'inset 0 1px 0 rgba(255,255,255,0.65), 0 10px 30px rgba(6,23,51,0.08)',
     '&::before': {
       content: '""',
       position: 'fixed',
@@ -348,6 +360,7 @@ const containerStyle = (isDarkMode: boolean) =>
       left: 0,
       right: 0,
       bottom: 0,
+      // Keep the Helix watermark beneath to give the glass something to refract
       background: 'none',
       backgroundImage: helixWatermarkSvg(isDarkMode),
       backgroundRepeat: 'no-repeat',
@@ -1638,8 +1651,9 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
             if (annualLeaveData.user_details && annualLeaveData.user_details.totals) {
               setAnnualLeaveTotals(annualLeaveData.user_details.totals);
             }
-            if (annualLeaveData.user_leave) {
-              setAnnualLeaveAllData(annualLeaveData.user_leave);
+            // Use all_data (all team members) instead of user_leave (only current user)
+            if (annualLeaveData.all_data) {
+              setAnnualLeaveAllData(annualLeaveData.all_data);
             }
           } else {
             // Handle null/undefined response by setting empty arrays
@@ -2465,6 +2479,17 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       );
     }, [outstandingBalancesData, userMatterIDs, myOutstandingBalances]);
 
+    const firmOutstandingTotal = useMemo(() => {
+      if (!outstandingBalancesData || !outstandingBalancesData.data) {
+        return null; // Data not ready yet
+      }
+      // Sum all outstanding balances for the entire firm
+      return outstandingBalancesData.data.reduce(
+        (sum: number, record: any) => sum + (Number(record.total_outstanding_balance) || 0),
+        0
+      );
+    }, [outstandingBalancesData]);
+
   // Removed no-op effect that could trigger unnecessary renders
   // useEffect(() => {}, [userMatterIDs, outstandingBalancesData]);
 
@@ -2567,8 +2592,8 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           { title: 'Av. Time This Week', isTimeMoney: true, money: 0, hours: 0, prevMoney: 0, prevHours: 0, showDial: true, dialTarget: 6 },
           { title: 'Time This Week', isTimeMoney: true, money: 0, hours: 0, prevMoney: 0, prevHours: 0, showDial: true, dialTarget: 30 },
           { title: 'Fees Recovered This Month', isMoneyOnly: true, money: recoveredData ?? 0, prevMoney: prevRecoveredData ?? 0 },
-      // Use computed outstandingTotal even when WIP data hasn't loaded
-      { title: 'Outstanding Office Balances', isMoneyOnly: true, money: outstandingTotal ?? 0 },
+      // Use computed outstandingTotal with firm total as secondary
+      { title: 'Outstanding Office Balances', isMoneyOnly: true, money: outstandingTotal ?? 0, secondary: firmOutstandingTotal ?? 0 },
           { title: 'Enquiries Today', isTimeMoney: false, count: enquiriesToday, prevCount: prevEnquiriesToday },
           { title: 'Enquiries This Week', isTimeMoney: false, count: enquiriesWeekToDate, prevCount: prevEnquiriesWeekToDate },
           { title: 'Matters Opened', isTimeMoney: false, count: mattersOpenedCount, prevCount: 0, secondary: firmMattersOpenedCount },
@@ -2727,7 +2752,8 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         title: 'Outstanding Office Balances',
         isMoneyOnly: true,
         money: outstandingTotal ?? 0,
-        // No prevMoney - this is a current snapshot with no historical comparison
+        secondary: firmOutstandingTotal ?? 0,
+        // No prevMoney - this is a current snapshot with firm total as secondary
       },
       {
         title: 'Enquiries Today',
@@ -2808,7 +2834,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     () =>
       [...annualLeaveRecords, ...futureLeaveRecords].filter(
         (x) =>
-          (x.status === 'approved' || x.status === 'rejected') &&
+          (x.status === 'approved' || x.status === 'rejected' || x.status === 'requested') &&
           (x.person || '').toLowerCase() === (userInitials || '').toLowerCase()
       ),
     [annualLeaveRecords, futureLeaveRecords, userInitials]
@@ -3042,7 +3068,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
   };
 
   const immediateALActions = useMemo(() => {
-    const actions: Array<{ title: string; onClick: () => void; icon?: string; category?: ImmediateActionCategory }> = [];
+    const actions: Array<{ title: string; onClick: () => void; icon?: string; category?: ImmediateActionCategory; count?: number }> = [];
     
     // Add test annual leave approval for localhost (only if no real approvals exist)
     if (isLocalhost && approvalsNeeded.length === 0) {
@@ -3060,6 +3086,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         onClick: handleApproveLeaveClick,
         icon: 'PalmTree',
         category: 'critical',
+        count: approvalsNeeded.length,
       });
     }
     if (isApprover && snippetApprovalsNeeded.length > 0) {
@@ -3068,6 +3095,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         onClick: handleSnippetApprovalClick,
         icon: 'Edit',
         category: 'standard',
+        count: snippetApprovalsNeeded.length,
       });
     }
     if (bookingsNeeded.length > 0) {
@@ -3076,6 +3104,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         onClick: handleBookLeaveClick,
         icon: 'Accept',
         category: 'success',
+        count: bookingsNeeded.length,
       });
     }
     if (isLocalhost && bookingsNeeded.length === 0) {
@@ -3102,7 +3131,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
 
   // Build immediate actions list
   // Ensure every action has an icon (never undefined)
-  type Action = { title: string; onClick: () => void; icon: string; disabled?: boolean; category?: ImmediateActionCategory };
+  type Action = { title: string; onClick: () => void; icon: string; disabled?: boolean; category?: ImmediateActionCategory; count?: number };
 
   const resetQuickActionsSelection = useCallback(() => {
     if (resetQuickActionsSelectionRef.current) {
@@ -3262,6 +3291,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         break;
       case 'Verify ID':
       case 'Review ID':
+      case 'Review Risk':
         try {
           window.dispatchEvent(new CustomEvent('navigateToInstructions'));
         } catch (error) {
@@ -3383,6 +3413,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         ...a,
         icon: a.icon || '',
         category: a.category ?? 'standard',
+        count: a.count, // Preserve count property
       }))
     );
     // Normalize titles (strip count suffix like " (3)") when sorting
@@ -3670,12 +3701,13 @@ const conversionRate = enquiriesMonthToDate
 
       {/* Attendance placed outside dashboard container, directly below TimeMetricsV2 */}
       {!isBespokePanelOpen && (
-        <div style={{ margin: '12px 16px' }}>
+        <div style={{ margin: '12px 16px 0 16px' }}>
           <SectionCard 
             title="Attendance" 
             id="attendance-section"
             variant="default"
             animationDelay={0.1}
+            styleOverrides={{ paddingBottom: 0 }}
           >
             <EnhancedAttendance
               ref={attendanceRef}
@@ -3695,9 +3727,9 @@ const conversionRate = enquiriesMonthToDate
         </div>
       )}
 
-      {/* Transactions & Balances moved outside container, below Attendance */}
-      <div style={{ margin: '12px 16px' }}>
-        {useLocalData ? (
+      {/* Transactions & Balances - only show in local environment */}
+      {useLocalData && (
+        <div style={{ margin: '12px 16px' }}>
           <SectionCard 
             title="Transactions & Balances" 
             id="transactions-section"
@@ -3714,29 +3746,8 @@ const conversionRate = enquiriesMonthToDate
               outstandingBalances={myOutstandingBalances}
             />
           </SectionCard>
-        ) : (
-          <SectionCard 
-            title="Transactions & Balances" 
-            id="transactions-section-disabled"
-            variant="default"
-            animationDelay={0.1}
-          >
-            <div style={{ 
-              textAlign: 'center', 
-              padding: '20px', 
-              color: isDarkMode ? colours.dark.subText : colours.light.subText,
-              background: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)',
-              borderRadius: '8px',
-              border: `1px dashed ${isDarkMode ? colours.dark.border : colours.light.border}`
-            }}>
-              <Icon iconName="Build" style={{ fontSize: '24px', marginBottom: '8px', opacity: 0.5, color: isDarkMode ? colours.blue : undefined }} />
-              <Text style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '4px', color: isDarkMode ? colours.blue : undefined }}>
-                Under Development
-              </Text>
-            </div>
-          </SectionCard>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Separator after the top sections */}
       <div 

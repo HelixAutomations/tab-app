@@ -87,9 +87,35 @@ const StatusIcon: React.FC<{
   );
 };
 
+// Helper to get "Today" label with Monday date if weekend
+const getTodayLabel = (): string => {
+  const today = new Date();
+  const dayIndex = today.getDay(); // 0=Sun, 6=Sat
+  
+  if (dayIndex === 0 || dayIndex === 6) {
+    // Weekend - show next Monday's date with ordinal suffix
+    const monday = new Date(today);
+    const daysUntilMonday = dayIndex === 0 ? 1 : 2; // Sunday=1 day, Saturday=2 days
+    monday.setDate(today.getDate() + daysUntilMonday);
+    const day = monday.getDate();
+    
+    // Add ordinal suffix (1st, 2nd, 3rd, 4th, etc.)
+    const getOrdinal = (n: number): string => {
+      const s = ['th', 'st', 'nd', 'rd'];
+      const v = n % 100;
+      return n + (s[(v - 20) % 10] || s[v] || s[0]);
+    };
+    
+    return `Monday (${getOrdinal(day)})`;
+  }
+  
+  return 'Today';
+};
+
 const WEEK_FILTER_OPTIONS = [
-  { key: 'current', label: 'This Week' },
-  { key: 'next', label: 'Next Week' }
+  { key: 'today', label: getTodayLabel(), icon: 'CalendarDay' },
+  { key: 'current', label: 'This Week', icon: 'CalendarWeek' },
+  { key: 'next', label: 'Next Week', icon: 'CalendarWeek' }
 ] as const;
 
 const DAY_FILTER_OPTIONS = [
@@ -143,11 +169,8 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
     allTeamInitials: teamData?.map(t => t.Initials) || []
   });
   
-  // State for view mode
-  const [viewMode, setViewMode] = useState<'daily' | 'weekly'>('daily');
-  
-  // Filters state
-  const [selectedWeeks, setSelectedWeeks] = useState<WeekFilterKey[]>(['current']);
+  // Filters state - week is single selection, others are multi-select
+  const [selectedWeek, setSelectedWeek] = useState<WeekFilterKey>('today');
   const [selectedDays, setSelectedDays] = useState<DayFilterKey[]>([]);
   const [selectedStatuses, setSelectedStatuses] = useState<StatusFilterKey[]>([]);
 
@@ -536,8 +559,10 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
     gap: '4px',
     padding: '2px',
     borderRadius: '8px',
-    background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
-    border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.26)' : 'rgba(54, 144, 206, 0.22)'}`
+    background: isDarkMode
+      ? 'linear-gradient(135deg, rgba(30,64,175,0.14) 0%, rgba(2,132,199,0.10) 100%)'
+      : 'linear-gradient(135deg, rgba(191,219,254,0.35) 0%, rgba(219,234,254,0.30) 100%)',
+    border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.28)' : 'rgba(54,144,206,0.25)'}`
   });
 
   const viewToggleButtonStyle = (isActive: boolean) => mergeStyles({
@@ -548,11 +573,11 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
     fontWeight: 600,
     background: isActive
       ? (isDarkMode
-        ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.32) 0%, rgba(26, 100, 152, 0.24) 100%)'
-        : 'linear-gradient(135deg, rgba(54, 144, 206, 0.18) 0%, rgba(93, 170, 226, 0.14) 100%)')
+        ? 'linear-gradient(135deg, rgba(56,189,248,0.30) 0%, rgba(37,99,235,0.26) 100%)'
+        : 'linear-gradient(135deg, rgba(191,219,254,0.55) 0%, rgba(191,219,254,0.35) 100%)')
       : 'transparent',
     color: isActive ? (isDarkMode ? '#E9F5FF' : colours.highlight) : (isDarkMode ? colours.dark.text : colours.light.text),
-    border: `1px solid ${isActive ? colours.highlight : (isDarkMode ? colours.dark.border : colours.light.border)}`,
+    border: `1px solid ${isActive ? colours.highlight : (isDarkMode ? 'rgba(148,163,184,0.26)' : 'rgba(6,23,51,0.14)')}`,
     borderRadius: '6px',
     lineHeight: 1.2,
     display: 'flex',
@@ -560,15 +585,15 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
     justifyContent: 'center',
     boxShadow: isActive
       ? (isDarkMode
-        ? '0 4px 7px rgba(37, 122, 184, 0.26)'
-        : '0 4px 7px rgba(54, 144, 206, 0.18)')
+        ? '0 6px 14px rgba(2,132,199,0.34)'
+        : '0 6px 14px rgba(54,144,206,0.20)')
       : 'none',
     '&:hover': {
       background: isActive
         ? (isDarkMode
-          ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.42) 0%, rgba(26, 100, 152, 0.32) 100%)'
-          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.24) 0%, rgba(93, 170, 226, 0.2) 100%)')
-        : (isDarkMode ? 'rgba(54, 144, 206, 0.16)' : 'rgba(54, 144, 206, 0.1)')
+          ? 'linear-gradient(135deg, rgba(56,189,248,0.38) 0%, rgba(37,99,235,0.32) 100%)'
+          : 'linear-gradient(135deg, rgba(191,219,254,0.65) 0%, rgba(191,219,254,0.42) 100%)')
+        : (isDarkMode ? 'rgba(54,144,206,0.14)' : 'rgba(54,144,206,0.10)')
     }
   });
 
@@ -576,7 +601,16 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
     marginBottom: '12px',
     display: 'flex',
     flexDirection: 'column',
-    gap: '6px'
+    gap: '6px',
+    background: isDarkMode
+      ? 'linear-gradient(135deg, rgba(30,41,59,0.55) 0%, rgba(15,23,42,0.55) 100%)'
+      : colours.light.cardBackground,
+    border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.18)' : 'rgba(6,23,51,0.08)'}`,
+    borderRadius: '10px',
+    padding: '10px',
+    boxShadow: isDarkMode
+      ? '0 8px 18px rgba(0,0,0,0.28)'
+      : '0 8px 18px rgba(6,23,51,0.10)'
   });
 
   const viewClusterStyle = mergeStyles({
@@ -608,7 +642,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
     rowGap: '6px',
     alignItems: 'flex-start',
     padding: '4px 0 0 0',
-    borderTop: `1px solid ${isDarkMode ? 'rgba(59, 130, 246, 0.2)' : 'rgba(148, 163, 184, 0.3)'}`
+    borderTop: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.16)' : 'rgba(148,163,184,0.25)'}`
   });
 
   const filterSectionBaseStyle = mergeStyles({
@@ -635,19 +669,13 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
   const filterLabelStyle = mergeStyles({
     fontSize: '10px',
     fontWeight: 600,
-    color: isDarkMode ? '#E2E8F0' : '#1E3A8A',
-    opacity: 0.8,
+    color: isDarkMode ? colours.dark.subText : colours.light.subText,
     textTransform: 'uppercase',
     letterSpacing: '0.04em'
   });
 
-  const toggleWeekSelection = (week: WeekFilterKey) => {
-    setSelectedWeeks(prev => {
-      if (prev.includes(week)) {
-        return prev.length === 1 ? prev : prev.filter(item => item !== week);
-      }
-      return [...prev, week];
-    });
+  const selectWeek = (week: WeekFilterKey) => {
+    setSelectedWeek(week);
   };
 
   const toggleDaySelection = (day: DayFilterKey) => {
@@ -751,192 +779,138 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
   };
 
   const filteredData = useMemo(() => {
-    const weekSelections = selectedWeeks.length > 0 ? selectedWeeks : ['current'];
+    const weekOffset = selectedWeek === 'next' ? 1 : 0; // 'today' and 'current' both use current week
 
     return processedTeamData.filter(member => {
-      let matchesCurrent = false;
-      let matchesNext = false;
+      const weekAttendance = getDailyAttendance(member, weekOffset);
 
-      if (weekSelections.includes('current')) {
-        const currentWeekAttendance = getDailyAttendance(member, 0);
-        const matchesDay = selectedDays.length === 0
-          ? currentWeekAttendance.some(Boolean)
-          : selectedDays.some(day => {
-              const index = DAY_INDEX_MAP[day];
-              return index >= 0 && currentWeekAttendance[index] !== undefined;
-            });
-
-        const matchesStatus = selectedStatuses.length === 0
-          ? true
-          : currentWeekAttendance.some((status, index) => {
-              if (!status) {
-                return false;
-              }
-              if (selectedDays.length === 0) {
-                return selectedStatuses.includes(status);
-              }
-              const dayKey = DAY_ORDER[index];
-              return selectedDays.includes(dayKey) && selectedStatuses.includes(status);
-            });
-
-        matchesCurrent = matchesDay && matchesStatus;
-      }
-
-      if (weekSelections.includes('next')) {
-        const nextWeekAttendance = getDailyAttendance(member, 1);
-        const matchesDay = selectedDays.length === 0
-          ? nextWeekAttendance.some(Boolean)
-          : selectedDays.some(day => {
-              const index = DAY_INDEX_MAP[day];
-              return index >= 0 && nextWeekAttendance[index] !== undefined;
-            });
-
-        const matchesStatus = selectedStatuses.length === 0
-          ? true
-          : nextWeekAttendance.some((status, index) => {
-              if (!status) {
-                return false;
-              }
-              if (selectedDays.length === 0) {
-                return selectedStatuses.includes(status);
-              }
-              const dayKey = DAY_ORDER[index];
-              return selectedDays.includes(dayKey) && selectedStatuses.includes(status);
-            });
-
-        matchesNext = matchesDay && matchesStatus;
-      }
-
-      return matchesCurrent || matchesNext;
-    });
-  }, [processedTeamData, selectedWeeks, selectedDays, selectedStatuses]);
-
-  const validStatuses: StatusFilterKey[] = ['office', 'wfh', 'away', 'off-sick', 'out-of-office'];
-
-  const getStatusForActiveFilters = (member: any): StatusFilterKey => {
-    const weekPreference: WeekFilterKey[] = selectedWeeks.length > 0 ? selectedWeeks : ['current'];
-    
-    // If specific days are selected (daily filter is active), show attendance for ONLY those days
-    if (selectedDays.length > 0) {
-      for (const week of weekPreference) {
-        const attendance = getDailyAttendance(member, week === 'current' ? 0 : 1);
-
-        for (const day of selectedDays) {
+      if (selectedDays.length > 0) {
+        // Require every selected day to satisfy the status filter (if any)
+        return selectedDays.every(day => {
           const index = DAY_INDEX_MAP[day];
           if (index < 0) {
-            continue;
+            return false;
           }
-          const status = attendance[index];
+          const status = weekAttendance[index];
           if (!status) {
-            continue;
+            return false;
           }
-          if (selectedStatuses.length === 0 || selectedStatuses.includes(status)) {
-            return status;
-          }
-        }
+          return selectedStatuses.length === 0 || selectedStatuses.includes(status);
+        });
       }
-      
-      // If no status found for selected days, return a fallback based on the first selected day
-      const firstDay = selectedDays[0];
-      const index = DAY_INDEX_MAP[firstDay];
-      if (index >= 0) {
-        const attendance = getDailyAttendance(member, weekPreference.includes('current') ? 0 : 1);
-        return (attendance[index] || 'wfh') as StatusFilterKey;
+
+      // No specific days selected – include everyone unless a status filter eliminates them
+      if (selectedStatuses.length === 0) {
+        return true;
       }
+
+      return weekAttendance.some(status => status && selectedStatuses.includes(status));
+    });
+  }, [processedTeamData, selectedWeek, selectedDays, selectedStatuses]);
+
+  const orderedSelectedDays = useMemo(() => {
+    return DAY_ORDER.filter(day => selectedDays.includes(day));
+  }, [selectedDays]);
+
+  const getStatusForActiveFilters = (member: any): StatusFilterKey => {
+    const weekOffset = selectedWeek === 'next' ? 1 : 0; // 'today' and 'current' both use current week
+    const attendance = getDailyAttendance(member, weekOffset);
+
+    const statusesInWeek = attendance.filter((status): status is StatusFilterKey => Boolean(status)) as StatusFilterKey[];
+
+    if (statusesInWeek.length === 0) {
+      return 'wfh';
     }
-    
-    // If no specific days are selected, use today's attendance for daily view
-    const today = new Date();
-    const dayIndex = today.getDay();
-    const isWeekend = dayIndex === 0 || dayIndex === 6; // Sunday or Saturday
-    
-    if (isWeekend) {
-      const todayStatus = getTodayAttendance(member as AttendanceRecord);
-      if (validStatuses.includes(todayStatus as StatusFilterKey)) {
-        return todayStatus as StatusFilterKey;
-      }
-    } else {
-      // For weekdays, show today's attendance
-      const todayStatus = getTodayAttendance(member as AttendanceRecord);
-      if (validStatuses.includes(todayStatus as StatusFilterKey)) {
-        return todayStatus as StatusFilterKey;
+
+    if (selectedStatuses.length > 0) {
+      for (const status of selectedStatuses) {
+        if (statusesInWeek.includes(status)) {
+          return status;
+        }
       }
     }
 
-    // Fallback to first available status
-    const fallbackWeek = getDailyAttendance(member, 0);
-    const fallback = fallbackWeek.find(status => validStatuses.includes(status as StatusFilterKey));
-    return (fallback || 'wfh') as StatusFilterKey;
+    const counts: Record<StatusFilterKey, number> = {
+      office: 0,
+      wfh: 0,
+      away: 0,
+      'off-sick': 0,
+      'out-of-office': 0,
+    };
+
+    statusesInWeek.forEach(status => {
+      counts[status] = (counts[status] ?? 0) + 1;
+    });
+
+    const preference: StatusFilterKey[] = ['office', 'wfh', 'away', 'off-sick', 'out-of-office'];
+    let best: StatusFilterKey = 'wfh';
+    let bestCount = -1;
+    for (const status of preference) {
+      const count = counts[status] ?? 0;
+      if (count > bestCount) {
+        best = status;
+        bestCount = count;
+      }
+    }
+
+    return best;
   };
 
   return (
     <div className={containerStyle(isDarkMode)}>
       {/* Filter Controls */}
       <div className={filterBarStyle}>
+        {/* Top Row: Week Toggle */}
         <div className={viewClusterStyle}>
           <div className={viewToggleRowStyle}>
             <div className={segmentedControlStyle}>
-              <DefaultButton
-                text="Daily"
-                iconProps={{ iconName: 'CalendarDay' }}
-                onClick={() => setViewMode('daily')}
-                styles={{ root: viewToggleButtonStyle(viewMode === 'daily') }}
-              />
-              <DefaultButton
-                text="Weekly"
-                iconProps={{ iconName: 'CalendarWeek' }}
-                onClick={() => setViewMode('weekly')}
-                styles={{ root: viewToggleButtonStyle(viewMode === 'weekly') }}
-              />
+              {WEEK_FILTER_OPTIONS.map(option => (
+                <DefaultButton
+                  key={option.key}
+                  text={option.label}
+                  iconProps={{ iconName: option.icon }}
+                  onClick={() => selectWeek(option.key)}
+                  styles={{ root: viewToggleButtonStyle(selectedWeek === option.key) }}
+                />
+              ))}
             </div>
           </div>
         </div>
 
-        <div className={filtersClusterStyle}>
-          <div className={combinedFilterStyle}>
-            <div className={filterSectionAutoStyle}>
-              <Text className={filterLabelStyle}>Week</Text>
-              <div className={chipRowStyle}>
-                {WEEK_FILTER_OPTIONS.map(option => (
-                  <DefaultButton
-                    key={option.key}
-                    text={option.label}
-                    onClick={() => toggleWeekSelection(option.key)}
-                    styles={{ root: filterButtonStyle(selectedWeeks.includes(option.key)) }}
-                  />
-                ))}
+        {/* Bottom Row: Status + Days */}
+        {selectedWeek !== 'today' && (
+          <div className={filtersClusterStyle}>
+            <div className={combinedFilterStyle}>
+              <div className={filterSectionGrowStyle}>
+                <Text className={filterLabelStyle}>Status</Text>
+                <div className={chipRowStyle}>
+                  {STATUS_FILTER_OPTIONS.map(option => (
+                    <DefaultButton
+                      key={option.key}
+                      text={option.label}
+                      onClick={() => toggleStatusSelection(option.key)}
+                      styles={{ root: filterButtonStyle(selectedStatuses.includes(option.key)) }}
+                    />
+                  ))}
+                </div>
               </div>
-            </div>
 
-            <div className={filterSectionGrowStyle}>
-              <Text className={filterLabelStyle}>Days</Text>
-              <div className={chipRowStyle}>
-                {DAY_FILTER_OPTIONS.map(option => (
-                  <DefaultButton
-                    key={option.key}
-                    text={option.label}
-                    onClick={() => toggleDaySelection(option.key)}
-                    styles={{ root: filterButtonStyle(selectedDays.includes(option.key)) }}
-                  />
-                ))}
-              </div>
-            </div>
-
-            <div className={filterSectionGrowStyle}>
-              <Text className={filterLabelStyle}>Status</Text>
-              <div className={chipRowStyle}>
-                {STATUS_FILTER_OPTIONS.map(option => (
-                  <DefaultButton
-                    key={option.key}
-                    text={option.label}
-                    onClick={() => toggleStatusSelection(option.key)}
-                    styles={{ root: filterButtonStyle(selectedStatuses.includes(option.key)) }}
-                  />
-                ))}
+              <div className={filterSectionGrowStyle}>
+                <Text className={filterLabelStyle}>Days</Text>
+                <div className={chipRowStyle}>
+                  {DAY_FILTER_OPTIONS.map(option => (
+                    <DefaultButton
+                      key={option.key}
+                      text={option.label}
+                      onClick={() => toggleDaySelection(option.key)}
+                      styles={{ root: filterButtonStyle(selectedDays.includes(option.key)) }}
+                    />
+                  ))}
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Weekly Attendance Grid */}
@@ -948,11 +922,11 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
           gap: '8px',
           maxWidth: '100%'
         }}>
-          {viewMode === 'daily' ? (
-            // Daily Summary View - Group by status
+          {selectedWeek === 'today' ? (
+            /* Today/Monday view: Status-grouped cards for single day */
             <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
               {(() => {
-                // Group people by today's status
+                // Group people by status for today
                 const statusGroups = filteredData.reduce((groups, member) => {
                   const representativeStatus = getStatusForActiveFilters(member);
                   if (!groups[representativeStatus]) {
@@ -973,19 +947,25 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                 };
 
                 return statusOrder
-                  .filter(status => statusGroups[status]?.length > 0)
+                  .filter(status => {
+                    const hasMembers = statusGroups[status]?.length > 0;
+                    const passesFilter = selectedStatuses.length === 0 || selectedStatuses.includes(status as StatusFilterKey);
+                    return hasMembers && passesFilter;
+                  })
                   .map(status => (
                     <div 
                       key={status}
                       style={{
-                        background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
-                        border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                        borderRadius: '8px',
+                        background: isDarkMode
+                          ? 'linear-gradient(135deg, rgba(2,6,23,0.65) 0%, rgba(15,23,42,0.70) 100%)'
+                          : colours.light.cardBackground,
+                        border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.16)' : 'rgba(6,23,51,0.08)'}`,
+                        borderRadius: '12px',
                         padding: '16px',
                         minWidth: '280px',
                         flex: '1',
-                        boxShadow: isDarkMode ? '0 4px 6px rgba(0, 0, 0, 0.3)' : '0 4px 6px rgba(0, 0, 0, 0.07)',
-                        transition: 'background 0.2s ease, box-shadow 0.2s ease',
+                        boxShadow: isDarkMode ? '0 10px 24px rgba(0,0,0,0.35)' : '0 10px 24px rgba(6,23,51,0.10)',
+                        transition: 'background 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease',
                         cursor: 'default'
                       }}
                     >
@@ -996,15 +976,15 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                         gap: '8px', 
                         marginBottom: '12px',
                         paddingBottom: '8px',
-                        borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`
+                        borderBottom: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.14)' : 'rgba(6,23,51,0.08)'}`
                       }}>
                         <div 
                           style={{
                             width: '24px',
                             height: '24px',
                             borderRadius: '6px',
-                            backgroundColor: `${getDayColor(status as 'office' | 'wfh' | 'away' | 'off-sick' | 'out-of-office')}20`, // Light fill - 20% opacity
-                            border: `1px solid ${getDayColor(status as 'office' | 'wfh' | 'away' | 'off-sick' | 'out-of-office')}`, // Full opacity border
+                            backgroundColor: `${getDayColor(status as 'office' | 'wfh' | 'away' | 'off-sick' | 'out-of-office')}1c`,
+                            border: `1px solid ${getDayColor(status as 'office' | 'wfh' | 'away' | 'off-sick' | 'out-of-office')}85`,
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center'
@@ -1026,15 +1006,19 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                           </div>
                           <div style={{ 
                             fontSize: '11px', 
-                            color: isDarkMode ? colours.dark.subText : colours.light.subText
+                            color: colours.blue
                           }}>
                             {statusGroups[status].length} {statusGroups[status].length === 1 ? 'person' : 'people'}
                           </div>
                         </div>
                       </div>
 
-                      {/* People List */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {/* People Grid */}
+                      <div style={{ 
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
+                        gap: '6px'
+                      }}>
                         {statusGroups[status].map((member: any) => {
                           const nextWorkday = getNextWorkdayAttendance(member);
                           const nextWorkdayDifferent = nextWorkday.status !== status && nextWorkday.label !== '';
@@ -1044,42 +1028,30 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                               key={member.Initials}
                               style={{
                                 display: 'flex',
+                                flexDirection: 'column',
                                 alignItems: 'center',
-                                justifyContent: 'space-between',
-                                padding: '4px 8px',
-                                borderRadius: '4px',
-                                background: member.isUser 
-                                  ? (isDarkMode ? 'rgba(74, 155, 79, 0.1)' : 'rgba(74, 155, 79, 0.05)')
-                                  : (isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)')
+                                justifyContent: 'center',
+                                padding: '8px',
+                                borderRadius: '8px',
+                                background: isDarkMode ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.025)',
+                                border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.12)' : 'rgba(6,23,51,0.06)'}`,
+                                gap: '4px'
                               }}
                             >
                               <span style={{
                                 fontSize: '13px',
-                                fontWeight: member.isUser ? '700' : '400',
-                                color: member.isUser ? colours.missedBlue : (isDarkMode ? colours.dark.text : colours.light.text)
+                                fontWeight: member.isUser ? '600' : '400',
+                                color: isDarkMode ? colours.dark.text : colours.light.text,
+                                textAlign: 'center'
                               }}>
-                                {member.First || member.Initials}
-                                {member.isUser && (
-                                  <span style={{ 
-                                    fontSize: '9px', 
-                                    color: colours.missedBlue,
-                                    marginLeft: '4px',
-                                    fontWeight: '600',
-                                    background: `${colours.missedBlue}15`,
-                                    padding: '1px 4px',
-                                    borderRadius: '3px'
-                                  }}>
-                                    (you)
-                                  </span>
-                                )}
+                                {member.Nickname || member.First || member.Initials}
                               </span>
                               
-                              {/* Next workday indicator - only show if different */}
                               {nextWorkdayDifferent && (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px', opacity: 0.6 }}>
                                   <span style={{ 
                                     fontSize: '8px', 
-                                    color: isDarkMode ? colours.dark.subText : colours.light.subText
+                                    color: colours.blue
                                   }}>
                                     {nextWorkday.label}
                                   </span>
@@ -1087,7 +1059,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                                     style={{
                                       width: '12px',
                                       height: '12px',
-                                      borderRadius: '2px',
+                                      borderRadius: '3px',
                                       backgroundColor: getDayColor(nextWorkday.status as 'office' | 'wfh' | 'away' | 'off-sick' | 'out-of-office'),
                                       display: 'flex',
                                       alignItems: 'center',
@@ -1111,167 +1083,117 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                   ));
               })()}
             </div>
-          ) : (
-            // Weekly View - Multi-column grid
+          ) : selectedDays.length > 0 ? (
+            /* This Week/Next Week view: Compact grid of person cards */
             <div style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-              gap: '6px',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+              gap: '8px',
               width: '100%'
             }}>
-              {filteredData
-              .sort((a, b) => {
-                // User first, then alphabetical by first name
-                if (a.isUser && !b.isUser) return -1;
-                if (!a.isUser && b.isUser) return 1;
-                return (a.First || a.Initials).localeCompare(b.First || b.Initials);
-              })
-              .map(member => {
-                // Weekly View - Full two weeks
-                const currentWeekAttendance = getDailyAttendance(member, 0);
-                const nextWeekAttendance = getDailyAttendance(member, 1);
-                
-                return (
-                  <div 
-                    key={member.Initials}
-                    style={{
-                      background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
-                      border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                      borderRadius: '6px',
-                      padding: '6px 8px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      fontSize: '12px',
-                      minHeight: '32px',
-                      width: '100%',
-                      boxSizing: 'border-box',
-                      boxShadow: isDarkMode ? '0 2px 4px rgba(0, 0, 0, 0.2)' : '0 2px 4px rgba(0, 0, 0, 0.05)'
-                    }}
-                  >
-                    {/* Name - Compact width for alignment */}
-                    <div style={{
-                      minWidth: '65px',
-                      maxWidth: '65px',
-                      fontWeight: member.isUser ? '700' : '500',
-                      color: member.isUser ? colours.missedBlue : (isDarkMode ? colours.dark.text : colours.light.text),
-                      fontSize: '11px',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap'
-                    }}>
-                      {member.First || member.Initials}
-                      {member.isUser && (
-                        <span style={{ 
-                          fontSize: '9px', 
-                          color: colours.missedBlue,
-                          marginLeft: '4px',
-                          fontWeight: '600',
-                          background: `${colours.missedBlue}15`,
-                          padding: '1px 4px',
-                          borderRadius: '3px'
+              {(() => {
+                // Show only selected days (already filtered by selectedDays in the condition)
+                const daysToRender = orderedSelectedDays.length > 0 ? orderedSelectedDays : DAY_ORDER;
+                return filteredData
+                  .sort((a, b) => {
+                    if (a.isUser && !b.isUser) return -1;
+                    if (!a.isUser && b.isUser) return 1;
+                    return (a.First || a.Initials).localeCompare(b.First || b.Initials);
+                  })
+                  .map(member => {
+                    // Use appropriate week offset based on selected week
+                    const weekOffset = selectedWeek === 'next' ? 1 : 0;
+                    const weekAttendance = getDailyAttendance(member, weekOffset);
+                    
+                    return (
+                      <div 
+                        key={member.Initials}
+                        style={{
+                          background: isDarkMode
+                            ? 'linear-gradient(135deg, rgba(2,6,23,0.62) 0%, rgba(15,23,42,0.68) 100%)'
+                            : colours.light.cardBackground,
+                          border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.16)' : 'rgba(6,23,51,0.08)'}`,
+                          borderRadius: '10px',
+                          padding: '12px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '8px',
+                          boxShadow: isDarkMode ? '0 8px 18px rgba(0,0,0,0.30)' : '0 8px 18px rgba(6,23,51,0.08)'
+                        }}
+                      >
+                        <div style={{
+                          fontWeight: member.isUser ? '700' : '500',
+                          color: member.isUser ? colours.blue : (isDarkMode ? colours.dark.text : colours.light.text),
+                          fontSize: '13px',
+                          marginBottom: '4px'
                         }}>
-                          (you)
-                        </span>
-                      )}
-                    </div>                    {/* Current Week Icons */}
-                    <div style={{ display: 'flex', gap: '2px' }}>
-                      {currentWeekAttendance.map((dayStatus: any, index: any) => {
-                        const dayName = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'][index];
-                        const isOnLeave = dayStatus === 'out-of-office';
-                        const isClickable = member.isUser && onDayUpdate && !isOnLeave;
+                          {member.Nickname || member.First || member.Initials}
+                        </div>
                         
-                        return (
-                          <div 
-                            key={`current-${index}`}
-                            style={{
-                              width: '14px',
-                              height: '14px',
-                              borderRadius: '2px',
-                              backgroundColor: `${getDayColor(dayStatus)}20`, // Light fill - 20% opacity
-                              border: `1px solid ${getDayColor(dayStatus)}`, // Full opacity border
-                              cursor: isClickable ? 'pointer' : 'default',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              fontSize: '8px'
-                            }}
-                            title={isOnLeave ? `${dayName}: On Annual Leave` : `${dayName}: ${dayStatus}`}
-                            onClick={isClickable ? (e) => {
-                              e.stopPropagation();
-                              const statusCycle: ('office' | 'wfh' | 'away' | 'off-sick' | 'out-of-office')[] = ['wfh', 'office', 'away', 'off-sick', 'out-of-office'];
-                              const currentIndex = statusCycle.indexOf(dayStatus as any);
-                              const nextStatus = statusCycle[(currentIndex + 1) % statusCycle.length];
-                              onDayUpdate(member.Initials, dayName, nextStatus, 'current');
-                            } : undefined}
-                          >
-                            <StatusIcon
-                              status={dayStatus}
-                              size="8px"
-                              color={getDayColor(dayStatus)}
-                            />
-                          </div>
-                        );
-                      })}
-                    </div>
+                        <div style={{ 
+                          display: 'flex', 
+                          gap: '4px',
+                          flexWrap: 'wrap',
+                          justifyContent: 'flex-start'
+                        }}>
+                          {daysToRender.map(dayKey => {
+                            const index = DAY_INDEX_MAP[dayKey];
+                            const dayStatusRaw = weekAttendance[index];
+                            const dayStatus = (dayStatusRaw || 'wfh') as StatusFilterKey;
+                            const label = dayKey.charAt(0).toUpperCase() + dayKey.slice(1, 3);
 
-                    {/* Divider */}
-                    <div style={{
-                      width: '1px',
-                      height: '16px',
-                      backgroundColor: isDarkMode ? '#4A5568' : '#E2E8F0'
-                    }} />
-
-                    {/* Next Week Icons */}
-                    <div style={{ display: 'flex', gap: '2px' }}>
-                      {nextWeekAttendance.map((dayStatus: any, index: any) => {
-                        const dayName = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'][index];
-                        const isOnLeave = dayStatus === 'out-of-office';
-                        const isClickable = member.isUser && onDayUpdate && !isOnLeave;
-                        
-                        return (
-                          <div 
-                            key={`next-${index}`}
-                            style={{
-                              width: '14px',
-                              height: '14px',
-                              borderRadius: '2px',
-                              backgroundColor: `${getDayColor(dayStatus)}20`, // Light fill - 20% opacity
-                              border: `1px solid ${getDayColor(dayStatus)}`, // Full opacity border
-                              cursor: isClickable ? 'pointer' : 'default',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              fontSize: '7px',
-                              opacity: 0.8 // Slightly faded to distinguish from current week
-                            }}
-                            title={`Next ${dayName}: ${dayStatus}`}
-                            onClick={isClickable ? (e) => {
-                              e.stopPropagation();
-                              const statusCycle: ('office' | 'wfh' | 'away' | 'off-sick' | 'out-of-office')[] = ['wfh', 'office', 'away', 'off-sick', 'out-of-office'];
-                              const currentIndex = statusCycle.indexOf(dayStatus as any);
-                              const nextStatus = statusCycle[(currentIndex + 1) % statusCycle.length];
-                              onDayUpdate(member.Initials, dayName, nextStatus, 'next');
-                            } : undefined}
-                          >
-                            <StatusIcon
-                              status={dayStatus}
-                              size="8px"
-                              color={getDayColor(dayStatus)}
-                            />
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
+                            return (
+                              <div
+                                key={dayKey}
+                                style={{
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  alignItems: 'center',
+                                  gap: '3px'
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    fontSize: '9px',
+                                    fontWeight: 600,
+                                    color: isDarkMode ? colours.dark.subText : colours.light.subText
+                                  }}
+                                >
+                                  {label}
+                                </div>
+                                <div
+                                  style={{
+                                    width: '32px',
+                                    height: '32px',
+                                    borderRadius: '6px',
+                                    backgroundColor: `${getDayColor(dayStatus)}1c`,
+                                    border: `1px solid ${getDayColor(dayStatus)}85`,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
+                                  }}
+                                  title={`${label}: ${dayStatus}`}
+                                >
+                                  <StatusIcon
+                                    status={dayStatus}
+                                    size="16px"
+                                    color={getDayColor(dayStatus)}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  });
+              })()}
             </div>
-          )}
+          ) : null}
         </div>
       </div>
 
-      {filteredData.length === 0 && (
+      {filteredData.length === 0 ? (
         <div style={{
           textAlign: 'center',
           padding: '40px',
@@ -1280,7 +1202,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
           <Icon iconName="Search" style={{ fontSize: '24px', marginBottom: '8px' }} />
           <Text>No team members match the selected filters</Text>
         </div>
-      )}
+      ) : null}
     </div>
   );
 };

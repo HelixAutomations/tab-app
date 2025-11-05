@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Text, Icon, IconButton, TooltipHost, IButtonStyles, Stack } from '@fluentui/react';
+import { Text, Stack } from '@fluentui/react';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { Enquiry } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
@@ -27,11 +27,13 @@ interface GroupedEnquiryCardProps {
   groupedEnquiry: GroupedEnquiry;
   onSelect: (enquiry: Enquiry) => void;
   onRate: (enquiryId: string) => void;
+  onRatingChange?: (enquiryId: string, newRating: string) => Promise<void>;
   onPitch?: (enquiry: Enquiry) => void;
   teamData?: TeamData[] | null;
   isLast?: boolean;
   userAOW?: string[]; // List of user's areas of work (lowercase)
   getPromotionStatus?: (enquiry: Enquiry) => 'pitch' | 'instruction' | null;
+  onFilterByPerson?: (initials: string) => void;
 }
 
 const formatCurrency = (value: string): string => {
@@ -65,37 +67,9 @@ const getAreaColor = (area: string): string => {
   }
 };
 
-const iconButtonStyles = (iconColor: string): IButtonStyles => ({
-  root: {
-    color: iconColor,
-    backgroundColor: 'transparent',
-    border: 'none',
-    selectors: {
-      ':hover': {
-        backgroundColor: colours.highlight,
-        color: '#ffffff',
-      },
-      ':focus': {
-        backgroundColor: colours.highlight,
-        color: '#ffffff',
-      },
-    },
-    height: '32px',
-    width: '32px',
-    padding: '0px',
-    boxShadow: 'none',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  icon: {
-    fontSize: '16px',
-    lineHeight: '1',
-    color: iconColor,
-  },
-});
+// (Removed unused Fluent UI icon button styles)
 
-const GroupedEnquiryCard: React.FC<GroupedEnquiryCardProps> = ({ groupedEnquiry, onSelect, onRate, onPitch, teamData, isLast, userAOW, getPromotionStatus }) => {
+const GroupedEnquiryCard: React.FC<GroupedEnquiryCardProps> = ({ groupedEnquiry, onSelect, onRate, onRatingChange, onPitch, teamData, isLast, userAOW, getPromotionStatus, onFilterByPerson }) => {
   const { isDarkMode } = useTheme();
   const [isExpanded, setIsExpanded] = useState(false);
   const { clientName, clientEmail, enquiries, latestDate, areas } = groupedEnquiry;
@@ -130,42 +104,63 @@ const GroupedEnquiryCard: React.FC<GroupedEnquiryCardProps> = ({ groupedEnquiry,
   };
 
   const svgMark = encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 57.56 100" preserveAspectRatio="xMidYMid meet"><g fill="currentColor" opacity="0.22"><path d="M57.56,13.1c0,7.27-7.6,10.19-11.59,11.64-4,1.46-29.98,11.15-34.78,13.1C6.4,39.77,0,41.23,0,48.5v-13.1C0,28.13,6.4,26.68,11.19,24.74c4.8-1.94,30.78-11.64,34.78-13.1,4-1.45,11.59-4.37,11.59-11.64v13.09h0Z"/><path d="M57.56,38.84c0,7.27-7.6,10.19-11.59,11.64s-29.98,11.16-34.78,13.1c-4.8,1.94-11.19,3.4-11.19,10.67v-13.1c0-7.27,6.4-8.73,11.19-10.67,4.8-1.94,30.78-11.64,34.78-13.1,4-1.46,11.59-4.37,11.59-11.64v13.09h0Z"/><path d="M57.56,64.59c0,7.27-7.6,10.19-11.59,11.64-4,1.46-29.98,11.15-34.78,13.1-4.8,1.94-11.19,3.39-11.19,10.67v-13.1c0-7.27,6.4-8.73,11.19-10.67,4.8-1.94,30.78-11.64,34.78-13.1,4-1.45,11.59-4.37,11.59-11.64v13.1h0Z"/></g></svg>');
+  // Show the decorative background mark only when expanded (or for single-enquiry cards)
+  const showOverlay = isExpanded || enquiryCount === 1;
   const cardStyle = mergeStyles({
     position: 'relative',
-    borderRadius: 6,
-    background: isDarkMode ? '#1f2732' : '#ffffff',
-    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
-    boxShadow: isDarkMode ? '0 4px 16px rgba(0,0,0,0.4), inset 0 0 0 1px rgba(255,255,255,0.04)' : '0 4px 14px rgba(33,56,82,0.10)',
-    padding: '14px 18px 14px 22px',
+    borderRadius: 10,
+    // Align with Time Metrics card: subtle gradient + stronger border in dark mode
+    background: isDarkMode
+      ? 'linear-gradient(135deg, #1F2937 0%, #111827 100%)'
+      : colours.light.cardBackground,
+    backdropFilter: 'none',
+    WebkitBackdropFilter: 'none',
+    border: `1px solid ${isDarkMode ? '#374151' : 'rgba(0,0,0,0.06)'}`,
+    borderLeft: `3px solid ${colours.highlight}`,
+    boxShadow: isDarkMode 
+      ? '0 2px 4px rgba(0,0,0,0.3)' 
+      : '0 4px 12px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04)',
+    padding: '12px',
     marginBottom: isLast ? 0 : 8,
     cursor: 'pointer',
     fontFamily: 'Raleway, sans-serif',
     overflow: 'hidden',
-    transition: 'border-color .2s, transform .15s',
-    '::after': {
-      content: '""',
-      position: 'absolute',
-      top: 10,
-      bottom: 10,
-  right: 12,
-  width: 168, // bumped width (maintain ratio via contain)
-  background: isDarkMode ? 'rgba(255,255,255,0.075)' : 'rgba(6,23,51,0.12)',
-      maskImage: `url("data:image/svg+xml,${svgMark}")`,
-      WebkitMaskImage: `url("data:image/svg+xml,${svgMark}")`,
-      maskRepeat: 'no-repeat',
-      WebkitMaskRepeat: 'no-repeat',
-      maskPosition: 'center',
-      WebkitMaskPosition: 'center',
-      maskSize: 'contain',
-      WebkitMaskSize: 'contain',
-      pointerEvents: 'none',
-      mixBlendMode: isDarkMode ? 'screen' : 'multiply',
-      filter: 'blur(.2px)',
-      zIndex: 0,
-    },
+    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+    '::after': showOverlay
+      ? {
+          content: '""',
+          position: 'absolute',
+          top: 10,
+          bottom: 10,
+          right: 12,
+          width: 168,
+          background: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(6,23,51,0.08)',
+          maskImage: `url("data:image/svg+xml,${svgMark}")`,
+          WebkitMaskImage: `url("data:image/svg+xml,${svgMark}")`,
+          maskRepeat: 'no-repeat',
+          WebkitMaskRepeat: 'no-repeat',
+          maskPosition: 'center',
+          WebkitMaskPosition: 'center',
+          maskSize: 'contain',
+          WebkitMaskSize: 'contain',
+          pointerEvents: 'none',
+          mixBlendMode: isDarkMode ? 'screen' : 'multiply',
+          filter: 'blur(.2px)',
+          zIndex: 0,
+        }
+      : undefined,
     opacity: getPromotionStatus && groupedEnquiry.enquiries.some(eq => getPromotionStatus(eq)) ? 0.6 : 1,
     selectors: {
-      ':hover': { transform: 'translateY(-2px)', borderColor: colours.highlight },
+      ':hover': { 
+        transform: 'translateY(-2px)', 
+        borderColor: `${colours.highlight}80`,
+        background: isDarkMode
+          ? '#1F2937'
+          : colours.light.cardBackground,
+        boxShadow: isDarkMode 
+          ? `0 4px 12px rgba(0,0,0,0.45)` 
+          : `0 8px 20px rgba(0,0,0,0.1), 0 2px 6px ${colours.highlight}30`,
+      },
       ':active': { transform: 'translateY(-1px)' },
     },
   });
@@ -181,7 +176,7 @@ const GroupedEnquiryCard: React.FC<GroupedEnquiryCardProps> = ({ groupedEnquiry,
 
   const emailStyle = mergeStyles({
     fontSize: 12,
-    color: isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.7)',
+    color: isDarkMode ? 'rgba(156,163,175,1)' : 'rgba(71,85,105,0.9)',
     fontWeight: 500,
   });
 
@@ -189,15 +184,19 @@ const GroupedEnquiryCard: React.FC<GroupedEnquiryCardProps> = ({ groupedEnquiry,
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(102,170,232,0.15)',
+    backgroundColor: `${colours.highlight}18`,
     color: colours.highlight,
-    borderRadius: 14,
-    padding: '2px 8px',
+    border: `1px solid ${colours.highlight}30`,
+    borderRadius: 12,
+    padding: '3px 8px',
     fontSize: 11,
-    fontWeight: 600,
-    marginLeft: 6,
-    minWidth: 24,
+    fontWeight: 700,
+    marginLeft: 8,
+    minWidth: 26,
     height: 22,
+    boxShadow: isDarkMode 
+      ? `0 1px 3px rgba(0,0,0,0.2), inset 0 1px 0 ${colours.highlight}10` 
+      : `0 1px 2px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.5)`,
   });
 
   const metaStyle = mergeStyles({
@@ -218,11 +217,133 @@ const GroupedEnquiryCard: React.FC<GroupedEnquiryCardProps> = ({ groupedEnquiry,
     fontWeight: 500,
   });
 
+  const latestDateTextStyle = mergeStyles({
+    fontSize: 12,
+    color: isDarkMode ? colours.dark.subText : colours.light.subText,
+    fontWeight: 700,
+    lineHeight: 1.2,
+    textAlign: 'right',
+  });
+
+  const previousDateTextStyle = mergeStyles({
+    fontSize: 12,
+    color: isDarkMode ? 'rgba(148,163,184,0.85)' : 'rgba(71,85,105,0.9)',
+    fontWeight: 500,
+    lineHeight: 1.2,
+    textAlign: 'right',
+    marginTop: 2,
+  });
+
+  const moreDotsStyle = mergeStyles({
+    fontSize: 12,
+    color: isDarkMode ? colours.dark.subText : colours.light.subText,
+    opacity: 0.7,
+    lineHeight: 1.2,
+    textAlign: 'right',
+    marginTop: 2,
+  });
+
+  // Horizontal timeline styles (previous on the left, latest on the right)
+  const hTimelineContainer = mergeStyles({
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    width: 200,
+    flex: '0 0 200px',
+  });
+
+  const hBar = mergeStyles({
+    position: 'relative',
+    width: 56,
+    height: 8,
+  });
+
+  const hLine = mergeStyles({
+    position: 'absolute',
+    top: '50%',
+    left: 2,
+    right: 2,
+    height: 2,
+    transform: 'translateY(-50%)',
+    background: isDarkMode ? 'rgba(148,163,184,0.35)' : 'rgba(100,116,139,0.35)',
+    borderRadius: 2,
+  });
+
+  const hDotBase: React.CSSProperties = {
+    position: 'absolute',
+    top: '50%',
+    width: 8,
+    height: 8,
+    borderRadius: '50%',
+    transform: 'translateY(-50%)',
+    boxShadow: isDarkMode
+      ? '0 0 0 2px rgba(15,23,42,0.85)'
+      : '0 0 0 2px rgba(255,255,255,0.92)'
+  };
+
+  const hDotLeft: React.CSSProperties = {
+    ...hDotBase,
+    left: 2,
+    background: isDarkMode ? 'rgba(148,163,184,0.9)' : 'rgba(100,116,139,0.9)',
+  };
+
+  const hDotRight: React.CSSProperties = {
+    ...hDotBase,
+    right: 2,
+    background: colours.highlight,
+  };
+
+  const hLabels = mergeStyles({
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: 6,
+    whiteSpace: 'nowrap',
+  });
+
+  const sepStyle = mergeStyles({
+    color: isDarkMode ? 'rgba(148,163,184,0.6)' : 'rgba(100,116,139,0.7)'
+  });
+
   const actionsStyle = mergeStyles({ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' });
+
+  const actionButtonStyle: React.CSSProperties = {
+    padding: '8px 12px',
+    background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(148, 163, 184, 0.04)',
+    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.28)' : 'rgba(100, 116, 139, 0.26)'}`,
+    borderRadius: 8,
+    color: isDarkMode ? 'rgba(226, 232, 240, 0.92)' : 'rgba(51, 65, 85, 0.95)',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    fontSize: 12,
+    fontWeight: 600,
+    transition: 'all 0.2s ease',
+    width: 36,
+    height: 36,
+  };
+
+  const actionButtonHoverStyle: React.CSSProperties = {
+    background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.12)',
+    borderColor: colours.highlight,
+    color: colours.highlight,
+  };
+
+  const actionButtonActiveStyle: React.CSSProperties = {
+    background: isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.18)',
+    borderColor: colours.highlight,
+    color: colours.highlight,
+    transform: 'scale(0.98)'
+  };
 
   const expandedContentStyle = mergeStyles({
     padding: '0 16px 10px 16px',
-    backgroundColor: isDarkMode ? '#1b2026' : '#f6f8f9',
+    backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.6)' : 'rgba(248, 250, 252, 0.8)',
+    backdropFilter: 'blur(8px)',
+    WebkitBackdropFilter: 'blur(8px)',
+    borderRadius: 8,
+    marginTop: 12,
   });
 
   const areaTagsStyle = mergeStyles({
@@ -266,60 +387,72 @@ const GroupedEnquiryCard: React.FC<GroupedEnquiryCardProps> = ({ groupedEnquiry,
         <div style={{ minWidth: 160 }}>
           <div className={nameStyle}>
             {clientName}
-            <span className={countBadgeStyle}>{enquiryCount}</span>
-            {getPromotionStatus && (() => {
-              // Check if any enquiry in the group has been promoted
-              const promotedEnquiry = groupedEnquiry.enquiries.find(eq => getPromotionStatus(eq));
-              const status = promotedEnquiry ? getPromotionStatus(promotedEnquiry) : null;
-              return status && (
-                <span style={{
-                  fontSize: 9,
-                  fontWeight: 500,
-                  padding: '2px 5px',
-                  borderRadius: 3,
-                  backgroundColor: status === 'instruction' ? (isDarkMode ? 'rgba(76, 175, 80, 0.15)' : 'rgba(232, 245, 232, 0.6)') : (isDarkMode ? 'rgba(33, 150, 243, 0.15)' : 'rgba(227, 242, 253, 0.6)'),
-                  color: status === 'instruction' ? (isDarkMode ? 'rgba(76, 175, 80, 0.8)' : 'rgba(46, 125, 50, 0.7)') : (isDarkMode ? 'rgba(33, 150, 243, 0.8)' : 'rgba(21, 101, 192, 0.7)'),
-                  textTransform: 'uppercase',
-                  letterSpacing: 0.5,
-                  marginLeft: 6,
-                  opacity: 0.85
-                }}>
-                  {status === 'instruction' ? 'Instructed' : 'Pitched'}
-                </span>
-              );
-            })()}
+            {enquiryCount > 1 && <span className={countBadgeStyle}>{enquiryCount}</span>}
           </div>
           <div className={emailStyle}>{clientEmail}</div>
-          <div className={areaTagsStyle}>
-            {areas.map((area, idx) => (
-              <span key={idx} className={areaTagStyle(area)}>{area}</span>
-            ))}
+        </div>
+        <div className={hTimelineContainer}>
+          <div className={hBar} aria-hidden>
+            <div className={hLine} />
+            {enquiryCount > 1 && <div style={hDotLeft} />}
+            <div style={hDotRight} />
+          </div>
+          <div className={hLabels}>
+            {enquiryCount > 1 && (
+              <span className={previousDateTextStyle}>
+                {formatDate(enquiries[1]?.Touchpoint_Date || '')}
+              </span>
+            )}
+            {enquiryCount > 1 && <span className={sepStyle}>—</span>}
+            <span className={latestDateTextStyle}>{formatDate(latestDate)}</span>
+            {enquiryCount > 2 && <span className={moreDotsStyle}>…</span>}
           </div>
         </div>
-        <div>
-          <div className={metaStyle}>{latestEnquiry.Area_of_Work?.toLowerCase().includes('other') || latestEnquiry.Area_of_Work?.toLowerCase().includes('unsure') ? 'Other' : latestEnquiry.Area_of_Work}</div>
-          {latestEnquiry.Type_of_Work && (
-            <Text variant="small" styles={{ root: { color: isDarkMode ? colours.dark.text : colours.light.text, fontSize: 13, opacity: .7 } }}>{latestEnquiry.Type_of_Work}</Text>
-          )}
-        </div>
-        <div>
-          <div className={valueStyle}>{calculateTotalValue()}</div>
-          <Text variant="small" styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.light.subText, fontSize: 12 } }}>Combined value</Text>
-        </div>
-        <div>
-          <div className={dateStyle}>{formatDate(latestDate)}</div>
-          <Text variant="small" styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.light.subText, fontSize: 12 } }}>Latest enquiry</Text>
-        </div>
         <div className={actionsStyle} onClick={e => e.stopPropagation()}>
-          <TooltipHost content="Call">
-            <IconButton iconProps={{ iconName: 'Phone' }} onClick={() => latestEnquiry.Phone_Number && (window.location.href = `tel:${latestEnquiry.Phone_Number}`)} styles={iconButtonStyles(isDarkMode ? colours.dark.text : colours.light.text)} />
-          </TooltipHost>
-          <TooltipHost content="Email">
-            <IconButton iconProps={{ iconName: 'Mail' }} onClick={() => clientEmail && (window.location.href = `mailto:${clientEmail}?subject=Your%20Enquiry&bcc=1day@followupthen.com`)} styles={iconButtonStyles(isDarkMode ? colours.dark.text : colours.light.text)} />
-          </TooltipHost>
-          <TooltipHost content={enquiryCount > 1 ? (isExpanded ? 'Collapse' : 'Expand') : 'View Details'}>
-            <IconButton iconProps={{ iconName: enquiryCount > 1 ? (isExpanded ? 'ChevronUp' : 'ChevronDown') : 'View' }} onClick={toggleExpanded} styles={iconButtonStyles(isDarkMode ? colours.dark.text : colours.light.text)} />
-          </TooltipHost>
+          <button
+            title="Call"
+            style={actionButtonStyle}
+            onClick={() => latestEnquiry.Phone_Number && (window.location.href = `tel:${latestEnquiry.Phone_Number}`)}
+            onMouseEnter={(e) => Object.assign(e.currentTarget.style, actionButtonHoverStyle)}
+            onMouseLeave={(e) => Object.assign(e.currentTarget.style, actionButtonStyle)}
+            onMouseDown={(e) => Object.assign(e.currentTarget.style, actionButtonActiveStyle)}
+            onMouseUp={(e) => Object.assign(e.currentTarget.style, actionButtonHoverStyle)}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' }}>
+              <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.86 19.86 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.86 19.86 0 0 1 2.1 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.66 12.66 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.66 12.66 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+            </svg>
+          </button>
+          <button
+            title="Email"
+            style={actionButtonStyle}
+            onClick={() => clientEmail && (window.location.href = `mailto:${clientEmail}?subject=Your%20Enquiry`)}
+            onMouseEnter={(e) => Object.assign(e.currentTarget.style, actionButtonHoverStyle)}
+            onMouseLeave={(e) => Object.assign(e.currentTarget.style, actionButtonStyle)}
+            onMouseDown={(e) => Object.assign(e.currentTarget.style, actionButtonActiveStyle)}
+            onMouseUp={(e) => Object.assign(e.currentTarget.style, actionButtonHoverStyle)}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' }}>
+              <rect x="2" y="4" width="20" height="16" rx="2"></rect>
+              <path d="M7 10l5 4 5-4"></path>
+            </svg>
+          </button>
+          <button
+            title={enquiryCount > 1 ? (isExpanded ? 'Collapse' : 'Expand') : 'View Details'}
+            style={isExpanded ? { ...actionButtonStyle, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.12)', borderColor: colours.highlight, color: colours.highlight } : actionButtonStyle}
+            onClick={toggleExpanded}
+            onMouseEnter={(e) => Object.assign(e.currentTarget.style, { ...actionButtonHoverStyle })}
+            onMouseLeave={(e) => Object.assign(e.currentTarget.style, isExpanded ? { ...actionButtonStyle, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.12)', borderColor: colours.highlight, color: colours.highlight } : actionButtonStyle)}
+            onMouseDown={(e) => Object.assign(e.currentTarget.style, { ...actionButtonActiveStyle })}
+            onMouseUp={(e) => Object.assign(e.currentTarget.style, { ...actionButtonHoverStyle })}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' }}>
+              {isExpanded ? (
+                <polyline points="18 15 12 9 6 15"></polyline>
+              ) : (
+                <polyline points="6 9 12 15 18 9"></polyline>
+              )}
+            </svg>
+          </button>
         </div>
       </div>
       {isExpanded && enquiryCount > 1 && (
@@ -331,12 +464,14 @@ const GroupedEnquiryCard: React.FC<GroupedEnquiryCardProps> = ({ groupedEnquiry,
                 <EnquiryLineItem 
                   enquiry={enquiry} 
                   onSelect={onSelect} 
-                  onRate={onRate} 
+                  onRate={onRate}
+                  onRatingChange={onRatingChange}
                   onPitch={onPitch} 
                   teamData={teamData} 
                   isLast={idx === enquiries.length - 1} 
                   userAOW={undefined}
                   promotionStatus={getPromotionStatus ? getPromotionStatus(enquiry) : null}
+                  onFilterByPerson={onFilterByPerson}
                 />
               </div>
             ))}

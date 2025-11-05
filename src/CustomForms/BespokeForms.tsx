@@ -224,6 +224,7 @@ export interface BespokeFormProps {
   onChange?: (values: { [key: string]: any }) => void;
   submitDisabled?: boolean;
   conflict?: boolean;
+  hideButtons?: boolean; // Hide the default Submit/Clear/Cancel buttons
 }
 
 interface MatterReferenceDropdownProps {
@@ -384,6 +385,7 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
   matters,
   conflict = false,
   submitDisabled = false,
+  hideButtons = false,
 }) => {
   const { isDarkMode } = useTheme();
   const [formValues, setFormValues] = React.useState<{ [key: string]: any }>(
@@ -455,15 +457,14 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
         style={{
           marginTop: '10px',
           padding: '20px',
-          background: isDarkMode
-            ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.94) 0%, rgba(11, 30, 55, 0.86) 55%, rgba(10, 39, 72, 0.8) 100%)'
-            : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
+          background: isDarkMode ? 'rgba(17, 24, 39, 0.72)' : 'rgba(255, 255, 255, 0.78)',
           borderRadius: '12px',
-          border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : 'rgba(148, 163, 184, 0.22)'}`,
+          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(15, 23, 42, 0.08)'}`,
           boxShadow: isDarkMode
-            ? '0 18px 32px rgba(2, 6, 17, 0.58)'
-            : '0 12px 28px rgba(13, 47, 96, 0.12)',
-          backdropFilter: 'blur(12px)',
+            ? '0 10px 28px rgba(0, 0, 0, 0.35)'
+            : '0 10px 28px rgba(2, 6, 23, 0.10)',
+          backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)',
           display: 'flex',
           flexDirection: 'column',
           gap: '12px',
@@ -912,31 +913,33 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
             }
           })}
           {children}
-          <Stack horizontal tokens={{ childrenGap: 10 }}>
-            <PrimaryButton
-              type="submit"
-              text={isSubmitting ? 'Submitted' : 'Submit'}
-              iconProps={conflict ? { iconName: 'Lock' } : undefined}
-              styles={
-                conflict ? sharedDefaultButtonStyles : sharedPrimaryButtonStyles
-              }
-              disabled={isSubmitting || conflict}
-            />
-            <DefaultButton
-              type="button"
-              text="Clear"
-              onClick={handleClear}
-              styles={sharedDefaultButtonStyles}
-              disabled={isSubmitting}
-            />
-            <DefaultButton
-              type="button"
-              text="Cancel"
-              onClick={onCancel}
-              styles={sharedDefaultButtonStyles}
-              disabled={isSubmitting}
-            />
-          </Stack>
+          {!hideButtons && (
+            <Stack horizontal tokens={{ childrenGap: 10 }}>
+              <PrimaryButton
+                type="submit"
+                text={isSubmitting ? 'Submitted' : 'Submit'}
+                iconProps={conflict ? { iconName: 'Lock' } : undefined}
+                styles={
+                  conflict ? sharedDefaultButtonStyles : sharedPrimaryButtonStyles
+                }
+                disabled={isSubmitting || conflict}
+              />
+              <DefaultButton
+                type="button"
+                text="Clear"
+                onClick={handleClear}
+                styles={sharedDefaultButtonStyles}
+                disabled={isSubmitting}
+              />
+              <DefaultButton
+                type="button"
+                text="Cancel"
+                onClick={onCancel}
+                styles={sharedDefaultButtonStyles}
+                disabled={isSubmitting}
+              />
+            </Stack>
+          )}
         </Stack>
       </div>
     </form>

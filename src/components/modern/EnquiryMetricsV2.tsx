@@ -83,7 +83,7 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
     switch (trend) {
       case 'up': return colours.green;
       case 'down': return colours.cta;
-      default: return isDarkMode ? colours.dark.subText : colours.light.subText;
+      default: return isDarkMode ? colours.accent : colours.light.subText;
     }
   };
 
@@ -133,7 +133,7 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
       <div style={{
         background: isDarkMode 
           ? 'linear-gradient(135deg, #0B1224 0%, #0F1B33 100%)'
-          : `linear-gradient(135deg, ${colours.light.cardBackground} 0%, rgba(54, 144, 206, 0.05) 100%)`,
+          : colours.light.cardBackground,
         borderRadius: '12px',
         border: isDarkMode 
           ? `1px solid ${colours.dark.border}` 
@@ -195,7 +195,7 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
                   key={metric.title}
                   style={{
                     background: isDarkMode 
-                      ? colours.dark.cardBackground
+                      ? 'linear-gradient(135deg, rgba(31, 41, 55, 1) 0%, rgba(17, 24, 39, 1) 100%)'
                       : colours.light.cardBackground,
                     borderRadius: '8px',
                     padding: '20px',
@@ -234,12 +234,12 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
                       height: '32px',
                       borderRadius: '8px',
                       background: isDarkMode
-                        ? 'linear-gradient(135deg, #1E293B 0%, #334155 100%)'
-                        : `linear-gradient(135deg, ${colours.highlight} 0%, rgba(54, 144, 206, 0.8) 100%)`,
+                        ? 'rgba(135, 243, 243, 0.1)'
+                        : 'rgba(54, 144, 206, 0.1)',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      color: 'white',
+                      color: isDarkMode ? colours.accent : colours.highlight,
                     }}>
                       <Icon size={14} />
                     </div>
@@ -306,7 +306,9 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
                           height: '100%',
                           background: (metric.percentage || 0) >= 80 
                             ? `linear-gradient(90deg, ${colours.green} 0%, rgba(32, 178, 108, 0.8) 100%)`
-                            : `linear-gradient(90deg, ${colours.highlight} 0%, rgba(54, 144, 206, 0.8) 100%)`,
+                            : isDarkMode
+                            ? `linear-gradient(90deg, ${colours.highlight} 0%, ${colours.accent} 100%)`
+                            : colours.highlight,
                           borderRadius: '3px',
                           transition: enableAnimationThisMount ? 'width 0.3s ease' : 'none',
                         }} />
@@ -337,7 +339,7 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
                     key={metric.title}
                     style={{
                       background: isDarkMode 
-                        ? colours.dark.cardBackground
+                        ? 'linear-gradient(135deg, rgba(31, 41, 55, 1) 0%, rgba(17, 24, 39, 1) 100%)'
                         : colours.light.cardBackground,
                       borderRadius: '8px',
                       padding: '20px',
@@ -365,12 +367,12 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
                         gap: '8px',
                       }}>
                         <Icon size={16} style={{
-                          color: isDarkMode ? colours.dark.iconColor : colours.light.iconColor,
+                          color: isDarkMode ? colours.accent : colours.highlight,
                         }} />
                         <span style={{
                           fontSize: '13px',
                           fontWeight: 500,
-                          color: isDarkMode ? colours.dark.subText : colours.light.subText,
+                          color: isDarkMode ? colours.accent : colours.highlight,
                         }}>
                           {metric.title}
                         </span>
@@ -424,7 +426,9 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
                             height: '100%',
                             background: (metric.percentage || 0) >= 80 
                               ? `linear-gradient(90deg, ${colours.green} 0%, rgba(32, 178, 108, 0.8) 100%)`
-                              : `linear-gradient(90deg, ${colours.highlight} 0%, rgba(54, 144, 206, 0.8) 100%)`,
+                              : isDarkMode
+                              ? `linear-gradient(90deg, ${colours.highlight} 0%, ${colours.accent} 100%)`
+                              : colours.highlight,
                             borderRadius: '3px',
                             transition: enableAnimationThisMount ? 'width 0.3s ease' : 'none',
                           }} />

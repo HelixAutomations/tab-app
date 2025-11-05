@@ -1,16 +1,15 @@
 /* Quick Actions Card - Simple Static Display (No Hover Effects) */
 
-/* Cascading animation for quick action items */
+/* Cascading animation for quick action items - simplified to reduce flicker */
 @keyframes quickActionCascade {
   from {
     opacity: 0;
-    transform: translateX(-10px);
   }
   to {
     opacity: 1;
-    transform: translateX(0);
   }
 }
+
 
 .quickActionCard {
   position: relative;
@@ -18,19 +17,43 @@
   align-items: center;
   justify-content: center;
   flex: 0 0 auto; /* prevent stretch/grow on small screens */
-  height: 38px;
-  border-radius: 6px;
+  height: 32px;
+  min-height: 32px;
+  border-radius: 7px;
   cursor: pointer;
-  /* Smooth transitions for all states */
-  transition: transform 140ms ease, background-color 160ms ease, color 140ms ease, opacity 140ms ease, width 300ms ease, gap 300ms ease;
-  background: var(--card-bg, transparent);
-  border: none; /* Remove individual borders */
-  padding: 0 10px;
-  width: 40px;
-  min-width: 40px;
-  gap: 0;
+  padding: 0 12px;
+  gap: 6px;
   overflow: hidden;
-  box-shadow: none; /* Remove individual shadows */
+  background-color: var(--qa-fill-base, transparent);
+  border: 1px solid var(--qa-border-base, transparent);
+  color: var(--qa-text-base, inherit);
+  box-shadow: none;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, opacity 150ms ease;
+  width: auto;
+  min-width: 0;
+}
+
+
+.quickActionCard.light-mode {
+  --qa-text-base: rgba(15, 23, 42, 0.86);
+  --qa-text-strong: rgba(15, 23, 42, 0.92);
+  --qa-icon-passive: rgba(100, 116, 139, 0.72);
+  --qa-border-base: rgba(148, 163, 184, 0.22);
+  --qa-border-hover: rgba(100, 116, 139, 0.3);
+  --qa-fill-base: rgba(148, 163, 184, 0.08);
+  --qa-fill-hover: rgba(148, 163, 184, 0.14);
+  --qa-fill-active: rgba(148, 163, 184, 0.2);
+}
+
+.quickActionCard.dark-mode {
+  --qa-text-base: rgba(229, 231, 235, 0.85);
+  --qa-text-strong: rgba(243, 244, 246, 0.95);
+  --qa-icon-passive: rgba(209, 213, 219, 0.7);
+  --qa-border-base: rgba(148, 163, 184, 0.26);
+  --qa-border-hover: rgba(191, 219, 254, 0.36);
+  --qa-fill-base: rgba(30, 41, 59, 0.32);
+  --qa-fill-hover: rgba(51, 65, 85, 0.46);
+  --qa-fill-active: rgba(71, 85, 105, 0.54);
 }
 
 .quickActionCard.light-mode .quick-action-label {
@@ -38,27 +61,25 @@
 }
 
 .quickActionCard.dark-mode .quick-action-label {
-  color: #E5E7EB;
+  color: var(--qa-text-base, #E5E7EB);
 }
 
 .quickActionCard.dark-mode.show-label .quick-action-label,
 .quickActionCard.dark-mode.labels-locked:hover .quick-action-label,
 .quickActionCard.dark-mode.labels-locked.hovered .quick-action-label,
 .quickActionCard.dark-mode.always-show-text .quick-action-label {
-  color: #F3F4F6 !important;
+  color: var(--qa-text-strong, #F3F4F6) !important;
 }
 
 .quickActionCard.dark-mode .quick-action-icon {
-  color: rgba(255, 255, 255, 0.7);
-  opacity: 0.7;
+  color: var(--qa-icon-passive, rgba(209, 213, 219, 0.65));
 }
 
 .quickActionCard.dark-mode.show-label .quick-action-icon,
 .quickActionCard.dark-mode.labels-locked:hover .quick-action-icon,
 .quickActionCard.dark-mode.labels-locked.hovered .quick-action-icon,
 .quickActionCard.dark-mode.always-show-text .quick-action-icon {
-  color: rgba(255, 255, 255, 0.85);
-  opacity: 1;
+  color: var(--qa-text-strong, #F3F4F6);
 }
 
 
@@ -66,72 +87,42 @@
 /* Keep expanded when panel is active or when this specific card opened a panel */
 .quickActionCard.panel-active,
 .quickActionCard.selected {
-  width: auto;
-  min-width: 120px;
-  gap: 8px;
   justify-content: flex-start;
-  transition-delay: 0s;
-  background-color: var(--card-selected, rgba(54, 144, 206, 0.12));
+  background-color: var(--qa-fill-active, transparent);
+  border-color: var(--qa-border-hover, var(--qa-border-base, transparent));
+  color: var(--qa-text-strong, inherit);
+  transition-duration: 160ms;
 }
 
-.quickActionCard::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 12px;
-  right: 12px;
-  height: 2px;
-  background-color: #3690CE;
-  transform: scaleX(0);
-  transition: transform 0.3s ease;
-  border-radius: 1px;
-}
+
 
 /* Only apply width/gap transitions on hover if not in persistent show-label mode */
 .quickActionCard:hover:not(.show-label),
 .quickActionCard.hovered:not(.show-label) {
-  background-color: var(--card-hover, rgba(54, 144, 206, 0.08));
-  width: auto;
-  min-width: 120px;
-  gap: 8px;
-  transition-delay: 0s;
-  transition: transform 140ms ease, background-color 160ms ease, color 140ms ease, opacity 140ms ease, width 200ms ease, gap 200ms ease;
-  transform: translateY(-1px);
-  border-radius: 4px;
+  background-color: var(--qa-fill-hover, transparent);
+  border-color: var(--qa-border-hover, var(--qa-border-base, transparent));
   justify-content: flex-start;
 }
 
 /* For cards in show-label mode, only apply visual hover effects without changing layout */
 .quickActionCard.show-label:hover,
 .quickActionCard.show-label.hovered {
-  background-color: var(--card-hover, rgba(54, 144, 206, 0.08));
-  transform: translateY(-1px);
-  border-radius: 4px;
-  transition: transform 140ms ease, background-color 160ms ease, color 140ms ease;
+  background-color: var(--qa-fill-hover, transparent);
+  border-color: var(--qa-border-hover, var(--qa-border-base, transparent));
 }
 
 .quickActionCard.light-mode:hover .quick-action-icon,
 .quickActionCard.light-mode.hovered .quick-action-icon,
 .quickActionCard.light-mode:hover .quick-action-label,
 .quickActionCard.light-mode.hovered .quick-action-label {
-  color: #3690CE !important; /* Blue highlight on hover for icons and text */
+  color: var(--qa-text-strong, #1F2937) !important;
 }
 
 .quickActionCard.dark-mode:hover .quick-action-icon,
 .quickActionCard.dark-mode.hovered .quick-action-icon,
 .quickActionCard.dark-mode:hover .quick-action-label,
 .quickActionCard.dark-mode.hovered .quick-action-label {
-  color: #7DD3FC !important;
-}
-
-.quickActionCard.selected::after {
-  transform: scaleX(1);
-}
-
-/* Also show the underline on hover for feedback */
-.quickActionCard:hover::after,
-.quickActionCard.hovered::after {
-  transform: scaleX(1);
+  color: var(--qa-text-strong, #F3F4F6) !important;
 }
 
 /* When labels are locked (insufficient width), keep icon-only even on hover */
@@ -139,6 +130,7 @@
   width: 40px !important;
   min-width: 40px !important;
   gap: 0 !important;
+  padding: 0 8px !important;
 }
 
 .quickActionCard.labels-locked .quick-action-label {
@@ -146,22 +138,21 @@
   width: 0 !important;
 }
 
-/* When labels are locked but hovered, reveal temporarily */
+/* When labels are locked, DO NOT expand on hover - keep icon-only for stability */
 .quickActionCard.labels-locked:hover,
 .quickActionCard.labels-locked.hovered {
-  background-color: var(--card-hover, rgba(54, 144, 206, 0.08));
-  /* Expand on hover to reveal label for clarity */
-  width: auto !important;
-  min-width: 120px !important;
-  gap: 8px !important;
-  transform: translateY(-1px);
-  justify-content: flex-start !important;
+  background-color: var(--qa-fill-hover, transparent);
+  border-color: var(--qa-border-hover, var(--qa-border-base, transparent));
+  /* Keep icon-only - no expansion */
+  width: 40px !important;
+  min-width: 40px !important;
+  gap: 0 !important;
 }
 
 .quickActionCard.labels-locked:hover .quick-action-label,
 .quickActionCard.labels-locked.hovered .quick-action-label {
-  opacity: 1 !important;
-  width: auto !important;
+  opacity: 0 !important;
+  width: 0 !important;
 }
 
 /* Icon container - subtle styling */
@@ -170,12 +161,12 @@
   width: 20px;
   height: 20px;
   flex-shrink: 0;
-  color: #eee;
-  opacity: 0.4;
+  color: var(--qa-icon-passive, rgba(148, 163, 184, 0.7));
+  opacity: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: color 0.3s ease, opacity 0.3s ease;
+  transition: color 0.2s ease;
 }
 
 /* Show outline icons by default, hide filled icons */
@@ -232,6 +223,20 @@
   transition-delay: 0s;
 }
 
+.quickActionCard:hover .quick-action-icon,
+.quickActionCard.hovered .quick-action-icon,
+.quickActionCard.selected .quick-action-icon,
+.quickActionCard.panel-active .quick-action-icon {
+  color: inherit;
+}
+
+.quickActionCard:hover .quick-action-label,
+.quickActionCard.hovered .quick-action-label,
+.quickActionCard.selected .quick-action-label,
+.quickActionCard.panel-active .quick-action-label {
+  color: inherit;
+}
+
 /* Show labels when panel is active or card is selected */
 .quickActionCard.panel-active .quick-action-label,
 .quickActionCard.selected .quick-action-label {
@@ -246,8 +251,8 @@
   min-width: 120px !important;
   gap: 8px !important;
   justify-content: flex-start !important;
-  /* Smooth transitions for expanding to show-label state */
-  transition: transform 140ms ease, background-color 160ms ease, color 140ms ease, opacity 140ms ease, width 300ms ease, gap 300ms ease;
+  background-color: var(--qa-fill-base, transparent);
+  border-color: var(--qa-border-base, transparent);
 }
 
 .quickActionCard.show-label .quick-action-label {
@@ -283,7 +288,7 @@ div.quickActionCard.always-show-text.dark-mode span.quick-action-label {
 
 
 .quickActionCard.always-show-text .quick-action-icon {
-  opacity: 0.8; /* Less washed out */
+  color: var(--qa-icon-passive, currentColor);
 }
 
 /* Show outline icons by default, even when always-show-text is active */
@@ -298,7 +303,7 @@ div.quickActionCard.always-show-text.dark-mode span.quick-action-label {
 /* On hover when always-show-text, enhance the styling */
 .quickActionCard.always-show-text:hover .quick-action-icon,
 .quickActionCard.always-show-text.selected .quick-action-icon {
-  color: #3690CE;
+  color: inherit;
   opacity: 1;
 }
 
@@ -315,49 +320,7 @@ div.quickActionCard.always-show-text.dark-mode span.quick-action-label {
 
 .quickActionCard.always-show-text:hover .quick-action-label,
 .quickActionCard.always-show-text.selected .quick-action-label {
-  color: #3690CE;
-}
-
-.quickActionCard.light-mode:hover .quick-action-label,
-.quickActionCard.light-mode.selected .quick-action-label {
-  color: #3690CE;
-  opacity: 1;
-}
-
-.quickActionCard.light-mode:hover .quick-action-icon,
-.quickActionCard.light-mode.selected .quick-action-icon {
-  color: #3690CE;
-  opacity: 1;
-}
-
-.quickActionCard.light-mode.panel-active .quick-action-label {
-  color: #3690CE;
-}
-
-.quickActionCard.light-mode.panel-active .quick-action-icon {
-  color: #3690CE;
-  opacity: 1;
-}
-
-.quickActionCard.dark-mode:hover .quick-action-label,
-.quickActionCard.dark-mode.selected .quick-action-label {
-  color: #7DD3FC;
-  opacity: 1;
-}
-
-.quickActionCard.dark-mode:hover .quick-action-icon,
-.quickActionCard.dark-mode.selected .quick-action-icon {
-  color: #93C5FD;
-  opacity: 1;
-}
-
-.quickActionCard.dark-mode.panel-active .quick-action-label {
-  color: #7DD3FC;
-}
-
-.quickActionCard.dark-mode.panel-active .quick-action-icon {
-  color: #93C5FD;
-  opacity: 1;
+  color: inherit;
 }
 
 /* Focus states */
@@ -379,31 +342,12 @@ div.quickActionCard.always-show-text.dark-mode span.quick-action-label {
 /* Dark mode */
 @media (prefers-color-scheme: dark) {
   .quick-action-icon {
-    color: #333;
-    opacity: 0.4;
-  }
-  
-  .quick-action-label {
-    color: #e5e7eb; /* improve dark-mode readability */
-  }
-  
-  .quickActionCard.always-show-text .quick-action-label {
-    color: #e5e7eb !important; /* Better contrast in dark mode */
-  }
-  
-  .quickActionCard:hover .quick-action-label,
-  .quickActionCard.selected .quick-action-label {
-    color: #4DA6E0;
-  }
-  
-  .quickActionCard:hover .quick-action-icon,
-  .quickActionCard.selected .quick-action-icon {
-    color: #4DA6E0;
-    opacity: 1;
+    color: var(--qa-icon-passive, rgba(209, 213, 219, 0.65));
   }
 
-  .quickActionCard::after {
-    background-color: #4DA6E0;
+  .quick-action-label,
+  .quickActionCard.always-show-text .quick-action-label {
+    color: var(--qa-text-base, #E5E7EB) !important;
   }
 }
 

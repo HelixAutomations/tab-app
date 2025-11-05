@@ -626,12 +626,15 @@ router.post('/getAnnualLeave', async (req, res) => {
               return acc;
             }
 
-            if (leaveType === 'standard') {
-              acc.standard += days;
-            } else if (leaveType === 'purchase') {
-              acc.unpaid += days;
-            } else if (leaveType === 'sale') {
-              acc.sale += days;
+            // Count approved and booked leave toward totals
+            if (status === 'booked' || status === 'approved') {
+              if (leaveType === 'standard') {
+                acc.standard += days;
+              } else if (leaveType === 'purchase') {
+                acc.unpaid += days;
+              } else if (leaveType === 'sale') {
+                acc.sale += days;
+              }
             }
 
             return acc;
@@ -680,14 +683,20 @@ router.post('/getAnnualLeave', async (req, res) => {
         const totals = userLeaveResult.recordset.reduce(
           (acc, entry) => {
             const days = entry.days_taken || 0;
-            if (entry.status === 'rejected') {
+            const status = String(entry.status || '').toLowerCase();
+            const leaveType = String(entry.leave_type || '').toLowerCase();
+            
+            if (status === 'rejected') {
               acc.rejected += days;
-            } else if (entry.leave_type === 'standard') {
-              acc.standard += days;
-            } else if (entry.leave_type === 'purchase') {
-              acc.unpaid += days;
-            } else if (entry.leave_type === 'sale') {
-              acc.sale += days;
+            } else if (status === 'booked' || status === 'approved') {
+              // Count approved and booked leave toward totals
+              if (leaveType === 'standard') {
+                acc.standard += days;
+              } else if (leaveType === 'purchase') {
+                acc.unpaid += days;
+              } else if (leaveType === 'sale') {
+                acc.sale += days;
+              }
             }
             return acc;
           },

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Stack,
@@ -83,8 +83,8 @@ function sumBookedAndRequestedDaysInFY(
     .filter(entry => 
       entry.status && 
       (entry.status.toLowerCase() === 'booked' || 
-       entry.status.toLowerCase() === 'requested' ||
        entry.status.toLowerCase() === 'approved')
+      // Removed 'requested' - pending requests shouldn't count toward "days used"
     )
     .forEach(entry => {
       const startDate = new Date(entry.start_date);
@@ -120,7 +120,9 @@ interface AnnualLeaveApprovalsProps {
 const formContainerStyle = mergeStyles({
   position: 'fixed',
   inset: 0,
-  backgroundColor: 'rgba(0, 0, 0, 0.6)',
+  backgroundColor: 'rgba(0, 0, 0, 0.35)',
+  backdropFilter: 'blur(4px)',
+  WebkitBackdropFilter: 'blur(4px)',
   zIndex: 2147483000, // ensure above any app/panel overlays
   display: 'flex',
   alignItems: 'center',
@@ -130,19 +132,23 @@ const formContainerStyle = mergeStyles({
 });
 
 const modalContentStyle = (isDarkMode: boolean) => mergeStyles({
-  background: isDarkMode 
-    ? `linear-gradient(135deg, ${colours.dark.sectionBackground} 0%, ${colours.dark.cardBackground} 100%)`
-    : `linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)`,
+  background: isDarkMode
+    ? 'rgba(17, 24, 39, 0.72)'
+    : 'rgba(255, 255, 255, 0.78)',
   borderRadius: '16px',
-  boxShadow: isDarkMode 
-    ? '0 12px 40px rgba(0, 0, 0, 0.8)' 
-    : '0 12px 40px rgba(0, 0, 0, 0.5)',
+  boxShadow: isDarkMode
+    ? '0 10px 30px rgba(0, 0, 0, 0.35)'
+    : '0 10px 30px rgba(2, 6, 23, 0.10)',
   width: 'min(1200px, 96%)',
   maxHeight: '90vh',
   overflow: 'auto',
-  padding: '32px',
+  padding: '28px',
   position: 'relative',
-  border: isDarkMode ? `1px solid ${colours.dark.border}` : 'none',
+  border: isDarkMode
+    ? '1px solid rgba(148, 163, 184, 0.18)'
+    : '1px solid rgba(15, 23, 42, 0.08)',
+  backdropFilter: 'blur(10px)',
+  WebkitBackdropFilter: 'blur(10px)',
   '@media (max-width: 768px)': {
     padding: '20px',
     borderRadius: '12px',
@@ -169,32 +175,34 @@ const closeButtonStyle = (isDarkMode: boolean) => mergeStyles({
   justifyContent: 'center',
   transition: 'all 0.2s ease',
   ':hover': {
-    backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+    backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
     color: isDarkMode ? colours.dark.text : colours.light.text,
   },
 });
 
-const professionalContainerStyle = (isDarkMode: boolean) => mergeStyles({
-  background: isDarkMode 
-    ? `linear-gradient(135deg, ${colours.dark.cardBackground} 0%, ${colours.dark.sectionBackground} 100%)`
-    : `linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)`,
-  border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-  borderRadius: '16px',
-  padding: '32px',
-  marginBottom: '24px',
+// Compact card design for better information density
+const compactCardStyle = (isDarkMode: boolean, isExpanded: boolean) => mergeStyles({
+  background: isDarkMode ? 'rgba(31, 41, 55, 0.65)' : 'rgba(255, 255, 255, 0.9)',
+  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(15, 23, 42, 0.08)'}`,
+  borderRadius: '12px',
+  padding: '16px',
+  marginBottom: '12px',
   boxShadow: isDarkMode 
-    ? '0 8px 32px rgba(0, 0, 0, 0.4)' 
-    : '0 8px 32px rgba(0, 0, 0, 0.12)',
-  maxWidth: '100%',
-  overflow: 'hidden',
-  '@media (max-width: 768px)': {
-    padding: '20px',
-    borderRadius: '12px',
+    ? '0 2px 8px rgba(0, 0, 0, 0.25)'
+    : '0 2px 8px rgba(2, 6, 23, 0.06)',
+  transition: 'all 0.2s ease',
+  cursor: 'default',
+  ':hover': {
+    boxShadow: isDarkMode 
+      ? '0 4px 12px rgba(0, 0, 0, 0.3)'
+      : '0 4px 12px rgba(2, 6, 23, 0.10)',
   },
+  maxHeight: isExpanded ? '2000px' : 'auto',
+  overflow: isExpanded ? 'visible' : 'hidden',
 });
 
 const headerSectionStyle = mergeStyles({
-  borderBottom: `2px solid ${colours.light.border}`,
+  borderBottom: `1px solid ${colours.light.border}`,
   paddingBottom: '20px',
   marginBottom: '24px',
 });
@@ -207,12 +215,12 @@ const requestHeaderStyle = mergeStyles({
 
 const sectionTitleStyle = mergeStyles({
   fontSize: '16px',
-  fontWeight: 700,
+  fontWeight: 600,
   color: colours.light.text,
   marginBottom: '12px',
-  letterSpacing: '0.5px',
+  letterSpacing: '0.4px',
   textTransform: 'uppercase',
-  borderLeft: `4px solid ${colours.cta}`,
+  borderLeft: `3px solid ${colours.highlight}`,
   paddingLeft: '12px',
 });
 
@@ -271,18 +279,24 @@ const statusBadgeStyle = (status: string, isDarkMode: boolean) => mergeStyles({
   fontWeight: 600,
   textTransform: 'uppercase',
   letterSpacing: '0.5px',
-  backgroundColor: 
-    status === 'approved' ? (isDarkMode ? 'rgba(34, 197, 94, 0.2)' : '#e8f5e8') : 
-    status === 'rejected' ? (isDarkMode ? 'rgba(239, 68, 68, 0.2)' : '#fdf2f2') : 
-    (isDarkMode ? 'rgba(251, 191, 36, 0.2)' : '#fff3cd'),
-  color: 
-    status === 'approved' ? (isDarkMode ? '#86efac' : '#2d5a2d') : 
-    status === 'rejected' ? (isDarkMode ? '#fca5a5' : '#721c24') : 
-    (isDarkMode ? '#fcd34d' : '#856404'),
+  backgroundColor:
+    status === 'approved'
+      ? (isDarkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.10)')
+      : status === 'rejected'
+      ? (isDarkMode ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.10)')
+      : (isDarkMode ? 'rgba(251, 191, 36, 0.12)' : 'rgba(251, 191, 36, 0.10)'),
+  color:
+    status === 'approved'
+      ? (isDarkMode ? '#86efac' : '#166534')
+      : status === 'rejected'
+      ? (isDarkMode ? '#fca5a5' : '#7f1d1d')
+      : (isDarkMode ? '#fcd34d' : '#854d0e'),
   border: `1px solid ${
-    status === 'approved' ? (isDarkMode ? 'rgba(34, 197, 94, 0.4)' : '#a3d977') : 
-    status === 'rejected' ? (isDarkMode ? 'rgba(239, 68, 68, 0.4)' : '#f5c6cb') : 
-    (isDarkMode ? 'rgba(251, 191, 36, 0.4)' : '#ffeaa7')
+    status === 'approved'
+      ? (isDarkMode ? 'rgba(34, 197, 94, 0.28)' : 'rgba(34, 197, 94, 0.25)')
+      : status === 'rejected'
+      ? (isDarkMode ? 'rgba(239, 68, 68, 0.28)' : 'rgba(239, 68, 68, 0.25)')
+      : (isDarkMode ? 'rgba(251, 191, 36, 0.28)' : 'rgba(251, 191, 36, 0.25)')
   }`,
 });
 
@@ -325,38 +339,37 @@ const infoValueStyle = (isDarkMode: boolean) => mergeStyles({
 });
 
 const approveButtonStyle = (isDarkMode: boolean) => mergeStyles({
-  backgroundColor: colours.green,
-  borderColor: colours.green,
-  color: '#fff',
+  backgroundColor: 'transparent',
+  borderColor: isDarkMode ? colours.accent : colours.highlight,
+  color: isDarkMode ? colours.accent : colours.highlight,
   fontWeight: 600,
-  padding: '12px 24px',
+  padding: '10px 20px',
   borderRadius: '8px',
   transition: 'all 0.2s ease',
+  borderWidth: '1.5px',
   ':hover': {
-    backgroundColor: '#16a34a',
-    borderColor: '#16a34a',
+    backgroundColor: isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.08)',
     transform: 'translateY(-1px)',
-    boxShadow: isDarkMode 
-      ? '0 4px 12px rgba(34, 197, 94, 0.3)' 
-      : '0 4px 12px rgba(34, 197, 94, 0.2)',
+    boxShadow: isDarkMode
+      ? '0 3px 10px rgba(0, 0, 0, 0.25)'
+      : '0 3px 10px rgba(2, 6, 23, 0.10)',
   },
 });
 
 const rejectButtonStyle = (isDarkMode: boolean) => mergeStyles({
-  backgroundColor: colours.red,
-  borderColor: colours.red,
-  color: '#fff',
+  backgroundColor: 'transparent',
+  borderColor: 'rgba(239, 68, 68, 0.45)',
+  color: isDarkMode ? '#fca5a5' : '#b91c1c',
   fontWeight: 600,
-  padding: '12px 24px',
+  padding: '10px 20px',
   borderRadius: '8px',
   transition: 'all 0.2s ease',
   ':hover': {
-    backgroundColor: '#dc2626',
-    borderColor: '#dc2626',
+    backgroundColor: isDarkMode ? 'rgba(239, 68, 68, 0.10)' : 'rgba(239, 68, 68, 0.08)',
     transform: 'translateY(-1px)',
-    boxShadow: isDarkMode 
-      ? '0 4px 12px rgba(239, 68, 68, 0.3)' 
-      : '0 4px 12px rgba(239, 68, 68, 0.2)',
+    boxShadow: isDarkMode
+      ? '0 3px 10px rgba(0, 0, 0, 0.25)'
+      : '0 3px 10px rgba(2, 6, 23, 0.10)',
   },
 });
 
@@ -364,15 +377,95 @@ const rejectionNotesStyle = (isDarkMode: boolean) => mergeStyles({
   marginTop: '12px',
   '& .ms-TextField-fieldGroup': {
     borderRadius: '8px',
-    border: `2px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
     backgroundColor: isDarkMode ? colours.dark.inputBackground : colours.light.inputBackground,
     ':focus-within': {
-      borderColor: colours.highlight,
+      borderColor: isDarkMode ? colours.accent : colours.highlight,
     },
   },
   '& .ms-TextField-field': {
     color: isDarkMode ? colours.dark.text : colours.light.text,
   },
+});
+
+/* ---------------------------------------------------------------------------
+   Compact Layout Styles
+--------------------------------------------------------------------------- */
+const compactHeaderStyle = mergeStyles({
+  display: 'flex',
+  alignItems: 'center',
+  gap: '12px',
+  marginBottom: '12px',
+  flexWrap: 'wrap',
+});
+
+const compactMetricsStyle = (isDarkMode: boolean) => mergeStyles({
+  display: 'flex',
+  gap: '16px',
+  alignItems: 'center',
+  flexWrap: 'wrap',
+  fontSize: '13px',
+  color: isDarkMode ? colours.dark.subText : colours.greyText,
+  marginBottom: '12px',
+});
+
+const metricItemStyle = (isDarkMode: boolean, isWarning?: boolean) => mergeStyles({
+  display: 'flex',
+  alignItems: 'center',
+  gap: '4px',
+  padding: '4px 8px',
+  borderRadius: '6px',
+  backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
+  fontWeight: 500,
+  color: isWarning 
+    ? (isDarkMode ? colours.orange : colours.red) 
+    : (isDarkMode ? colours.dark.text : colours.light.text),
+});
+
+const compactActionsStyle = mergeStyles({
+  display: 'flex',
+  gap: '8px',
+  marginTop: '12px',
+  '@media (max-width: 768px)': {
+    flexDirection: 'column',
+  },
+});
+
+const expandButtonStyle = (isDarkMode: boolean) => mergeStyles({
+  background: 'transparent',
+  border: 'none',
+  color: colours.highlight,
+  fontSize: '12px',
+  fontWeight: 600,
+  cursor: 'pointer',
+  padding: '4px 8px',
+  borderRadius: '4px',
+  display: 'flex',
+  alignItems: 'center',
+  gap: '4px',
+  transition: 'all 0.2s ease',
+  ':hover': {
+    backgroundColor: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.08)',
+  },
+});
+
+const conflictPillStyle = (isDarkMode: boolean, count: number) => mergeStyles({
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '4px',
+  padding: '4px 10px',
+  borderRadius: '12px',
+  fontSize: '12px',
+  fontWeight: 600,
+  backgroundColor: count > 0 
+    ? (isDarkMode ? 'rgba(251, 191, 36, 0.15)' : '#FFF3CD')
+    : (isDarkMode ? 'rgba(34, 197, 94, 0.15)' : '#E8F5E8'),
+  color: count > 0 
+    ? (isDarkMode ? '#FCD34D' : '#856404')
+    : (isDarkMode ? '#86EFAC' : '#2D5A2D'),
+  border: `1px solid ${count > 0 
+    ? (isDarkMode ? 'rgba(251, 191, 36, 0.3)' : '#FFEAA7')
+    : (isDarkMode ? 'rgba(34, 197, 94, 0.3)' : '#A3D977')}`,
 });
 
 /* ---------------------------------------------------------------------------
@@ -390,6 +483,10 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
   const { isDarkMode } = useTheme();
   // Maintain a local copy so UI reflects changes immediately
   const [localApprovals, setLocalApprovals] = useState<ApprovalEntry[]>(approvals);
+  const [activeIndex, setActiveIndex] = useState<number>(0);
+  
+  // Refs to store action handlers for each approval card
+  const actionHandlersRef = useRef<Map<number, { approve: () => Promise<void>, reject: () => Promise<void> }>>(new Map());
   
   // Debug log the approvals being passed
   useEffect(() => {
@@ -434,24 +531,64 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
     };
   }, []);
 
-  // Body scroll lock and ESC to close (apply regardless of portal readiness)
+  // Body scroll lock, ESC to close, and keyboard shortcuts
   useEffect(() => {
     if (typeof document === 'undefined') return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
     const onKeyDown = (e: KeyboardEvent) => {
+      // Escape to close
       if (e.key === 'Escape') {
         onClose();
+        return;
+      }
+
+      // Only handle keyboard shortcuts if we have approvals and not typing in a text field
+      const target = e.target as HTMLElement;
+      const isTyping = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
+      
+      if (localApprovals.length === 0 || isTyping) return;
+
+      // Arrow keys to navigate between approvals
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setActiveIndex(prev => Math.min(prev + 1, localApprovals.length - 1));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setActiveIndex(prev => Math.max(prev - 1, 0));
+      }
+
+      // Only allow approve/reject on pending requests
+      const activeApproval = localApprovals[activeIndex];
+      if (!activeApproval || activeApproval.status.toLowerCase() !== 'requested') return;
+
+      // 'A' to approve current approval
+      if (e.key.toLowerCase() === 'a' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        const handlers = actionHandlersRef.current.get(activeIndex);
+        if (handlers) {
+          handlers.approve();
+        }
+      }
+
+      // 'R' to reject current approval (requires rejection reason)
+      if (e.key.toLowerCase() === 'r' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        const handlers = actionHandlersRef.current.get(activeIndex);
+        if (handlers) {
+          handlers.reject();
+        }
       }
     };
+    
     window.addEventListener('keydown', onKeyDown);
 
     return () => {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [onClose]);
+  }, [onClose, localApprovals, activeIndex]);
 
   const [rejectionReason, setRejectionReason] = useState<{ [id: string]: string }>({});
   const [processingStates, setProcessingStates] = useState<{ [id: string]: boolean }>({});
@@ -548,19 +685,53 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
     return eachDayOfInterval({ start: startDate, end: endDate }).filter(day => !isWeekend(day)).length;
   }
 
-  const ApprovalCard: React.FC<{ entry: ApprovalEntry }> = ({ entry }) => {
+  const ApprovalCard: React.FC<{ entry: ApprovalEntry; isActive?: boolean; cardIndex?: number }> = ({ entry, isActive = false, cardIndex }) => {
     const [confirmationMessage, setConfirmationMessage] = useState<string>('');
     const [localRejection, setLocalRejection] = useState<string>(rejectionReason[entry.id] || '');
+    const [isExpanded, setIsExpanded] = useState<boolean>(false);
 
     const requestDays = calculateBusinessDays(entry.start_date, entry.end_date);
     const entitlement = getEntitlement(entry.person);
     const fyStartYear = getFiscalYearStart(new Date());
-    const daysSoFar = sumBookedAndRequestedDaysInFY(allLeaveEntries, entry.person, fyStartYear);
-    const daysRemaining = entitlement - daysSoFar;
+    
+    // FIX: Exclude current request from "days used" calculation
+    const daysSoFar = sumBookedAndRequestedDaysInFY(
+      allLeaveEntries.filter(e => e.person === entry.person && 
+        (e.start_date !== entry.start_date || e.end_date !== entry.end_date)),
+      entry.person, 
+      fyStartYear
+    );
+    const daysAfterApproval = daysSoFar + requestDays;
+    const daysRemaining = entitlement - daysAfterApproval;
     const availableSell = Math.max(0, daysRemaining - 5);
     
     const conflicts = getAllConflicts(entry);
     const isProcessing = processingStates[entry.id] || false;
+
+    // Register action handlers for keyboard shortcuts
+    useEffect(() => {
+      if (cardIndex !== undefined) {
+        actionHandlersRef.current.set(cardIndex, {
+          approve: async () => {
+            if (isProcessing) return;
+            await handleAction('approve');
+          },
+          reject: async () => {
+            if (isProcessing) return;
+            if (!localRejection || localRejection.trim() === '') {
+              setIsExpanded(true); // Expand to show rejection reason field
+              setConfirmationMessage('⚠ Please provide a rejection reason');
+              setTimeout(() => setConfirmationMessage(''), 3000);
+              return;
+            }
+            await handleAction('reject');
+          }
+        });
+        return () => {
+          actionHandlersRef.current.delete(cardIndex);
+        };
+      }
+    }, [cardIndex, localRejection, isProcessing]);
 
     const handleAction = async (action: 'approve' | 'reject') => {
       if (isProcessing) return;
@@ -626,214 +797,287 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
       }
     };
 
+    // Format compact date range
+    const compactDateRange = (() => {
+      const start = new Date(entry.start_date);
+      const end = new Date(entry.end_date);
+      if (start.getTime() === end.getTime()) {
+        return format(start, 'd MMM yyyy');
+      }
+      if (start.getFullYear() === end.getFullYear()) {
+        return `${format(start, 'd MMM')} - ${format(end, 'd MMM yyyy')}`;
+      }
+      return `${format(start, 'd MMM yyyy')} - ${format(end, 'd MMM yyyy')}`;
+    })();
+
     return (
-      <div className={professionalContainerStyle(isDarkMode)}>
-        {/* Header Section */}
-        <div className={headerSectionStyle}>
-          <div className={requestHeaderStyle}>
-            <Persona
-              imageUrl={HelixAvatar}
-              text={getNickname(entry.person)}
-              size={PersonaSize.size48}
-              styles={{ 
-                primaryText: { 
-                  fontWeight: 700, 
-                  fontSize: '18px',
-                  color: colours.light.text
-                } 
-              }}
-            />
-            <div style={{ marginLeft: 'auto' }}>
-              {entry.status.toLowerCase() === 'approved' && (
-                <div className={statusBadgeStyle('approved', isDarkMode)}>Approved</div>
-              )}
-              {entry.status.toLowerCase() === 'rejected' && (
-                <div className={statusBadgeStyle('rejected', isDarkMode)}>Rejected</div>
-              )}
-              {entry.status.toLowerCase() === 'requested' && (
-                <div className={statusBadgeStyle('requested', isDarkMode)}>Pending Review</div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Critical Information Grid */}
-        <div className={criticalInfoStyle}>
-          <div className={infoCardStyle(isDarkMode)}>
-            <div className={infoLabelStyle(isDarkMode)}>Request Period</div>
-            <div className={infoValueStyle(isDarkMode)}>{formatDateRange(entry.start_date, entry.end_date)}</div>
-          </div>
-          
-          <div className={infoCardStyle(isDarkMode)}>
-            <div className={infoLabelStyle(isDarkMode)}>Business Days</div>
-            <div className={infoValueStyle(isDarkMode)}>{requestDays} days</div>
-          </div>
-          
-          <div className={infoCardStyle(isDarkMode)}>
-            <div className={infoLabelStyle(isDarkMode)}>FY Days Taken</div>
-            <div className={infoValueStyle(isDarkMode)}>{daysSoFar} / {entitlement}</div>
-          </div>
-          
-          <div className={infoCardStyle(isDarkMode)}>
-            <div className={infoLabelStyle(isDarkMode)}>Remaining After</div>
-            <div className={infoValueStyle(isDarkMode)} style={{ 
-              color: daysRemaining < 0 ? colours.red : (isDarkMode ? colours.dark.text : colours.light.text)
+      <div 
+        className={compactCardStyle(isDarkMode, isExpanded)}
+        style={{
+          border: isActive
+            ? `2px solid ${isDarkMode ? colours.accent : colours.highlight}`
+            : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(15, 23, 42, 0.08)'}`,
+          boxShadow: isActive
+            ? `0 0 0 2px ${isDarkMode ? `${colours.accent}30` : `${colours.highlight}30`}`
+            : undefined,
+        }}
+      >
+        {/* Compact Header: Avatar + Name + Date + Quick Info */}
+        <div className={compactHeaderStyle}>
+          <Persona
+            imageUrl={HelixAvatar}
+            text={getNickname(entry.person)}
+            size={PersonaSize.size32}
+            styles={{ 
+              primaryText: { 
+                fontWeight: 600, 
+                fontSize: '14px',
+                color: isDarkMode ? colours.dark.text : colours.light.text
+              } 
+            }}
+          />
+          <div style={{ 
+            flex: 1, 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '12px',
+            flexWrap: 'wrap'
+          }}>
+            <span style={{ 
+              fontSize: '14px',
+              fontWeight: 600,
+              color: isDarkMode ? colours.dark.text : colours.light.text
             }}>
-              {daysRemaining} days
-            </div>
+              {compactDateRange}
+            </span>
+            <span style={{
+              fontSize: '13px',
+              padding: '2px 8px',
+              borderRadius: '4px',
+              backgroundColor: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)',
+              color: colours.highlight,
+              fontWeight: 600
+            }}>
+              {requestDays} {requestDays === 1 ? 'day' : 'days'}
+            </span>
           </div>
+          {entry.status.toLowerCase() === 'requested' && (
+            <div className={statusBadgeStyle('requested', isDarkMode)}>Pending</div>
+          )}
         </div>
 
-        {/* Notes Section */}
-        {entry.reason?.trim() && (
-          <>
-            <div className={sectionTitleStyle}>Request Notes</div>
-            <div className={notesStyle(isDarkMode)}>
-              "{entry.reason}"
-            </div>
-          </>
-        )}
+        {/* Compact Metrics Row */}
+        <div className={compactMetricsStyle(isDarkMode)}>
+          <div className={metricItemStyle(isDarkMode)}>
+            <span style={{ fontSize: '11px', opacity: 0.7 }}>Used:</span>
+            <strong>{daysSoFar}/{entitlement}</strong>
+          </div>
+          <div className={metricItemStyle(isDarkMode, daysRemaining < 0)}>
+            <span style={{ fontSize: '11px', opacity: 0.7 }}>After:</span>
+            <strong>{daysRemaining} left</strong>
+          </div>
+          <div className={conflictPillStyle(isDarkMode, conflicts.length)}>
+            {conflicts.length === 0 ? '✓ No conflicts' : `⚠ ${conflicts.length} conflict${conflicts.length > 1 ? 's' : ''}`}
+          </div>
+          {!isExpanded && (entry.reason?.trim() || entry.hearing_confirmation !== undefined) && (
+            <button 
+              className={expandButtonStyle(isDarkMode)}
+              onClick={() => setIsExpanded(true)}
+            >
+              View details ▼
+            </button>
+          )}
+          {isExpanded && (
+            <button 
+              className={expandButtonStyle(isDarkMode)}
+              onClick={() => setIsExpanded(false)}
+            >
+              Hide details ▲
+            </button>
+          )}
+        </div>
 
-        {/* Hearing Information */}
-        {entry.hearing_confirmation !== undefined && (
-          <>
-            <div className={sectionTitleStyle}>Hearing Confirmation</div>
-            <div className={notesStyle(isDarkMode)}>
-              <strong>
-                {(() => {
-                  const hc = entry.hearing_confirmation;
-                  if (typeof hc === 'boolean') {
-                    return hc ? '✓ No hearings during absence' : '⚠ Hearings may be affected';
-                  }
-                  if (typeof hc === 'string') {
-                    const s = hc.trim();
-                    const lower = s.toLowerCase();
-                    if (lower === 'yes') return '✓ No hearings during absence';
-                    if (lower === 'no') return '⚠ Hearings may be affected';
-                    // Show the provided confirmation text as-is when not a yes/no token
-                    return s;
-                  }
-                  return '';
-                })()}
-              </strong>
-              {(() => {
-                const hc = entry.hearing_confirmation;
-                const hasDetails = !!entry.hearing_details;
-                const lower = typeof hc === 'string' ? hc.trim().toLowerCase() : '';
-                const needsDetails = hc === false || hc === null || lower === 'no' || (typeof hc === 'string' && lower !== 'yes' && lower !== 'no');
-                return hasDetails && needsDetails ? (
-                  <div style={{ marginTop: '8px', fontStyle: 'normal' }}>
-                    <strong>Details:</strong> {entry.hearing_details}
-                  </div>
-                ) : null;
-              })()}
-            </div>
-          </>
-        )}
-
-        {/* Team Conflicts */}
-        <div className={sectionTitleStyle}>Team Coverage Analysis</div>
-        {conflicts.length > 0 ? (
-          <div className={conflictsGridStyle}>
-            {conflicts.map((conflict, idx) => (
-              <div key={idx} className={conflictCardStyle(isDarkMode)}>
-                <Persona
-                  imageUrl={HelixAvatar}
-                  text={getNickname(conflict.person)}
-                  size={PersonaSize.size32}
-                  styles={{ 
-                    primaryText: { 
-                      fontWeight: 600, 
-                      fontSize: '14px',
-                      color: isDarkMode ? colours.dark.text : colours.light.text
-                    } 
-                  }}
-                />
-                <div style={{ marginTop: '8px', fontSize: '12px', color: isDarkMode ? colours.dark.subText : colours.greyText }}>
-                  {formatDateRange(conflict.start_date, conflict.end_date)}
-                </div>
+        {/* Expanded Details Section */}
+        {isExpanded && (
+          <div style={{ 
+            marginTop: '16px', 
+            paddingTop: '16px',
+            borderTop: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`
+          }}>
+            {/* Notes */}
+            {entry.reason?.trim() && (
+              <div style={{ marginBottom: '12px' }}>
                 <div style={{ 
-                  marginTop: '4px', 
-                  fontSize: '11px', 
+                  fontSize: '12px', 
                   fontWeight: 600,
+                  color: isDarkMode ? colours.dark.subText : colours.greyText,
+                  marginBottom: '6px',
                   textTransform: 'uppercase',
-                  color: conflict.status === 'booked' ? colours.green : colours.orange
+                  letterSpacing: '0.5px'
                 }}>
-                  {conflict.status}
+                  Request Notes
+                </div>
+                <div style={{
+                  padding: '12px',
+                  borderRadius: '8px',
+                  backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)',
+                  fontSize: '13px',
+                  fontStyle: 'italic',
+                  color: isDarkMode ? colours.dark.text : colours.light.text
+                }}>
+                  "{entry.reason}"
                 </div>
               </div>
-            ))}
-          </div>
-        ) : (
-          <div className={notesStyle(isDarkMode)} style={{ color: colours.green, fontStyle: 'normal' }}>
-            ✓ No team conflicts identified
+            )}
+
+            {/* Hearing Info */}
+            {entry.hearing_confirmation !== undefined && (
+              <div style={{ marginBottom: '12px' }}>
+                <div style={{ 
+                  fontSize: '12px', 
+                  fontWeight: 600,
+                  color: isDarkMode ? colours.dark.subText : colours.greyText,
+                  marginBottom: '6px',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px'
+                }}>
+                  Hearing Status
+                </div>
+                <div style={{
+                  padding: '12px',
+                  borderRadius: '8px',
+                  backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)',
+                  fontSize: '13px',
+                  color: isDarkMode ? colours.dark.text : colours.light.text
+                }}>
+                  {(() => {
+                    const hc = entry.hearing_confirmation;
+                    if (typeof hc === 'boolean') {
+                      return hc ? '✓ No hearings during absence' : '⚠ Hearings may be affected';
+                    }
+                    if (typeof hc === 'string') {
+                      const lower = hc.trim().toLowerCase();
+                      if (lower === 'yes') return '✓ No hearings during absence';
+                      if (lower === 'no') return '⚠ Hearings may be affected';
+                      return hc.trim();
+                    }
+                    return 'Not specified';
+                  })()}
+                  {entry.hearing_details && (
+                    <div style={{ marginTop: '8px', opacity: 0.8 }}>
+                      <strong>Details:</strong> {entry.hearing_details}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Team Conflicts - Only show in expanded view */}
+            {conflicts.length > 0 && (
+              <div style={{ marginBottom: '12px' }}>
+                <div style={{ 
+                  fontSize: '12px', 
+                  fontWeight: 600,
+                  color: isDarkMode ? colours.dark.subText : colours.greyText,
+                  marginBottom: '6px',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px'
+                }}>
+                  Team Conflicts ({conflicts.length})
+                </div>
+                <div style={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+                  gap: '8px'
+                }}>
+                  {conflicts.map((conflict, idx) => (
+                    <div key={idx} style={{
+                      padding: '8px',
+                      borderRadius: '6px',
+                      backgroundColor: isDarkMode ? 'rgba(251, 191, 36, 0.1)' : 'rgba(251, 191, 36, 0.08)',
+                      border: `1px solid ${isDarkMode ? 'rgba(251, 191, 36, 0.3)' : 'rgba(251, 191, 36, 0.2)'}`,
+                      fontSize: '12px'
+                    }}>
+                      <div style={{ fontWeight: 600, marginBottom: '4px' }}>
+                        {getNickname(conflict.person)}
+                      </div>
+                      <div style={{ fontSize: '11px', opacity: 0.8 }}>
+                        {format(new Date(conflict.start_date), 'd MMM')} - {format(new Date(conflict.end_date), 'd MMM')}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
-        {/* Action Buttons */}
+        {/* Compact Action Buttons */}
         {entry.status.toLowerCase() === 'requested' && (
-          <>
-            <div className={actionButtonsStyle}>
-              <DefaultButton
-                text={isProcessing ? 'Processing...' : 'Approve Request'}
-                onClick={() => handleAction('approve')}
-                disabled={isProcessing}
-                className={approveButtonStyle(isDarkMode)}
-                iconProps={{ 
-                  iconName: 'CheckMark',
-                  styles: { root: { color: '#fff', fontSize: '14px' } }
-                }}
-              />
-              <DefaultButton
-                text={isProcessing ? 'Processing...' : 'Reject Request'}
-                onClick={() => handleAction('reject')}
-                disabled={isProcessing}
-                className={rejectButtonStyle(isDarkMode)}
-                iconProps={{ 
-                  iconName: 'Cancel',
-                  styles: { root: { color: '#fff', fontSize: '14px' } }
-                }}
-              />
-            </div>
-
-            <div className={rejectionNotesStyle(isDarkMode)}>
+          <div className={compactActionsStyle}>
+            <DefaultButton
+              text={isProcessing ? 'Processing...' : '✓ Approve'}
+              onClick={() => handleAction('approve')}
+              disabled={isProcessing}
+              className={approveButtonStyle(isDarkMode)}
+              style={{ flex: 1 }}
+            />
+            <DefaultButton
+              text={isProcessing ? 'Processing...' : '✗ Reject'}
+              onClick={() => handleAction('reject')}
+              disabled={isProcessing}
+              className={rejectButtonStyle(isDarkMode)}
+              style={{ flex: 1 }}
+            />
+            {isExpanded && (
               <TextField
-                label="Rejection Reason (required for rejections)"
-                placeholder="Provide clear reasoning for rejection..."
+                placeholder="Rejection reason (required)"
                 value={localRejection}
                 onChange={(e, val) => setLocalRejection(val || '')}
                 multiline
-                rows={3}
+                rows={2}
                 styles={{
+                  root: { marginTop: '8px', width: '100%' },
                   fieldGroup: {
-                    borderRadius: '8px',
-                    border: `2px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                    borderRadius: '6px',
+                    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                     backgroundColor: isDarkMode ? colours.dark.inputBackground : colours.light.inputBackground,
                   },
                   field: {
+                    fontSize: '13px',
                     color: isDarkMode ? colours.dark.text : colours.light.text,
                   }
                 }}
               />
-            </div>
-          </>
+            )}
+          </div>
         )}
 
-        {/* Confirmation Message */}
+        {/* Compact Confirmation Message */}
         {confirmationMessage && (
           <div style={{ 
-            marginTop: '16px', 
-            padding: '12px', 
-            borderRadius: '8px',
-            backgroundColor: confirmationMessage.includes('✓') ? '#f0f9ff' : 
-                            confirmationMessage.includes('❌') ? '#fef2f2' : '#fffbeb',
+            marginTop: '8px', 
+            padding: '8px 12px', 
+            borderRadius: '6px',
+            backgroundColor: confirmationMessage.includes('✓') 
+              ? (isDarkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.10)')
+              : confirmationMessage.includes('❌') 
+                ? (isDarkMode ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.10)')
+                : (isDarkMode ? 'rgba(251, 191, 36, 0.12)' : 'rgba(251, 191, 36, 0.10)'),
             border: `1px solid ${
-              confirmationMessage.includes('✓') ? '#0ea5e9' : 
-              confirmationMessage.includes('❌') ? '#ef4444' : '#f59e0b'
+              confirmationMessage.includes('✓') 
+                ? (isDarkMode ? 'rgba(34, 197, 94, 0.28)' : 'rgba(34, 197, 94, 0.25)')
+                : confirmationMessage.includes('❌') 
+                  ? (isDarkMode ? 'rgba(239, 68, 68, 0.28)' : 'rgba(239, 68, 68, 0.25)')
+                  : (isDarkMode ? 'rgba(251, 191, 36, 0.28)' : 'rgba(251, 191, 36, 0.25)')
             }`,
-            color: confirmationMessage.includes('✓') ? '#0c4a6e' : 
-                   confirmationMessage.includes('❌') ? '#7f1d1d' : '#92400e',
+            color: confirmationMessage.includes('✓') 
+              ? (isDarkMode ? '#86efac' : '#0c4a6e')
+              : confirmationMessage.includes('❌') 
+                ? (isDarkMode ? '#fca5a5' : '#7f1d1d')
+                : (isDarkMode ? '#fcd34d' : '#92400e'),
             fontWeight: 600,
+            fontSize: '13px',
             textAlign: 'center'
           }}>
             {confirmationMessage}
@@ -896,9 +1140,71 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
               {approvals.length} request{approvals.length !== 1 ? 's' : ''} require{approvals.length === 1 ? 's' : ''} your review
             </div>
             
-            {localApprovals.map(entry => (
-              <ApprovalCard key={entry.id || entry.request_id || `${entry.person}-${entry.start_date}`} entry={entry} />
+            {localApprovals.map((entry, index) => (
+              <ApprovalCard 
+                key={entry.id || entry.request_id || `${entry.person}-${entry.start_date}`} 
+                entry={entry} 
+                isActive={index === activeIndex}
+                cardIndex={index}
+              />
             ))}
+            
+            {/* Keyboard shortcuts hint */}
+            <div style={{
+              marginTop: '16px',
+              padding: '12px 16px',
+              borderRadius: '8px',
+              backgroundColor: isDarkMode ? 'rgba(135, 243, 243, 0.05)' : 'rgba(135, 243, 243, 0.1)',
+              border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(135, 243, 243, 0.25)'}`,
+              fontSize: '12px',
+              color: isDarkMode ? colours.dark.subText : colours.greyText,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '16px',
+              flexWrap: 'wrap'
+            }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <kbd style={{
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                  backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+                  fontFamily: 'monospace',
+                  fontSize: '11px'
+                }}>↑↓</kbd>
+                Navigate
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <kbd style={{
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                  backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+                  fontFamily: 'monospace',
+                  fontSize: '11px'
+                }}>A</kbd>
+                Approve
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <kbd style={{
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                  backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+                  fontFamily: 'monospace',
+                  fontSize: '11px'
+                }}>R</kbd>
+                Reject
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <kbd style={{
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                  backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+                  fontFamily: 'monospace',
+                  fontSize: '11px'
+                }}>ESC</kbd>
+                Close
+              </span>
+            </div>
           </Stack>
         )}
       </div>
