@@ -7,6 +7,8 @@ import { Enquiry } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
 import RatingIndicator from './RatingIndicator';
 import { useTheme } from '../../app/functionality/ThemeContext';
+import TeamsLinkWidget from '../../components/TeamsLinkWidget';
+import { TeamsActivityData } from '../../app/functionality/teamsActivityTracking';
 
 import React, { useState, useRef, useEffect } from 'react';
 
@@ -143,7 +145,7 @@ interface TeamData {
 }
 
 interface EnquiryLineItemProps {
-  enquiry: Enquiry;
+  enquiry: Enquiry & { __sourceType?: 'new' | 'legacy' };
   onSelect: (enquiry: Enquiry) => void;
   onRate: (enquiryId: string) => void;
   onRatingChange?: (enquiryId: string, newRating: string) => Promise<void>;
@@ -162,6 +164,10 @@ interface EnquiryLineItemProps {
    * "Pitched" (blue) or "Instructed" (green). This replaces any generic claimed label.
    */
   promotionStatus?: 'pitch' | 'instruction' | null;
+  /**
+   * Teams activity tracking data for this enquiry (if available)
+   */
+  teamsActivityData?: TeamsActivityData | null;
 }
 
 const formatCurrency = (value: string): string => {
@@ -207,6 +213,7 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
   onFilterByPerson,
   isNewSource = false,
   promotionStatus = null,
+  teamsActivityData = null,
 }) => {
   const { isDarkMode } = useTheme();
 
@@ -1069,6 +1076,14 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
                 <Icon iconName="Mail" style={{ fontSize: '12px' }} />
                 <span style={{ fontSize: 11, fontWeight: 600 }}>Email</span>
               </button>
+
+              {/* Teams Link Widget - only for v2 enquiries with tracking data */}
+              {enquiry.__sourceType === 'new' && teamsActivityData && (
+                <TeamsLinkWidget 
+                  activityData={teamsActivityData}
+                  size="small"
+                />
+              )}
 
               {/* Rating button */}
               <button

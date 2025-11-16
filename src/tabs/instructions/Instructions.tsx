@@ -5223,8 +5223,21 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                                      );
                                      if (activePayments.length === 0) return null;
                                      if (activePayments.length === 1) {
-                                       // Show the payment status for single payment
-                                       const status = activePayments[0].payment_status || activePayments[0].internal_status;
+                                       // Check if it's a bank transfer
+                                       const payment = activePayments[0];
+                                       const hasStripePaymentIntent = Boolean(payment.payment_intent_id && 
+                                                                               String(payment.payment_intent_id).startsWith('pi_'));
+                                       const isConfirmedStatus = payment.payment_status === 'confirmed';
+                                       const isExplicitlyBank = payment.payment_method === 'bank' || 
+                                                                payment.PaymentMethod === 'bank';
+                                       const isBankTransfer = isExplicitlyBank || (isConfirmedStatus && !hasStripePaymentIntent);
+                                       
+                                       // Show appropriate status text
+                                       if (isBankTransfer && (payment.payment_status === 'confirmed' || payment.internal_status === 'completed')) {
+                                         return 'Pending Transfer';
+                                       }
+                                       
+                                       const status = payment.payment_status || payment.internal_status;
                                        return status ? status.charAt(0).toUpperCase() + status.slice(1) : '1 txn';
                                      }
                                      return `${activePayments.length} txns`;
@@ -6739,46 +6752,37 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                               <button
-                                onClick={() => setShowPaymentDetails(true)}
+                                disabled
                                 style={{
                                   width: '100%',
                                   padding: '8px 12px',
                                   fontSize: '11px',
                                   fontWeight: 500,
-                                  border: `1px solid ${colours.blue}`,
+                                  border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`,
                                   borderRadius: '6px',
                                   background: 'transparent',
-                                  color: colours.blue,
-                                  cursor: 'pointer',
+                                  color: isDarkMode ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.3)',
+                                  cursor: 'not-allowed',
+                                  opacity: 0.5,
                                   transition: 'all 0.15s ease'
-                                }}
-                                onMouseEnter={(e) => {
-                                  e.currentTarget.style.background = 'rgba(59, 130, 246, 0.05)';
-                                }}
-                                onMouseLeave={(e) => {
-                                  e.currentTarget.style.background = 'transparent';
                                 }}
                               >
                                 View Payment Details
                               </button>
                               <button
+                                disabled
                                 style={{
                                   width: '100%',
                                   padding: '8px 12px',
                                   fontSize: '11px',
                                   fontWeight: 500,
-                                  border: `1px solid ${colours.green}`,
+                                  border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`,
                                   borderRadius: '6px',
                                   background: 'transparent',
-                                  color: colours.green,
-                                  cursor: 'pointer',
+                                  color: isDarkMode ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.3)',
+                                  cursor: 'not-allowed',
+                                  opacity: 0.5,
                                   transition: 'all 0.15s ease'
-                                }}
-                                onMouseEnter={(e) => {
-                                  e.currentTarget.style.background = 'rgba(34, 197, 94, 0.05)';
-                                }}
-                                onMouseLeave={(e) => {
-                                  e.currentTarget.style.background = 'transparent';
                                 }}
                               >
                                 Process New Payment

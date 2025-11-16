@@ -163,7 +163,9 @@ const SegmentedControl: React.FC<SegmentedControlProps> = ({
               padding: `0 ${paddingX}px`,
               fontSize,
               fontWeight: 500,
-              color: isActive
+              color: opt.disabled
+                ? (isDarkMode ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.25)')
+                : isActive
                 ? (isDarkMode ? '#1f2937' : '#1f2937')
                 : isDarkMode
                 ? 'rgba(255,255,255,0.70)'

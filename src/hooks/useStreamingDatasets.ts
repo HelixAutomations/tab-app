@@ -34,7 +34,7 @@ interface UseStreamingDatasetsResult {
   isConnected: boolean;
   isComplete: boolean;
   start: (override?: { datasets?: string[]; bypassCache?: boolean }) => void;
-  stop: () => void;
+  stop: (options?: { resetComplete?: boolean }) => void;
   progress: {
     completed: number;
     total: number;
@@ -57,7 +57,7 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
   const eventSourceRef = useRef<EventSource | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const stop = useCallback(() => {
+  const stop = useCallback((options?: { resetComplete?: boolean }) => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
@@ -67,7 +67,9 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
       timeoutRef.current = null;
     }
     setIsConnected(false);
-    setIsComplete(false);
+    if (options?.resetComplete ?? true) {
+      setIsComplete(false);
+    }
   }, []);
 
   const start = useCallback((override?: { datasets?: string[]; bypassCache?: boolean }) => {
@@ -241,7 +243,7 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
               `🔄 fresh: ${freshCount}${freshCount ? ` (avg ${avgFresh}ms)` : ''}` +
               (estSaved ? ` | ⚡ saved ~${Math.round(estSaved)}ms by caching` : '')
             );
-            stop(); // Close the connection
+            stop({ resetComplete: false }); // Close the connection but keep completion state until next start
             break;
         }
       } catch (error) {

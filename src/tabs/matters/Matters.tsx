@@ -557,44 +557,189 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
             },
           }}
         >
-          {/* Connected List Items (supports 1-col / 2-col) */}
+          {/* Ledger-style matter list */}
           <div
-            className={twoColumn ? 'two-col-grid' : undefined}
             style={{
-              display: twoColumn ? 'grid' : 'flex',
-              flexDirection: twoColumn ? undefined : 'column',
-              gap: twoColumn ? '12px' : '0px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0px',
               padding: 0,
               margin: 0,
               backgroundColor: 'transparent',
-              gridTemplateColumns: twoColumn ? 'repeat(2, minmax(0, 1fr))' : undefined,
               width: '100%',
-              transition: 'grid-template-columns .25s ease',
             }}
           >
-            {/* Inject responsive fallback style once */}
-            {twoColumn && typeof document !== 'undefined' && !document.getElementById('mattersTwoColStyles') && (
-              (() => {
-                const styleEl = document.createElement('style');
-                styleEl.id = 'mattersTwoColStyles';
-                styleEl.textContent = '@media (max-width: 860px){.two-col-grid{display:flex!important;flex-direction:column!important;}}';
-                document.head.appendChild(styleEl);
-                return null;
-              })()
-            )}
-            {filtered.map((m, idx) => (
-              <MatterLineItem
-                key={m.matterId || idx}
-                matter={m}
-                onSelect={setSelected}
-                isLast={idx === filtered.length - 1}
-              />
+            {filtered.map((matter, idx) => (
+              <div
+                key={matter.matterId || idx}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: '16px 20px',
+                  borderBottom: idx === filtered.length - 1 ? 'none' : `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`,
+                  backgroundColor: 'transparent',
+                  transition: 'background-color 0.2s ease',
+                  cursor: 'pointer',
+                  gap: '20px',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.02)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                }}
+                onClick={() => setSelected(matter)}
+              >
+                {/* Client & Matter Info */}
+                <div style={{ flex: '1 1 280px', minWidth: 0 }}>
+                  <div>
+                    <span 
+                      style={{ 
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        color: isDarkMode ? colours.dark.text : colours.light.text,
+                        display: 'block',
+                        marginBottom: '4px',
+                        fontFamily: 'Raleway, sans-serif',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                      title={matter.clientName || 'Unknown Client'}
+                    >
+                      {matter.clientName || 'Unknown Client'}
+                    </span>
+                  </div>
+                  <div style={{ 
+                    fontSize: '12px',
+                    fontWeight: '500',
+                    color: isDarkMode ? colours.dark.subText : colours.light.subText,
+                    marginBottom: '4px',
+                    fontFamily: 'Raleway, sans-serif',
+                  }}>
+                    {matter.displayNumber || matter.matterId}
+                  </div>
+                  <div>
+                    <span 
+                      style={{ 
+                        fontSize: '13px',
+                        color: isDarkMode ? colours.dark.subText : colours.light.subText,
+                        display: 'block',
+                        fontFamily: 'Raleway, sans-serif',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                      title={matter.description || 'No description'}
+                    >
+                      {matter.description || 'No description'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Practice Area & Status */}
+                <div style={{ flex: '1 1 180px', minWidth: 0 }}>
+                  <div style={{ 
+                    fontSize: '13px',
+                    fontWeight: '500',
+                    color: isDarkMode ? colours.dark.text : colours.light.text,
+                    marginBottom: '2px',
+                    fontFamily: 'Raleway, sans-serif',
+                  }}>
+                    {matter.practiceArea || 'No Area'}
+                  </div>
+                  <div style={{ 
+                    fontSize: '12px',
+                    color: matter.status?.toLowerCase() === 'active' 
+                      ? (isDarkMode ? '#86efac' : '#22c55e')
+                      : (isDarkMode ? colours.dark.subText : colours.light.subText),
+                    fontWeight: '500',
+                    marginTop: '2px',
+                    textTransform: 'lowercase',
+                    fontFamily: 'Raleway, sans-serif',
+                  }}>
+                    {matter.status?.toLowerCase() || 'unknown'}
+                  </div>
+                </div>
+
+                {/* Responsible Solicitor */}
+                <div style={{ flex: '1 1 140px', minWidth: 0 }}>
+                  <div style={{ 
+                    fontSize: '13px',
+                    fontWeight: '500',
+                    color: isDarkMode ? colours.dark.text : colours.light.text,
+                    fontFamily: 'Raleway, sans-serif',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {matter.responsibleSolicitor || 'Unassigned'}
+                  </div>
+                </div>
+
+                {/* Date & ID */}
+                <div style={{ flex: '0 0 120px', textAlign: 'right' }}>
+                  <div style={{ 
+                    fontSize: '12px',
+                    color: isDarkMode ? colours.dark.subText : colours.light.subText,
+                    marginBottom: '4px',
+                    fontFamily: 'Raleway, sans-serif',
+                  }}>
+                    {matter.openDate ? new Date(matter.openDate).toLocaleDateString('en-GB', {
+                      day: '2-digit',
+                      month: 'short', 
+                      year: 'numeric'
+                    }) : 'No date'}
+                  </div>
+                  <span style={{ 
+                    fontSize: '11px',
+                    color: isDarkMode ? 'rgba(148,163,184,0.6)' : 'rgba(100,116,139,0.6)',
+                    fontFamily: 'Raleway, sans-serif',
+                  }}>
+                    ID: {matter.matterId || 'Unknown'}
+                  </span>
+                </div>
+
+                {/* View Button */}
+                <div style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '6px', 
+                  flexShrink: 0, 
+                  marginRight: '16px' 
+                }}>
+                  <button
+                    style={{
+                      padding: '6px 12px',
+                      backgroundColor: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.1)',
+                      border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`,
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      fontWeight: '500',
+                      color: isDarkMode ? '#87ceeb' : '#0369a1',
+                      cursor: 'pointer',
+                      fontFamily: 'Raleway, sans-serif',
+                      transition: 'all 0.2s ease',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.15)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.1)';
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelected(matter);
+                    }}
+                  >
+                    View
+                  </button>
+                </div>
+              </div>
             ))}
           </div>
         </Stack>
       </section>
-
-      {/* Debugger removed */}
     </div>
   );
 

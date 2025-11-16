@@ -123,8 +123,8 @@ const App: React.FC<AppProps> = ({
     if (typeof document !== 'undefined') {
       const body = document.body;
       if (body) {
-        body.style.backgroundColor = isDarkMode ? colours.dark.background : colours.light.background;
-        body.style.transition = 'background-color 0.1s ease';
+        body.style.backgroundColor = isDarkMode ? '#020617' : colours.light.background;
+        body.style.transition = 'background-color 0.15s ease';
         body.dataset.theme = isDarkMode ? 'dark' : 'light';
         body.classList.toggle('theme-dark', isDarkMode);
         body.classList.toggle('theme-light', !isDarkMode);
@@ -739,9 +739,9 @@ const App: React.FC<AppProps> = ({
       <ThemeProvider isDarkMode={isDarkMode || false}>
         <div
           style={{
-            backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
+            backgroundColor: isDarkMode ? '#020617' : colours.light.background,
             minHeight: '100vh',
-            transition: 'background-color 0.3s',
+            transition: 'background-color 0.15s ease',
           }}
         >
           <CustomTabs

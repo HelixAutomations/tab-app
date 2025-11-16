@@ -5,11 +5,18 @@ const BASE_PARAGRAPH_STYLE = `margin:0 0 8px 0;line-height:1.6;font-family:${FON
 const LIST_MARGIN = '0 0 8px 20px';
 const LIST_ITEM_STYLE = `margin:0 0 4px 0;line-height:1.6;font-family:${FONT_FAMILY};`;
 
+const emailV2Flag = process.env.REACT_APP_EMAIL_V2_ENABLED;
+const emailV2Enabled = emailV2Flag === 'true'
+  ? true
+  : emailV2Flag === 'false'
+    ? false
+    : process.env.NODE_ENV !== 'production';
+
 export const EMAIL_V2_CONFIG = {
-  enabled: process.env.REACT_APP_EMAIL_V2_ENABLED === 'true',
-  fallbackToV1: process.env.REACT_APP_EMAIL_V2_FALLBACK !== 'false',
+  enabled: emailV2Enabled,
+  fallbackToV1: true,
   logOperations: process.env.REACT_APP_EMAIL_V2_LOGGING === 'true',
-  testMode: process.env.REACT_APP_EMAIL_V2_TEST_MODE === 'true'
+  testMode: false
 };
 
 const HEADING_STYLES: Record<'h1' | 'h2' | 'h3', string> = {

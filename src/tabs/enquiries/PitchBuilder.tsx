@@ -61,9 +61,6 @@ import { placeholderSuggestions } from '../../app/customisation/InsertSuggestion
 import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
 import { isInTeams } from '../../app/functionality/isInTeams';
 import {
-  convertDoubleBreaksToParagraphs,
-  removeUnfilledPlaceholders,
-  removeHighlightSpans,
   cleanTemplateString,
   isStringArray,
   replacePlaceholders,
@@ -73,6 +70,7 @@ import {
 import { inputFieldStyle } from '../../CustomForms/BespokeForms';
 import { ADDITIONAL_CLIENT_PLACEHOLDER_ID } from '../../constants/deals';
 import EmailProcessor from './pitch-builder/EmailProcessor';
+import { EMAIL_V2_CONFIG } from './pitch-builder/emailFormattingV2';
 
 // PROOF_OF_ID_URL constant removed - now constructed dynamically with passcode in applyDynamicSubstitutions
 
@@ -562,6 +560,7 @@ if (typeof window !== 'undefined' && !document.getElementById('block-label-style
 }
 
 const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDealCapture = true }) => {
+  const emailV2Enabled = EMAIL_V2_CONFIG.enabled;
   /**
    * Ensure any raw passcode (api or fallback) is converted to a 5‑digit numeric string.
    * Rules:
@@ -682,6 +681,8 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
 
   // Pitch Builder-specific: fetch team data via new server route and derive effective user data
   const [pitchUserData, setPitchUserData] = useState<UserData[] | null>(null);
+  const [currentUserData, setCurrentUserData] = useState<UserData | null>(null);
+  
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
@@ -713,23 +714,13 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
             (!!fullNameLocal && rFullName && rFullName === fullNameLocal)
           );
         });
-        if (!rec) {
-          // No direct match: still provide the server dataset so previews can use it (e.g., first item)
-          if (!cancelled) setPitchUserData(all);
-          return;
+        
+        if (!cancelled) {
+          // Store full team for picker
+          setPitchUserData(all);
+          // Store matched current user for "From" field
+          if (rec) setCurrentUserData(rec);
         }
-        const current = (userData && userData[0]) || {};
-        const merged: Partial<UserData> & any = {
-          ...current,
-          Role: rec.Role ?? current.Role,
-          Rate: rec.Rate ?? current.Rate,
-          Initials: initials,
-          Email: rec.Email ?? current.Email,
-          First: current.First ?? rec.First,
-          Last: current.Last ?? rec.Last,
-          FullName: current.FullName ?? rec.FullName ?? `${rec.First ?? ''} ${rec.Last ?? ''}`.trim(),
-        };
-        if (!cancelled) setPitchUserData([merged as UserData]);
       } catch (_) {
         // Silent fallback to existing userData
       }
@@ -743,13 +734,11 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
   }, [userInitials]);
 
   const effectiveUserData = React.useMemo(() => {
-    if (pitchUserData && pitchUserData.length) {
-      // If merged single record provided, use it; otherwise prefer first server record
-      if (pitchUserData.length === 1) return pitchUserData;
-      return [pitchUserData[0]];
-    }
+    // Use the matched current user if found, otherwise fall back to userData
+    if (currentUserData) return [currentUserData];
+    if (pitchUserData && pitchUserData.length === 1) return pitchUserData;
     return userData;
-  }, [pitchUserData, userData]);
+  }, [currentUserData, pitchUserData, userData]);
   const usedPitchRoute = !!(pitchUserData && pitchUserData.length);
 
   // Local fetch logging
@@ -1352,7 +1341,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
   // Default recipient fields
   const [to, setTo] = useState<string>(enquiry.Email || '');
   const [cc, setCc] = useState<string>('');
-  const [bcc, setBcc] = useState<string>('');
+  const [bcc, setBcc] = useState<string>('1day@followupthen.com');
 
   // Extracted blocks (handled as qualifying sections above editor). They won't appear as placeholders inside the editor.
   const EXTRACTED_BLOCKS: string[] = [
@@ -1517,7 +1506,11 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
 
   // IDs returned after saving a deal
   const [dealId, setDealId] = useState<number | null>(null);
-  const [dealPasscode, setDealPasscode] = useState<string>('');
+  // Generate passcode early so it's available immediately for VerificationSummary
+  const [dealPasscode, setDealPasscode] = useState<string>(() => {
+    const passcode = String(Math.floor(10000 + Math.random() * 90000));
+    return passcode;
+  });
   const [dealStatus, setDealStatus] = useState<'idle' | 'processing' | 'ready' | 'error'>('idle');
   const [dealCreationInProgress, setDealCreationInProgress] = useState<boolean>(false);
   const [clientIds, setClientIds] = useState<number[]>([]);
@@ -2886,7 +2879,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
     setSubject('Your Enquiry');
     setTo(enquiry.Email || '');
     setCc('');
-    setBcc('2day@followupthen.com');
+    setBcc('1day@followupthen.com');
     // Re-load the base template
     const newBody = generateInitialBody(
       templateBlocks.filter(b => !hiddenBlocks[b.title])
@@ -2956,15 +2949,10 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
 
   async function insertDealIfNeeded(options?: { background?: boolean; bccAdditional?: string }): Promise<string | null> {
     try {
-      // Check if deal creation is already in progress or if we already have a passcode
+      // Check if deal creation is already in progress
       if (dealCreationInProgress) {
         console.log('⏸️ Deal creation already in progress, skipping duplicate call');
         return null;
-      }
-
-      if (dealPasscode) {
-        console.log('✅ Deal passcode already exists:', dealPasscode);
-        return dealPasscode;
       }
 
       setDealCreationInProgress(true);
@@ -3063,6 +3051,8 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
         leadClientEmail: enquiry.Email,
         // LeadClientId must mirror prospectId for single-client deals
         leadClientId: resolvedProspectId,
+        // Include pre-generated passcode (or let server override if needed)
+        passcode: dealPasscode,
         // Include email recipient details for monitoring notification
         emailRecipients: {
           to: to || enquiry.Point_of_Contact || enquiry.Email,
@@ -3121,8 +3111,12 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
         console.log('📦 Deal creation data:', data);
         if (data?.passcode) {
           const norm = normalizePasscode(data.passcode, enquiry?.ID);
-          console.log('🎫 Setting deal passcode (normalized):', data.passcode, '->', norm);
-          if (norm) setDealPasscode(norm);
+          console.log('🎫 Deal passcode confirmed:', data.passcode, '->', norm);
+          // Validate server passcode matches our pre-generated one, or use the one we sent
+          if (norm && norm !== dealPasscode) {
+            console.log('⚠️ Server returned different passcode, updating to:', norm);
+            setDealPasscode(norm);
+          }
           
           if (!options?.background) {
             setDealStatus('ready');
@@ -3271,9 +3265,6 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
       bccList.push(additionalBcc.trim());
     }
     
-    // Add safety net addresses as requested
-    bccList.push('cb@helix-law.com');
-    
     // Remove duplicates and filter out lz@helix-law.com
     const filtered = Array.from(new Set(bccList)).filter(email => email !== 'lz@helix-law.com');
     return filtered.join(', ');
@@ -3282,7 +3273,11 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
   /**
    * Send email directly to client from fee earner's email address
    */
-  async function sendEmail() {
+  async function sendEmail(overrideTo?: string, overrideCc?: string, suppressToast = false) {
+    // Use override values if provided, otherwise use state
+    const emailTo = overrideTo || to;
+    const emailCc = overrideCc !== undefined ? overrideCc : cc;
+    
     if (!validateForm()) {
       return;
     }
@@ -3314,7 +3309,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
       return;
     }
 
-    // Ensure template blocks are inserted before sending
+    // Ensure template blocks are inserted before sending (do not overwrite body with editor innerHTML)
     if (bodyEditorRef.current) {
       Object.entries(selectedTemplateOptions).forEach(
         ([blockTitle, selectedOption]) => {
@@ -3324,90 +3319,113 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
           }
         }
       );
-      setBody(bodyEditorRef.current.innerHTML);
+      // Intentionally avoid setBody(bodyEditorRef.current.innerHTML) here to prevent
+      // re-introducing styled anchors from the editor preview into the send pipeline.
+      // The body state already contains the tokenized/processed content that substitutions expect.
     }
 
     // Step 2: Content processing
     setEmailMessage('Processing content…');
-    showToast('Processing email content...', 'info', {
-      loading: true,
-      details: 'Applying substitutions and formatting',
-      progress: 40,
-      duration: 0
-    });
+    if (!suppressToast) {
+      showToast('Processing email content...', 'info', {
+        loading: true,
+        details: 'Applying substitutions and formatting',
+        progress: 40,
+        duration: 0
+      });
+    }
 
     await delay(400);
-
-    // Check if V2 processing was requested from the confirmation dialog
-    const useV2Processing = (window as any).__helixEmailProcessingV2__ === true;
-    let finalHtml: string;
-
-    if (useV2Processing) {
-      console.log('Using V2 email processing (experimental enhanced formatting)');
-      // Use EmailProcessor V2 for enhanced processing
-      finalHtml = EmailProcessor.processCompleteEmail(body, {
-        userData: effectiveUserData,
-        enquiry,
-        amount,
-        passcode: normalizePasscode(dealPasscode, enquiry?.ID) || dealPasscode,
-        editorElement: bodyEditorRef.current,
-        forceV2: true
+    // Sanitize body before processing to remove any detached style fragments that leaked from preview styling
+    const sanitizeBodyForSend = (html: string): string => {
+      if (!html) return html;
+      let cleaned = html;
+      // Remove stray colour fragments like "144, 206); text-decoration: underline;" that sometimes detach from anchor style
+      cleaned = cleaned.replace(/\b\d{2,3},\s*\d{2,3}\);\s*text-decoration:\s*underline;?/gi, '');
+      // Normalize any styled instruct-link anchors to a clean version without inline style
+      cleaned = cleaned.replace(/<a([^>]*?)class=("|')[^"']*instruct-link[^"']*(\2)([^>]*)>(.*?)<\/a>/gi, (m, pre, q, _q2, post, text) => {
+        // Extract existing href if present
+        const hrefMatch = m.match(/href=("|')(.*?)(\1)/i);
+        const href = hrefMatch ? hrefMatch[2] : '';
+        return `<a href="${href}" target="_blank" rel="noopener noreferrer">${text || 'Instruct Helix Law'}</a>`;
       });
-    } else {
-      console.log('Using V1 email processing (production method)');
-      // Use original V1 processing method
-      let rawHtml = removeHighlightSpans(body);
-      rawHtml = applyDynamicSubstitutions(
-        rawHtml,
-        effectiveUserData,
-        enquiry,
-        amount,
-        normalizePasscode(dealPasscode, enquiry?.ID) || dealPasscode,
-        undefined
-      );
+      // As a final guard, if a bare "Instruct Helix Law" follows a stray style fragment without an <a>, wrap it
+      cleaned = cleaned.replace(/(?:clicking\s+)?Instruct Helix Law(?!<)/gi, (m) => {
+        // Don't double-wrap if already inside anchor
+        return `<a href="${process.env.REACT_APP_INSTRUCTIONS_URL || 'https://instruct.helix-law.com/pitch'}" target="_blank" rel="noopener noreferrer">Instruct Helix Law</a>`;
+      });
+      return cleaned;
+    };
+    const cleanedBody = sanitizeBodyForSend(body);
 
-      // Remove leftover placeholders and format paragraphs
-      const noPlaceholders = removeUnfilledPlaceholders(rawHtml, templateBlocks);
-      finalHtml = convertDoubleBreaksToParagraphs(noPlaceholders);
-    }
+    let finalHtml = EmailProcessor.processCompleteEmail(cleanedBody, {
+      userData: effectiveUserData,
+      enquiry,
+      amount,
+      passcode: normalizePasscode(dealPasscode, enquiry?.ID) || dealPasscode,
+      editorElement: bodyEditorRef.current
+    });
+
+    // Post-processing: aggressively sanitize any corrupted inline style fragments preceding the Instruct Helix Law anchor
+    const finalInstructionsUrlBase = (process.env.REACT_APP_INSTRUCTIONS_URL || 'https://instruct.helix-law.com');
+    const passForLink = normalizePasscode(dealPasscode, enquiry?.ID) || dealPasscode;
+    const canonicalInstructionsHref = passForLink ? `${finalInstructionsUrlBase}/pitch/${passForLink}` : `${finalInstructionsUrlBase}/pitch`;
+    const sanitizeFinalHtml = (html: string): string => {
+      if (!html) return html;
+      let out = html;
+  // Remove orphaned fragments like "144, 206); text-decoration: underline;" or "color: rgb(54, 144, 206); text-decoration: underline;"
+  out = out.replace(/color:\s*(?:rgb\([^\)]*\)|#[0-9a-f]{3,6}|[0-9.\s%,()-]+);\s*text-decoration:\s*underline;?/gi, '');
+  out = out.replace(/(?:rgb\([^\)]*\)|\b\d{1,3},\s*\d{1,3}(?:,\s*\d{1,3})?)\);\s*text-decoration:\s*underline;?/gi, '');
+      // Normalize any styled or partially broken Instruct Helix Law anchors to canonical form
+      out = out.replace(/<a[^>]*?>\s*Instruct\s+Helix\s+Law\s*<\/a>/gi, `<a href="${canonicalInstructionsHref}" target="_blank" rel="noopener noreferrer">Instruct Helix Law</a>`);
+  // Remove any lingering `style="..."` fragments that directly precede the text node
+  out = out.replace(/style=\"[^\"]*?\">\s*Instruct Helix Law/gi, `>Instruct Helix Law`);
+  // Wrap any bare occurrences not already inside an anchor (heuristic: not immediately followed by </a>)
+  out = out.replace(/Instruct Helix Law(?!\s*<\/a>)/gi, `<a href="${canonicalInstructionsHref}" target="_blank" rel="noopener noreferrer">Instruct Helix Law</a>`);
+      return out;
+    };
+    finalHtml = sanitizeFinalHtml(finalHtml);
 
     // Step 3: Email composition with signature
     setEmailMessage('Generating final email…');
-    showToast('Generating final email...', 'info', {
-      loading: true,
-      details: 'Creating formatted email with signature',
-      progress: 70,
-      duration: 0
-    });
+    if (!suppressToast) {
+      showToast('Generating final email...', 'info', {
+        loading: true,
+        details: 'Creating formatted email with signature',
+        progress: 70,
+        duration: 0
+      });
+    }
 
     const fullEmailHtml = ReactDOMServer.renderToStaticMarkup(
-  <EmailSignature bodyHtml={finalHtml} userData={effectiveUserData} experimentalLayout={useV2Processing} />
+      <EmailSignature bodyHtml={finalHtml} userData={effectiveUserData} experimentalLayout={emailV2Enabled} />
     );
 
     // Use fee earner's email as sender, fallback to automations
   // senderEmail defined above for consistency with insertDeal payload
     
-  // No CC on send. BCC the sender (self) and safety addresses (LZ/CB).
+  // BCC the sender (self) and FollowUpThen reminder
   const bccList = buildBccList(senderEmail);
     
     const requestBody = {
       email_contents: fullEmailHtml,
-      user_email: to, // Client's email as recipient
+      user_email: emailTo, // Client's email as recipient
       subject: subject, // Use 'subject' not 'subject_line' for decoupled function
       from_email: senderEmail, // Send from fee earner's email
-      bcc_emails: bccList, // BCC sender + safety addresses
+      cc_emails: emailCc || '', // CC recipients
+      bcc_emails: bccList, // BCC sender + FollowUpThen
       saveToSentItems: true, // 🎯 Save to fee earner's Sent Items folder
       // Include recipient details for monitoring notification
       recipient_details: {
-        to: to,
-        cc: cc || '',
+        to: emailTo,
+        cc: emailCc || '',
         bcc: bccList,
         fee_earner: senderEmail
       }
     };
 
     // Guard: ensure we have a valid recipient email
-    if (!to || to.trim() === '') {
+    if (!emailTo || emailTo.trim() === '') {
       setErrorMessage('Cannot send email: recipient email address is not available.');
       setIsErrorVisible(true);
       showToast('Failed to send email', 'error', {
@@ -3422,13 +3440,15 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
       setIsErrorVisible(false);
 
       // Step 4: Send email via API
-      setEmailMessage(`Sending to ${enquiry.Point_of_Contact || to}…`);
-      showToast('Sending email...', 'info', {
-        loading: true,
-        details: `Delivering to ${enquiry.Point_of_Contact || to}`,
-        progress: 90,
-        duration: 0
-      });
+      setEmailMessage(`Sending to ${enquiry.Point_of_Contact || emailTo}…`);
+      if (!suppressToast) {
+        showToast('Sending email...', 'info', {
+          loading: true,
+          details: `Delivering to ${enquiry.Point_of_Contact || emailTo}`,
+          progress: 90,
+          duration: 0
+        });
+      }
 
       const response = await fetch(
         `/api/sendEmail`,
@@ -3444,12 +3464,14 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
         throw new Error(errorText || 'Failed to send email.');
       }
 
-      // Success feedback
-      showToast('Email sent successfully!', 'success', {
-        details: `Message delivered to ${enquiry.Point_of_Contact || to}`,
-        icon: 'MailSolid',
-        duration: 4000
-      });
+      // Success feedback (suppress when sent from modal)
+      if (!suppressToast) {
+        showToast('Email sent successfully!', 'success', {
+          details: `Message delivered to ${enquiry.Point_of_Contact || emailTo}`,
+          icon: 'MailSolid',
+          duration: 4000
+        });
+      }
 
       setEmailStatus('sent');
       setEmailMessage('Sent');
@@ -3553,43 +3575,13 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
 
     await delay(400); // Brief pause to show progress
 
-    // Check if V2 processing was requested (in case draft follows a send operation)
-    const useV2Processing = (window as any).__helixEmailProcessingV2__ === true;
-    let finalHtml: string;
-
-    if (useV2Processing) {
-      console.log('Using V2 email processing for draft (experimental enhanced formatting)');
-      // Use EmailProcessor V2 for enhanced processing
-      finalHtml = EmailProcessor.processCompleteEmail(body, {
-        userData: effectiveUserData,
-        enquiry,
-        amount,
-        passcode: normalizePasscode(currentPasscode, enquiry?.ID) || currentPasscode,
-        editorElement: bodyEditorRef.current,
-        forceV2: true
-      });
-    } else {
-      console.log('Using V1 email processing for draft (production method)');
-      // Use original V1 processing method
-      let rawHtml = removeHighlightSpans(body);
-
-      // Apply dynamic substitutions such as amount just before sending
-      // Use the fresh passcode from the API call, not the state variable
-      rawHtml = applyDynamicSubstitutions(
-        rawHtml,
-        effectiveUserData,
-        enquiry,
-        amount,
-        normalizePasscode(currentPasscode, enquiry?.ID) || currentPasscode,
-        undefined // Let applyDynamicSubstitutions construct URL with passcode
-      );
-
-      // Remove leftover placeholders
-      const noPlaceholders = removeUnfilledPlaceholders(rawHtml, templateBlocks);
-
-      // After removing leftover placeholders/highlights in handleDraftEmail():
-      finalHtml = convertDoubleBreaksToParagraphs(noPlaceholders);
-    }
+    const finalHtml = EmailProcessor.processCompleteEmail(body, {
+      userData: effectiveUserData,
+      enquiry,
+      amount,
+      passcode: normalizePasscode(currentPasscode, enquiry?.ID) || currentPasscode,
+      editorElement: bodyEditorRef.current
+    });
 
     // Step 3: Email composition
     setEmailMessage('Generating email draft…');
@@ -4234,12 +4226,12 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
   // Some styling
   const containerStyle = mergeStyles({
     padding: 0,
-    backgroundColor: 'transparent',
+    backgroundColor: isDarkMode 
+      ? 'rgba(11, 22, 43, 0.4)' 
+      : 'rgba(255, 255, 255, 0.6)',
     color: isDarkMode ? colours.dark.text : colours.light.text,
     borderRadius: 0,
-    boxShadow: isDarkMode
-      ? '0 4px 12px rgba(255, 255, 255, 0.1)'
-      : '0 4px 12px rgba(0, 0, 0, 0.1)',
+    boxShadow: 'none',
     maxWidth: 1350,
     width: '100%',
     margin: '0 auto',
@@ -4618,7 +4610,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
   }
 
   return (
-    <Stack className={containerStyle}>
+    <>
       {/* Client Info Header - Navigator Integrated */}
       <VerificationSummary
         isDarkMode={isDarkMode}
@@ -4766,6 +4758,12 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
           cc={cc}
           bcc={bcc}
           feeEarnerEmail={userEmailAddress}
+          teamData={pitchUserData || undefined}
+          onRecipientsChange={(newTo, newCc, newBcc) => {
+            setTo(newTo);
+            if (newCc !== undefined) setCc(newCc);
+            if (newBcc !== undefined) setBcc(newBcc);
+          }}
           // Inline status feedback
           dealCreationInProgress={dealCreationInProgress}
           dealStatus={dealStatus}
@@ -4974,6 +4972,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
           details={toast?.details}
           progress={toast?.progress}
           icon={toast?.icon}
+          isDarkMode={isDarkMode}
         />
       </main>
 
@@ -4985,7 +4984,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
           onToggle={() => setDebugCollapsed((v) => !v)}
         />
       )}
-    </Stack>
+    </>
   );
 
 };

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Text, Stack } from '@fluentui/react';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { Enquiry } from '../../app/functionality/types';
@@ -6,6 +6,10 @@ import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import EnquiryLineItem from './EnquiryLineItem';
 import { GroupedEnquiry } from './enquiryGrouping';
+import { TeamsActivityData, fetchTeamsActivityTracking } from '../../app/functionality/teamsActivityTracking';
+
+// Extend Enquiry to include source type
+type EnquiryWithSource = Enquiry & { __sourceType?: 'new' | 'legacy' };
 
 interface TeamData {
   'Created Date'?: string;
@@ -72,9 +76,37 @@ const getAreaColor = (area: string): string => {
 const GroupedEnquiryCard: React.FC<GroupedEnquiryCardProps> = ({ groupedEnquiry, onSelect, onRate, onRatingChange, onPitch, teamData, isLast, userAOW, getPromotionStatus, onFilterByPerson }) => {
   const { isDarkMode } = useTheme();
   const [isExpanded, setIsExpanded] = useState(false);
+  const [teamsActivityMap, setTeamsActivityMap] = useState<Map<string, TeamsActivityData>>(new Map());
   const { clientName, clientEmail, enquiries, latestDate, areas } = groupedEnquiry;
   const enquiryCount = enquiries.length;
   const latestEnquiry = enquiries[0];
+
+  // Fetch Teams activity data for v2 enquiries
+  useEffect(() => {
+    const fetchTeamsData = async () => {
+      // Only fetch for v2 enquiries (new source type)
+      const v2EnquiryIds = enquiries
+        .filter(e => (e as EnquiryWithSource).__sourceType === 'new' && e.ID)
+        .map(e => e.ID);
+
+      if (v2EnquiryIds.length > 0) {
+        try {
+          const activityData = await fetchTeamsActivityTracking(v2EnquiryIds);
+          const activityMap = new Map<string, TeamsActivityData>();
+          activityData.forEach(data => {
+            if (data.EnquiryId) {
+              activityMap.set(data.EnquiryId, data);
+            }
+          });
+          setTeamsActivityMap(activityMap);
+        } catch (error) {
+          console.error('Failed to fetch Teams activity data:', error);
+        }
+      }
+    };
+
+    fetchTeamsData();
+  }, [enquiries]);
 
   const formatDate = (dateStr: string): string => {
     try {
@@ -472,6 +504,7 @@ const GroupedEnquiryCard: React.FC<GroupedEnquiryCardProps> = ({ groupedEnquiry,
                   userAOW={undefined}
                   promotionStatus={getPromotionStatus ? getPromotionStatus(enquiry) : null}
                   onFilterByPerson={onFilterByPerson}
+                  teamsActivityData={teamsActivityMap.get(enquiry.ID || '')}
                 />
               </div>
             ))}

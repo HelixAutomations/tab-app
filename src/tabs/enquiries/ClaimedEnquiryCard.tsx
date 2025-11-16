@@ -18,6 +18,7 @@ interface Props {
   claimer?: TeamDataRec | undefined;
   onSelect: (enquiry: Enquiry, multi?: boolean) => void;
   onRate: (id: string) => void;
+  onRatingChange?: (enquiryId: string, newRating: string) => Promise<void>; // Added: inline rating support
   onPitch?: (enquiry: Enquiry) => void;
   onEdit?: (enquiry: Enquiry) => void;
   // Allow async handlers
@@ -40,6 +41,7 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
   claimer,
   onSelect,
   onRate,
+  onRatingChange,
   onPitch,
   onEdit,
   onAreaChange,
@@ -68,6 +70,15 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
   });
   const [isSaving, setIsSaving] = useState(false);
   const [copiedEmail, setCopiedEmail] = useState(false);
+  const [showRatingMenu, setShowRatingMenu] = useState(false);
+  const [isUpdatingRating, setIsUpdatingRating] = useState(false);
+  const [localRating, setLocalRating] = useState(enquiry.Rating || '');
+  const ratingMenuRef = useRef<HTMLDivElement>(null);
+
+  // Sync local rating when enquiry rating changes
+  useEffect(() => {
+    setLocalRating(enquiry.Rating || '');
+  }, [enquiry.Rating]);
   const [copiedPhone, setCopiedPhone] = useState(false);
   // Removed inline pitch builder modal usage; pitch now handled by parent detail view
   const clampRef = useRef<HTMLDivElement>(null);
@@ -180,6 +191,24 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
     setEditData(prev => ({ ...prev, [field]: value }));
   };
 
+  const handleRatingChange = async (newRating: string) => {
+    if (!onRatingChange || isUpdatingRating) return;
+    
+    const previousRating = localRating;
+    setLocalRating(newRating); // Optimistic update
+    setIsUpdatingRating(true);
+    setShowRatingMenu(false);
+    try {
+      await onRatingChange(enquiry.ID, newRating);
+      // Success feedback is handled by parent toast
+    } catch (error) {
+      console.error('Failed to update rating:', error);
+      setLocalRating(previousRating); // Revert on error
+    } finally {
+      setIsUpdatingRating(false);
+    }
+  };
+
   const areaColor = (() => {
     const area = enquiry.Area_of_Work?.toLowerCase() || '';
     if (area.includes('commercial')) return colours.blue;
@@ -278,7 +307,13 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
     { key: 'pitch', icon: 'Send', label: 'Pitch', onClick: () => { onPitch ? onPitch(enquiry) : onSelect(enquiry); } },
     { key: 'call', icon: 'Phone', label: 'Call', onClick: () => enquiry.Phone_Number && (window.location.href = `tel:${enquiry.Phone_Number}`) },
     { key: 'email', icon: 'Mail', label: 'Email', onClick: () => enquiry.Email && (window.location.href = `mailto:${enquiry.Email}?subject=Your%20Enquiry`) },
-    { key: 'rate', icon: 'FavoriteStar', label: 'Rate', onClick: () => onRate(enquiry.ID) },
+    { key: 'rate', icon: 'FavoriteStar', label: 'Rate', onClick: () => {
+      if (onRatingChange) {
+        setShowRatingMenu(true);
+      } else {
+        onRate(enquiry.ID);
+      }
+    }},
     ...(canEdit && !isEditing ? [{ key: 'edit', icon: 'Edit', label: 'Edit', onClick: handleEditClick }] : []),
   ];
 
@@ -1048,7 +1083,11 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
               const isRate = btn.key === 'rate';
               const isPitch = btn.key === 'pitch';
               const isEdit = btn.key === 'edit';
-              const hasNoRating = isRate && !enquiry.Rating;
+              const hasNoRating = isRate && !localRating;
+              const ratingColor = localRating 
+                ? (localRating === 'Good' ? colours.blue : localRating === 'Neutral' ? colours.grey : colours.cta)
+                : 'rgba(54, 144, 206, 0.75)';
+              
               return (
                 <button
                   key={btn.key}
@@ -1056,15 +1095,21 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
                   className={mergeStyles({
                     background: isPitch 
                       ? colours.highlight 
-                      : (hasNoRating ? 'rgba(54, 144, 206, 0.06)' : 'transparent'),
+                      : (localRating && isRate
+                          ? `${ratingColor}15`
+                          : (hasNoRating ? 'rgba(54, 144, 206, 0.06)' : 'transparent')),
                     color: isPitch 
                       ? '#fff' 
-                      : (hasNoRating ? 'rgba(54, 144, 206, 0.75)' : (isDarkMode ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)')),
+                      : (localRating && isRate
+                          ? ratingColor
+                          : (hasNoRating ? 'rgba(54, 144, 206, 0.75)' : (isDarkMode ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)'))),
                     border: `1px solid ${isPitch 
                       ? colours.highlight 
-                      : (hasNoRating 
-                          ? 'rgba(54, 144, 206, 0.25)' 
-                          : (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)'))}`,
+                      : (localRating && isRate
+                          ? `${ratingColor}40`
+                          : (hasNoRating 
+                              ? 'rgba(54, 144, 206, 0.25)' 
+                              : (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)')))}`,
                     backdropFilter: 'blur(8px)',
                     padding: isRate ? '5px 9px' : '6px 12px',
                     borderRadius: 16,
@@ -1072,10 +1117,10 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
                     fontWeight: 600,
                     cursor: 'pointer',
                     minHeight: 30,
-                    opacity: isRate && hasNoRating ? 0.8 : (isRate ? 0.65 : 0.75),
+                    opacity: isRate && isUpdatingRating ? 0.6 : (isRate && hasNoRating ? 0.8 : (isRate ? 1 : 0.75)),
                     transform: 'translateY(0) scale(1)',
                     transition: 'all .25s cubic-bezier(.4,0,.2,1)',
-                    boxShadow: hasNoRating ? '0 0 0 1px rgba(54, 144, 206, 0.1)' : 'none',
+                    boxShadow: (localRating && isRate) ? `0 0 0 1px ${ratingColor}20` : (hasNoRating ? '0 0 0 1px rgba(54, 144, 206, 0.1)' : 'none'),
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: 5,
@@ -1084,23 +1129,31 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
                       ':hover': { 
                         background: isPitch 
                           ? colours.blue 
-                          : (hasNoRating 
-                              ? 'rgba(54, 144, 206, 0.12)' 
-                              : (isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)')),
+                          : (localRating && isRate
+                              ? `${ratingColor}25`
+                              : (hasNoRating 
+                                  ? 'rgba(54, 144, 206, 0.12)' 
+                                  : (isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)'))),
                         color: isPitch 
                           ? '#fff' 
-                          : (hasNoRating 
-                              ? colours.highlight 
-                              : colours.highlight),
+                          : (localRating && isRate
+                              ? ratingColor
+                              : (hasNoRating 
+                                  ? colours.highlight 
+                                  : colours.highlight)),
                         borderRadius: 14,
                         borderColor: isPitch 
                           ? colours.blue 
-                          : (hasNoRating ? colours.highlight : colours.highlight),
-                        transform: 'translateY(-1px) scale(1.02)',
+                          : (localRating && isRate
+                              ? `${ratingColor}60`
+                              : (hasNoRating ? colours.highlight : colours.highlight)),
+                        transform: isUpdatingRating ? 'translateY(0) scale(1)' : 'translateY(-1px) scale(1.02)',
                         opacity: 1,
                         boxShadow: isPitch 
                           ? '0 3px 12px rgba(54, 144, 206, 0.25)' 
-                          : (hasNoRating ? '0 2px 10px rgba(54, 144, 206, 0.15)' : '0 2px 8px rgba(0,0,0,0.08)')
+                          : (localRating && isRate
+                              ? `0 2px 10px ${ratingColor}25`
+                              : (hasNoRating ? '0 2px 10px rgba(54, 144, 206, 0.15)' : '0 2px 8px rgba(0,0,0,0.08)'))
                       },
                       ':active': { 
                         background: isPitch 
@@ -1108,19 +1161,174 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
                           : (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)'),
                         color: isPitch ? '#fff' : colours.blue, 
                         borderRadius: 14, 
-                        transform: 'scale(0.97)' 
+                        transform: isUpdatingRating ? 'scale(1)' : 'scale(0.97)' 
                       },
                     },
                   })}
                 >
-                  <Icon iconName={btn.icon} styles={{ root: { fontSize: 12, lineHeight: 1 } }} />
-                  {btn.label}
+                  {isRate ? (
+                    <>
+                      <Icon 
+                        iconName={localRating 
+                          ? (localRating === 'Good' ? 'FavoriteStarFill' : localRating === 'Neutral' ? 'CircleRing' : 'StatusErrorFull')
+                          : 'FavoriteStar'
+                        } 
+                        styles={{ root: { fontSize: 12, lineHeight: 1, transition: 'all 0.2s ease' } }} 
+                      />
+                      <span style={{ minWidth: 28, textAlign: 'center', transition: 'all 0.2s ease' }}>
+                        {isUpdatingRating ? '...' : (localRating || 'Rate')}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <Icon iconName={btn.icon} styles={{ root: { fontSize: 12, lineHeight: 1 } }} />
+                      {btn.label}
+                    </>
+                  )}
                 </button>
               );
             })}
           </div>
         )}
       </div>
+      
+      {/* Rating Modal - Popup overlay */}
+      {showRatingMenu && onRatingChange && (
+        <div
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowRatingMenu(false);
+          }}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.4)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000,
+            animation: 'fadeIn 0.2s ease',
+          }}
+        >
+          <div
+            ref={ratingMenuRef}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: isDarkMode ? 'rgba(40,40,40,0.98)' : 'rgba(255,255,255,0.98)',
+              border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)'}`,
+              borderRadius: 12,
+              boxShadow: isDarkMode 
+                ? '0 12px 48px rgba(0,0,0,0.7)' 
+                : '0 12px 48px rgba(0,0,0,0.2)',
+              minWidth: 280,
+              overflow: 'hidden',
+              animation: 'dropIn 0.25s cubic-bezier(0.16,1,0.3,1)',
+            }}
+          >
+            {/* Header */}
+            <div style={{
+              padding: '16px 20px',
+              borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}>
+              <Text style={{
+                fontSize: 15,
+                fontWeight: 600,
+                color: isDarkMode ? 'rgba(255,255,255,0.95)' : 'rgba(0,0,0,0.95)',
+              }}>
+                Rate Enquiry
+              </Text>
+              <button
+                onClick={() => setShowRatingMenu(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: 4,
+                  color: isDarkMode ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Icon iconName="Cancel" style={{ fontSize: 16 }} />
+              </button>
+            </div>
+
+            {/* Rating options */}
+            <div style={{ padding: '8px 0' }}>
+              {[
+                { value: 'Good', icon: 'FavoriteStarFill', color: colours.blue, label: 'Good quality enquiry' },
+                { value: 'Neutral', icon: 'CircleRing', color: colours.grey, label: 'Average enquiry' },
+                { value: 'Poor', icon: 'StatusErrorFull', color: colours.cta, label: 'Poor quality enquiry' },
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleRatingChange(option.value);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '14px 20px',
+                    border: 'none',
+                    background: localRating === option.value 
+                      ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)')
+                      : 'transparent',
+                    color: isDarkMode ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.9)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    fontSize: 14,
+                    fontWeight: localRating === option.value ? 600 : 500,
+                    transition: 'background 0.2s',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = isDarkMode 
+                      ? 'rgba(255,255,255,0.08)' 
+                      : 'rgba(0,0,0,0.04)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = localRating === option.value 
+                      ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)')
+                      : 'transparent';
+                  }}
+                >
+                  <Icon 
+                    iconName={option.icon} 
+                    style={{ fontSize: 18, color: option.color }} 
+                  />
+                  <div style={{ flex: 1, textAlign: 'left' }}>
+                    <div style={{ fontWeight: 600 }}>{option.value}</div>
+                    <div style={{ 
+                      fontSize: 12, 
+                      color: isDarkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)',
+                      marginTop: 2
+                    }}>
+                      {option.label}
+                    </div>
+                  </div>
+                  {localRating === option.value && (
+                    <Icon 
+                      iconName="CheckMark" 
+                      style={{ 
+                        fontSize: 14, 
+                        color: option.color 
+                      }} 
+                    />
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       
   {/* Removed inline pitch builder modal */}
     </div>

@@ -5,9 +5,9 @@
  * email processing systems without affecting existing functionality.
  */
 
-import { 
-  processEmailContentV2, 
-  processEmailWithFallback, 
+import {
+  processEmailContentV2,
+  processEmailWithFallback,
   EMAIL_V2_CONFIG,
   compareFormattingSystems
 } from './emailFormattingV2';
@@ -17,7 +17,8 @@ import {
   processEditorContentForEmail as processV1,
   convertDoubleBreaksToParagraphs,
   removeHighlightSpans,
-  applyDynamicSubstitutions
+  applyDynamicSubstitutions,
+  removeUnfilledPlaceholders
 } from './emailUtils';
 
 /**
@@ -50,37 +51,31 @@ export class EmailProcessor {
       forceV2: options.forceV2
     });
 
+    const baseContent = !options.preserveHighlights
+      ? removeHighlightSpans(content)
+      : content;
+
     // V1 processor function (existing production logic)
     const processWithV1 = (html: string): string => {
       this.logOperation('Using V1 processing');
-      
-      let processed = html;
-      
-      // Apply existing V1 processing steps
-      if (!options.preserveHighlights) {
-        processed = removeHighlightSpans(processed);
-      }
-      
-      processed = convertDoubleBreaksToParagraphs(processed);
-      
-      return processed;
+      return convertDoubleBreaksToParagraphs(html);
     };
 
     // Check if we should force V2 for development testing
     if (options.forceV2) {
       this.logOperation('Force V2 processing for development testing');
       try {
-        const processed = processEmailContentV2(content);
+        const processed = processEmailContentV2(baseContent);
         this.logOperation('Force V2 processing completed successfully');
         return processed;
       } catch (error) {
         console.error('[EmailProcessor] Force V2 failed, falling back to V1:', error);
-        return processWithV1(content);
+        return processWithV1(baseContent);
       }
     }
 
     // Use the safe wrapper that handles V1/V2 switching and fallback
-    const result = processEmailWithFallback(content, processWithV1);
+    const result = processEmailWithFallback(baseContent, processWithV1);
 
     this.logOperation('Email processing completed', {
       resultLength: result.length,
@@ -170,6 +165,9 @@ export class EmailProcessor {
         context.instructionsLink
       );
     }
+
+    // Step 3: Remove any placeholders that remain after substitution
+    processed = removeUnfilledPlaceholders(processed);
 
     this.logOperation('Complete email processing finished');
     return processed;

@@ -206,9 +206,11 @@ async function fetchEnquiries(
   fetchAll: boolean = false, // New parameter to fetch all enquiries without filtering
   bypassCache: boolean = false // When true, ignore client caches (used on refresh)
 ): Promise<Enquiry[]> {
+  // Re-enable caching for production performance
+  const forceNoCaching = false; // was: process.env.NODE_ENV === 'development'
   const cacheKey = `enquiries-${email}-${dateFrom}-${dateTo}-${userAow}`;
   
-  if (!bypassCache) {
+  if (!bypassCache && !forceNoCaching) {
     // Try in-memory cache first (for large datasets)
     const memCached = getMemoryCachedData<Enquiry[]>(cacheKey);
     if (memCached) {
@@ -421,14 +423,19 @@ async function fetchEnquiries(
     }
   }
 
-  // Try localStorage first, fallback to in-memory if too large
-  const success = setCachedData(cacheKey, filteredEnquiries);
-  if (!success) {
-    // If localStorage failed (too large), use in-memory cache instead
-    setMemoryCachedData(cacheKey, filteredEnquiries);
-    if (process.env.NODE_ENV === 'development') {
-      console.log('✅ Cached', filteredEnquiries.length, 'enquiries in memory');
+  // Temporarily disable caching in development to test server fixes
+  if (!forceNoCaching) {
+    // Try localStorage first, fallback to in-memory if too large
+    const success = setCachedData(cacheKey, filteredEnquiries);
+    if (!success) {
+      // If localStorage failed (too large), use in-memory cache instead
+      setMemoryCachedData(cacheKey, filteredEnquiries);
+      if (process.env.NODE_ENV === 'development') {
+        console.log('✅ Cached', filteredEnquiries.length, 'enquiries in memory');
+      }
     }
+  } else if (process.env.NODE_ENV === 'development') {
+    console.log('🚫 Caching disabled - using fresh data:', filteredEnquiries.length, 'enquiries');
   }
   
   return filteredEnquiries;
@@ -829,26 +836,25 @@ const AppWithContext: React.FC = () => {
 
 
     
-    // Clear localStorage cache when switching users to force fresh data
-    // Include normalized matters v5 cache keys and other matter-related caches
+    // Clear only essential caches when switching users (less aggressive for performance)
     const keysToRemove = Object.keys(localStorage).filter(key => {
       const k = key.toLowerCase();
       return (
         k.includes('enquiries-') ||
-        k.includes('userdata-') ||
-        k.includes('matters-') ||
-        k.startsWith('normalizedmatters-v5-') ||
-        k.startsWith('vnetmatters-') ||
-        k === 'allmatters'
+        k.includes('userdata-')
+        // Keep matters cache to avoid refetching - matters don't change often
       );
     });
     keysToRemove.forEach(key => localStorage.removeItem(key));
 
     
     try {
-      // Fetch matters for new user
-      const mattersRes = await fetchAllMatterSources(fullName);
-      setMatters(mattersRes);
+      // Only fetch matters if they're not already loaded (matters change less frequently)
+      if (!matters || matters.length === 0) {
+        // Fetch matters for new user
+        const mattersRes = await fetchAllMatterSources(fullName);
+        setMatters(mattersRes);
+      }
       
       // Fetch enquiries for new user with extended date range and fresh data
       const { dateFrom, dateTo } = getDateRange();
@@ -856,17 +862,17 @@ const AppWithContext: React.FC = () => {
       const userInitials = normalized.Initials || "";
       const enquiriesEmail = normalized.Email || "";
       
-      // Don't apply AOW filtering when admin has switched users - show all enquiries like Management Dashboard
-      // We check if originalAdminUser exists OR will exist after this switch
-      const isAdminSwitch = originalAdminUser || (userData && userData[0]);
-      const userAow = isAdminSwitch ? "" : (normalized.AOW || "");
-      
+      // Don't pass AOW to backend - let frontend handle AOW filtering for Claimable state only
+      // For Mine/Claimed, users should see ALL their claimed enquiries regardless of DB AOW setting
+      // Backend filtering by AOW would hide enquiries user has already claimed in other areas
       const enquiriesRes = await fetchEnquiries(
         enquiriesEmail,
         dateFrom,
         dateTo,
-        userAow,
-        userInitials
+        "", // Empty AOW - frontend will apply AOW logic for Claimable state only
+        userInitials,
+        false, // fetchAll
+        false  // bypassCache - allow caching for better performance when switching users
       );
       setEnquiries(enquiriesRes);
       
@@ -1031,7 +1037,7 @@ const AppWithContext: React.FC = () => {
               enquiriesEmail,
               dateFrom,
               dateTo,
-              primaryUser.AOW || "",
+              "", // Empty AOW - frontend will apply AOW logic for Claimable state only
               userInitials,
             ).then(setEnquiries).catch(err => {
               console.warn('Enquiries load failed, using empty array:', err);
@@ -1116,7 +1122,7 @@ const AppWithContext: React.FC = () => {
                   enquiriesEmail,
                   dateFrom,
                   dateTo,
-                  initialUserData[0].AOW || "",
+                  "", // Empty AOW - frontend will apply AOW logic for Claimable state only
                   userInitials,
                   false,  // fetchAll
                   true    // bypassCache - FORCE FRESH DATA on initial load to avoid stale cache

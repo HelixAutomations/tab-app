@@ -711,14 +711,6 @@ let cachedOutstandingBalances: any | null = null;
 // At the top of Home.tsx, along with your other caching variables:
 let cachedTransactions: Transaction[] | null = null;
 
-//////////////////////
-// Helper: Ensure "LZ" is in Approvers
-//////////////////////
-
-const ensureLZInApprovers = (approvers: string[] = []): string[] => {
-  return approvers.includes('LZ') ? approvers : [...approvers, 'LZ'];
-};
-
 // Helper: Normalize metrics alias
 // - Lukasz/Luke (LZ) -> Jonathan Waters (JW)
 // - Samuel Packwood   -> Sam Packwood
@@ -1612,7 +1604,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
                   status: rec.status,
                   id: rec.request_id ? String(rec.request_id) : rec.id || `temp-${rec.start_date}-${rec.end_date}`,
                   rejection_notes: rec.rejection_notes || undefined,
-                  approvers: ensureLZInApprovers(rec.approvers),
+                  approvers: rec.approvers || [],
                   hearing_confirmation: rec.hearing_confirmation,
                   hearing_details: rec.hearing_details || undefined,
                 })
@@ -1635,7 +1627,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
                   status: rec.status,
                   id: rec.request_id ? String(rec.request_id) : rec.id || `temp-${rec.start_date}-${rec.end_date}`,
                   rejection_notes: rec.rejection_notes || undefined,
-                  approvers: ensureLZInApprovers(rec.approvers),
+                  approvers: rec.approvers || [],
                   hearing_confirmation: rec.hearing_confirmation,
                   hearing_details: rec.hearing_details || undefined,
                 })
@@ -2052,7 +2044,7 @@ const matchingTeamMember = attendanceTeam.find(
 const attendanceName = matchingTeamMember ? matchingTeamMember.First : '';
 
 const currentUserRecord = attendanceRecords.find(
-  (record: any) => (record.name || '').toLowerCase() === (attendanceName || '').toLowerCase()
+  (record: any) => (record.Initials || '').toLowerCase() === userInitials.toLowerCase()
 );
 
 //////////////////////////////
@@ -2304,8 +2296,9 @@ const handleAttendanceUpdated = (updatedRecords: AttendanceRecord[]) => {
   const isLocalhost = window.location.hostname === 'localhost';
 
   // Does the user have an object at all for that week?
-  // If currentUserRecord is not found (user not in attendance data), treat as confirmed to avoid nagging
-  const currentUserConfirmed = isLocalhost || !currentUserRecord || !!currentUserRecord?.weeks?.[relevantWeekKey];
+  // If currentUserRecord is not found (user not in attendance data), treat as confirmed to avoid nagging  
+  // Check if the user has confirmed their attendance (has a Confirmed_At timestamp)
+  const currentUserConfirmed = isLocalhost || !currentUserRecord || !!currentUserRecord?.Confirmed_At;
 
   // Debug logging for instructionData changes
   // Calculate actionable instruction summaries (needs isLocalhost)
@@ -2811,17 +2804,24 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
   }, [annualLeaveRecords, futureLeaveRecords]);
 
   const APPROVERS = ['AC', 'JW', 'LZ', 'KW'];
-  // MODIFIED: using userInitials from the ref
-  const isApprover = APPROVERS.includes(userInitials);
+  // Normalize initials for consistent matching
+  const normalizedUserInitials = (userInitials || '').trim().toUpperCase();
+  const isApprover = APPROVERS.includes(normalizedUserInitials);
+  // Managers (broad visibility)
+  const isManagerApprover = ['LZ', 'AC'].includes(normalizedUserInitials);
 
   const approvalsNeeded = useMemo(
     () =>
       isApprover
-        ? combinedLeaveRecords.filter(
-            (x) => x.status === 'requested' && x.approvers?.includes(userInitials)
-          )
+        ? combinedLeaveRecords.filter((x) => {
+            if (x.status !== 'requested') return false;
+            // Manager approvers see all requested
+            if (isManagerApprover) return true;
+            // Otherwise must be explicitly listed (case-insensitive)
+            return (x.approvers || []).some(a => (a || '').toUpperCase() === normalizedUserInitials);
+          })
         : [],
-    [combinedLeaveRecords, isApprover, userInitials]
+    [combinedLeaveRecords, isApprover, isManagerApprover, normalizedUserInitials]
   );
 
   const snippetApprovalsNeeded = useMemo(

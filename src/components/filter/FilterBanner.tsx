@@ -66,6 +66,9 @@ export interface FilterBannerProps {
     collapsible?: boolean;
   };
   
+  // Right-side actions (placed after search/refresh)
+  rightActions?: React.ReactNode;
+  
   // Additional actions/controls
   children?: React.ReactNode;
   
@@ -90,6 +93,7 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
   secondaryFilter,
   search,
   refresh,
+  rightActions,
   children,
   className,
   sticky = true,
@@ -303,8 +307,8 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
           </div>
         )}
 
-        {/* Right-side: Search + Refresh grouped to wrap together */}
-        {(search || refresh) && (
+        {/* Right-side: Search + Refresh + Actions grouped to wrap together */}
+        {(search || refresh || rightActions) && (
           <div className={rightClusterStyle}>
           {search && (
             <div className={searchContainerStyle}>
@@ -472,6 +476,18 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
                   </span>
                 )}
               </button>
+            </div>
+          )}
+          
+          {/* Right-side actions */}
+          {rightActions && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              flex: '0 0 auto'
+            }}>
+              {rightActions}
             </div>
           )}
           </div>

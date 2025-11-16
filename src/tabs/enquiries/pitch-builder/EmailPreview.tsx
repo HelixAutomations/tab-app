@@ -15,6 +15,7 @@ import {
   Link,
 } from '@fluentui/react';
 import { colours } from '../../../app/styles/colours';
+import { useTheme } from '../../../app/functionality/ThemeContext';
 import {
   sharedPrimaryButtonStyles,
   sharedDefaultButtonStyles,
@@ -30,7 +31,7 @@ import {
   applyDynamicSubstitutions,
   convertDoubleBreaksToParagraphs,
 } from './emailUtils';
-import { processEmailContentV2 } from './emailFormattingV2';
+import { EMAIL_V2_CONFIG, processEmailContentV2 } from './emailFormattingV2';
 import ExperimentalAssistant from './ExperimentalAssistant';
 import { isInTeams } from '../../../app/functionality/isInTeams';
 import { TemplateBlock } from '../../../app/customisation/ProductionTemplateBlocks';
@@ -110,6 +111,8 @@ const EmailPreview: React.FC<EmailPreviewProps> = ({
   amount,
   passcode,
 }) => {
+  const { isDarkMode } = useTheme();
+  
   // Strip blocks auto inserted by the system unless edited
   // Disabled for now since we want content to display by default
   const withoutAutoBlocks = body;
@@ -127,14 +130,12 @@ const EmailPreview: React.FC<EmailPreviewProps> = ({
     passcode
   );
   const highlightedBody = markUnfilledPlaceholders(substituted, templateBlocks);
-  // Use experimental V2 processing in preview when globally enabled or selected for this action; otherwise default to V1
-  const isV2Env = process.env.REACT_APP_EMAIL_V2_ENABLED === 'true';
-  const useV2Preview = (window as any)?.__helixEmailProcessingV2__ === true || isV2Env;
+  const useV2Preview = EMAIL_V2_CONFIG.enabled;
   const processedBody = useV2Preview
     ? processEmailContentV2(highlightedBody)
     : convertDoubleBreaksToParagraphs(highlightedBody);
   const previewHtml = ReactDOMServer.renderToStaticMarkup(
-    <EmailSignature bodyHtml={processedBody} userData={userData} experimentalLayout={useV2Preview} />
+  <EmailSignature bodyHtml={processedBody} userData={userData} experimentalLayout={useV2Preview} isDarkMode={isDarkMode} />
   );
   const previewRef = React.useRef<HTMLDivElement>(null);
 

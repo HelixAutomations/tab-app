@@ -8,6 +8,7 @@ import {
   FontIcon,
   type IButtonStyles,
 } from '@fluentui/react';
+import { FaChartLine, FaClipboardList, FaFolderOpen, FaInbox } from 'react-icons/fa';
 import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { useNavigatorActions } from '../../app/functionality/NavigatorContext';
@@ -17,6 +18,7 @@ import AnnualLeaveReport, { AnnualLeaveRecord } from './AnnualLeaveReport';
 import MetaMetricsReport from './MetaMetricsReport';
 import SeoReport from './SeoReport';
 import PpcReport from './PpcReport';
+import MattersReport from './MattersReport';
 import { debugLog, debugWarn } from '../../utils/debug';
 import { getNormalizedEnquirySource } from '../../utils/enquirySource';
 import HomePreview from './HomePreview';
@@ -25,10 +27,51 @@ import { useStreamingDatasets } from '../../hooks/useStreamingDatasets';
 import { fetchWithRetry, fetchJSON } from '../../utils/fetchUtils';
 import markWhite from '../../assets/markwhite.svg';
 import type { PpcIncomeMetrics } from './PpcReport';
+import OperationStatusToast from '../enquiries/pitch-builder/OperationStatusToast';
+
+// Add spinner animation CSS
+const spinnerStyle = `
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes fadeInSlideDown {
+  0% { 
+    opacity: 0; 
+    transform: translateY(-8px); 
+  }
+  100% { 
+    opacity: 1; 
+    transform: translateY(0); 
+  }
+}
+
+@keyframes dotFadeIn {
+  0% { 
+    opacity: 0; 
+    transform: scale(0); 
+  }
+  60% { 
+    transform: scale(1.1); 
+  }
+  100% { 
+    opacity: 1; 
+    transform: scale(1); 
+  }
+}
+
+@keyframes fadeIn {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+`;
 
 // Persist streaming progress across navigation
 const STREAM_SNAPSHOT_KEY = 'reporting_stream_snapshot_v1';
 const CACHE_STATE_KEY = 'reporting_cache_state_v1';
+const CACHE_PREHEAT_TIMESTAMP_KEY = 'reporting_cache_preheat_ts';
+const CACHE_PREHEAT_INTERVAL = 5 * 60 * 1000; // 5 minutes between background preheats
 
 // Global refresh state to prevent application-wide refresh spamming
 let globalLastRefresh = 0;
@@ -46,14 +89,53 @@ const getCacheState = () => {
 
 const setCacheState = (hasFetchedOnce: boolean, lastCacheTime?: number | null) => {
   try {
-    sessionStorage.setItem(CACHE_STATE_KEY, JSON.stringify({ 
-      hasFetchedOnce, 
-      lastCacheTime: lastCacheTime ?? cachedTimestamp 
-    }));
-  } catch {/* ignore */}
+    sessionStorage.setItem(
+      CACHE_STATE_KEY,
+      JSON.stringify({ hasFetchedOnce, lastCacheTime: lastCacheTime ?? null })
+    );
+  } catch {
+    // no-op
+  }
 };
 
-// Helper to update both local state and persistence
+const getLastPreheatTimestamp = (): number | null => {
+  try {
+    const raw = sessionStorage.getItem(CACHE_PREHEAT_TIMESTAMP_KEY);
+    if (!raw) {
+      return null;
+    }
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : null;
+  } catch {
+    return null;
+  }
+};
+
+const setLastPreheatTimestamp = (timestamp: number) => {
+  try {
+    sessionStorage.setItem(CACHE_PREHEAT_TIMESTAMP_KEY, String(timestamp));
+  } catch {
+    // ignore
+  }
+};
+
+let cachedData: DatasetMap = {
+  userData: null,
+  teamData: null,
+  enquiries: null,
+  allMatters: null,
+  wip: null,
+  recoveredFees: null,
+  poidData: null,
+  annualLeave: null,
+  metaMetrics: null,
+  googleAnalytics: null,
+  googleAds: null,
+  deals: null,
+  instructions: null,
+};
+let cachedTimestamp: number | null = null;
+
 const updateRefreshTimestamp = (timestamp: number, setLastRefreshTimestamp: (ts: number) => void) => {
   setLastRefreshTimestamp(timestamp);
   setCacheState(true, timestamp);
@@ -71,8 +153,8 @@ const parseDateLoose = (input: unknown): Date | null => {
     return Number.isNaN(input.getTime()) ? null : new Date(input.getTime());
   }
   if (typeof input === 'number' && Number.isFinite(input)) {
-    const fromNumber = new Date(input);
-    return Number.isNaN(fromNumber.getTime()) ? null : fromNumber;
+    const candidate = new Date(input);
+    return Number.isNaN(candidate.getTime()) ? null : candidate;
   }
   if (typeof input !== 'string') {
     return null;
@@ -92,8 +174,8 @@ const parseDateLoose = (input: unknown): Date | null => {
       return `${fullYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
     })()
     : trimmed;
-  const candidate = new Date(normalised);
-  return Number.isNaN(candidate.getTime()) ? null : candidate;
+  const parsed = new Date(normalised);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
 const toNumberSafe = (value: unknown): number => {
@@ -114,7 +196,6 @@ const extractUserInitials = (userRecords: UserData[] | null | undefined): string
   if (!Array.isArray(userRecords) || userRecords.length === 0) {
     return undefined;
   }
-
   const first = userRecords[0] as Record<string, unknown>;
   const candidates = ['Initials', 'initials', 'Fe', 'FE'];
   for (const key of candidates) {
@@ -130,7 +211,6 @@ const mapAnnualLeaveRecords = (raw: unknown): AnnualLeaveRecord[] => {
   if (!Array.isArray(raw)) {
     return [];
   }
-
   return raw.reduce<AnnualLeaveRecord[]>((acc, item) => {
     if (!isRecord(item)) {
       return acc;
@@ -139,7 +219,6 @@ const mapAnnualLeaveRecords = (raw: unknown): AnnualLeaveRecord[] => {
     const personCandidate = item.person ?? item.fe ?? item.Fe;
     const startCandidate = item.start_date ?? item.startDate;
     const endCandidate = item.end_date ?? item.endDate;
-
     if (typeof personCandidate !== 'string' || typeof startCandidate !== 'string' || typeof endCandidate !== 'string') {
       return acc;
     }
@@ -201,7 +280,7 @@ const mapTeamDataFromPayload = (raw: unknown): TeamData[] => {
         ? item.initials
         : undefined;
     if (initials && initials.trim()) {
-      entry['Initials'] = initials.trim();
+      entry.Initials = initials.trim();
     }
 
     const aow = typeof item.AOW === 'string'
@@ -286,7 +365,6 @@ interface GoogleAnalyticsData {
   bounceRate?: number;
   averageSessionDuration?: number;
   conversions?: number;
-  // Additional GA4 metrics...
 }
 
 interface GoogleAdsData {
@@ -300,7 +378,36 @@ interface GoogleAdsData {
   cpa?: number;
 }
 
-// (Removed time range settings; we always fetch 24 months for GA4 and Google Ads)
+interface Deal {
+  DealId?: number;
+  ProspectId?: number;
+  InstructionRef?: string;
+  ServiceDescription?: string;
+  Amount?: number;
+  AreaOfWork?: string;
+  PitchedBy?: string;
+  PitchedDate?: string;
+  Status?: string;
+  CreatedDate?: string;
+  ModifiedDate?: string;
+  CloseDate?: string;
+  [key: string]: unknown;
+}
+
+interface InstructionSummary {
+  InstructionRef?: string;
+  ProspectId?: number;
+  Email?: string;
+  Stage?: string;
+  Status?: string;
+  CreatedDate?: string;
+  SubmissionDate?: string;
+  MatterId?: string;
+  ClientId?: string;
+  workflow?: string;
+  payments?: unknown;
+  [key: string]: unknown;
+}
 
 interface DatasetMap {
   userData: UserData[] | null;
@@ -326,46 +433,6 @@ interface AnnualLeaveFetchResult {
   userDetails?: Record<string, unknown>;
 }
 
-// Meta Metrics Deal interface for tracking conversion funnel
-interface Deal {
-  DealId: number;
-  ProspectId: number;
-  InstructionRef?: string;
-  ServiceDescription: string;
-  Amount?: number;
-  AreaOfWork?: string;
-  PitchedBy?: string;
-  PitchedDate?: string;
-  PitchedTime?: string;
-  Status: string;
-  IsMultiClient?: boolean;
-  LeadClientEmail?: string;
-  FirstName?: string;
-  LastName?: string;
-  Phone?: string;
-  isPitchedDeal?: boolean;
-  CreatedDate?: string;
-  ModifiedDate?: string;
-  CloseDate?: string;
-}
-
-// Instruction summary for conversion tracking
-interface InstructionSummary {
-  InstructionRef: string;
-  ProspectId?: number;
-  Email?: string;
-  Stage?: string;
-  Status?: string;
-  CreatedDate?: string;
-  MatterId?: string;
-  ClientId?: string;
-  workflow?: string;
-  payments?: any;
-}
-
-// (Removed TIME_RANGE_OPTIONS and settings state)
-
-// Dataset groups for better organization and dependency tracking
 const DATASETS = [
   { key: 'userData', name: 'Users' },
   { key: 'teamData', name: 'Team' },
@@ -404,19 +471,18 @@ interface AvailableReport {
   key: string;
   name: string;
   status: string;
-  action?: 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport' | 'ppcReport';
-  requiredDatasets: DatasetKey[]; // Dependencies for this report
+  action?: 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters';
+  requiredDatasets: DatasetKey[];
   description?: string;
-  disabled?: boolean; // Mark report as disabled/not ready
+  disabled?: boolean;
 }
 
 const AVAILABLE_REPORTS: AvailableReport[] = [
   {
-    key: 'management',
+    key: 'dashboard',
     name: 'Management dashboard',
     status: 'Live today',
     action: 'dashboard',
-    // Make ID Submissions (poidData) non-blocking: it's useful but not critical for initial dashboard render
     requiredDatasets: ['enquiries', 'allMatters', 'wip', 'recoveredFees', 'teamData', 'userData', 'annualLeave'],
   },
   {
@@ -434,6 +500,13 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
     requiredDatasets: ['annualLeave', 'teamData'],
   },
   {
+    key: 'matters',
+    name: 'Matters',
+    status: 'Focus view',
+    action: 'matters',
+    requiredDatasets: ['allMatters', 'poidData'],
+  },
+  {
     key: 'metaMetrics',
     name: 'Meta ads',
     status: 'Live today',
@@ -443,53 +516,21 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
   {
     key: 'seo',
     name: 'SEO report',
-    status: 'ETA 1 day',
-    action: 'seoReport' as const,
-    requiredDatasets: ['googleAnalytics', 'googleAds'] as DatasetKey[],
-    disabled: true, // Keep disabled for now
+    status: 'In beta',
+    action: 'seoReport',
+    requiredDatasets: ['googleAnalytics', 'googleAds'],
+    disabled: true,
   },
   {
     key: 'ppc',
     name: 'PPC report',
-    status: 'Ready',
-    action: 'ppcReport' as const,
-    requiredDatasets: ['googleAds', 'enquiries', 'allMatters', 'recoveredFees'] as DatasetKey[],
-    disabled: false, // Enabled in production
-  },
-  {
-    key: 'matters',
-    name: 'Matters snapshot',
-    status: 'Matters tab',
-    requiredDatasets: ['allMatters'],
+    status: 'Live today',
+    action: 'ppcReport',
+    requiredDatasets: ['googleAds', 'enquiries', 'allMatters', 'recoveredFees'],
   },
 ];
 
 const MANAGEMENT_DATASET_KEYS = DATASETS.map((dataset) => dataset.key);
-const REPORTING_ENDPOINT = '/api/reporting/management-datasets';
-
-const EMPTY_DATASET: DatasetMap = {
-  userData: null,
-  teamData: null,
-  enquiries: null,
-  allMatters: null,
-  wip: null,
-  recoveredFees: null,
-  poidData: null,
-  annualLeave: null,
-  metaMetrics: null,
-  googleAnalytics: null,
-  googleAds: null,
-  deals: null,
-  instructions: null,
-};
-
-let cachedData: DatasetMap = { ...EMPTY_DATASET };
-let cachedTimestamp: number | null = null;
-
-const LIGHT_BACKGROUND_COLOUR = colours.light.background;
-const DARK_BACKGROUND_COLOUR = colours.dark.background;
-const LIGHT_SURFACE_COLOUR = colours.light.sectionBackground;
-const DARK_SURFACE_COLOUR = colours.dark.sectionBackground;
 
 const STATUS_BADGE_COLOURS: Record<DatasetStatusValue, {
   lightBg: string;
@@ -501,14 +542,14 @@ const STATUS_BADGE_COLOURS: Record<DatasetStatusValue, {
   ready: {
     lightBg: 'rgba(13, 47, 96, 0.22)',
     darkBg: 'rgba(34, 197, 94, 0.28)',
-    dot: '#22c55e', // Green dot for dark mode, will override for light mode in render
+    dot: '#22c55e',
     label: 'Ready',
     icon: 'CheckMark',
   },
   loading: {
-    lightBg: 'rgba(54, 144, 206, 0.18)', // Using highlight blue
+    lightBg: 'rgba(54, 144, 206, 0.18)',
     darkBg: 'rgba(54, 144, 206, 0.32)',
-    dot: '#3690CE', // highlight blue
+    dot: '#3690CE',
     label: 'Refreshing',
   },
   error: {
@@ -527,6 +568,13 @@ const STATUS_BADGE_COLOURS: Record<DatasetStatusValue, {
   },
 };
 
+const DATASET_STATUS_SORT_ORDER: Record<DatasetStatusValue, number> = {
+  loading: 0,
+  error: 1,
+  idle: 2,
+  ready: 3,
+};
+
 const surfaceShadow = (isDarkMode: boolean): string => (
   isDarkMode ? '0 2px 10px rgba(0, 0, 0, 0.22)' : '0 2px 8px rgba(15, 23, 42, 0.06)'
 );
@@ -539,8 +587,8 @@ const containerStyle = (isDarkMode: boolean): CSSProperties => ({
   minHeight: '100vh',
   width: '100%',
   padding: '26px 30px 40px',
-  background: isDarkMode 
-    ? 'linear-gradient(135deg, #0f172a 0%, #1e293b 30%, #334155 65%, #475569 100%)'
+  background: isDarkMode
+    ? 'linear-gradient(135deg, #020617 0%, #0f172a 50%, #020617 100%)'
     : 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 25%, #e2e8f0 65%, #cbd5e1 100%)',
   color: isDarkMode ? colours.dark.text : colours.light.text,
   display: 'flex',
@@ -551,25 +599,17 @@ const containerStyle = (isDarkMode: boolean): CSSProperties => ({
 });
 
 const sectionSurfaceStyle = (isDarkMode: boolean, overrides: CSSProperties = {}): CSSProperties => ({
-  background: isDarkMode ? 'rgba(15, 23, 42, 0.88)' : '#FFFFFF',
+  background: isDarkMode ? 'linear-gradient(135deg, #020617 0%, #0a1220 100%)' : '#ffffff',
   borderRadius: 12,
-  border: `1px solid ${subtleStroke(isDarkMode)}`,
+  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.55)' : 'rgba(148, 163, 184, 0.45)'}`,
   boxShadow: surfaceShadow(isDarkMode),
   padding: '20px 22px',
   display: 'flex',
   flexDirection: 'column',
   gap: 12,
+  transition: 'background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease',
   ...overrides,
 });
-
-const heroSurfaceStyle = (isDarkMode: boolean): CSSProperties => (
-  sectionSurfaceStyle(isDarkMode, {
-    gap: 14,
-    padding: '22px 24px',
-    position: 'relative',
-    overflow: 'hidden',
-  })
-);
 
 const heroRightMarkStyle = (isDarkMode: boolean, isHovered: boolean = false): CSSProperties => ({
   position: 'absolute',
@@ -582,7 +622,6 @@ const heroRightMarkStyle = (isDarkMode: boolean, isHovered: boolean = false): CS
   backgroundRepeat: 'no-repeat',
   backgroundPosition: 'center',
   backgroundSize: 'contain',
-  // Make hover effect more subtle by reducing the delta and easing
   opacity: isHovered ? (isDarkMode ? 0.22 : 0.14) : (isDarkMode ? 0.14 : 0.08),
   pointerEvents: 'none',
   zIndex: 0,
@@ -702,6 +741,89 @@ const statusIconStyle = (isDarkMode: boolean): CSSProperties => ({
   color: isDarkMode ? '#E2E8F0' : colours.missedBlue,
 });
 
+const reportCardsGridStyle = (): CSSProperties => ({
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+  gap: 12,
+  marginTop: 4,
+});
+
+const reportCardBaseStyle = (isDarkMode: boolean): CSSProperties => ({
+  borderRadius: 12,
+  padding: 16,
+  background: isDarkMode ? 'rgba(15, 23, 42, 0.85)' : '#ffffff',
+  border: `1px solid ${isDarkMode ? 'rgba(51, 65, 85, 0.45)' : 'rgba(226, 232, 240, 0.9)'}`,
+  boxShadow: isDarkMode ? '0 6px 18px rgba(2, 6, 23, 0.35)' : '0 3px 10px rgba(15, 23, 42, 0.06)',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 12,
+  minHeight: 150,
+});
+
+type ReportVisualState = 'neutral' | 'warming' | 'ready' | 'disabled';
+
+const REPORT_CARD_STATE_TOKENS: Record<ReportVisualState, {
+  label: string;
+  accent: string;
+  lightBadgeBg: string;
+  darkBadgeBg: string;
+}> = {
+  ready: {
+    label: 'Ready',
+    accent: '#22c55e',
+    lightBadgeBg: 'rgba(34, 197, 94, 0.15)',
+    darkBadgeBg: 'rgba(34, 197, 94, 0.28)',
+  },
+  warming: {
+    label: 'Fetching…',
+    accent: '#3690CE',
+    lightBadgeBg: 'rgba(54, 144, 206, 0.15)',
+    darkBadgeBg: 'rgba(54, 144, 206, 0.28)',
+  },
+  neutral: {
+    label: 'Needs data',
+    accent: '#94a3b8',
+    lightBadgeBg: 'rgba(148, 163, 184, 0.18)',
+    darkBadgeBg: 'rgba(148, 163, 184, 0.32)',
+  },
+  disabled: {
+    label: 'In beta',
+    accent: '#3690CE',
+    lightBadgeBg: 'rgba(54, 144, 206, 0.15)',
+    darkBadgeBg: 'rgba(54, 144, 206, 0.3)',
+  },
+};
+
+const getReportCardBadgeBg = (state: ReportVisualState, isDarkMode: boolean): string => (
+  isDarkMode ? REPORT_CARD_STATE_TOKENS[state].darkBadgeBg : REPORT_CARD_STATE_TOKENS[state].lightBadgeBg
+);
+
+const dependencyChipsWrapStyle: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 6,
+};
+
+const dependencyChipStyle = (isDarkMode: boolean): CSSProperties => ({
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+  padding: '4px 8px',
+  borderRadius: 999,
+  fontSize: 11,
+  fontWeight: 500,
+  background: isDarkMode ? 'rgba(30, 41, 59, 0.7)' : 'rgba(241, 245, 249, 0.9)',
+  border: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.7)' : 'rgba(203, 213, 225, 1)'}`,
+  color: isDarkMode ? '#e2e8f0' : '#0f172a',
+});
+
+const dependencyDotStyle = (colour: string): CSSProperties => ({
+  width: 6,
+  height: 6,
+  borderRadius: '50%',
+  background: colour,
+});
+
 // Render a compact JSON-like snippet for previewing row content safely
 const formatPreviewRow = (row: unknown): string => {
   try {
@@ -795,6 +917,70 @@ const heroMetaRowStyle: CSSProperties = {
   fontSize: 12,
 };
 
+const heroContentStyle = (isDarkMode: boolean): CSSProperties => ({
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+  gap: 26,
+  width: '100%',
+  position: 'relative',
+  zIndex: 2,
+});
+
+const heroLeftColumnStyle = (isDarkMode: boolean): CSSProperties => ({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 16,
+  color: isDarkMode ? colours.light.text : colours.dark.text,
+});
+
+const heroRightColumnStyle = (isDarkMode: boolean): CSSProperties => ({
+  borderRadius: 16,
+  padding: '18px 20px',
+  background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : 'rgba(255, 255, 255, 0.88)',
+  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(15, 23, 42, 0.08)'}`,
+  boxShadow: isDarkMode ? '0 20px 45px rgba(2, 6, 23, 0.35)' : '0 16px 30px rgba(15, 23, 42, 0.1)',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 18,
+});
+
+const heroBadgeRowStyle = (isDarkMode: boolean): CSSProperties => ({
+  display: 'flex',
+  flexWrap: 'wrap',
+  alignItems: 'center',
+  gap: 10,
+  fontFamily: 'Raleway, sans-serif',
+  color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(13, 47, 96, 0.7)',
+  fontSize: 11,
+  letterSpacing: 0.2,
+});
+
+const heroDescriptionStyle = (isDarkMode: boolean): CSSProperties => ({
+  margin: 0,
+  fontSize: 13,
+  lineHeight: 1.5,
+  color: isDarkMode ? 'rgba(226, 232, 240, 0.82)' : 'rgba(15, 23, 42, 0.78)',
+});
+
+const heroMetaChipStyle = (isDarkMode: boolean): CSSProperties => ({
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+  padding: '5px 10px',
+  borderRadius: 999,
+  background: isDarkMode ? 'rgba(30, 41, 59, 0.6)' : 'rgba(255, 255, 255, 0.9)',
+  border: `1px solid ${subtleStroke(isDarkMode)}`,
+  boxShadow: 'none',
+  color: isDarkMode ? '#E2E8F0' : colours.missedBlue,
+  fontSize: 12,
+});
+
+const heroCtaRowStyle: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 10,
+};
+
 const fullScreenWrapperStyle = (isDarkMode: boolean): CSSProperties => ({
   minHeight: '100vh',
   padding: '24px 28px',
@@ -811,6 +997,42 @@ const fullScreenWrapperStyle = (isDarkMode: boolean): CSSProperties => ({
 });
 
 type ButtonState = 'neutral' | 'warming' | 'ready';
+
+interface ReportDependency {
+  key: DatasetKey;
+  name: string;
+  status: DatasetStatusValue;
+  range: string;
+}
+
+type ReportCard = AvailableReport & {
+  readiness: ButtonState;
+  dependencies: ReportDependency[];
+  readyDependencies: number;
+  totalDependencies: number;
+};
+
+type ToastType = 'success' | 'error' | 'info' | 'warning';
+
+interface ToastState {
+  visible: boolean;
+  message: string;
+  type: ToastType;
+  details?: string;
+  loading?: boolean;
+  progress?: number;
+  icon?: string;
+}
+
+interface ToastOptions {
+  message: string;
+  type: ToastType;
+  details?: string;
+  loading?: boolean;
+  autoDismissMs?: number;
+  progress?: number;
+  icon?: string;
+}
 
 const conditionalButtonStyles = (isDarkMode: boolean, state: ButtonState): IButtonStyles => ({
   root: {
@@ -963,6 +1185,7 @@ const dashboardNavigatorStyle = (isDarkMode: boolean): CSSProperties => ({
   display: 'flex',
   alignItems: 'center',
   gap: 12,
+  padding: '8px 16px',
   color: isDarkMode ? '#E2E8F0' : colours.missedBlue,
 });
 
@@ -1096,9 +1319,30 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   const { isDarkMode } = useTheme();
   const { setContent } = useNavigatorActions();
   const [currentTime, setCurrentTime] = useState(() => new Date());
-  const [activeView, setActiveView] = useState<'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport' | 'ppcReport'>('overview');
+  const [activeView, setActiveView] = useState<'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters'>('overview');
   const [heroHovered, setHeroHovered] = useState(false);
-  const [isDataSourcesExpanded, setIsDataSourcesExpanded] = useState(false);
+  const [expandedReportCards, setExpandedReportCards] = useState<string[]>([]);
+  const [activePrimaryCard, setActivePrimaryCard] = useState<string | null>(null); // Track which primary card is active
+  
+  // Individual report loading states and progress tracking
+  const [reportProgressStates, setReportProgressStates] = useState<{
+    [key: string]: {
+      isLoading: boolean;
+      progress: number;
+      estimatedTimeRemaining?: number;
+      stage?: string;
+      startTime?: number;
+    }
+  }>({});
+
+  const [toastState, setToastState] = useState<ToastState>({
+    visible: false,
+    message: '',
+    type: 'info',
+  });
+  // Test mode - only available in local development
+  const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+  const [testMode, setTestMode] = useState(false);
   // (Removed marketing data settings state; always fetch 24 months)
   
   // Memoize handlers to prevent recreation on every render
@@ -1107,7 +1351,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   }, []);
 
   // Fetch Google Analytics data with time range
-  const fetchGoogleAnalyticsData = useCallback(async (months: number): Promise<GoogleAnalyticsData[]> => {
+  const fetchGoogleAnalyticsData = useCallback(async (months: number, signal?: AbortSignal): Promise<GoogleAnalyticsData[]> => {
     try {
       const endDate = new Date();
       const startDate = new Date();
@@ -1121,6 +1365,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       const response = await fetch(`/api/marketing-metrics/ga4?${params}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
+        signal,
       });
 
       if (!response.ok) {
@@ -1135,7 +1380,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   }, []);
 
   // Fetch Google Ads data with time range
-  const fetchGoogleAdsData = useCallback(async (months: number): Promise<GoogleAdsData[]> => {
+  const fetchGoogleAdsData = useCallback(async (months: number, signal?: AbortSignal): Promise<GoogleAdsData[]> => {
     try {
       const endDate = new Date();
       const startDate = new Date();
@@ -1149,6 +1394,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       const response = await fetch(`/api/marketing-metrics/google-ads?${params}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
+        signal,
       });
 
       if (!response.ok) {
@@ -1202,6 +1448,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   const refreshStartedAtRef = useRef<number | null>(refreshStartedAt);
   const isStreamingConnectedRef = useRef<boolean>(false);
   const isFetchingRef = useRef<boolean>(isFetching);
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const preheatInFlightRef = useRef(false);
   // PPC-specific Google Ads data (24 months)
   const [ppcGoogleAdsData, setPpcGoogleAdsData] = useState<GoogleAdsData[] | null>(null);
   const [ppcLoading, setPpcLoading] = useState<boolean>(false);
@@ -1209,6 +1457,74 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     const initial = datasetStatus.googleAds?.updatedAt;
     return typeof initial === 'number' && Number.isFinite(initial) ? initial : null;
   });
+  const googleAdsRequestIdRef = useRef(0);
+  const googleAnalyticsRequestIdRef = useRef(0);
+
+  const clearToastTimeout = useCallback(() => {
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+      toastTimeoutRef.current = null;
+    }
+  }, []);
+
+  const hideToast = useCallback(() => {
+    clearToastTimeout();
+    setToastState(prev => (prev.visible ? { ...prev, visible: false, loading: false } : prev));
+  }, [clearToastTimeout]);
+
+  const showToast = useCallback((options: ToastOptions) => {
+    clearToastTimeout();
+    setToastState({
+      visible: true,
+      message: options.message,
+      type: options.type,
+      details: options.details,
+      loading: options.loading,
+      progress: options.progress,
+      icon: options.icon,
+    });
+
+    if (!options.loading) {
+      const timeout = setTimeout(hideToast, options.autoDismissMs ?? 4000);
+      toastTimeoutRef.current = timeout;
+    } else if (typeof options.autoDismissMs === 'number') {
+      const timeout = setTimeout(hideToast, options.autoDismissMs);
+      toastTimeoutRef.current = timeout;
+    }
+  }, [clearToastTimeout, hideToast]);
+
+  const updatePoidDataFromReport = useCallback((value: React.SetStateAction<POID[] | null>) => {
+    let resolved: POID[] | null = null;
+    setDatasetData(prev => {
+      const previous = prev.poidData ?? null;
+      resolved = typeof value === 'function'
+        ? (value as (prevState: POID[] | null) => POID[] | null)(previous)
+        : value;
+      return { ...prev, poidData: resolved };
+    });
+
+    cachedData = { ...cachedData, poidData: resolved };
+
+    setDatasetStatus(prev => {
+      const status: DatasetStatusValue = Array.isArray(resolved) && resolved.length > 0
+        ? 'ready'
+        : resolved === null
+          ? 'idle'
+          : 'ready';
+      const updatedAt = status === 'ready' ? Date.now() : prev.poidData?.updatedAt ?? null;
+      return {
+        ...prev,
+        poidData: {
+          status,
+          updatedAt,
+        },
+      };
+    });
+  }, []);
+
+  useEffect(() => () => {
+    clearToastTimeout();
+  }, [clearToastTimeout]);
   const ppcIncomeMetrics = useMemo<PpcIncomeMetrics | null>(() => {
     const enquiries = datasetData.enquiries;
     const matters = datasetData.allMatters;
@@ -1468,10 +1784,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     return metrics;
   }, [datasetData.enquiries, datasetData.allMatters, datasetData.recoveredFees]);
   // Feed-row preview toggles (keyed by dataset key)
-  const [feedPreviewOpen, setFeedPreviewOpen] = useState<Record<string, boolean>>({});
-  const toggleFeedPreview = useCallback((key: string) => {
-    setFeedPreviewOpen(prev => ({ ...prev, [key]: !prev[key] }));
-  }, []);
 
   // Live metrics date range selection
   const [selectedDateRange, setSelectedDateRange] = useState<'7d' | '30d' | '3mo' | '6mo' | '12mo' | '24mo'>('7d');
@@ -1783,21 +2095,59 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
 
   // Fetch 24 months of Google Ads data when opening PPC report
   useEffect(() => {
-    let cancelled = false;
-    if (activeView === 'ppcReport') {
-      setPpcLoading(true);
-      fetchGoogleAdsData(24)
-        .then((rows) => {
-          if (cancelled) {
-            return;
-          }
-          setPpcGoogleAdsData(rows || []);
-          setPpcGoogleAdsUpdatedAt(Date.now());
-        })
-        .catch(() => {/* ignore, will fallback to cached */})
-        .finally(() => { if (!cancelled) setPpcLoading(false); });
+    if (activeView !== 'ppcReport') {
+      return undefined;
     }
-    return () => { cancelled = true; };
+
+    let cancelled = false;
+    const requestId = googleAdsRequestIdRef.current + 1;
+    googleAdsRequestIdRef.current = requestId;
+    const controller = new AbortController();
+
+    setPpcLoading(true);
+    setDatasetStatus(prev => ({
+      ...prev,
+      googleAds: { status: 'loading', updatedAt: prev.googleAds?.updatedAt ?? null },
+    }));
+
+    fetchGoogleAdsData(24, controller.signal)
+      .then((rows) => {
+        if (cancelled || controller.signal.aborted || googleAdsRequestIdRef.current !== requestId) {
+          return;
+        }
+        const data = rows || [];
+        setPpcGoogleAdsData(data);
+        const now = Date.now();
+        setPpcGoogleAdsUpdatedAt(now);
+        setDatasetData(prev => ({ ...prev, googleAds: data }));
+        setDatasetStatus(prev => ({
+          ...prev,
+          googleAds: { status: 'ready', updatedAt: now },
+        }));
+        cachedData = { ...cachedData, googleAds: data };
+        cachedTimestamp = now;
+        updateRefreshTimestamp(now, setLastRefreshTimestamp);
+      })
+      .catch((error) => {
+        if (cancelled || controller.signal.aborted) {
+          return;
+        }
+        console.error('ReportingHome: Failed to fetch Google Ads data for PPC report', error);
+        setDatasetStatus(prev => ({
+          ...prev,
+          googleAds: { status: 'error', updatedAt: prev.googleAds?.updatedAt ?? null },
+        }));
+      })
+      .finally(() => {
+        if (!cancelled && googleAdsRequestIdRef.current === requestId) {
+          setPpcLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
   }, [activeView, fetchGoogleAdsData]);
 
   useEffect(() => {
@@ -1821,37 +2171,51 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
 
   // Fetch 24 months of Google Analytics data when opening SEO report
   useEffect(() => {
-    let cancelled = false;
-    if (activeView === 'seoReport') {
-      // Optionally reflect loading in datasetStatus
-      setDatasetStatus(prev => ({
-        ...prev,
-        googleAnalytics: { status: 'loading', updatedAt: prev.googleAnalytics?.updatedAt ?? null },
-      }));
-      fetchGoogleAnalyticsData(24)
-        .then((rows) => {
-          if (!cancelled) {
-            setDatasetData(prev => ({ ...prev, googleAnalytics: rows || [] }));
-            const now = Date.now();
-            setDatasetStatus(prev => ({
-              ...prev,
-              googleAnalytics: { status: 'ready', updatedAt: now },
-            }));
-            cachedData = { ...cachedData, googleAnalytics: rows || [] };
-            cachedTimestamp = now;
-            updateRefreshTimestamp(now, setLastRefreshTimestamp);
-          }
-        })
-        .catch(() => {
-          if (!cancelled) {
-            setDatasetStatus(prev => ({
-              ...prev,
-              googleAnalytics: { status: 'error', updatedAt: prev.googleAnalytics?.updatedAt ?? null },
-            }));
-          }
-        });
+    if (activeView !== 'seoReport') {
+      return undefined;
     }
-    return () => { cancelled = true; };
+
+    let cancelled = false;
+    const requestId = googleAnalyticsRequestIdRef.current + 1;
+    googleAnalyticsRequestIdRef.current = requestId;
+    const controller = new AbortController();
+
+    setDatasetStatus(prev => ({
+      ...prev,
+      googleAnalytics: { status: 'loading', updatedAt: prev.googleAnalytics?.updatedAt ?? null },
+    }));
+
+    fetchGoogleAnalyticsData(24, controller.signal)
+      .then((rows) => {
+        if (cancelled || controller.signal.aborted || googleAnalyticsRequestIdRef.current !== requestId) {
+          return;
+        }
+        const data = rows || [];
+        setDatasetData(prev => ({ ...prev, googleAnalytics: data }));
+        const now = Date.now();
+        setDatasetStatus(prev => ({
+          ...prev,
+          googleAnalytics: { status: 'ready', updatedAt: now },
+        }));
+        cachedData = { ...cachedData, googleAnalytics: data };
+        cachedTimestamp = now;
+        updateRefreshTimestamp(now, setLastRefreshTimestamp);
+      })
+      .catch((error) => {
+        if (cancelled || controller.signal.aborted) {
+          return;
+        }
+        console.error('ReportingHome: Failed to fetch Google Analytics data for SEO report', error);
+        setDatasetStatus(prev => ({
+          ...prev,
+          googleAnalytics: { status: 'error', updatedAt: prev.googleAnalytics?.updatedAt ?? null },
+        }));
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
   }, [activeView, fetchGoogleAnalyticsData]);
 
   useEffect(() => {
@@ -1889,6 +2253,18 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
             styles={dashboardNavigatorButtonStyles(isDarkMode)}
           />
           <span style={dashboardNavigatorTitleStyle(isDarkMode)}>Enquiries report</span>
+        </div>,
+      );
+    } else if (activeView === 'matters') {
+      setContent(
+        <div style={dashboardNavigatorStyle(isDarkMode)}>
+          <DefaultButton
+            text="Back to overview"
+            iconProps={{ iconName: 'Back' }}
+            onClick={handleBackToOverview}
+            styles={dashboardNavigatorButtonStyles(isDarkMode)}
+          />
+          <span style={dashboardNavigatorTitleStyle(isDarkMode)}>Matters report</span>
         </div>,
       );
     } else if (activeView === 'seoReport') {
@@ -2048,6 +2424,15 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       return;
     }
     
+    showToast({
+      message: forceRefresh ? 'Refreshing reporting data (full)' : 'Refreshing reporting data…',
+      type: 'info',
+      details: forceRefresh
+        ? 'Requesting fresh data from every source'
+        : 'Reusing recent cache where it is still fresh',
+      loading: true,
+    });
+
     debugLog('ReportingHome: refreshDatasetsWithStreaming called', { forceRefresh });
     setHasFetchedOnce(true);
     setCacheState(true); // Persist the fetch state
@@ -2155,6 +2540,12 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     } catch (fetchError) {
       debugWarn('Failed to refresh non-streaming datasets:', fetchError);
       setError(fetchError instanceof Error ? fetchError.message : 'Unknown error');
+      showToast({
+        message: 'Failed to refresh reporting data',
+        type: 'error',
+        details: fetchError instanceof Error ? fetchError.message : 'Unexpected error',
+        autoDismissMs: 7000,
+      });
     }
     // Note: Don't set isFetching(false) here - let the streaming completion handler do it
   }, [
@@ -2167,6 +2558,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     isFetching,
     isStreamingConnected,
     refreshStartedAt,
+    showToast,
   ]);
 
   // Enhanced throttling to prevent excessive refresh triggers
@@ -2182,12 +2574,20 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     // Check global cooldown first
     if (timeSinceGlobalRefresh < GLOBAL_REFRESH_COOLDOWN) {
       console.log(`Global refresh cooldown active: ${Math.round(timeSinceGlobalRefresh / 1000)}s since last global refresh`);
+      showToast({
+        message: `Please wait ${Math.round((GLOBAL_REFRESH_COOLDOWN - timeSinceGlobalRefresh) / 1000)}s before refreshing again`,
+        type: 'info'
+      });
       return;
     }
     
     // Prevent multiple refresh requests within the minimum interval
     if (timeSinceLastRefresh < minRefreshInterval) {
       console.log(`Refresh throttled: only ${Math.round(timeSinceLastRefresh / 1000)}s since last refresh (min: 30s)`);
+      showToast({
+        message: `Please wait ${Math.round((minRefreshInterval - timeSinceLastRefresh) / 1000)}s before refreshing again`,
+        type: 'info'
+      });
       return;
     }
     
@@ -2202,24 +2602,51 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       refreshDebounceRef.current = null;
     }, 5000); // 5 second debounce window
     
+    // Show immediate feedback
+    showToast({
+      message: 'Starting data refresh...',
+      type: 'info'
+    });
+    
     lastRefreshRef.current = now;
     globalLastRefresh = now; // Update global refresh timestamp
     // Use cached server data by default for speed; full fresh is available via the global Refresh Data modal
     return performStreamingRefresh(false);
-  }, [performStreamingRefresh]);
+  }, [performStreamingRefresh, showToast]);
 
   // Scoped refreshers for specific reports with enhanced throttling
   const refreshAnnualLeaveOnly = useCallback(async () => {
     // Prevent retriggering if already loading or recently completed
-    if (isFetching || (datasetStatus.annualLeave?.status === 'loading')) return;
+    if (isFetching || (datasetStatus.annualLeave?.status === 'loading')) {
+      showToast({
+        message: 'Annual leave refresh already running',
+        type: 'info',
+        details: 'Please wait for the current update to finish.',
+        autoDismissMs: 4000,
+      });
+      return;
+    }
     
     const lastUpdate = datasetStatus.annualLeave?.updatedAt;
     const fifteenMinutesAgo = Date.now() - (15 * 60 * 1000); // Extended to 15 minutes
     if (lastUpdate && lastUpdate > fifteenMinutesAgo) {
       console.log('Annual leave data is recent, skipping refresh');
+      showToast({
+        message: 'Annual leave already up to date',
+        type: 'info',
+        details: 'Try again later if you need a fresh pull.',
+        autoDismissMs: 4000,
+      });
       return;
     }
     
+    showToast({
+      message: 'Refreshing annual leave data…',
+      type: 'info',
+      details: 'Pulling the latest leave records',
+      loading: true,
+    });
+
     setIsFetching(true);
     setError(null);
     setRefreshStartedAt(Date.now());
@@ -2242,27 +2669,60 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
         ...(result.team.length > 0 ? { teamData: result.team } : {}),
       };
       cachedTimestamp = now;
-  updateRefreshTimestamp(now, setLastRefreshTimestamp);
+      updateRefreshTimestamp(now, setLastRefreshTimestamp);
+      showToast({
+        message: 'Annual leave updated',
+        type: 'success',
+        details: `Loaded ${annualLeaveData.length} records`,
+        autoDismissMs: 5000,
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to refresh annual leave');
       setStatusesFor(['annualLeave'], 'error');
+      showToast({
+        message: 'Annual leave refresh failed',
+        type: 'error',
+        details: e instanceof Error ? e.message : 'Unexpected error',
+        autoDismissMs: 7000,
+      });
     } finally {
       setIsFetching(false);
       setRefreshStartedAt(null);
     }
-  }, [fetchAnnualLeaveDataset, setStatusesFor, isFetching, datasetStatus.annualLeave]);
+  }, [fetchAnnualLeaveDataset, setStatusesFor, isFetching, datasetStatus.annualLeave, showToast]);
 
   const refreshMetaMetricsOnly = useCallback(async () => {
     // Prevent retriggering if already loading or recently completed
-    if (isFetching || (datasetStatus.metaMetrics?.status === 'loading')) return;
+    if (isFetching || (datasetStatus.metaMetrics?.status === 'loading')) {
+      showToast({
+        message: 'Meta metrics refresh already running',
+        type: 'info',
+        details: 'Hang tight while we finish the current update.',
+        autoDismissMs: 4000,
+      });
+      return;
+    }
     
     const lastUpdate = datasetStatus.metaMetrics?.updatedAt;
     const fifteenMinutesAgo = Date.now() - (15 * 60 * 1000); // Extended to 15 minutes
     if (lastUpdate && lastUpdate > fifteenMinutesAgo) {
       console.log('Meta metrics data is recent, skipping refresh');
+      showToast({
+        message: 'Meta metrics already fresh',
+        type: 'info',
+        details: 'Try again later for another update.',
+        autoDismissMs: 4000,
+      });
       return;
     }
     
+    showToast({
+      message: 'Refreshing Meta metrics…',
+      type: 'info',
+      details: 'Pulling the latest marketing performance figures',
+      loading: true,
+    });
+
     setIsFetching(true);
     setError(null);
     setRefreshStartedAt(Date.now());
@@ -2274,15 +2734,172 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       setDatasetStatus(prev => ({ ...prev, metaMetrics: { status: 'ready', updatedAt: now } }));
       cachedData = { ...cachedData, metaMetrics: metrics };
       cachedTimestamp = now;
-  updateRefreshTimestamp(now, setLastRefreshTimestamp);
+      updateRefreshTimestamp(now, setLastRefreshTimestamp);
+      showToast({
+        message: 'Meta metrics updated',
+        type: 'success',
+        details: `Loaded ${metrics.length} days of performance data`,
+        autoDismissMs: 5000,
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to refresh Meta metrics');
       setStatusesFor(['metaMetrics'], 'error');
+      showToast({
+        message: 'Meta metrics refresh failed',
+        type: 'error',
+        details: e instanceof Error ? e.message : 'Unexpected error',
+        autoDismissMs: 7000,
+      });
     } finally {
       setIsFetching(false);
       setRefreshStartedAt(null);
     }
-  }, [fetchMetaMetrics, setStatusesFor, isFetching, datasetStatus.metaMetrics]);
+  }, [fetchMetaMetrics, setStatusesFor, isFetching, datasetStatus.metaMetrics, showToast]);
+
+  const refreshGoogleAnalyticsOnly = useCallback(async () => {
+    if (datasetStatus.googleAnalytics?.status === 'loading') {
+      showToast({
+        message: 'SEO analytics refresh already running',
+        type: 'info',
+        details: 'We are still pulling the latest GA4 data.',
+        autoDismissMs: 4000,
+      });
+      return;
+    }
+
+    const requestId = googleAnalyticsRequestIdRef.current + 1;
+    googleAnalyticsRequestIdRef.current = requestId;
+
+    showToast({
+      message: 'Refreshing SEO analytics…',
+      type: 'info',
+      details: 'Fetching the latest GA4 metrics',
+      loading: true,
+    });
+
+    setDatasetStatus(prev => ({
+      ...prev,
+      googleAnalytics: { status: 'loading', updatedAt: prev.googleAnalytics?.updatedAt ?? null },
+    }));
+
+    try {
+      const rows = await fetchGoogleAnalyticsData(24);
+      if (googleAnalyticsRequestIdRef.current !== requestId) {
+        return;
+      }
+      const data = rows || [];
+      setDatasetData(prev => ({ ...prev, googleAnalytics: data }));
+      const now = Date.now();
+      setDatasetStatus(prev => ({
+        ...prev,
+        googleAnalytics: { status: 'ready', updatedAt: now },
+      }));
+      cachedData = { ...cachedData, googleAnalytics: data };
+      cachedTimestamp = now;
+      updateRefreshTimestamp(now, setLastRefreshTimestamp);
+      showToast({
+        message: 'SEO analytics updated',
+        type: 'success',
+        details: `Loaded ${data.length} GA4 rows`,
+        autoDismissMs: 5000,
+      });
+    } catch (error) {
+      if ((error as any)?.name === 'AbortError') {
+        hideToast();
+        return;
+      }
+      console.error('ReportingHome: Failed to refresh Google Analytics data', error);
+      setDatasetStatus(prev => ({
+        ...prev,
+        googleAnalytics: { status: 'error', updatedAt: prev.googleAnalytics?.updatedAt ?? null },
+      }));
+      setError(error instanceof Error ? error.message : 'Failed to refresh Google Analytics data');
+      showToast({
+        message: 'SEO analytics refresh failed',
+        type: 'error',
+        details: error instanceof Error ? error.message : 'Unexpected error',
+        autoDismissMs: 7000,
+      });
+    }
+  }, [datasetStatus.googleAnalytics?.status, fetchGoogleAnalyticsData, hideToast, showToast]);
+
+  const refreshGoogleAdsOnly = useCallback(async () => {
+    if (datasetStatus.googleAds?.status === 'loading') {
+      showToast({
+        message: 'PPC refresh already running',
+        type: 'info',
+        details: 'Latest Google Ads data is on the way.',
+        autoDismissMs: 4000,
+      });
+      return;
+    }
+
+    const requestId = googleAdsRequestIdRef.current + 1;
+    googleAdsRequestIdRef.current = requestId;
+    const shouldToggleLoading = activeView === 'ppcReport';
+
+    if (shouldToggleLoading) {
+      setPpcLoading(true);
+    }
+
+    showToast({
+      message: 'Refreshing PPC data…',
+      type: 'info',
+      details: 'Fetching the latest Google Ads performance',
+      loading: true,
+    });
+
+    setDatasetStatus(prev => ({
+      ...prev,
+      googleAds: { status: 'loading', updatedAt: prev.googleAds?.updatedAt ?? null },
+    }));
+
+    try {
+      const rows = await fetchGoogleAdsData(24);
+      if (googleAdsRequestIdRef.current !== requestId) {
+        return;
+      }
+      const data = rows || [];
+      setDatasetData(prev => ({ ...prev, googleAds: data }));
+      setPpcGoogleAdsData(data);
+      const now = Date.now();
+      setDatasetStatus(prev => ({
+        ...prev,
+        googleAds: { status: 'ready', updatedAt: now },
+      }));
+      cachedData = { ...cachedData, googleAds: data };
+      cachedTimestamp = now;
+      setPpcGoogleAdsUpdatedAt(now);
+      updateRefreshTimestamp(now, setLastRefreshTimestamp);
+      showToast({
+        message: 'PPC data updated',
+        type: 'success',
+        details: `Loaded ${data.length} Google Ads rows`,
+        autoDismissMs: 5000,
+      });
+    } catch (error) {
+      if ((error as any)?.name === 'AbortError') {
+        hideToast();
+        return;
+      }
+      console.error('ReportingHome: Failed to refresh Google Ads data', error);
+      setDatasetStatus(prev => ({
+        ...prev,
+        googleAds: { status: 'error', updatedAt: prev.googleAds?.updatedAt ?? null },
+      }));
+      setError(error instanceof Error ? error.message : 'Failed to refresh Google Ads data');
+      showToast({
+        message: 'PPC refresh failed',
+        type: 'error',
+        details: error instanceof Error ? error.message : 'Unexpected error',
+        autoDismissMs: 7000,
+      });
+    } finally {
+      if (shouldToggleLoading && googleAdsRequestIdRef.current === requestId) {
+        setPpcLoading(false);
+      }
+    }
+  }, [activeView, datasetStatus.googleAds?.status, fetchGoogleAdsData, hideToast, showToast]);
 
   const refreshEnquiriesScoped = useCallback(async () => {
     setHasFetchedOnce(true);
@@ -2293,8 +2910,16 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     // Only the datasets this report needs
     const needed: DatasetKey[] = ['enquiries', 'teamData'];
     setStatusesFor(needed, 'loading');
+    showToast({
+      message: 'Starting enquiries refresh…',
+      type: 'info',
+      details: 'Fetching latest enquiries and team data',
+      loading: true,
+      autoDismissMs: 2000,
+    });
     
     const errors: string[] = [];
+    let hasCriticalFailure = false;
     
     try {
       // Start streaming just the needed datasets
@@ -2348,11 +2973,80 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to refresh datasets');
       setStatusesFor(needed, 'error');
+      hasCriticalFailure = true;
+      showToast({
+        message: 'Enquiries refresh failed',
+        type: 'error',
+        details: e instanceof Error ? e.message : 'Unexpected error',
+        autoDismissMs: 7000,
+      });
+    } finally {
+      setIsFetching(false);
+      setRefreshStartedAt(null);
+      if (!hasCriticalFailure) {
+        if (errors.length > 0) {
+          showToast({
+            message: 'Enquiries refreshed with warnings',
+            type: 'warning',
+            details: `Optional datasets failed: ${errors.join(', ')}`,
+            autoDismissMs: 7000,
+          });
+        } else {
+          showToast({
+            message: 'Enquiries refresh triggered',
+            type: 'success',
+            details: 'New enquiries will appear as soon as streaming completes.',
+            autoDismissMs: 5000,
+          });
+        }
+      }
+    }
+  }, [fetchAnnualLeaveDataset, fetchMetaMetrics, setStatusesFor, showToast, startStreaming]);
+
+  const refreshMattersScoped = useCallback(async () => {
+    setHasFetchedOnce(true);
+    setCacheState(true);
+    setIsFetching(true);
+    setError(null);
+    setRefreshStartedAt(Date.now());
+
+    const datasetsToRefresh: DatasetKey[] = ['allMatters', 'poidData'];
+    setStatusesFor(datasetsToRefresh, 'loading');
+
+    showToast({
+      message: 'Starting matters refresh…',
+      type: 'info',
+      details: 'Fetching latest matters and ID submission data',
+      loading: true,
+      autoDismissMs: 2000,
+    });
+
+    try {
+      startStreaming({ datasets: datasetsToRefresh, bypassCache: true });
+      const now = Date.now();
+      cachedTimestamp = now;
+      updateRefreshTimestamp(now, setLastRefreshTimestamp);
+      showToast({
+        message: 'Matters refresh triggered',
+        type: 'success',
+        details: 'Matters data will update as streaming completes.',
+        autoDismissMs: 5000,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to refresh matters datasets';
+      setError(message);
+      setStatusesFor(datasetsToRefresh, 'error');
+      showToast({
+        message: 'Matters refresh failed',
+        type: 'error',
+        details: message,
+        autoDismissMs: 7000,
+      });
     } finally {
       setIsFetching(false);
       setRefreshStartedAt(null);
     }
-  }, [fetchAnnualLeaveDataset, fetchMetaMetrics, setStatusesFor, startStreaming]);
+  }, [setStatusesFor, showToast, startStreaming]);
 
   // Sync streaming dataset updates with local state
   useEffect(() => {
@@ -2505,14 +3199,31 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
 
   // Handle streaming completion
   useEffect(() => {
-    if (isStreamingComplete) {
-      setIsFetching(false);
-      setRefreshStartedAt(null);
-      // Clear any pending refresh state
-      debugLog('ReportingHome: Streaming completed, clearing fetch state');
-      debugLog('ReportingHome: isStreamingConnected =', isStreamingConnected, 'isStreamingComplete =', isStreamingComplete);
+    if (!isStreamingComplete) {
+      return;
     }
-  }, [isStreamingComplete, isStreamingConnected]);
+
+    const startedAt = refreshStartedAtRef.current;
+    const hadActiveRefresh = isFetchingRef.current || startedAt !== null;
+    if (!hadActiveRefresh) {
+      return;
+    }
+
+    // Clear refresh state immediately when streaming completes
+    setIsFetching(false);
+    setRefreshStartedAt(null);
+    
+    debugLog('ReportingHome: Streaming completed, clearing fetch state');
+    debugLog('ReportingHome: isStreamingConnected =', isStreamingConnected, 'isStreamingComplete =', isStreamingComplete);
+
+    const duration = startedAt ? Date.now() - startedAt : 0;
+    showToast({
+      message: 'Reporting data refreshed',
+      type: 'success',
+      details: duration > 0 ? `Completed in ${formatElapsedTime(duration)}` : undefined,
+      autoDismissMs: 5000,
+    });
+  }, [isStreamingComplete, isStreamingConnected, showToast]);
 
   const refreshDatasets = useCallback(async () => {
     debugLog('ReportingHome: refreshDatasets called (delegating to streaming)');
@@ -2521,37 +3232,55 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
 
   // Predictive cache loading - preload commonly needed datasets when Reports tab is accessed
   const preloadReportingCache = useCallback(async () => {
-    // Check if we have recent cached data to avoid unnecessary preheating
     const cacheState = getCacheState();
     const now = Date.now();
     const thirtyMinutesAgo = now - (30 * 60 * 1000);
-    
-    // Only preload if we haven't fetched once OR cache is older than 30 minutes
-    const shouldPreheat = !hasFetchedOnce || 
-                          !cacheState.lastCacheTime || 
-                          cacheState.lastCacheTime < thirtyMinutesAgo;
-    
-    if (shouldPreheat) {
-      const commonDatasets = ['teamData', 'userData', 'enquiries', 'allMatters'];
-      const cacheAgeSeconds = cacheState.lastCacheTime ? Math.round((now - cacheState.lastCacheTime) / 1000) : null;
-      console.log(`🔄 Cache refresh needed: ${!hasFetchedOnce ? 'first load' : `cache age: ${cacheAgeSeconds}s (>30min)`}`);
-      debugLog('ReportingHome: Preloading common reporting datasets on tab access:', commonDatasets);
-      try {
-        await fetch('/api/cache-preheater/preheat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            datasets: commonDatasets,
-            entraId: propUserData?.[0]?.EntraID 
-          }),
-        });
-        debugLog('ReportingHome: Cache preheating completed successfully');
-      } catch (error) {
-        debugWarn('Cache preload failed:', error);
-      }
-    } else {
+
+    const needsFreshData =
+      !hasFetchedOnce ||
+      !cacheState.lastCacheTime ||
+      cacheState.lastCacheTime < thirtyMinutesAgo;
+
+    if (!needsFreshData) {
       const cacheAgeSeconds = cacheState.lastCacheTime ? Math.round((now - cacheState.lastCacheTime) / 1000) : 0;
       console.log(`✅ Using cached data (${cacheAgeSeconds}s old, <30min) - instant load`);
+      return;
+    }
+
+    if (preheatInFlightRef.current) {
+      console.log('🔄 Cache preheat already running, skipping duplicate preheat request');
+      return;
+    }
+
+    const lastPreheatTs = getLastPreheatTimestamp();
+    if (lastPreheatTs && (now - lastPreheatTs) < CACHE_PREHEAT_INTERVAL) {
+      const elapsedSeconds = Math.round((now - lastPreheatTs) / 1000);
+      const remainingSeconds = Math.max(0, Math.round((CACHE_PREHEAT_INTERVAL - (now - lastPreheatTs)) / 1000));
+      console.log(`⏳ Cache preheated ${elapsedSeconds}s ago, skipping background load (retry in ${remainingSeconds}s)`);
+      return;
+    }
+
+    const commonDatasets = ['teamData', 'userData', 'enquiries', 'allMatters'];
+    const cacheAgeSeconds = cacheState.lastCacheTime ? Math.round((now - cacheState.lastCacheTime) / 1000) : null;
+    console.log(`🔄 Cache refresh needed: ${!hasFetchedOnce ? 'first load' : `cache age: ${cacheAgeSeconds}s (>30min)`}`);
+    debugLog('ReportingHome: Preloading common reporting datasets on tab access:', commonDatasets);
+
+    preheatInFlightRef.current = true;
+    try {
+      await fetch('/api/cache-preheater/preheat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          datasets: commonDatasets,
+          entraId: propUserData?.[0]?.EntraID,
+        }),
+      });
+      setLastPreheatTimestamp(now);
+      debugLog('ReportingHome: Cache preheating completed successfully');
+    } catch (error) {
+      debugWarn('Cache preload failed:', error);
+    } finally {
+      preheatInFlightRef.current = false;
     }
   }, [hasFetchedOnce, propUserData]);
 
@@ -2565,10 +3294,136 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     return () => clearTimeout(preheatingTimer);
   }, [preloadReportingCache]);
 
+  // Targeted refresh function that only refreshes specific datasets needed for a report
+  const refreshSpecificDatasets = useCallback(async (datasets: DatasetKey[], reportName: string) => {
+    const now = Date.now();
+    const timeSinceGlobalRefresh = now - globalLastRefresh;
+    
+    // Check global cooldown
+    if (timeSinceGlobalRefresh < GLOBAL_REFRESH_COOLDOWN) {
+      showToast({
+        message: `Please wait ${Math.round((GLOBAL_REFRESH_COOLDOWN - timeSinceGlobalRefresh) / 1000)}s before refreshing again`,
+        type: 'info'
+      });
+      return false;
+    }
+
+    // Check if any of the required datasets are already loading
+    const alreadyLoading = datasets.some(key => datasetStatus[key]?.status === 'loading');
+    if (alreadyLoading) {
+      showToast({
+        message: `${reportName} data is already refreshing`,
+        type: 'info',
+        details: 'Please wait for the current update to finish.'
+      });
+      return false;
+    }
+
+    // Show immediate feedback
+    showToast({
+      message: `Refreshing ${reportName} data…`,
+      type: 'info',
+      details: `Updating ${datasets.length} dataset${datasets.length > 1 ? 's' : ''}`,
+      loading: true,
+    });
+
+    globalLastRefresh = now;
+    setIsFetching(true);
+    setError(null);
+    setRefreshStartedAt(now);
+    setStatusesFor(datasets, 'loading');
+
+    try {
+      // Use streaming for supported datasets, individual fetchers for others
+      const supportedStreamingDatasets = datasets.filter(key => 
+        MANAGEMENT_DATASET_KEYS.includes(key) && key !== 'annualLeave' && key !== 'metaMetrics' && key !== 'googleAnalytics' && key !== 'googleAds'
+      );
+      const specialDatasets = datasets.filter(key => !MANAGEMENT_DATASET_KEYS.includes(key) || ['annualLeave', 'metaMetrics', 'googleAnalytics', 'googleAds'].includes(key));
+
+      // Start streaming for supported datasets
+      if (supportedStreamingDatasets.length > 0) {
+        startStreaming({ datasets: supportedStreamingDatasets, bypassCache: true });
+      }
+
+      // Handle special datasets individually
+      const errors: string[] = [];
+      for (const datasetKey of specialDatasets) {
+        try {
+          if (datasetKey === 'annualLeave') {
+            const result = await fetchAnnualLeaveDataset(true);
+            setDatasetData(prev => ({ ...prev, annualLeave: result.records }));
+            setDatasetStatus(prev => ({ ...prev, annualLeave: { status: 'ready', updatedAt: now } }));
+            cachedData = { ...cachedData, annualLeave: result.records };
+          } else if (datasetKey === 'metaMetrics') {
+            const metrics = await fetchMetaMetrics();
+            setDatasetData(prev => ({ ...prev, metaMetrics: metrics }));
+            setDatasetStatus(prev => ({ ...prev, metaMetrics: { status: 'ready', updatedAt: now } }));
+            cachedData = { ...cachedData, metaMetrics: metrics };
+          } else if (datasetKey === 'googleAnalytics') {
+            const data = await fetchGoogleAnalyticsData(24);
+            setDatasetData(prev => ({ ...prev, googleAnalytics: data }));
+            setDatasetStatus(prev => ({ ...prev, googleAnalytics: { status: 'ready', updatedAt: now } }));
+            cachedData = { ...cachedData, googleAnalytics: data };
+          } else if (datasetKey === 'googleAds') {
+            const data = await fetchGoogleAdsData(24);
+            setDatasetData(prev => ({ ...prev, googleAds: data }));
+            setDatasetStatus(prev => ({ ...prev, googleAds: { status: 'ready', updatedAt: now } }));
+            cachedData = { ...cachedData, googleAds: data };
+          }
+        } catch (error) {
+          errors.push(datasetKey);
+          console.error(`Failed to fetch ${datasetKey}:`, error);
+          setDatasetStatus(prev => ({ ...prev, [datasetKey]: { status: 'error', updatedAt: now } }));
+        }
+      }
+
+      cachedTimestamp = now;
+      updateRefreshTimestamp(now, setLastRefreshTimestamp);
+
+      if (errors.length > 0) {
+        showToast({
+          message: `${reportName} partially refreshed`,
+          type: 'warning',
+          details: `Some datasets failed: ${errors.join(', ')}`,
+          autoDismissMs: 7000,
+        });
+      } else {
+        showToast({
+          message: `${reportName} data refreshed`,
+          type: 'success',
+          details: 'All required data updated successfully',
+          autoDismissMs: 5000,
+        });
+      }
+
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to refresh datasets';
+      setError(message);
+      setStatusesFor(datasets, 'error');
+      showToast({
+        message: `${reportName} refresh failed`,
+        type: 'error',
+        details: message,
+        autoDismissMs: 7000,
+      });
+      return false;
+    } finally {
+      setIsFetching(false);
+      setRefreshStartedAt(null);
+    }
+  }, [datasetStatus, setStatusesFor, startStreaming, fetchAnnualLeaveDataset, fetchMetaMetrics, fetchGoogleAnalyticsData, fetchGoogleAdsData, showToast]);
+
   // More conservative auto-refresh logic to prevent excessive refreshing
   const handleOpenDashboard = useCallback(() => {
     // Immediately show loading state for better UX
     setActiveView('dashboard');
+    
+    // In test mode, skip data refresh entirely
+    if (testMode) {
+      console.log('Test mode active: skipping dashboard data refresh');
+      return;
+    }
     
     // Check if we have recent enough data or need a fresh fetch
     const cacheState = getCacheState();
@@ -2585,7 +3440,15 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     } else {
       console.log('Dashboard using cached data (fresh enough)');
     }
-  }, [hasFetchedOnce, isFetching, isStreamingConnected, refreshDatasetsWithStreaming]);
+  }, [hasFetchedOnce, isFetching, isStreamingConnected, refreshDatasetsWithStreaming, testMode]);
+
+  // Helper to navigate to reports in test mode without triggering refreshes
+  const navigateToReport = useCallback((view: typeof activeView) => {
+    setActiveView(view);
+    if (testMode) {
+      console.log(`Test mode active: navigating to ${view} without data refresh`);
+    }
+  }, [testMode]);
 
   useEffect(() => {
     if (propUserData !== undefined) {
@@ -2644,6 +3507,17 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     });
   }, [datasetData, datasetStatus, streamingDatasets, isStreamingConnected]);
 
+  const datasetSummariesSorted = useMemo(() => {
+    const sortable = [...datasetSummaries];
+    return sortable.sort((a, b) => {
+      const statusDiff = DATASET_STATUS_SORT_ORDER[a.status] - DATASET_STATUS_SORT_ORDER[b.status];
+      if (statusDiff !== 0) {
+        return statusDiff;
+      }
+      return a.definition.name.localeCompare(b.definition.name);
+    });
+  }, [datasetSummaries]);
+
   // Detect datasets stuck loading for too long and auto-mark as error
   // Heavy datasets (recoveredFees, poidData) get up to 10min; light datasets get 2min
   useEffect(() => {
@@ -2692,6 +3566,37 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     return phase?.label ?? 'Finalising reporting data…';
   }, [isFetching, refreshElapsedMs, refreshStartedAt]);
 
+  useEffect(() => {
+    setToastState(prev => {
+      if (!prev.visible || !prev.loading) {
+        return prev;
+      }
+
+      let nextDetails: string | undefined;
+      if (isStreamingConnected) {
+        nextDetails = `Streaming ${Math.round(streamingProgress.percentage)}%`;
+      } else if (refreshStartedAt) {
+        const parts = [`Elapsed ${formatDurationMs(refreshElapsedMs)}`];
+        if (refreshPhaseLabel) {
+          parts.push(refreshPhaseLabel);
+        }
+        nextDetails = parts.join(' • ');
+      }
+
+      if (!nextDetails || nextDetails === prev.details) {
+        return prev;
+      }
+
+      return { ...prev, details: nextDetails };
+    });
+  }, [
+    isStreamingConnected,
+    streamingProgress.percentage,
+    refreshStartedAt,
+    refreshElapsedMs,
+    refreshPhaseLabel,
+  ]);
+
   // Memoize expensive calculations that depend on arrays or complex objects
   const readyCount = useMemo(() => 
     datasetSummaries.filter((summary) => summary.status === 'ready').length, 
@@ -2714,8 +3619,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
 
   // Memoize loading state calculations to prevent excessive re-computation
   const isActivelyLoading = useMemo(() => 
-    isFetching && (isStreamingConnected || refreshStartedAt !== null), 
-    [isFetching, isStreamingConnected, refreshStartedAt]
+    isFetching && (isStreamingConnected || refreshStartedAt !== null) && !isStreamingComplete, 
+    [isFetching, isStreamingConnected, refreshStartedAt, isStreamingComplete]
   );
   
   const canUseReports = useMemo(() => 
@@ -2723,19 +3628,153 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     [hasFetchedOnce, readyCount]
   );
 
+  // Function to handle report card clicks with loading feedback
+  const handleReportCardClick = async (reportKey: string, action: () => void | Promise<void>, dependencies: string[]) => {
+    const isCurrentlyLoading = reportProgressStates[reportKey]?.isLoading || reportLoadingStates[reportKey as keyof typeof reportLoadingStates];
+    
+    if (isCurrentlyLoading) {
+      return; // Don't allow clicks while loading
+    }
+
+    // Check if data needs to be refreshed
+    const needsRefresh = dependencies.some(dep => {
+      const status = datasetStatus[dep as keyof typeof datasetStatus];
+      return !status || status.status === 'idle' || status.status === 'loading';
+    });
+
+    if (needsRefresh) {
+      // Start loading state
+      setReportProgressStates(prev => ({
+        ...prev,
+        [reportKey]: {
+          isLoading: true,
+          progress: 0,
+          stage: 'Preparing data feeds...',
+          startTime: Date.now(),
+          estimatedTimeRemaining: 15000, // 15 seconds initial estimate
+        }
+      }));
+
+      try {
+        // Trigger targeted data refresh for only the datasets this report needs
+        const reportName = AVAILABLE_REPORTS.find(r => r.key === reportKey)?.name || reportKey;
+        const success = await refreshSpecificDatasets(dependencies as DatasetKey[], reportName);
+        
+        if (success) {
+          // Clear loading state on success
+          setReportProgressStates(prev => ({
+            ...prev,
+            [reportKey]: {
+              isLoading: false,
+              progress: 100,
+              stage: 'Complete',
+              estimatedTimeRemaining: 0,
+            }
+          }));
+
+          // Clean up progress state after a brief delay
+          setTimeout(() => {
+            setReportProgressStates(prev => {
+              const newState = { ...prev };
+              delete newState[reportKey];
+              return newState;
+            });
+          }, 1000);
+        } else {
+          // Clear loading state on failure
+          setReportProgressStates(prev => ({
+            ...prev,
+            [reportKey]: {
+              isLoading: false,
+              progress: 0,
+              stage: 'Failed',
+              estimatedTimeRemaining: 0,
+            }
+          }));
+
+          setTimeout(() => {
+            setReportProgressStates(prev => {
+              const newState = { ...prev };
+              delete newState[reportKey];
+              return newState;
+            });
+          }, 3000);
+          return; // Don't execute the action if refresh failed
+        }
+
+      } catch (error) {
+        setReportProgressStates(prev => ({
+          ...prev,
+          [reportKey]: {
+            isLoading: false,
+            progress: 0,
+            stage: 'Error occurred',
+            estimatedTimeRemaining: 0,
+          }
+        }));
+        
+        setTimeout(() => {
+          setReportProgressStates(prev => {
+            const newState = { ...prev };
+            delete newState[reportKey];
+            return newState;
+          });
+        }, 3000);
+        return; // Don't execute the action if there was an error
+      }
+    }
+
+    // Execute the action (navigate to report or open dashboard)
+    if (typeof action === 'function') {
+      const result = action();
+      if (result instanceof Promise) {
+        await result;
+      }
+    }
+  };
+
   // Individual report loading states based on their specific data dependencies
+  // Enhanced report loading states with progress tracking
   const reportLoadingStates = useMemo(() => {
     return {
       dashboard: isFetching && (!streamingDatasets.userData || streamingDatasets.userData.status !== 'ready' || 
                                !streamingDatasets.teamData || streamingDatasets.teamData.status !== 'ready' ||
                                !streamingDatasets.allMatters || streamingDatasets.allMatters.status !== 'ready'),
-      annualLeave: false, // Annual leave is fetched separately and doesn't use streaming
-      enquiries: isFetching && (!streamingDatasets.enquiries || streamingDatasets.enquiries.status !== 'ready'),
-      metaMetrics: false, // Meta metrics has its own loading state 
-      seoReport: false, // SEO uses separate Google Analytics fetch
-      ppcReport: false, // PPC uses separate Google Ads fetch
+      annualLeave: datasetStatus.annualLeave?.status === 'loading',
+      enquiries: datasetStatus.enquiries?.status === 'loading' || (isFetching && (!streamingDatasets.enquiries || streamingDatasets.enquiries.status !== 'ready')),
+      matters: datasetStatus.allMatters?.status === 'loading' || datasetStatus.poidData?.status === 'loading' ||
+        (isFetching && (
+          !streamingDatasets.allMatters || streamingDatasets.allMatters.status !== 'ready' ||
+          !streamingDatasets.poidData || streamingDatasets.poidData.status !== 'ready'
+        )),
+      metaMetrics: datasetStatus.metaMetrics?.status === 'loading',
+      seoReport: datasetStatus.googleAnalytics?.status === 'loading',
+      ppcReport: datasetStatus.googleAds?.status === 'loading' || ppcLoading,
     };
-  }, [isFetching, streamingDatasets]);
+  }, [
+    isFetching,
+    streamingDatasets,
+    datasetStatus.annualLeave?.status,
+    datasetStatus.enquiries?.status,
+    datasetStatus.allMatters?.status,
+    datasetStatus.poidData?.status,
+    datasetStatus.metaMetrics?.status,
+    datasetStatus.googleAnalytics?.status,
+    datasetStatus.googleAds?.status,
+    ppcLoading,
+  ]);
+
+  const toastElement = (
+    <OperationStatusToast
+      visible={toastState.visible}
+      message={toastState.message}
+      type={toastState.type}
+      loading={toastState.loading}
+      details={toastState.details}
+      progress={toastState.progress}
+      icon={toastState.icon}
+    />
+  );
 
   // Helper function to check if all required datasets are ready for a report
   const areRequiredDatasetsReady = useCallback((requiredDatasets: DatasetKey[]): boolean => {
@@ -2816,6 +3855,803 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     `${readyCount}/${datasetSummaries.length} data feeds`,
   ], [formattedDate, formattedTime, heroSubtitle, readyCount, datasetSummaries.length]);
 
+  const heroCollaboratorsLabel = useMemo(() => {
+    if (!Array.isArray(datasetData.userData) || datasetData.userData.length === 0) {
+      return null;
+    }
+    const initials = datasetData.userData
+      .map((user) => {
+        if (typeof user.Initials === 'string' && user.Initials.trim().length > 0) {
+          return user.Initials.trim();
+        }
+        if (typeof user.FullName === 'string' && user.FullName.trim().length > 0) {
+          return user.FullName
+            .split(' ')
+            .filter(Boolean)
+            .map((part) => part[0]?.toUpperCase() ?? '')
+            .join('');
+        }
+        return null;
+      })
+      .filter((value): value is string => Boolean(value));
+    return initials.length > 0 ? initials.join(' • ') : null;
+  }, [datasetData.userData]);
+
+  const reportCards = useMemo<ReportCard[]>(() => {
+    return AVAILABLE_REPORTS.map((report) => {
+      const dependencies = report.requiredDatasets.map<ReportDependency>((datasetKey) => {
+        const dataset = DATASETS.find((definition) => definition.key === datasetKey);
+        const status = datasetStatus[datasetKey]?.status ?? 'idle';
+        return {
+          key: datasetKey,
+          name: dataset?.name ?? datasetKey,
+          status,
+          range: getDatasetDateRange(datasetKey),
+        };
+      });
+
+      return {
+        ...report,
+        readiness: getButtonState(report.requiredDatasets),
+        dependencies,
+        readyDependencies: dependencies.filter((dependency) => dependency.status === 'ready').length,
+        totalDependencies: dependencies.length,
+      };
+    });
+  }, [datasetStatus, getDatasetDateRange, getButtonState]);
+
+  const renderAvailableReportCards = () => {
+    // Separate primary reports from secondary ones
+    const primaryKeys = ['dashboard', 'enquiries', 'matters'];
+    const primaryCards = reportCards.filter(card => primaryKeys.includes(card.key));
+    const secondaryCards = reportCards.filter(card => !primaryKeys.includes(card.key));
+    
+    return (
+      <>
+        {/* Primary reports - 3 across */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, 1fr)',
+            gap: 14,
+            marginBottom: 20,
+          }}
+        >
+          {primaryCards.map((card) => renderReportCard(card, true))}
+        </div>
+
+        {/* Separator */}
+        <div style={{
+          height: 1,
+          background: isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)',
+          marginBottom: 20,
+        }} />
+
+        {/* Secondary reports - flexible layout */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(max(260px, calc(33.333% - 10px)), 1fr))',
+            gap: 14,
+          }}
+        >
+          {secondaryCards.map((card) => renderReportCard(card, false))}
+        </div>
+      </>
+    );
+  };
+
+  const renderReportCard = (card: ReportCard, isPrimary: boolean = false) => {
+        const { readiness, dependencies, readyDependencies, totalDependencies, ...report } = card;
+        const visualState: ReportVisualState = (report.disabled && !testMode) ? 'disabled' : readiness;
+        const isReportReady = readiness === 'ready' || testMode;
+        const stateTokens = REPORT_CARD_STATE_TOKENS[visualState];
+        
+        // For primary cards: show expanded if any primary is expanded, highlight if active
+        const isPrimaryRow = isPrimary && (expandedReportCards.some(key => ['dashboard', 'enquiries', 'matters'].includes(key)));
+        const isActive = isPrimary && activePrimaryCard === report.key;
+        const isExpanded = isPrimary ? isPrimaryRow : expandedReportCards.includes(report.key);
+        
+        const readinessSummary = totalDependencies === 0
+          ? 'No feeds required'
+          : `${readyDependencies}/${totalDependencies} feeds ready`;
+        const resolvePrimaryButtonLabel = (readyLabel: string) => {
+          if (visualState === 'disabled') {
+            return report.status || 'Coming soon';
+          }
+          if (isReportReady) {
+            return readyLabel;
+          }
+          if (visualState === 'warming') {
+            return 'Refreshing…';
+          }
+          return 'Refresh data to unlock';
+        };
+
+        const getReportIcon = () => {
+          switch (report.key) {
+            case 'dashboard':
+              return <FaChartLine size={18} />;
+            case 'enquiries':
+              return <FaInbox size={18} />;
+            case 'annualLeave':
+              return <FaClipboardList size={18} />;
+            case 'matters':
+              return <FaFolderOpen size={18} />;
+            default:
+              return <FaChartLine size={18} />;
+          }
+        };
+
+        return (
+          <div
+            key={report.key}
+            onClick={() => {
+              // For primary cards: if row is already expanded, clicking anywhere switches active card
+              if (isPrimary && isExpanded) {
+                setActivePrimaryCard(report.key);
+              }
+            }}
+            style={{
+              padding: 0,
+              borderRadius: 14,
+              background: isDarkMode ? 'linear-gradient(135deg, #0f172a 0%, #1a2a3a 100%)' : '#ffffff',
+              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(148, 163, 184, 0.15)'}`,
+              overflow: 'hidden',
+              transition: 'all 0.2s ease',
+              opacity: visualState === 'disabled' ? 0.6 : 1,
+              cursor: isPrimary && isExpanded ? 'pointer' : 'default',
+            }}
+          >
+            <div
+              onClick={() => {
+                if (report.action && (!report.disabled || testMode)) {
+                  const action = report.action === 'dashboard' ? handleOpenDashboard : () => navigateToReport(report.action!);
+                  handleReportCardClick(report.key, action, dependencies.map(d => d.key));
+                }
+              }}
+              style={{
+                padding: '18px 18px',
+                cursor: (report.action && (!report.disabled || testMode)) ? 
+                  (reportProgressStates[report.key]?.isLoading ? 'wait' : 'pointer') : 'default',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 14,
+                background: reportProgressStates[report.key]?.isLoading
+                  ? (isDarkMode ? 'rgba(59, 130, 246, 0.15)' : 'rgba(59, 130, 246, 0.08)')
+                  : (isPrimary && isActive && isExpanded)
+                  ? (isDarkMode ? 'rgba(59, 130, 246, 0.15)' : 'rgba(59, 130, 246, 0.1)')
+                  : isReportReady
+                  ? (isDarkMode ? 'rgba(59, 130, 246, 0.08)' : 'rgba(59, 130, 246, 0.03)')
+                  : 'transparent',
+                transition: 'all 0.2s ease',
+              }}
+              onMouseEnter={(e) => {
+                if (report.action && (!report.disabled || testMode) && !reportProgressStates[report.key]?.isLoading) {
+                  e.currentTarget.style.background = isDarkMode ? 'rgba(59, 130, 246, 0.12)' : 'rgba(59, 130, 246, 0.06)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                const currentProgress = reportProgressStates[report.key];
+                e.currentTarget.style.background = currentProgress?.isLoading
+                  ? (isDarkMode ? 'rgba(59, 130, 246, 0.15)' : 'rgba(59, 130, 246, 0.08)')
+                  : isReportReady
+                  ? (isDarkMode ? 'rgba(59, 130, 246, 0.08)' : 'rgba(59, 130, 246, 0.03)')
+                  : 'transparent';
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14, flex: 1 }}>
+                <div style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 12,
+                  background: isReportReady
+                    ? `linear-gradient(135deg, ${stateTokens.accent}22 0%, ${stateTokens.accent}11 100%)`
+                    : (isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(148, 163, 184, 0.12)'),
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: `2px solid ${isReportReady ? stateTokens.accent + '33' : (isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.25)')}`,
+                  color: isReportReady ? stateTokens.accent : (isDarkMode ? '#94a3b8' : '#64748b'),
+                  flexShrink: 0,
+                }}>
+                  {getReportIcon()}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    fontSize: 15,
+                    fontWeight: 600,
+                    color: isDarkMode ? '#f8fafc' : '#0f172a',
+                    marginBottom: 8,
+                    fontFamily: 'Raleway, sans-serif',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}>
+                    {report.name}
+                  </div>
+                  <div style={{
+                    fontSize: 11,
+                    color: isDarkMode ? '#94a3b8' : '#64748b',
+                    fontWeight: 500,
+                    minHeight: 24,
+                    display: 'flex',
+                    alignItems: 'center',
+                    overflow: 'visible',
+                  }}>
+                    {reportProgressStates[report.key]?.isLoading ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span>{reportProgressStates[report.key]?.stage || 'Loading...'}</span>
+                          <div style={{
+                            width: 8,
+                            height: 8,
+                            border: `2px solid ${isDarkMode ? '#3b82f6' : '#2563eb'}`,
+                            borderTop: '2px solid transparent',
+                            borderRadius: '50%',
+                            animation: 'spin 1s linear infinite',
+                          }} />
+                        </div>
+                        {reportProgressStates[report.key]?.estimatedTimeRemaining && (
+                          <span style={{ fontSize: 10, opacity: 0.8 }}>
+                            ~{Math.ceil((reportProgressStates[report.key]?.estimatedTimeRemaining || 0) / 1000)}s remaining
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <span style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        padding: '6px 14px',
+                        borderRadius: 999,
+                        background: reportProgressStates[report.key]?.isLoading
+                          ? (isDarkMode ? 'rgba(59, 130, 246, 0.2)' : 'rgba(59, 130, 246, 0.15)')
+                          : isReportReady
+                          ? (isDarkMode ? stateTokens.accent + '22' : stateTokens.accent + '15')
+                          : (isDarkMode ? 'rgba(71, 85, 105, 0.4)' : 'rgba(148, 163, 184, 0.15)'),
+                        color: reportProgressStates[report.key]?.isLoading
+                          ? (isDarkMode ? '#3b82f6' : '#2563eb')
+                          : isReportReady ? stateTokens.accent : (isDarkMode ? '#94a3b8' : '#64748b'),
+                        border: `1px solid ${reportProgressStates[report.key]?.isLoading
+                          ? (isDarkMode ? 'rgba(59, 130, 246, 0.4)' : 'rgba(59, 130, 246, 0.3)')
+                          : isReportReady ? stateTokens.accent + '33' : (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)')}`,
+                        whiteSpace: 'nowrap',
+                        textTransform: 'uppercase',
+                        letterSpacing: 0.5,
+                        position: 'relative',
+                        overflow: 'hidden',
+                      }}>
+                        {reportProgressStates[report.key]?.isLoading ? (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            LOADING
+                            <span style={{
+                              fontSize: 10,
+                              opacity: 0.8,
+                              fontWeight: 400,
+                            }}>
+                              {Math.round(reportProgressStates[report.key]?.progress || 0)}%
+                            </span>
+                          </span>
+                        ) : (
+                          visualState === 'disabled' ? (report.status || stateTokens.label) : stateTokens.label
+                        )}
+                        
+                        {/* Progress bar overlay */}
+                        {reportProgressStates[report.key]?.isLoading && (
+                          <div style={{
+                            position: 'absolute',
+                            bottom: 0,
+                            left: 0,
+                            height: 2,
+                            width: `${reportProgressStates[report.key]?.progress || 0}%`,
+                            background: isDarkMode ? '#3b82f6' : '#2563eb',
+                            transition: 'width 0.3s ease',
+                            borderRadius: '0 0 999px 999px',
+                          }} />
+                        )}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                {(dependencies.length > 0 || report.action) && (
+                  <FontIcon
+                    iconName={isExpanded ? 'ChevronUp' : 'ChevronDown'}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (isPrimary) {
+                        // For primary cards: toggle all primary cards expanded, set as active
+                        if (isExpanded) {
+                          setExpandedReportCards((prev) => prev.filter((key) => !['dashboard', 'enquiries', 'matters'].includes(key)));
+                          setActivePrimaryCard(null);
+                        } else {
+                          setExpandedReportCards((prev) => {
+                            const withoutPrimary = prev.filter((key) => !['dashboard', 'enquiries', 'matters'].includes(key));
+                            return [...withoutPrimary, report.key];
+                          });
+                          setActivePrimaryCard(report.key);
+                        }
+                      } else {
+                        // For secondary cards: toggle normally
+                        setExpandedReportCards((prev) => {
+                          if (isExpanded) {
+                            return prev.filter((key) => key !== report.key);
+                          }
+                          return [...prev, report.key];
+                        });
+                      }
+                    }}
+                    style={{
+                      fontSize: 14,
+                      color: isDarkMode ? '#94a3b8' : '#64748b',
+                      cursor: 'pointer',
+                      padding: 8,
+                      borderRadius: 8,
+                      transition: 'all 0.2s ease',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.1)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                    }}
+                  />
+                )}
+              </div>
+            </div>
+
+            {!isExpanded && dependencies.length > 0 && (
+              <div style={{
+                padding: '12px 28px 16px',
+                borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)'}`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                opacity: (isPrimary && !isActive && isExpanded) ? 0.5 : 1,
+                animation: 'fadeInSlideDown 0.3s ease 0.1s forwards',
+                transition: 'opacity 0.2s ease',
+              }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  flex: 1,
+                }}>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    flex: 1,
+                    overflow: 'visible',
+                    minHeight: 20,
+                  }}>
+                    {dependencies.slice(0, 8).map((dependency, index) => {
+                      const palette = STATUS_BADGE_COLOURS[dependency.status];
+                      const dotColour = dependency.status === 'ready'
+                        ? (isDarkMode ? '#4ade80' : '#15803d')
+                        : palette.dot;
+                      return (
+                        <div
+                          key={`${report.key}-dot-${dependency.key}`}
+                          title={`${dependency.name}: ${palette.label}${dependency.range ? ` (${dependency.range})` : ''}`}
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: '50%',
+                            backgroundColor: dotColour,
+                            flexShrink: 0,
+                            opacity: dependency.status === 'ready' ? 1 : 0.7,
+                            transform: 'scale(0)',
+                            animation: `dotFadeIn 0.3s ease ${0.1 + (index * 0.05)}s forwards`,
+                          }}
+                        />
+                      );
+                    })}
+                    {dependencies.length > 8 && (
+                      <span style={{
+                        fontSize: 10,
+                        color: isDarkMode ? '#64748b' : '#94a3b8',
+                        fontWeight: 500,
+                        marginLeft: 2,
+                        opacity: 0,
+                        animation: `fadeIn 0.3s ease ${0.1 + (Math.min(8, dependencies.length) * 0.05)}s forwards`,
+                      }}>
+                        +{dependencies.length - 8}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {isExpanded && (
+              <div style={{
+                padding: '0 28px 24px',
+                borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.1)'}`,
+                background: isDarkMode ? 'rgba(15, 23, 42, 0.3)' : 'rgba(248, 250, 252, 0.5)',
+                opacity: (isPrimary && !isActive) ? 0.5 : 1,
+                transition: 'opacity 0.2s ease',
+              }}>
+                <div style={{ paddingTop: 20, display: 'flex', flexDirection: 'column', gap: 20 }}>
+                  {dependencies.length > 0 ? (
+                    <div>
+                      <div style={{
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: isDarkMode ? '#cbd5e1' : '#64748b',
+                        marginBottom: 12,
+                        textTransform: 'uppercase',
+                        letterSpacing: 0.5,
+                      }}>
+                        Data Feeds ({readyDependencies}/{totalDependencies} ready)
+                      </div>
+                      <div style={dependencyChipsWrapStyle}>
+                        {dependencies.map((dependency) => {
+                          const palette = STATUS_BADGE_COLOURS[dependency.status];
+                          const dotColour = dependency.status === 'ready'
+                            ? (isDarkMode ? '#4ade80' : '#15803d')
+                            : palette.dot;
+                          return (
+                            <span
+                              key={`${report.key}-${dependency.key}`}
+                              style={dependencyChipStyle(isDarkMode)}
+                              title={dependency.range ? `Typical coverage: ${dependency.range}` : undefined}
+                            >
+                              <span style={dependencyDotStyle(dotColour)} />
+                              <span style={{ fontWeight: 600 }}>{dependency.name}</span>
+                              <span style={{ fontSize: 10, opacity: 0.7 }}>{palette.label}</span>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 12, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                      No datasets required
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                    {report.action === 'dashboard' && (
+                      <>
+                        <PrimaryButton
+                          text={resolvePrimaryButtonLabel('Open dashboard')}
+                          onClick={() => {
+                            if (isReportReady) handleOpenDashboard();
+                          }}
+                          styles={isReportReady
+                            ? primaryButtonStyles(isDarkMode)
+                            : {
+                                root: {
+                                  borderRadius: 8,
+                                  padding: '0 16px',
+                                  height: 34,
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                  color: isDarkMode ? '#94a3b8' : '#64748b',
+                                  border: `1px solid ${colours.highlight}`,
+                                  fontWeight: 500,
+                                  boxShadow: 'none',
+                                  transition: 'all 0.2s ease',
+                                  fontFamily: 'Raleway, sans-serif',
+                                },
+                                rootHovered: {
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
+                                },
+                                rootPressed: {
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
+                                },
+                                rootDisabled: {
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                  color: isDarkMode ? '#94a3b8' : '#64748b',
+                                  border: `1px solid ${colours.highlight}`,
+                                },
+                              }}
+                          disabled={!isReportReady}
+                        />
+                        <DefaultButton
+                          text="Refresh All Datasets"
+                          onClick={refreshDatasetsWithStreaming}
+                          styles={subtleButtonStyles(isDarkMode)}
+                          disabled={reportLoadingStates.dashboard}
+                          iconProps={{ iconName: 'Refresh' }}
+                        />
+                      </>
+                    )}
+                    {report.action === 'annualLeave' && (
+                      <>
+                        <PrimaryButton
+                          text={resolvePrimaryButtonLabel('Open annual leave')}
+                          onClick={() => {
+                            if (isReportReady) navigateToReport('annualLeave');
+                          }}
+                          styles={isReportReady
+                            ? primaryButtonStyles(isDarkMode)
+                            : {
+                                root: {
+                                  borderRadius: 8,
+                                  padding: '0 16px',
+                                  height: 34,
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                  color: isDarkMode ? '#94a3b8' : '#64748b',
+                                  border: `1px solid ${colours.highlight}`,
+                                  fontWeight: 500,
+                                  boxShadow: 'none',
+                                  transition: 'all 0.2s ease',
+                                  fontFamily: 'Raleway, sans-serif',
+                                },
+                                rootHovered: {
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
+                                },
+                                rootPressed: {
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
+                                },
+                                rootDisabled: {
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                  color: isDarkMode ? '#94a3b8' : '#64748b',
+                                  border: `1px solid ${colours.highlight}`,
+                                },
+                              }}
+                          disabled={!isReportReady}
+                        />
+                        <DefaultButton
+                          text="Refresh leave data"
+                          onClick={refreshAnnualLeaveOnly}
+                          styles={subtleButtonStyles(isDarkMode)}
+                          disabled={reportLoadingStates.annualLeave}
+                          iconProps={{ iconName: 'Refresh' }}
+                        />
+                      </>
+                    )}
+                    {report.action === 'matters' && (
+                      <>
+                        <PrimaryButton
+                          text={resolvePrimaryButtonLabel('Open matters report')}
+                          onClick={() => {
+                            if ((!report.disabled || testMode) && isReportReady) navigateToReport('matters');
+                          }}
+                          styles={isReportReady && (!report.disabled || testMode)
+                            ? primaryButtonStyles(isDarkMode)
+                            : {
+                                root: {
+                                  borderRadius: 8,
+                                  padding: '0 16px',
+                                  height: 34,
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                  color: isDarkMode ? '#94a3b8' : '#64748b',
+                                  border: `1px solid ${colours.highlight}`,
+                                  fontWeight: 500,
+                                  boxShadow: 'none',
+                                  transition: 'all 0.2s ease',
+                                  fontFamily: 'Raleway, sans-serif',
+                                },
+                                rootHovered: {
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
+                                },
+                                rootPressed: {
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
+                                },
+                                rootDisabled: {
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                  color: isDarkMode ? '#94a3b8' : '#64748b',
+                                  border: `1px solid ${colours.highlight}`,
+                                },
+                              }}
+                          disabled={!isReportReady || (report.disabled && !testMode)}
+                        />
+                        <DefaultButton
+                          text="Refresh"
+                          onClick={refreshMattersScoped}
+                          styles={subtleButtonStyles(isDarkMode)}
+                          disabled={reportLoadingStates.matters || (report.disabled && !testMode)}
+                          iconProps={{ iconName: 'Refresh' }}
+                        />
+                      </>
+                    )}
+                    {report.action === 'enquiries' && (
+                      <>
+                        <PrimaryButton
+                          text={resolvePrimaryButtonLabel('Open enquiries report')}
+                          onClick={() => {
+                            if (isReportReady) navigateToReport('enquiries');
+                          }}
+                          styles={isReportReady
+                            ? primaryButtonStyles(isDarkMode)
+                            : {
+                                root: {
+                                  borderRadius: 8,
+                                  padding: '0 16px',
+                                  height: 34,
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                  color: isDarkMode ? '#94a3b8' : '#64748b',
+                                  border: `1px solid ${colours.highlight}`,
+                                  fontWeight: 500,
+                                  boxShadow: 'none',
+                                  transition: 'all 0.2s ease',
+                                  fontFamily: 'Raleway, sans-serif',
+                                },
+                                rootHovered: {
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
+                                },
+                                rootPressed: {
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
+                                },
+                                rootDisabled: {
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                  color: isDarkMode ? '#94a3b8' : '#64748b',
+                                  border: `1px solid ${colours.highlight}`,
+                                },
+                              }}
+                          disabled={!isReportReady}
+                        />
+                        <DefaultButton
+                          text="Refresh"
+                          onClick={refreshEnquiriesScoped}
+                          styles={subtleButtonStyles(isDarkMode)}
+                          disabled={reportLoadingStates.enquiries}
+                          iconProps={{ iconName: 'Refresh' }}
+                        />
+                      </>
+                    )}
+                    {report.action === 'metaMetrics' && (
+                      <>
+                        <PrimaryButton
+                          text={resolvePrimaryButtonLabel('Open Meta ads')}
+                          onClick={() => {
+                            if (isReportReady) navigateToReport('metaMetrics');
+                          }}
+                          styles={isReportReady
+                            ? primaryButtonStyles(isDarkMode)
+                            : {
+                                root: {
+                                  borderRadius: 8,
+                                  padding: '0 16px',
+                                  height: 34,
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                  color: isDarkMode ? '#94a3b8' : '#64748b',
+                                  border: `1px solid ${colours.highlight}`,
+                                  fontWeight: 500,
+                                  boxShadow: 'none',
+                                  transition: 'all 0.2s ease',
+                                  fontFamily: 'Raleway, sans-serif',
+                                },
+                                rootHovered: {
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
+                                },
+                                rootPressed: {
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
+                                },
+                                rootDisabled: {
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                  color: isDarkMode ? '#94a3b8' : '#64748b',
+                                  border: `1px solid ${colours.highlight}`,
+                                },
+                              }}
+                          disabled={!isReportReady}
+                        />
+                        <DefaultButton
+                          text="Refresh Meta data"
+                          onClick={refreshMetaMetricsOnly}
+                          styles={subtleButtonStyles(isDarkMode)}
+                          disabled={reportLoadingStates.metaMetrics}
+                          iconProps={{ iconName: 'Refresh' }}
+                        />
+                      </>
+                    )}
+                    {report.action === 'seoReport' && (
+                      <>
+                        <PrimaryButton
+                          text={resolvePrimaryButtonLabel('Open SEO report')}
+                          onClick={() => {
+                            if ((!report.disabled || testMode) && isReportReady) navigateToReport('seoReport');
+                          }}
+                          styles={isReportReady && (!report.disabled || testMode)
+                            ? primaryButtonStyles(isDarkMode)
+                            : {
+                                root: {
+                                  borderRadius: 8,
+                                  padding: '0 16px',
+                                  height: 34,
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                  color: isDarkMode ? '#94a3b8' : '#64748b',
+                                  border: `1px solid ${colours.highlight}`,
+                                  fontWeight: 500,
+                                  boxShadow: 'none',
+                                  transition: 'all 0.2s ease',
+                                  fontFamily: 'Raleway, sans-serif',
+                                },
+                                rootHovered: {
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
+                                },
+                                rootPressed: {
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
+                                },
+                                rootDisabled: {
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                  color: isDarkMode ? '#94a3b8' : '#64748b',
+                                  border: `1px solid ${colours.highlight}`,
+                                },
+                              }}
+                          disabled={(report.disabled && !testMode) || !isReportReady}
+                        />
+                        <DefaultButton
+                          text={reportLoadingStates.seoReport ? 'Refreshing…' : 'Refresh'}
+                          onClick={refreshGoogleAnalyticsOnly}
+                          styles={subtleButtonStyles(isDarkMode)}
+                          disabled={reportLoadingStates.seoReport}
+                          iconProps={{ iconName: 'Refresh' }}
+                        />
+                      </>
+                    )}
+                    {report.action === 'ppcReport' && (
+                      <>
+                        <PrimaryButton
+                          text={resolvePrimaryButtonLabel('Open PPC report')}
+                          onClick={() => {
+                            if ((!report.disabled || testMode) && isReportReady) navigateToReport('ppcReport');
+                          }}
+                          styles={isReportReady && (!report.disabled || testMode)
+                            ? primaryButtonStyles(isDarkMode)
+                            : {
+                                root: {
+                                  borderRadius: 8,
+                                  padding: '0 16px',
+                                  height: 34,
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                  color: isDarkMode ? '#94a3b8' : '#64748b',
+                                  border: `1px solid ${colours.highlight}`,
+                                  fontWeight: 500,
+                                  boxShadow: 'none',
+                                  transition: 'all 0.2s ease',
+                                  fontFamily: 'Raleway, sans-serif',
+                                },
+                                rootHovered: {
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
+                                },
+                                rootPressed: {
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
+                                },
+                                rootDisabled: {
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                  color: isDarkMode ? '#94a3b8' : '#64748b',
+                                  border: `1px solid ${colours.highlight}`,
+                                },
+                              }}
+                          disabled={(report.disabled && !testMode) || !isReportReady}
+                        />
+                        <DefaultButton
+                          text={reportLoadingStates.ppcReport ? 'Refreshing…' : 'Refresh'}
+                          onClick={refreshGoogleAdsOnly}
+                          styles={subtleButtonStyles(isDarkMode)}
+                          disabled={report.disabled || reportLoadingStates.ppcReport}
+                          iconProps={{ iconName: 'Refresh' }}
+                        />
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+  };
+
+  const handleLaunchDashboard = useCallback(() => {
+    if (!canUseReports) {
+      showToast({
+        message: 'Refresh data to continue',
+        type: 'info',
+        details: 'We need at least one ready dataset before opening the management dashboard.',
+        autoDismissMs: 5000,
+      });
+      return;
+    }
+    setActiveView('dashboard');
+  }, [canUseReports, setActiveView, showToast]);
+
+  const heroDescriptionCopy = 'Access management dashboards, marketing insights, and enquiries reporting with real-time data feeds.';
+
   // Safety: if streaming disconnected and nothing is loading, clear fetching flag
   useEffect(() => {
     const anyLoading = datasetSummaries.some(s => s.status === 'loading');
@@ -2828,1643 +4664,275 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
 
   if (activeView === 'dashboard') {
     return (
-      <div style={fullScreenWrapperStyle(isDarkMode)}>
-        <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
-          <ManagementDashboard
-            enquiries={datasetData.enquiries}
-            allMatters={datasetData.allMatters}
-            wip={datasetData.wip}
-            recoveredFees={datasetData.recoveredFees}
-            teamData={datasetData.teamData}
-            userData={datasetData.userData}
-            poidData={datasetData.poidData}
-            annualLeave={datasetData.annualLeave}
-            triggerRefresh={refreshDatasetsWithStreaming}
-            lastRefreshTimestamp={lastRefreshTimestamp ?? undefined}
-            isFetching={isFetching}
-          />
+      <>
+        {toastElement}
+        <div style={fullScreenWrapperStyle(isDarkMode)}>
+          <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
+            <ManagementDashboard
+              enquiries={datasetData.enquiries}
+              allMatters={datasetData.allMatters}
+              wip={datasetData.wip}
+              recoveredFees={datasetData.recoveredFees}
+              teamData={datasetData.teamData}
+              userData={datasetData.userData}
+              poidData={datasetData.poidData}
+              annualLeave={datasetData.annualLeave}
+              triggerRefresh={refreshDatasetsWithStreaming}
+              lastRefreshTimestamp={lastRefreshTimestamp ?? undefined}
+              isFetching={isFetching}
+            />
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   if (activeView === 'annualLeave') {
     return (
-      <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
-        <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
-          <AnnualLeaveReport
-            data={datasetData.annualLeave || []}
-            teamData={datasetData.teamData || []}
-            triggerRefresh={refreshAnnualLeaveOnly}
-            lastRefreshTimestamp={lastRefreshTimestamp ?? undefined}
-            isFetching={isFetching}
-          />
+      <>
+        {toastElement}
+        <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
+          <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
+
+            <AnnualLeaveReport
+              data={datasetData.annualLeave || []}
+              teamData={datasetData.teamData || []}
+              triggerRefresh={refreshAnnualLeaveOnly}
+              lastRefreshTimestamp={lastRefreshTimestamp ?? undefined}
+              isFetching={isFetching}
+            />
+          </div>
         </div>
-      </div>
+      </>
+    );
+  }
+
+  if (activeView === 'matters') {
+    return (
+      <>
+        {toastElement}
+        <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
+          <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
+            <MattersReport
+              matters={datasetData.allMatters ?? []}
+              isLoading={reportLoadingStates.matters || isFetching}
+              error={error}
+              userData={datasetData.userData ?? []}
+              teamData={datasetData.teamData}
+              poidData={datasetData.poidData ?? []}
+              setPoidData={updatePoidDataFromReport}
+              wip={datasetData.wip}
+              recoveredFees={datasetData.recoveredFees}
+              enquiries={datasetData.enquiries}
+            />
+          </div>
+        </div>
+      </>
     );
   }
 
   if (activeView === 'enquiries') {
     return (
-      <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
-        <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
-          <EnquiriesReport 
-            enquiries={datasetData.enquiries} 
-            teamData={datasetData.teamData}
-            annualLeave={datasetData.annualLeave}
-            metaMetrics={datasetData.metaMetrics}
-            triggerRefresh={refreshEnquiriesScoped}
-            lastRefreshTimestamp={lastRefreshTimestamp ?? undefined}
-            isFetching={isFetching}
-          />
+      <>
+        {toastElement}
+        <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
+          <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
+            <EnquiriesReport 
+              enquiries={datasetData.enquiries} 
+              teamData={datasetData.teamData}
+              annualLeave={datasetData.annualLeave}
+              metaMetrics={datasetData.metaMetrics}
+              triggerRefresh={refreshEnquiriesScoped}
+              lastRefreshTimestamp={lastRefreshTimestamp ?? undefined}
+              isFetching={isFetching}
+            />
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   if (activeView === 'metaMetrics') {
     return (
-      <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
-        <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
-          <MetaMetricsReport
-            metaMetrics={datasetData.metaMetrics}
-            enquiries={datasetData.enquiries}
-            triggerRefresh={refreshMetaMetricsOnly}
-            lastRefreshTimestamp={lastRefreshTimestamp ?? undefined}
-            isFetching={isFetching}
-          />
+      <>
+        {toastElement}
+        <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
+          <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
+            <MetaMetricsReport
+              metaMetrics={datasetData.metaMetrics}
+              enquiries={datasetData.enquiries}
+              triggerRefresh={refreshMetaMetricsOnly}
+              lastRefreshTimestamp={lastRefreshTimestamp ?? undefined}
+              isFetching={isFetching}
+            />
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   if (activeView === 'seoReport') {
     return (
-      <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
-        <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
-          <SeoReport 
-            cachedGa4Data={(datasetData.googleAnalytics ?? cachedData.googleAnalytics) || []}
-            cachedChannelData={[]} // TODO: Add when channel data is cached
-            cachedSourceMediumData={[]} // TODO: Add when source/medium data is cached
-            cachedLandingPageData={[]} // TODO: Add when landing page data is cached
-            cachedDeviceData={[]} // TODO: Add when device data is cached
-          />
+      <>
+        {toastElement}
+        <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
+          <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
+            <SeoReport 
+              cachedGa4Data={(datasetData.googleAnalytics ?? cachedData.googleAnalytics) || []}
+              cachedChannelData={[]} // TODO: Add when channel data is cached
+              cachedSourceMediumData={[]} // TODO: Add when source/medium data is cached
+              cachedLandingPageData={[]} // TODO: Add when landing page data is cached
+              cachedDeviceData={[]} // TODO: Add when device data is cached
+            />
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   if (activeView === 'ppcReport') {
     return (
-      <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
-        <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
-          <PpcReport 
-            cachedGoogleAdsData={(ppcGoogleAdsData ?? datasetData.googleAds ?? cachedData.googleAds) || []}
-            ppcIncomeMetrics={ppcIncomeMetrics}
-            isFetching={isFetching || ppcLoading}
-            lastRefreshTimestamp={googleAdsLastRefreshTimestamp ?? undefined}
-          />
+      <>
+        {toastElement}
+        <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
+          <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
+            <PpcReport 
+              cachedGoogleAdsData={(ppcGoogleAdsData ?? datasetData.googleAds ?? cachedData.googleAds) || []}
+              ppcIncomeMetrics={ppcIncomeMetrics}
+              isFetching={isFetching || ppcLoading}
+              lastRefreshTimestamp={googleAdsLastRefreshTimestamp ?? undefined}
+            />
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   return (
-    <div className="reporting-home-container" style={containerStyle(isDarkMode)}>
-      <section 
-        style={heroSurfaceStyle(isDarkMode)}
-        onMouseEnter={() => setHeroHovered(true)}
-        onMouseLeave={() => setHeroHovered(false)}
-      >
-        <div style={heroRightMarkStyle(isDarkMode, heroHovered)} />
-        <div style={heroRightOverlayStyle(isDarkMode)} />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, position: 'relative', zIndex: 2 }}>
-          <span
-            style={{
-              alignSelf: 'flex-start',
-              padding: '4px 10px',
-              borderRadius: 999,
-              fontSize: 11,
-              letterSpacing: 0.4,
-              textTransform: 'uppercase',
-              background: isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(37, 99, 235, 0.12)',
-              color: isDarkMode ? colours.light.text : colours.missedBlue,
-              fontWeight: 600,
-              fontFamily: 'Raleway, sans-serif',
-            }}
-          >
-            Restricted access
-          </span>
-          {Array.isArray(datasetData.userData) && datasetData.userData.length > 0 && (
-            <span
-              style={{
-                fontSize: 9,
-                color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(13, 47, 96, 0.5)',
-                fontWeight: 500,
-                fontFamily: 'Raleway, sans-serif',
-                letterSpacing: 0.2,
-              }}
-            >
-              {datasetData.userData.map((user, idx) => {
-                const initials = user.Initials || (user.FullName
-                  ? user.FullName
-                      .split(' ')
-                      .map((n: string) => n[0])
-                      .join('')
-                      .toUpperCase()
-                  : '?');
-                return (
-                  <span key={user.Email || idx}>
-                    {initials}
-                    {idx < (datasetData.userData?.length ?? 0) - 1 && <span style={{ opacity: 0.6, margin: '0 4px' }}>•</span>}
-                  </span>
-                );
-              })}
-            </span>
-          )}
-          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700, fontFamily: 'Raleway, sans-serif' }}>Reporting workspace</h1>
-        </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, position: 'relative', zIndex: 2 }}>
-          <PrimaryButton
-            text={isActivelyLoading ? 'Preparing…' : 'Open management dashboard'}
-            onClick={handleOpenDashboard}
-            styles={primaryButtonStyles(isDarkMode)}
-            disabled={isActivelyLoading}
-          />
-          <DefaultButton
-            text={isActivelyLoading ? 'Refreshing…' : 'Refresh data'}
-            onClick={refreshDatasetsWithStreaming}
-            styles={subtleButtonStyles(isDarkMode)}
-            disabled={isActivelyLoading}
-          />
-          <DefaultButton
-            text={reportLoadingStates.enquiries ? 'Refreshing enquiries…' : 'Refresh enquiries'}
-            onClick={refreshEnquiriesScoped}
-            styles={subtleButtonStyles(isDarkMode)}
-            disabled={reportLoadingStates.enquiries}
-            iconProps={{ iconName: 'BarChartVertical' }}
-          />
-        </div>
-        <div style={{ ...heroMetaRowStyle, position: 'relative', zIndex: 2 }}>
-          {heroMetaItems.map((item) => (
-            <span
-              key={item}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '5px 10px',
-                borderRadius: 999,
-                background: isDarkMode ? 'rgba(30, 41, 59, 0.6)' : 'rgba(255, 255, 255, 0.9)',
-                border: `1px solid ${subtleStroke(isDarkMode)}`,
-                boxShadow: 'none',
-                color: isDarkMode ? '#E2E8F0' : colours.missedBlue,
-              }}
-            >
-              {item}
-            </span>
-          ))}
-        </div>
-      </section>
-
-      {/* Quick metrics snapshot - Always visible */}
-      <section style={sectionSurfaceStyle(isDarkMode)}>
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: 16,
+    <>
+      <style>{spinnerStyle}</style>
+      {toastElement}
+      <div className="reporting-home-container" style={containerStyle(isDarkMode)}>
+        <section style={{
+          padding: '32px 28px',
+          background: isDarkMode ? 'linear-gradient(135deg, #020617 0%, #0a1220 100%)' : '#f9fafb',
+          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(148, 163, 184, 0.4)'}`,
+          borderRadius: 16,
+          marginBottom: 20,
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <h2 style={sectionTitleStyle}>Live metrics</h2>
-            <div style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '4px 8px',
-              borderRadius: 12,
-              background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.08)',
-              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
-            }}>
-              <FontIcon
-                iconName="Info"
-                style={{
-                  fontSize: 10,
-                  color: isDarkMode ? '#94a3b8' : colours.missedBlue,
-                  opacity: 0.8,
-                }}
-              />
-              <span style={{
-                fontSize: 10,
-                color: isDarkMode ? '#94a3b8' : colours.missedBlue,
-                fontWeight: 500,
-                opacity: 0.9,
-              }}>
-                Targets to be confirmed
-              </span>
-            </div>
-          </div>
-          
-          {/* Date Range Selector */}
-          <div style={{
-            display: 'flex',
-            gap: 6,
-            alignItems: 'center',
-          }}>
-            <span style={{
-              fontSize: 11,
-              color: isDarkMode ? '#94a3b8' : colours.missedBlue,
-              fontWeight: 500,
-            }}>
-              Range:
-            </span>
-            {(['7d', '30d', '3mo', '6mo', '12mo', '24mo'] as const).map((range) => (
-              <button
-                key={range}
-                style={{
-                  padding: '6px 10px',
-                  borderRadius: 6,
-                  border: `1px solid ${range === selectedDateRange 
-                    ? (isDarkMode ? colours.accent : colours.highlight)
-                    : (isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)')}`,
-                  fontSize: 10,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  background: range === selectedDateRange 
-                    ? (isDarkMode ? `rgba(135, 243, 243, 0.15)` : `rgba(54, 144, 206, 0.08)`)
-                    : (isDarkMode ? 'rgba(71, 85, 105, 0.15)' : 'rgba(148, 163, 184, 0.04)'),
-                  color: range === selectedDateRange
-                    ? (isDarkMode ? colours.accent : colours.highlight)
-                    : (isDarkMode ? '#cbd5e1' : '#64748b'),
-                  transition: 'all 0.2s ease',
-                }}
-                onMouseEnter={(e) => {
-                  const btn = e.currentTarget;
-                  if (range !== selectedDateRange) {
-                    btn.style.background = isDarkMode ? 'rgba(71, 85, 105, 0.25)' : 'rgba(148, 163, 184, 0.08)';
-                    btn.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  const btn = e.currentTarget;
-                  if (range !== selectedDateRange) {
-                    btn.style.background = isDarkMode ? 'rgba(71, 85, 105, 0.15)' : 'rgba(148, 163, 184, 0.04)';
-                    btn.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)';
-                  }
-                }}
-                onClick={() => {
-                  setSelectedDateRange(range);
-                }}
-              >
-                {range}
-              </button>
-            ))}
-          </div>
-        </div>
-        
-        {/* Top Row - WIP and Collected Time (Full Width) */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          gap: 16,
-          marginBottom: 16,
-        }}>
-          {/* WIP - Selected Range */}
-          <div style={{
-            background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(13, 47, 96, 0.06)',
-            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(13, 47, 96, 0.15)'}`,
-            borderRadius: 8,
-            padding: 16,
-            position: 'relative',
-            overflow: 'hidden',
-          }}>
-            {/* Background pattern */}
-            <div style={{
-              position: 'absolute',
-              top: -20,
-              right: -20,
-              width: '80px',
-              height: '80px',
-              background: `linear-gradient(135deg, ${isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(13, 47, 96, 0.08)'} 0%, transparent 70%)`,
-              borderRadius: '50%',
-            }} />
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-              <div>
-                <h3 style={{
-                  margin: 0,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: isDarkMode ? colours.accent : colours.missedBlue,
-                  marginBottom: 4,
-                }}>
-                  WIP
-                </h3>
-                <div style={{
-                  fontSize: 11,
-                  color: isDarkMode ? '#94a3b8' : colours.missedBlue,
-                  opacity: 0.9,
-                }}>
-                  Total value
-                </div>
-              </div>
-              
-              <span style={{
-                fontSize: 9,
-                color: isDarkMode ? '#64748b' : colours.missedBlue,
-                fontWeight: 500,
-              }}>
-                {getActualDataRange(datasetData.wip || [], 'date')}
-              </span>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{
-                fontSize: 24,
-                fontWeight: 600,
-                color: isDarkMode ? colours.accent : colours.missedBlue,
-                fontFamily: 'system-ui, -apple-system, sans-serif',
-                lineHeight: 1,
-                marginBottom: 4,
-              }}>
-                {(() => {
-                  if (!Array.isArray(datasetData.wip)) return '—';
-                  const filtered = getFilteredDataByDateRange(datasetData.wip, 'date');
-                  const total = filtered.reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0);
-                  return formatCurrency(total);
-                })()}
-              </div>
-              <div style={{
-                height: 3,
-                borderRadius: 2,
-                background: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(13, 47, 96, 0.2)',
-                marginTop: 8,
-                flexGrow: 1,
-              }}>
-                <div style={{
-                  height: '100%',
-                  width: '25%',
-                  background: `linear-gradient(90deg, ${isDarkMode ? colours.accent : colours.missedBlue} 0%, ${isDarkMode ? colours.blue : colours.darkBlue} 100%)`,
-                  borderRadius: 2,
-                  transition: 'width 1s ease',
-                }} />
-              </div>
-            </div>
-          </div>
-
-          {/* Collected Time - Selected Range */}
-          <div style={{
-            background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(13, 47, 96, 0.06)',
-            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(13, 47, 96, 0.15)'}`,
-            borderRadius: 8,
-            padding: 16,
-            position: 'relative',
-            overflow: 'hidden',
-          }}>
-            {/* Background pattern */}
-            <div style={{
-              position: 'absolute',
-              top: -20,
-              right: -20,
-              width: '80px',
-              height: '80px',
-              background: `linear-gradient(135deg, ${isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(13, 47, 96, 0.08)'} 0%, transparent 70%)`,
-              borderRadius: '50%',
-            }} />
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div>
-                  <h3 style={{
-                    margin: 0,
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: isDarkMode ? colours.accent : colours.missedBlue,
-                    marginBottom: 4,
-                  }}>
-                    Collected Time
-                  </h3>
-                  <div style={{
-                    fontSize: 11,
-                    color: isDarkMode ? '#94a3b8' : colours.missedBlue,
-                    opacity: 0.9,
-                  }}>
-                    Total collected
-                  </div>
-                </div>
-                <div 
-                  style={{
-                    position: 'relative',
-                    cursor: 'help',
-                    marginTop: -2,
-                  }}
-                  title="Excludes disbursements (expenses)"
-                >
-                  <FontIcon
-                    iconName="Info"
-                    style={{
-                      fontSize: 12,
-                      color: isDarkMode ? '#64748b' : '#94a3b8',
-                      opacity: 0.7,
-                      transition: 'opacity 0.2s ease',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.opacity = '1';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.opacity = '0.7';
-                    }}
-                  />
-                </div>
-              </div>
-              <span style={{
-                fontSize: 9,
-                color: isDarkMode ? '#64748b' : colours.missedBlue,
-                fontWeight: 500,
-              }}>
-                {getActualDataRange(datasetData.recoveredFees || [], 'payment_date')}
-              </span>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{
-                fontSize: 24,
-                fontWeight: 600,
-                color: isDarkMode ? colours.accent : colours.missedBlue,
-                fontFamily: 'system-ui, -apple-system, sans-serif',
-                lineHeight: 1,
-                marginBottom: 4,
-              }}>
-                {(() => {
-                  if (!Array.isArray(datasetData.recoveredFees)) return '—';
-                  const filtered = getFilteredDataByDateRange(datasetData.recoveredFees, 'payment_date');
-                  // Exclude disbursements (kind = 'Expense') - only count actual fees, same as Management Dashboard
-                  const feesOnly = filtered.filter(item => item.kind !== 'Expense' && item.kind !== 'Product');
-                  const total = feesOnly.reduce((sum, item) => sum + (typeof item.payment_allocated === 'number' ? item.payment_allocated : (parseFloat(item.payment_allocated) || 0)), 0);
-                  return formatCurrency(total);
-                })()}
-              </div>
-              <div style={{
-                height: 3,
-                borderRadius: 2,
-                background: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(13, 47, 96, 0.2)',
-                marginTop: 8,
-                flexGrow: 1,
-              }}>
-                <div style={{
-                  height: '100%',
-                  width: '25%',
-                  background: `linear-gradient(90deg, ${isDarkMode ? colours.accent : colours.missedBlue} 0%, ${isDarkMode ? colours.blue : colours.darkBlue} 100%)`,
-                  borderRadius: 2,
-                  transition: 'width 1s ease',
-                }} />
-              </div>
-            </div>
-          </div>
-        </div>
-        
-        {/* Bottom Row - Core Metrics Grid */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-          gap: 16,
-        }}>
-          {/* Enquiries - Last 24 months */}
-          <div style={{
-            padding: '16px 20px',
-            borderRadius: 12,
-            background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(13, 47, 96, 0.06)',
-            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(13, 47, 96, 0.15)'}`,
-            position: 'relative',
-            overflow: 'hidden',
-            transition: 'all 0.2s ease',
-            cursor: 'default',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.4)' : 'rgba(13, 47, 96, 0.3)';
-            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(13, 47, 96, 0.08)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(13, 47, 96, 0.15)';
-            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(13, 47, 96, 0.06)';
-          }}
-          >
-            {/* Background pattern */}
-            <div style={{
-              position: 'absolute',
-              top: -20,
-              right: -20,
-              width: '80px',
-              height: '80px',
-              background: `linear-gradient(135deg, ${isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(13, 47, 96, 0.08)'} 0%, transparent 70%)`,
-              borderRadius: '50%',
-            }} />
-            <div style={{ position: 'relative', zIndex: 1 }}>
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'flex-start',
-                marginBottom: 8,
-              }}>
-                <span style={{
-                  fontSize: 12,
-                  color: isDarkMode ? colours.accent : colours.missedBlue,
-                  fontWeight: 600,
-                  textTransform: 'none',
-                  letterSpacing: 0.5,
-                }}>
-                  Enquiries
-                </span>
-                <span style={{
-                  fontSize: 9,
-                  color: isDarkMode ? '#64748b' : colours.missedBlue,
-                  fontWeight: 500,
-                }}>
-                  {getActualDataRange(datasetData.enquiries || [], 'Date_Created')}
-                </span>
-              </div>
-              <div style={{
-                fontSize: 28,
-                fontWeight: 800,
-                color: isDarkMode ? '#f1f5f9' : '#334155',
-                fontFamily: 'system-ui, -apple-system, sans-serif',
-                lineHeight: 1,
-                marginBottom: 4,
-              }}>
-                {(() => {
-                  if (!Array.isArray(datasetData.enquiries)) return '—';
-                  const filtered = getFilteredDataByDateRange(datasetData.enquiries, 'Date_Created');
-                  return filtered.length.toLocaleString();
-                })()}
-              </div>
-              <div style={{
-                height: 3,
-                borderRadius: 2,
-                background: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(13, 47, 96, 0.2)',
-                marginTop: 8,
-              }}>
-                <div style={{
-                  height: '100%',
-                  width: '25%',
-                  background: `linear-gradient(90deg, ${isDarkMode ? colours.accent : colours.missedBlue} 0%, ${isDarkMode ? colours.blue : colours.darkBlue} 100%)`,
-                  borderRadius: 2,
-                  transition: 'width 1s ease',
-                }} />
-              </div>
-            </div>
-          </div>
-
-          {/* Pitches - Last 12 months */}
-          <div style={{
-            padding: '16px 20px',
-            borderRadius: 12,
-            background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(13, 47, 96, 0.06)',
-            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(13, 47, 96, 0.15)'}`,
-            position: 'relative',
-            overflow: 'hidden',
-            transition: 'all 0.2s ease',
-            cursor: 'default',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.4)' : 'rgba(13, 47, 96, 0.3)';
-            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(13, 47, 96, 0.08)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(13, 47, 96, 0.15)';
-            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(13, 47, 96, 0.06)';
-          }}
-          >
-            <div style={{
-              position: 'absolute',
-              top: -20,
-              right: -20,
-              width: '80px',
-              height: '80px',
-              background: `linear-gradient(135deg, ${isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(13, 47, 96, 0.08)'} 0%, transparent 70%)`,
-              borderRadius: '50%',
-            }} />
-            <div style={{ position: 'relative', zIndex: 1 }}>
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'flex-start',
-                marginBottom: 8,
-              }}>
-                <span style={{
-                  fontSize: 12,
-                  color: isDarkMode ? colours.accent : colours.missedBlue,
-                  fontWeight: 600,
-                  textTransform: 'none',
-                  letterSpacing: 0.5,
-                }}>
-                  Pitches
-                </span>
-                <span style={{
-                  fontSize: 9,
-                  color: isDarkMode ? '#64748b' : colours.missedBlue,
-                  fontWeight: 500,
-                }}>
-                  {getActualDataRange(datasetData.deals || [], 'PitchedDate')}
-                </span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
-                <div style={{
-                  fontSize: 28,
-                  fontWeight: 800,
-                  color: isDarkMode ? '#f1f5f9' : '#334155',
-                  fontFamily: 'system-ui, -apple-system, sans-serif',
-                  lineHeight: 1,
-                }}>
-                  {(() => {
-                    if (!Array.isArray(datasetData.deals)) return '—';
-                    const filtered = getFilteredDataByDateRange(datasetData.deals, 'PitchedDate');
-                    return filtered.length > 0 ? filtered.length.toLocaleString() : '0';
-                  })()}
-                </div>
-                <div style={{
-                  fontSize: 14,
-                  fontWeight: 600,
-                  color: isDarkMode ? colours.accent : colours.missedBlue,
-                  fontFamily: 'system-ui, -apple-system, sans-serif',
-                  opacity: 0.9,
-                }}>
-                  {(() => {
-                    if (!Array.isArray(datasetData.deals) || !Array.isArray(datasetData.enquiries)) return '';
-                    const filteredDeals = getFilteredDataByDateRange(datasetData.deals, 'PitchedDate');
-                    const filteredEnquiries = getFilteredDataByDateRange(datasetData.enquiries, 'Date_Created');
-                    
-                    if (filteredEnquiries.length === 0) return '0%';
-                    
-                    const conversionRate = (filteredDeals.length / filteredEnquiries.length) * 100;
-                    return `${conversionRate.toFixed(1)}%`;
-                  })()}
-                </div>
-              </div>
-              <div style={{
-                height: 3,
-                borderRadius: 2,
-                background: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(13, 47, 96, 0.2)',
-                marginTop: 8,
-              }}>
-                <div style={{
-                  height: '100%',
-                  width: '25%',
-                  background: `linear-gradient(90deg, ${isDarkMode ? colours.accent : colours.missedBlue} 0%, ${isDarkMode ? colours.blue : colours.darkBlue} 100%)`,
-                  borderRadius: 2,
-                  transition: 'width 1s ease',
-                }} />
-              </div>
-            </div>
-          </div>
-
-          {/* Instructions - Last 12 months */}
-          <div style={{
-            padding: '16px 20px',
-            borderRadius: 12,
-            background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(13, 47, 96, 0.06)',
-            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(13, 47, 96, 0.15)'}`,
-            position: 'relative',
-            overflow: 'hidden',
-            transition: 'all 0.2s ease',
-            cursor: 'default',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.4)' : 'rgba(13, 47, 96, 0.3)';
-            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(13, 47, 96, 0.08)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(13, 47, 96, 0.15)';
-            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(13, 47, 96, 0.06)';
-          }}
-          >
-            <div style={{
-              position: 'absolute',
-              top: -20,
-              right: -20,
-              width: '80px',
-              height: '80px',
-              background: `linear-gradient(135deg, ${isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(13, 47, 96, 0.08)'} 0%, transparent 70%)`,
-              borderRadius: '50%',
-            }} />
-            <div style={{ position: 'relative', zIndex: 1 }}>
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'flex-start',
-                marginBottom: 8,
-              }}>
-                <span style={{
-                  fontSize: 12,
-                  color: isDarkMode ? colours.accent : colours.missedBlue,
-                  fontWeight: 600,
-                  textTransform: 'none',
-                  letterSpacing: 0.5,
-                }}>
-                  Instructions
-                </span>
-                <span style={{
-                  fontSize: 9,
-                  color: isDarkMode ? '#64748b' : colours.missedBlue,
-                  fontWeight: 500,
-                }}>
-                  {getActualDataRange(datasetData.instructions || [], 'SubmissionDate')}
-                </span>
-              </div>
-              <div style={{
-                fontSize: 28,
-                fontWeight: 800,
-                color: isDarkMode ? '#f1f5f9' : '#334155',
-                fontFamily: 'system-ui, -apple-system, sans-serif',
-                lineHeight: 1,
-                marginBottom: 4,
-              }}>
-                {(() => {
-                  if (!Array.isArray(datasetData.instructions)) return '—';
-                  const filtered = getFilteredDataByDateRange(datasetData.instructions, 'SubmissionDate');
-                  return filtered.length > 0 ? filtered.length.toLocaleString() : '0';
-                })()}
-              </div>
-              <div style={{
-                height: 3,
-                borderRadius: 2,
-                background: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(13, 47, 96, 0.2)',
-                marginTop: 8,
-              }}>
-                <div style={{
-                  height: '100%',
-                  width: '25%',
-                  background: `linear-gradient(90deg, ${isDarkMode ? colours.accent : colours.missedBlue} 0%, ${isDarkMode ? colours.blue : colours.darkBlue} 100%)`,
-                  borderRadius: 2,
-                  transition: 'width 1s ease',
-                }} />
-              </div>
-            </div>
-          </div>
-
-          {/* Matters - Last 24 months */}
-          <div style={{
-            padding: '16px 20px',
-            borderRadius: 12,
-            background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(13, 47, 96, 0.06)',
-            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(13, 47, 96, 0.15)'}`,
-            position: 'relative',
-            overflow: 'hidden',
-            transition: 'all 0.2s ease',
-            cursor: 'default',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.4)' : 'rgba(13, 47, 96, 0.3)';
-            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(13, 47, 96, 0.08)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(13, 47, 96, 0.15)';
-            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(13, 47, 96, 0.06)';
-          }}
-          >
-            <div style={{
-              position: 'absolute',
-              top: -20,
-              right: -20,
-              width: '80px',
-              height: '80px',
-              background: `linear-gradient(135deg, ${isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(13, 47, 96, 0.08)'} 0%, transparent 70%)`,
-              borderRadius: '50%',
-            }} />
-            <div style={{ position: 'relative', zIndex: 1 }}>
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'flex-start',
-                marginBottom: 8,
-              }}>
-                <span style={{
-                  fontSize: 12,
-                  color: isDarkMode ? colours.accent : colours.missedBlue,
-                  fontWeight: 600,
-                  textTransform: 'none',
-                  letterSpacing: 0.5,
-                }}>
-                  Matters
-                </span>
-                <span style={{
-                  fontSize: 9,
-                  color: isDarkMode ? '#64748b' : colours.missedBlue,
-                  fontWeight: 500,
-                }}>
-                  {getActualDataRange(datasetData.allMatters || [], 'Open Date')}
-                </span>
-              </div>
-              <div style={{
-                fontSize: 28,
-                fontWeight: 800,
-                color: isDarkMode ? '#f1f5f9' : '#334155',
-                fontFamily: 'system-ui, -apple-system, sans-serif',
-                lineHeight: 1,
-                marginBottom: 4,
-              }}>
-                {(() => {
-                  if (!Array.isArray(datasetData.allMatters)) return '—';
-                  const filtered = getFilteredDataByDateRange(datasetData.allMatters, 'Open Date');
-                  return filtered.length.toLocaleString();
-                })()}
-              </div>
-              <div style={{
-                height: 3,
-                borderRadius: 2,
-                background: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(13, 47, 96, 0.2)',
-                marginTop: 8,
-              }}>
-                <div style={{
-                  height: '100%',
-                  width: '25%',
-                  background: `linear-gradient(90deg, ${isDarkMode ? colours.accent : colours.missedBlue} 0%, ${isDarkMode ? colours.blue : colours.darkBlue} 100%)`,
-                  borderRadius: 2,
-                  transition: 'width 1s ease',
-                }} />
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section style={sectionSurfaceStyle(isDarkMode)}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h2 style={sectionTitleStyle}>Reporting & Data Hub</h2>
-          
-          {/* Global Refresh Status */}
-          {(isActivelyLoading || isStreamingConnected) && (
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '8px 12px',
-              borderRadius: 8,
-              background: isDarkMode ? 'rgba(59, 130, 246, 0.1)' : 'rgba(59, 130, 246, 0.05)',
-              border: `1px solid ${isDarkMode ? 'rgba(59, 130, 246, 0.3)' : 'rgba(59, 130, 246, 0.2)'}`,
-            }}>
-              <Spinner 
-                size={SpinnerSize.xSmall} 
-                styles={{
-                  root: {
-                    width: 16,
-                    height: 16,
-                  },
-                  circle: {
-                    width: 16,
-                    height: 16,
-                    borderWidth: 2,
-                    borderTopColor: isDarkMode ? '#94a3b8' : '#64748b',
-                    borderLeftColor: isDarkMode ? '#94a3b8' : '#64748b',
-                    borderBottomColor: 'transparent',
-                    borderRightColor: 'transparent',
-                  }
-                }}
-              />
-              <span style={{
-                fontSize: 13,
-                color: isDarkMode ? '#94a3b8' : '#64748b',
-                fontWeight: 500,
-              }}>
-                {isStreamingConnected 
-                  ? `Refreshing datasets… (${streamingProgress.completed}/${streamingProgress.total})`
-                  : 'Refreshing data…'
-                }
-              </span>
-              <span style={{
-                fontSize: 11,
-                color: isDarkMode ? '#64748b' : '#64748b',
-                opacity: 0.8,
-              }}>
-                {progressDetailText}
-              </span>
-            </div>
-          )}
-        </div>
-        
-        {/* Unified Reports and Datasets View */}
-        <div style={{
-          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(100, 116, 139, 0.18)'}`,
-          borderRadius: 12,
-          overflow: 'hidden',
-          background: isDarkMode ? 'rgba(30, 41, 59, 0.4)' : 'rgba(248, 250, 252, 0.6)',
-        }}>
-          <div style={{ padding: 20 }}>
-            {/* Data Sources - Collapsible section */}
-            <div style={{
-              marginBottom: 24,
-            }}>
-              <div 
-                onClick={() => setIsDataSourcesExpanded(!isDataSourcesExpanded)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  cursor: 'pointer',
-                  padding: '8px 0',
-                  transition: 'opacity 0.2s',
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.opacity = '0.7'}
-                onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
-              >
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                }}>
-                  <h3 style={{
-                    margin: 0,
-                    fontSize: 15,
-                    fontWeight: 600,
-                    color: isDarkMode ? '#e2e8f0' : '#475569',
-                  }}>
-                    Data Sources
-                  </h3>
-                  <span style={{
-                    fontSize: 10,
-                    padding: '2px 6px',
-                    borderRadius: 8,
-                    background: isDarkMode ? 'rgba(71, 85, 105, 0.4)' : 'rgba(241, 245, 249, 0.8)',
-                    color: isDarkMode ? '#cbd5e1' : '#475569',
-                    fontWeight: 500,
-                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
-                  }}>
-                    {DATASETS.length}
-                  </span>
-                </div>
-                <span style={{
-                  fontSize: 12,
-                  color: isDarkMode ? '#94a3b8' : '#64748b',
-                  transition: 'transform 0.2s',
-                  transform: isDataSourcesExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                }}>
-                  ▼
-                </span>
-              </div>
-              
-              <div style={{
-                maxHeight: isDataSourcesExpanded ? '2000px' : '0px',
-                overflow: 'hidden',
-                opacity: isDataSourcesExpanded ? 1 : 0,
-                transition: 'all 0.3s ease-in-out',
-                marginTop: isDataSourcesExpanded ? 8 : 0,
-              }}>
-              <div style={{ display: 'grid', gap: 6 }}>
-                {DATASETS.map((definition) => {
-                  const status = datasetStatus[definition.key];
-                  const streamState = streamingDatasets[definition.key as keyof typeof streamingDatasets];
-                  const data = (datasetData as any)[definition.key] as unknown[] | null | undefined;
-                  const count = Array.isArray(data) ? data.length : 0;
-                  
-                  if (!status) return null;
-                  
-                  const palette = STATUS_BADGE_COLOURS[status.status];
-                  const hasData = count > 0;
-                  const elapsed = streamState?.elapsedMs;
-
-                  return (
-                    <div key={definition.key} style={{
-                      borderRadius: 4,
-                      background: isDarkMode ? 'rgba(51, 65, 85, 0.25)' : 'rgba(248, 250, 252, 0.6)',
-                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(100, 116, 139, 0.1)'}`,
-                    }}>
-                      <div style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        padding: '8px 10px',
-                      }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{
-                          fontWeight: 500,
-                          color: isDarkMode ? '#f1f5f9' : '#334155',
-                          fontSize: 12,
-                        }}>
-                          {definition.name}
-                        </span>
-                        <span style={{
-                          fontSize: 9,
-                          color: isDarkMode ? '#94a3b8' : '#64748b',
-                          opacity: 0.7,
-                          fontStyle: 'italic',
-                        }}>
-                          {getDatasetDateRange(definition.key)}
-                        </span>
-                        {hasData && (
-                          <span style={{
-                            fontSize: 10,
-                            color: isDarkMode ? '#94a3b8' : '#64748b',
-                            opacity: 0.8,
-                          }}>
-                            {count.toLocaleString()} rows
-                          </span>
-                        )}
-                        {streamState?.cached && (
-                          <span style={{
-                            fontSize: 9,
-                            padding: '1px 4px',
-                            borderRadius: 2,
-                            background: isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)',
-                            color: isDarkMode ? '#86efac' : '#166534',
-                          }}>
-                            cached
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        gap: 8,
-                        height: '100%',
-                        minHeight: 24,
-                      }}>
-                        <span style={{
-                          fontSize: 10,
-                          padding: '3px 7px',
-                          borderRadius: 4,
-                          background: isDarkMode ? palette.darkBg : palette.lightBg,
-                          color: isDarkMode ? '#f1f5f9' : '#334155',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 4,
-                          height: 20,
-                          lineHeight: 1,
-                          fontWeight: 500,
-                        }}>
-                          {status.status === 'loading' ? (
-                            <Spinner 
-                              size={SpinnerSize.xSmall} 
-                              styles={{
-                                root: {
-                                  width: 10,
-                                  height: 10,
-                                },
-                                circle: {
-                                  width: 10,
-                                  height: 10,
-                                  borderWidth: 1,
-                                  borderTopColor: '#3690CE', // highlight blue
-                                  borderLeftColor: '#3690CE',
-                                  borderBottomColor: 'transparent',
-                                  borderRightColor: 'transparent',
-                                }
-                              }}
-                            />
-                          ) : (
-                            <span style={{
-                              width: 4,
-                              height: 4,
-                              borderRadius: '50%',
-                              background: (status.status === 'ready' && !isDarkMode) ? '#0d2f60' : palette.dot,
-                            }} />
-                          )}
-                          {palette.label}
-                          {typeof elapsed === 'number' && elapsed >= 0 && (
-                            <span style={{ marginLeft: 4, opacity: 0.8, fontSize: 9 }}>
-                              {formatElapsedTime(elapsed)}
-                            </span>
-                          )}
-                        </span>
-                        {status.status === 'ready' && hasData && (
-                          <button
-                            onClick={() => {
-                              console.log('Preview button clicked for:', definition.key);
-                              console.log('Current feedPreviewOpen state:', feedPreviewOpen);
-                              console.log('Data for this dataset:', (datasetData as any)[definition.key]);
-                              toggleFeedPreview(definition.key);
-                            }}
-                            disabled={isActivelyLoading}
-                            style={{
-                              width: 20,
-                              height: 20,
-                              padding: 0,
-                              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(100, 116, 139, 0.2)'}`,
-                              borderRadius: 4,
-                              background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(100, 116, 139, 0.05)',
-                              color: isDarkMode ? '#94a3b8' : '#64748b',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              fontSize: 10,
-                              transition: 'all 0.15s ease',
-                              opacity: 0.8,
-                            }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.opacity = '1';
-                              e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.15)';
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.opacity = '0.7';
-                              e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.1)';
-                            }}
-                          >
-                            {feedPreviewOpen[definition.key] ? '▼' : '👁'}
-                          </button>
-                        )}
-                      </div>
-                      {feedPreviewOpen[definition.key] && (
-                        <div style={{
-                          marginTop: 6,
-                          padding: '6px 8px',
-                          borderRadius: 4,
-                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.12)'}`,
-                          background: isDarkMode ? 'rgba(30, 41, 59, 0.3)' : 'rgba(248, 250, 252, 0.5)',
-                          gridColumn: '1 / -1',
-                        }}>
-                          {(() => {
-                            const key = definition.key as DatasetKey;
-                            const data = (datasetData as any)[key] as unknown[] | null | undefined;
-                            const rows = Array.isArray(data) ? data : [];
-                            const sample = rows.slice(0, 2);
-                            return (
-                              <div>
-                                <div style={{ marginBottom: 4 }}>
-                                  <span style={{ fontSize: 10, opacity: 0.8 }}>
-                                    Sample data ({rows.length.toLocaleString()} total)
-                                  </span>
-                                </div>
-                                <div style={{ display: 'grid', gap: 3 }}>
-                                  {sample.map((row, idx) => (
-                                    <div key={idx} style={{
-                                      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-                                      fontSize: 9,
-                                      padding: '3px 5px',
-                                      borderRadius: 3,
-                                      background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(241, 245, 249, 0.5)',
-                                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(100, 116, 139, 0.08)'}`,
-                                      overflowX: 'auto',
-                                      whiteSpace: 'nowrap',
-                                    }}>
-                                      {formatPreviewRow(row)}
-                                    </div>
-                                  ))}
-                                  {sample.length === 0 && (
-                                    <div style={{ fontSize: 10, opacity: 0.7 }}>No data available</div>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })()}
-                        </div>
-                      )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              </div>
-            </div>
-
-            {/* Available Reports */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
             <div>
-              <h3 style={{
-                margin: '0 0 12px 0',
-                fontSize: 15,
-                fontWeight: 600,
-                color: isDarkMode ? '#e2e8f0' : '#475569',
-              }}>
-                Available Reports
-              </h3>
-              <div style={{ display: 'grid', gap: 10 }}>
-                {AVAILABLE_REPORTS.map((report) => (
-                  <div key={report.key} style={{
-                    padding: '12px 14px',
-                    borderRadius: 6,
-                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(100, 116, 139, 0.15)'}`,
-                    background: (() => {
-                      const reportState = getButtonState(report.requiredDatasets);
-                      if (isDarkMode) {
-                        return 'rgba(51, 65, 85, 0.4)';
-                      }
-                      // Add state-based background in light mode
-                      switch (reportState) {
-                        case 'ready':
-                          return 'rgba(13, 47, 96, 0.06)'; // Subtle dark blue tint
-                        case 'warming':
-                          return 'rgba(13, 47, 96, 0.04)'; // Very subtle dark blue
-                        case 'neutral':
-                        default:
-                          return 'rgba(255, 255, 255, 0.7)'; // Keep white
-                      }
-                    })(),
-                  }}>
-                    <div style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      marginBottom: 10,
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <span style={{
-                          fontWeight: 500,
-                          color: isDarkMode ? '#f1f5f9' : '#334155',
-                          fontSize: 14,
-                        }}>
-                          {report.name}
-                        </span>
-                      </div>
-                      
-                      {/* Dataset Dependencies Badges - Far Right */}
-                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                        {/* Vertical Separator */}
-                        <div style={{
-                          width: 1,
-                          height: 20,
-                          background: isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(100, 116, 139, 0.2)',
-                          flexShrink: 0,
-                        }} />
-                        
-                        {/* Badges - Allow wrapping */}
-                        <div style={{ 
-                          display: 'flex', 
-                          flexWrap: 'wrap', 
-                          gap: 4,
-                          maxWidth: '300px',
-                          justifyContent: 'flex-end',
-                        }}>
-                          {report.requiredDatasets.map(datasetKey => {
-                            const dataset = DATASETS.find(d => d.key === datasetKey);
-                            const currentDatasetStatus = dataset ? datasetStatus[datasetKey] : null;
-                            const statusValue = currentDatasetStatus?.status || 'idle';
-                            const palette = STATUS_BADGE_COLOURS[statusValue];
-                            
-                            return (
-                              <span key={datasetKey} style={{
-                                fontSize: 9,
-                                padding: '2px 5px',
-                                borderRadius: 3,
-                                background: isDarkMode ? 'rgba(71, 85, 105, 0.4)' : 'rgba(241, 245, 249, 0.6)',
-                                color: isDarkMode ? '#cbd5e1' : '#475569',
-                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 3,
-                              }}>
-                                <span style={{
-                                  width: 4,
-                                  height: 4,
-                                  borderRadius: '50%',
-                                  background: (statusValue === 'ready' && !isDarkMode) ? '#0d2f60' : palette.dot,
-                                }} />
-                                {dataset?.name || datasetKey}
-                              </span>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Report Actions */}
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                      {report.action === 'dashboard' && (
-                        <>
-                          <PrimaryButton
-                            text={(getButtonState(report.requiredDatasets) === 'ready') ? 'Open dashboard' : 'Preparing…'}
-                            onClick={() => {
-                              const isReady = getButtonState(report.requiredDatasets) === 'ready';
-                              if (isReady) handleOpenDashboard();
-                            }}
-                            styles={(getButtonState(report.requiredDatasets) === 'ready')
-                              ? primaryButtonStyles(isDarkMode)
-                              : {
-                                  root: {
-                                    borderRadius: 8,
-                                    padding: '0 16px',
-                                    height: 34,
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
-                                    color: isDarkMode ? '#94a3b8' : '#64748b',
-                                    border: `1px solid ${colours.highlight}`,
-                                    fontWeight: 500,
-                                    boxShadow: 'none',
-                                    transition: 'all 0.2s ease',
-                                    fontFamily: 'Raleway, sans-serif',
-                                  },
-                                  rootHovered: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
-                                  },
-                                  rootPressed: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
-                                  },
-                                  rootDisabled: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
-                                    color: isDarkMode ? '#94a3b8' : '#64748b',
-                                    border: `1px solid ${colours.highlight}`,
-                                  },
-                                }
-                            }
-                            disabled={getButtonState(report.requiredDatasets) !== 'ready'}
-                          />
-                          <DefaultButton
-                            text="Refresh data"
-                            onClick={refreshDatasetsWithStreaming}
-                            styles={subtleButtonStyles(isDarkMode)}
-                            disabled={reportLoadingStates.dashboard}
-                            iconProps={{ iconName: 'Refresh' }}
-                          />
-                        </>
-                      )}
-                      {report.action === 'annualLeave' && (
-                        <>
-                          <PrimaryButton
-                            text={(getButtonState(report.requiredDatasets) === 'ready') ? 'Open annual leave' : 'Preparing…'}
-                            onClick={() => {
-                              const isReady = getButtonState(report.requiredDatasets) === 'ready';
-                              if (isReady) setActiveView('annualLeave');
-                            }}
-                            styles={(getButtonState(report.requiredDatasets) === 'ready')
-                              ? primaryButtonStyles(isDarkMode)
-                              : {
-                                  root: {
-                                    borderRadius: 8,
-                                    padding: '0 16px',
-                                    height: 34,
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
-                                    color: isDarkMode ? '#94a3b8' : '#64748b',
-                                    border: `1px solid ${colours.highlight}`,
-                                    fontWeight: 500,
-                                    boxShadow: 'none',
-                                    transition: 'all 0.2s ease',
-                                    fontFamily: 'Raleway, sans-serif',
-                                  },
-                                  rootHovered: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
-                                  },
-                                  rootPressed: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
-                                  },
-                                  rootDisabled: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
-                                    color: isDarkMode ? '#94a3b8' : '#64748b',
-                                    border: `1px solid ${colours.highlight}`,
-                                  },
-                                }
-                            }
-                            disabled={getButtonState(report.requiredDatasets) !== 'ready'}
-                          />
-                          <DefaultButton
-                            text="Refresh leave data"
-                            onClick={refreshAnnualLeaveOnly}
-                            styles={subtleButtonStyles(isDarkMode)}
-                            disabled={reportLoadingStates.annualLeave}
-                            iconProps={{ iconName: 'Refresh' }}
-                          />
-                        </>
-                      )}
-                      {report.action === 'enquiries' && (
-                        <>
-                          <PrimaryButton
-                            text={(getButtonState(report.requiredDatasets) === 'ready') ? 'Open enquiries report' : 'Preparing…'}
-                            onClick={() => {
-                              const isReady = getButtonState(report.requiredDatasets) === 'ready';
-                              if (isReady) setActiveView('enquiries');
-                            }}
-                            styles={(getButtonState(report.requiredDatasets) === 'ready')
-                              ? primaryButtonStyles(isDarkMode)
-                              : {
-                                  root: {
-                                    borderRadius: 8,
-                                    padding: '0 16px',
-                                    height: 34,
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
-                                    color: isDarkMode ? '#94a3b8' : '#64748b',
-                                    border: `1px solid ${colours.highlight}`,
-                                    fontWeight: 500,
-                                    boxShadow: 'none',
-                                    transition: 'all 0.2s ease',
-                                    fontFamily: 'Raleway, sans-serif',
-                                  },
-                                  rootHovered: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
-                                  },
-                                  rootPressed: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
-                                  },
-                                  rootDisabled: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
-                                    color: isDarkMode ? '#94a3b8' : '#64748b',
-                                    border: `1px solid ${colours.highlight}`,
-                                  },
-                                }
-                            }
-                            disabled={getButtonState(report.requiredDatasets) !== 'ready'}
-                          />
-                          <DefaultButton
-                            text="Refresh enquiries data"
-                            onClick={refreshEnquiriesScoped}
-                            styles={subtleButtonStyles(isDarkMode)}
-                            disabled={reportLoadingStates.enquiries}
-                            iconProps={{ iconName: 'Refresh' }}
-                          />
-                        </>
-                      )}
-                      {report.action === 'metaMetrics' && (
-                        <>
-                          <PrimaryButton
-                            text={(getButtonState(report.requiredDatasets) === 'ready') ? 'Open Meta ads' : 'Preparing…'}
-                            onClick={() => {
-                              const isReady = getButtonState(report.requiredDatasets) === 'ready';
-                              if (isReady) setActiveView('metaMetrics');
-                            }}
-                            styles={(getButtonState(report.requiredDatasets) === 'ready')
-                              ? primaryButtonStyles(isDarkMode)
-                              : {
-                                  root: {
-                                    borderRadius: 8,
-                                    padding: '0 16px',
-                                    height: 34,
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
-                                    color: isDarkMode ? '#94a3b8' : '#64748b',
-                                    border: `1px solid ${colours.highlight}`,
-                                    fontWeight: 500,
-                                    boxShadow: 'none',
-                                    transition: 'all 0.2s ease',
-                                    fontFamily: 'Raleway, sans-serif',
-                                  },
-                                  rootHovered: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
-                                  },
-                                  rootPressed: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
-                                  },
-                                  rootDisabled: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
-                                    color: isDarkMode ? '#94a3b8' : '#64748b',
-                                    border: `1px solid ${colours.highlight}`,
-                                  },
-                                }
-                            }
-                            disabled={getButtonState(report.requiredDatasets) !== 'ready'}
-                          />
-                          <DefaultButton
-                            text="Refresh Meta data"
-                            onClick={refreshMetaMetricsOnly}
-                            styles={subtleButtonStyles(isDarkMode)}
-                            disabled={reportLoadingStates.metaMetrics}
-                            iconProps={{ iconName: 'Refresh' }}
-                          />
-                        </>
-                      )}
-                      {report.action === 'seoReport' && (
-                        <>
-                          <PrimaryButton
-                            text={report.disabled ? 'ETA 1 day' : ((getButtonState(report.requiredDatasets) === 'ready') ? 'Open SEO report' : 'Preparing…')}
-                            onClick={() => {
-                              const isReady = getButtonState(report.requiredDatasets) === 'ready';
-                              if (!report.disabled && isReady) setActiveView('seoReport');
-                            }}
-                            styles={(getButtonState(report.requiredDatasets) === 'ready')
-                              ? primaryButtonStyles(isDarkMode)
-                              : {
-                                  root: {
-                                    borderRadius: 8,
-                                    padding: '0 16px',
-                                    height: 34,
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
-                                    color: isDarkMode ? '#94a3b8' : '#64748b',
-                                    border: `1px solid ${colours.highlight}`,
-                                    fontWeight: 500,
-                                    boxShadow: 'none',
-                                    transition: 'all 0.2s ease',
-                                    fontFamily: 'Raleway, sans-serif',
-                                  },
-                                  rootHovered: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
-                                  },
-                                  rootPressed: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
-                                  },
-                                  rootDisabled: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
-                                    color: isDarkMode ? '#94a3b8' : '#64748b',
-                                    border: `1px solid ${colours.highlight}`,
-                                  },
-                                }
-                            }
-                            disabled={report.disabled || (getButtonState(report.requiredDatasets) !== 'ready')}
-                          />
-                          <DefaultButton
-                            text="Refresh SEO data"
-                            onClick={refreshMetaMetricsOnly}
-                            styles={subtleButtonStyles(isDarkMode)}
-                            disabled={report.disabled || reportLoadingStates.seoReport}
-                            iconProps={{ iconName: 'Refresh' }}
-                          />
-                        </>
-                      )}
-                      {report.action === 'ppcReport' && (
-                        <>
-                          <PrimaryButton
-                            text={report.disabled ? 'ETA 1 day' : ((getButtonState(report.requiredDatasets) === 'ready') ? 'Open PPC report' : 'Preparing…')}
-                            onClick={() => {
-                              const isReady = getButtonState(report.requiredDatasets) === 'ready';
-                              if (!report.disabled && isReady) setActiveView('ppcReport');
-                            }}
-                            styles={(getButtonState(report.requiredDatasets) === 'ready' && !report.disabled)
-                              ? primaryButtonStyles(isDarkMode)
-                              : {
-                                  root: {
-                                    borderRadius: 8,
-                                    padding: '0 16px',
-                                    height: 34,
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
-                                    color: isDarkMode ? '#94a3b8' : '#64748b',
-                                    border: `1px solid ${colours.highlight}`,
-                                    fontWeight: 500,
-                                    boxShadow: 'none',
-                                    transition: 'all 0.2s ease',
-                                    fontFamily: 'Raleway, sans-serif',
-                                  },
-                                  rootHovered: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
-                                  },
-                                  rootPressed: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
-                                  },
-                                  rootDisabled: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
-                                    color: isDarkMode ? '#94a3b8' : '#64748b',
-                                    border: `1px solid ${colours.highlight}`,
-                                  },
-                                }
-                            }
-                            disabled={report.disabled || (getButtonState(report.requiredDatasets) !== 'ready')}
-                          />
-                          <DefaultButton
-                            text="Refresh PPC data"
-                            onClick={refreshMetaMetricsOnly}
-                            styles={subtleButtonStyles(isDarkMode)}
-                            disabled={report.disabled || reportLoadingStates.ppcReport}
-                            iconProps={{ iconName: 'Refresh' }}
-                          />
-                        </>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <h1 style={{ margin: '0 0 8px 0', fontSize: 22, fontWeight: 600, fontFamily: 'Raleway, sans-serif', color: isDarkMode ? '#f8fafc' : '#0f172a' }}>
+                Reporting workspace
+              </h1>
+              <p style={{ margin: 0, fontSize: 13, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                {isActivelyLoading ? 'Refreshing data feeds...' : 'All systems ready'}
+              </p>
             </div>
-          </div>
-        </div>
-
-        {/* Error Display with Retry */}
-        {error && (
-          <div style={{
-            padding: '10px 14px',
-            borderRadius: 12,
-            background: isDarkMode ? 'rgba(248, 113, 113, 0.22)' : 'rgba(248, 113, 113, 0.18)',
-            color: isDarkMode ? '#fecaca' : '#b91c1c',
-            fontSize: 12,
-            boxShadow: surfaceShadow(isDarkMode),
-            border: `1px solid ${isDarkMode ? 'rgba(248, 113, 113, 0.32)' : 'rgba(248, 113, 113, 0.32)'}`,
-            marginTop: 16,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 12,
-          }}>
-            <span style={{ flex: 1 }}>{error}</span>
-            {!isFetching && (
+            <div style={{ display: 'flex', gap: 10 }}>
               <DefaultButton
-                text="Retry"
-                iconProps={{ iconName: 'Refresh' }}
+                text={isActivelyLoading ? 'Refreshing…' : 'Refresh All Datasets'}
+                onClick={refreshDatasetsWithStreaming}
                 styles={{
                   root: {
-                    height: 24,
-                    minWidth: 60,
-                    padding: '0 8px',
-                    border: `1px solid ${isDarkMode ? 'rgba(248, 113, 113, 0.42)' : 'rgba(248, 113, 113, 0.42)'}`,
-                    background: isDarkMode ? 'rgba(248, 113, 113, 0.12)' : 'rgba(248, 113, 113, 0.12)',
+                    borderRadius: 10,
+                    padding: '0 20px',
+                    height: 38,
+                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'}`,
+                    background: isDarkMode ? 'rgba(30, 41, 59, 0.6)' : 'transparent',
+                    color: isDarkMode ? '#e2e8f0' : '#475569',
+                    fontWeight: 500,
                   },
-                  label: { fontSize: 11, fontWeight: 500, color: isDarkMode ? '#fecaca' : '#b91c1c' },
-                  icon: { fontSize: 11, color: isDarkMode ? '#fecaca' : '#b91c1c' },
+                  rootHovered: {
+                    background: isDarkMode ? 'rgba(30, 41, 59, 0.8)' : 'rgba(248, 250, 252, 0.8)',
+                  },
                 }}
-                onClick={() => {
-                  setError(null);
-                  void refreshDatasetsWithStreaming();
-                }}
+                disabled={isActivelyLoading}
+                iconProps={{ iconName: 'Sync' }}
               />
-            )}
+              <PrimaryButton
+                text='Open dashboard'
+                onClick={handleLaunchDashboard}
+                styles={{
+                  root: {
+                    borderRadius: 10,
+                    padding: '0 20px',
+                    height: 38,
+                    background: colours.highlight,
+                    border: 'none',
+                    fontWeight: 500,
+                  },
+                  rootHovered: {
+                    background: colours.missedBlue,
+                  },
+                  rootDisabled: {
+                    background: isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(148, 163, 184, 0.2)',
+                  },
+                }}
+                disabled={isActivelyLoading || !canUseReports}
+                iconProps={{ iconName: 'Forward' }}
+              />
+            </div>
           </div>
-        )}
-      </section>
 
-      {/* Notes & Suggestions Box */}
-      <section style={sectionSurfaceStyle(isDarkMode)}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-          <FontIcon
-            iconName="FeedbackRequestSolid"
+          <div
             style={{
-              fontSize: 14,
-              color: isDarkMode ? colours.accent : colours.missedBlue,
+              display: 'flex',
+              alignItems: 'baseline',
+              justifyContent: 'space-between',
+              gap: 12,
+              flexWrap: 'wrap',
+              marginBottom: 18,
             }}
-          />
-          <h2 style={sectionTitleStyle}>Feedback</h2>
-        </div>
-        
-        <NotesAndSuggestionsBox isDarkMode={isDarkMode} />
-      </section>
+          >
+            <div>
+              <h3
+                style={{
+                  margin: 0,
+                  fontSize: 15,
+                  fontWeight: 600,
+                  color: isDarkMode ? '#e2e8f0' : '#475569',
+                }}
+              >
+                Available reports
+              </h3>
+
+            </div>
+            <span
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                color: isDarkMode ? '#94a3b8' : '#475569',
+              }}
+            >
+              {readyCount}/{datasetSummaries.length} feeds ready
+            </span>
+          </div>
+
+          {renderAvailableReportCards()}
+        </section>
+
+      {/* Notes & Suggestions Box - only show in development */}
+      {isLocalhost && (
+        <section style={sectionSurfaceStyle(isDarkMode)}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+            <FontIcon
+              iconName="Lightbulb"
+              style={{
+                fontSize: 14,
+                color: isDarkMode ? colours.accent : colours.missedBlue,
+              }}
+            />
+            <h2 style={sectionTitleStyle}>quick thoughts..</h2>
+          </div>
+          
+          <NotesAndSuggestionsBox isDarkMode={isDarkMode} />
+        </section>
+      )}
 
       {/* Marketing Data Settings removed (always using 24 months for GA4 and Google Ads) */}
-
-    </div>
+      </div>
+    </>
   );
 };
 
@@ -4486,7 +4954,7 @@ const NotesAndSuggestionsBox: React.FC<NotesAndSuggestionsBoxProps> = ({ isDarkM
     try {
       const emailBody = `
         <div style="font-family: Raleway, Arial, sans-serif; line-height: 1.6; color: #333;">
-          <h3 style="color: #3690CE; margin-bottom: 16px;">Reporting Dashboard Feedback</h3>
+          <h3 style="color: #3690CE; margin-bottom: 16px;">Quick idea from the dashboard</h3>
           
           <div style="background: #f8fafc; padding: 16px; border-radius: 8px; border-left: 4px solid #87F3F3; margin-bottom: 16px;">
             <p style="margin: 0; font-size: 14px;"><strong>Submitted:</strong> ${new Date().toLocaleString('en-GB', {
@@ -4520,8 +4988,7 @@ const NotesAndSuggestionsBox: React.FC<NotesAndSuggestionsBoxProps> = ({ isDarkM
         body: JSON.stringify({
           email_contents: emailBody,
           user_email: 'automations@helix-law.com',
-          subject: `Reporting Dashboard Feedback - ${new Date().toLocaleDateString('en-GB')}`,
-          from_email: 'automations@helix-law.com'
+          subject: `dashboard idea - ${new Date().toLocaleDateString('en-GB')}`,          from_email: 'automations@helix-law.com'
         })
       });
 
@@ -4544,8 +5011,8 @@ const NotesAndSuggestionsBox: React.FC<NotesAndSuggestionsBoxProps> = ({ isDarkM
 
   return (
     <div style={{
-      background: isDarkMode ? 'rgba(51, 65, 85, 0.4)' : 'rgba(248, 250, 252, 0.8)',
-      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
+      background: isDarkMode ? 'linear-gradient(135deg, #0f172a 0%, #1a2a3a 100%)' : 'rgba(248, 250, 252, 0.8)',
+      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(148, 163, 184, 0.15)'}`,
       borderRadius: 12,
       padding: 20,
     }}>
@@ -4565,22 +5032,22 @@ const NotesAndSuggestionsBox: React.FC<NotesAndSuggestionsBoxProps> = ({ isDarkM
           gap: 6,
         }}>
           <FontIcon iconName="CheckMark" style={{ fontSize: 10 }} />
-          Sent! We'll probably ignore it, but thanks anyway.
+          thanks! sent that through 🚀
         </div>
       )}
 
       <textarea
         value={message}
         onChange={(e) => setMessage(e.target.value)}
-        placeholder="How can we improve this page?"
+        placeholder="got an idea, something not quite right? just drop it here"
         disabled={isSending}
         style={{
           width: '100%',
           minHeight: 80,
           padding: 12,
-          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
+          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(148, 163, 184, 0.2)'}`,
           borderRadius: 8,
-          background: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#ffffff',
+          background: isDarkMode ? '#1e293b' : '#ffffff',
           color: isDarkMode ? '#f1f5f9' : '#1f2937',
           fontSize: 13,
           fontFamily: 'Raleway, Arial, sans-serif',
@@ -4605,11 +5072,11 @@ const NotesAndSuggestionsBox: React.FC<NotesAndSuggestionsBoxProps> = ({ isDarkM
           color: isDarkMode ? '#94a3b8' : '#64748b',
           opacity: 0.8,
         }}>
-          Delivered to automations@helix-law.com
+          quick way to share ideas and feedback
         </span>
         
         <DefaultButton
-          text={isSending ? 'Sending...' : 'Send Feedback'}
+          text={isSending ? 'Sending...' : 'send it'}
           onClick={handleSubmit}
           disabled={!canSubmit}
           iconProps={isSending ? undefined : { iconName: 'Send' }}

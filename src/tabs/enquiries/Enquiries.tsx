@@ -50,6 +50,8 @@ import { useNavigatorActions } from '../../app/functionality/NavigatorContext';
 import UnclaimedEnquiries from './UnclaimedEnquiries';
 import FilterBanner from '../../components/filter/FilterBanner';
 import CreateContactModal from './CreateContactModal';
+import TeamsLinkWidget from '../../components/TeamsLinkWidget';
+import { TeamsActivityData, fetchTeamsActivityTracking } from '../../app/functionality/teamsActivityTracking';
 import { app } from '@microsoft/teams-js';
 import AreaCountCard from './AreaCountCard';
 import 'rc-slider/assets/index.css';
@@ -185,6 +187,15 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   // Debug logging
 
+  // View state - Card vs Ledger toggle
+  const [viewMode, setViewMode] = useState<'card' | 'ledger'>('card');
+
+  // Teams activity data state for v2 enquiries
+  const [teamsActivityMap, setTeamsActivityMap] = useState<Map<string, TeamsActivityData>>(new Map());
+
+  // Ledger view: Track expanded notes by enquiry ID
+  const [expandedNotesInLedger, setExpandedNotesInLedger] = useState<Set<string>>(new Set());
+
   // Navigation state variables  
   // (declaration moved below, only declare once)
 
@@ -203,7 +214,19 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
       
   // Call unified server-side route for ALL environments to avoid legacy combined route
-  const allDataParams = new URLSearchParams({ fetchAll: 'true', includeTeamInbox: 'true', limit: '1500' });
+  // Use same date range as user's personal view for consistency
+  const now = new Date();
+  const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 12, 1);
+  const dateFrom = twelveMonthsAgo.toISOString().split('T')[0];
+  const dateTo = now.toISOString().split('T')[0];
+  
+  const allDataParams = new URLSearchParams({ 
+    fetchAll: 'true', 
+    includeTeamInbox: 'true', 
+    limit: '999999',
+    dateFrom,
+    dateTo
+  });
   const allDataUrl = `/api/enquiries-unified?${allDataParams.toString()}`;
       
       debugLog('🌐 Fetching ALL enquiries (unified) from:', allDataUrl);
@@ -282,6 +305,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           Value: raw.Value || raw.value,
           Initial_first_call_notes: raw.Initial_first_call_notes || raw.notes,
           Call_Taker: raw.Call_Taker || raw.rep,
+          // Preserve claim timestamp from instructions enquiries; legacy stays null
+          claim: raw.claim ?? null,
           __sourceType: sourceType
         };
       });
@@ -294,11 +319,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         return acc;
       }, {}));
       
-      setAllEnquiries(normalizedEnquiries);
-      setDisplayEnquiries(normalizedEnquiries);
-      setTeamWideEnquiries(normalizedEnquiries); // Store team-wide data for suppression
+      // IMPORTANT: Do not overwrite per-user dataset when fetching team-wide data for All/Mine+Claimed.
+      // Keep `allEnquiries` sourced from props (per-user), and store the unified dataset only in teamWideEnquiries.
+      // This prevents Mine view from briefly switching to team-wide dataset and dropping claimed items.
+      setTeamWideEnquiries(normalizedEnquiries);
       
-      debugLog('✅ State updated with normalized enquiries');
+      debugLog('✅ Team-wide enquiries loaded; preserved per-user allEnquiries');
       
       return normalizedEnquiries;
     } catch (error) {
@@ -431,14 +457,15 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       enquiriesLength: enquiries?.length || 0, 
       isAdmin, 
       showMineOnly,
-      currentDisplayCount: displayEnquiries.length
+      currentDisplayCount: displayEnquiries.length,
+      propsSource: 'from parent index.tsx'
     });
-    // If we've already fetched the unified dataset, keep it as the source of truth
-    // to avoid clobbering with smaller prop datasets when toggling Mine/All.
-    if (hasFetchedAllData.current) {
-      debugLog('🔒 Keeping unified dataset (skip prop normalization)', { hasFetched: hasFetchedAllData.current });
-      return;
-    }
+    // DON'T skip prop normalization if we have unified data - this causes the 1337 override
+    // Instead, only use props for regular users and only fetch unified for admins
+    // if (hasFetchedAllData.current) {
+    //   debugLog('🔒 Keeping unified dataset (skip prop normalization)', { hasFetched: hasFetchedAllData.current });
+    //   return;
+    // }
     
     if (!enquiries) {
       setAllEnquiries([]);
@@ -475,6 +502,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         Value: raw.Value || raw.value,
         Initial_first_call_notes: raw.Initial_first_call_notes || raw.notes,
         Call_Taker: raw.Call_Taker || raw.rep,
+        // Preserve claim timestamp from instructions enquiries; legacy stays null
+        claim: raw.claim ?? null,
         // Map Ultimate_Source to source field for enquiry cards
         source: raw.source || raw.Ultimate_Source || 'originalForward',
         __sourceType: sourceType
@@ -506,40 +535,33 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   // Apply dataset toggle to derive display list without losing the other dataset
   useEffect(() => {
+    debugLog('📊 Display derivation effect:', {
+      allEnquiriesLength: allEnquiries.length,
+      teamWideLength: teamWideEnquiries.length,
+      isAdmin,
+      showMineOnly,
+      hasFetchedAllData: hasFetchedAllData.current
+    });
+    
     if (!allEnquiries.length) {
+      debugLog('⚠️ No allEnquiries, clearing display');
       setDisplayEnquiries([]);
       return;
     }
     
-    // If admin is in "All" mode and we have fetched unified data, show all data
+    // CRITICAL FIX: Use teamWideEnquiries for ANY user in All mode who explicitly fetched it
+    // Only use user-filtered allEnquiries when in Mine mode or when unified data not fetched
     const userEmail = userData?.[0]?.Email?.toLowerCase() || '';
-    if (isAdmin && !showMineOnly && hasFetchedAllData.current) {
-      const source = teamWideEnquiries.length > 0 ? teamWideEnquiries : allEnquiries;
-      debugLog('👑 Admin All mode - showing unified data:', source.length);
-      setDisplayEnquiries(source);
+    if (!showMineOnly && hasFetchedAllData.current && teamWideEnquiries.length > 0) {
+      debugLog('🌐 All mode - showing unified data:', teamWideEnquiries.length);
+      setDisplayEnquiries(teamWideEnquiries);
       return;
     }
     
-    if (isLocalhost) {
-      // Show all enquiries (both legacy and new) - no dataset filtering
-      let filtered = allEnquiries;
-      
-      // Debug logging for BR
-      if (userEmail.includes('br@') || userEmail.includes('brendan')) {
-        debugLog('🗄️ BR DEBUG - Data loading:', {
-          totalAllEnquiries: allEnquiries.length,
-          filteredCount: filtered.length,
-          isLocalhost,
-          userEmail,
-          samplePOCs: allEnquiries.slice(0, 10).map(e => e.Point_of_Contact || (e as any).poc)
-        });
-      }
-      
-      setDisplayEnquiries(filtered);
-    } else {
-      setDisplayEnquiries(allEnquiries);
-    }
-  }, [allEnquiries, isLocalhost, userData, showMineOnly]);
+    // For all other cases (Mine mode, or All mode without unified fetch), use allEnquiries
+    debugLog('� Using allEnquiries (user-filtered from props):', allEnquiries.length);
+    setDisplayEnquiries(allEnquiries);
+  }, [allEnquiries, teamWideEnquiries, isAdmin, showMineOnly, userData]);
 
   // Initialize selected areas with user's areas + Other/Unsure
   useEffect(() => {
@@ -587,45 +609,255 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     }
   }, [userData]);
 
-  // Fetch team-wide data on mount for suppression index (runs once)
+  // Auto-enable area filters for Mine/Claimed enquiries to prevent misleading UI
+  // (e.g., showing Construction enquiries but Construction filter appears off)
   useEffect(() => {
-    if (teamWideEnquiries.length === 0 && !isLoadingAllData && !hasFetchedAllData.current) {
-      debugLog('🌐 Fetching team-wide enquiries for suppression index');
-      fetchAllEnquiries().then((data) => {
-        if (data && data.length > 0) {
-          setTeamWideEnquiries(data);
-          debugLog('✅ Team-wide suppression data loaded:', data.length);
-        }
-      });
-    }
-  }, []); // Run once on mount
+    // Only auto-adjust in Mine/Claimed mode, and only if user hasn't manually changed areas
+    if (showMineOnly && activeState === 'Claimed' && !userManuallyChangedAreas) {
+      const userEmail = userData?.[0]?.Email?.toLowerCase() || '';
+      if (!userEmail) return;
 
-  // Fetch all enquiries when user switches to "All" mode and current dataset is too small
+      // Use the UNFILTERED dataset (allEnquiries) to find what areas user actually has claimed
+      // This prevents chicken-egg issue where AoW filters hide enquiries before we can detect their areas
+      const sourceDataset = allEnquiries.length > 0 ? allEnquiries : displayEnquiries;
+      if (sourceDataset.length === 0) return;
+
+      const norm = (s: unknown): string => (typeof s === 'string' ? s.trim().toLowerCase() : '');
+      const userEmailNorm = norm(userEmail);
+
+      // Find all areas present in user's claimed enquiries (from unfiltered data)
+      const areasInClaimed = new Set<string>();
+      for (const enquiry of sourceDataset) {
+        const poc = norm((enquiry as any).Point_of_Contact || (enquiry as any).poc || '');
+        if (poc === userEmailNorm) {
+          const area = (enquiry.Area_of_Work || '').trim();
+          if (area) {
+            // Normalize area names to match filter names
+            const areaLower = area.toLowerCase();
+            if (areaLower.includes('other') || areaLower.includes('unsure')) {
+              areasInClaimed.add('Other/Unsure');
+            } else {
+              // Capitalize first letter of each word for standard areas
+              const normalizedArea = area.charAt(0).toUpperCase() + area.slice(1).toLowerCase();
+              areasInClaimed.add(normalizedArea);
+            }
+          } else {
+            areasInClaimed.add('Other/Unsure');
+          }
+        }
+      }
+
+      if (areasInClaimed.size > 0) {
+        const areasArray = Array.from(areasInClaimed);
+        // Check if current selection matches claimed areas
+        const currentSorted = [...selectedAreas].sort();
+        const claimedSorted = areasArray.sort();
+        const needsUpdate = JSON.stringify(currentSorted) !== JSON.stringify(claimedSorted);
+
+        if (needsUpdate) {
+          debugLog('🎯 Auto-enabling area filters for Mine/Claimed enquiries:', areasArray);
+          setSelectedAreas(areasArray);
+        }
+      }
+    }
+  }, [showMineOnly, activeState, allEnquiries, userData, userManuallyChangedAreas, selectedAreas]);
+
+  // Auto-enable all area filters for admin users
+  useEffect(() => {
+    // Only auto-enable if user is admin and hasn't manually changed areas
+    debugLog('🔍 Admin auto-enable check:', {
+      isAdmin,
+      userManuallyChangedAreas,
+      activeState,
+      currentSelectedAreas: selectedAreas,
+      shouldAutoEnable: isAdmin && !userManuallyChangedAreas
+    });
+
+    if (isAdmin && !userManuallyChangedAreas) {
+      const allAreas = ['Commercial', 'Construction', 'Property', 'Employment', 'Misc/Other'];
+      
+      // Check if current selection matches all areas
+      const currentSorted = [...selectedAreas].sort();
+      const allAreasSorted = [...allAreas].sort();
+      const needsUpdate = JSON.stringify(currentSorted) !== JSON.stringify(allAreasSorted);
+
+      debugLog('🎯 Admin area comparison:', {
+        currentSorted,
+        allAreasSorted,
+        needsUpdate
+      });
+
+      if (needsUpdate) {
+        debugLog('👑 Admin: Auto-enabling all area filters');
+        setSelectedAreas(allAreas);
+      }
+    }
+  }, [isAdmin, userManuallyChangedAreas, activeState]); // Add activeState so admin filters auto-enable when switching states
+
+  // Don't pre-fetch team-wide data on mount anymore
+  // Let users explicitly request "All" mode when they need it
+  // This prevents the dataset override issue for regular users
+  // useEffect(() => {
+  //   if (teamWideEnquiries.length === 0 && !isLoadingAllData && !hasFetchedAllData.current) {
+  //     debugLog('🌐 Fetching team-wide enquiries for suppression index');
+  //     fetchAllEnquiries().then((data) => {
+  //       if (data && data.length > 0) {
+  //         setTeamWideEnquiries(data);
+  //         debugLog('✅ Team-wide suppression data loaded:', data.length);
+  //       }
+  //     });
+  //   }
+  // }, []); // Disabled - only fetch when user toggles to All
+
+  // Memoize user email to prevent unnecessary effect triggers
+  const userEmail = useMemo(() => userData?.[0]?.Email?.toLowerCase() || '', [userData]);
+
+  // Area of Work icon mapping to match Teams channels
+  const getAreaOfWorkIcon = (areaOfWork: string): string => {
+    const area = (areaOfWork || '').toLowerCase().trim();
+    
+    if (area.includes('triage')) return '🩺';
+    if (area.includes('construction') || area.includes('building')) return '🏗️';
+    if (area.includes('property') || area.includes('real estate') || area.includes('conveyancing')) return '🏠';
+    if (area.includes('commercial') || area.includes('business')) return '🏢';
+    if (area.includes('employment') || area.includes('hr') || area.includes('workplace')) return '👩🏻‍💼';
+    if (area.includes('allocation')) return '📂';
+    if (area.includes('general') || area.includes('misc') || area.includes('other')) return 'ℹ️';
+    
+    return 'ℹ️'; // Default icon for General/Other
+  };
+
+  // Format date received display
+  const formatDateReceived = (dateStr: string | null, isFromInstructions: boolean): string => {
+    if (!dateStr) return '--';
+    
+    const date = new Date(dateStr);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    
+    const isToday = dateOnly.getTime() === today.getTime();
+    const isYesterday = dateOnly.getTime() === yesterday.getTime();
+    const isSameYear = date.getFullYear() === now.getFullYear();
+    
+    // Show time only for v2/instructions enquiries
+    if (isFromInstructions) {
+      const time = format(date, 'HH:mm');
+      
+      // If today, just show time
+      if (isToday) {
+        return time;
+      }
+      
+      // If yesterday, show "Yesterday" + time
+      if (isYesterday) {
+        return `Yesterday ${time}`;
+      }
+      
+      // Otherwise show date (without year if same year) + time
+      const dateFormat = isSameYear ? 'dd MMM' : 'dd MMM yyyy';
+      return `${format(date, dateFormat)} ${time}`;
+    }
+    
+    // For legacy enquiries (no time)
+    if (isToday) {
+      return 'Today';
+    } else if (isYesterday) {
+      return 'Yesterday';
+    } else {
+      const dateFormat = isSameYear ? 'dd MMM' : 'dd MMM yyyy';
+      return format(date, dateFormat);
+    }
+  };
+
+  // Format claim time display
+  const formatClaimTime = (claimDate: string | null, pocEmail: string, isFromInstructions: boolean): string => {
+    if (!claimDate) {
+      const isUnclaimed = (pocEmail || '').toLowerCase() === 'team@helix-law.com';
+      return isUnclaimed ? 'Unclaimed' : '--';
+    }
+    
+    // For legacy enquiries, just show --
+    if (!isFromInstructions) {
+      return '--';
+    }
+    
+    // For v2/instructions enquiries, show relative time
+    const date = new Date(claimDate);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    
+    if (diffMins < 60) {
+      return `${diffMins}m ago`;
+    } else if (diffHours < 24) {
+      return `${diffHours}h ago`;
+    } else {
+      return `${diffDays}d ago`;
+    }
+  };
+
+  // Calculate time difference between enquiry received and claim time for v2 enquiries
+  const calculateTimeDifference = (dateReceived: string | null, claimDate: string | null, isFromInstructions: boolean): string => {
+    if (!dateReceived || !claimDate || !isFromInstructions) {
+      return '';
+    }
+    
+    const receivedDate = new Date(dateReceived);
+    const claimedDate = new Date(claimDate);
+    
+    if (isNaN(receivedDate.getTime()) || isNaN(claimedDate.getTime())) {
+      return '';
+    }
+    
+    const diffMs = claimedDate.getTime() - receivedDate.getTime();
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    
+    if (diffMs < 0) {
+      return ''; // Don't show if claim time is before received time
+    }
+    
+    if (diffMins < 60) {
+      return `+${diffMins}m`;
+    } else if (diffHours < 24) {
+      return `+${diffHours}h`;
+    } else if (diffDays === 1) {
+      return `+1d`;
+    } else {
+      return `+${diffDays}d`;
+    }
+  };
+
+  // Fetch all enquiries when ANY user switches to "All" mode OR when in Mine+Claimed mode
   useEffect(() => {
     if (isLoadingAllData) return; // Prevent multiple concurrent fetches
     
-    const userEmail = userData?.[0]?.Email?.toLowerCase() || '';
-    const isBRUser = userEmail.includes('br@') || userEmail.includes('brendan');
+    const needsFullDataset = !showMineOnly || (showMineOnly && activeState === 'Claimed');
     
-  debugLog('🔄 Toggle useEffect triggered:', { isAdmin, showMineOnly, userEmail, hasData: displayEnquiries.length });
+  debugLog('🔄 Toggle useEffect triggered:', { isAdmin, showMineOnly, activeState, userEmail, hasData: displayEnquiries.length, needsFullDataset });
     
-    if (showMineOnly) {
-      // Use whatever dataset we have; do not clear unified fetch flag to preserve All availability
+    if (showMineOnly && activeState !== 'Claimed') {
+      // Regular Mine mode - use whatever dataset we have
       const source = allEnquiries.length > 0 ? allEnquiries : teamWideEnquiries;
-      debugLog('🔄 Mine mode - using current dataset for filtering:', source.length);
+      debugLog('🔄 Mine mode (not Claimed) - using current dataset for filtering:', source.length);
       setDisplayEnquiries(source);
       return;
     }
     
-    // If admin toggles to "All" and we don't have comprehensive data, fetch complete dataset
-    if (isAdmin && !showMineOnly && !hasFetchedAllData.current) {
-      debugLog('🔄 Admin switched to All mode - fetching complete dataset');
-      fetchAllEnquiries();
-    } else if (isBRUser && !showMineOnly && displayEnquiries.length <= 1 && !hasFetchedAllData.current) {
-      debugLog('🔄 BR switched to All mode but only has 1 enquiry - fetching complete dataset');
+    // Fetch unfiltered data when:
+    // 1. User switches to All mode, OR
+    // 2. User is in Mine+Claimed mode (needs full dataset to find all claimed enquiries)
+    if (needsFullDataset && !hasFetchedAllData.current) {
+      debugLog('🔄 Fetching complete dataset for:', showMineOnly ? 'Mine+Claimed mode' : 'All mode');
       fetchAllEnquiries();
     }
-  }, [showMineOnly, userData, fetchAllEnquiries, isAdmin, teamWideEnquiries, allEnquiries, displayEnquiries.length]); // keep effect stable
+  }, [showMineOnly, activeState, userEmail, fetchAllEnquiries, isAdmin]); // Simplified dependencies
 
   const [currentSliderStart, setCurrentSliderStart] = useState<number>(0);
   const [currentSliderEnd, setCurrentSliderEnd] = useState<number>(0);
@@ -695,6 +927,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // Temporary dedupe during platform transition: prefer Claimed > Triaged > Unclaimed and prefer v2 over legacy on ties
   const dedupedEnquiries = useMemo(() => {
     if (!displayEnquiries || displayEnquiries.length === 0) return [] as (Enquiry & { __sourceType: 'new' | 'legacy' })[];
+
+    // Mine + Claimed view should show every record the user owns, even if
+    // multiple enquiries share the same contact/day fingerprint.
+    if (showMineOnly && activeState === 'Claimed') {
+      return [...displayEnquiries] as (Enquiry & { __sourceType: 'new' | 'legacy' })[];
+    }
 
     // Basic triaged detection (aligned with Reporting heuristics)
     const isTriagedPoc = (value: string): boolean => {
@@ -801,6 +1039,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     let uniqueSuffix = 0;
     const map = new Map<string, any>();
     
+    const getSourceType = (record: any): 'new' | 'legacy' => {
+      return (record.__sourceType as 'new' | 'legacy' | undefined) || detectSourceType(record);
+    };
+
     for (const e of displayEnquiries) {
       const baseKey = fuzzyKey(e);
       const existing = map.get(baseKey);
@@ -808,23 +1050,35 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       if (!existing) {
         map.set(baseKey, e);
       } else {
-        // If IDs differ and we don't have a strong identity match (email/phone), keep both
         const existingId = String(existing.ID || (existing as any).id || '');
         const eId = String(e.ID || (e as any).id || '');
         const idsDiffer = existingId && eId && existingId !== eId;
-        const identityMatch = sameIdentity(existing, e);
         
-        if (idsDiffer && !identityMatch) {
-          uniqueSuffix += 1;
-          map.set(`${baseKey}#${uniqueSuffix}`, e);
-          continue;
+        if (idsDiffer) {
+          const identityMatch = sameIdentity(existing, e);
+          if (!identityMatch) {
+            uniqueSuffix += 1;
+            map.set(`${baseKey}#${uniqueSuffix}`, e);
+            continue;
+          }
+
+          const existingSource = getSourceType(existing);
+          const newSource = getSourceType(e);
+          const isCrossSourceDup = existingSource !== newSource;
+
+          if (!isCrossSourceDup) {
+            uniqueSuffix += 1;
+            map.set(`${baseKey}#${uniqueSuffix}`, e);
+            continue;
+          }
         }
+
         map.set(baseKey, pickBetter(existing, e));
       }
     }
     
     return Array.from(map.values()) as (Enquiry & { __sourceType: 'new' | 'legacy' })[];
-  }, [displayEnquiries, showMineOnly, userData]);
+  }, [displayEnquiries, showMineOnly, userData, activeState]);
 
   // Build a suppression index: if a claimed record exists for the same contact on the same day, suppress unclaimed copies
   // IMPORTANT: Use teamWideEnquiries (includes all team members' claims), not allEnquiries (may be filtered to current user)
@@ -1307,6 +1561,52 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     }
   }, [ratingEnquiryId, currentRating, handleRatingChange, closeRateModal]);
 
+  // Delete enquiry function
+  const handleDeleteEnquiry = useCallback(async (enquiryId: string, enquiryName: string) => {
+    try {
+      console.log('🗑️ Deleting enquiry:', enquiryId, enquiryName);
+      
+      const response = await fetch(`/api/enquiries-unified/${enquiryId}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ Delete result:', result);
+
+      // Remove from local state immediately for responsive UI
+      setAllEnquiries(prevEnquiries => prevEnquiries.filter(e => e.ID !== enquiryId));
+      setDisplayEnquiries(prevDisplay => prevDisplay.filter(e => e.ID !== enquiryId));
+      setTeamWideEnquiries(prevTeamWide => prevTeamWide.filter(e => e.ID !== enquiryId));
+
+      // Show success toast
+      setToastMessage(`Enquiry deleted`);
+      setToastDetails(`${enquiryName} has been permanently removed`);
+      setToastType('success');
+      setToastVisible(true);
+      setTimeout(() => setToastVisible(false), 3000);
+
+      console.log('✅ Enquiry deleted successfully:', enquiryId);
+      
+    } catch (error) {
+      console.error('❌ Failed to delete enquiry:', error);
+      // Show error toast
+      setToastMessage(`Failed to delete enquiry`);
+      setToastDetails(error instanceof Error ? error.message : 'Unknown error');
+      setToastType('error');
+      setToastVisible(true);
+      setTimeout(() => setToastVisible(false), 5000);
+      throw error;
+    }
+  }, []);
+
   // Handler to filter by person initials
   const handleFilterByPerson = useCallback((initials: string) => {
     setSelectedPersonInitials(prev => prev === initials ? null : initials); // Toggle filter
@@ -1321,28 +1621,31 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
     const effectiveUserEmail = userEmail;
 
+    // Skip AoW filtering in two cases:
+    // 1. "All" mode - show everything regardless of filters ("all means all")
+    // 2. Mine/Claimed mode - show all user's claimed enquiries (filters just indicate what they have)
+    const skipAoWFilters = !showMineOnly || activeState === 'Claimed';
+
     // Filter by activeState first (supports Claimed, Unclaimed, etc.)
     if (activeState === 'Claimed') {
       if (showMineOnly || !isAdmin) {
         // Mine only view
         const beforeCount = filtered.length;
         const mineItems: any[] = [];
+        const norm = (s: unknown): string => (typeof s === 'string' ? s.trim().toLowerCase() : '');
+        const userEmailNorm = norm(effectiveUserEmail);
         
-        filtered = filtered.filter(enquiry => {
-          const poc = (enquiry.Point_of_Contact || (enquiry as any).poc || '').toLowerCase();
-          const matches = effectiveUserEmail ? poc === effectiveUserEmail : false;
+        const preFilter = filtered;
+        filtered = preFilter.filter(enquiry => {
+          const poc = norm((enquiry as any).Point_of_Contact || (enquiry as any).poc || '');
+          const matches = userEmailNorm ? poc === userEmailNorm : false;
           if (matches) {
             mineItems.push(enquiry);
           }
           return matches;
         });
         
-        console.log(`[MINE-ONLY] ${beforeCount} → ${filtered.length} items`);
-        mineItems.forEach(item => {
-          const id = String(item.ID || (item as any).id || '');
-          const poc = String(item.Point_of_Contact || (item as any).poc || '');
-          console.log(`  ✓ ID=${id} POC=${poc}`);
-        });
+        // Mine-only filter applied
       } else {
         // Admin "All" mode - show all claimed (anyone's)
         filtered = filtered.filter(enquiry => {
@@ -1375,8 +1678,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       });
     }
 
-    // Area-based access control - only applies for unclaimed enquiries
-    if (activeState === 'Claimable' && userData && userData.length > 0 && userData[0].AOW) {
+    // Area-based access control and filtering
+    // CRITICAL: Skip ALL area filtering in Mine+Claimed mode to show every claimed enquiry
+    if (showMineOnly && activeState === 'Claimed') {
+      // No area filtering at all - show everything the user claimed
+    } else if (activeState === 'Claimable' && userData && userData.length > 0 && userData[0].AOW) {
+      // Area-based access control - only applies for unclaimed enquiries
       const userAOW = userData[0].AOW.split(',').map(a => a.trim().toLowerCase());
 
       const hasFullAccess = userAOW.some(
@@ -1438,8 +1745,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           );
         });
       }
-    } else if (selectedAreas.length > 0 && activeState !== 'Claimed') {
-      // Apply area filter to non-Claimed states; keep Claimed view unfiltered by AoW to avoid hiding user's items on entry
+    } else if (selectedAreas.length > 0 && showMineOnly) {
+      // Apply area filter to other Mine states (not Claimed, not Claimable)
       filtered = filtered.filter(enquiry => {
         const enquiryArea = (enquiry.Area_of_Work || '').toLowerCase().trim();
         
@@ -1526,6 +1833,51 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const handleLoadMore = useCallback(() => {
     setItemsToShow((prev) => Math.min(prev + 20, filteredEnquiries.length));
   }, [filteredEnquiries.length]);
+
+  // Fetch Teams activity data for v2 enquiries (once when allEnquiries loads)
+  useEffect(() => {
+    const fetchTeamsData = async () => {
+      // Use displayEnquiries to include team-wide data when in All mode
+      // Only fetch for v2 enquiries (new source type with __sourceType === 'new')
+      const v2EnquiryIds = displayEnquiries
+        .filter(enquiry => {
+          // Check __sourceType first (most reliable), fallback to source field check
+          const isNewSource = (enquiry as any).__sourceType === 'new' || (enquiry as any).source === 'instructions';
+          return isNewSource && enquiry.ID;
+        })
+        .map(enquiry => enquiry.ID)
+        .filter(Boolean);
+
+      console.log(`🔍 Fetching Teams activity for ${v2EnquiryIds.length} v2 enquiries (mode: ${showMineOnly ? 'Mine' : 'All'}, total display: ${displayEnquiries.length})`);
+
+      if (v2EnquiryIds.length > 0) {
+        try {
+          const activityData = await fetchTeamsActivityTracking(v2EnquiryIds);
+          const activityMap = new Map<string, TeamsActivityData>();
+          activityData.forEach(data => {
+            if (data.EnquiryId) {
+              activityMap.set(data.EnquiryId, data);
+            }
+          });
+          setTeamsActivityMap(activityMap);
+          console.log(`🔗 Teams widgets: ${activityMap.size} active card${activityMap.size !== 1 ? 's' : ''} linked (mode: ${showMineOnly ? 'Mine' : 'All'})`);
+        } catch (error) {
+          console.error('⚠️ Teams widget fetch failed:', error);
+        }
+      } else {
+        console.log(`ℹ️ No v2 enquiries to fetch Teams activity for (mode: ${showMineOnly ? 'Mine' : 'All'})`);
+        // Clear the map if there are no v2 enquiries
+        setTeamsActivityMap(new Map());
+      }
+    };
+
+    if (displayEnquiries.length > 0) {
+      fetchTeamsData();
+    } else {
+      // Clear Teams activity when no enquiries
+      setTeamsActivityMap(new Map());
+    }
+  }, [displayEnquiries, showMineOnly]);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -1767,6 +2119,104 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     }
   }
 
+  // Format value for compact ledger display
+  const formatValueForDisplay = (rawValue: string | number | null | undefined): string => {
+    if (!rawValue || (typeof rawValue === 'string' && rawValue.trim() === '')) return '-';
+    
+    const value = String(rawValue).trim();
+    
+
+    
+    // Value mapping for compact display
+    const valueMap: { [key: string]: string } = {
+      // High value
+      '£500,001 or more': '£500k+',
+      'A financial sum over £500,001': '£500k+',
+      'Greater than £100,000': '£100k+',
+      
+      // Medium-high value
+      '£100,001 - £500,000': '£100k-500k',
+      'A financial sum between £100,001 - £500,000': '£100k-500k',
+      
+      // Medium value
+      '£50,000 to £100,000': '£50k-100k',
+      '£50,000 or more': '£50k+',
+      '£25,000 to £50,000': '£25k-50k',
+      
+      // Low-medium value
+      '£10,001 - £100,000': '£10k-100k',
+      'A financial sum between £10,000 - £100,000': '£10k-100k',
+      '£10,000 to £50,000': '£10k-50k',
+      '£10,000 - £50,000': '£10k-50k',
+      
+      // Low value
+      '£10,000 or less': '≤£10k',
+      'Less than £10,000': '<£10k',
+      'A financial sum below £10,000': '<£10k',
+      
+      // Non-monetary/Uncertain
+      'The claim is for something other than money': 'Non-monetary',
+      'Dispute involves a property, land or shares': 'Property/shares',
+      'Not Applicable': 'N/A',
+      'unsure': 'Unsure',
+      'Uncertain': 'Unsure',
+      'Unable to establish': 'Unknown',
+      'I\'m Uncertain/Other': 'Unsure',
+      'other': 'Other',
+      
+      // Specific amounts
+      '£750k': '£750k',
+      '£1000': '£1k',
+      '10000': '£10k',
+      '5000': '£5k',
+      'test item': 'Test'
+    };
+    
+    // Check for exact match first
+    if (valueMap[value]) {
+      return valueMap[value];
+    }
+    
+    // Check case-insensitive match
+    const lowerValue = value.toLowerCase();
+    for (const [key, mapped] of Object.entries(valueMap)) {
+      if (key.toLowerCase() === lowerValue) {
+        return mapped;
+      }
+    }
+    
+    // Fallback: check for partial matches in case the value is truncated
+    if (value.includes('10,001') && value.includes('100,000')) {
+      return '£10k-100k';
+    }
+    if (value.includes('10,000') && (value.includes('or less') || value.includes('or...'))) {
+      return '≤£10k';
+    }
+    if (value.includes('50,000') && value.includes('100,000')) {
+      return '£50k-100k';
+    }
+    if (value.includes('100,001') && value.includes('500,000')) {
+      return '£100k-500k';
+    }
+    
+    // For unmapped values, try to shorten if it's already currency formatted
+    if (value.startsWith('£')) {
+      return value;
+    }
+    
+    // For pure numbers, add £ prefix
+    if (/^\d+$/.test(value)) {
+      const num = parseInt(value);
+      if (num >= 1000) {
+        return `£${Math.round(num / 1000)}k`;
+      }
+      return `£${value}`;
+    }
+    
+    // Return as-is for other cases, truncated if too long
+    return value.length > 12 ? value.substring(0, 9) + '...' : value;
+  };
+
   const renderCustomLegend = (props: any) => {
     const { payload } = props;
     return (
@@ -1863,6 +2313,17 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           }}
           secondaryFilter={(
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              {isAdmin && selectedAreas.length === 5 && (
+                <div style={{ 
+                  fontSize: '11px', 
+                  color: '#3690CE', 
+                  fontWeight: '500',
+                  opacity: 0.8,
+                  paddingRight: '4px'
+                }}>
+                  Admin: showing all aow
+                </div>
+              )}
               {userData && userData[0]?.AOW && (
                 <IconAreaFilter
                   selectedAreas={selectedAreas}
@@ -1871,18 +2332,124 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                   ariaLabel="Filter enquiries by area of work"
                 />
               )}
-              {(isAdmin || isLocalhost) && (
-                <SegmentedControl
-                  id="enquiries-scope-seg"
-                  ariaLabel="Scope: toggle between my enquiries and all enquiries"
-                  value={showMineOnly ? 'mine' : 'all'}
-                  onChange={(v) => setShowMineOnly(v === 'mine')}
-                  options={[
-                    { key: 'mine', label: 'Mine', disabled: activeState === 'Claimable' },
-                    { key: 'all', label: 'All', disabled: activeState === 'Claimable' }
-                  ]}
-                />
-              )}
+              <SegmentedControl
+                id="enquiries-scope-seg"
+                ariaLabel="Scope: toggle between my enquiries and all enquiries"
+                value={showMineOnly ? 'mine' : 'all'}
+                onChange={(v) => setShowMineOnly(v === 'mine')}
+                options={[
+                  { key: 'mine', label: 'Mine', disabled: activeState === 'Claimable' },
+                  { key: 'all', label: 'All', disabled: activeState === 'Claimable' }
+                ]}
+              />
+              {/* View Mode Toggle - Card vs Ledger */}
+              <div 
+                role="group" 
+                aria-label="View: choose card or ledger view"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 2,
+                  height: 28,
+                  padding: '2px 4px',
+                  background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                  borderRadius: 14,
+                  fontFamily: 'Raleway, sans-serif',
+                }}
+              >
+                <button
+                  type="button"
+                  title="Card view"
+                  aria-label="Card view"
+                  aria-pressed={viewMode === 'card'}
+                  onClick={() => setViewMode('card')}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 4,
+                    height: 22,
+                    padding: '0 6px',
+                    background: viewMode === 'card' ? '#FFFFFF' : 'transparent',
+                    border: 'none',
+                    borderRadius: 11,
+                    cursor: 'pointer',
+                    transition: 'all 200ms ease',
+                    opacity: viewMode === 'card' ? 1 : 0.6,
+                    boxShadow: viewMode === 'card' 
+                      ? (isDarkMode
+                          ? '0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.24)'
+                          : '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)')
+                      : 'none',
+                  }}
+                >
+                  <Icon
+                    iconName="GridViewMedium"
+                    style={{
+                      fontSize: 10,
+                      color: viewMode === 'card' 
+                        ? (isDarkMode ? '#1f2937' : '#1f2937')
+                        : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
+                    }}
+                  />
+                  <span style={{
+                    fontSize: '11px',
+                    fontWeight: 500,
+                    color: viewMode === 'card' 
+                      ? (isDarkMode ? '#1f2937' : '#1f2937')
+                      : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
+                  }}>
+                    Card
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  title="Ledger view"
+                  aria-label="Ledger view"
+                  aria-pressed={viewMode === 'ledger'}
+                  onClick={() => setViewMode('ledger')}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 4,
+                    height: 22,
+                    padding: '0 6px',
+                    background: viewMode === 'ledger' ? '#FFFFFF' : 'transparent',
+                    border: 'none',
+                    borderRadius: 11,
+                    cursor: 'pointer',
+                    transition: 'all 200ms ease',
+                    opacity: viewMode === 'ledger' ? 1 : 0.6,
+                    boxShadow: viewMode === 'ledger' 
+                      ? (isDarkMode
+                          ? '0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.24)'
+                          : '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)')
+                      : 'none',
+                  }}
+                >
+                  <Icon
+                    iconName="Table"
+                    style={{
+                      fontSize: 10,
+                      color: viewMode === 'ledger' 
+                        ? (isDarkMode ? '#1f2937' : '#1f2937')
+                        : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
+                    }}
+                  />
+                  <span style={{
+                    fontSize: '11px',
+                    fontWeight: 500,
+                    color: viewMode === 'ledger' 
+                      ? (isDarkMode ? '#1f2937' : '#1f2937')
+                      : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
+                  }}>
+                    Ledger
+                  </span>
+                </button>
+              </div>
+              {/* Layout Toggle - only show in card view */}
+              {viewMode === 'card' && (
               <div 
                 role="group" 
                 aria-label="Layout: choose 1 or 2 columns"
@@ -1968,6 +2535,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                   />
                 </button>
               </div>
+              )}
             </div>
           )}
           search={{
@@ -1980,77 +2548,81 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             isLoading: isRefreshing,
             nextUpdateTime: nextRefreshIn ? formatTimeRemaining(nextRefreshIn) : undefined,
           }}
+          rightActions={
+            <>
+              <button
+                type="button"
+                title="Create new contact/enquiry"
+                aria-label="Create new contact"
+                onClick={() => setIsCreateContactModalOpen(true)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  height: 28,
+                  padding: '0 8px',
+                  borderRadius: 14,
+                  border: isDarkMode ? '1px solid rgba(102,170,232,0.3)' : '1px solid rgba(102,170,232,0.3)',
+                  background: isDarkMode ? 'rgba(102,170,232,0.12)' : 'rgba(102,170,232,0.08)',
+                  cursor: 'pointer',
+                  fontSize: 11,
+                  fontFamily: 'Raleway, sans-serif',
+                  color: colours.highlight,
+                  fontWeight: 600,
+                  transition: 'all 200ms ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = isDarkMode ? 'rgba(102,170,232,0.18)' : 'rgba(102,170,232,0.14)';
+                  e.currentTarget.style.borderColor = colours.highlight;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = isDarkMode ? 'rgba(102,170,232,0.12)' : 'rgba(102,170,232,0.08)';
+                  e.currentTarget.style.borderColor = isDarkMode ? 'rgba(102,170,232,0.3)' : 'rgba(102,170,232,0.3)';
+                }}
+              >
+                <Icon iconName="AddFriend" style={{ fontSize: 12 }} />
+                <span>Create</span>
+              </button>
+              {isAdmin && (
+                <button
+                  type="button"
+                  title="Open enquiries report"
+                  aria-label="Open enquiries report"
+                  onClick={() => {
+                    // Dispatch custom event to navigate to reporting tab
+                    window.dispatchEvent(new CustomEvent('navigateToReporting'));
+                  }}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    height: 28,
+                    padding: '0 8px',
+                    borderRadius: 14,
+                    border: isDarkMode ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(0,0,0,0.12)',
+                    background: 'transparent',
+                    cursor: 'pointer',
+                    fontSize: 11,
+                    fontFamily: 'Raleway, sans-serif',
+                    color: isDarkMode ? '#E5E7EB' : '#0F172A',
+                    transition: 'all 200ms ease',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)';
+                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)';
+                  }}
+                >
+                  <Icon iconName="BarChartVertical" style={{ fontSize: 12 }} />
+                  <span>Report</span>
+                </button>
+              )}
+            </>
+          }
         >
-          <button
-            type="button"
-            title="Create new contact/enquiry"
-            aria-label="Create new contact"
-            onClick={() => setIsCreateContactModalOpen(true)}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              height: 28,
-              padding: '0 10px',
-              borderRadius: 14,
-              border: isDarkMode ? '1px solid rgba(102,170,232,0.3)' : '1px solid rgba(102,170,232,0.3)',
-              background: isDarkMode ? 'rgba(102,170,232,0.12)' : 'rgba(102,170,232,0.08)',
-              cursor: 'pointer',
-              fontSize: 12,
-              fontFamily: 'Raleway, sans-serif',
-              color: colours.highlight,
-              fontWeight: 600,
-              transition: 'all 200ms ease',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = isDarkMode ? 'rgba(102,170,232,0.18)' : 'rgba(102,170,232,0.14)';
-              e.currentTarget.style.borderColor = colours.highlight;
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = isDarkMode ? 'rgba(102,170,232,0.12)' : 'rgba(102,170,232,0.08)';
-              e.currentTarget.style.borderColor = isDarkMode ? 'rgba(102,170,232,0.3)' : 'rgba(102,170,232,0.3)';
-            }}
-          >
-            <Icon iconName="AddFriend" style={{ fontSize: 14 }} />
-            <span>Create Contact</span>
-          </button>
-          {isAdmin && (
-            <button
-              type="button"
-              title="Open enquiries report"
-              aria-label="Open enquiries report"
-              onClick={() => {
-                // Dispatch custom event to navigate to reporting tab
-                window.dispatchEvent(new CustomEvent('navigateToReporting'));
-              }}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                height: 28,
-                padding: '0 10px',
-                borderRadius: 14,
-                border: isDarkMode ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(0,0,0,0.12)',
-                background: 'transparent',
-                cursor: 'pointer',
-                fontSize: 12,
-                fontFamily: 'Raleway, sans-serif',
-                color: isDarkMode ? '#E5E7EB' : '#0F172A',
-                transition: 'all 200ms ease',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)';
-                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'transparent';
-                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)';
-              }}
-            >
-              <Icon iconName="BarChartVertical" style={{ fontSize: 14 }} />
-              <span>Report</span>
-            </button>
-          )}
           {selectedPersonInitials && (
             <div
               style={{
@@ -2272,103 +2844,715 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
             ) : (
               <>
-                        {/* Connected List Items */}
-                        <div
-                          className={
-                            (() => {
-                              const base = mergeStyles({
-                                display: twoColumn ? 'grid' : 'flex',
-                                flexDirection: twoColumn ? undefined : 'column',
-                                gap: '12px',
-                                padding: 0,
-                                margin: 0,
-                                backgroundColor: 'transparent',
-                                gridTemplateColumns: twoColumn ? 'repeat(2, minmax(0, 1fr))' : undefined,
-                                width: '100%', // allow full width usage
-                                transition: 'grid-template-columns .25s ease',
-                              });
-                              return twoColumn ? `${base} two-col-grid` : base;
-                            })()
-                          }
-                          style={twoColumn ? { position: 'relative' } : undefined}
-                        >
-                          {twoColumn && (() => {
-                            if (typeof document !== 'undefined' && !document.getElementById('enquiriesTwoColStyles')) {
-                              const el = document.createElement('style');
-                              el.id = 'enquiriesTwoColStyles';
-                              el.textContent = '@media (max-width: 860px){.two-col-grid{display:flex!important;flex-direction:column!important;}}';
-                              document.head.appendChild(el);
-                            }
-                            return null;
-                          })()}
-                          {displayedItems.map((item, idx) => {
-                            const isLast = idx === displayedItems.length - 1;
+                {viewMode === 'card' ? (
+                  /* Card View */
+                  <div
+                    className={
+                      (() => {
+                        const base = mergeStyles({
+                          display: twoColumn ? 'grid' : 'flex',
+                          flexDirection: twoColumn ? undefined : 'column',
+                          gap: '12px',
+                          padding: 0,
+                          margin: 0,
+                          backgroundColor: 'transparent',
+                          gridTemplateColumns: twoColumn ? 'repeat(2, minmax(0, 1fr))' : undefined,
+                          width: '100%', // allow full width usage
+                          transition: 'grid-template-columns .25s ease',
+                        });
+                        return twoColumn ? `${base} two-col-grid` : base;
+                      })()
+                    }
+                    style={twoColumn ? { position: 'relative' } : undefined}
+                  >
+                    {twoColumn && (() => {
+                      if (typeof document !== 'undefined' && !document.getElementById('enquiriesTwoColStyles')) {
+                        const el = document.createElement('style');
+                        el.id = 'enquiriesTwoColStyles';
+                        el.textContent = '@media (max-width: 860px){.two-col-grid{display:flex!important;flex-direction:column!important;}}';
+                        document.head.appendChild(el);
+                      }
+                      return null;
+                    })()}
+                    {displayedItems.map((item, idx) => {
+                      const isLast = idx === displayedItems.length - 1;
 
-                            // Extract user's areas of work (AOW) for filtering
-                            let userAOW: string[] = [];
-                            if (userData && userData.length > 0 && userData[0].AOW) {
-                              userAOW = userData[0].AOW.split(',').map((a) => a.trim().toLowerCase());
-                            }
+                      // Extract user's areas of work (AOW) for filtering
+                      let userAOW: string[] = [];
+                      if (userData && userData.length > 0 && userData[0].AOW) {
+                        userAOW = userData[0].AOW.split(',').map((a) => a.trim().toLowerCase());
+                      }
 
-                            // Get user email for claim functionality
-                            const currentUserEmail = userData && userData[0] && userData[0].Email
-                              ? userData[0].Email.toLowerCase()
-                              : '';
+                      // Get user email for claim functionality
+                      const currentUserEmail = userData && userData[0] && userData[0].Email
+                        ? userData[0].Email.toLowerCase()
+                        : '';
 
-                            if (isGroupedEnquiry(item)) {
-                              // Render grouped enquiry card
-                              return (
-                                <GroupedEnquiryCard
-                                  key={item.clientKey}
-                                  groupedEnquiry={item}
-                                  onSelect={handleSelectEnquiry}
-                                  onRate={handleRate}
-                                  onRatingChange={handleRatingChange}
-                                  onPitch={handleSelectEnquiry}
-                                  teamData={teamData}
-                                  isLast={isLast}
-                                  userAOW={userAOW}
-                                  getPromotionStatus={getPromotionStatusSimple}
-                                  onFilterByPerson={handleFilterByPerson}
-                                />
-                              );
-                            } else {
-                              const pocLower = (item.Point_of_Contact || (item as any).poc || '').toLowerCase();
-                              const isUnclaimed = pocLower === 'team@helix-law.com';
-                              if (isUnclaimed) {
-                                return (
-                                  <NewUnclaimedEnquiryCard
-                                    key={item.ID}
-                                    enquiry={item}
-                                    onSelect={() => {}} // Prevent click-through to pitch builder
-                                    onRate={handleRate}
-                                    onAreaChange={handleAreaChange}
-                                    isLast={isLast}
-                                    userEmail={currentUserEmail}
-                                    onClaimSuccess={onRefreshEnquiries}
-                                    promotionStatus={getPromotionStatusSimple(item)}
-                                  />
-                                );
+                      if (isGroupedEnquiry(item)) {
+                        // Render grouped enquiry card
+                        return (
+                          <GroupedEnquiryCard
+                            key={item.clientKey}
+                            groupedEnquiry={item}
+                            onSelect={handleSelectEnquiry}
+                            onRate={handleRate}
+                            onRatingChange={handleRatingChange}
+                            onPitch={handleSelectEnquiry}
+                            teamData={teamData}
+                            isLast={isLast}
+                            userAOW={userAOW}
+                            getPromotionStatus={getPromotionStatusSimple}
+                            onFilterByPerson={handleFilterByPerson}
+                          />
+                        );
+                      } else {
+                        const pocLower = (item.Point_of_Contact || (item as any).poc || '').toLowerCase();
+                        const isUnclaimed = pocLower === 'team@helix-law.com';
+                        if (isUnclaimed) {
+                          return (
+                            <NewUnclaimedEnquiryCard
+                              key={item.ID}
+                              enquiry={item}
+                              onSelect={() => {}} // Prevent click-through to pitch builder
+                              onRate={handleRate}
+                              onAreaChange={handleAreaChange}
+                              isLast={isLast}
+                              userEmail={currentUserEmail}
+                              onClaimSuccess={onRefreshEnquiries}
+                              promotionStatus={getPromotionStatusSimple(item)}
+                            />
+                          );
+                        }
+                        const claimer = claimerMap[pocLower];
+                        return (
+                          <ClaimedEnquiryCard
+                            key={item.ID}
+                            enquiry={item}
+                            claimer={claimer}
+                            onSelect={handleSelectEnquiry}
+                            onRate={handleRate}
+                            onRatingChange={handleRatingChange}
+                            onEdit={handleEditEnquiry}
+                            onAreaChange={handleAreaChange}
+                            userData={userData}
+                            isLast={isLast}
+                            promotionStatus={getPromotionStatusSimple(item)}
+                            onFilterByPerson={handleFilterByPerson}
+                          />
+                        );
+                      }
+                    })}
+                  </div>
+                ) : (
+                  /* Ledger View */
+                  <div 
+                    style={{
+                      backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.6)' : '#ffffff',
+                      border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
+                      borderRadius: 12,
+                      overflow: 'hidden',
+                      fontFamily: 'Raleway, sans-serif',
+                    }}
+                  >
+                    {/* Header Row */}
+                    <div 
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 0.6fr 0.5fr 0.7fr 0.15fr 0.5fr 0.8fr',
+                        gap: '8px',
+                        padding: '12px 16px',
+                        background: isDarkMode 
+                          ? 'linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%)'
+                          : 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
+                        borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.06)'}`,
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        color: isDarkMode ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px',
+                      }}
+                    >
+                      <div>Contact & Company</div>
+                      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>AOW</div>
+                      <div>POC</div>
+                      <div>Date/Time</div>
+                      <div></div>
+                      <div>Claim Time</div>
+                      <div>Value</div>
+                    </div>
+
+                    {/* Data Rows */}
+                    {displayedItems.map((item, idx) => {
+                      const isLast = idx === displayedItems.length - 1;
+                      
+                      // Handle different item types
+                      if (isGroupedEnquiry(item)) {
+                        // For grouped enquiries, show summary info
+                        const latestEnquiry = item.enquiries[0]; // Most recent enquiry in the group
+                        const pocLower = (latestEnquiry.Point_of_Contact || '').toLowerCase();
+                        const isUnclaimed = pocLower === 'team@helix-law.com';
+                        const promotionStatus = getPromotionStatusSimple(latestEnquiry);
+                        
+                        const contactName = item.clientName;
+                        const companyName = latestEnquiry.Company || '';
+                        const areaOfWork = item.areas.join(', ') || 'Unspecified';
+                        const dateReceived = item.latestDate;
+                        const value = item.totalValue || '';
+                        const isFromInstructions = (latestEnquiry as any).source === 'instructions';
+                        const claimDate = isFromInstructions ? ((latestEnquiry as any).claim || null) : null;
+                        
+                        return (
+                          <div
+                            key={item.clientKey}
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: '1fr 0.6fr 0.5fr 0.7fr 0.15fr 0.5fr 0.8fr',
+                              gap: '8px',
+                              padding: '12px 16px',
+                              borderBottom: isLast ? 'none' : `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)'}`,
+                              fontSize: '13px',
+                              color: isDarkMode ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0, 0, 0, 0.85)',
+                              transition: 'all 0.2s ease',
+                              cursor: 'pointer',
+                              position: 'relative',
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.backgroundColor = isDarkMode 
+                                ? 'rgba(255, 255, 255, 0.04)' 
+                                : 'rgba(0, 0, 0, 0.02)';
+                              const actionsIcon = e.currentTarget.querySelector('.row-actions') as HTMLElement;
+                              if (actionsIcon) {
+                                actionsIcon.style.opacity = '1';
                               }
-                              const claimer = claimerMap[pocLower];
-                              return (
-                                <ClaimedEnquiryCard
-                                  key={item.ID}
-                                  enquiry={item}
-                                  claimer={claimer}
-                                  onSelect={handleSelectEnquiry}
-                                  onRate={handleRate}
-                                  onEdit={handleEditEnquiry}
-                                  onAreaChange={handleAreaChange}
-                                  userData={userData}
-                                  isLast={isLast}
-                                  promotionStatus={getPromotionStatusSimple(item)}
-                                  onFilterByPerson={handleFilterByPerson}
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.backgroundColor = 'transparent';
+                              const actionsIcon = e.currentTarget.querySelector('.row-actions') as HTMLElement;
+                              if (actionsIcon) {
+                                actionsIcon.style.opacity = '0';
+                              }
+                            }}
+                            onClick={() => handleSelectEnquiry(latestEnquiry)}
+                          >
+                            {/* Contact & Company */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', justifyContent: 'center' }}>
+                              <div style={{ fontWeight: 600, color: isDarkMode ? '#E5E7EB' : '#1F2937' }}>
+                                {contactName} <span style={{ fontSize: '11px', opacity: 0.7 }}>({item.enquiries.length} enquiries)</span>
+                              </div>
+                              {companyName && (
+                                <div style={{ 
+                                  fontSize: '11px', 
+                                  color: isDarkMode ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)',
+                                  fontWeight: 500 
+                                }}>
+                                  {companyName}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Area of Work */}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+                              <span style={{ fontSize: '18px', lineHeight: 1 }} title={areaOfWork}>
+                                {getAreaOfWorkIcon(areaOfWork)}
+                              </span>
+                            </div>
+
+                            {/* Status */}
+                            <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+                              <span style={{
+                                padding: '3px 8px',
+                                borderRadius: '6px',
+                                fontSize: '11px',
+                                fontWeight: 500,
+                                backgroundColor: isDarkMode ? 'rgba(147, 51, 234, 0.15)' : 'rgba(147, 51, 234, 0.1)',
+                                color: isDarkMode ? '#C084FC' : '#7C3AED',
+                                lineHeight: 1.2
+                              }}>
+                                Grouped ({item.enquiries.length})
+                              </span>
+                            </div>
+
+                            {/* Date */}
+                            <div style={{ fontSize: '12px', color: isDarkMode ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.6)', display: 'flex', alignItems: 'center', height: '100%' }}>
+                              {formatDateReceived(dateReceived, false)}
+                            </div>
+
+                            {/* Time Difference Connector */}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+                              {(() => {
+                                const timeDiff = calculateTimeDifference(dateReceived, claimDate, isFromInstructions);
+                                return timeDiff ? (
+                                  <div style={{
+                                    fontSize: '9px',
+                                    color: isDarkMode ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.4)',
+                                    fontWeight: 500,
+                                    background: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
+                                    padding: '2px 4px',
+                                    borderRadius: '3px',
+                                    border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.06)'}`,
+                                  }}>
+                                    {timeDiff}
+                                  </div>
+                                ) : null;
+                              })()} 
+                            </div>
+
+                            {/* Claim Time */}
+                            <div style={{ fontSize: '11px', color: isDarkMode ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)', display: 'flex', alignItems: 'center', height: '100%' }}>
+                              {formatClaimTime(claimDate, pocLower, isFromInstructions)}
+                            </div>
+
+                            {/* Value */}
+                            <div style={{ fontSize: '12px', fontWeight: 600, color: isDarkMode ? '#E5E7EB' : '#1F2937', display: 'flex', alignItems: 'center', height: '100%' }}>
+                              {formatValueForDisplay(value)}
+                            </div>
+
+                            {/* Hover Actions Icon */}
+                            <div 
+                              style={{
+                                position: 'absolute',
+                                right: '16px',
+                                top: '50%',
+                                transform: 'translateY(-50%)',
+                                opacity: 0,
+                                transition: 'opacity 0.2s ease',
+                                pointerEvents: 'none',
+                              }}
+                              className="row-actions"
+                            >
+                              <div
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  // Show actions dropdown
+                                }}
+                                style={{
+                                  width: '24px',
+                                  height: '24px',
+                                  borderRadius: '50%',
+                                  background: isDarkMode ? 'rgba(99, 102, 241, 0.1)' : 'rgba(99, 102, 241, 0.08)',
+                                  border: `1px solid ${isDarkMode ? 'rgba(99, 102, 241, 0.3)' : 'rgba(99, 102, 241, 0.2)'}`,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  cursor: 'pointer',
+                                  pointerEvents: 'auto',
+                                  transition: 'all 0.2s ease',
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.background = isDarkMode ? 'rgba(99, 102, 241, 0.15)' : 'rgba(99, 102, 241, 0.12)';
+                                  e.currentTarget.style.transform = 'scale(1.1)';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.background = isDarkMode ? 'rgba(99, 102, 241, 0.1)' : 'rgba(99, 102, 241, 0.08)';
+                                  e.currentTarget.style.transform = 'scale(1)';
+                                }}
+                                title="Actions"
+                              >
+                                <Icon 
+                                  iconName="MoreVertical" 
+                                  styles={{ 
+                                    root: { 
+                                      fontSize: '12px', 
+                                      color: isDarkMode ? '#A78BFA' : '#6366F1' 
+                                    } 
+                                  }} 
                                 />
-                              );
-                            }
-                          })}
-                        </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      } else {
+                        // Handle individual enquiries
+                        const pocLower = (item.Point_of_Contact || '').toLowerCase();
+                        const isUnclaimed = pocLower === 'team@helix-law.com';
+                        const claimer = claimerMap[pocLower];
+                        const promotionStatus = getPromotionStatusSimple(item);
+
+                        // Extract values for display using correct property names
+                        const contactName = `${item.First_Name || ''} ${item.Last_Name || ''}`.trim() || 'Unknown';
+                        const companyName = item.Company || '';
+                        const areaOfWork = item.Area_of_Work || 'Unspecified';
+                        const dateReceived = item.Touchpoint_Date || item.Date_Created || '';
+                        const rawValue: any = (item as any).Value ?? (item as any).value ?? '';
+                        const value = typeof rawValue === 'string' 
+                          ? rawValue.replace(/^£\s*/, '').trim() 
+                          : rawValue;
+                        const isFromInstructions = (item as any).source === 'instructions';
+                        // For v2 enquiries, claim field contains the claim datetime
+                        const claimDate = isFromInstructions ? ((item as any).claim || null) : null;
+                        const hasNotes = item.Initial_first_call_notes && item.Initial_first_call_notes.trim().length > 0;
+                        const isNotesExpanded = expandedNotesInLedger.has(item.ID);
+                        const teamsActivity = teamsActivityMap.get(item.ID || '');
+                        
+                        return (
+                          <React.Fragment key={item.ID}>
+                          <div
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: '1fr 0.6fr 0.5fr 0.7fr 0.15fr 0.5fr 0.8fr',
+                              gap: '8px',
+                              padding: '12px 16px',
+                              borderBottom: (isLast && !isNotesExpanded) ? 'none' : `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)'}`,
+                              fontSize: '13px',
+                              color: isDarkMode ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0, 0, 0, 0.85)',
+                              transition: 'all 0.2s ease',
+                              opacity: isFromInstructions ? 1 : 0.85,
+                              cursor: 'pointer',
+                              position: 'relative',
+                            }}
+                            className="enquiry-row"
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.backgroundColor = isDarkMode 
+                                ? 'rgba(255, 255, 255, 0.04)' 
+                                : 'rgba(0, 0, 0, 0.02)';
+                              const actionsIcon = e.currentTarget.querySelector('.row-actions') as HTMLElement;
+                              if (actionsIcon) {
+                                actionsIcon.style.opacity = '1';
+                              }
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.backgroundColor = 'transparent';
+                              const actionsIcon = e.currentTarget.querySelector('.row-actions') as HTMLElement;
+                              if (actionsIcon) {
+                                actionsIcon.style.opacity = '0';
+                              }
+                            }}
+                            onClick={() => !isUnclaimed && handleSelectEnquiry(item)}
+                          >
+                            {/* Contact & Company */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', justifyContent: 'center' }}>
+                              <div style={{ 
+                                fontWeight: 600, 
+                                color: isDarkMode ? '#E5E7EB' : '#1F2937',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px'
+                              }}>
+                                  {contactName}
+                                <span style={{
+                                  fontSize: '9px',
+                                  color: isDarkMode ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.4)',
+                                  fontWeight: 400,
+                                }}>
+                                  {isFromInstructions ? 'v2' : 'v1'}
+                                </span>
+                              </div>
+                              {companyName && (
+                                <div style={{ 
+                                  fontSize: '11px', 
+                                  color: isDarkMode ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)',
+                                  fontWeight: 500 
+                                }}>
+                                  {companyName}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Area of Work */}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+                              <span style={{ fontSize: '18px', lineHeight: 1 }} title={areaOfWork}>
+                                {getAreaOfWorkIcon(areaOfWork)}
+                              </span>
+                            </div>
+
+                            {/* Status */}
+                            <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+                              {isUnclaimed ? (
+                                <span style={{
+                                  padding: '3px 8px',
+                                  borderRadius: '6px',
+                                  fontSize: '11px',
+                                  fontWeight: 500,
+                                  backgroundColor: isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)',
+                                  color: isDarkMode ? '#FCA5A5' : '#DC2626',
+                                  lineHeight: 1.2
+                                }}>
+                                  Available
+                                </span>
+                              ) : promotionStatus === 'instruction' ? (
+                                <span style={{
+                                  padding: '3px 8px',
+                                  borderRadius: '6px',
+                                  fontSize: '11px',
+                                  fontWeight: 500,
+                                  backgroundColor: isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)',
+                                  color: isDarkMode ? '#4ADE80' : '#16A34A',
+                                  lineHeight: 1.2
+                                }}>
+                                  Instruction
+                                </span>
+                              ) : promotionStatus === 'pitch' ? (
+                                <span style={{
+                                  padding: '3px 8px',
+                                  borderRadius: '6px',
+                                  fontSize: '11px',
+                                  fontWeight: 500,
+                                  backgroundColor: isDarkMode ? 'rgba(168, 85, 247, 0.15)' : 'rgba(168, 85, 247, 0.1)',
+                                  color: isDarkMode ? '#C084FC' : '#A855F7',
+                                  lineHeight: 1.2
+                                }}>
+                                  Pitch
+                                </span>
+                              ) : (
+                                <span style={{
+                                  padding: '3px 8px',
+                                  borderRadius: '6px',
+                                  fontSize: '11px',
+                                  fontWeight: 500,
+                                  backgroundColor: isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)',
+                                  color: isDarkMode ? '#4ADE80' : '#16A34A',
+                                  lineHeight: 1.2
+                                }}>
+                                  {claimer ? `${claimer.First?.[0] || ''}${claimer.Last?.[0] || ''}` : 'Claimed'}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Date */}
+                            <div style={{ fontSize: '12px', color: isDarkMode ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.6)', display: 'flex', alignItems: 'center', height: '100%' }}>
+                              {formatDateReceived(dateReceived, isFromInstructions)}
+                            </div>
+
+                            {/* Time Difference Connector */}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+                              {(() => {
+                                const timeDiff = calculateTimeDifference(dateReceived, claimDate, isFromInstructions);
+                                return timeDiff ? (
+                                  <div style={{
+                                    fontSize: '9px',
+                                    color: isDarkMode ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.4)',
+                                    fontWeight: 500,
+                                    background: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
+                                    padding: '2px 4px',
+                                    borderRadius: '3px',
+                                    border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.06)'}`,
+                                  }}>
+                                    {timeDiff}
+                                  </div>
+                                ) : null;
+                              })()} 
+                            </div>
+
+                            {/* Claim Time */}
+                            <div style={{ 
+                              fontSize: '11px', 
+                              color: isDarkMode ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.6)',
+                              fontWeight: 500,
+                              display: 'flex',
+                              alignItems: 'center',
+                              height: '100%'
+                            }}>
+                              {formatClaimTime(claimDate, pocLower, isFromInstructions)}
+                            </div>
+
+                            {/* Value */}
+                            <div style={{ fontSize: '12px', fontWeight: 600, color: isDarkMode ? '#E5E7EB' : '#1F2937', display: 'flex', alignItems: 'center', height: '100%' }}>
+                              {formatValueForDisplay(value)}
+                            </div>
+
+                            {/* Hover Actions Icon */}
+                            <div 
+                              style={{
+                                position: 'absolute',
+                                right: '16px',
+                                top: '50%',
+                                transform: 'translateY(-50%)',
+                                opacity: 0,
+                                transition: 'opacity 0.2s ease',
+                                pointerEvents: 'none',
+                                display: 'flex',
+                                gap: '4px',
+                                alignItems: 'center',
+                              }}
+                              className="row-actions"
+                            >
+                              {teamsActivity && (
+                                <div
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (teamsActivity.teamsLink) {
+                                      window.open(teamsActivity.teamsLink, '_blank');
+                                    }
+                                  }}
+                                  style={{
+                                    pointerEvents: 'auto',
+                                    cursor: 'pointer',
+                                  }}
+                                  title="Open Teams conversation"
+                                >
+                                  <TeamsLinkWidget 
+                                    activityData={teamsActivity}
+                                    size="small"
+                                    leadName={`${item.First_Name} ${item.Last_Name}`}
+                                    forceShow={true}
+                                  />
+                                </div>
+                              )}
+                              {hasNotes && (
+                                <div
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const newSet = new Set(expandedNotesInLedger);
+                                    if (isNotesExpanded) {
+                                      newSet.delete(item.ID);
+                                    } else {
+                                      newSet.add(item.ID);
+                                    }
+                                    setExpandedNotesInLedger(newSet);
+                                  }}
+                                  style={{
+                                    width: '20px',
+                                    height: '20px',
+                                    borderRadius: '50%',
+                                    background: isNotesExpanded 
+                                      ? (isDarkMode ? 'rgba(168, 85, 247, 0.15)' : 'rgba(168, 85, 247, 0.1)')
+                                      : (isDarkMode ? 'rgba(99, 102, 241, 0.1)' : 'rgba(99, 102, 241, 0.08)'),
+                                    border: `1px solid ${isDarkMode ? 'rgba(99, 102, 241, 0.3)' : 'rgba(99, 102, 241, 0.2)'}`,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer',
+                                    pointerEvents: 'auto',
+                                    transition: 'all 0.2s ease',
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.background = isDarkMode ? 'rgba(168, 85, 247, 0.2)' : 'rgba(168, 85, 247, 0.15)';
+                                    e.currentTarget.style.transform = 'scale(1.1)';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.background = isNotesExpanded 
+                                      ? (isDarkMode ? 'rgba(168, 85, 247, 0.15)' : 'rgba(168, 85, 247, 0.1)')
+                                      : (isDarkMode ? 'rgba(99, 102, 241, 0.1)' : 'rgba(99, 102, 241, 0.08)');
+                                    e.currentTarget.style.transform = 'scale(1)';
+                                  }}
+                                  title={isNotesExpanded ? 'Hide notes' : 'Show notes'}
+                                >
+                                  <Icon 
+                                    iconName={isNotesExpanded ? 'ChevronUp' : 'ChevronDown'} 
+                                    styles={{ 
+                                      root: { 
+                                        fontSize: '10px', 
+                                        color: isDarkMode ? '#A78BFA' : '#6366F1' 
+                                      } 
+                                    }} 
+                                  />
+                                </div>
+                              )}
+                              <div
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const enquiryName = `${item.First_Name || ''} ${item.Last_Name || ''}`.trim() || 'Unnamed enquiry';
+                                  const confirmMessage = `Are you sure you want to permanently delete "${enquiryName}"?\n\nThis will remove the enquiry from both systems and cannot be undone.`;
+                                  
+                                  if (window.confirm(confirmMessage)) {
+                                    handleDeleteEnquiry(item.ID, enquiryName);
+                                  }
+                                }}
+                                style={{
+                                  width: '20px',
+                                  height: '20px',
+                                  borderRadius: '50%',
+                                  background: isDarkMode ? 'rgba(248, 113, 113, 0.1)' : 'rgba(248, 113, 113, 0.08)',
+                                  border: `1px solid ${isDarkMode ? 'rgba(248, 113, 113, 0.3)' : 'rgba(248, 113, 113, 0.2)'}`,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  cursor: 'pointer',
+                                  pointerEvents: 'auto',
+                                  transition: 'all 0.2s ease',
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.background = isDarkMode ? 'rgba(248, 113, 113, 0.15)' : 'rgba(248, 113, 113, 0.12)';
+                                  e.currentTarget.style.transform = 'scale(1.1)';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.background = isDarkMode ? 'rgba(248, 113, 113, 0.1)' : 'rgba(248, 113, 113, 0.08)';
+                                  e.currentTarget.style.transform = 'scale(1)';
+                                }}
+                                title="Delete enquiry permanently"
+                              >
+                                <Icon 
+                                  iconName="Delete" 
+                                  styles={{ 
+                                    root: { 
+                                      fontSize: '10px', 
+                                      color: isDarkMode ? '#F87171' : '#EF4444' 
+                                    } 
+                                  }} 
+                                />
+                              </div>
+                            </div>
+                          </div>
+                          {/* Notes Section - expanded below the row */}
+                          {hasNotes && isNotesExpanded && (
+                            <div style={{
+                              gridColumn: '1 / -1',
+                              padding: '12px 16px',
+                              backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.01)',
+                              borderBottom: isLast ? 'none' : `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)'}`,
+                              fontSize: '13px',
+                              lineHeight: '1.5',
+                              color: isDarkMode ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.75)',
+                              whiteSpace: 'pre-line',
+                            }}>
+                              <div style={{
+                                fontSize: '10px',
+                                fontWeight: 600,
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.5px',
+                                color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)',
+                                marginBottom: '8px',
+                              }}>
+                                Notes
+                              </div>
+                              {item.Initial_first_call_notes?.replace(/\\n/g, '\n').replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()}
+                              
+                              {/* Teams Link Debug Section */}
+                              {(() => {
+                                const debugTeamsActivity = teamsActivityMap.get(item.ID || '');
+                                return debugTeamsActivity && debugTeamsActivity.teamsLink && (
+                                  <div style={{
+                                    marginTop: '16px',
+                                    paddingTop: '12px',
+                                    borderTop: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)'}`,
+                                  }}>
+                                    <div style={{
+                                      fontSize: '10px',
+                                      fontWeight: 600,
+                                      textTransform: 'uppercase',
+                                      letterSpacing: '0.5px',
+                                      color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)',
+                                      marginBottom: '6px',
+                                    }}>
+                                      Teams Link (Debug)
+                                    </div>
+                                    <a 
+                                      href={debugTeamsActivity.teamsLink} 
+                                      target="_blank" 
+                                      rel="noopener noreferrer"
+                                      style={{ 
+                                        color: isDarkMode ? '#60a5fa' : '#3b82f6',
+                                        fontSize: '11px',
+                                        wordBreak: 'break-all',
+                                        textDecoration: 'none',
+                                        transition: 'opacity 0.2s'
+                                      }}
+                                      onMouseEnter={(e) => e.currentTarget.style.opacity = '0.7'}
+                                      onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                                    >
+                                      {debugTeamsActivity.teamsLink}
+                                    </a>
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          )}
+                          </React.Fragment>
+                        );
+                      }
+                    })}
+                  </div>
+                )}
                         
                         <div ref={loader} />
               </>

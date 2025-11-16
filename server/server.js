@@ -73,6 +73,7 @@ const transactionsRouter = require('./routes/transactions');
 const futureBookingsRouter = require('./routes/futureBookings');
 const outstandingBalancesRouter = require('./routes/outstandingBalances');
 const cachePreheaterRouter = require('./routes/cache-preheater');
+const teamsActivityTrackingRouter = require('./routes/teamsActivityTracking');
 // const { router: cclRouter, CCL_DIR } = require('./routes/ccl');
 
 // Initialize ops log (loads recent entries and ensures log dir)
@@ -167,6 +168,7 @@ app.use('/api/home-metrics', homeMetricsStreamRouter);
 app.use('/api/marketing-metrics', marketingMetricsRouter);
 app.use('/api/transactions', transactionsRouter);
 app.use('/api/cache-preheater', cachePreheaterRouter);
+app.use('/api/teams-activity-tracking', teamsActivityTrackingRouter);
 
 // IMPORTANT: Attendance routes must come BEFORE proxy routes to avoid conflicts
 app.use('/api/attendance', attendanceRouter);

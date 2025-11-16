@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Stack, Text, Icon, Pivot, PivotItem, TextField } from '@fluentui/react';
-import { FaBolt, FaEdit, FaFileAlt, FaEraser, FaInfoCircle, FaThumbtack, FaCalculator, FaExclamationTriangle, FaEnvelope, FaPaperPlane, FaChevronDown, FaChevronUp, FaCopy, FaEye, FaCheck, FaTimes, FaUsers } from 'react-icons/fa';
+import { FaBolt, FaEdit, FaFileAlt, FaEraser, FaInfoCircle, FaThumbtack, FaCalculator, FaExclamationTriangle, FaEnvelope, FaPaperPlane, FaChevronDown, FaChevronUp, FaCopy, FaEye, FaCheck, FaTimes, FaUsers, FaArrowLeft, FaPoundSign } from 'react-icons/fa';
 import DealCapture from './DealCapture';
 import { colours } from '../../../app/styles/colours';
 import { TemplateBlock } from '../../../app/customisation/ProductionTemplateBlocks';
@@ -11,9 +11,9 @@ import { wrapInsertPlaceholders } from './emailUtils';
 import { SCENARIOS, SCENARIOS_VERSION } from './scenarios';
 import EmailSignature from '../EmailSignature';
 import { applyDynamicSubstitutions, convertDoubleBreaksToParagraphs } from './emailUtils';
+import { EMAIL_V2_CONFIG, processEmailContentV2 } from './emailFormattingV2';
 import FormattingToolbar from './FormattingToolbar';
 import { processEditorContentForEmail, KEYBOARD_SHORTCUTS, type FormattingCommand } from './emailFormattingUtils';
-import EmailProcessingConfirmDialog from './EmailProcessingConfirmDialog';
 import markUrl from '../../../assets/dark blue mark.svg';
 // Import tab bg image directly for debugging
 const tabBgUrl = require('../../../assets/tab bg.jpg');
@@ -166,6 +166,12 @@ function findPlaceholders(text: string): string[] {
   return results;
 }
 
+// Check if all placeholders are satisfied (no [TOKEN] patterns remain)
+function areAllPlaceholdersSatisfied(htmlContent: string): boolean {
+  const placeholders = findPlaceholders(htmlContent);
+  return placeholders.length === 0;
+}
+
 // Safely wrap placeholders in preview by operating on TEXT NODES only and
 // stripping editor-only attributes/styles so nothing leaks into the preview.
 function highlightPlaceholdersHtml(html: string): string {
@@ -313,6 +319,7 @@ interface InlineEditableAreaProps {
   richTextMode?: boolean;
   bodyEditorRef?: React.RefObject<HTMLDivElement>;
   handleFormatCommand?: (command: string, value?: string) => void;
+  onFocusChange?: (active: boolean) => void;
 }
 
 interface UndoRedoState {
@@ -332,7 +339,8 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
   isDarkMode,
   richTextMode,
   bodyEditorRef,
-  handleFormatCommand
+  handleFormatCommand,
+  onFocusChange
 }) => {
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   const preRef = useRef<HTMLPreElement | null>(null);
@@ -351,6 +359,17 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
   // Local synced copies of external highlights so we can shift them as user types
   const [syncedExternalRanges, setSyncedExternalRanges] = useState<{ start: number; end: number }[]>([]);
   const [syncedPersistentRanges, setSyncedPersistentRanges] = useState<{ start: number; end: number }[]>([]);
+  const [isFocused, setIsFocused] = useState(false);
+
+  useEffect(() => {
+    onFocusChange?.(isFocused);
+  }, [isFocused, onFocusChange]);
+
+  useEffect(() => {
+    return () => {
+      onFocusChange?.(false);
+    };
+  }, [onFocusChange]);
 
   // Sync contentEditable content with value prop when in rich text mode
   useEffect(() => {
@@ -766,33 +785,46 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
   return (
     <div
       ref={wrapperRef}
+      className={`inline-editor-wrapper${isFocused ? ' inline-editor-active' : ''}`}
       style={{
         position: 'relative',
         fontSize: 13,
         lineHeight: 1,
-        border: 'none',
-        background: 'transparent',
-        borderRadius: 0,
+        border: `1px solid ${isFocused ? '#3690CE' : (isDarkMode ? '#1F2937' : '#D0D5DD')}`,
+        background: isDarkMode ? '#0F172A' : '#FFFFFF',
+        borderRadius: 10,
         padding: 0,
-        minHeight
+        minHeight,
+        boxShadow: isFocused
+          ? (isDarkMode
+            ? '0 28px 60px rgba(107, 107, 107, 0.35)'
+            : '0 28px 60px rgba(107, 107, 107, 0.18)')
+          : (isDarkMode
+            ? '0 12px 28px rgba(8, 14, 29, 0.65)'
+            : '0 12px 28px rgba(15, 23, 42, 0.12)'),
+        transition: 'border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease, transform 0.18s ease',
+        transform: isFocused ? 'translateY(-2px)' : 'none',
+        zIndex: isFocused ? 1350 : 1100
       }}
       onMouseEnter={() => setShowToolbar(true)}
       onMouseLeave={() => setShowToolbar(false)}
     >
       {/* Floating toolbar */}
       {showToolbar && (
-        <div style={{
+  <div className={`inline-editor-toolbar${isFocused ? ' inline-editor-toolbar-active' : ''}`} style={{
           position: 'absolute',
-          top: -2,
-          right: 4,
+          top: -12,
+          right: 12,
           zIndex: 10,
           display: 'flex',
           gap: 2,
-          backgroundColor: 'rgba(255, 255, 255, 0.95)',
-          border: '1px solid #e1e5e9',
-          borderRadius: 4,
-          padding: '2px',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+          backgroundColor: isDarkMode ? 'rgba(22, 30, 46, 0.95)' : '#F8FAFC',
+          border: `1px solid ${isDarkMode ? '#1E293B' : '#D4DAE5'}`,
+          borderRadius: 6,
+          padding: '4px 8px',
+          boxShadow: isDarkMode
+            ? '0 14px 30px rgba(8, 12, 24, 0.55)'
+            : '0 12px 28px rgba(15, 23, 42, 0.18)',
           opacity: 1,
           transition: 'opacity 0.2s ease'
         }}>
@@ -803,9 +835,11 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
               padding: '4px 6px',
               fontSize: 11,
               backgroundColor: 'transparent',
-              color: undoRedoState.currentIndex <= 0 ? '#ccc' : '#666',
+              color: undoRedoState.currentIndex <= 0
+                ? (isDarkMode ? '#4B5563' : '#CBD5E1')
+                : (isDarkMode ? '#E2E8F0' : '#1F2937'),
               border: 'none',
-              borderRadius: 2,
+              borderRadius: 4,
               cursor: undoRedoState.currentIndex <= 0 ? 'not-allowed' : 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -822,9 +856,11 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
               padding: '4px 6px',
               fontSize: 11,
               backgroundColor: 'transparent',
-              color: undoRedoState.currentIndex >= undoRedoState.history.length - 1 ? '#ccc' : '#666',
+              color: undoRedoState.currentIndex >= undoRedoState.history.length - 1
+                ? (isDarkMode ? '#4B5563' : '#CBD5E1')
+                : (isDarkMode ? '#E2E8F0' : '#1F2937'),
               border: 'none',
-              borderRadius: 2,
+              borderRadius: 4,
               cursor: undoRedoState.currentIndex >= undoRedoState.history.length - 1 ? 'not-allowed' : 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -837,8 +873,8 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
           <div style={{
             width: 1,
             height: 16,
-            backgroundColor: '#e1e5e9',
-            margin: '0 2px'
+            backgroundColor: isDarkMode ? '#2C3A4D' : '#E2E8F0',
+            margin: '0 6px'
           }} />
           <button
             onClick={() => {
@@ -848,6 +884,18 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
               addToHistory(newValue);
             }}
             title="Clear all (Ctrl+Backspace)"
+            style={{
+              padding: '4px 6px',
+              fontSize: 11,
+              backgroundColor: 'transparent',
+              color: isDarkMode ? '#E2E8F0' : '#1F2937',
+              border: 'none',
+              borderRadius: 4,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2
+            }}
           >
             <FaEraser style={{ fontSize: 12 }} />
           </button>
@@ -859,11 +907,16 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
         ref={bodyEditorRef}
         contentEditable={true}
         className="rich-text-editor"
+        onFocus={() => setIsFocused(true)}
         onInput={(e) => {
           const target = e.currentTarget as HTMLDivElement;
           onChange(target.innerHTML);
         }}
         onBlur={(e) => {
+          const nextTarget = e.relatedTarget as HTMLElement | null;
+          if (!nextTarget || !wrapperRef.current?.contains(nextTarget)) {
+            setIsFocused(false);
+          }
           // Finalize any active placeholder editing when leaving the editor
           const editorEl = e.currentTarget as HTMLDivElement;
           const editing = Array.from(editorEl.querySelectorAll('.placeholder-editing')) as HTMLElement[];
@@ -1042,7 +1095,7 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
           width: '100%',
           minHeight: minHeight,
           background: 'transparent',
-          color: isDarkMode ? colours.dark.text : '#222',
+          color: isDarkMode ? '#E2E8F0' : '#101828',
           font: 'inherit',
           lineHeight: 1.6,
           border: 'none',
@@ -1097,13 +1150,14 @@ interface EditorAndTemplateBlocksProps {
   enquiry?: any;
   passcode?: string;
   handleDraftEmail?: () => void;
-  sendEmail?: () => void;
+  sendEmail?: (overrideTo?: string, overrideCc?: string, suppressToast?: boolean) => void;
   isDraftConfirmed?: boolean;
   // Email recipient props for send confirmation
   to?: string;
   cc?: string;
   bcc?: string;
   feeEarnerEmail?: string;
+  teamData?: any[]; // Array of team members for CC picker
   // Callback to update recipients before sending
   onRecipientsChange?: (to: string, cc?: string, bcc?: string) => void;
   // Inline status feedback
@@ -1157,6 +1211,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   cc,
   bcc,
   feeEarnerEmail,
+  teamData,
   onRecipientsChange,
   // Inline status feedback
   dealCreationInProgress,
@@ -1181,13 +1236,11 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   const isBeforeCallCall = selectedScenarioId === 'before-call-call';
   const [isTemplatesCollapsed, setIsTemplatesCollapsed] = useState(false); // Start expanded for immediate selection
   const [showInlinePreview, setShowInlinePreview] = useState(false);
+  const [isBodyEditorFocused, setIsBodyEditorFocused] = useState(false);
+  const [allPlaceholdersSatisfied, setAllPlaceholdersSatisfied] = useState(false);
+  const [isSubjectEditing, setIsSubjectEditing] = useState(true); // Start expanded to prevent autopilot
   // Email confirmation modal state
   const [showSendConfirmModal, setShowSendConfirmModal] = useState(false);
-  // Email processing method selection state
-  const [showEmailProcessingDialog, setShowEmailProcessingDialog] = useState(false);
-  const [selectedEmailMethod, setSelectedEmailMethod] = useState<'v1' | 'v2' | null>(null);
-  // Track which action is requesting processing selection: 'send' or 'draft'
-  const [processingDialogAction, setProcessingDialogAction] = useState<'send' | 'draft' | null>(null);
   const [confirmReady, setConfirmReady] = useState(false);
   const previewRef = useRef<HTMLDivElement | null>(null);
   // Copy feedback flags
@@ -1209,16 +1262,41 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   const [editableCc, setEditableCc] = useState<string>(cc || '');
   // Rich text mode is always enabled for WYSIWYG experience
   const richTextMode = true;
+  const emailV2Enabled = EMAIL_V2_CONFIG.enabled;
 
   // Update editable To when prop changes
   React.useEffect(() => {
     setEditableTo(to || '');
   }, [to]);
 
-  // Update editable CC when prop changes
-  React.useEffect(() => {
-    setEditableCc(cc || '');
-  }, [cc]);
+  // Don't auto-update CC from prop - keep it empty unless user adds recipients
+  // This prevents saved "team@" addresses from pre-filling the field
+
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+
+    const body = document.body;
+    if (!body) {
+      return;
+    }
+
+    if (isBodyEditorFocused) {
+      body.classList.add('helix-editor-focus-active');
+    } else {
+      body.classList.remove('helix-editor-focus-active');
+    }
+
+    return () => {
+      body.classList.remove('helix-editor-focus-active');
+    };
+  }, [isBodyEditorFocused]);
+
+  // Track when all placeholders are satisfied for Preview button highlight
+  useEffect(() => {
+    setAllPlaceholdersSatisfied(areAllPlaceholdersSatisfied(body));
+  }, [body]);
 
   // Helper: reset editor to a fresh state
   const resetEditor = useCallback(() => {
@@ -1250,12 +1328,12 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
     }
   }, [showSendConfirmModal, dealStatus, emailStatus, hasSentEmail, resetEditor]);
 
-  // Auto-close modal after successful email send
+  // Auto-close modal after successful email send with smooth transition
   useEffect(() => {
     if (emailStatus === 'sent' && showSendConfirmModal) {
       const timer = setTimeout(() => {
         setShowSendConfirmModal(false);
-      }, 2000); // Close after 2 seconds to allow user to see success
+      }, 2500); // Close after 2.5 seconds to allow user to see success state
       return () => clearTimeout(timer);
     }
   }, [emailStatus, showSendConfirmModal]);
@@ -1349,45 +1427,44 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
     return createPortal(
       <div style={{
         position: 'fixed',
-        top: 10,
-        left: 20,
-        right: 20,
-        maxWidth: '600px',
-        margin: '0 auto',
+        top: 8,
+        right: 8,
+        maxWidth: '300px',
+        width: 'auto',
         zIndex: 9999,
         backgroundColor: isDarkMode ? colours.dark.cardBackground : '#ffffff',
-        padding: '12px',
-        borderRadius: '8px',
-        border: `2px solid ${colours.blue}`,
-        boxShadow: '0 4px 12px rgba(0,120,212,0.15)',
-  transition: 'all 0.3s ease-in-out'
+        padding: '8px',
+        borderRadius: '6px',
+        border: `1px solid ${colours.blue}`,
+        boxShadow: '0 2px 8px rgba(0,120,212,0.12)',
+        transition: 'all 0.3s ease-in-out',
+        fontSize: '12px'
       }}>
         <div style={{
-          fontSize: 12,
+          fontSize: 10,
           fontWeight: 600,
           color: isDarkMode ? colours.blue : colours.darkBlue,
-          marginBottom: 8,
+          marginBottom: 6,
           display: 'flex',
           alignItems: 'center',
-          gap: 4,
+          gap: 3,
           justifyContent: 'flex-start'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <FaInfoCircle style={{ fontSize: 12 }} />
-            Enquiry Notes
+          <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+            <FaInfoCircle style={{ fontSize: 10 }} />
+            Notes
           </div>
         </div>
-        {/* Floating unpin icon */}
         <button
           onClick={() => setIsNotesPinned(false)}
           title="Unpin notes"
           style={{
             position: 'absolute',
-            top: 8,
-            right: 8,
-            width: 28,
-            height: 28,
-            borderRadius: 14,
+            top: 4,
+            right: 4,
+            width: 18,
+            height: 18,
+            borderRadius: 9,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -1404,17 +1481,17 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
             e.currentTarget.style.borderColor = isDarkMode ? colours.dark.border : '#e1e5e9';
           }}
         >
-          <FaThumbtack style={{ fontSize: 14, color: isDarkMode ? colours.dark.text : colours.darkBlue }} />
+          <FaThumbtack style={{ fontSize: 10, color: isDarkMode ? colours.dark.text : colours.darkBlue }} />
         </button>
         <div style={{
-          fontSize: 13,
-          lineHeight: 1.5,
+          fontSize: 11,
+          lineHeight: 1.4,
           color: isDarkMode ? colours.dark.text : colours.darkBlue,
           backgroundColor: isDarkMode ? colours.dark.inputBackground : '#f8f9fa',
           border: `1px solid ${isDarkMode ? colours.dark.border : '#e1e5e9'}`,
-          borderRadius: 6,
-          padding: '12px 16px',
-          maxHeight: '200px',
+          borderRadius: 4,
+          padding: '6px 8px',
+          maxHeight: '120px',
           overflowY: 'auto',
           whiteSpace: 'pre-wrap'
         }}>
@@ -1619,29 +1696,11 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   // Also apply to subject so switching templates gets replacements too
   useAutoInsertRateRole(subject, setSubject, userData);
 
-  // Email send wrapper that handles V1/V2 processing based on selected method
+  // Email send wrapper (no runtime flag toggles needed)
   const handleSendEmailWithProcessing = useCallback(async () => {
     if (!sendEmail) return;
-    
-    // Store the selected method in window for PitchBuilder to access
-    if (selectedEmailMethod === 'v2') {
-      (window as any).__helixEmailProcessingV2__ = true;
-      console.log('V2 email processing enabled for this send operation');
-    } else {
-      (window as any).__helixEmailProcessingV2__ = false;
-      console.log('V1 email processing (production method) selected');
-    }
-    
-    try {
-      // Call the original sendEmail function
-      await sendEmail();
-    } finally {
-      // Clean up the flag after sending
-      delete (window as any).__helixEmailProcessingV2__;
-      // Reset selection after sending
-      setSelectedEmailMethod(null);
-    }
-  }, [sendEmail, selectedEmailMethod]);
+    await sendEmail();
+  }, [sendEmail]);
 
   return (
     <>
@@ -1806,88 +1865,115 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
           gap: var(--space-2);
         }
       `}</style>
+      {isBodyEditorFocused && (
+        <div
+          aria-hidden="true"
+          className="inline-editor-dim-overlay"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: isDarkMode
+              ? 'rgba(4, 9, 20, 0.46)'
+              : 'rgba(15, 23, 42, 0.28)',
+            backdropFilter: 'blur(2px)',
+            transition: 'opacity 0.3s ease',
+            zIndex: 9999,
+            pointerEvents: 'none'
+          }}
+        />
+      )}
 
       {/* Global sticky notes portal */}
       <GlobalStickyNotes />
       
       {/* Content */}
-      <div className="helix-professional-content">
-      
-      <Stack tokens={{ childrenGap: 8 }} styles={{ root: { marginTop: 0 } }}>
-        {/* Direct content without Email Composer container */}
-        <div style={{ padding: 0 }}>
-          {/* Scenario selector - collapses after selection */}
-          {selectedScenarioId && (
-            <div 
-              style={{
-                padding: '12px 16px',
-                background: isDarkMode 
-                  ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.94) 0%, rgba(11, 30, 55, 0.86) 100%)'
-                  : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-                borderRadius: '12px',
-                border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : 'rgba(148, 163, 184, 0.22)'}`,
-                cursor: 'pointer',
-                transition: 'all 0.3s ease',
-                marginBottom: isTemplatesCollapsed ? '24px' : '16px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: '12px'
-              }}
-              onClick={() => setIsTemplatesCollapsed(!isTemplatesCollapsed)}
-              onMouseEnter={(e) => {
-                if (isDarkMode) {
-                  e.currentTarget.style.background = 'linear-gradient(135deg, rgba(10, 20, 40, 0.96) 0%, rgba(15, 35, 65, 0.9) 100%)';
-                  e.currentTarget.style.borderColor = 'rgba(54, 144, 206, 0.4)';
-                } else {
-                  e.currentTarget.style.background = 'linear-gradient(135deg, #FAFBFC 0%, #F1F5F9 100%)';
-                  e.currentTarget.style.borderColor = 'rgba(54, 144, 206, 0.3)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (isDarkMode) {
-                  e.currentTarget.style.background = 'linear-gradient(135deg, rgba(7, 16, 32, 0.94) 0%, rgba(11, 30, 55, 0.86) 100%)';
-                  e.currentTarget.style.borderColor = 'rgba(125, 211, 252, 0.24)';
-                } else {
-                  e.currentTarget.style.background = 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)';
-                  e.currentTarget.style.borderColor = 'rgba(148, 163, 184, 0.22)';
-                }
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <div style={{
-                  padding: '8px',
-                  borderRadius: '8px',
-                  background: (() => {
-                    switch(selectedScenarioId) {
-                      case 'before-call-call':
-                        return isDarkMode 
-                          ? 'linear-gradient(135deg, rgba(96, 165, 250, 0.2) 0%, rgba(54, 144, 206, 0.15) 100%)'
-                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.1) 0%, rgba(96, 165, 250, 0.08) 100%)';
-                      case 'before-call-no-call':
-                        return isDarkMode
-                          ? 'linear-gradient(135deg, rgba(251, 191, 36, 0.2) 0%, rgba(217, 119, 6, 0.15) 100%)'
-                          : 'linear-gradient(135deg, rgba(217, 119, 6, 0.1) 0%, rgba(251, 191, 36, 0.08) 100%)';
-                      case 'after-call-probably-cant-assist':
-                        return isDarkMode
-                          ? 'linear-gradient(135deg, rgba(248, 113, 113, 0.2) 0%, rgba(220, 38, 38, 0.15) 100%)'
-                          : 'linear-gradient(135deg, rgba(220, 38, 38, 0.1) 0%, rgba(248, 113, 113, 0.08) 100%)';
-                      case 'after-call-want-instruction':
-                        return isDarkMode
-                          ? 'linear-gradient(135deg, rgba(74, 222, 128, 0.2) 0%, rgba(5, 150, 105, 0.15) 100%)'
-                          : 'linear-gradient(135deg, rgba(5, 150, 105, 0.1) 0%, rgba(74, 222, 128, 0.08) 100%)';
-                      case 'cfa':
-                        return isDarkMode
-                          ? 'linear-gradient(135deg, rgba(168, 85, 247, 0.2) 0%, rgba(139, 92, 246, 0.15) 100%)'
-                          : 'linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(168, 85, 247, 0.08) 100%)';
-                      default:
-                        return isDarkMode
-                          ? 'linear-gradient(135deg, rgba(148, 163, 184, 0.2) 0%, rgba(107, 114, 128, 0.15) 100%)'
-                          : 'linear-gradient(135deg, rgba(107, 114, 128, 0.1) 0%, rgba(148, 163, 184, 0.08) 100%)';
-                    }
-                  })(),
-                  border: (() => {
-                    switch(selectedScenarioId) {
+      <div className="helix-professional-content" style={{
+        position: 'relative',
+        zIndex: isBodyEditorFocused ? 10001 : 'auto'
+      }}>
+        <Stack tokens={{ childrenGap: 8 }} styles={{ root: { marginTop: 0 } }}>
+          {/* Direct content without Email Composer container */}
+          <div style={{ 
+            padding: '24px',
+            position: 'relative',
+            zIndex: isBodyEditorFocused ? 10001 : 'auto'
+          }}>
+            {/* Step 1: Template Selection */}
+            {selectedScenarioId && (
+              <div style={{ marginBottom: 24 }}>
+                <div 
+                  style={{
+                    fontSize: '14px',
+                    fontWeight: 600,
+                    color: isDarkMode ? '#E0F2FE' : '#0F172A',
+                    marginBottom: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    cursor: 'pointer'
+                  }}
+                  onClick={() => setIsTemplatesCollapsed(!isTemplatesCollapsed)}
+                >
+                  <div style={{
+                    width: '24px',
+                    height: '24px',
+                    borderRadius: '50%',
+                    background: selectedScenarioId 
+                      ? (isDarkMode 
+                          ? 'linear-gradient(135deg, rgba(74, 222, 128, 0.24) 0%, rgba(5, 150, 105, 0.18) 100%)'
+                          : 'linear-gradient(135deg, rgba(5, 150, 105, 0.16) 0%, rgba(74, 222, 128, 0.18) 100%)')
+                      : (isDarkMode 
+                          ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.24) 0%, rgba(59, 130, 246, 0.18) 100%)'
+                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(96, 165, 250, 0.18) 100%)'),
+                    border: selectedScenarioId
+                      ? `1px solid ${isDarkMode ? 'rgba(74, 222, 128, 0.35)' : 'rgba(5, 150, 105, 0.3)'}`
+                      : `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    color: selectedScenarioId 
+                      ? (isDarkMode ? '#4ADE80' : '#059669')
+                      : colours.blue
+                  }}>
+                    1
+                  </div>
+                  <div style={{
+                    padding: '6px',
+                    background: (() => {
+                      switch(selectedScenarioId) {
+                        case 'before-call-call':
+                          return isDarkMode 
+                            ? 'linear-gradient(135deg, rgba(96, 165, 250, 0.2) 0%, rgba(54, 144, 206, 0.15) 100%)'
+                            : 'linear-gradient(135deg, rgba(54, 144, 206, 0.1) 0%, rgba(96, 165, 250, 0.08) 100%)';
+                        case 'before-call-no-call':
+                          return isDarkMode
+                            ? 'linear-gradient(135deg, rgba(251, 191, 36, 0.2) 0%, rgba(217, 119, 6, 0.15) 100%)'
+                            : 'linear-gradient(135deg, rgba(217, 119, 6, 0.1) 0%, rgba(251, 191, 36, 0.08) 100%)';
+                        case 'after-call-probably-cant-assist':
+                          return isDarkMode
+                            ? 'linear-gradient(135deg, rgba(248, 113, 113, 0.2) 0%, rgba(220, 38, 38, 0.15) 100%)'
+                            : 'linear-gradient(135deg, rgba(220, 38, 38, 0.1) 0%, rgba(248, 113, 113, 0.08) 100%)';
+                        case 'after-call-want-instruction':
+                          return isDarkMode
+                            ? 'linear-gradient(135deg, rgba(74, 222, 128, 0.2) 0%, rgba(5, 150, 105, 0.15) 100%)'
+                            : 'linear-gradient(135deg, rgba(5, 150, 105, 0.1) 0%, rgba(74, 222, 128, 0.08) 100%)';
+                        case 'cfa':
+                          return isDarkMode
+                            ? 'linear-gradient(135deg, rgba(168, 85, 247, 0.2) 0%, rgba(139, 92, 246, 0.15) 100%)'
+                            : 'linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(168, 85, 247, 0.08) 100%)';
+                        default:
+                          return isDarkMode
+                            ? 'linear-gradient(135deg, rgba(148, 163, 184, 0.2) 0%, rgba(107, 114, 128, 0.15) 100%)'
+                            : 'linear-gradient(135deg, rgba(107, 114, 128, 0.1) 0%, rgba(148, 163, 184, 0.08) 100%)';
+                      }
+                    })(),
+                    borderRadius: '6px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    border: (() => {
+                      switch(selectedScenarioId) {
                       case 'before-call-call':
                         return `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`;
                       case 'before-call-no-call':
@@ -1901,13 +1987,10 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                       default:
                         return `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(107, 114, 128, 0.2)'}`;
                     }
-                  })(),
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
+                  })()
                 }}>
                   {(() => {
-                    const iconSize = 16;
+                    const iconSize = 12; // Standardized to 12px like other sections
                     const iconColor = (() => {
                       switch(selectedScenarioId) {
                         case 'before-call-call': return colours.blue;
@@ -1955,40 +2038,47 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                             <polyline points="2,12 12,17 22,12"/>
                           </svg>
                         );
-                      default:
-                        return null;
                     }
                   })()}
                 </div>
-                <div style={{ 
-                  fontSize: '15px', 
-                  fontWeight: 600,
-                  color: isDarkMode ? colours.dark.text : '#0F172A'
-                }}>
+                <span style={{ fontSize: '14px' }}>
                   {SCENARIOS.find(s => s.id === selectedScenarioId)?.name || 'Template Selected'}
+                </span>
+                <div style={{
+                  flex: 1,
+                  height: '1px',
+                  background: isDarkMode 
+                    ? 'linear-gradient(90deg, rgba(54, 144, 206, 0.3) 0%, transparent 100%)'
+                    : 'linear-gradient(90deg, rgba(54, 144, 206, 0.2) 0%, transparent 100%)'
+                }} />
+                <div style={{
+                  padding: '4px',
+                  borderRadius: '4px',
+                  background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
+                  transition: 'all 0.2s ease'
+                }}>
+                  {isTemplatesCollapsed ? 
+                    <FaChevronDown style={{ fontSize: 12, color: isDarkMode ? '#94A3B8' : '#64748B' }} /> : 
+                    <FaChevronUp style={{ fontSize: 12, color: isDarkMode ? '#94A3B8' : '#64748B' }} />
+                  }
                 </div>
               </div>
-              <div style={{
-                padding: '6px',
-                borderRadius: '6px',
-                background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
-                transition: 'all 0.2s ease'
-              }}>
-                {isTemplatesCollapsed ? 
-                  <FaChevronDown style={{ fontSize: 14, color: isDarkMode ? '#94A3B8' : '#64748B' }} /> : 
-                  <FaChevronUp style={{ fontSize: 14, color: isDarkMode ? '#94A3B8' : '#64748B' }} />
-                }
-              </div>
             </div>
-          )}
-          
-          {/* Scenario choice buttons */}
+          )}          {/* Scenario choice buttons */}
           {(!selectedScenarioId || !isTemplatesCollapsed) && (
+            <div style={{
+              marginLeft: 11,
+              paddingLeft: 23,
+              borderLeft: `2px solid ${selectedScenarioId 
+                ? (isDarkMode ? 'rgba(74, 222, 128, 0.35)' : 'rgba(5, 150, 105, 0.3)')
+                : (isDarkMode ? 'rgba(96, 165, 250, 0.25)' : 'rgba(54, 144, 206, 0.2)')}`,
+              paddingTop: 12
+            }}>
             <div style={{
               display: 'grid',
               gridTemplateColumns: window.innerWidth < 1024 ? '1fr' : 'repeat(2, 1fr)',
-              gap: '20px',
-              marginBottom: '24px'
+              gap: '12px',
+              marginBottom: '16px'
             }}>
               {SCENARIOS.map((s, index) => (
                   <button
@@ -2069,15 +2159,15 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                       border: `2px solid ${selectedScenarioId === s.id
                         ? colours.blue
                         : (isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.16)')}`,
-                      borderRadius: '12px',
-                      padding: '24px',
+                      borderRadius: '10px',
+                      padding: '16px',
                       cursor: 'pointer',
                       transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                       display: 'flex',
                       flexDirection: 'column',
-                      gap: '16px',
+                      gap: '12px',
                       textAlign: 'left',
-                      minHeight: '140px',
+                      minHeight: '100px',
                       boxShadow: selectedScenarioId === s.id
                         ? (isDarkMode ? '0 12px 42px rgba(54, 144, 206, 0.45), 0 0 0 1px rgba(54, 144, 206, 0.35) inset, 0 4px 16px rgba(96, 165, 250, 0.2)' : '0 6px 24px rgba(54, 144, 206, 0.25), 0 0 0 1px rgba(54, 144, 206, 0.12) inset')
                         : (isDarkMode ? '0 6px 18px rgba(4, 9, 20, 0.55)' : '0 3px 12px rgba(13, 47, 96, 0.08)'),
@@ -2115,15 +2205,15 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                       display: 'flex',
                       flexDirection: 'column',
                       height: '100%',
-                      gap: '16px',
+                      gap: '10px',
                       position: 'relative',
                       zIndex: 1
                     }}>
                       {/* Icon and title section */}
-                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px' }}>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
                         <div style={{
-                          padding: '12px',
-                          borderRadius: '12px',
+                          padding: '10px',
+                          borderRadius: '10px',
                           background: (() => {
                             const baseColor = (() => {
                               switch (s.id) {
@@ -2208,34 +2298,34 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                             switch(s.id) {
                               case 'before-call-call': 
                                 return (
-                                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2">
+                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2">
                                     <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.86 19.86 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.86 19.86 0 0 1 2.1 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.66 12.66 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.66 12.66 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
                                   </svg>
                                 );
                               case 'before-call-no-call':
                                 return (
-                                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2">
+                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2">
                                     <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
                                     <polyline points="22,6 12,13 2,6"/>
                                   </svg>
                                 );
                               case 'after-call-probably-cant-assist':
                                 return (
-                                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2">
+                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2">
                                     <circle cx="12" cy="12" r="10"/>
                                     <path d="M15 9l-6 6M9 9l6 6"/>
                                   </svg>
                                 );
                               case 'after-call-want-instruction':
                                 return (
-                                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2">
+                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2">
                                     <path d="M9 12l2 2 4-4"/>
                                     <circle cx="12" cy="12" r="10"/>
                                   </svg>
                                 );
                               case 'cfa':
                                 return (
-                                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2">
+                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2">
                                     <path d="M12 2L2 7l10 5 10-5-10-5z"/>
                                     <polyline points="2,17 12,22 22,17"/>
                                     <polyline points="2,12 12,17 22,12"/>
@@ -2243,7 +2333,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                                 );
                               default:
                                 return (
-                                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2">
+                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2">
                                     <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
                                     <line x1="9" y1="9" x2="15" y2="15"/>
                                     <line x1="15" y1="9" x2="9" y2="15"/>
@@ -2255,19 +2345,19 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                         
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div className="scenario-title" style={{
-                            fontSize: '16px',
+                            fontSize: '14px',
                             fontWeight: 600,
                             color: isDarkMode ? colours.dark.text : '#1E293B',
-                            lineHeight: '1.4',
-                            marginBottom: '4px'
+                            lineHeight: '1.3',
+                            marginBottom: '3px'
                           }}>
                             {s.name}
                           </div>
                           
                           <div className="scenario-description" style={{
-                            fontSize: '12px',
+                            fontSize: '11px',
                             color: isDarkMode ? '#94A3B8' : '#64748B',
-                            lineHeight: '1.4',
+                            lineHeight: '1.3',
                             fontWeight: 400
                           }}>
                             {(() => {
@@ -2298,8 +2388,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                         marginTop: 'auto'
                       }}>
                         <div style={{
-                          width: '24px',
-                          height: '24px',
+                          width: '20px',
+                          height: '20px',
                           border: `2px solid ${selectedScenarioId === s.id 
                             ? colours.blue
                             : (isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(148, 163, 184, 0.3)')}`,
@@ -2314,7 +2404,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                           justifyContent: 'center'
                         }}>
                           {selectedScenarioId === s.id && (
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="3">
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="3">
                               <polyline points="20,6 9,17 4,12"/>
                             </svg>
                           )}
@@ -2324,99 +2414,394 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   </button>
                 ))}
             </div>
+            </div>
           )}
           {/* Scenario hot-update handled via top-level useEffect */}
-            
-            {/* Only show the rest of the form after a template is selected */}
-            {selectedScenarioId && (
+          
+          {/* Only show the rest of the form after a template is selected */}
+          {selectedScenarioId && (
             <div style={{
               animation: 'cascadeIn 0.3s ease-out',
               opacity: 1,
               transform: 'translateY(0)'
             }}>
             
-            {/* Subject Line - Primary Focus */}
-            <div style={{
-              background: isDarkMode
-                ? 'linear-gradient(135deg, rgba(5, 12, 26, 0.98) 0%, rgba(9, 22, 44, 0.94) 52%, rgba(13, 35, 63, 0.9) 100%)'
-                : 'linear-gradient(135deg, rgba(248, 250, 252, 0.96) 0%, rgba(255, 255, 255, 0.94) 100%)',
-              borderRadius: '16px',
-              padding: '24px',
-              border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : 'rgba(148, 163, 184, 0.22)'}`,
-              boxShadow: isDarkMode 
-                ? '0 18px 32px rgba(2, 6, 17, 0.58)' 
-                : '0 12px 28px rgba(13, 47, 96, 0.12)',
-              marginBottom: initialNotes ? 24 : 0,
-              fontFamily: 'Raleway, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-              backdropFilter: 'blur(12px)',
-              animation: 'cascadeIn 0.4s ease-out'
-            }}>
+            {/* Step 2: Subject Line Section */}
+            <div style={{ marginBottom: 24 }}>
               <div style={{
                 fontSize: '14px',
                 fontWeight: 600,
                 color: isDarkMode ? '#E0F2FE' : '#0F172A',
-                marginBottom: '16px',
+                marginBottom: '12px',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px'
+                gap: '10px'
               }}>
                 <div style={{
-                  padding: '8px',
-                  background: isDarkMode 
-                    ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.24) 0%, rgba(59, 130, 246, 0.18) 100%)'
-                    : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(96, 165, 250, 0.18) 100%)',
-                  borderRadius: '8px',
+                  width: '24px',
+                  height: '24px',
+                  borderRadius: '50%',
+                  background: !isSubjectEditing && subject && subject !== 'Your Enquiry - Helix Law'
+                    ? (isDarkMode 
+                        ? 'linear-gradient(135deg, rgba(74, 222, 128, 0.24) 0%, rgba(34, 197, 94, 0.18) 100%)'
+                        : 'linear-gradient(135deg, rgba(74, 222, 128, 0.16) 0%, rgba(34, 197, 94, 0.18) 100%)')
+                    : (isDarkMode 
+                        ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.24) 0%, rgba(59, 130, 246, 0.18) 100%)'
+                        : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(96, 165, 250, 0.18) 100%)'),
+                  border: !isSubjectEditing && subject && subject !== 'Your Enquiry - Helix Law'
+                    ? `1px solid ${isDarkMode ? 'rgba(74, 222, 128, 0.35)' : 'rgba(34, 197, 94, 0.3)'}`
+                    : `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`,
                   display: 'flex',
                   alignItems: 'center',
-                  border: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`
+                  justifyContent: 'center',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  color: !isSubjectEditing && subject && subject !== 'Your Enquiry - Helix Law'
+                    ? '#059669' 
+                    : colours.blue
                 }}>
-                  <FaEdit style={{ fontSize: 14, color: colours.blue }} />
+                  2
                 </div>
-                Subject Line
+                <div style={{
+                  padding: '6px',
+                  background: !isSubjectEditing && subject && subject !== 'Your Enquiry - Helix Law'
+                    ? (isDarkMode 
+                        ? 'linear-gradient(135deg, rgba(74, 222, 128, 0.24) 0%, rgba(5, 150, 105, 0.18) 100%)'
+                        : 'linear-gradient(135deg, rgba(5, 150, 105, 0.16) 0%, rgba(74, 222, 128, 0.18) 100%)')
+                    : (isDarkMode 
+                        ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.24) 0%, rgba(59, 130, 246, 0.18) 100%)'
+                        : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(96, 165, 250, 0.18) 100%)'),
+                  borderRadius: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  border: !isSubjectEditing && subject && subject !== 'Your Enquiry - Helix Law'
+                    ? `1px solid ${isDarkMode ? 'rgba(74, 222, 128, 0.35)' : 'rgba(5, 150, 105, 0.3)'}`
+                    : `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`
+                }}>
+                  <FaEdit style={{ 
+                    fontSize: 12, 
+                    color: !isSubjectEditing && subject && subject !== 'Your Enquiry - Helix Law'
+                      ? (isDarkMode ? '#4ADE80' : '#059669')
+                      : colours.blue 
+                  }} />
+                </div>
+                <span style={{ fontSize: '14px' }}>
+                  Subject Line:
+                </span>
               </div>
-              <input
-                type="text"
-                value={subject}
-                onChange={(e) => setSubject(e.target.value)}
-                placeholder="Craft your email subject based on the context below..."
-                style={{
-                  width: '100%',
-                  padding: '16px 20px',
-                  fontSize: '15px',
-                  fontWeight: 400,
-                  border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : 'rgba(148, 163, 184, 0.3)'}`,
-                  borderRadius: '10px',
-                  background: isDarkMode 
-                    ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.94) 0%, rgba(11, 30, 55, 0.88) 100%)'
-                    : 'linear-gradient(135deg, rgba(248, 250, 252, 0.96) 0%, rgba(255, 255, 255, 0.92) 100%)',
-                  color: isDarkMode ? '#E0F2FE' : '#0F172A',
-                  outline: 'none',
-                  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                  boxShadow: isDarkMode
-                    ? '0 12px 20px rgba(4, 9, 20, 0.6)'
-                    : '0 8px 18px rgba(13, 47, 96, 0.14)',
-                  fontFamily: 'inherit',
-                  boxSizing: 'border-box',
-                  backdropFilter: 'blur(8px)'
-                }}
-                onFocus={(e) => {
-                  e.target.style.borderColor = isDarkMode ? '#60A5FA' : '#3690CE';
-                  e.target.style.borderWidth = '2px';
-                  e.target.style.boxShadow = isDarkMode
-                    ? '0 0 0 4px rgba(96, 165, 250, 0.2), 0 16px 28px rgba(4, 9, 20, 0.7)'
-                    : '0 0 0 4px rgba(54, 144, 206, 0.15), 0 12px 24px rgba(13, 47, 96, 0.18)';
-                }}
-                onBlur={(e) => {
-                  e.target.style.borderColor = isDarkMode ? 'rgba(125, 211, 252, 0.24)' : 'rgba(148, 163, 184, 0.3)';
-                  e.target.style.borderWidth = '1px';
-                  e.target.style.boxShadow = isDarkMode
-                    ? '0 12px 20px rgba(4, 9, 20, 0.6)'
-                    : '0 8px 18px rgba(13, 47, 96, 0.14)';
-                }}
-              />
+              <div style={{
+                marginLeft: 11,
+                paddingLeft: 23,
+                borderLeft: `2px solid ${!isSubjectEditing && subject && subject !== 'Your Enquiry - Helix Law'
+                  ? (isDarkMode ? 'rgba(74, 222, 128, 0.35)' : 'rgba(5, 150, 105, 0.3)')
+                  : (isDarkMode ? 'rgba(96, 165, 250, 0.25)' : 'rgba(54, 144, 206, 0.2)')}`,
+                paddingTop: 12
+              }}>
+                {!isSubjectEditing ? (
+                  <div
+                    onClick={() => setIsSubjectEditing(true)}
+                    style={{
+                      cursor: 'pointer',
+                      padding: '8px 12px', // Match input padding for no jolt
+                      background: 'transparent', // No background when collapsed
+                      border: `1px solid transparent`, // Invisible border to maintain spacing
+                      borderRadius: '6px',
+                      color: isDarkMode ? '#E0F2FE' : '#0F172A',
+                      fontSize: '14px',
+                      fontWeight: 400,
+                      transition: 'all 0.2s ease',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      flex: 1,
+                      minHeight: '20px', // Ensure consistent height
+                      boxSizing: 'border-box'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = isDarkMode 
+                        ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.6) 0%, rgba(11, 30, 55, 0.4) 100%)'
+                        : 'linear-gradient(135deg, rgba(248, 250, 252, 0.8) 0%, rgba(255, 255, 255, 0.6) 100%)';
+                      e.currentTarget.style.borderColor = isDarkMode ? 'rgba(125, 211, 252, 0.3)' : 'rgba(148, 163, 184, 0.4)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.borderColor = 'transparent';
+                    }}
+                  >
+                    <span style={{ flex: 1, opacity: subject ? 1 : 0.6 }}>
+                      {subject || 'Craft your email subject based on the context below...'}
+                    </span>
+                    <FaEdit style={{ fontSize: 11, color: colours.blue, opacity: 0.6 }} />
+                  </div>
+                ) : (
+                  <div style={{ flex: 1 }}>
+                    <input
+                      type="text"
+                      value={subject}
+                      onChange={(e) => setSubject(e.target.value)}
+                      placeholder="Craft your email subject based on the context below..."
+                      autoFocus
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        fontSize: '14px',
+                        fontWeight: 400,
+                        border: `2px solid #3690CE`,
+                        borderRadius: '6px',
+                        background: isDarkMode 
+                          ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.94) 0%, rgba(11, 30, 55, 0.88) 100%)'
+                          : 'linear-gradient(135deg, rgba(248, 250, 252, 0.96) 0%, rgba(255, 255, 255, 0.92) 100%)',
+                        color: isDarkMode ? '#E0F2FE' : '#0F172A',
+                        outline: 'none',
+                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                        boxShadow: '0 0 0 4px rgba(107, 107, 107, 0.12)',
+                        fontFamily: 'inherit',
+                        boxSizing: 'border-box'
+                      }}
+                      onBlur={() => {
+                        // Only collapse if user has interacted (prevents auto-collapse)
+                        setIsSubjectEditing(false);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === 'Escape') {
+                          setIsSubjectEditing(false);
+                        }
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
 
+            {/* Step 3: Scope Description Section */}
+            {!isBeforeCallCall && (
+              <div style={{ marginBottom: 24 }}>
+                <div style={{
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  color: isDarkMode ? '#E0F2FE' : '#0F172A',
+                  marginBottom: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px'
+                }}>
+                  <div style={{
+                    width: '24px',
+                    height: '24px',
+                    borderRadius: '50%',
+                    background: scopeDescription && scopeDescription.trim()
+                      ? (isDarkMode 
+                          ? 'linear-gradient(135deg, rgba(74, 222, 128, 0.24) 0%, rgba(34, 197, 94, 0.18) 100%)'
+                          : 'linear-gradient(135deg, rgba(74, 222, 128, 0.16) 0%, rgba(34, 197, 94, 0.18) 100%)')
+                      : (isDarkMode 
+                          ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.24) 0%, rgba(59, 130, 246, 0.18) 100%)'
+                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(96, 165, 250, 0.18) 100%)'),
+                    border: scopeDescription && scopeDescription.trim()
+                      ? `1px solid ${isDarkMode ? 'rgba(74, 222, 128, 0.35)' : 'rgba(34, 197, 94, 0.3)'}`
+                      : `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    color: scopeDescription && scopeDescription.trim()
+                      ? '#059669' 
+                      : colours.blue
+                  }}>
+                    3
+                  </div>
+                  <div style={{
+                    padding: '6px',
+                    background: scopeDescription && scopeDescription.trim()
+                      ? (isDarkMode 
+                          ? 'linear-gradient(135deg, rgba(74, 222, 128, 0.24) 0%, rgba(5, 150, 105, 0.18) 100%)'
+                          : 'linear-gradient(135deg, rgba(5, 150, 105, 0.16) 0%, rgba(74, 222, 128, 0.18) 100%)')
+                      : (isDarkMode 
+                          ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.24) 0%, rgba(59, 130, 246, 0.18) 100%)'
+                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(96, 165, 250, 0.18) 100%)'),
+                    borderRadius: '6px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    border: scopeDescription && scopeDescription.trim()
+                      ? `1px solid ${isDarkMode ? 'rgba(74, 222, 128, 0.35)' : 'rgba(5, 150, 105, 0.3)'}`
+                      : `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`
+                  }}>
+                    <FaFileAlt style={{ 
+                      fontSize: 12, 
+                      color: scopeDescription && scopeDescription.trim()
+                        ? (isDarkMode ? '#4ADE80' : '#059669')
+                        : colours.blue 
+                    }} />
+                  </div>
+                  <span style={{ fontSize: '14px' }}>
+                    Scope Description:
+                  </span>
+                </div>
+                <DealCapture
+                  isDarkMode={isDarkMode}
+                  scopeDescription={scopeDescription}
+                  onScopeChange={(v) => { setScopeDescription(v); onScopeDescriptionChange?.(v); }}
+                  amount={amountValue}
+                  onAmountChange={(v) => { setAmountValue(v); onAmountChange?.(v); }}
+                  amountError={amountError}
+                  showScopeOnly={true}
+                />
+              </div>
+            )}
+
+            {/* Step 4: Quote Amount Section */}
+            {!isBeforeCallCall && (
+              <div style={{ marginBottom: 24 }}>
+                <div style={{
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  color: isDarkMode ? '#E0F2FE' : '#0F172A',
+                  marginBottom: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px'
+                }}>
+                  <div style={{
+                    width: '24px',
+                    height: '24px',
+                    borderRadius: '50%',
+                    background: amountValue && parseFloat(amountValue) > 0
+                      ? (isDarkMode 
+                          ? 'linear-gradient(135deg, rgba(74, 222, 128, 0.24) 0%, rgba(34, 197, 94, 0.18) 100%)'
+                          : 'linear-gradient(135deg, rgba(74, 222, 128, 0.16) 0%, rgba(34, 197, 94, 0.18) 100%)')
+                      : (isDarkMode 
+                          ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.24) 0%, rgba(59, 130, 246, 0.18) 100%)'
+                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(96, 165, 250, 0.18) 100%)'),
+                    border: amountValue && parseFloat(amountValue) > 0
+                      ? `1px solid ${isDarkMode ? 'rgba(74, 222, 128, 0.35)' : 'rgba(34, 197, 94, 0.3)'}`
+                      : `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    color: amountValue && parseFloat(amountValue) > 0
+                      ? '#059669' 
+                      : colours.blue
+                  }}>
+                    4
+                  </div>
+                  <div style={{
+                    padding: '6px',
+                    background: amountValue && parseFloat(amountValue) > 0
+                      ? (isDarkMode 
+                          ? 'linear-gradient(135deg, rgba(74, 222, 128, 0.24) 0%, rgba(5, 150, 105, 0.18) 100%)'
+                          : 'linear-gradient(135deg, rgba(5, 150, 105, 0.16) 0%, rgba(74, 222, 128, 0.18) 100%)')
+                      : (isDarkMode 
+                          ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.24) 0%, rgba(59, 130, 246, 0.18) 100%)'
+                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(96, 165, 250, 0.18) 100%)'),
+                    borderRadius: '6px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    border: amountValue && parseFloat(amountValue) > 0
+                      ? `1px solid ${isDarkMode ? 'rgba(74, 222, 128, 0.35)' : 'rgba(5, 150, 105, 0.3)'}`
+                      : `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`
+                  }}>
+                    <FaPoundSign style={{ 
+                      fontSize: 12, 
+                      color: amountValue && parseFloat(amountValue) > 0
+                        ? (isDarkMode ? '#4ADE80' : '#059669')
+                        : colours.blue 
+                    }} />
+                  </div>
+                  <span style={{ fontSize: '14px' }}>
+                    Quote Amount:
+                  </span>
+                </div>
+                <DealCapture
+                  isDarkMode={isDarkMode}
+                  scopeDescription={scopeDescription}
+                  onScopeChange={(v) => { setScopeDescription(v); onScopeDescriptionChange?.(v); }}
+                  amount={amountValue}
+                  onAmountChange={(v) => { setAmountValue(v); onAmountChange?.(v); }}
+                  amountError={amountError}
+                  showAmountOnly={true}
+                />
+              </div>
+            )}
+
             {/* Default subject is set via a top-level effect to respect Hooks rules */}
+
+            {/* Section Title */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              marginBottom: 16
+            }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px'
+              }}>
+                <div style={{
+                  width: '24px',
+                  height: '24px',
+                  borderRadius: '50%',
+                  background: allPlaceholdersSatisfied
+                    ? (isDarkMode 
+                        ? 'linear-gradient(135deg, rgba(74, 222, 128, 0.24) 0%, rgba(34, 197, 94, 0.18) 100%)'
+                        : 'linear-gradient(135deg, rgba(74, 222, 128, 0.16) 0%, rgba(34, 197, 94, 0.18) 100%)')
+                    : (isDarkMode 
+                        ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.24) 0%, rgba(59, 130, 246, 0.18) 100%)'
+                        : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(96, 165, 250, 0.18) 100%)'),
+                  border: allPlaceholdersSatisfied
+                    ? `1px solid ${isDarkMode ? 'rgba(74, 222, 128, 0.35)' : 'rgba(34, 197, 94, 0.3)'}`
+                    : `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  color: allPlaceholdersSatisfied ? '#059669' : colours.blue
+                }}>
+                  4
+                </div>
+                <div style={{
+                  padding: '6px',
+                  background: allPlaceholdersSatisfied
+                    ? (isDarkMode 
+                        ? 'linear-gradient(135deg, rgba(74, 222, 128, 0.24) 0%, rgba(34, 197, 94, 0.18) 100%)'
+                        : 'linear-gradient(135deg, rgba(74, 222, 128, 0.16) 0%, rgba(34, 197, 94, 0.18) 100%)')
+                    : (isDarkMode 
+                        ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.24) 0%, rgba(59, 130, 246, 0.18) 100%)'
+                        : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(96, 165, 250, 0.18) 100%)'),
+                  borderRadius: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  border: allPlaceholdersSatisfied
+                    ? `1px solid ${isDarkMode ? 'rgba(74, 222, 128, 0.35)' : 'rgba(34, 197, 94, 0.3)'}`
+                    : `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`
+                }}>
+                  <FaFileAlt style={{ 
+                    fontSize: 12, 
+                    color: allPlaceholdersSatisfied 
+                      ? '#059669' 
+                      : (isDarkMode ? '#60A5FA' : '#3690CE') 
+                  }} />
+                </div>
+                <span style={{
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  color: isDarkMode ? '#E2E8F0' : '#1F2937',
+                  letterSpacing: '0.025em'
+                }}>
+                  {showInlinePreview ? 'Email Preview' : 'Email Body'}
+                </span>
+              </div>
+              <div style={{
+                flex: 1,
+                height: 1,
+                background: isDarkMode 
+                  ? 'linear-gradient(90deg, rgba(96, 165, 250, 0.2) 0%, transparent 100%)'
+                  : 'linear-gradient(90deg, rgba(148, 163, 184, 0.3) 0%, transparent 100%)'
+              }} />
+            </div>
 
             {/* Email body / Preview (swap in place) */}
             <div style={{
@@ -2432,68 +2817,64 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
               marginBottom: 20,
               fontFamily: 'Raleway, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
               backdropFilter: 'blur(12px)',
+              position: 'relative',
+              zIndex: isBodyEditorFocused ? 10000 : 'auto',
+              isolation: 'isolate',
               animation: 'cascadeIn 0.4s ease-out'
             }}>
-              <div style={{
-                fontSize: '14px',
-                fontWeight: 600,
-                color: isDarkMode ? '#E0F2FE' : '#0F172A',
-                marginBottom: '18px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
-                justifyContent: 'space-between',
-                padding: '12px 18px',
-                background: isDarkMode
-                  ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.92) 0%, rgba(11, 30, 55, 0.86) 100%)'
-                  : 'linear-gradient(135deg, rgba(248, 250, 252, 0.96) 0%, rgba(255, 255, 255, 0.92) 100%)',
-                borderRadius: '12px',
-                border: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.3)' : 'rgba(148, 163, 184, 0.22)'}`,
-                boxShadow: isDarkMode 
-                  ? '0 10px 22px rgba(4, 9, 20, 0.55)' 
-                  : '0 6px 16px rgba(13, 47, 96, 0.12)',
-                backdropFilter: 'blur(8px)'
-              }}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{
-                    padding: '8px',
-                    background: isDarkMode 
-                      ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.24) 0%, rgba(59, 130, 246, 0.18) 100%)'
-                      : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(96, 165, 250, 0.18) 100%)',
-                    borderRadius: '8px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    border: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`
-                  }}>
-                    <FaFileAlt style={{ fontSize: 14, color: isDarkMode ? '#60A5FA' : '#3690CE' }} />
-                  </div>
-                  {showInlinePreview ? 'Preview' : 'Email body'}
-                </span>
-                <div style={{ display: 'inline-flex', gap: 8 }}>
-                  <button
-                    onClick={() => {
-                      if (showInlinePreview) {
-                        if (!previewRef.current) return;
-                        const text = previewRef.current.innerText || '';
-                        try {
-                          void navigator.clipboard.writeText(text);
-                        } catch {
-                          const ta = document.createElement('textarea');
-                          ta.value = text;
-                          document.body.appendChild(ta);
-                          ta.select();
-                          try { document.execCommand('copy'); } catch {}
-                          document.body.removeChild(ta);
-                        }
-                        setCopiedToolbar(true);
-                        setTimeout(() => setCopiedToolbar(false), 1200);
-                        return;
+              
+              {/* Email Body Toolbar - Conditional visibility */}
+              <div 
+                className="email-body-toolbar"
+                style={{
+                  position: 'absolute',
+                  top: 12,
+                  right: 24,
+                  zIndex: 15,
+                  display: 'flex',
+                  gap: 6,
+                  opacity: (isBodyEditorFocused || allPlaceholdersSatisfied || showInlinePreview) ? 1 : 0.4,
+                  backgroundColor: (isBodyEditorFocused || allPlaceholdersSatisfied || showInlinePreview) 
+                    ? (isDarkMode ? 'rgba(22, 30, 46, 0.95)' : '#F8FAFC')
+                    : (isDarkMode ? 'rgba(22, 30, 46, 0.6)' : 'rgba(248, 250, 252, 0.6)'),
+                  border: `1px solid ${(isBodyEditorFocused || allPlaceholdersSatisfied || showInlinePreview) 
+                    ? (isDarkMode ? '#1E293B' : '#D4DAE5')
+                    : (isDarkMode ? 'rgba(30, 41, 59, 0.5)' : 'rgba(212, 218, 229, 0.5)')
+                  }`,
+                  borderRadius: 6,
+                  padding: '6px 10px',
+                  boxShadow: (isBodyEditorFocused || allPlaceholdersSatisfied || showInlinePreview) 
+                    ? (isDarkMode
+                        ? '0 14px 30px rgba(8, 12, 24, 0.55)'
+                        : '0 12px 28px rgba(15, 23, 42, 0.18)')
+                    : (isDarkMode
+                        ? '0 4px 12px rgba(8, 12, 24, 0.25)'
+                        : '0 4px 12px rgba(15, 23, 42, 0.08)'),
+                  backdropFilter: 'blur(8px)',
+                  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                  pointerEvents: 'auto' // Always allow preview button to work
+                }}
+              >
+                <button
+                  onClick={() => {
+                    if (showInlinePreview) {
+                      if (!previewRef.current) return;
+                      const text = previewRef.current.innerText || '';
+                      try {
+                        void navigator.clipboard.writeText(text);
+                      } catch {
+                        const ta = document.createElement('textarea');
+                        ta.value = text;
+                        document.body.appendChild(ta);
+                        ta.select();
+                        try { document.execCommand('copy'); } catch {}
+                        document.body.removeChild(ta);
                       }
+                    } else {
                       const plain = htmlToPlainText(body);
                       try {
                         void navigator.clipboard.writeText(plain);
                       } catch {
-                        // Fallback
                         const ta = document.createElement('textarea');
                         ta.value = plain;
                         document.body.appendChild(ta);
@@ -2501,755 +2882,569 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                         try { document.execCommand('copy'); } catch {}
                         document.body.removeChild(ta);
                       }
-                      setCopiedToolbar(true);
-                      setTimeout(() => setCopiedToolbar(false), 1200);
-                    }}
-                    style={{
-                      padding: '10px 16px',
-                      fontSize: '12px',
-                      borderRadius: '10px',
-                      border: copiedToolbar 
-                        ? '1px solid #16a34a' 
-                        : `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`,
-                      color: copiedToolbar ? '#166534' : colours.blue,
-                      background: copiedToolbar
-                        ? (isDarkMode ? 'linear-gradient(135deg, rgba(22, 101, 52, 0.35) 0%, rgba(21, 128, 61, 0.25) 100%)' : 'linear-gradient(135deg, #e8f5e8 0%, #dcfce7 100%)')
-                        : (isDarkMode
-                          ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.24) 0%, rgba(59, 130, 246, 0.18) 100%)'
-                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(96, 165, 250, 0.18) 100%)'),
-                      cursor: 'pointer',
-                      fontFamily: 'inherit',
-                      fontWeight: 600,
-                      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      boxShadow: copiedToolbar
-                        ? '0 4px 12px rgba(22, 163, 74, 0.28)'
-                        : (isDarkMode
-                          ? '0 8px 16px rgba(4, 9, 20, 0.5)'
-                          : '0 4px 12px rgba(13, 47, 96, 0.12)'),
-                      backdropFilter: 'blur(6px)'
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!copiedToolbar) {
-                        e.currentTarget.style.background = isDarkMode
-                          ? 'linear-gradient(135deg, rgba(13, 28, 56, 0.94) 0%, rgba(17, 36, 64, 0.9) 100%)'
-                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.26) 0%, rgba(96, 165, 250, 0.32) 100%)';
-                        e.currentTarget.style.transform = 'translateY(-1px)';
-                        e.currentTarget.style.boxShadow = isDarkMode
-                          ? '0 10px 20px rgba(10, 20, 40, 0.55)'
-                          : '0 6px 16px rgba(54, 144, 206, 0.24)';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!copiedToolbar) {
-                        e.currentTarget.style.background = isDarkMode
-                          ? 'linear-gradient(135deg, rgba(11, 22, 43, 0.88) 0%, rgba(13, 30, 56, 0.82) 100%)'
-                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.18) 0%, rgba(96, 165, 250, 0.24) 100%)';
-                        e.currentTarget.style.transform = 'translateY(0)';
-                        e.currentTarget.style.boxShadow = isDarkMode
-                          ? '0 6px 14px rgba(4, 9, 20, 0.6)'
-                          : '0 4px 10px rgba(13, 47, 96, 0.16)';
-                      }
-                    }}
-                    title={showInlinePreview ? 'Copy preview text' : 'Copy plain text'}
-                  >
-                    {copiedToolbar ? (
-                      <>
-                        <FaCheck style={{ fontSize: 12 }} /> Copied
-                      </>
+                    }
+                    setCopiedToolbar(true);
+                    setTimeout(() => setCopiedToolbar(false), 2000);
+                  }}
+                  style={{
+                    padding: '6px 10px',
+                    fontSize: 11,
+                    backgroundColor: copiedToolbar 
+                      ? (isDarkMode ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.1)')
+                      : 'transparent',
+                    color: (isBodyEditorFocused || allPlaceholdersSatisfied) 
+                      ? (copiedToolbar 
+                          ? (isDarkMode ? '#4ADE80' : '#16A34A')
+                          : (isDarkMode ? '#E2E8F0' : '#1F2937'))
+                      : (isDarkMode ? '#64748B' : '#94A3B8'),
+                    border: 'none',
+                    borderRadius: 4,
+                    cursor: (isBodyEditorFocused || allPlaceholdersSatisfied) ? 'pointer' : 'not-allowed',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    transition: 'all 0.2s ease',
+                    fontWeight: 500,
+                    opacity: (isBodyEditorFocused || allPlaceholdersSatisfied) ? 1 : 0.5
+                  }}
+                  title={showInlinePreview ? 'Copy preview text' : 'Copy email body text'}
+                >
+                  {copiedToolbar ? <FaCheck style={{ fontSize: 11 }} /> : <FaCopy style={{ fontSize: 11 }} />}
+                  {copiedToolbar ? 'Copied!' : 'Copy'}
+                </button>
+                <div style={{
+                  width: 1,
+                  height: 16,
+                  backgroundColor: (isBodyEditorFocused || allPlaceholdersSatisfied) 
+                    ? (isDarkMode ? '#2C3A4D' : '#E2E8F0')
+                    : (isDarkMode ? 'rgba(44, 58, 77, 0.5)' : 'rgba(226, 232, 240, 0.5)'),
+                  margin: '0 4px',
+                  transition: 'all 0.2s ease'
+                }} />
+                <button
+                  onClick={() => setShowInlinePreview(v => !v)}
+                  style={{
+                    padding: '6px 10px',
+                    fontSize: 11,
+                    backgroundColor: allPlaceholdersSatisfied && !showInlinePreview
+                      ? 'rgba(32, 178, 108, 0.15)'
+                      : showInlinePreview && allPlaceholdersSatisfied
+                        ? 'rgba(32, 178, 108, 0.2)'
+                        : showInlinePreview && !allPlaceholdersSatisfied
+                          ? 'rgba(214, 85, 65, 0.15)' // CTA red background when in preview with missing placeholders
+                          : 'transparent',
+                    color: showInlinePreview 
+                      ? (allPlaceholdersSatisfied ? '#20b26c' : '#D65541') // CTA red when in preview with missing placeholders
+                      : allPlaceholdersSatisfied
+                        ? '#20b26c' 
+                        : (isDarkMode ? '#E2E8F0' : '#1F2937'),
+                    border: allPlaceholdersSatisfied && !showInlinePreview
+                      ? '1px solid rgba(32, 178, 108, 0.3)'
+                      : showInlinePreview && !allPlaceholdersSatisfied
+                        ? '1px solid rgba(214, 85, 65, 0.3)' // CTA red border when in preview with missing placeholders
+                        : 'none',
+                    borderRadius: 4,
+                    cursor: 'pointer', // Always allow clicking
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    transition: 'all 0.2s ease',
+                    fontWeight: allPlaceholdersSatisfied && !showInlinePreview ? 600 : (showInlinePreview && !allPlaceholdersSatisfied ? 600 : 500),
+                    opacity: 1, // Always fully visible
+                    boxShadow: allPlaceholdersSatisfied && !showInlinePreview
+                      ? '0 0 0 1px rgba(32, 178, 108, 0.1), 0 0 8px rgba(32, 178, 108, 0.15)'
+                      : showInlinePreview && !allPlaceholdersSatisfied
+                        ? '0 0 0 1px rgba(214, 85, 65, 0.1), 0 0 8px rgba(214, 85, 65, 0.15)'
+                        : 'none',
+                    animation: allPlaceholdersSatisfied && !showInlinePreview
+                      ? 'subtlePulseMd 1.8s ease-in-out infinite'
+                      : showInlinePreview && !allPlaceholdersSatisfied
+                        ? 'subtlePulseMd 1.2s ease-in-out infinite' // Faster pulse for urgency
+                        : 'none',
+                    willChange: 'transform, opacity'
+                  }}
+                  title="Toggle between editor and preview"
+                >
+                  <span style={{ 
+                    display: 'flex', 
+                    alignItems: 'center',
+                    animation: allPlaceholdersSatisfied && !showInlinePreview 
+                      ? 'subtlePulse 2s ease-in-out infinite' 
+                      : 'none'
+                  }}>
+                    {showInlinePreview ? (
+                      <FaArrowLeft style={{ fontSize: 11 }} />
+                    ) : allPlaceholdersSatisfied ? (
+                      <FaCheck style={{ fontSize: 11 }} />
                     ) : (
-                      <>
-                        <FaCopy style={{ fontSize: 12 }} /> Copy
-                      </>
+                      <FaEye style={{ fontSize: 11 }} />
                     )}
-                  </button>
-                  <button
-                    onClick={() => setShowInlinePreview(v => !v)}
-                    style={{
-                      padding: '10px 16px',
-                      fontSize: '12px',
-                      borderRadius: '10px',
-                      border: showInlinePreview
-                        ? `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`
-                        : `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.55)' : 'rgba(54, 144, 206, 0.55)'}`,
-                      color: showInlinePreview ? colours.blue : '#ffffff',
-                      background: showInlinePreview
-                        ? (isDarkMode
-                          ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.24) 0%, rgba(59, 130, 246, 0.18) 100%)'
-                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(96, 165, 250, 0.18) 100%)')
-                        : 'linear-gradient(135deg, #3690CE 0%, #60A5FA 100%)',
-                      cursor: 'pointer',
-                      fontFamily: 'inherit',
-                      fontWeight: showInlinePreview ? 600 : 700,
-                      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      boxShadow: showInlinePreview
-                        ? (isDarkMode ? '0 8px 16px rgba(4, 9, 20, 0.5)' : '0 4px 12px rgba(13, 47, 96, 0.12)')
-                        : '0 6px 16px rgba(54, 144, 206, 0.22)',
-                      backdropFilter: 'blur(6px)'
-                    }}
-                    onMouseEnter={(e) => {
-                      if (showInlinePreview) {
-                        e.currentTarget.style.borderColor = colours.blue;
-                        e.currentTarget.style.color = colours.blue;
-                        e.currentTarget.style.background = isDarkMode
-                          ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.34) 0%, rgba(59, 130, 246, 0.28) 100%)'
-                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.26) 0%, rgba(96, 165, 250, 0.28) 100%)';
-                        e.currentTarget.style.boxShadow = isDarkMode
-                          ? '0 10px 20px rgba(10, 20, 40, 0.55)'
-                          : '0 6px 16px rgba(54, 144, 206, 0.24)';
-                      } else {
-                        e.currentTarget.style.background = 'linear-gradient(135deg, #2F7DC2 0%, #539EF0 100%)';
-                        e.currentTarget.style.boxShadow = '0 8px 18px rgba(54, 144, 206, 0.25)';
-                      }
-                      e.currentTarget.style.transform = 'translateY(-1px)';
-                    }}
-                    onMouseLeave={(e) => {
-                      if (showInlinePreview) {
-                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(96, 165, 250, 0.35)' : 'rgba(54, 144, 206, 0.3)';
-                        e.currentTarget.style.color = colours.blue;
-                        e.currentTarget.style.background = isDarkMode
-                          ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.24) 0%, rgba(59, 130, 246, 0.18) 100%)'
-                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(96, 165, 250, 0.18) 100%)';
-                        e.currentTarget.style.boxShadow = isDarkMode ? '0 8px 16px rgba(4, 9, 20, 0.5)' : '0 4px 12px rgba(13, 47, 96, 0.12)';
-                      } else {
-                        e.currentTarget.style.background = 'linear-gradient(135deg, #3690CE 0%, #60A5FA 100%)';
-                        e.currentTarget.style.boxShadow = '0 6px 16px rgba(54, 144, 206, 0.22)';
-                      }
-                      e.currentTarget.style.transform = 'translateY(0)';
-                    }}
-                    title="Toggle inline preview"
-                  >
-                    <FaEye style={{ fontSize: 12 }} /> {showInlinePreview ? 'Back to editor' : 'Preview'}
-                  </button>
-                </div>
+                  </span>
+                  {showInlinePreview ? 'Editor' : 'Preview'}
+                </button>
               </div>
               {!showInlinePreview && (
                 <div className="smooth-appear" style={{
-                  border: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.35)' : 'rgba(148, 163, 184, 0.22)'}`,
-                  borderRadius: '12px',
-                  background: isDarkMode
-                    ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.94) 0%, rgba(11, 30, 55, 0.88) 100%)'
-                    : 'linear-gradient(135deg, rgba(248, 250, 252, 0.96) 0%, rgba(255, 255, 255, 0.92) 100%)',
-                  padding: '0',
-                  position: 'relative',
-                  overflow: 'hidden',
-                  boxShadow: isDarkMode ? '0 12px 28px rgba(4, 9, 20, 0.6)' : '0 8px 20px rgba(13, 47, 96, 0.14)',
-                  backdropFilter: 'blur(10px)'
-                }}>
-                  {/* Watermark */}
-                  <div aria-hidden="true" style={{ position: 'absolute', top: 8, right: 8, width: 150, height: 150, opacity: 0.06, backgroundImage: `url(${markUrl})`, backgroundRepeat: 'no-repeat', backgroundPosition: 'top right', backgroundSize: 'contain', pointerEvents: 'none', zIndex: 1 }} />
-                  
-                  {/* Rich Text Formatting Toolbar */}
-                  <div style={{ 
-                    borderBottom: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
+                    border: `1px solid ${isDarkMode ? 'rgba(37, 46, 63, 0.85)' : '#E4E7EC'}`,
+                    borderRadius: '12px',
+                    background: isDarkMode ? '#0B1324' : '#FFFFFF',
+                    padding: 0,
+                    position: 'relative',
+                    overflow: 'hidden',
+                    boxShadow: isDarkMode
+                      ? '0 26px 48px rgba(2, 6, 23, 0.55)'
+                      : '0 20px 48px rgba(15, 23, 42, 0.12)',
+                    backdropFilter: isDarkMode ? 'blur(6px)' : 'none'
+                  }}>
+                    <div style={{
+                      borderBottom: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.65)' : '#E2E8F0'}`,
+                      background: isDarkMode ? 'rgba(11, 19, 36, 0.94)' : '#F8FAFC',
                       position: 'relative',
-                      zIndex: 2
+                      zIndex: 2,
+                      padding: '8px 14px'
                     }}>
                       <FormattingToolbar
                         isDarkMode={isDarkMode}
                         onFormatChange={handleFormatCommand}
                         editorRef={bodyEditorRef}
+                        disabled={!isBodyEditorFocused}
                         style={{
                           border: 'none',
-                          borderRadius: '12px 12px 0 0',
+                          borderRadius: 0,
                           backgroundColor: 'transparent'
                         }}
                       />
                     </div>
-                  
-                  <div style={{ padding: '10px' }}>
-                    <InlineEditableArea
-                      value={body}
-                      onChange={(v) => setBody(v)}
-                      edited={false}
-                      minHeight={140}
-                      externalHighlights={undefined}
-                      allReplacedRanges={allBodyReplacedRanges}
-                      passcode={passcode}
-                      enquiry={enquiry}
-                      isDarkMode={isDarkMode}
-                      richTextMode={richTextMode}
-                      bodyEditorRef={bodyEditorRef}
-                      handleFormatCommand={handleFormatCommand}
-                    />
+
+                    <div style={{ padding: '18px 20px' }}>
+                      <InlineEditableArea
+                        value={body}
+                        onChange={(v) => setBody(v)}
+                        edited={false}
+                        minHeight={140}
+                        externalHighlights={undefined}
+                        allReplacedRanges={allBodyReplacedRanges}
+                        passcode={passcode}
+                        enquiry={enquiry}
+                        isDarkMode={isDarkMode}
+                        richTextMode={richTextMode}
+                        bodyEditorRef={bodyEditorRef}
+                        handleFormatCommand={handleFormatCommand}
+                        onFocusChange={setIsBodyEditorFocused}
+                      />
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
 
               {showInlinePreview && (
                 <div className="smooth-appear" style={{
-                marginTop: 12,
-                border: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.35)' : 'rgba(148, 163, 184, 0.22)'}`,
-                borderRadius: '12px',
-                background: isDarkMode
-                  ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.94) 0%, rgba(11, 30, 55, 0.88) 100%)'
-                  : 'linear-gradient(135deg, rgba(248, 250, 252, 0.96) 0%, rgba(255, 255, 255, 0.92) 100%)',
-                overflow: 'hidden',
-                position: 'relative',
-                boxShadow: isDarkMode ? '0 12px 28px rgba(4, 9, 20, 0.6)' : '0 8px 20px rgba(13, 47, 96, 0.14)',
-                backdropFilter: 'blur(10px)'
-              }}>
-                {/* Watermark */}
-                <div aria-hidden="true" style={{ position: 'absolute', top: 10, right: 10, width: 160, height: 160, opacity: isDarkMode ? 0.08 : 0.08, backgroundImage: `url(${markUrl})`, backgroundRepeat: 'no-repeat', backgroundPosition: 'top right', backgroundSize: 'contain', pointerEvents: 'none' }} />
-                <div style={{
-                  padding: '12px 16px',
-                  background: isDarkMode
-                    ? 'linear-gradient(135deg, rgba(11, 30, 55, 0.92) 0%, rgba(15, 38, 68, 0.85) 100%)'
-                    : 'linear-gradient(135deg, rgba(240, 249, 255, 0.85) 0%, rgba(219, 234, 254, 0.8) 100%)',
-                  borderBottom: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  backdropFilter: 'blur(8px)'
-                }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: isDarkMode ? '#E0F2FE' : '#0F172A', letterSpacing: 0.6, textTransform: 'uppercase' }}>Inline Preview</span>
-                  <span style={{ marginLeft: 'auto', fontSize: 11, color: isDarkMode ? 'rgba(224, 242, 254, 0.7)' : colours.blue }}>{subject || 'Your Enquiry - Helix Law'}</span>
-                </div>
-                <div 
-                  ref={previewRef} 
-                  className={`email-preview ${isDarkMode ? 'dark-mode' : 'light-mode'}`}
-                  style={{ 
-                    padding: '18px 20px',
+                    marginTop: 12,
+                    border: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.35)' : 'rgba(148, 163, 184, 0.22)'}`,
+                    borderRadius: '12px',
                     background: isDarkMode
-                      ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.92) 0%, rgba(11, 30, 55, 0.86) 100%)'
+                      ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.94) 0%, rgba(11, 30, 55, 0.88) 100%)'
                       : 'linear-gradient(135deg, rgba(248, 250, 252, 0.96) 0%, rgba(255, 255, 255, 0.92) 100%)',
-                    color: isDarkMode ? '#E0F2FE' : '#1F2937',
-                    lineHeight: 1.6,
-                    fontSize: '14px',
-                    borderRadius: '0 0 12px 12px',
-                    border: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.3)' : 'rgba(148, 163, 184, 0.22)'}`,
-                    borderTop: 'none',
-                    boxShadow: isDarkMode 
-                      ? '0 8px 16px rgba(4, 9, 20, 0.5)' 
-                      : '0 4px 12px rgba(13, 47, 96, 0.1)',
-                    backdropFilter: 'blur(8px)',
-                    // Ensure proper text selection visibility
-                    WebkitUserSelect: 'text',
-                    userSelect: 'text'
+                    overflow: 'hidden',
+                    position: 'relative',
+                    boxShadow: isDarkMode ? '0 12px 28px rgba(4, 9, 20, 0.6)' : '0 8px 20px rgba(13, 47, 96, 0.14)',
+                    backdropFilter: 'blur(10px)'
                   }}>
-                  {(() => {
-                    // Build preview HTML with substitutions and signature
-                    const withoutAutoBlocks = stripDashDividers(body || '');
-                    const userDataLocal = (typeof userData !== 'undefined') ? userData : undefined;
-                    const enquiryLocal = (typeof enquiry !== 'undefined') ? enquiry : undefined;
-                    const sanitized = withoutAutoBlocks.replace(/\r\n/g, '\n').replace(/\n/g, '<br />');
-                    // Use passcode in preview URL if available
-                    const substituted = applyDynamicSubstitutions(
-                      sanitized,
-                      userDataLocal,
-                      enquiryLocal,
-                      amount,
-                      passcode || undefined,
-                      undefined // Let applyDynamicSubstitutions construct URL with passcode
-                    );
-                    const unresolvedBody = findPlaceholders(substituted);
-                    const finalBody = convertDoubleBreaksToParagraphs(substituted);
-                    const finalHighlighted = highlightPlaceholdersHtml(finalBody);
-                    // Normalize any Instruct Helix Law anchors to use the project's highlight colour but preserve original href
-                    const styledFinalHighlighted = finalHighlighted.replace(/<a\s+href="([^"]+)"[^>]*>\s*Instruct\s+Helix\s+Law\s*<\/a>/gi, (m, href) => {
-                      const safe = escapeHtml(href);
-                      return `<a href="${safe}" style="color:${colours.highlight};font-weight:700;text-decoration:underline">Instruct Helix Law</a>`;
-                    });
-                    return (
-                      <>
-                        {unresolvedBody.length > 0 && (
-                          <div style={{
-                            background: isDarkMode
-                              ? 'linear-gradient(135deg, rgba(185, 28, 28, 0.2) 0%, rgba(153, 27, 27, 0.15) 100%)'
-                              : 'linear-gradient(135deg, #fff1f0 0%, #fef2f2 100%)',
-                            border: `1px solid ${isDarkMode ? 'rgba(248, 113, 113, 0.4)' : '#ffa39e'}`,
-                            color: isDarkMode ? '#FCA5A5' : '#a8071a',
-                            fontSize: 12,
-                            padding: '10px 12px',
-                            borderRadius: 8,
-                            marginBottom: 10,
-                            boxShadow: isDarkMode 
-                              ? '0 4px 12px rgba(185, 28, 28, 0.25)' 
-                              : '0 2px 8px rgba(168, 7, 26, 0.15)',
-                            backdropFilter: 'blur(6px)',
-                            fontWeight: 500
-                          }}>
-                            <FaExclamationTriangle style={{ fontSize: 12, color: isDarkMode ? '#FCA5A5' : '#a8071a', marginRight: 6 }} />
-                            {unresolvedBody.length} placeholder{unresolvedBody.length === 1 ? '' : 's'} to resolve: {unresolvedBody.join(', ')}
-                          </div>
-                        )}
-                        {(() => {
-                          // Determine if we should use experimental V2 layout (same logic as EmailPreview)
-                          const isV2Env = process.env.REACT_APP_EMAIL_V2_ENABLED === 'true';
-                          const useV2Layout = (window as any)?.__helixEmailProcessingV2__ === true || isV2Env;
-                          return <EmailSignature bodyHtml={styledFinalHighlighted} userData={userDataLocal} experimentalLayout={useV2Layout} />;
-                        })()}
-                      </>
-                    );
-                  })()}
-                </div>
-                <div style={{
-                  padding: '12px 16px',
-                  background: isDarkMode
-                    ? 'linear-gradient(135deg, rgba(11, 30, 55, 0.92) 0%, rgba(15, 38, 68, 0.85) 100%)'
-                    : 'linear-gradient(135deg, rgba(240, 249, 255, 0.85) 0%, rgba(219, 234, 254, 0.8) 100%)',
-                  borderTop: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  flexWrap: 'wrap',
-                  backdropFilter: 'blur(8px)'
-                }}>
-                  <div style={{ 
-                    display: 'inline-flex', 
-                    alignItems: 'center', 
-                    gap: 12, 
-                    padding: '12px 16px',
-                    background: confirmReady 
-                      ? (isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)') 
-                      : (isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.05)'),
-                    border: confirmReady 
-                      ? `2px solid ${isDarkMode ? '#22c55e' : '#16a34a'}` 
-                      : `2px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
-                    borderRadius: '10px',
-                    cursor: 'pointer',
-                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                    transform: confirmReady ? 'translateY(-1px)' : 'none',
-                    boxShadow: confirmReady 
-                      ? (isDarkMode ? '0 4px 16px rgba(34, 197, 94, 0.3)' : '0 4px 16px rgba(34, 197, 94, 0.2)') 
-                      : 'none'
-                  }}
-                  onClick={() => setConfirmReady(!confirmReady)}
-                  >
+                    <div aria-hidden="true" style={{ position: 'absolute', top: 10, right: 10, width: 160, height: 160, opacity: isDarkMode ? 0.08 : 0.08, backgroundImage: `url(${markUrl})`, backgroundRepeat: 'no-repeat', backgroundPosition: 'top right', backgroundSize: 'contain', pointerEvents: 'none' }} />
                     <div style={{
-                      width: '20px',
-                      height: '20px',
-                      borderRadius: '4px',
-                      background: confirmReady 
-                        ? (isDarkMode ? '#22c55e' : '#16a34a') 
-                        : 'transparent',
-                      border: confirmReady 
-                        ? 'none' 
-                        : `2px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(148, 163, 184, 0.3)'}`,
+                      padding: '12px 16px',
+                      background: isDarkMode
+                        ? 'linear-gradient(135deg, rgba(11, 30, 55, 0.92) 0%, rgba(15, 38, 68, 0.85) 100%)'
+                        : 'linear-gradient(135deg, rgba(240, 249, 255, 0.85) 0%, rgba(219, 234, 254, 0.8) 100%)',
+                      borderBottom: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
                       display: 'flex',
                       alignItems: 'center',
-                      justifyContent: 'center',
-                      transition: 'all 0.2s ease'
+                      gap: 8,
+                      backdropFilter: 'blur(8px)'
                     }}>
-                      {confirmReady && (
-                        <svg width="12" height="9" viewBox="0 0 12 9" fill="none">
-                          <path 
-                            d="M1 4L5 8L11 1" 
-                            stroke="white" 
-                            strokeWidth="2" 
-                            strokeLinecap="round" 
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                      )}
+                      <span style={{ fontSize: 12, fontWeight: 700, color: isDarkMode ? '#E0F2FE' : '#0F172A', letterSpacing: 0.6, textTransform: 'uppercase' }}>Inline Preview</span>
+                      <span style={{ marginLeft: 'auto', fontSize: 11, color: isDarkMode ? 'rgba(224, 242, 254, 0.7)' : colours.blue }}>{subject || 'Your Enquiry - Helix Law'}</span>
                     </div>
-                    <span style={{ 
-                      fontSize: '14px', 
-                      color: isDarkMode ? '#E2E8F0' : '#334155', 
-                      fontWeight: 600,
-                      userSelect: 'none'
-                    }}>
-                      Everything looks good, ready to proceed
-                    </span>
-                  </div>
-                  <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, position: 'relative' }}>
-                    {(() => {
-                      // Determine unresolved placeholders across subject and body after substitution
-                      const userDataLocal = (typeof userData !== 'undefined') ? userData : undefined;
-                      const enquiryLocal = (typeof enquiry !== 'undefined') ? enquiry : undefined;
-                      // Subject is independent; treat it directly
-                      const unresolvedSubject = findPlaceholders(subject || '');
-                      const sanitized = stripDashDividers(body || '').replace(/\r\n/g, '\n').replace(/\n/g, '<br />');
-                      const effective = passcode || undefined; // no fallback
-                      const checkoutPreviewUrl = 'https://instruct.helix-law.com/pitch';
-                      const substitutedBody = applyDynamicSubstitutions(sanitized, userDataLocal, enquiryLocal, amount, effective, checkoutPreviewUrl);
-                      const unresolvedBody = findPlaceholders(substitutedBody);
-                      const unresolvedAny = unresolvedSubject.length > 0 || unresolvedBody.length > 0;
-                      const disableDraft = !confirmReady || isDraftConfirmed || unresolvedAny;
-                      const draftVisualConfirmed = isDraftConfirmed && !hasSentEmail;
-                      const missingServiceSummary = !scopeDescription || !String(scopeDescription).trim();
-                      const requireServiceSummary = !isBeforeCallCall; // not required for Before call — Call
-                      const disableSend = unresolvedAny || (requireServiceSummary && missingServiceSummary);
-                      const sendBtnTitle = unresolvedAny
-                        ? 'Resolve placeholders before sending'
-                        : ((requireServiceSummary && missingServiceSummary) ? 'Service summary is required' : 'Send Email');
-                      return (
-                        <>
-                          <button
-                            onClick={() => {
-                              // Always route through processing selector to keep behavior consistent
-                              setProcessingDialogAction('send');
-                              setShowEmailProcessingDialog(true);
-                            }}
-                            disabled={disableSend}
-                            title={sendBtnTitle}
-                            style={{
-                              padding: '12px 20px', 
-                              borderRadius: '10px', 
-                              border: 'none', 
-                              cursor: disableSend ? 'not-allowed' : 'pointer',
-                              background: disableSend 
-                                ? (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)') 
-                                : `linear-gradient(135deg, ${colours.cta}, #e74c3c)`,
-                              color: '#ffffff', 
-                              fontWeight: 700, 
-                              fontSize: '14px',
-                              opacity: disableSend ? 0.6 : 1,
-                              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                              transform: disableSend ? 'none' : 'translateY(0px)',
-                              boxShadow: disableSend 
-                                ? 'none' 
-                                : `0 4px 20px rgba(214, 85, 65, 0.4)`,
-                              letterSpacing: '0.02em',
-                              textTransform: 'uppercase',
-                              position: 'relative',
-                              overflow: 'hidden'
-                            }}
-                            onMouseEnter={(e) => {
-                              if (disableSend) {
-                                setShowSendValidation(true);
-                              } else {
-                                e.currentTarget.style.transform = 'translateY(-2px)';
-                                e.currentTarget.style.boxShadow = `0 8px 30px rgba(214, 85, 65, 0.6)`;
-                                e.currentTarget.style.background = `linear-gradient(135deg, #c54a3d, #d63031)`;
-                              }
-                            }}
-                            onMouseLeave={(e) => {
-                              if (disableSend) {
-                                setShowSendValidation(false);
-                              } else {
-                                e.currentTarget.style.transform = 'translateY(0px)';
-                                e.currentTarget.style.boxShadow = `0 4px 20px rgba(214, 85, 65, 0.4)`;
-                                e.currentTarget.style.background = `linear-gradient(135deg, ${colours.cta}, #e74c3c)`;
-                              }
-                            }}
-                          >
-                            <FaPaperPlane style={{ marginRight: 6 }} /> Send Email...
-                          </button>
-                          <button
-                            onClick={() => {
-                              // Open processing selection for draft as well (dev shows choice, prod auto-selects V1)
-                              setProcessingDialogAction('draft');
-                              setShowEmailProcessingDialog(true);
-                            }}
-                            disabled={disableDraft}
-                            style={{
-                              padding: '8px 16px', 
-                              borderRadius: 6, 
-                              border: `1px solid ${draftVisualConfirmed ? colours.green : (isDarkMode ? '#475569' : '#D1D5DB')}`,
-                              background: draftVisualConfirmed
-                                ? 'rgba(34, 197, 94, 0.1)'
-                                : (isDarkMode ? '#374151' : '#F9FAFB'), 
-                              color: draftVisualConfirmed ? colours.green : (isDarkMode ? '#E5E7EB' : '#374151'), 
-                              fontWeight: 600,
-                              cursor: disableDraft ? 'not-allowed' : 'pointer',
-                              transition: 'background-color 0.2s ease',
-                              opacity: disableDraft ? 0.6 : 1
-                            }}
-                            onMouseEnter={(e) => {
-                              if (!disableDraft && !draftVisualConfirmed) {
-                                e.currentTarget.style.background = isDarkMode ? '#4B5563' : '#E5E7EB';
-                              }
-                            }}
-                            onMouseLeave={(e) => {
-                              if (!disableDraft && !draftVisualConfirmed) {
-                                e.currentTarget.style.background = isDarkMode ? '#374151' : '#F9FAFB';
-                              }
-                            }}
-                            title={draftVisualConfirmed ? 'Drafted' : (unresolvedAny ? 'Resolve placeholders before drafting' : 'Draft Email')}
-                          >
-                            {draftVisualConfirmed ? <FaCheck style={{ marginRight: 4 }} /> : <FaEnvelope style={{ marginRight: 4 }} />} {draftVisualConfirmed ? 'Drafted' : 'Draft Email'}
-                          </button>
-                          
-                          {/* Validation feedback for disabled send button - shows on hover */}
-                          {disableSend && showSendValidation && (
-                            <div style={{
-                              position: 'absolute',
-                              top: '100%',
-                              right: 0,
-                              marginTop: 8,
-                              background: isDarkMode ? 'rgba(239, 68, 68, 0.1)' : 'rgba(254, 242, 242, 0.9)',
-                              border: `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.3)' : 'rgba(239, 68, 68, 0.2)'}`,
-                              borderRadius: 6,
-                              padding: '10px 14px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 8,
-                              whiteSpace: 'nowrap',
-                              zIndex: 1000,
-                              boxShadow: isDarkMode 
-                                ? '0 4px 12px rgba(0, 0, 0, 0.4)' 
-                                : '0 4px 12px rgba(0, 0, 0, 0.1)',
-                              opacity: 1,
-                              animation: 'fadeIn 0.15s ease-out'
-                            }}>
-                              <div style={{
-                                width: 16,
-                                height: 16,
-                                borderRadius: '50%',
-                                background: isDarkMode ? '#EF4444' : '#DC2626',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                color: '#ffffff',
-                                fontSize: 10,
-                                fontWeight: 700,
-                                flexShrink: 0
-                              }}>!</div>
-                              <div style={{
-                                fontSize: 13,
-                                fontWeight: 500,
-                                color: isDarkMode ? '#FEE2E2' : '#991B1B'
-                              }}>
-                                {unresolvedAny 
-                                  ? 'Please resolve all highlighted placeholders before sending the email.'
-                                  : 'Scope of Work missing.'
-                                }
-                              </div>
-                            </div>
-                          )}
-                        </>
-                      );
-                    })()}
-                    <button
-                      onClick={() => {
-                        if (!previewRef.current) return;
-                        const text = previewRef.current.innerText || '';
-                        navigator.clipboard.writeText(text);
-                        setCopiedFooter(true);
-                        setTimeout(() => setCopiedFooter(false), 1200);
-                      }}
-                      style={{ 
-                        padding: '6px 12px', 
-                        borderRadius: 8, 
-                        border: copiedFooter ? '1px solid #16a34a' : `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.45)' : 'rgba(54, 144, 206, 0.45)'}`, 
-                        background: copiedFooter
-                          ? (isDarkMode ? 'linear-gradient(135deg, rgba(22, 101, 52, 0.35) 0%, rgba(21, 128, 61, 0.25) 100%)' : 'linear-gradient(135deg, #e8f5e8 0%, #dcfce7 100%)')
-                          : (isDarkMode
-                            ? 'linear-gradient(135deg, rgba(11, 22, 43, 0.88) 0%, rgba(13, 30, 56, 0.82) 100%)'
-                            : 'linear-gradient(135deg, rgba(54, 144, 206, 0.18) 0%, rgba(96, 165, 250, 0.24) 100%)'), 
-                        color: copiedFooter ? '#166534' : (isDarkMode ? '#E0F2FE' : '#0F172A'), 
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        transition: 'all 0.2s ease',
-                        transform: 'translateY(0)'
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!copiedFooter) {
-                          e.currentTarget.style.borderColor = isDarkMode ? '#60A5FA' : '#3690CE';
-                          e.currentTarget.style.background = isDarkMode
-                            ? 'linear-gradient(135deg, rgba(13, 28, 56, 0.92) 0%, rgba(17, 36, 64, 0.88) 100%)'
-                            : 'linear-gradient(135deg, rgba(54, 144, 206, 0.26) 0%, rgba(96, 165, 250, 0.32) 100%)';
-                          e.currentTarget.style.color = isDarkMode ? '#F8FAFC' : '#0F172A';
-                          e.currentTarget.style.transform = 'translateY(-1px)';
-                          e.currentTarget.style.boxShadow = '0 8px 18px rgba(54, 144, 206, 0.22)';
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!copiedFooter) {
-                          e.currentTarget.style.borderColor = isDarkMode ? 'rgba(96, 165, 250, 0.45)' : 'rgba(54, 144, 206, 0.45)';
-                          e.currentTarget.style.background = isDarkMode
-                            ? 'linear-gradient(135deg, rgba(11, 22, 43, 0.88) 0%, rgba(13, 30, 56, 0.82) 100%)'
-                            : 'linear-gradient(135deg, rgba(54, 144, 206, 0.18) 0%, rgba(96, 165, 250, 0.24) 100%)';
-                          e.currentTarget.style.color = isDarkMode ? '#E0F2FE' : '#0F172A';
-                          e.currentTarget.style.transform = 'translateY(0)';
-                          e.currentTarget.style.boxShadow = 'none';
-                        }
-                      }}
-                      onMouseDown={(e) => {
-                        if (!copiedFooter) {
-                          e.currentTarget.style.transform = 'translateY(1px)';
-                          e.currentTarget.style.boxShadow = '0 1px 2px rgba(54, 144, 206, 0.1)';
-                        }
-                      }}
-                      onMouseUp={(e) => {
-                        if (!copiedFooter) {
-                          e.currentTarget.style.transform = 'translateY(-1px)';
-                          e.currentTarget.style.boxShadow = '0 2px 4px rgba(54, 144, 206, 0.15)';
-                        }
+                    <div
+                      ref={previewRef}
+                      className={`email-preview ${isDarkMode ? 'dark-mode' : 'light-mode'}`}
+                      style={{
+                        padding: '18px 20px',
+                        background: isDarkMode
+                          ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.92) 0%, rgba(11, 30, 55, 0.86) 100%)'
+                          : 'linear-gradient(135deg, rgba(248, 250, 252, 0.96) 0%, rgba(255, 255, 255, 0.92) 100%)',
+                        color: isDarkMode ? '#E0F2FE' : '#1F2937',
+                        lineHeight: 1.6,
+                        fontSize: '14px',
+                        borderRadius: '0 0 12px 12px',
+                        border: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.3)' : 'rgba(148, 163, 184, 0.22)'}`,
+                        borderTop: 'none',
+                        boxShadow: isDarkMode
+                          ? '0 8px 16px rgba(4, 9, 20, 0.5)'
+                          : '0 4px 12px rgba(13, 47, 96, 0.1)',
+                        backdropFilter: 'blur(8px)',
+                        WebkitUserSelect: 'text',
+                        userSelect: 'text'
                       }}
                     >
-                      {copiedFooter ? (
-                        <>
-                          <FaCheck style={{ marginRight: 4 }} /> Copied
-                        </>
-                      ) : (
-                        <>
-                          <FaCopy style={{ marginRight: 4 }} /> Copy
-                        </>
-                      )}
-                    </button>
-                  </div>
+                      {(() => {
+                        const withoutAutoBlocks = stripDashDividers(body || '');
+                        const userDataLocal = (typeof userData !== 'undefined') ? userData : undefined;
+                        const enquiryLocal = (typeof enquiry !== 'undefined') ? enquiry : undefined;
+                        const sanitized = withoutAutoBlocks.replace(/\r\n/g, '\n').replace(/\n/g, '<br />');
+                        const substituted = applyDynamicSubstitutions(
+                          sanitized,
+                          userDataLocal,
+                          enquiryLocal,
+                          amount,
+                          passcode || undefined,
+                          undefined
+                        );
+                        const unresolvedBody = findPlaceholders(substituted);
+                        const finalBody = emailV2Enabled
+                          ? processEmailContentV2(substituted)
+                          : convertDoubleBreaksToParagraphs(substituted);
+                        const finalHighlighted = highlightPlaceholdersHtml(finalBody);
+                        const styledFinalHighlighted = finalHighlighted.replace(/<a\s+href="([^"]+)"[^>]*>\s*Instruct\s+Helix\s+Law\s*<\/a>/gi, (m, href) => {
+                          // Don't escape href - it's already a valid URL from the HTML
+                          return `<a href="${href}" target="_blank" rel="noopener noreferrer" style="color:${colours.highlight};font-weight:700;text-decoration:underline;">Instruct Helix Law</a>`;
+                        });
+                        return (
+                          <>
+                            {unresolvedBody.length > 0 && (
+                              <div style={{
+                                background: isDarkMode
+                                  ? 'linear-gradient(135deg, rgba(185, 28, 28, 0.2) 0%, rgba(153, 27, 27, 0.15) 100%)'
+                                  : 'linear-gradient(135deg, #fff1f0 0%, #fef2f2 100%)',
+                                border: `1px solid ${isDarkMode ? 'rgba(248, 113, 113, 0.4)' : '#ffa39e'}`,
+                                color: isDarkMode ? '#FCA5A5' : '#a8071a',
+                                fontSize: 12,
+                                padding: '10px 12px',
+                                borderRadius: 8,
+                                marginBottom: 10,
+                                boxShadow: isDarkMode
+                                  ? '0 4px 12px rgba(185, 28, 28, 0.25)'
+                                  : '0 2px 8px rgba(168, 7, 26, 0.15)',
+                                backdropFilter: 'blur(6px)',
+                                fontWeight: 500
+                              }}>
+                                <FaExclamationTriangle style={{ fontSize: 12, color: isDarkMode ? '#FCA5A5' : '#a8071a', marginRight: 6 }} />
+                                {unresolvedBody.length} placeholder{unresolvedBody.length === 1 ? '' : 's'} to resolve: {unresolvedBody.join(', ')}
+                              </div>
+                            )}
+                            <EmailSignature
+                              bodyHtml={styledFinalHighlighted}
+                              userData={userDataLocal}
+                              experimentalLayout={emailV2Enabled}
+                            />
+                          </>
+                        );
+                      })()}
+                    </div>
+                    <div style={{
+                      padding: '12px 16px',
+                      background: isDarkMode
+                        ? 'linear-gradient(135deg, rgba(11, 30, 55, 0.92) 0%, rgba(15, 38, 68, 0.85) 100%)'
+                        : 'linear-gradient(135deg, rgba(240, 249, 255, 0.85) 0%, rgba(219, 234, 254, 0.8) 100%)',
+                      borderTop: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      flexWrap: 'wrap',
+                      backdropFilter: 'blur(8px)'
+                    }}>
+                      <div
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 12,
+                          padding: '12px 16px',
+                          background: confirmReady
+                            ? (isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)')
+                            : (isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.05)'),
+                          border: confirmReady
+                            ? `2px solid ${isDarkMode ? '#22c55e' : '#16a34a'}`
+                            : `2px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
+                          borderRadius: '10px',
+                          cursor: 'pointer',
+                          transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                          transform: confirmReady ? 'translateY(-1px)' : 'none',
+                          boxShadow: confirmReady
+                            ? (isDarkMode ? '0 4px 16px rgba(34, 197, 94, 0.3)' : '0 4px 16px rgba(34, 197, 94, 0.2)')
+                            : 'none'
+                        }}
+                        onClick={() => setConfirmReady(!confirmReady)}
+                      >
+                        <div style={{
+                          width: '20px',
+                          height: '20px',
+                          borderRadius: '4px',
+                          background: confirmReady
+                            ? (isDarkMode ? '#22c55e' : '#16a34a')
+                            : 'transparent',
+                          border: confirmReady
+                            ? 'none'
+                            : `2px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(148, 163, 184, 0.3)'}`,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          transition: 'all 0.2s ease'
+                        }}>
+                          {confirmReady && (
+                            <svg width="12" height="9" viewBox="0 0 12 9" fill="none">
+                              <path
+                                d="M1 4L5 8L11 1"
+                                stroke="white"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          )}
+                        </div>
+                        <span style={{
+                          fontSize: '14px',
+                          color: isDarkMode ? '#E2E8F0' : '#334155',
+                          fontWeight: 600,
+                          userSelect: 'none'
+                        }}>
+                          Everything looks good, ready to proceed
+                        </span>
+                      </div>
+                      <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, position: 'relative' }}>
+                        {(() => {
+                          const userDataLocal = (typeof userData !== 'undefined') ? userData : undefined;
+                          const enquiryLocal = (typeof enquiry !== 'undefined') ? enquiry : undefined;
+                          const unresolvedSubject = findPlaceholders(subject || '');
+                          const sanitized = stripDashDividers(body || '').replace(/\r\n/g, '\n').replace(/\n/g, '<br />');
+                          const effective = passcode || undefined;
+                          const checkoutPreviewUrl = 'https://instruct.helix-law.com/pitch';
+                          const substitutedBody = applyDynamicSubstitutions(sanitized, userDataLocal, enquiryLocal, amount, effective, checkoutPreviewUrl);
+                          const unresolvedBody = findPlaceholders(substitutedBody);
+                          const unresolvedAny = unresolvedSubject.length > 0 || unresolvedBody.length > 0;
+                          const disableDraft = !confirmReady || isDraftConfirmed || unresolvedAny;
+                          const draftVisualConfirmed = isDraftConfirmed && !hasSentEmail;
+                          const missingServiceSummary = !scopeDescription || !String(scopeDescription).trim();
+                          const requireServiceSummary = !isBeforeCallCall;
+                          const disableSend = unresolvedAny || (requireServiceSummary && missingServiceSummary);
+                          const sendBtnTitle = unresolvedAny
+                            ? 'Resolve placeholders before sending'
+                            : ((requireServiceSummary && missingServiceSummary) ? 'Service summary is required' : 'Send Email');
+                          return (
+                            <>
+                              <button
+                                onClick={() => {
+                                  setShowSendConfirmModal(true);
+                                }}
+                                disabled={disableSend}
+                                title={sendBtnTitle}
+                                style={{
+                                  padding: '12px 20px',
+                                  borderRadius: '10px',
+                                  border: 'none',
+                                  cursor: disableSend ? 'not-allowed' : 'pointer',
+                                  background: disableSend
+                                    ? (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)')
+                                    : `linear-gradient(135deg, ${colours.cta}, #e74c3c)`,
+                                  color: '#ffffff',
+                                  fontWeight: 700,
+                                  fontSize: '14px',
+                                  opacity: disableSend ? 0.6 : 1,
+                                  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                                  transform: disableSend ? 'none' : 'translateY(0px)',
+                                  boxShadow: disableSend
+                                    ? 'none'
+                                    : `0 4px 20px rgba(214, 85, 65, 0.4)`,
+                                  letterSpacing: '0.02em',
+                                  textTransform: 'uppercase',
+                                  position: 'relative',
+                                  overflow: 'hidden'
+                                }}
+                                onMouseEnter={(e) => {
+                                  if (disableSend) {
+                                    setShowSendValidation(true);
+                                  } else {
+                                    e.currentTarget.style.transform = 'translateY(-2px)';
+                                    e.currentTarget.style.boxShadow = `0 8px 30px rgba(214, 85, 65, 0.6)`;
+                                    e.currentTarget.style.background = `linear-gradient(135deg, #c54a3d, #d63031)`;
+                                  }
+                                }}
+                                onMouseLeave={(e) => {
+                                  if (disableSend) {
+                                    setShowSendValidation(false);
+                                  } else {
+                                    e.currentTarget.style.transform = 'translateY(0px)';
+                                    e.currentTarget.style.boxShadow = `0 4px 20px rgba(214, 85, 65, 0.4)`;
+                                    e.currentTarget.style.background = `linear-gradient(135deg, ${colours.cta}, #e74c3c)`;
+                                  }
+                                }}
+                              >
+                                <FaPaperPlane style={{ marginRight: 6 }} /> Send Email...
+                              </button>
+                              <button
+                                onClick={() => {
+                                  void handleDraftEmail?.();
+                                }}
+                                disabled={disableDraft}
+                                style={{
+                                  padding: '8px 16px',
+                                  borderRadius: 6,
+                                  border: `1px solid ${draftVisualConfirmed ? colours.green : (isDarkMode ? '#475569' : '#D1D5DB')}`,
+                                  background: draftVisualConfirmed
+                                    ? 'rgba(34, 197, 94, 0.1)'
+                                    : (isDarkMode ? '#374151' : '#F9FAFB') ,
+                                  color: draftVisualConfirmed ? colours.green : (isDarkMode ? '#E5E7EB' : '#374151'),
+                                  fontWeight: 600,
+                                  cursor: disableDraft ? 'not-allowed' : 'pointer',
+                                  transition: 'background-color 0.2s ease',
+                                  opacity: disableDraft ? 0.6 : 1
+                                }}
+                                onMouseEnter={(e) => {
+                                  if (!disableDraft && !draftVisualConfirmed) {
+                                    e.currentTarget.style.background = isDarkMode ? '#4B5563' : '#E5E7EB';
+                                  }
+                                }}
+                                onMouseLeave={(e) => {
+                                  if (!disableDraft && !draftVisualConfirmed) {
+                                    e.currentTarget.style.background = isDarkMode ? '#374151' : '#F9FAFB';
+                                  }
+                                }}
+                                title={draftVisualConfirmed ? 'Drafted' : (unresolvedAny ? 'Resolve placeholders before drafting' : 'Draft Email')}
+                              >
+                                {draftVisualConfirmed ? <FaCheck style={{ marginRight: 4 }} /> : <FaEnvelope style={{ marginRight: 4 }} />} {draftVisualConfirmed ? 'Drafted' : 'Draft Email'}
+                              </button>
+
+                              {disableSend && showSendValidation && (
+                                <div style={{
+                                  position: 'absolute',
+                                  top: '100%',
+                                  right: 0,
+                                  marginTop: 8,
+                                  background: isDarkMode ? 'rgba(239, 68, 68, 0.1)' : 'rgba(254, 242, 242, 0.9)',
+                                  border: `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.3)' : 'rgba(239, 68, 68, 0.2)'}`,
+                                  borderRadius: 6,
+                                  padding: '10px 14px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 8,
+                                  whiteSpace: 'nowrap',
+                                  zIndex: 1000,
+                                  boxShadow: isDarkMode
+                                    ? '0 4px 12px rgba(0, 0, 0, 0.4)'
+                                    : '0 4px 12px rgba(0, 0, 0, 0.1)',
+                                  opacity: 1,
+                                  animation: 'fadeIn 0.15s ease-out'
+                                }}>
+                                  <div style={{
+                                    width: 16,
+                                    height: 16,
+                                    borderRadius: '50%',
+                                    background: isDarkMode ? '#EF4444' : '#DC2626',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    color: '#ffffff',
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    flexShrink: 0
+                                  }}>!</div>
+                                  <div style={{
+                                    fontSize: 13,
+                                    fontWeight: 500,
+                                    color: isDarkMode ? '#FEE2E2' : '#991B1B'
+                                  }}>
+                                    {unresolvedAny
+                                      ? 'Please resolve all highlighted placeholders before sending the email.'
+                                      : 'Scope of Work missing.'
+                                    }
+                                  </div>
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
+                        <button
+                          onClick={() => {
+                            if (!previewRef.current) return;
+                            const text = previewRef.current.innerText || '';
+                            navigator.clipboard.writeText(text);
+                            setCopiedFooter(true);
+                            setTimeout(() => setCopiedFooter(false), 1200);
+                          }}
+                          style={{
+                            padding: '6px 12px',
+                            borderRadius: 8,
+                            border: copiedFooter ? '1px solid #16a34a' : `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.45)' : 'rgba(54, 144, 206, 0.45)'}`,
+                            background: copiedFooter
+                              ? (isDarkMode ? 'linear-gradient(135deg, rgba(22, 101, 52, 0.35) 0%, rgba(21, 128, 61, 0.25) 100%)' : 'linear-gradient(135deg, #e8f5e8 0%, #dcfce7 100%)')
+                              : (isDarkMode
+                                ? 'linear-gradient(135deg, rgba(11, 22, 43, 0.88) 0%, rgba(13, 30, 56, 0.82) 100%)'
+                                : 'linear-gradient(135deg, rgba(54, 144, 206, 0.18) 0%, rgba(96, 165, 250, 0.24) 100%)'),
+                            color: copiedFooter ? '#166534' : (isDarkMode ? '#E0F2FE' : '#0F172A'),
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            transform: 'translateY(0)'
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!copiedFooter) {
+                              e.currentTarget.style.borderColor = isDarkMode ? '#60A5FA' : '#3690CE';
+                              e.currentTarget.style.background = isDarkMode
+                                ? 'linear-gradient(135deg, rgba(13, 28, 56, 0.92) 0%, rgba(17, 36, 64, 0.88) 100%)'
+                                : 'linear-gradient(135deg, rgba(54, 144, 206, 0.26) 0%, rgba(96, 165, 250, 0.32) 100%)';
+                              e.currentTarget.style.color = isDarkMode ? '#F8FAFC' : '#0F172A';
+                              e.currentTarget.style.transform = 'translateY(-1px)';
+                              e.currentTarget.style.boxShadow = '0 8px 18px rgba(54, 144, 206, 0.22)';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!copiedFooter) {
+                              e.currentTarget.style.borderColor = isDarkMode ? 'rgba(96, 165, 250, 0.45)' : 'rgba(54, 144, 206, 0.45)';
+                              e.currentTarget.style.background = isDarkMode
+                                ? 'linear-gradient(135deg, rgba(11, 22, 43, 0.88) 0%, rgba(13, 30, 56, 0.82) 100%)'
+                                : 'linear-gradient(135deg, rgba(54, 144, 206, 0.18) 0%, rgba(96, 165, 250, 0.24) 100%)';
+                              e.currentTarget.style.color = isDarkMode ? '#E0F2FE' : '#0F172A';
+                              e.currentTarget.style.transform = 'translateY(0)';
+                              e.currentTarget.style.boxShadow = 'none';
+                            }
+                          }}
+                          onMouseDown={(e) => {
+                            if (!copiedFooter) {
+                              e.currentTarget.style.transform = 'translateY(1px)';
+                              e.currentTarget.style.boxShadow = '0 1px 2px rgba(54, 144, 206, 0.1)';
+                            }
+                          }}
+                          onMouseUp={(e) => {
+                            if (!copiedFooter) {
+                              e.currentTarget.style.transform = 'translateY(-1px)';
+                              e.currentTarget.style.boxShadow = '0 2px 4px rgba(54, 144, 206, 0.15)';
+                            }
+                          }}
+                        >
+                          {copiedFooter ? (
+                            <>
+                              <FaCheck style={{ marginRight: 4 }} /> Copied
+                            </>
+                          ) : (
+                            <>
+                              <FaCopy style={{ marginRight: 4 }} /> Copy
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
                 </div>
-              </div>
               )}
 
-              {/* Close Email body / Preview container */}
-            </div>
-
-            {/* Context Notes - Supporting Information */}
-            {initialNotes && !isNotesPinned && (
-              <div style={{
-                background: isDarkMode
-                  ? 'linear-gradient(135deg, rgba(5, 12, 26, 0.98) 0%, rgba(9, 22, 44, 0.94) 52%, rgba(13, 35, 63, 0.9) 100%)'
-                  : 'linear-gradient(135deg, rgba(248, 250, 252, 0.96) 0%, rgba(255, 255, 255, 0.94) 100%)',
-                borderRadius: '16px',
-                padding: '24px',
-                border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : 'rgba(148, 163, 184, 0.22)'}`,
-                boxShadow: isDarkMode 
-                  ? '0 18px 32px rgba(2, 6, 17, 0.58)' 
-                  : '0 12px 28px rgba(13, 47, 96, 0.12)',
-                marginBottom: '20px',
-                transition: 'all 0.3s ease-in-out',
-                position: 'relative',
-                fontFamily: 'Raleway, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-                backdropFilter: 'blur(12px)',
-                animation: 'cascadeIn 0.4s ease-out'
-              }}>
-                <div style={{
-                  fontSize: '14px',
-                  fontWeight: 600,
-                  color: isDarkMode ? '#E0F2FE' : '#0F172A',
-                  marginBottom: '16px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  position: 'relative',
-                  padding: '12px 18px',
-                  background: isDarkMode
-                    ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.92) 0%, rgba(11, 30, 55, 0.86) 100%)'
-                    : 'linear-gradient(135deg, rgba(248, 250, 252, 0.96) 0%, rgba(255, 255, 255, 0.92) 100%)',
-                  borderRadius: '12px',
-                  border: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.3)' : 'rgba(148, 163, 184, 0.22)'}`,
-                  boxShadow: isDarkMode 
-                    ? '0 10px 22px rgba(4, 9, 20, 0.55)' 
-                    : '0 6px 16px rgba(13, 47, 96, 0.12)',
-                  backdropFilter: 'blur(8px)'
-                }}>
-                  <span
-                    onMouseEnter={() => setShowSubjectHint(true)}
-                    onMouseLeave={() => setShowSubjectHint(false)}
-                    style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}
-                  >
-                    <div style={{
-                      padding: '8px',
-                      background: isDarkMode 
-                        ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.24) 0%, rgba(59, 130, 246, 0.18) 100%)'
-                        : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(96, 165, 250, 0.18) 100%)',
-                      borderRadius: '8px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      border: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`
-                    }}>
-                      <FaInfoCircle style={{ fontSize: 14, color: isDarkMode ? '#60A5FA' : '#3690CE' }} />
-                    </div>
-                  </span>
-                  Enquiry Notes
-                  {showSubjectHint && (
-                    <span style={{
-                      position: 'absolute',
-                      left: 0,
-                      top: '100%',
-                      marginTop: 8,
-                      background: isDarkMode ? colours.dark.cardBackground : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-                      color: isDarkMode ? colours.dark.text : '#1E293B',
-                      fontSize: '11px',
-                      fontWeight: 400,
-                      fontStyle: 'italic',
-                      border: `1px solid ${isDarkMode ? colours.dark.border : '#CBD5E1'}`,
-                      borderRadius: '8px',
-                      padding: '8px 12px',
-                      zIndex: 10,
-                      whiteSpace: 'normal',
-                      maxWidth: 420,
-                      boxShadow: isDarkMode ? '0 6px 10px rgba(0,0,0,0.6)' : '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-                    }}>
-                      Source confirmation: these notes may be intake rep call notes, a web form message, or an auto‑parsed email.
-                    </span>
-                  )}
-                </div>
-                <div style={{
-                  fontSize: '14px',
-                  lineHeight: 1.6,
-                  color: isDarkMode ? '#E0F2FE' : '#1F2937',
-                  whiteSpace: 'pre-wrap',
-                  background: isDarkMode
-                    ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.92) 0%, rgba(11, 30, 55, 0.86) 100%)'
-                    : 'linear-gradient(135deg, rgba(248, 250, 252, 0.96) 0%, rgba(255, 255, 255, 0.92) 100%)',
-                  padding: '18px',
-                  borderRadius: '12px',
-                  border: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.3)' : 'rgba(148, 163, 184, 0.22)'}`,
-                  position: 'relative',
-                  fontFamily: 'inherit',
-                  boxShadow: isDarkMode 
-                    ? '0 10px 22px rgba(4, 9, 20, 0.55)' 
-                    : '0 6px 16px rgba(13, 47, 96, 0.12)',
-                  backdropFilter: 'blur(8px)'
-                }}>
-                  {/* Floating pin inside notes box */}
-                  <button
-                    onClick={() => setIsNotesPinned(true)}
-                    title="Pin notes"
-                    style={{
-                      position: 'absolute',
-                      top: 10,
-                      right: 10,
-                      width: 32,
-                      height: 32,
-                      borderRadius: '50%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      background: isDarkMode ? colours.dark.cardBackground : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-                      border: `1px solid ${isDarkMode ? colours.dark.border : '#CBD5E1'}`,
-                      color: isDarkMode ? colours.dark.text : '#1E293B',
-                      boxShadow: isDarkMode ? '0 2px 6px rgba(0,0,0,0.5)' : '0 2px 4px rgba(0,0,0,0.1)',
-                      cursor: 'pointer',
-                      zIndex: 2,
-                      transition: 'all 0.2s ease'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = isDarkMode ? colours.blue : '#3690CE';
-                      e.currentTarget.style.background = isDarkMode ? colours.dark.inputBackground : 'linear-gradient(135deg, #EBF8FF 0%, #DBEAFE 100%)';
-                      e.currentTarget.style.transform = 'scale(1.05)';
-                      e.currentTarget.style.boxShadow = isDarkMode ? '0 4px 8px rgba(0,0,0,0.5)' : '0 4px 8px rgba(54, 144, 206, 0.25)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = isDarkMode ? colours.dark.border : '#CBD5E1';
-                      e.currentTarget.style.background = isDarkMode ? colours.dark.cardBackground : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)';
-                      e.currentTarget.style.transform = 'scale(1)';
-                      e.currentTarget.style.boxShadow = isDarkMode ? '0 2px 6px rgba(0,0,0,0.5)' : '0 2px 4px rgba(0,0,0,0.1)';
-                    }}
-                  >
-                    {/* Use a known glyph and strong contrast to ensure visibility */}
-                    <FaThumbtack style={{ fontSize: 16, color: '#3690CE' }} />
-                  </button>
-                  {initialNotes}
-                </div>
+              {/* Close Email body / Preview wrapper */}
               </div>
-            )}
 
-            {!isBeforeCallCall && (
-              <DealCapture
-                isDarkMode={isDarkMode}
-                scopeDescription={scopeDescription}
-                onScopeChange={(v) => { setScopeDescription(v); onScopeDescriptionChange?.(v); }}
-                amount={amountValue}
-                onAmountChange={(v) => { setAmountValue(v); onAmountChange?.(v); }}
-                amountError={amountError}
-              />
-            )}
+            {/* Step 4 removed: Enquiry Notes now shown in VerificationSummary as part of Enquiry Details */}
 
-          {/* Template blocks removed in simplified flow */}
+            {/* Template blocks removed in simplified flow */}
+            </div>
+          )}
           </div>
-        )}
-        </div>
-      </Stack>
+        </Stack>
       </div>
 
       {/* Additional styling for hover reveals and list styling */}
@@ -3259,7 +3454,10 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
         .inline-reveal-btn:hover .label,.inline-reveal-btn:focus-visible .label{max-width:90px;opacity:1;transform:translateX(0);margin-left:6px;}
         @keyframes fadeSlideIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
         @keyframes cascadeIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes slideIn{from{opacity:0;transform:translateY(-12px) scale(0.95)}to{opacity:1;transform:translateY(0) scale(1)}}
         .smooth-appear{animation:fadeSlideIn .18s ease}
+        /* Slightly stronger pulse used for the Preview CTA */
+        @keyframes subtlePulseMd{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.92;transform:scale(1.03)}}
         
         /* Preview text selection styling for dark mode */
         [data-theme="dark"] ::selection {
@@ -3511,42 +3709,6 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
         }
       `}</style>
 
-      {/* Email Processing Method Selection Dialog - Development Only */}
-      {showEmailProcessingDialog && (
-        <EmailProcessingConfirmDialog
-          isOpen={showEmailProcessingDialog}
-          onConfirm={(useV2: boolean) => {
-            // Persist choice and close selector
-            setSelectedEmailMethod(useV2 ? 'v2' : 'v1');
-            setShowEmailProcessingDialog(false);
-            const action = processingDialogAction || 'send';
-            if (action === 'send') {
-              // Proceed to the normal send confirmation modal
-              setShowSendConfirmModal(true);
-            } else {
-              // Draft flow: set processing flag, run draft, then clean up
-              try {
-                (window as any).__helixEmailProcessingV2__ = !!useV2;
-                void (async () => {
-                  try {
-                    await handleDraftEmail?.();
-                  } finally {
-                    delete (window as any).__helixEmailProcessingV2__;
-                    setSelectedEmailMethod(null);
-                  }
-                })();
-              } finally {
-                // Ensure we clear the action state so future opens default correctly
-                setProcessingDialogAction(null);
-              }
-            }
-          }}
-          onClose={() => setShowEmailProcessingDialog(false)}
-          action={processingDialogAction || 'send'}
-          isDarkMode={isDarkMode}
-        />
-      )}
-
       {/* Email Send Confirmation Modal */}
       {showSendConfirmModal && (
         <div style={{
@@ -3632,7 +3794,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 </p>
               </div>
             </div>
-            
+
             {/* Scrollable Content Area */}
             <div style={{
               flex: 1,
@@ -3790,146 +3952,119 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     textTransform: 'uppercase',
                     paddingTop: '8px'
                   }}>CC:</span>
-                  <input
-                    type="text"
-                    value={editableCc}
-                    onChange={(e) => setEditableCc(e.target.value)}
-                    placeholder="Enter CC email addresses (optional)..."
-                    style={{
-                      flex: 1,
-                      padding: '8px 12px',
-                      border: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.4)' : 'rgba(226, 232, 240, 0.6)'}`,
-                      borderRadius: '6px',
-                      background: isDarkMode ? '#374151' : '#FFFFFF',
-                      color: isDarkMode ? '#F3F4F6' : '#1F2937',
-                      fontSize: '14px',
-                      fontWeight: '400',
-                      lineHeight: '1.4',
-                      outline: 'none',
-                      transition: 'border-color 0.2s ease, box-shadow 0.2s ease'
-                    }}
-                    onFocus={(e) => {
-                      e.target.style.borderColor = colours.blue;
-                      e.target.style.boxShadow = isDarkMode 
-                        ? `0 0 0 1px rgba(54, 144, 206, 0.3)` 
-                        : `0 0 0 1px rgba(54, 144, 206, 0.2)`;
-                    }}
-                    onBlur={(e) => {
-                      e.target.style.borderColor = isDarkMode ? 'rgba(71, 85, 105, 0.4)' : 'rgba(226, 232, 240, 0.6)';
-                      e.target.style.boxShadow = 'none';
-                    }}
-                  />
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <input
+                      type="text"
+                      value={editableCc}
+                      onChange={(e) => setEditableCc(e.target.value)}
+                      placeholder="Enter CC email addresses (optional)..."
+                      style={{
+                        flex: 1,
+                        padding: '8px 12px',
+                        border: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.4)' : 'rgba(226, 232, 240, 0.6)'}`,
+                        borderRadius: '6px',
+                        background: isDarkMode ? '#374151' : '#FFFFFF',
+                        color: isDarkMode ? '#F3F4F6' : '#1F2937',
+                        fontSize: '14px',
+                        fontWeight: '400',
+                        lineHeight: '1.4',
+                        outline: 'none',
+                        transition: 'border-color 0.2s ease, box-shadow 0.2s ease'
+                      }}
+                      onFocus={(e) => {
+                        e.target.style.borderColor = colours.blue;
+                        e.target.style.boxShadow = isDarkMode 
+                          ? `0 0 0 1px rgba(54, 144, 206, 0.3)` 
+                          : `0 0 0 1px rgba(54, 144, 206, 0.2)`;
+                      }}
+                      onBlur={(e) => {
+                        e.target.style.borderColor = isDarkMode ? 'rgba(71, 85, 105, 0.4)' : 'rgba(226, 232, 240, 0.6)';
+                        e.target.style.boxShadow = 'none';
+                      }}
+                    />
+                    {/* Team Quick Picker */}
+                    {teamData && teamData.length > 0 && (
+                      <select
+                        onChange={(e) => {
+                          const selectedEmail = e.target.value;
+                          if (selectedEmail) {
+                            const ccList = editableCc ? editableCc.split(',').map(e => e.trim()) : [];
+                            if (!ccList.some(email => email.toLowerCase() === selectedEmail.toLowerCase())) {
+                              ccList.push(selectedEmail);
+                              setEditableCc(ccList.filter(Boolean).join(', '));
+                            }
+                            e.target.value = ''; // Reset dropdown
+                          }
+                        }}
+                        style={{
+                          marginTop: '6px',
+                          padding: '6px 10px',
+                          fontSize: '12px',
+                          borderRadius: '6px',
+                          border: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.4)' : 'rgba(226, 232, 240, 0.8)'}`,
+                          background: isDarkMode ? 'rgba(55, 65, 81, 0.6)' : 'rgba(248, 250, 252, 0.9)',
+                          color: isDarkMode ? '#E5E7EB' : '#475569',
+                          cursor: 'pointer',
+                          outline: 'none',
+                          width: '100%'
+                        }}
+                      >
+                        <option value="">+ Add team member to CC</option>
+                        {teamData
+                          .filter((member: any) => {
+                            const hasEmail = member.Email && member.Email.includes('@') && !member.Email.includes('team@');
+                            const isActive = !member.status || member.status.toLowerCase() === 'active';
+                            return hasEmail && isActive;
+                          })
+                          .sort((a: any, b: any) => {
+                            const nameA = (a.First || a.FullName || '').toLowerCase();
+                            const nameB = (b.First || b.FullName || '').toLowerCase();
+                            return nameA.localeCompare(nameB);
+                          })
+                          .map((member: any) => {
+                            const email = member.Email || '';
+                            const name = member.FullName || `${member.First || ''} ${member.Last || ''}`.trim() || email;
+                            return (
+                              <option key={email} value={email}>
+                                {name} ({email})
+                              </option>
+                            );
+                          })}
+                      </select>
+                    )}
+                  </div>
                 </div>
                 
-                {/* BCC field */}
-                <div style={{ 
-                  display: 'flex', 
-                  alignItems: 'flex-start',
-                  gap: '10px',
-                  padding: '8px 0'
-                }}>
-                  <span style={{ 
-                    fontWeight: '650', 
-                    color: isDarkMode ? '#94A3B8' : '#64748B',
-                    fontSize: '13px',
-                    minWidth: '55px',
-                    letterSpacing: '0.025em',
-                    textTransform: 'uppercase'
-                  }}>BCC:</span>
-                  <span style={{ 
-                    color: isDarkMode ? '#CBD5E1' : '#334155',
-                    fontSize: '14px',
-                    fontWeight: '500',
-                    flex: 1,
-                    lineHeight: '1.4'
-                  }}>
-                    {[bcc, feeEarnerEmail].filter(Boolean).join(', ')}
-                  </span>
-                </div>
               </div>
             </div>
 
-            {/* Sent Items Confirmation - Passive Info */}
-            <div style={{
-              marginBottom: '14px',
-              padding: '12px 14px',
-              background: isDarkMode 
-                ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.08) 0%, rgba(22, 163, 74, 0.06) 100%)'
-                : 'linear-gradient(135deg, rgba(34, 197, 94, 0.06) 0%, rgba(22, 163, 74, 0.04) 100%)',
-              border: isDarkMode 
-                ? '1px solid rgba(34, 197, 94, 0.25)' 
-                : '1px solid rgba(34, 197, 94, 0.2)',
-              borderRadius: '6px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px'
-            }}>
-              <div style={{
-                width: '18px',
-                height: '18px',
-                borderRadius: '4px',
-                background: isDarkMode 
-                  ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.3) 0%, rgba(22, 163, 74, 0.2) 100%)'
-                  : 'linear-gradient(135deg, rgba(34, 197, 94, 0.2) 0%, rgba(22, 163, 74, 0.15) 100%)',
-                border: `1px solid ${isDarkMode ? 'rgba(34, 197, 94, 0.4)' : 'rgba(34, 197, 94, 0.3)'}`,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0
-              }}>
-                <FaCheck style={{ 
-                  fontSize: '9px', 
-                  color: isDarkMode ? '#4ADE80' : '#16A34A'
-                }} />
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{
-                  fontSize: '13px',
-                  fontWeight: '600',
-                  color: isDarkMode ? '#4ADE80' : '#15803D',
-                  marginBottom: '1px',
-                  letterSpacing: '-0.005em'
-                }}>
-                  Email will be saved to your Sent Items
-                </div>
-                <div style={{
-                  fontSize: '11px',
-                  color: isDarkMode ? 'rgba(74, 222, 128, 0.8)' : 'rgba(21, 128, 61, 0.7)',
-                  lineHeight: '1.3'
-                }}>
-                  A copy will automatically appear in your Outlook Sent Items folder
-                </div>
-              </div>
-            </div>
-            
             {/* Email Summary Section - Secondary (hidden for Before call — Call) */}
             {!isBeforeCallCall && (
               <div style={{
-                background: isDarkMode 
-                  ? colours.dark.inputBackground 
-                  : 'linear-gradient(135deg, #FEFEFE 0%, #F9FAFB 100%)',
-                border: `1px solid ${isDarkMode ? colours.dark.border : '#E5E7EB'}`,
+                background: 'transparent',
+                border: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(226, 232, 240, 0.5)'}`,
                 borderRadius: '6px',
-                padding: '12px',
+                padding: '10px 12px',
                 marginBottom: '14px'
               }}>
                 <h4 style={{
-                  margin: '0 0 10px 0',
-                  fontSize: '15px',
+                  margin: '0 0 8px 0',
+                  fontSize: '12px',
                   fontWeight: '600',
-                  color: isDarkMode ? colours.dark.text : colours.darkBlue,
-                  letterSpacing: '-0.005em'
+                  color: isDarkMode ? '#94A3B8' : '#64748B',
+                  letterSpacing: '0.02em',
+                  textTransform: 'uppercase'
                 }}>
-                  Email Content Summary
+                  Pitch Summary
                 </h4>
                 
                 {/* Replace Subject with Service Description */}
                 {scopeDescription && (
                   <div style={{ fontSize: '12px', marginBottom: '6px' }}>
-                    <span style={{ fontWeight: '600', color: isDarkMode ? '#94A3B8' : '#6B7280' }}>Service Description:</span>
+                    <span style={{ fontWeight: '500', color: isDarkMode ? '#94A3B8' : '#64748B', fontSize: '11px' }}>Service:</span>
                     <div style={{ 
-                      marginTop: '3px',
-                      color: isDarkMode ? colours.dark.text : colours.darkBlue,
+                      marginTop: '2px',
+                      color: isDarkMode ? '#CBD5E1' : '#334155',
                       lineHeight: '1.4',
                       maxHeight: '60px',
                       overflow: 'hidden',
@@ -3942,11 +4077,11 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 )}
                 
                 {amountValue && (
-                  <div style={{ marginBottom: '6px', fontSize: '12px' }}>
-                    <span style={{ fontWeight: '600', color: isDarkMode ? '#94A3B8' : '#6B7280' }}>Amount:</span>
+                  <div style={{ marginBottom: '0', fontSize: '12px' }}>
+                    <span style={{ fontWeight: '500', color: isDarkMode ? '#94A3B8' : '#64748B', fontSize: '11px' }}>Fee:</span>
                     <div style={{ 
-                      marginTop: '3px',
-                      color: isDarkMode ? colours.dark.text : colours.darkBlue,
+                      marginTop: '2px',
+                      color: isDarkMode ? '#CBD5E1' : '#334155',
                       fontWeight: 600,
                       fontSize: '13px'
                     }}>
@@ -3957,86 +4092,185 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
               </div>
             )}
 
-            {/* Processing Status Section */}
+            {/* Follow-Up Reminder Confirmation */}
             <div style={{
-              background: isDarkMode ? '#374151' : '#F9FAFB',
-              border: isDarkMode ? '1px solid #4B5563' : '1px solid #E5E7EB',
-              borderRadius: '6px',
-              padding: '12px',
-              marginBottom: '14px'
+              marginBottom: '14px',
+              padding: '12px 16px',
+              background: isDarkMode ? '#1E293B' : '#FFFFFF',
+              border: `1px solid #3690CE`,
+              borderRadius: '12px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)'
             }}>
-              <div style={{
-                display: 'flex',
+              <div style={{ 
+                display: 'flex', 
                 alignItems: 'center',
-                gap: '10px',
-                marginBottom: '12px'
+                justifyContent: 'center',
+                width: '18px',
+                height: '18px',
+                flexShrink: 0
               }}>
-                <div style={{
-                  width: '20px',
-                  height: '20px',
-                  borderRadius: '4px',
-                  background: isDarkMode ? '#6B7280' : '#9CA3AF',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ 
-                    color: 'white'
-                  }}>
-                    <circle cx="12" cy="12" r="3" fill="currentColor"/>
-                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" 
-                          stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </div>
-                <h4 style={{
-                  margin: 0,
-                  fontSize: '15px',
-                  fontWeight: '650',
-                  color: isDarkMode ? '#E0F2FE' : '#0F172A',
-                  letterSpacing: '-0.01em'
-                }}>
-                  Processing Status
-                </h4>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ color: '#3690CE' }}>
+                  <path d="M9 12L11 14L15 10M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {/* Deal Creation Status */}
+              <div style={{ flex: 1 }}>
+                <div style={{
+                  fontSize: '13px',
+                  fontWeight: '500',
+                  color: isDarkMode ? '#E2E8F0' : '#1E293B',
+                  lineHeight: '1.4'
+                }}>
+                  24-hour follow-up reminder via 1day@followupthen.com
+                </div>
+              </div>
+            </div>
+
+            {/* Sent Items Confirmation - Passive Info */}
+            <div style={{
+              marginBottom: '14px',
+              padding: '12px 16px',
+              background: isDarkMode ? '#1E293B' : '#FFFFFF',
+              border: `1px solid #10B981`,
+              borderRadius: '12px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)'
+            }}>
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '18px',
+                height: '18px',
+                flexShrink: 0
+              }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ color: '#10B981' }}>
+                  <path d="M9 12L11 14L15 10M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{
+                  fontSize: '13px',
+                  fontWeight: '500',
+                  color: isDarkMode ? '#E2E8F0' : '#1E293B',
+                  lineHeight: '1.4'
+                }}>
+                  Email saved to Outlook Sent Items
+                </div>
+              </div>
+            </div>
+            
+            {/* Success Banner - Shows prominently when email sent */}
+            {emailStatus === 'sent' && (
+              <div style={{
+                background: isDarkMode ? '#1E293B' : '#FFFFFF',
+                border: `1px solid #10B981`,
+                borderRadius: '12px',
+                padding: '16px 20px',
+                marginBottom: '18px',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '12px',
+                animation: 'slideIn 0.3s ease-out',
+                boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
+              }}>
                 <div style={{ 
                   display: 'flex', 
-                  alignItems: 'center', 
-                  gap: '12px', 
-                  padding: '10px 12px',
-                  borderRadius: '6px',
-                  background: isDarkMode ? '#374151' : '#F9FAFB',
-                  border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
-                  transition: 'all 0.2s ease'
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '24px',
+                  height: '24px',
+                  flexShrink: 0,
+                  marginTop: '2px'
                 }}>
-                  {/* Status Icon */}
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ color: '#10B981' }}>
+                    <path d="M9 12L11 14L15 10M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: isDarkMode ? '#E2E8F0' : '#1E293B',
+                    lineHeight: '1.4',
+                    marginBottom: '4px'
+                  }}>
+                    Email sent successfully!
+                  </div>
+                  <div style={{
+                    fontSize: '13px',
+                    color: isDarkMode ? '#94A3B8' : '#64748B',
+                    lineHeight: '1.4',
+                    fontWeight: '400'
+                  }}>
+                    Message delivered to {enquiry?.Point_of_Contact || 'the client'}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Processing Status Section - Hidden when sent */}
+            {emailStatus !== 'sent' && (
+              <div style={{
+                background: 'transparent',
+                border: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(226, 232, 240, 0.5)'}`,
+                borderRadius: '6px',
+                padding: '10px 12px',
+                marginBottom: '14px'
+              }}>
+                <h4 style={{
+                  margin: '0 0 8px 0',
+                  fontSize: '12px',
+                  fontWeight: '600',
+                  color: isDarkMode ? '#94A3B8' : '#64748B',
+                  letterSpacing: '0.02em',
+                  textTransform: 'uppercase'
+                }}>
+                  Status
+                </h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {/* Deal Creation Status */}
                   <div style={{ 
-                    width: '20px', 
-                    height: '20px', 
                     display: 'flex', 
                     alignItems: 'center', 
-                    justifyContent: 'center',
-                    borderRadius: '4px',
-                    background: isDarkMode ? '#6B7280' : '#9CA3AF'
+                    gap: '10px', 
+                    padding: '6px 0',
+                    borderRadius: '0',
+                    background: 'transparent',
+                    border: 'none',
+                    transition: 'all 0.2s ease'
                   }}>
-                    {(dealCreationInProgress || dealStatus === 'processing') ? (
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ 
-                        color: 'white',
-                        animation: 'spin 1s linear infinite'
-                      }}>
-                        <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
-                    ) : dealStatus === 'ready' ? (
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: 'white' }}>
-                        <path d="M20 6L9 17L4 12" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
-                    ) : dealStatus === 'error' ? (
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: 'white' }}>
-                        <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
-                    ) : (
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: isDarkMode ? colours.dark.text : '#9CA3AF' }}>
+                    {/* Status Icon */}
+                    <div style={{ 
+                      width: '16px', 
+                      height: '16px', 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
+                      borderRadius: '3px',
+                      background: isDarkMode ? 'rgba(107, 114, 128, 0.3)' : 'rgba(148, 163, 184, 0.2)'
+                    }}>
+                      {(dealCreationInProgress || dealStatus === 'processing') ? (
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ 
+                          color: 'white',
+                          animation: 'spin 1s linear infinite'
+                        }}>
+                          <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      ) : dealStatus === 'ready' ? (
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: 'white' }}>
+                          <path d="M20 6L9 17L4 12" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      ) : dealStatus === 'error' ? (
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: 'white' }}>
+                          <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      ) : (
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: isDarkMode ? colours.dark.text : '#9CA3AF' }}>
                         <circle cx="12" cy="8" r="2" stroke="currentColor" strokeWidth="2"/>
                         <path d="M12 14c-4 0-6 2-6 4v2h12v-2c0-2-2-4-6-4z" stroke="currentColor" strokeWidth="2"/>
                       </svg>
@@ -4045,31 +4279,17 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   <div style={{ flex: 1 }}>
                     <div style={{ 
                       fontWeight: '500', 
-                      color: isDarkMode ? '#F3F4F6' : '#374151',
-                      marginBottom: '2px',
-                      fontSize: '13px'
+                      color: isDarkMode ? '#CBD5E1' : '#334155',
+                      marginBottom: '0',
+                      fontSize: '12px'
                     }}>
                       {(dealCreationInProgress || dealStatus === 'processing')
-                        ? 'Saving Pitch Details'
+                        ? 'Saving pitch...'
                         : (dealStatus === 'ready')
-                          ? 'Pitch Saved Successfully'
+                          ? 'Pitch saved'
                           : (dealStatus === 'error')
-                            ? 'Failed to Save Pitch'
-                            : 'Ready to Save'}
-                    </div>
-                    <div style={{ 
-                      fontSize: '13px', 
-                      color: isDarkMode ? '#9CA3AF' : '#6B7280',
-                      fontWeight: '400',
-                      lineHeight: '1.4'
-                    }}>
-                      {(dealCreationInProgress || dealStatus === 'processing') ? 
-                        'Creating deal record and saving pitch information...' :
-                        dealStatus === 'ready' ? 
-                          'Pitch details have been securely saved to your system' :
-                        dealStatus === 'error' ? 
-                          'There was an issue saving the pitch. Please try again.' : 
-                        'Pitch will be saved before sending email'}
+                            ? 'Save failed'
+                            : 'Ready to save'}
                     </div>
                   </div>
                 </div>
@@ -4078,22 +4298,22 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 <div style={{ 
                   display: 'flex', 
                   alignItems: 'center', 
-                  gap: '12px', 
-                  padding: '10px 12px',
-                  borderRadius: '6px',
-                  background: isDarkMode ? '#374151' : '#F9FAFB',
-                  border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                  gap: '10px', 
+                  padding: '6px 0',
+                  borderRadius: '0',
+                  background: 'transparent',
+                  border: 'none',
                   transition: 'all 0.2s ease'
                 }}>
                   {/* Email Icon */}
                   <div style={{ 
-                    width: '20px', 
-                    height: '20px', 
+                    width: '16px', 
+                    height: '16px', 
                     display: 'flex', 
                     alignItems: 'center', 
                     justifyContent: 'center',
-                    borderRadius: '4px',
-                    background: isDarkMode ? '#6B7280' : '#9CA3AF'
+                    borderRadius: '3px',
+                    background: isDarkMode ? 'rgba(107, 114, 128, 0.3)' : 'rgba(148, 163, 184, 0.2)'
                   }}>
                     {(emailStatus === 'processing' || modalSending) ? (
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ 
@@ -4101,10 +4321,6 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                         animation: 'spin 1s linear infinite'
                       }}>
                         <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
-                    ) : emailStatus === 'sent' ? (
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: 'white' }}>
-                        <path d="M20 6L9 17L4 12" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
                       </svg>
                     ) : emailStatus === 'error' ? (
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: 'white' }}>
@@ -4119,78 +4335,55 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   <div style={{ flex: 1 }}>
                     <div style={{ 
                       fontWeight: '500', 
-                      color: isDarkMode ? '#F3F4F6' : '#374151',
-                      marginBottom: '4px',
-                      fontSize: '14px'
+                      color: isDarkMode ? '#CBD5E1' : '#334155',
+                      marginBottom: '0',
+                      fontSize: '12px'
                     }}>
-                      {(emailStatus === 'processing' || modalSending) ? 'Sending Email' : 
-                       emailStatus === 'sent' ? 'Email Sent Successfully' : 
-                       emailStatus === 'error' ? 'Email Delivery Failed' : 
-                       'Ready to Send Email'}
+                      {(emailStatus === 'processing' || modalSending) ? 'Sending email...' : 
+                       emailStatus === 'error' ? 'Send failed' : 
+                       'Ready to send'}
                     </div>
-                    <div style={{ 
-                      fontSize: '13px', 
-                      color: isDarkMode ? '#9CA3AF' : '#6B7280',
-                      fontWeight: '400',
-                      lineHeight: '1.4'
-                    }}>
-                      {(emailStatus === 'processing' || modalSending) ? 
-                        'Delivering email via Microsoft Graph API to recipients...' : 
-                       emailStatus === 'sent' ? 
-                        'Email has been successfully delivered and saved to Sent Items' : 
-                       emailStatus === 'error' ? 
-                        'There was an issue sending the email. Please try again.' : 
-                       'Email will be sent from your account when ready'}
-                    </div>
-                    {!!emailMessage && emailMessage !== 'Sent' && emailMessage !== 'Error' && (
-                      <div style={{ 
-                        fontSize: '13px', 
-                        color: isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(107, 114, 128, 0.8)', 
-                        marginTop: '6px', 
-                        fontStyle: 'italic',
-                        fontWeight: '500'
-                      }}>
-                        {emailMessage}
-                      </div>
-                    )}
-                    {/* Enhanced Recipient Breakdown - show when processing or sent */}
-                    {(emailStatus === 'processing' || emailStatus === 'sent' || modalSending) && (
-                      <div style={{ marginTop: 8, padding: '8px 10px', background: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : 'rgba(248, 250, 252, 0.8)', borderRadius: 6, border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(203, 213, 225, 0.5)'}` }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? colours.dark.text : '#475569', marginBottom: 6 }}>Delivery Details:</div>
-                        {editableTo && (
-                          <div style={{ fontSize: 11, color: isDarkMode ? colours.dark.text : '#64748B', marginBottom: 3 }}>
-                            <span style={{ fontWeight: 500 }}>Primary:</span> {editableTo.split(',').length > 1 ? `${editableTo.split(',').length} recipients` : editableTo.trim()}
-                          </div>
-                        )}
-                        {editableCc && (
-                          <div style={{ fontSize: 11, color: isDarkMode ? colours.dark.text : '#64748B', marginBottom: 3 }}>
-                            <span style={{ fontWeight: 500 }}>CC:</span> {editableCc.split(',').length > 1 ? `${editableCc.split(',').length} recipients` : editableCc.trim()}
-                          </div>
-                        )}
-                        {(bcc || feeEarnerEmail) && (
-                          <div style={{ fontSize: 11, color: isDarkMode ? colours.dark.text : '#64748B', marginBottom: 3 }}>
-                            <span style={{ fontWeight: 500 }}>BCC:</span> {[bcc, feeEarnerEmail, 'cb@helix-law.com'].filter(Boolean).join(', ').split(',').length} monitoring addresses
-                          </div>
-                        )}
-                      </div>
-                    )}
                   </div>
                 </div>
               </div>
             </div>
+            )}
             {/* Inline validation error (modal) */}
             {modalError && (
               <div style={{
+                background: isDarkMode ? '#1E293B' : '#FFFFFF',
+                border: `1px solid #EF4444`,
+                borderRadius: '12px',
+                padding: '16px 20px',
                 marginBottom: '16px',
-                padding: '10px 12px',
-                borderRadius: 8,
-                border: '1px solid #ffa39e',
-                background: '#fff1f0',
-                color: '#a8071a',
-                fontSize: 12,
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '12px',
+                boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
               }}>
-                <FaExclamationTriangle style={{ fontSize: 12, color: '#a8071a', marginRight: 6 }} />
-                {modalError}
+                <div style={{ 
+                  display: 'flex', 
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '24px',
+                  height: '24px',
+                  flexShrink: 0,
+                  marginTop: '2px'
+                }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ color: '#EF4444' }}>
+                    <path d="M12 8V12M12 16H12.01M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: isDarkMode ? '#E2E8F0' : '#1E293B',
+                    lineHeight: '1.4'
+                  }}>
+                    {modalError}
+                  </div>
+                </div>
               </div>
             )}
             
@@ -4271,11 +4464,15 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   try {
                     setModalSending(true);
                     setHasSentEmail(true);
-                    // Update recipients before sending if callback provided
+                    // Update recipients in parent state if callback provided
                     if (onRecipientsChange && (editableTo !== to || editableCc !== cc)) {
                       onRecipientsChange(editableTo, editableCc, bcc);
                     }
-                    await handleSendEmailWithProcessing();
+                    // Pass edited values directly to sendEmail to avoid stale closure
+                    // Pass true as third argument to suppress external toast (modal has its own success UI)
+                    if (sendEmail) {
+                      await sendEmail(editableTo, editableCc, true);
+                    }
                   } finally {
                     setModalSending(false);
                   }
@@ -4351,3 +4548,4 @@ export default EditorAndTemplateBlocks;
 
 // Allow TS to understand Webpack HMR in CRA
 declare const module: { hot?: { accept: (path?: string, cb?: () => void) => void } };
+

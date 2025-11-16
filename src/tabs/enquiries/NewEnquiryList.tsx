@@ -6,6 +6,7 @@ import { NewEnquiry } from '../../app/functionality/newEnquiryTypes';
 import { UserData } from '../../app/functionality/types';
 import { fetchNewEnquiriesData } from '../../app/functionality/fetchNewEnquiries';
 import NewEnquiryLineItem from './NewEnquiryLineItem';
+import { TeamsActivityData, fetchTeamsActivityTracking } from '../../app/functionality/teamsActivityTracking';
 
 interface NewEnquiryListProps {
   onSelectEnquiry?: (enquiry: NewEnquiry) => void;
@@ -29,6 +30,7 @@ const NewEnquiryList: React.FC<NewEnquiryListProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedEnquiry, setSelectedEnquiry] = useState<NewEnquiry | null>(null);
+  const [teamsActivityMap, setTeamsActivityMap] = useState<Map<string, TeamsActivityData>>(new Map());
 
   // Filter enquiries based on user's areas of work, main tab, and selected area
   const filteredEnquiries = useMemo(() => {
@@ -87,6 +89,33 @@ const NewEnquiryList: React.FC<NewEnquiryListProps> = ({
   useEffect(() => {
     loadEnquiries();
   }, []);
+
+  // Fetch Teams activity data for enquiries
+  useEffect(() => {
+    const fetchTeamsData = async () => {
+      if (enquiries.length === 0) return;
+      
+      // Get all enquiry IDs (convert to strings as the API expects string IDs)
+      const enquiryIds = enquiries.map(e => e.id.toString());
+      
+      if (enquiryIds.length > 0) {
+        try {
+          const activityData = await fetchTeamsActivityTracking(enquiryIds);
+          const activityMap = new Map<string, TeamsActivityData>();
+          activityData.forEach(data => {
+            if (data.EnquiryId) {
+              activityMap.set(data.EnquiryId, data);
+            }
+          });
+          setTeamsActivityMap(activityMap);
+        } catch (error) {
+          console.error('Failed to fetch Teams activity data:', error);
+        }
+      }
+    };
+
+    fetchTeamsData();
+  }, [enquiries]);
 
   const loadEnquiries = async () => {
     try {
@@ -328,6 +357,7 @@ const NewEnquiryList: React.FC<NewEnquiryListProps> = ({
                 onPitch={handlePitch}
                 isLast={index === filteredEnquiries.length - 1}
                 isExpanded={selectedEnquiry?.id === enquiry.id}
+                teamsActivityData={teamsActivityMap.get(enquiry.id.toString())}
               />
             ))}
           </div>

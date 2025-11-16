@@ -109,7 +109,7 @@ export interface InstructionCardProps {
   onDeleteRisk?: (instructionRef: string) => void;
   onOpenMatter?: (instruction: any) => void;
   /** Workbench control functions */
-  onOpenWorkbench?: (tab: 'identity' | 'risk' | 'payments' | 'documents' | 'matter' | 'ccl') => void;
+  onOpenWorkbench?: (tab: 'identity' | 'risk' | 'payment' | 'documents' | 'matter' | 'override') => void;
   idVerificationLoading?: boolean;
   animationDelay?: number;
   getClientNameByProspectId?: (prospectId: string | number | undefined) => { firstName: string; lastName: string };
@@ -1803,15 +1803,35 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
               onClick: onEIDClick ?? null
             });
             
-            // Payment
+            // Payment - check if bank transfer for special status text
+            const isBankTransfer = (() => {
+              const paymentRecords = (instruction?.payments || payments || []) as any[];
+              if (paymentRecords.length === 0) return false;
+              const latestPayment = paymentRecords[0];
+              // Bank transfer indicators:
+              // 1. payment_status is 'confirmed' (manual confirmation, typically bank transfer)
+              // 2. PaymentMethod field is 'bank'
+              // 3. No Stripe payment_intent_id (Stripe card payments have payment_intent_id starting with 'pi_')
+              const hasStripePaymentIntent = Boolean(latestPayment.payment_intent_id && 
+                                                       String(latestPayment.payment_intent_id).startsWith('pi_'));
+              const isConfirmedStatus = latestPayment.payment_status === 'confirmed';
+              const isExplicitlyBank = latestPayment.payment_method === 'bank' || 
+                                       latestPayment.PaymentMethod === 'bank' ||
+                                       (latestPayment.metadata && typeof latestPayment.metadata === 'object' && latestPayment.metadata.paymentMethod === 'bank');
+              
+              // It's a bank transfer if explicitly marked as bank, OR if status is 'confirmed' without a Stripe payment intent
+              return isExplicitlyBank || (isConfirmedStatus && !hasStripePaymentIntent);
+            })();
+            
             keySteps.push({
               key: 'payment', 
-              label: 'Pay',
-              status: paymentStatus === 'complete' ? 'Paid' : 
-                     paymentStatus === 'processing' ? 'Processing' : 'Required',
+              label: paymentStatus === 'complete' && isBankTransfer ? 'Transfer' : 'Pay',
+              status: paymentStatus === 'complete' 
+                ? (isBankTransfer ? 'Pending' : 'Paid')
+                : paymentStatus === 'processing' ? 'Processing' : 'Required',
               icon: <FaPoundSign />,
               clickable: true,
-              onClick: (() => onOpenWorkbench?.('payments')) as any
+              onClick: (() => onOpenWorkbench?.('payment')) as any
             });
             
             // Documents - don't show as pending if payment complete (same session)
@@ -1820,7 +1840,7 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
               label: 'Docs',
               status: documentsToUse && documentsToUse.length > 0 
                 ? `${documentsToUse.length} Uploaded` 
-                : paymentStatus === 'complete' 
+                : paymentStatus === 'complete'
                   ? 'Not Required' 
                   : 'Pending',
               icon: <FaFileAlt />,

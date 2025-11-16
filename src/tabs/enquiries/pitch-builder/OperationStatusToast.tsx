@@ -11,6 +11,7 @@ interface OperationStatusToastProps {
   details?: string;
   progress?: number; // 0-100 for progress bar
   icon?: string;
+  isDarkMode?: boolean;
 }
 
 const OperationStatusToast: React.FC<OperationStatusToastProps> = ({ 
@@ -20,7 +21,8 @@ const OperationStatusToast: React.FC<OperationStatusToastProps> = ({
   loading, 
   details,
   progress,
-  icon 
+  icon,
+  isDarkMode = false
 }) => {
   const messageBarType = type === 'success' 
     ? MessageBarType.success 
@@ -61,9 +63,11 @@ const OperationStatusToast: React.FC<OperationStatusToastProps> = ({
           maxWidth: 400,
           minWidth: 320,
           zIndex: 2000,
-          background: '#FFFFFF',
+          background: isDarkMode ? '#1E293B' : '#FFFFFF',
           borderRadius: '12px',
-          boxShadow: '0 10px 25px rgba(0, 0, 0, 0.15), 0 4px 6px rgba(0, 0, 0, 0.1)',
+          boxShadow: isDarkMode 
+            ? '0 10px 25px rgba(0, 0, 0, 0.3), 0 4px 6px rgba(0, 0, 0, 0.2)'
+            : '0 10px 25px rgba(0, 0, 0, 0.15), 0 4px 6px rgba(0, 0, 0, 0.1)',
           border: `1px solid ${getTypeColor()}`,
           overflow: 'hidden',
           fontFamily: 'Raleway, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
@@ -134,7 +138,7 @@ const OperationStatusToast: React.FC<OperationStatusToastProps> = ({
               <div style={{
                 fontSize: '14px',
                 fontWeight: 600,
-                color: '#1E293B',
+                color: isDarkMode ? '#E2E8F0' : '#1E293B',
                 lineHeight: '1.4',
                 marginBottom: details ? '4px' : 0
               }}>
@@ -144,7 +148,7 @@ const OperationStatusToast: React.FC<OperationStatusToastProps> = ({
               {details && (
                 <div style={{
                   fontSize: '13px',
-                  color: '#64748B',
+                  color: isDarkMode ? '#94A3B8' : '#64748B',
                   lineHeight: '1.4',
                   fontWeight: 400
                 }}>

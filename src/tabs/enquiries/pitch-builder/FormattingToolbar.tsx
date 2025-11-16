@@ -29,6 +29,7 @@ interface FormattingToolbarProps {
   editorRef?: React.RefObject<HTMLElement>;
   className?: string;
   style?: React.CSSProperties;
+  disabled?: boolean;
 }
 
 interface FormatState {
@@ -48,7 +49,8 @@ const FormattingToolbar: React.FC<FormattingToolbarProps> = ({
   onFormatChange,
   editorRef,
   className,
-  style
+  style,
+  disabled = false
 }) => {
   const [formatState, setFormatState] = useState<FormatState>({
     bold: false,
@@ -103,6 +105,11 @@ const FormattingToolbar: React.FC<FormattingToolbarProps> = ({
 
   // Execute formatting command with email-safe implementation
   const executeCommand = useCallback((command: string, value?: string) => {
+    // Don't execute commands if toolbar is disabled
+    if (disabled) {
+      return false;
+    }
+    
     try {
       // Focus the editor first
       if (editorRef?.current) {
@@ -181,7 +188,7 @@ const FormattingToolbar: React.FC<FormattingToolbarProps> = ({
       console.warn(`Failed to execute command ${command}:`, error);
       return false;
     }
-  }, [editorRef, onFormatChange, updateFormatState]);
+  }, [editorRef, onFormatChange, updateFormatState, disabled]);
 
   // Handle keyboard shortcuts
   useEffect(() => {
@@ -264,8 +271,11 @@ const FormattingToolbar: React.FC<FormattingToolbarProps> = ({
     backgroundColor: isActive 
       ? (isDarkMode ? colours.highlight : '#e3f2fd')
       : 'transparent',
-    color: isDarkMode ? colours.dark.text : '#333',
-    cursor: 'pointer',
+    color: disabled
+      ? (isDarkMode ? '#64748B' : '#94A3B8')
+      : (isDarkMode ? colours.dark.text : '#333'),
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.5 : 1,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -277,8 +287,12 @@ const FormattingToolbar: React.FC<FormattingToolbarProps> = ({
   const separatorStyle = {
     width: '1px',
     height: '24px',
-    backgroundColor: isDarkMode ? colours.dark.border : '#e1e5e9',
-    margin: '0 4px'
+    backgroundColor: disabled
+      ? (isDarkMode ? '#374151' : '#D1D5DB')
+      : (isDarkMode ? colours.dark.border : '#e1e5e9'),
+    margin: '0 4px',
+    opacity: disabled ? 0.5 : 1,
+    transition: 'all 0.2s ease'
   };
 
   const dropdownStyle = {
@@ -317,8 +331,8 @@ const FormattingToolbar: React.FC<FormattingToolbarProps> = ({
         style={buttonStyle(formatState.bold)}
         onClick={() => executeCommand('bold')}
         title="Bold (Ctrl+B)"
-        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(54, 144, 206, 0.2)' : '#f0f0f0'}
-        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = formatState.bold ? (isDarkMode ? colours.highlight : '#e3f2fd') : 'transparent'}
+        onMouseEnter={(e) => !disabled && (e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(54, 144, 206, 0.2)' : '#f0f0f0')}
+        onMouseLeave={(e) => !disabled && (e.currentTarget.style.backgroundColor = formatState.bold ? (isDarkMode ? colours.highlight : '#e3f2fd') : 'transparent')}
       >
         <FaBold />
       </button>

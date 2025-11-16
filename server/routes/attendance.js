@@ -235,32 +235,42 @@ const getAttendanceHandler = async (req, res) => {
       async () => {
         console.log('🔍 Fetching fresh attendance data from database');
         
+        const password = await getSqlPassword();
+        if (!password) {
+          throw new Error('Could not retrieve database credentials');
+        }
+        
+        const coreDataConnStr = `Server=tcp:helix-database-server.database.windows.net,1433;Initial Catalog=helix-core-data;Persist Security Info=False;User ID=helix-database-server;Password=${password};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;`;
+        
         // Get current attendance data from the correct attendance table
-        const result = await attendanceQuery(process.env.SQL_CONNECTION_STRING, (req) => req.query(`
+        const result = await attendanceQuery(coreDataConnStr, (req) => req.query(`
           WITH LatestAttendance AS (
             SELECT 
               [First_Name] AS First,
+              [Initials],
               [Level],
               [Week_Start],
               [Week_End],
               [ISO_Week] AS iso,
               [Attendance_Days] AS Status,
+              [Confirmed_At],
               ROW_NUMBER() OVER (
-                PARTITION BY [First_Name], [ISO_Week] 
+                PARTITION BY [Initials], [ISO_Week] 
                 ORDER BY [Confirmed_At] DESC
               ) as rn
             FROM [dbo].[attendance]
             WHERE [Week_Start] <= CAST(GETDATE() AS DATE) 
               AND [Week_End] >= CAST(GETDATE() AS DATE)
+              AND [Initials] IS NOT NULL
           )
-          SELECT First, Level, Week_Start, Week_End, iso, Status
+          SELECT First, Initials, Level, Week_Start, Week_End, iso, Status, Confirmed_At
           FROM LatestAttendance
           WHERE rn = 1
-          ORDER BY First
+          ORDER BY Initials
         `));
 
         // Get team roster data from the correct team table
-        const teamResult = await attendanceQuery(process.env.SQL_CONNECTION_STRING, (req) => req.query(`
+        const teamResult = await attendanceQuery(coreDataConnStr, (req) => req.query(`
           SELECT 
             [First],
             [Initials],
@@ -277,9 +287,8 @@ const getAttendanceHandler = async (req, res) => {
         
         // Transform attendance results to include leave status
         const attendanceWithLeave = result.recordset.map(record => {
-          // Find initials from team data for this person
-          const teamMember = teamResult.recordset.find(t => t.First === record.First);
-          const initials = teamMember?.Initials || '';
+          // Use initials directly from attendance table (no need to find from team)
+          const initials = record.Initials || '';
           const isOnLeave = peopleOnLeave.has(initials);
           
           return {
@@ -290,7 +299,8 @@ const getAttendanceHandler = async (req, res) => {
             IsOnLeave: isOnLeave ? 1 : 0,
             Week_Start: record.Week_Start,
             Week_End: record.Week_End,
-            iso: record.iso
+            iso: record.iso,
+            Confirmed_At: record.Confirmed_At
           };
         });
 
@@ -348,6 +358,13 @@ router.post('/updateAttendance', async (req, res) => {
       });
     }
     
+    const password = await getSqlPassword();
+    if (!password) {
+      throw new Error('Could not retrieve database credentials');
+    }
+    
+    const coreDataConnStr = `Server=tcp:helix-database-server.database.windows.net,1433;Initial Catalog=helix-core-data;Persist Security Info=False;User ID=helix-database-server;Password=${password};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;`;
+    
     // Calculate week end date
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekEnd.getDate() + 6);
@@ -365,7 +382,7 @@ router.post('/updateAttendance', async (req, res) => {
     const isoWeek = getISOWeek(new Date(weekStart));
 
     // Get user's full name from team data (or use existing if available)
-  const teamResult = await attendanceQuery(process.env.SQL_CONNECTION_STRING, (req, sql) =>
+  const teamResult = await attendanceQuery(coreDataConnStr, (req, sql) =>
       req.input('initials', sql.VarChar(10), initials)
         .query(`SELECT First FROM [dbo].[team] WHERE Initials = @initials`)
     );
@@ -374,7 +391,7 @@ router.post('/updateAttendance', async (req, res) => {
 
     // Get or generate Entry_ID - check if record exists first
     let entryId;
-  const existingResult = await attendanceQuery(process.env.SQL_CONNECTION_STRING, (req, sql) =>
+  const existingResult = await attendanceQuery(coreDataConnStr, (req, sql) =>
       req.input('initials', sql.VarChar(10), initials)
         .input('weekStart', sql.Date, weekStart)
         .query(`
@@ -387,14 +404,14 @@ router.post('/updateAttendance', async (req, res) => {
       entryId = existingResult.recordset[0].Entry_ID;
     } else {
       // Generate new Entry_ID - get next available ID
-  const nextIdResult = await attendanceQuery(process.env.SQL_CONNECTION_STRING, (req) =>
+  const nextIdResult = await attendanceQuery(coreDataConnStr, (req) =>
         req.query(`SELECT ISNULL(MAX(Entry_ID), 0) + 1 AS NextId FROM Attendance`)
       );
       entryId = nextIdResult.recordset[0].NextId;
     }
 
     // Upsert the attendance record with Entry_ID
-  const result = await attendanceQuery(process.env.SQL_CONNECTION_STRING, (req, sql) =>
+  const result = await attendanceQuery(coreDataConnStr, (req, sql) =>
       req.input('entryId', sql.Int, entryId)
         .input('firstName', sql.VarChar(100), firstName)
         .input('initials', sql.VarChar(10), initials)

@@ -19,8 +19,8 @@ export const colours = {
   highlightNeutral: '#e1e1e1',
 
   dark: {
-    background: '#1a1a1a',
-    sectionBackground: '#1f2937', // Better contrast than #2d2d2d
+    background: '#020617',
+    sectionBackground: '#0f172a', // Better contrast than #2d2d2d
     text: '#f3f4f6',
     subText: '#3690CE',
     border: '#374151',

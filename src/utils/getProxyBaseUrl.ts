@@ -4,6 +4,13 @@ const DEFAULT_PROXY_BASE_URL =
 export function getProxyBaseUrl(): string {
     const envUrl = process.env.REACT_APP_PROXY_BASE_URL;
     const nodeEnv = process.env.NODE_ENV;
+    // If running in browser on localhost, always use relative URLs (prefer local server)
+    if (typeof window !== 'undefined') {
+        const host = window.location.hostname;
+        if (host === 'localhost' || host === '127.0.0.1') {
+            return "";
+        }
+    }
 
     // In development, check if we should use setupProxy.js routing
     if (nodeEnv === "development") {

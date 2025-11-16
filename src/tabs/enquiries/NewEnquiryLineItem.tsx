@@ -8,6 +8,8 @@ import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { NewEnquiry } from '../../app/functionality/newEnquiryTypes';
 import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext';
+import { TeamsActivityData } from '../../app/functionality/teamsActivityTracking';
+import TeamsLinkWidget from '../../components/TeamsLinkWidget';
 
 import React, { useState } from 'react';
 
@@ -72,6 +74,7 @@ interface NewEnquiryLineItemProps {
   onPitch?: (enquiry: NewEnquiry) => void;
   isLast?: boolean;
   isExpanded?: boolean;
+  teamsActivityData?: TeamsActivityData | null;
 }
 
 const formatCurrency = (value: string): string => {
@@ -113,6 +116,7 @@ const NewEnquiryLineItem: React.FC<NewEnquiryLineItemProps> = ({
   onPitch,
   isLast,
   isExpanded = false,
+  teamsActivityData
 }) => {
   const { isDarkMode } = useTheme();
 
@@ -480,6 +484,14 @@ const NewEnquiryLineItem: React.FC<NewEnquiryLineItemProps> = ({
 
           {/* Actions - All CTA Badges */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+            {/* Teams widget for v2 enquiries */}
+            {teamsActivityData && (
+              <TeamsLinkWidget 
+                activityData={teamsActivityData}
+                size="small"
+              />
+            )}
+            
             <button
               className={pitchButtonStyle}
               onClick={(e) => {

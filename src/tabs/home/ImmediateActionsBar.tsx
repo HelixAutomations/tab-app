@@ -115,7 +115,7 @@ const successMessageStyle = (isDarkMode: boolean) =>
     mergeStyles({
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'center',
+        justifyContent: 'flex-start',
         padding: '16px 20px',
         borderRadius: 10,
         background: isDarkMode 
@@ -127,7 +127,11 @@ const successMessageStyle = (isDarkMode: boolean) =>
         transition: 'all 0.3s ease',
         gap: 12,
         minHeight: 54,
-        width: '100%',
+        flex: '0 0 auto',
+        minWidth: 'auto',
+        maxWidth: '100%',
+        width: 'auto',
+        flexWrap: 'nowrap',
         boxShadow: isDarkMode
             ? '0 2px 8px rgba(0, 0, 0, 0.2)'
             : '0 1px 3px rgba(15, 23, 42, 0.08)',
@@ -186,12 +190,17 @@ const noActionsIconClass = mergeStyles({
     alignItems: 'center',
     justifyContent: 'center',
     fontSize: '12px',
+    flexShrink: 0,
     animation: `${tickPopKeyframes} 0.3s ease`,
 });
 
 const noActionsTextClass = mergeStyles({
     marginLeft: '8px',
     fontSize: '14px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    whiteSpace: 'nowrap',
     animation: `${fadeInKeyframes} 0.3s ease-out`,
 });
 
@@ -367,26 +376,35 @@ const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
                     </div>
                 ) : immediateActionsList.length === 0 ? (
                     // Success state - nothing to action
-                    <div className={successMessageStyle(resolvedIsDarkMode)}>
+                    <div
+                        className={successMessageStyle(resolvedIsDarkMode)}
+                        style={{
+                            flex: '0 0 auto',
+                            minWidth: 'auto',
+                            maxWidth: '100%',
+                            width: 'auto',
+                            whiteSpace: 'nowrap',
+                        }}
+                    >
                         <div className={noActionsIconClass}>
                             <FaCheck />
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                            <span style={{ 
-                                fontSize: 14, 
+                        <span className={noActionsTextClass}>
+                            <span style={{
+                                fontSize: 14,
                                 fontWeight: 600,
                                 color: resolvedIsDarkMode ? colours.dark.text : colours.light.text,
                             }}>
                                 All Clear
                             </span>
-                            <span style={{ 
-                                fontSize: 12, 
+                            <span style={{
+                                fontSize: 12,
                                 opacity: 0.8,
                                 color: resolvedIsDarkMode ? colours.dark.text : colours.light.text,
                             }}>
                                 No immediate actions required at this time
                             </span>
-                        </div>
+                        </span>
                     </div>
                 ) : (
                     // Actions present - display all chips naturally
