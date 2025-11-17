@@ -51,16 +51,34 @@ const EnquiryNotesClamp: React.FC<EnquiryNotesClampProps> = ({ notes, isDark, fo
   }, [notes, expanded]);
 
   return (
-    <div style={{ fontSize: 11, lineHeight: 1.4, color: isDark ? 'rgba(255,255,255,0.75)' : 'rgba(0,0,0,0.75)' }}>
+    <div style={{ 
+      fontSize: 11, 
+      lineHeight: 1.4, 
+      color: isDark ? 'rgba(255,255,255,0.75)' : 'rgba(0,0,0,0.75)',
+      transition: 'max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease'
+    }}>
       {expanded ? (
-        <div aria-live="polite">{normalizeNotes(notes)}</div>
+        <div 
+          aria-live="polite"
+          style={{ 
+            whiteSpace: 'pre-line',
+            wordWrap: 'break-word',
+            maxHeight: '500px',
+            opacity: 1,
+            transition: 'max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease'
+          }}
+        >
+          {normalizeNotes(notes)}
+        </div>
       ) : (
         <div style={{ position: 'relative' }}>
           <div
             ref={clampRef}
             style={{
               display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden',
-              textOverflow: 'ellipsis', whiteSpace: 'pre-line', maxHeight: 57
+              textOverflow: 'ellipsis', whiteSpace: 'pre-line', maxHeight: 57,
+              transition: 'max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease',
+              opacity: 1
             }}
             aria-hidden={expanded}
           >
@@ -70,8 +88,8 @@ const EnquiryNotesClamp: React.FC<EnquiryNotesClampProps> = ({ notes, isDark, fo
             <div
               style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 18, pointerEvents: 'none',
                 background: isDark
-                  ? 'linear-gradient(to bottom, rgba(15,23,42,0), rgba(15,23,42,1))' // Match the card background #0f172a
-                  : 'linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0.95))' }}
+                  ? 'linear-gradient(to bottom, rgba(15,23,42,0), rgba(15,23,42,0.9))' // Better match to card background
+                  : 'linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0.9))' }}
             />
           )}
         </div>

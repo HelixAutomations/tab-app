@@ -131,8 +131,8 @@ export class EmailProcessor {
   }
 
   /**
-   * Complete email processing pipeline
-   * This processes content and applies all substitutions
+   * Complete email processing pipeline with enhanced reliability
+   * This processes content and applies all substitutions with fallback mechanisms
    */
   static processCompleteEmail(
     content: string,
@@ -148,29 +148,63 @@ export class EmailProcessor {
   ): string {
     this.logOperation('Starting complete email processing pipeline');
 
-    // Step 1: Process the content (V1 or V2)
-    let processed = this.processEmailContent(content, {
-      editorElement: context.editorElement,
-      forceV2: context.forceV2
-    });
-
-    // Step 2: Apply dynamic substitutions (same for both V1 and V2)
-    if (context.userData || context.enquiry) {
-      processed = this.applySubstitutions(
-        processed,
-        context.userData,
-        context.enquiry,
-        context.amount,
-        context.passcode,
-        context.instructionsLink
-      );
+    // Input validation
+    if (!content || typeof content !== 'string') {
+      console.warn('[EmailProcessor] Invalid content provided, using fallback');
+      content = 'Email content unavailable. Please contact us directly.';
     }
 
-    // Step 3: Remove any placeholders that remain after substitution
-    processed = removeUnfilledPlaceholders(processed);
+    try {
+      // Step 1: Process the content (V1 or V2) with error handling
+      let processed = this.processEmailContent(content, {
+        editorElement: context.editorElement,
+        forceV2: context.forceV2
+      });
 
-    this.logOperation('Complete email processing finished');
-    return processed;
+      // Validate processed content
+      if (!processed || processed.trim().length === 0) {
+        console.warn('[EmailProcessor] Empty processed content, using original');
+        processed = content;
+      }
+
+      // Step 2: Apply dynamic substitutions (same for both V1 and V2) with error handling
+      if (context.userData || context.enquiry) {
+        try {
+          processed = this.applySubstitutions(
+            processed,
+            context.userData,
+            context.enquiry,
+            context.amount,
+            context.passcode,
+            context.instructionsLink
+          );
+        } catch (error) {
+          console.error('[EmailProcessor] Substitution failed:', error);
+          // Continue with unsubstituted content rather than failing
+        }
+      }
+
+      // Step 3: Remove any placeholders that remain after substitution
+      try {
+        processed = removeUnfilledPlaceholders(processed);
+      } catch (error) {
+        console.error('[EmailProcessor] Placeholder removal failed:', error);
+        // Continue without placeholder removal
+      }
+
+      // Final validation
+      if (!processed || processed.trim().length === 0) {
+        console.error('[EmailProcessor] Final processed content is empty, using fallback');
+        processed = content || 'Email content could not be processed.';
+      }
+
+      this.logOperation('Complete email processing finished successfully');
+      return processed;
+    } catch (error) {
+      console.error('[EmailProcessor] Critical error in processing pipeline:', error);
+      // Return sanitized original content as absolute fallback
+      return content || 'Email content processing failed. Please try again.';
+    }
   }
 
   /**

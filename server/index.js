@@ -79,6 +79,8 @@ const marketingMetricsRouter = require('./routes/marketing-metrics');
 const cachePreheaterRouter = require('./routes/cache-preheater');
 const clearCacheRouter = require('./routes/clearCache');
 const teamsActivityTrackingRouter = require('./routes/teamsActivityTracking');
+const pitchTrackingRouter = require('./routes/pitchTracking');
+const enquiryEnrichmentRouter = require('./routes/enquiryEnrichment');
 const { userContextMiddleware } = require('./middleware/userContext');
 
 const app = express();
@@ -196,6 +198,8 @@ app.use('/api/marketing-metrics', marketingMetricsRouter);
 app.use('/api/cache-preheater', cachePreheaterRouter);
 app.use('/api/cache', clearCacheRouter);
 app.use('/api/teams-activity-tracking', teamsActivityTrackingRouter);
+app.use('/api/pitch-tracking', pitchTrackingRouter);
+app.use('/api/enquiry-enrichment', enquiryEnrichmentRouter);
 
 // IMPORTANT: Attendance routes must come BEFORE proxy routes to avoid conflicts
 app.use('/api/attendance', attendanceRouter);

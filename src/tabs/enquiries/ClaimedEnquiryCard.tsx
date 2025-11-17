@@ -6,6 +6,8 @@ import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 import EnquiryBadge from './EnquiryBadge';
 import PitchBuilder from './PitchBuilder';
+import TeamsLinkWidget from '../../components/TeamsLinkWidget';
+import { EnquiryEnrichmentData } from '../../app/functionality/enquiryEnrichment';
 
 interface TeamDataRec {
   Email?: string;
@@ -30,6 +32,10 @@ interface Props {
   userData?: any; // For pitch builder
   promotionStatus?: 'pitch' | 'instruction' | null;
   onFilterByPerson?: (initials: string) => void; // Added: filter by initials from chip
+  // Enrichment data for Teams widget and pitch badge
+  enrichmentData?: EnquiryEnrichmentData | null;
+  enrichmentMap?: Map<string, EnquiryEnrichmentData>;
+  enrichmentRequestsRef?: React.MutableRefObject<Set<string>>;
 }
 
 /**
@@ -52,7 +58,66 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
   userData,
   promotionStatus,
   onFilterByPerson,
+  enrichmentData,
+  enrichmentMap,
+  enrichmentRequestsRef,
 }) => {
+  // Pitched button component with hover transition
+  const PitchedButtonContent: React.FC<{ pitchCount: number; isDarkMode: boolean }> = ({ pitchCount, isDarkMode }) => {
+    const [isHovered, setIsHovered] = useState(false);
+    
+    return (
+      <div
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 5,
+          transition: 'all 0.3s cubic-bezier(0.4,0,0.2,1)',
+        }}
+      >
+        <Icon 
+          iconName={isHovered ? 'Send' : 'CheckMark'} 
+          styles={{ 
+            root: { 
+              fontSize: 12, 
+              lineHeight: 1, 
+              transition: 'all 0.3s cubic-bezier(0.4,0,0.2,1)',
+              transform: isHovered ? 'scale(1)' : 'scale(1.1)'
+            } 
+          }} 
+        />
+        <span style={{ 
+          transition: 'all 0.3s cubic-bezier(0.4,0,0.2,1)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4
+        }}>
+          {isHovered ? 'Pitch' : 'Pitched'}
+          {!isHovered && (
+            <span
+              style={{
+                background: isDarkMode ? '#10b981' : '#059669',
+                color: '#fff',
+                borderRadius: '8px',
+                padding: '1px 4px',
+                fontSize: '8px',
+                fontWeight: 700,
+                minWidth: '14px',
+                textAlign: 'center',
+                transition: 'all 0.3s cubic-bezier(0.4,0,0.2,1)',
+                opacity: isHovered ? 0 : 1,
+                transform: isHovered ? 'scale(0.8)' : 'scale(1)',
+              }}
+            >
+              {pitchCount}
+            </span>
+          )}
+        </span>
+      </div>
+    );
+  };
   const { isDarkMode } = useTheme();
   const [showActions, setShowActions] = useState(false);
   const [clickedForActions, setClickedForActions] = useState(false);
@@ -80,6 +145,7 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
     setLocalRating(enquiry.Rating || '');
   }, [enquiry.Rating]);
   const [copiedPhone, setCopiedPhone] = useState(false);
+  const [isPitchHovered, setIsPitchHovered] = useState(false);
   // Removed inline pitch builder modal usage; pitch now handled by parent detail view
   const clampRef = useRef<HTMLDivElement>(null);
   const [isOverflowing, setIsOverflowing] = useState(false);
@@ -370,6 +436,9 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
         right: 12,
         zIndex: 2,
         display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'flex-end',
+        gap: 6,
         width: 'fit-content'
       }}>
         <EnquiryBadge 
@@ -378,7 +447,7 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
         />
       </div>
 
-      {/* Fee earner badge - bottom right (click to filter by person) */}
+      {/* Fee earner badge with integrated Teams functionality - bottom right */}
       {(() => {
         // Always render a badge. If claimer is missing, derive initials from POC email.
         const pocEmail = (enquiry.Point_of_Contact || '').toString();
@@ -398,51 +467,119 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
         const displayInitials = (claimer?.Initials || nameInitials || emailInitials || derivedFromEmail || '??');
         const title = claimer?.['Full Name'] || claimer?.Email || pocEmail || 'Person';
         const canFilter = Boolean(displayInitials && onFilterByPerson);
+
+        // Teams integration
+        const isV2Enquiry = enquiry.__sourceType === 'new' || (enquiry as any).source === 'instructions';
+        const hasTeamsData = isV2Enquiry && enrichmentData?.teamsData;
+        const isTeamsLoading = isV2Enquiry && enrichmentData && enrichmentRequestsRef ? enrichmentRequestsRef.current.has(String(enquiry.ID)) : false;
+        const teamsLink = hasTeamsData ? (hasTeamsData as any).teamsLink : null;
+        
         return (
           <div
             onClick={(e) => e.stopPropagation()}
             style={{ position: 'absolute', bottom: 12, right: 12, zIndex: 2 }}
           >
-            <button
-              title={`Filter by ${title}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                e.preventDefault();
-                if (canFilter) onFilterByPerson!(displayInitials);
-              }}
-              disabled={!canFilter}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-                padding: '4px 10px',
-                borderRadius: 6,
-                background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)',
-                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'}`,
-                fontSize: 11,
-                fontWeight: 600,
-                color: isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)',
-                letterSpacing: 0.3,
-                textTransform: 'uppercase' as const,
-                whiteSpace: 'nowrap' as const,
-                cursor: canFilter ? 'pointer' : 'default',
-                opacity: canFilter ? 1 : 0.7,
-                transition: 'all 0.2s ease',
-                backgroundClip: 'padding-box',
-              }}
-              onMouseEnter={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.background = isDarkMode ? 'rgba(148, 163, 184, 0.22)' : 'rgba(148, 163, 184, 0.18)';
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.background = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)';
-              }}
-            >
-              <Icon
-                iconName="Contact"
-                styles={{ root: { fontSize: 11, color: isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)' } }}
-              />
-              <span>{displayInitials}</span>
-            </button>
+            <div style={{ position: 'relative', display: 'inline-block' }}>
+              <button
+                title={hasTeamsData ? `${title} • Teams conversation available` : `Filter by ${title}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  if (hasTeamsData && teamsLink) {
+                    window.open(teamsLink, '_blank');
+                  } else if (canFilter) {
+                    onFilterByPerson!(displayInitials);
+                  }
+                }}
+                disabled={!canFilter && !hasTeamsData}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '4px 10px',
+                  borderRadius: 6,
+                  background: hasTeamsData 
+                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)')
+                    : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)'),
+                  border: `1px solid ${hasTeamsData 
+                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.25)')
+                    : (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)')}`,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: hasTeamsData
+                    ? (isDarkMode ? 'rgba(96, 165, 250, 0.9)' : 'rgba(37, 99, 235, 0.9)')
+                    : (isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)'),
+                  letterSpacing: 0.3,
+                  textTransform: 'uppercase' as const,
+                  whiteSpace: 'nowrap' as const,
+                  cursor: (canFilter || hasTeamsData) ? 'pointer' : 'default',
+                  opacity: (canFilter || hasTeamsData) ? 1 : 0.7,
+                  transition: 'all 0.2s ease',
+                  backgroundClip: 'padding-box',
+                  position: 'relative',
+                }}
+                onMouseEnter={(e) => {
+                  if (hasTeamsData || canFilter) {
+                    (e.currentTarget as HTMLButtonElement).style.background = hasTeamsData
+                      ? (isDarkMode ? 'rgba(54, 144, 206, 0.22)' : 'rgba(54, 144, 206, 0.18)')
+                      : (isDarkMode ? 'rgba(148, 163, 184, 0.22)' : 'rgba(148, 163, 184, 0.18)');
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.background = hasTeamsData
+                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)')
+                    : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)');
+                }}
+              >
+                <Icon
+                  iconName={hasTeamsData ? "TeamsLogo" : "Contact"}
+                  styles={{ 
+                    root: { 
+                      fontSize: hasTeamsData ? 13 : 11, 
+                      color: hasTeamsData
+                        ? (isDarkMode ? 'rgba(96, 165, 250, 0.9)' : 'rgba(37, 99, 235, 0.9)')
+                        : (isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)')
+                    } 
+                  }}
+                />
+                <span>{displayInitials}</span>
+                
+                {/* Loading spinner for Teams data */}
+                {isTeamsLoading && (
+                  <div
+                    style={{
+                      width: '8px',
+                      height: '8px',
+                      border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.2)'}`,
+                      borderTop: `1px solid ${isDarkMode ? '#60a5fa' : '#3b82f6'}`,
+                      borderRadius: '50%',
+                      animation: 'spin 1s linear infinite',
+                      marginLeft: 2,
+                    }}
+                  />
+                )}
+              </button>
+              
+              {/* Teams status dot - neutral/green style */}
+              {hasTeamsData && !isTeamsLoading && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: -2,
+                    right: -2,
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    background: isDarkMode ? '#10b981' : '#059669',
+                    border: `2px solid ${isDarkMode ? 'rgba(15, 23, 42, 0.85)' : 'rgba(255, 255, 255, 0.92)'}`,
+                    boxShadow: isDarkMode 
+                      ? '0 0 0 1px rgba(96, 165, 250, 0.3)' 
+                      : '0 0 0 1px rgba(59, 130, 246, 0.3)',
+                    animation: 'pulse 2s infinite',
+                  }}
+                />
+              )}
+            </div>
           </div>
         );
       })()}
@@ -857,15 +994,15 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
             <div 
               ref={clampRef} 
               style={{ 
-                transition: 'all 0.3s ease', 
-                maxHeight: 1000, 
-                overflow: 'visible', 
                 fontSize: 11, 
                 lineHeight: '1.5', 
                 color: isDarkMode ? 'rgba(255,255,255,0.75)' : 'rgba(0,0,0,0.75)',
                 whiteSpace: 'pre-wrap', // Preserves line breaks and wrapping
                 wordWrap: 'break-word', // Prevents long words from overflowing
-                fontFamily: 'inherit'
+                fontFamily: 'inherit',
+                transition: 'max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease',
+                maxHeight: '500px',
+                opacity: 1
               }}
             >
               {normalizeNotes(enquiry.Initial_first_call_notes || '')}
@@ -882,12 +1019,13 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
                   textOverflow: 'ellipsis', 
                   whiteSpace: 'pre-wrap', // Preserves line breaks
                   wordWrap: 'break-word', // Prevents overflow
-                  transition: 'all 0.3s ease', 
                   maxHeight: 57, 
                   fontSize: 11, 
                   lineHeight: '1.5', 
                   color: isDarkMode ? 'rgba(255,255,255,0.75)' : 'rgba(0,0,0,0.75)',
-                  fontFamily: 'inherit'
+                  fontFamily: 'inherit',
+                  transition: 'max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease',
+                  opacity: 1
                 }}
               >
                 {normalizeNotes(enquiry.Initial_first_call_notes || '')}
@@ -900,8 +1038,8 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
                   right: 0, 
                   height: 18, 
                   background: isDarkMode 
-                    ? 'linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0.06))' 
-                    : 'linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0.95))', 
+                    ? 'linear-gradient(to bottom, rgba(15,23,42,0), rgba(15,23,42,0.85))' 
+                    : 'linear-gradient(to bottom, rgba(249,249,249,0), rgba(249,249,249,0.95))', 
                   pointerEvents: 'none',
                   transition: 'opacity 0.3s ease'
                 }} />
@@ -1088,23 +1226,33 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
                 ? (localRating === 'Good' ? colours.blue : localRating === 'Neutral' ? colours.grey : colours.cta)
                 : 'rgba(54, 144, 206, 0.75)';
               
+              // Check if this enquiry has pitch data
+              const hasPitchData = isPitch && enrichmentData?.pitchData;
+              const pitchCount = hasPitchData ? 1 : 0; // Could be enhanced to count multiple pitches
+              
               return (
                 <button
                   key={btn.key}
                   onClick={(e) => { e.stopPropagation(); btn.onClick(); }}
                   className={mergeStyles({
                     background: isPitch 
-                      ? colours.highlight 
+                      ? (hasPitchData 
+                          ? 'rgba(16, 185, 129, 0.1)'
+                          : colours.highlight)
                       : (localRating && isRate
                           ? `${ratingColor}15`
                           : (hasNoRating ? 'rgba(54, 144, 206, 0.06)' : 'transparent')),
                     color: isPitch 
-                      ? '#fff' 
+                      ? (hasPitchData 
+                          ? (isDarkMode ? '#10b981' : '#059669')
+                          : '#fff')
                       : (localRating && isRate
                           ? ratingColor
                           : (hasNoRating ? 'rgba(54, 144, 206, 0.75)' : (isDarkMode ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)'))),
                     border: `1px solid ${isPitch 
-                      ? colours.highlight 
+                      ? (hasPitchData
+                          ? (isDarkMode ? 'rgba(16, 185, 129, 0.25)' : 'rgba(16, 185, 129, 0.2)')
+                          : colours.highlight)
                       : (localRating && isRate
                           ? `${ratingColor}40`
                           : (hasNoRating 
@@ -1119,7 +1267,7 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
                     minHeight: 30,
                     opacity: isRate && isUpdatingRating ? 0.6 : (isRate && hasNoRating ? 0.8 : (isRate ? 1 : 0.75)),
                     transform: 'translateY(0) scale(1)',
-                    transition: 'all .25s cubic-bezier(.4,0,.2,1)',
+                    transition: 'all 0.3s cubic-bezier(0.4,0,0.2,1)',
                     boxShadow: (localRating && isRate) ? `0 0 0 1px ${ratingColor}20` : (hasNoRating ? '0 0 0 1px rgba(54, 144, 206, 0.1)' : 'none'),
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -1179,7 +1327,64 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
                         {isUpdatingRating ? '...' : (localRating || 'Rate')}
                       </span>
                     </>
+                  ) : isPitch && hasPitchData ? (
+                    // Pitched button with tick and count
+                    <div
+                      onMouseEnter={() => setIsPitchHovered(true)}
+                      onMouseLeave={() => setIsPitchHovered(false)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        transition: 'all 0.3s cubic-bezier(0.4,0,0.2,1)',
+                      }}
+                    >
+                      <Icon 
+                        iconName={isPitchHovered ? 'Send' : 'CheckMark'} 
+                        styles={{ 
+                          root: { 
+                            fontSize: 12, 
+                            lineHeight: 1, 
+                            transition: 'all 0.3s cubic-bezier(0.4,0,0.2,1)',
+                            transform: isPitchHovered ? 'scale(1)' : 'scale(1.1)'
+                          } 
+                        }} 
+                      />
+                      <span style={{ 
+                        transition: 'all 0.3s cubic-bezier(0.4,0,0.2,1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4
+                      }}>
+                        {isPitchHovered ? 'Pitch' : 'Pitched'}
+                        {!isPitchHovered && (
+                          <span
+                            style={{
+                              background: isDarkMode ? 'rgba(16, 185, 129, 0.1)' : 'rgba(16, 185, 129, 0.08)',
+                              color: isDarkMode ? '#10b981' : '#059669',
+                              border: `1px solid ${isDarkMode ? 'rgba(16, 185, 129, 0.3)' : 'rgba(16, 185, 129, 0.25)'}`,
+                              borderRadius: '12px',
+                              padding: '1px 6px',
+                              fontSize: '9px',
+                              fontWeight: 600,
+                              minWidth: '18px',
+                              height: '14px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              textAlign: 'center',
+                              transition: 'all 0.3s cubic-bezier(0.4,0,0.2,1)',
+                              opacity: isPitchHovered ? 0 : 1,
+                              transform: isPitchHovered ? 'scale(0.8)' : 'scale(1)',
+                            }}
+                          >
+                            {pitchCount}
+                          </span>
+                        )}
+                      </span>
+                    </div>
                   ) : (
+                    // Regular button
                     <>
                       <Icon iconName={btn.icon} styles={{ root: { fontSize: 12, lineHeight: 1 } }} />
                       {btn.label}

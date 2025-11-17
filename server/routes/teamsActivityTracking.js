@@ -183,6 +183,9 @@ router.get('/', async (req, res) => {
         FROM [instructions].[dbo].[TeamsBotActivityTracking]
         WHERE EnquiryId IN (${numericPlaceholders})
           AND Status = 'active'
+          AND TeamsMessageId IS NOT NULL
+          AND LEN(ISNULL(TeamsMessageId, '')) > 0
+          AND ISNUMERIC(TeamsMessageId) = 1
         ORDER BY CreatedAt DESC
       `);
       

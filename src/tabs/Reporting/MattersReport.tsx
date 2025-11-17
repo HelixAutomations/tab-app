@@ -1871,7 +1871,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                     textTransform: 'uppercase',
                                     letterSpacing: '0.5px'
                                 }}>
-                                    Matters Ledger
+                                    Matters Table
                                 </h3>
                                 <div style={{
                                     fontSize: '11px',

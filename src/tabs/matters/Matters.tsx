@@ -557,7 +557,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
             },
           }}
         >
-          {/* Ledger-style matter list */}
+          {/* Table-style matter list */}
           <div
             style={{
               display: 'flex',
