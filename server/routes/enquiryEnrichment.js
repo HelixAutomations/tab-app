@@ -107,22 +107,24 @@ router.get('/', async (req, res) => {
 
         const pitchResult = await request.query(`
           SELECT 
-            DealId,
-            LeadClientEmail,
-            ServiceDescription,
-            Amount,
-            Status,
-            AreaOfWork,
-            PitchedBy,
-            PitchedDate,
-            PitchedTime,
-            CloseDate,
-            CloseTime,
-            PitchContent
-          FROM [instructions].[dbo].[Deals]
-          WHERE LOWER(LeadClientEmail) IN (${emailPlaceholders})
-            AND Status IS NOT NULL
-          ORDER BY PitchedDate DESC, PitchedTime DESC
+            d.DealId,
+            d.LeadClientEmail,
+            d.ServiceDescription,
+            d.Amount,
+            d.Status,
+            d.AreaOfWork,
+            d.PitchedBy,
+            d.PitchedDate,
+            d.PitchedTime,
+            d.CloseDate,
+            d.CloseTime,
+            p.ScenarioId,
+            d.PitchContent
+          FROM [instructions].[dbo].[Deals] d
+          LEFT JOIN [instructions].[dbo].[PitchContent] p ON d.DealId = p.DealId
+          WHERE LOWER(d.LeadClientEmail) IN (${emailPlaceholders})
+            AND d.Status IS NOT NULL
+          ORDER BY d.PitchedDate DESC, d.PitchedTime DESC
         `);
 
         // Process pitch data and create email → pitch mapping
@@ -130,7 +132,18 @@ router.get('/', async (req, res) => {
         pitchResult.recordset.forEach(row => {
           const email = row.LeadClientEmail?.toLowerCase();
           if (email) {
-            pitchByEmail.set(email, {
+            // Combine PitchedDate and PitchedTime into single datetime
+            let combinedPitchedDate = null;
+            if (row.PitchedDate && row.PitchedTime) {
+              const date = new Date(row.PitchedDate);
+              const time = new Date(row.PitchedTime);
+              date.setHours(time.getHours(), time.getMinutes(), time.getSeconds(), time.getMilliseconds());
+              combinedPitchedDate = date.toISOString();
+            } else if (row.PitchedDate) {
+              combinedPitchedDate = row.PitchedDate;
+            }
+            
+            const pitchEntry = {
               dealId: row.DealId,
               email: email,
               serviceDescription: row.ServiceDescription,
@@ -138,13 +151,18 @@ router.get('/', async (req, res) => {
               status: row.Status,
               areaOfWork: row.AreaOfWork,
               pitchedBy: row.PitchedBy,
-              pitchedDate: row.PitchedDate,
+              pitchedDate: combinedPitchedDate, // Use combined datetime
               pitchedTime: row.PitchedTime,
               closeDate: row.CloseDate,
               closeTime: row.CloseTime,
               pitchContent: row.PitchContent,
+              scenarioId: row.ScenarioId, // Include the scenario ID from PitchContent
               scenarioDisplay: getScenarioDisplayName(row.AreaOfWork, row.ServiceDescription)
-            });
+            };
+            pitchByEmail.set(email, pitchEntry);
+            if (row.ScenarioId) {
+              console.log(`✅ Pitch found for ${email}: ScenarioId=${row.ScenarioId}, PitchedDate=${combinedPitchedDate}`);
+            }
           }
         });
 

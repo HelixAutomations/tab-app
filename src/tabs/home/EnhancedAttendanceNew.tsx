@@ -68,11 +68,12 @@ const EnhancedAttendance = forwardRef<EnhancedAttendanceRef, EnhancedAttendanceP
   // Quick update function for status changes
   const quickUpdate = async (status: 'home' | 'office' | 'out-of-office') => {
     try {
-      // Get current week start
+      // Use Monday as start of week (consistent with Home.tsx and server)
       const today = new Date();
-      const weekStart = new Date(today);
-      weekStart.setDate(today.getDate() - today.getDay()); // Start of week (Sunday)
-      const weekStartStr = weekStart.toISOString().split('T')[0];
+      const dayOfWeek = today.getDay();
+      const monday = new Date(today);
+      monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+      const weekStartStr = monday.toISOString().split('T')[0];
 
       const response = await fetch('/api/attendance/updateAttendance', {
         method: 'POST',
@@ -103,20 +104,20 @@ const EnhancedAttendance = forwardRef<EnhancedAttendanceRef, EnhancedAttendanceP
           if (attendanceResponse.ok) {
             const attendanceResult = await attendanceResponse.json();
             if (attendanceResult.success && attendanceResult.attendance) {
-              // Transform the data to match expected format
+              // Transform API response to AttendanceRecord shape expected by Home.handleAttendanceUpdated
               const transformedRecords = attendanceResult.attendance.map((member: any) => ({
                 Attendance_ID: 0,
                 Entry_ID: 0,
                 First_Name: member.First,
                 Initials: member.Initials,
-                Level: '',
-                Week_Start: new Date().toISOString().split('T')[0],
-                Week_End: new Date().toISOString().split('T')[0],
-                ISO_Week: Math.ceil(((new Date().getTime() - new Date(new Date().getFullYear(), 0, 1).getTime()) / 86400000 + 1) / 7),
-                Attendance_Days: member.Status === 'office' ? 'Monday,Tuesday,Wednesday,Thursday,Friday' : '',
-                Confirmed_At: member.IsConfirmed ? new Date().toISOString() : null,
+                Level: member.Level || '',
+                Week_Start: member.Week_Start,
+                Week_End: member.Week_End,
+                ISO_Week: typeof member.iso === 'number' ? member.iso : 0,
+                Attendance_Days: member.Status || '',
+                Confirmed_At: member.Confirmed_At ?? null,
                 status: member.Status,
-                isConfirmed: member.IsConfirmed,
+                isConfirmed: Boolean(member.Confirmed_At),
                 isOnLeave: member.IsOnLeave
               }));
               onAttendanceUpdated(transformedRecords);
@@ -238,20 +239,20 @@ const EnhancedAttendance = forwardRef<EnhancedAttendanceRef, EnhancedAttendanceP
           if (attendanceResponse.ok) {
             const attendanceResult = await attendanceResponse.json();
             if (attendanceResult.success && attendanceResult.attendance) {
-              // Transform the data to match expected format
+              // Transform API response to AttendanceRecord shape expected by Home.handleAttendanceUpdated
               const transformedRecords = attendanceResult.attendance.map((member: any) => ({
                 Attendance_ID: 0,
                 Entry_ID: 0,
                 First_Name: member.First,
                 Initials: member.Initials,
-                Level: '',
-                Week_Start: new Date().toISOString().split('T')[0],
-                Week_End: new Date().toISOString().split('T')[0],
-                ISO_Week: Math.ceil(((new Date().getTime() - new Date(new Date().getFullYear(), 0, 1).getTime()) / 86400000 + 1) / 7),
-                Attendance_Days: member.Status === 'office' ? 'Monday,Tuesday,Wednesday,Thursday,Friday' : '',
-                Confirmed_At: member.IsConfirmed ? new Date().toISOString() : null,
+                Level: member.Level || '',
+                Week_Start: member.Week_Start,
+                Week_End: member.Week_End,
+                ISO_Week: typeof member.iso === 'number' ? member.iso : 0,
+                Attendance_Days: member.Status || '',
+                Confirmed_At: member.Confirmed_At ?? null,
                 status: member.Status,
-                isConfirmed: member.IsConfirmed,
+                isConfirmed: Boolean(member.Confirmed_At),
                 isOnLeave: member.IsOnLeave
               }));
               onAttendanceUpdated(transformedRecords);

@@ -271,7 +271,7 @@ const EnquiryBadge: React.FC<Props> = ({
                 ) : (
                   <Icon iconName={areaIconName} styles={{ root: { fontSize: 12, opacity: 0.9 } }} />
                 )}
-                <span style={{ textTransform: 'uppercase', letterSpacing: 0.5, fontSize: 10.5, fontWeight: 600 }}>
+                <span style={{ letterSpacing: 0.5, fontSize: 10.5, fontWeight: 600 }}>
                   {displayText}
                 </span>
                 {onAreaChange && !isUpdating && (
@@ -346,90 +346,9 @@ const EnquiryBadge: React.FC<Props> = ({
           );
         })()}
 
-        {/* Separator dot - more subtle (only show if area was displayed) */}
-        {(() => {
-          const aow = enquiry.Area_of_Work?.toLowerCase() || '';
-          const shouldShowArea = enquiry.Area_of_Work && 
-            !aow.includes('facebook') && 
-            !aow.includes('lead') && 
-            !aow.includes('source');
-          
-          return shouldShowArea ? (
-            <span style={{ 
-              width: 2, 
-              height: 2, 
-              borderRadius: '50%', 
-              background: `${areaColor}50`
-            }} />
-          ) : null;
-        })()}
 
-        {/* Date section - timeline effect for claimed new data */}
-        <div style={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          gap: 4,
-          flexShrink: 0,
-          whiteSpace: 'nowrap',
-          color: subtleText,
-          fontSize: 9.5
-        }}>
-          {isClaimed ? (
-            // Claimed: timeline effect for new, single date + tick for legacy
-            isNewData ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                <span title="Enquiry received" style={{ opacity: 0.9, whiteSpace: 'nowrap' }}>
-                  {formatDate((enquiry as any).datetime)}
-                </span>
-                <Icon iconName="ChevronRight" styles={{ root: { fontSize: 8, opacity: 0.5 } }} />
-                <span title="Claimed" style={{ opacity: 1, whiteSpace: 'nowrap' }}>
-                  {formatDate((enquiry as any).claim)}
-                </span>
-                {/* Show time taken to claim */}
-                {(() => {
-                  try {
-                    const enquiryDate = new Date((enquiry as any).datetime);
-                    const claimDate = new Date((enquiry as any).claim);
-                    if (!isNaN(enquiryDate.getTime()) && !isNaN(claimDate.getTime())) {
-                      const timeTaken = formatLiveBreakdown(enquiryDate, claimDate);
-                      return (
-                        <span
-                          style={{
-                            fontSize: 9,
-                            color: '#b0b8c9',
-                            fontWeight: 500,
-                            letterSpacing: 0.8,
-                            fontFamily: 'Consolas, Monaco, monospace',
-                            background: 'rgba(180,200,255,0.1)',
-                            borderRadius: 4,
-                            padding: '1px 4px',
-                            opacity: 0.9,
-                            marginLeft: 4
-                          }}
-                          title={`Time taken to claim: ${timeTaken}`}
-                        >
-                          {timeTaken}
-                        </span>
-                      );
-                    }
-                  } catch {}
-                  return null;
-                })()}
-              </div>
-            ) : (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                <span style={{ whiteSpace: 'nowrap' }}>{formatDate(enquiry.Touchpoint_Date)}</span>
-                <Icon iconName="CheckMark" styles={{ root: { fontSize: 10, color: colours.blue } }} />
-              </div>
-            )
-          ) : (
-            // Unclaimed: just the enquiry date + live age
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-              <span style={{ whiteSpace: 'nowrap', color: neutralText }}>{formatDate(isNewData ? (enquiry as any).datetime : enquiry.Touchpoint_Date)}</span>
-              {!isClaimed && <LiveEnquiryAgeBadge enquiry={enquiry} />}
-            </div>
-          )}
-        </div>
+
+
 
         {/* Claimer initials */}
         {claimer && (

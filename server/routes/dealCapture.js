@@ -185,6 +185,9 @@ module.exports = async (req, res) => {
     // Always insert pitch content to preserve email body/subject (match Azure Function exactly)
     console.log(`[${requestId}] 📧 Saving pitch content...`);
     
+    // Extract scenarioId from payload (optional, may be undefined)
+    const scenarioId = req.body.scenarioId || null;
+    
     // Convert empty strings to null for proper database storage (match Azure Function)
     const cleanEmailSubject = (emailSubject && emailSubject.trim()) ? emailSubject : null;
     const cleanEmailBody = (emailBody && emailBody.trim()) ? emailBody : null;
@@ -203,9 +206,10 @@ module.exports = async (req, res) => {
       .input('Reminders', sql.NVarChar(sql.MAX), reminders ? JSON.stringify(reminders) : null)
       .input('CreatedBy', sql.NVarChar(100), pitchedBy)
       .input('Notes', sql.NVarChar(sql.MAX), cleanNotes)
+      .input('ScenarioId', sql.NVarChar(100), scenarioId)
       .query(`
-        INSERT INTO PitchContent (DealId, InstructionRef, ProspectId, Amount, ServiceDescription, EmailSubject, EmailBody, EmailBodyHtml, Reminders, CreatedBy, Notes)
-        VALUES (@DealId, @InstructionRef, @ProspectId, @Amount, @ServiceDescription, @EmailSubject, @EmailBody, @EmailBodyHtml, @Reminders, @CreatedBy, @Notes)
+        INSERT INTO PitchContent (DealId, InstructionRef, ProspectId, Amount, ServiceDescription, EmailSubject, EmailBody, EmailBodyHtml, Reminders, CreatedBy, Notes, ScenarioId)
+        VALUES (@DealId, @InstructionRef, @ProspectId, @Amount, @ServiceDescription, @EmailSubject, @EmailBody, @EmailBodyHtml, @Reminders, @CreatedBy, @Notes, @ScenarioId)
       `);
     
     console.log(`[${requestId}] ✅ Pitch content saved successfully`);

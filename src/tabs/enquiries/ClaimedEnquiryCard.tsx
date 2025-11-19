@@ -7,6 +7,7 @@ import { colours } from '../../app/styles/colours';
 import EnquiryBadge from './EnquiryBadge';
 import PitchBuilder from './PitchBuilder';
 import TeamsLinkWidget from '../../components/TeamsLinkWidget';
+import PitchScenarioBadge from '../../components/PitchScenarioBadge';
 import { EnquiryEnrichmentData } from '../../app/functionality/enquiryEnrichment';
 
 interface TeamDataRec {
@@ -474,112 +475,319 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
         const isTeamsLoading = isV2Enquiry && enrichmentData && enrichmentRequestsRef ? enrichmentRequestsRef.current.has(String(enquiry.ID)) : false;
         const teamsLink = hasTeamsData ? (hasTeamsData as any).teamsLink : null;
         
+        // Get timestamps for timeline workflow
+        const teamsTime = hasTeamsData ? (hasTeamsData as any).CreatedAt : null; // When Teams conversation started (from TeamsBotActivityTracking)
+        const claimTime = isV2Enquiry ? (enquiry as any).claim : null; // When POC claimed it (only for V2)
+        const pitchTime = enrichmentData?.pitchData ? (enrichmentData.pitchData as any).pitchedDate : null; // When pitch sent
+        
+        // Only show timestamps/durations if they're valid (not 00:00:00)
+        const isValidTimestamp = (dateStr: string | null) => {
+          if (!dateStr) return false;
+          const date = new Date(dateStr);
+          // Check if time is not midnight (00:00:00) which indicates missing data
+          return date.getHours() !== 0 || date.getMinutes() !== 0 || date.getSeconds() !== 0;
+        };
+        
+        const hasValidClaimTime = claimTime && isValidTimestamp(claimTime);
+        const hasValidPitchTime = pitchTime && isValidTimestamp(pitchTime);
+        
+        // Format date/time for display
+        const formatDateTime = (dateStr: string | null) => {
+          if (!dateStr) return null;
+          const date = new Date(dateStr);
+          return date.toLocaleString('en-GB', { 
+            day: '2-digit', 
+            month: 'short', 
+            hour: '2-digit', 
+            minute: '2-digit' 
+          });
+        };
+        
+        // Calculate duration between two timestamps with two-unit precision
+        const calculateDuration = (fromDate: string | null, toDate: string | null) => {
+          if (!fromDate || !toDate) return null;
+          const from = new Date(fromDate);
+          const to = new Date(toDate);
+          let diff = Math.max(0, Math.floor((to.getTime() - from.getTime()) / 1000)); // seconds
+          
+          const S = diff % 60; diff = Math.floor(diff / 60);
+          const M = diff % 60; diff = Math.floor(diff / 60);
+          const H = diff % 24; diff = Math.floor(diff / 24);
+          const D = diff % 7; diff = Math.floor(diff / 7);
+          const W = diff % 4; diff = Math.floor(diff / 4);
+          const Mo = diff % 12; diff = Math.floor(diff / 12);
+          const Y = diff;
+          
+          const totalMonths = Y * 12 + Mo;
+          const parts: string[] = [];
+          
+          // Year/Month scale: y m
+          if (totalMonths > 0) {
+            parts.push(totalMonths + 'm');
+            if (W > 0) parts.push(W + 'w');
+          }
+          // Week scale: w d
+          else if (W > 0) {
+            parts.push(W + 'w');
+            if (D > 0) parts.push(D + 'd');
+          }
+          // Day scale: d h
+          else if (D > 0) {
+            parts.push(D + 'd');
+            if (H > 0) parts.push(H + 'h');
+          }
+          // Hour scale: h m
+          else if (H > 0) {
+            parts.push(H + 'h');
+            if (M > 0) parts.push(M + 'm');
+          }
+          // Minute scale: m s
+          else if (M > 0) {
+            parts.push(M + 'm');
+            if (S > 0) parts.push(S + 's');
+          }
+          // Seconds only
+          else if (S > 0) {
+            parts.push(S + 's');
+          }
+          
+          if (parts.length === 0) parts.push('0s');
+          
+          return parts.slice(0, 2).join(' ');
+        };
+        
         return (
           <div
             onClick={(e) => e.stopPropagation()}
-            style={{ position: 'absolute', bottom: 12, right: 12, zIndex: 2 }}
+            style={{ 
+              position: 'absolute', 
+              bottom: 12, 
+              right: 12, 
+              zIndex: 2,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8
+            }}
           >
-            <div style={{ position: 'relative', display: 'inline-block' }}>
-              <button
-                title={hasTeamsData ? `${title} • Teams conversation available` : `Filter by ${title}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  e.preventDefault();
-                  if (hasTeamsData && teamsLink) {
-                    window.open(teamsLink, '_blank');
-                  } else if (canFilter) {
-                    onFilterByPerson!(displayInitials);
-                  }
-                }}
-                disabled={!canFilter && !hasTeamsData}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '4px 10px',
-                  borderRadius: 6,
-                  background: hasTeamsData 
-                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)')
-                    : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)'),
-                  border: `1px solid ${hasTeamsData 
-                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.25)')
-                    : (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)')}`,
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: hasTeamsData
-                    ? (isDarkMode ? 'rgba(96, 165, 250, 0.9)' : 'rgba(37, 99, 235, 0.9)')
-                    : (isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)'),
-                  letterSpacing: 0.3,
-                  textTransform: 'uppercase' as const,
-                  whiteSpace: 'nowrap' as const,
-                  cursor: (canFilter || hasTeamsData) ? 'pointer' : 'default',
-                  opacity: (canFilter || hasTeamsData) ? 1 : 0.7,
-                  transition: 'all 0.2s ease',
-                  backgroundClip: 'padding-box',
-                  position: 'relative',
-                }}
-                onMouseEnter={(e) => {
-                  if (hasTeamsData || canFilter) {
-                    (e.currentTarget as HTMLButtonElement).style.background = hasTeamsData
-                      ? (isDarkMode ? 'rgba(54, 144, 206, 0.22)' : 'rgba(54, 144, 206, 0.18)')
-                      : (isDarkMode ? 'rgba(148, 163, 184, 0.22)' : 'rgba(148, 163, 184, 0.18)');
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLButtonElement).style.background = hasTeamsData
-                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)')
-                    : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)');
-                }}
-              >
-                <Icon
-                  iconName={hasTeamsData ? "TeamsLogo" : "Contact"}
-                  styles={{ 
-                    root: { 
-                      fontSize: hasTeamsData ? 13 : 11, 
-                      color: hasTeamsData
-                        ? (isDarkMode ? 'rgba(96, 165, 250, 0.9)' : 'rgba(37, 99, 235, 0.9)')
-                        : (isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)')
-                    } 
-                  }}
-                />
-                <span>{displayInitials}</span>
+            {/* 1. Teams badge - conversation start */}
+            {hasTeamsData && (
+              <>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                  <div style={{ position: 'relative', display: 'inline-block' }}>
+                    <button
+                      title={`Teams conversation • ${teamsTime ? new Date(teamsTime).toLocaleString('en-GB') : ''}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        if (teamsLink) {
+                          window.open(teamsLink, '_blank');
+                        }
+                      }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '4px 8px',
+                        borderRadius: 6,
+                        background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.25)'}`,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: isDarkMode ? 'rgba(96, 165, 250, 0.9)' : 'rgba(37, 99, 235, 0.9)',
+                        letterSpacing: 0.3,
+                        textTransform: 'uppercase' as const,
+                        whiteSpace: 'nowrap' as const,
+                        cursor: 'pointer',
+                        opacity: 1,
+                        transition: 'all 0.2s ease',
+                      }}
+                      onMouseEnter={(e) => {
+                        (e.currentTarget as HTMLButtonElement).style.background = isDarkMode 
+                          ? 'rgba(54, 144, 206, 0.22)' 
+                          : 'rgba(54, 144, 206, 0.18)';
+                      }}
+                      onMouseLeave={(e) => {
+                        (e.currentTarget as HTMLButtonElement).style.background = isDarkMode 
+                          ? 'rgba(54, 144, 206, 0.15)' 
+                          : 'rgba(54, 144, 206, 0.12)';
+                      }}
+                    >
+                      <Icon
+                        iconName="TeamsLogo"
+                        styles={{ 
+                          root: { 
+                            fontSize: 13, 
+                            color: isDarkMode ? 'rgba(96, 165, 250, 0.9)' : 'rgba(37, 99, 235, 0.9)'
+                          } 
+                        }}
+                      />
+                      
+                      {isTeamsLoading ? (
+                        <div
+                          style={{
+                            width: '8px',
+                            height: '8px',
+                            border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.2)'}`,
+                            borderTop: `1px solid ${isDarkMode ? '#60a5fa' : '#3b82f6'}`,
+                            borderRadius: '50%',
+                            animation: 'spin 1s linear infinite',
+                          }}
+                        />
+                      ) : teamsTime && (
+                        <span style={{
+                          fontSize: 8,
+                          color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
+                          fontFamily: 'Consolas, Monaco, monospace',
+                          letterSpacing: 0.3,
+                          fontWeight: 500
+                        }}>
+                          {formatDateTime(teamsTime)}
+                        </span>
+                      )}
+                    </button>
+                    
+                    {!isTeamsLoading && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: -2,
+                          right: -2,
+                          width: 8,
+                          height: 8,
+                          borderRadius: '50%',
+                          background: isDarkMode ? '#10b981' : '#059669',
+                          border: `2px solid ${isDarkMode ? 'rgba(15, 23, 42, 0.85)' : 'rgba(255, 255, 255, 0.92)'}`,
+                          boxShadow: isDarkMode 
+                            ? '0 0 0 1px rgba(96, 165, 250, 0.3)' 
+                            : '0 0 0 1px rgba(59, 130, 246, 0.3)',
+                          animation: 'pulse 2s infinite',
+                        }}
+                      />
+                    )}
+                  </div>
+                </div>
                 
-                {/* Loading spinner for Teams data */}
-                {isTeamsLoading && (
-                  <div
-                    style={{
-                      width: '8px',
-                      height: '8px',
-                      border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.2)'}`,
-                      borderTop: `1px solid ${isDarkMode ? '#60a5fa' : '#3b82f6'}`,
-                      borderRadius: '50%',
-                      animation: 'spin 1s linear infinite',
-                      marginLeft: 2,
-                    }}
-                  />
+                {/* Connecting line with duration - only show if we have valid claim time */}
+                {hasValidClaimTime && (
+                  <div style={{ 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 1
+                  }}>
+                    <div style={{
+                      width: 16,
+                      height: 1,
+                      background: isDarkMode 
+                        ? 'linear-gradient(to right, rgba(148, 163, 184, 0.3), rgba(148, 163, 184, 0.15))' 
+                        : 'linear-gradient(to right, rgba(148, 163, 184, 0.25), rgba(148, 163, 184, 0.1))'
+                    }} />
+                    {teamsTime && (
+                      <span style={{
+                        fontSize: 7,
+                        color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)',
+                        fontFamily: 'Consolas, Monaco, monospace',
+                        fontWeight: 600,
+                        whiteSpace: 'nowrap'
+                      }}>
+                        {calculateDuration(teamsTime, claimTime)}
+                      </span>
+                    )}
+                  </div>
                 )}
-              </button>
-              
-              {/* Teams status dot - neutral/green style */}
-              {hasTeamsData && !isTeamsLoading && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: -2,
-                    right: -2,
-                    width: 8,
-                    height: 8,
-                    borderRadius: '50%',
-                    background: isDarkMode ? '#10b981' : '#059669',
-                    border: `2px solid ${isDarkMode ? 'rgba(15, 23, 42, 0.85)' : 'rgba(255, 255, 255, 0.92)'}`,
-                    boxShadow: isDarkMode 
-                      ? '0 0 0 1px rgba(96, 165, 250, 0.3)' 
-                      : '0 0 0 1px rgba(59, 130, 246, 0.3)',
-                    animation: 'pulse 2s infinite',
-                  }}
-                />
-              )}
-            </div>
+              </>
+            )}
+            
+            {/* 2. POC badge - when claimed */}
+            <button
+              title={`Claimed by ${title}${claimTime ? ' • ' + new Date(claimTime).toLocaleString('en-GB') : ''}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                if (canFilter) {
+                  onFilterByPerson!(displayInitials);
+                }
+              }}
+              disabled={!canFilter}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '4px 10px',
+                borderRadius: 6,
+                background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)',
+                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'}`,
+                fontSize: 11,
+                fontWeight: 600,
+                color: isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)',
+                letterSpacing: 0.3,
+                textTransform: 'uppercase' as const,
+                whiteSpace: 'nowrap' as const,
+                cursor: canFilter ? 'pointer' : 'default',
+                opacity: canFilter ? 1 : 0.7,
+                transition: 'all 0.2s ease',
+              }}
+              onMouseEnter={(e) => {
+                if (canFilter) {
+                  (e.currentTarget as HTMLButtonElement).style.background = isDarkMode 
+                    ? 'rgba(148, 163, 184, 0.22)' 
+                    : 'rgba(148, 163, 184, 0.18)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.background = isDarkMode 
+                  ? 'rgba(148, 163, 184, 0.15)' 
+                  : 'rgba(148, 163, 184, 0.12)';
+              }}
+            >
+              <Icon
+                iconName="Contact"
+                styles={{ 
+                  root: { 
+                    fontSize: 11, 
+                    color: isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)'
+                  } 
+                }}
+              />
+              <span>{displayInitials}</span>
+            </button>
+            
+            {/* Connecting line to pitch with duration - only show if we have valid claim and pitch times */}
+            {enrichmentData?.pitchData && hasValidClaimTime && hasValidPitchTime && (
+              <div style={{ 
+                display: 'flex', 
+                flexDirection: 'column', 
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 1
+              }}>
+                <div style={{
+                  width: 16,
+                  height: 1,
+                  background: isDarkMode 
+                    ? 'linear-gradient(to right, rgba(148, 163, 184, 0.3), rgba(148, 163, 184, 0.15))' 
+                    : 'linear-gradient(to right, rgba(148, 163, 184, 0.25), rgba(148, 163, 184, 0.1))'
+                }} />
+                <span style={{
+                  fontSize: 7,
+                  color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)',
+                  fontFamily: 'Consolas, Monaco, monospace',
+                  fontWeight: 600,
+                  whiteSpace: 'nowrap'
+                }}>
+                  {calculateDuration(claimTime, pitchTime)}
+                </span>
+              </div>
+            )}
+            
+            {/* 3. Pitch scenario badge - only show if pitch has valid timestamp */}
+            {enrichmentData?.pitchData && hasValidPitchTime && (
+              <PitchScenarioBadge 
+                scenarioId={enrichmentData.pitchData.scenarioId}
+                size="medium"
+              />
+            )}
           </div>
         );
       })()}
@@ -1237,7 +1445,7 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
                   className={mergeStyles({
                     background: isPitch 
                       ? (hasPitchData 
-                          ? 'rgba(16, 185, 129, 0.1)'
+                          ? 'transparent'
                           : colours.highlight)
                       : (localRating && isRate
                           ? `${ratingColor}15`
@@ -1251,7 +1459,7 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
                           : (hasNoRating ? 'rgba(54, 144, 206, 0.75)' : (isDarkMode ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)'))),
                     border: `1px solid ${isPitch 
                       ? (hasPitchData
-                          ? (isDarkMode ? 'rgba(16, 185, 129, 0.25)' : 'rgba(16, 185, 129, 0.2)')
+                          ? (isDarkMode ? 'rgba(16, 185, 129, 0.6)' : 'rgba(16, 185, 129, 0.5)')
                           : colours.highlight)
                       : (localRating && isRate
                           ? `${ratingColor}40`
@@ -1265,7 +1473,7 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
                     fontWeight: 600,
                     cursor: 'pointer',
                     minHeight: 30,
-                    opacity: isRate && isUpdatingRating ? 0.6 : (isRate && hasNoRating ? 0.8 : (isRate ? 1 : 0.75)),
+                    opacity: isRate && isUpdatingRating ? 0.6 : (isRate && hasNoRating ? 0.8 : (isRate && localRating ? 0.75 : (isRate ? 1 : 0.75))),
                     transform: 'translateY(0) scale(1)',
                     transition: 'all 0.3s cubic-bezier(0.4,0,0.2,1)',
                     boxShadow: (localRating && isRate) ? `0 0 0 1px ${ratingColor}20` : (hasNoRating ? '0 0 0 1px rgba(54, 144, 206, 0.1)' : 'none'),

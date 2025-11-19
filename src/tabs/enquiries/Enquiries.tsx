@@ -14,11 +14,14 @@ import {
   IconButton,
   PrimaryButton,
   DefaultButton,
+  ActionButton,
+  IButtonStyles,
   Modal,
   initializeIcons,
 } from '@fluentui/react';
 import OperationStatusToast from './pitch-builder/OperationStatusToast';
 import IconAreaFilter from '../../components/filter/IconAreaFilter';
+import PitchScenarioBadge from '../../components/PitchScenarioBadge';
 import {
   BarChart,
   Bar,
@@ -216,6 +219,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // Debug logging
 
   // View state - Card vs Table toggle
+  // Default to card view; will auto-switch to table when Unclaimed board opens
   const [viewMode, setViewMode] = useState<'card' | 'table'>('card');
 
   // Unified enrichment data state (Teams + pitch data)
@@ -226,6 +230,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   // Table view: Track expanded notes by enquiry ID
   const [expandedNotesInTable, setExpandedNotesInTable] = useState<Set<string>>(new Set());
+  
+  // Table view: Track expanded grouped enquiries by client key
+  const [expandedGroupsInTable, setExpandedGroupsInTable] = useState<Set<string>>(new Set());
 
   // Navigation state variables  
   // (declaration moved below, only declare once)
@@ -978,8 +985,22 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   }, []);
 
   const toggleUnclaimedBoard = useCallback(() => {
-    setShowUnclaimedBoard((prev) => !prev);
-  }, []);
+    setShowUnclaimedBoard((prev) => {
+      const next = !prev;
+      // When opening Unclaimed view, force table mode (user request)
+      if (next && viewMode === 'card') {
+        setViewMode('table');
+      }
+      return next;
+    });
+  }, [viewMode]);
+
+  // Ensure if unclaimed view is auto-opened (session flag) it defaults to table layout
+  useEffect(() => {
+    if (showUnclaimedBoard && viewMode === 'card') {
+      setViewMode('table');
+    }
+  }, [showUnclaimedBoard, viewMode]);
 
   useEffect(() => {
     if (displayEnquiries.length > 0) {
@@ -1232,7 +1253,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         return !claimedContactDaySet.has(key);
       });
       
-      return result;
+      // Sort by touchpoint date (desc) to ensure day separators appear correctly
+      return result.sort((a, b) => {
+        const da = new Date((a as any).Touchpoint_Date || (a as any).datetime || (a as any).claim || 0).getTime();
+        const db = new Date((b as any).Touchpoint_Date || (b as any).datetime || (b as any).claim || 0).getTime();
+        return db - da;
+      });
     },
     [dedupedEnquiries, claimedContactDaySet]
   );
@@ -1913,15 +1939,16 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   // Added for infinite scroll - support both grouped and regular view
   const displayedItems = useMemo(() => {
+    // When Unclaimed board is active, override with unclaimed dataset (always table-oriented ordering)
+    if (showUnclaimedBoard) {
+      return [...unclaimedEnquiries].reverse().slice(0, itemsToShow);
+    }
     if (showGroupedView) {
-      // Use grouped display
       const mixedItems = getMixedEnquiryDisplay([...filteredEnquiries].reverse());
       return mixedItems.slice(0, itemsToShow);
-    } else {
-      // Use regular display
-      return [...filteredEnquiries].reverse().slice(0, itemsToShow);
     }
-  }, [filteredEnquiries, itemsToShow, showGroupedView]);
+    return [...filteredEnquiries].reverse().slice(0, itemsToShow);
+  }, [filteredEnquiries, itemsToShow, showGroupedView, showUnclaimedBoard, unclaimedEnquiries]);
 
   const handleLoadMore = useCallback(() => {
     setItemsToShow((prev) => Math.min(prev + 20, filteredEnquiries.length));
@@ -2962,13 +2989,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
 
 
-      {showUnclaimedBoard ? (
+      {showUnclaimedBoard && viewMode === 'card' ? (
         <UnclaimedEnquiries
           enquiries={unclaimedEnquiries}
           onSelect={handleSelectEnquiry}
           userEmail={userData?.[0]?.Email || ''}
           onAreaChange={() => { /* no-op in unclaimed view for now */ }}
-          onClaimSuccess={() => { try { handleManualRefresh(); } catch { /* ignore */ } }}
+          onClaimSuccess={() => { try { handleManualRefresh(); } catch (e) { /* ignore */ } }}
           getPromotionStatusSimple={getPromotionStatusSimple}
         />
       ) : null}
@@ -3164,26 +3191,98 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                     <div 
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: !showMineOnly ? '0.6fr 1.8fr 1.2fr 1.6fr 1.2fr' : '0.6fr 1.8fr 1.6fr 1.2fr',
+                        gridTemplateColumns: '0.6fr 0.6fr 0.8fr 1.8fr 2.8fr',
                         gap: '16px',
                         padding: '16px 40px',
                         alignItems: 'center',
+                        position: 'sticky',
+                        top: 0,
+                        zIndex: 10,
                         background: isDarkMode 
-                          ? 'linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%)'
-                          : 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
-                        borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.06)'}`,
-                        fontSize: '11px',
-                        fontWeight: 600,
-                        color: isDarkMode ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)',
+                          ? 'rgba(15, 23, 42, 0.85)'
+                          : 'rgba(255, 255, 255, 0.85)',
+                        backdropFilter: 'blur(8px)',
+                        borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)'}`,
+                        fontSize: '10px',
+                        fontWeight: 500,
+                        color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
                         textTransform: 'uppercase',
-                        letterSpacing: '0.5px',
+                        letterSpacing: '0.8px',
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>AOW</div>
-                      <div>Contact</div>
-                      {!showMineOnly && <div>POC</div>}
-                      <div>Date/Claim</div>
+                      <div style={{ fontSize: '9px', opacity: 0.7 }}>Date</div>
                       <div>Value</div>
+                      <div>Contact</div>
+                      <div>Pipeline</div>
+
+                      {/* Expand all notes button - positioned far left like chevrons */}
+                      <div style={{ 
+                        position: 'absolute',
+                        left: '16px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        zIndex: 2
+                      }}>
+                        <Icon
+                          iconName={expandedNotesInTable.size > 0 ? 'ChevronUp' : 'ChevronDown'}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const hasAnyNotes = displayedItems.some(item => {
+                              if (isGroupedEnquiry(item)) {
+                                return item.enquiries.some(enq => enq.Initial_first_call_notes?.trim());
+                              } else {
+                                return item.Initial_first_call_notes?.trim();
+                              }
+                            });
+                            
+                            if (hasAnyNotes && expandedNotesInTable.size < displayedItems.reduce((count, item) => {
+                              if (isGroupedEnquiry(item)) {
+                                return count + item.enquiries.filter(e => e.Initial_first_call_notes?.trim()).length;
+                              } else {
+                                return count + (item.Initial_first_call_notes?.trim() ? 1 : 0);
+                              }
+                            }, 0)) {
+                              // Expand all notes
+                              const allNotesIds = new Set<string>();
+                              displayedItems.forEach(item => {
+                                if (isGroupedEnquiry(item)) {
+                                  item.enquiries.forEach(enq => {
+                                    if (enq.Initial_first_call_notes?.trim()) {
+                                      allNotesIds.add(enq.ID);
+                                    }
+                                  });
+                                } else {
+                                  if (item.Initial_first_call_notes?.trim()) {
+                                    allNotesIds.add(item.ID);
+                                  }
+                                }
+                              });
+                              setExpandedNotesInTable(allNotesIds);
+                            } else {
+                              // Collapse all notes
+                              setExpandedNotesInTable(new Set());
+                            }
+                          }}
+                          style={{
+                            fontSize: '12px',
+                            color: isDarkMode ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)',
+                            cursor: 'pointer',
+                            padding: '8px',
+                            borderRadius: '4px',
+                            transition: 'all 0.2s ease',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.color = isDarkMode ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0, 0, 0, 0.8)';
+                            e.currentTarget.style.background = isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.color = isDarkMode ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)';
+                            e.currentTarget.style.background = 'transparent';
+                          }}
+                          title={expandedNotesInTable.size > 0 ? 'Collapse all notes' : 'Expand all notes'}
+                        />
+                      </div>
                     </div>
 
                     {/* Data Rows */}
@@ -3207,142 +3306,421 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                         const claimDate = isFromInstructions ? ((latestEnquiry as any).claim || null) : null;
                         
                         return (
+                          <React.Fragment key={item.clientKey}>
                           <div
-                            key={item.clientKey}
                             style={{
                               display: 'grid',
-                              gridTemplateColumns: !showMineOnly ? '0.6fr 1.8fr 1.2fr 1.6fr 1.2fr' : '0.6fr 1.8fr 1.6fr 1.2fr',
+                              gridTemplateColumns: '0.6fr 0.6fr 0.8fr 1.8fr 2.8fr',
                               gap: '16px',
-                              padding: '16px 40px',
+                              padding: '16px 40px 16px 50px',
                               alignItems: 'center',
                               borderBottom: isLast ? 'none' : `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)'}`,
-                              borderLeft: `3px solid ${getAreaColor(areaOfWork)}`,
                               fontSize: '13px',
                               color: isDarkMode ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0, 0, 0, 0.85)',
+                              background: idx % 2 === 0 
+                                ? (isDarkMode ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.01)')
+                                : 'transparent',
                               transition: 'all 0.2s ease',
                               cursor: 'pointer',
                               position: 'relative',
                             }}
                             onMouseEnter={(e) => {
                               e.currentTarget.style.backgroundColor = isDarkMode 
-                                ? 'rgba(255, 255, 255, 0.04)' 
-                                : 'rgba(0, 0, 0, 0.02)';
+                                ? 'rgba(255, 255, 255, 0.06)' 
+                                : 'rgba(0, 0, 0, 0.03)';
                             }}
                             onMouseLeave={(e) => {
-                              e.currentTarget.style.backgroundColor = 'transparent';
+                              e.currentTarget.style.backgroundColor = idx % 2 === 0 
+                                ? (isDarkMode ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.01)')
+                                : 'transparent';
                             }}
-                            onClick={() => handleSelectEnquiry(latestEnquiry)}
+                            onClick={(e) => {
+                              // Toggle group expansion
+                              const groupKey = item.clientKey;
+                              setExpandedGroupsInTable(prev => {
+                                const next = new Set(prev);
+                                if (next.has(groupKey)) {
+                                  next.delete(groupKey);
+                                } else {
+                                  next.add(groupKey);
+                                }
+                                return next;
+                              });
+                            }}
                           >
-                            {/* Area of Work */}
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-                              <span style={{ fontSize: '18px', lineHeight: 1 }} title={areaOfWork}>
-                                {getAreaOfWorkIcon(areaOfWork)}
-                              </span>
+                            {/* Area of Work dots - centered like AOW icons */}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', height: '100%' }}>
+                              {item.enquiries.map((enq: Enquiry, dotIdx: number) => (
+                                <div
+                                  key={dotIdx}
+                                  style={{
+                                    width: '8px',
+                                    height: '8px',
+                                    borderRadius: '50%',
+                                    background: getAreaColor(enq.Area_of_Work || 'Unspecified'),
+                                    flexShrink: 0,
+                                  }}
+                                  title={enq.Area_of_Work || 'Unspecified'}
+                                />
+                              ))}
                             </div>
 
-                            {/* Contact & Company */}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', justifyContent: 'center' }}>
-                              <div style={{ fontWeight: 600, color: isDarkMode ? '#E5E7EB' : '#1F2937' }}>
-                                {contactName} <span style={{ fontSize: '11px', opacity: 0.7 }}>({item.enquiries.length} enquiries)</span>
+                            {/* Date column - show latest enquiry date */}
+                            <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+                              <div style={{
+                                fontSize: '10px',
+                                color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.4)',
+                                fontFamily: 'Consolas, Monaco, monospace',
+                              }}>
+                                {formatDateReceived(latestEnquiry.Touchpoint_Date, isFromInstructions)}
                               </div>
-                              {companyName && (
-                                <div style={{ 
-                                  fontSize: '11px', 
-                                  color: isDarkMode ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)',
-                                  fontWeight: 500 
-                                }}>
-                                  {companyName}
-                                </div>
-                              )}
                             </div>
 
-                            {/* POC - only show when in All mode */}
-                            {!showMineOnly && (
-                              <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+                            {/* Value column placeholder */}
+                            <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+                              <div style={{
+                                fontSize: '11px',
+                                color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.4)',
+                                fontStyle: 'italic'
+                              }}>
+                                {item.enquiries.length} enquiries
+                              </div>
+                            </div>
+
+                            {/* Contact & Company with count badge */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', height: '100%' }}>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <div style={{ fontWeight: 600, fontSize: '13px', color: isDarkMode ? '#E5E7EB' : '#1F2937' }}>
+                                    {contactName}
+                                  </div>
+                                  <div style={{
+                                    padding: '2px 8px',
+                                    borderRadius: 4,
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                    border: `1px solid ${colours.blue}`,
+                                    fontSize: 10,
+                                    fontWeight: 600,
+                                    color: colours.blue,
+                                  }}>
+                                    {item.enquiries.length}
+                                  </div>
+                                </div>
+                                {companyName && (
+                                  <div style={{ 
+                                    fontSize: '11px', 
+                                    color: isDarkMode ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)',
+                                    fontWeight: 500 
+                                  }}>
+                                    {companyName}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Pipeline column */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, height: '100%', flexWrap: 'nowrap', overflow: 'hidden', fontSize: '10px' }}>
+                              {/* No badge for grouped headers - keep clean */}
+                            </div>
+
+                            {/* Left-side chevron for group expansion - positioned within AOW column */}
+                            <div style={{ 
+                              position: 'absolute',
+                              left: '16px',
+                              top: '50%',
+                              transform: 'translateY(-50%)',
+                              zIndex: 2
+                            }}>
+                              <div
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const groupKey = item.clientKey;
+                                  setExpandedGroupsInTable(prev => {
+                                    const next = new Set(prev);
+                                    if (next.has(groupKey)) {
+                                      next.delete(groupKey);
+                                    } else {
+                                      next.add(groupKey);
+                                    }
+                                    return next;
+                                  });
+                                }}
+                                style={{
+                                  width: '32px',
+                                  height: '32px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  cursor: 'pointer',
+                                  pointerEvents: 'auto',
+                                  transition: 'all 0.2s ease',
+                                  opacity: 0.6,
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.opacity = '1';
+                                  e.currentTarget.style.transform = 'scale(1.1)';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.opacity = '0.6';
+                                  e.currentTarget.style.transform = 'scale(1)';
+                                }}
+                                title={expandedGroupsInTable.has(item.clientKey) ? 'Collapse group' : 'Expand group'}
+                              >
+                                <Icon
+                                  iconName="ChevronRight"
+                                  styles={{
+                                    root: {
+                                      fontSize: '12px',
+                                      color: isDarkMode ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)',
+                                      transform: expandedGroupsInTable.has(item.clientKey) ? 'rotate(90deg)' : 'rotate(0deg)',
+                                      transition: 'transform 0.2s ease',
+                                    }
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* Expanded child enquiries - show ALL enquiries when expanded */}
+                          {expandedGroupsInTable.has(item.clientKey) && item.enquiries.map((childEnquiry: Enquiry, childIdx: number) => {
+                            const childAOW = childEnquiry.Area_of_Work || 'Unspecified';
+                            const childValue = childEnquiry.Value || '';
+                            const childContactName = `${childEnquiry.First_Name || ''} ${childEnquiry.Last_Name || ''}`.trim() || 'Unknown';
+                            const childCompanyName = childEnquiry.Company || '';
+                            const childIsV2 = (childEnquiry as any).__sourceType === 'new' || (childEnquiry as any).source === 'instructions';
+                            const childEnrichmentData = enrichmentMap.get(String(childEnquiry.ID));
+                            const childHasNotes = childEnquiry.Initial_first_call_notes && childEnquiry.Initial_first_call_notes.trim().length > 0;
+                            const childNotesExpanded = expandedNotesInTable.has(childEnquiry.ID);
+                            
+                            return (
+                              <React.Fragment key={childEnquiry.ID}>
+                              <div
+                                key={childEnquiry.ID}
+                                style={{
+                                  display: 'grid',
+                                  gridTemplateColumns: '0.6fr 0.6fr 0.8fr 1.8fr 2.8fr',
+                                  gap: '16px',
+                                  padding: '12px 40px 12px 70px',
+                                  alignItems: 'center',
+                                  borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)'}`,
+                                  borderLeft: `3px solid ${getAreaColor(childAOW)}`,
+                                  position: 'relative',
+                                  fontSize: '12px',
+                                  color: isDarkMode ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.7)',
+                                  background: isDarkMode ? 'rgba(255, 255, 255, 0.01)' : 'rgba(0, 0, 0, 0.005)',
+                                  cursor: 'pointer',
+                                }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleSelectEnquiry(childEnquiry);
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.backgroundColor = isDarkMode 
+                                    ? 'rgba(255, 255, 255, 0.04)' 
+                                    : 'rgba(0, 0, 0, 0.02)';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.backgroundColor = isDarkMode 
+                                    ? 'rgba(255, 255, 255, 0.01)' 
+                                    : 'rgba(0, 0, 0, 0.005)';
+                                }}
+                              >
+                                {/* AOW icon with notes chevron overlay */}
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', position: 'relative' }}>
+                                  <span style={{ fontSize: '16px', lineHeight: 1, opacity: 0.7 }} title={childAOW}>
+                                    {getAreaOfWorkIcon(childAOW)}
+                                  </span>
+                                  {/* Notes chevron - positioned absolutely within this column */}
+                                  {childHasNotes && (
+                                    <div
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const newSet = new Set(expandedNotesInTable);
+                                        if (childNotesExpanded) {
+                                          newSet.delete(childEnquiry.ID);
+                                        } else {
+                                          newSet.add(childEnquiry.ID);
+                                        }
+                                        setExpandedNotesInTable(newSet);
+                                      }}
+                                      style={{
+                                        position: 'absolute',
+                                        left: '-20px',
+                                        width: '32px',
+                                        height: '32px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        cursor: 'pointer',
+                                        pointerEvents: 'auto',
+                                        transition: 'all 0.2s ease',
+                                        opacity: 0.6,
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        e.currentTarget.style.opacity = '1';
+                                        e.currentTarget.style.transform = 'scale(1.1)';
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        e.currentTarget.style.opacity = '0.6';
+                                        e.currentTarget.style.transform = 'scale(1)';
+                                      }}
+                                      title={childNotesExpanded ? 'Hide notes' : 'Show notes'}
+                                    >
+                                      <Icon iconName={childNotesExpanded ? 'ChevronUp' : 'ChevronDown'} styles={{ root: { fontSize: '12px', color: isDarkMode ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' } }} />
+                                    </div>
+                                  )}
+                                </div>
+                                
+                                {/* Date column for child */}
+                                <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+                                  <div style={{
+                                    fontSize: '9px',
+                                    color: isDarkMode ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.35)',
+                                    fontFamily: 'Consolas, Monaco, monospace',
+                                  }}>
+                                    {formatDateReceived(childEnquiry.Touchpoint_Date, childIsV2)}
+                                  </div>
+                                </div>
+
+                                {/* Value */}
                                 {(() => {
-                                  const initials = getPocInitials(latestEnquiry.Point_of_Contact);
+                                  const numValue = typeof childValue === 'string' ? parseFloat(childValue.replace(/[^0-9.]/g, '')) : (typeof childValue === 'number' ? childValue : 0);
+                                  const displayValue = formatValueForDisplay(childValue);
+                                  
+                                  let bgColor, borderColor, textColor;
+                                  if (numValue >= 50000) {
+                                    bgColor = isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.12)';
+                                    borderColor = colours.green;
+                                    textColor = colours.green;
+                                  } else if (numValue >= 10000) {
+                                    bgColor = isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)';
+                                    borderColor = colours.blue;
+                                    textColor = colours.blue;
+                                  } else {
+                                    bgColor = isDarkMode ? 'rgba(107, 107, 107, 0.15)' : 'rgba(107, 107, 107, 0.12)';
+                                    borderColor = colours.greyText;
+                                    textColor = colours.greyText;
+                                  }
                                   
                                   return (
+                                    <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+                                      <div style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        padding: '4px 8px',
+                                        borderRadius: 6,
+                                        background: bgColor,
+                                        border: `1px solid ${borderColor}`,
+                                        fontSize: 11,
+                                        fontWeight: 600,
+                                        color: textColor,
+                                        whiteSpace: 'nowrap',
+                                        minWidth: '60px',
+                                        justifyContent: 'center',
+                                      }}>
+                                        {displayValue || 'Unsure'}
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
+                                
+                                {/* Contact & Company */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', justifyContent: 'center' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <div style={{ fontWeight: 500, fontSize: '11px', color: isDarkMode ? '#E5E7EB' : '#1F2937', opacity: 0.9 }}>
+                                      {childContactName}
+                                    </div>
+                                    <span style={{
+                                      fontSize: '9px',
+                                      color: isDarkMode ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.4)',
+                                      fontWeight: 400,
+                                    }}>
+                                      {childEnquiry.ID}
+                                    </span>
+                                  </div>
+                                  {childCompanyName && (
+                                    <div style={{ 
+                                      fontSize: '10px', 
+                                      color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.4)',
+                                      fontWeight: 400 
+                                    }}>
+                                      {childCompanyName}
+                                    </div>
+                                  )}
+                                </div>
+                                
+                                {/* Pipeline for child */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, height: '100%', flexWrap: 'nowrap', overflow: 'hidden', fontSize: '10px' }}>
+                                  {childIsV2 && childEnrichmentData?.teamsData && (
                                     <div style={{
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: 3,
-                                      padding: '2px 6px',
+                                      padding: '3px 6px',
                                       borderRadius: 4,
-                                      background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)',
+                                      background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.1)',
+                                      border: `1px solid ${colours.blue}`,
+                                      fontSize: 10,
+                                      fontWeight: 600,
+                                      color: colours.blue,
+                                    }}>
+                                      Teams
+                                    </div>
+                                  )}
+                                  {childIsV2 && (childEnquiry as any).claim && (
+                                    <div style={{
+                                      padding: '3px 6px',
+                                      borderRadius: 4,
+                                      background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.1)',
                                       border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'}`,
                                       fontSize: 10,
                                       fontWeight: 600,
                                       color: isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)',
-                                      letterSpacing: 0.3,
-                                      textTransform: 'uppercase' as const,
-                                      whiteSpace: 'nowrap' as const,
-                                      transition: 'all 0.2s ease',
-                                      backgroundClip: 'padding-box',
-                                      height: 18,
                                     }}>
-                                      <Icon
-                                        iconName="Contact"
-                                        styles={{ root: { fontSize: 9, color: isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)' } }}
-                                      />
-                                      <span>{initials}</span>
+                                      POC
                                     </div>
-                                  );
-                                })()
-                                }
-                              </div>
-                            )}
-
-                            {/* Date/Claim Combined */}
-                            <div style={{ 
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: '4px',
-                              height: '100%',
-                              justifyContent: 'center'
-                            }}>
-                              <div style={{ fontSize: '12px', color: isDarkMode ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.6)' }}>
-                                {formatDateReceived(dateReceived, false)}
-                              </div>
-                              <div style={{ 
-                                display: 'flex', 
-                                alignItems: 'center'
-                              }}>
-                                {(() => {
-                                  const timeDiff = calculateTimeDifference(dateReceived, claimDate, isFromInstructions);
-                                  if (!timeDiff) return null;
-                                  const colors = getTimeDifferenceColors(dateReceived, claimDate, isFromInstructions, isDarkMode);
-                                  return (
+                                  )}
+                                  {childEnrichmentData?.pitchData && (
                                     <div style={{
-                                      fontSize: '9px',
-                                      color: colors.color,
-                                      fontWeight: 500,
-                                      background: colors.background,
-                                      padding: '2px 4px',
-                                      borderRadius: '3px',
-                                      border: `1px solid ${colors.border}`,
+                                      padding: '3px 6px',
+                                      borderRadius: 4,
+                                      background: isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.1)',
+                                      border: `1px solid ${colours.green}`,
+                                      fontSize: 10,
+                                      fontWeight: 600,
+                                      color: colours.green,
                                     }}>
-                                      {timeDiff}
+                                      {(childEnrichmentData.pitchData as any).scenario || 'Pitched'}
                                     </div>
-                                  );
-                                })()} 
+                                  )}
+                                </div>
                               </div>
-                            </div>
-
-                            {/* Value */}
-                            <div style={{ 
-                              fontSize: '11px', 
-                              fontWeight: 400, 
-                              color: isDarkMode ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)', 
-                              display: 'flex', 
-                              alignItems: 'center', 
-                              height: '100%' 
-                            }}>
-                              {formatValueForDisplay(value)}
-                            </div>
-
-                            {/* No action tools for grouped enquiries */}
-                          </div>
+                              
+                              {/* Child notes section */}
+                              {childHasNotes && childNotesExpanded && (
+                                <div style={{
+                                  gridColumn: '1 / -1',
+                                  padding: '12px 60px 12px 80px',
+                                  backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.015)' : 'rgba(0, 0, 0, 0.008)',
+                                  borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)'}`,
+                                  fontSize: '11px',
+                                  lineHeight: '1.5',
+                                  color: isDarkMode ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)',
+                                  whiteSpace: 'pre-line',
+                                }}>
+                                  <div style={{
+                                    fontSize: '10px',
+                                    fontWeight: 600,
+                                    color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : 'rgba(100, 116, 139, 0.9)',
+                                    marginBottom: '6px',
+                                    letterSpacing: '0.3px',
+                                  }}>
+                                    Notes
+                                  </div>
+                                  {childEnquiry.Initial_first_call_notes?.replace(/\\n/g, '\n').replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()}
+                                </div>
+                              )}
+                              </React.Fragment>
+                            );
+                          })}
+                          </React.Fragment>
                         );
                       } else {
                         // Handle individual enquiries
@@ -3367,19 +3745,66 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                         const isNotesExpanded = expandedNotesInTable.has(item.ID);
                         const enrichmentData = enrichmentMap.get(item.ID || '');
                         
+                        // Day separator for Unclaimed table view (robust across legacy/v2 fields)
+                        const extractDateStr = (enq: any): string =>
+                          (enq?.Touchpoint_Date || enq?.datetime || enq?.claim || enq?.Date_Created || '') as string;
+                        const toDayKey = (s: string): string => {
+                          if (!s) return '';
+                          const d = new Date(s);
+                          if (isNaN(d.getTime())) return '';
+                          return d.toISOString().split('T')[0];
+                        };
+                        const thisDateStr = extractDateStr(item as any);
+                        const prevItem: any = idx > 0 ? displayedItems[idx - 1] : null;
+                        const prevDateStr = prevItem ? extractDateStr(prevItem) : '';
+                        const showDaySeparator = showUnclaimedBoard && viewMode === 'table' && (idx === 0 || toDayKey(thisDateStr) !== toDayKey(prevDateStr));
+
                         return (
                           <React.Fragment key={item.ID}>
+                            {showDaySeparator && (
+                              <div style={{
+                                display: 'grid',
+                                gridTemplateColumns: '0.6fr 0.6fr 0.8fr 1.8fr 2.8fr',
+                                padding: '8px 40px',
+                                background: 'transparent'
+                              }}>
+                                <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 10 }}>
+                                  <div style={{ flex: 1, height: 1, background: isDarkMode ? 'linear-gradient(to right, transparent, rgba(148,163,184,0.25), transparent)' : 'linear-gradient(to right, transparent, rgba(100,116,139,0.2), transparent)' }} />
+                                  <div style={{
+                                    fontSize: 10,
+                                    fontWeight: 600,
+                                    letterSpacing: 0.3,
+                                    padding: '2px 8px',
+                                    borderRadius: 6,
+                                    background: isDarkMode ? 'rgba(148,163,184,0.10)' : 'rgba(100,116,139,0.08)',
+                                    border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.25)' : 'rgba(100,116,139,0.25)'}`,
+                                    color: isDarkMode ? 'rgba(229,231,235,0.85)' : 'rgba(31,41,55,0.85)'
+                                  }}>
+                                    {(() => {
+                                      try {
+                                        const d = new Date(thisDateStr);
+                                        return isNaN(d.getTime()) ? '' : format(d, 'EEE, d MMM');
+                                      } catch (e) { return ''; }
+                                    })()}
+                                  </div>
+                                  <div style={{ flex: 1, height: 1, background: isDarkMode ? 'linear-gradient(to right, transparent, rgba(148,163,184,0.25), transparent)' : 'linear-gradient(to right, transparent, rgba(100,116,139,0.2), transparent)' }} />
+                                </div>
+                              </div>
+                            )}
                           <div
                             style={{
                               display: 'grid',
-                              gridTemplateColumns: !showMineOnly ? '0.6fr 1.8fr 1.2fr 1.6fr 1.2fr' : '0.6fr 1.8fr 1.6fr 1.2fr',
+                              gridTemplateColumns: '0.6fr 0.6fr 0.8fr 1.8fr 2.8fr',
                               gap: '16px',
-                              padding: '16px 40px',
+                              padding: '16px 40px 16px 50px',
                               alignItems: 'center',
                               borderBottom: (isLast && !isNotesExpanded) ? 'none' : `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)'}`,
                               borderLeft: `3px solid ${getAreaColor(areaOfWork)}`,
                               fontSize: '13px',
                               color: isDarkMode ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0, 0, 0, 0.85)',
+                              background: idx % 2 === 0 
+                                ? (isDarkMode ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.01)')
+                                : 'transparent',
                               transition: 'all 0.2s ease',
                               opacity: isFromInstructions ? 1 : 0.85,
                               cursor: 'pointer',
@@ -3388,11 +3813,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             className="enquiry-row"
                             onMouseEnter={(e) => {
                               e.currentTarget.style.backgroundColor = isDarkMode 
-                                ? 'rgba(255, 255, 255, 0.04)' 
-                                : 'rgba(0, 0, 0, 0.02)';
+                                ? 'rgba(255, 255, 255, 0.06)' 
+                                : 'rgba(0, 0, 0, 0.03)';
                             }}
                             onMouseLeave={(e) => {
-                              e.currentTarget.style.backgroundColor = 'transparent';
+                              e.currentTarget.style.backgroundColor = idx % 2 === 0 
+                                ? (isDarkMode ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.01)')
+                                : 'transparent';
                             }}
                             onClick={() => !isUnclaimed && handleSelectEnquiry(item)}
                           >
@@ -3403,10 +3830,68 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               </span>
                             </div>
 
+                            {/* Date column */}
+                            <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+                              <div style={{
+                                fontSize: '10px',
+                                color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.4)',
+                                fontFamily: 'Consolas, Monaco, monospace',
+                              }}>
+                                {formatDateReceived(dateReceived, isFromInstructions)}
+                              </div>
+                            </div>
+
+                            {/* Value */}
+                            {(() => {
+                              const numValue = typeof value === 'string' ? parseFloat(value.replace(/[^0-9.]/g, '')) : (typeof value === 'number' ? value : 0);
+                              const displayValue = formatValueForDisplay(value);
+                              
+                              // Simplified color coding using brand colors: <10k, 10k-50k, 50k+
+                              let bgColor, borderColor, textColor;
+                              if (numValue >= 50000) {
+                                // High value - brand green (Property)
+                                bgColor = isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.12)';
+                                borderColor = colours.green;
+                                textColor = colours.green;
+                              } else if (numValue >= 10000) {
+                                // Medium value - brand blue
+                                bgColor = isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)';
+                                borderColor = colours.blue;
+                                textColor = colours.blue;
+                              } else {
+                                // Low value - grey
+                                bgColor = isDarkMode ? 'rgba(107, 107, 107, 0.15)' : 'rgba(107, 107, 107, 0.12)';
+                                borderColor = colours.greyText;
+                                textColor = colours.greyText;
+                              }
+                              
+                              return (
+                                <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+                                  <div style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    padding: '3px 8px',
+                                    borderRadius: 4,
+                                    background: bgColor,
+                                    border: `1px solid ${borderColor}`,
+                                    fontSize: '10px',
+                                    fontWeight: 600,
+                                    color: textColor,
+                                    whiteSpace: 'nowrap',
+                                    minWidth: '60px',
+                                    justifyContent: 'center',
+                                  }}>
+                                    {displayValue || 'Unsure'}
+                                  </div>
+                                </div>
+                              );
+                            })()}
+
                             {/* Contact & Company */}
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', justifyContent: 'center' }}>
                               <div style={{ 
                                 fontWeight: 600, 
+                                fontSize: '12px',
                                 color: isDarkMode ? '#E5E7EB' : '#1F2937',
                                 display: 'flex',
                                 alignItems: 'center',
@@ -3432,100 +3917,238 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     {companyName}
                                   </div>
                                 )}
-
-
                               </div>
                             </div>
 
-                            {/* POC - only show when in All mode */}
-                            {!showMineOnly && (
-                              <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
-                                {(() => {
-                                  const initials = getPocInitials(item.Point_of_Contact);
-                                  
-                                  return (
+                            {/* Pipeline - Teams → POC → Pitch */}
+                            {(() => {
+                              const isV2Enquiry = (item as any).__sourceType === 'new' || (item as any).source === 'instructions';
+                              const teamsTime = isV2Enquiry && enrichmentData?.teamsData ? (enrichmentData.teamsData as any).CreatedAt : null;
+                              const pocClaimTime = isV2Enquiry ? ((item as any).claim || null) : null;
+                              const pitchTime = enrichmentData?.pitchData ? (enrichmentData.pitchData as any).pitchedDate : null;
+                              
+                              // Comprehensive legacy detection - covers all v1 non-Teams widget enquiries
+                              const hasV2Infrastructure = (item as any).__sourceType === 'new' || 
+                                                         (item as any).source === 'instructions' ||
+                                                         (item as any).claim ||
+                                                         (item as any).stage ||
+                                                         enrichmentData?.teamsData;
+                              
+                              const isDefinitelyLegacy = !hasV2Infrastructure;
+                              
+                              // For legacy enquiries, show a subtle placeholder indicating limited tracking
+                              if (isDefinitelyLegacy) {
+                                return (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: '100%', opacity: 0.3 }}>
+                                    {/* Vertical separator - dimmed */}
+                                    <div style={{ 
+                                      width: 1, 
+                                      height: 24, 
+                                      background: isDarkMode 
+                                        ? 'linear-gradient(to bottom, transparent, rgba(148, 163, 184, 0.15), transparent)'
+                                        : 'linear-gradient(to bottom, transparent, rgba(148, 163, 184, 0.12), transparent)'
+                                    }} />
+                                    
+                                    {/* Legacy placeholder badge */}
                                     <div style={{
                                       display: 'flex',
                                       alignItems: 'center',
-                                      gap: 3,
-                                      padding: '2px 6px',
+                                      gap: 4,
+                                      padding: '3px 6px',
                                       borderRadius: 4,
-                                      background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)',
-                                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'}`,
-                                      fontSize: 10,
-                                      fontWeight: 600,
-                                      color: isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)',
-                                      letterSpacing: 0.3,
-                                      textTransform: 'uppercase' as const,
-                                      whiteSpace: 'nowrap' as const,
-                                      transition: 'all 0.2s ease',
-                                      backgroundClip: 'padding-box',
-                                      height: 18,
+                                      background: 'transparent',
+                                      border: `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
+                                      fontSize: 9,
+                                      fontWeight: 500,
+                                      color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.4)',
+                                      whiteSpace: 'nowrap',
                                     }}>
                                       <Icon
-                                        iconName="Contact"
-                                        styles={{ root: { fontSize: 9, color: isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)' } }}
+                                        iconName="More"
+                                        styles={{ root: { fontSize: 8, opacity: 0.5 } }}
                                       />
-                                      <span>{initials}</span>
+                                      <span style={{ fontSize: 8, fontStyle: 'italic' }}>not tracked</span>
                                     </div>
-                                  );
-                                })()
-                                }
-                              </div>
-                            )}
+                                  </div>
+                                );
+                              }
+                              
+                              // Timestamp validation
+                              const isValidTimestamp = (dateStr: string | null) => {
+                                if (!dateStr) return false;
+                                const date = new Date(dateStr);
+                                return date.getHours() !== 0 || date.getMinutes() !== 0 || date.getSeconds() !== 0;
+                              };
+                              
+                              const hasValidClaimTime = pocClaimTime && isValidTimestamp(pocClaimTime);
+                              const hasValidPitchTime = pitchTime && isValidTimestamp(pitchTime);
+                              
+                              // Duration calculation
+                              const calculateDuration = (fromDate: string | null, toDate: string | null) => {
+                                if (!fromDate || !toDate) return null;
+                                const from = new Date(fromDate);
+                                const to = new Date(toDate);
+                                let diff = Math.max(0, Math.floor((to.getTime() - from.getTime()) / 1000));
+                                
+                                const S = diff % 60; diff = Math.floor(diff / 60);
+                                const M = diff % 60; diff = Math.floor(diff / 60);
+                                const H = diff % 24; diff = Math.floor(diff / 24);
+                                const D = diff % 7; diff = Math.floor(diff / 7);
+                                const W = diff;
+                                
+                                const parts: string[] = [];
+                                if (W > 0) { parts.push(W + 'w'); if (D > 0) parts.push(D + 'd'); }
+                                else if (D > 0) { parts.push(D + 'd'); if (H > 0) parts.push(H + 'h'); }
+                                else if (H > 0) { parts.push(H + 'h'); if (M > 0) parts.push(M + 'm'); }
+                                else if (M > 0) { parts.push(M + 'm'); if (S > 0) parts.push(S + 's'); }
+                                else if (S > 0) parts.push(S + 's');
+                                
+                                if (parts.length === 0) parts.push('0s');
+                                return parts.slice(0, 2).join(' ');
+                              };
+                              
+                              const formatDateTime = (dateStr: string | null) => {
+                                if (!dateStr) return null;
+                                const date = new Date(dateStr);
+                                return date.toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+                              };
+                              
+                              return (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: '100%' }}>
+                                  {/* Vertical separator */}
+                                  <div style={{ 
+                                    width: 1, 
+                                    height: 24, 
+                                    background: isDarkMode 
+                                      ? 'linear-gradient(to bottom, transparent, rgba(148, 163, 184, 0.3), transparent)'
+                                      : 'linear-gradient(to bottom, transparent, rgba(148, 163, 184, 0.25), transparent)'
+                                  }} />
 
-                            {/* Date/Claim Combined */}
-                            <div style={{ 
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: '4px',
-                              height: '100%',
-                              justifyContent: 'center'
-                            }}>
-                              <div style={{ fontSize: '12px', color: isDarkMode ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.6)' }}>
-                                {formatDateReceived(dateReceived, isFromInstructions)}
-                              </div>
-                              <div style={{ 
-                                display: 'flex',
-                                alignItems: 'center'
-                              }}>
-                                {(() => {
-                                  const timeDiff = calculateTimeDifference(dateReceived, claimDate, isFromInstructions);
-                                  if (!timeDiff) return null;
-                                  const colors = getTimeDifferenceColors(dateReceived, claimDate, isFromInstructions, isDarkMode);
-                                  return (
-                                    <div style={{
-                                      fontSize: '9px',
-                                      color: colors.color,
-                                      fontWeight: 500,
-                                      background: colors.background,
-                                      padding: '2px 4px',
-                                      borderRadius: '3px',
-                                      border: `1px solid ${colors.border}`,
-                                    }}>
-                                      {timeDiff}
+                                  {/* Legacy / Not tracked placeholder (fallback if nothing else renders) */}
+                                  {(!isV2Enquiry || (!teamsTime && !hasValidClaimTime && !hasValidPitchTime)) && (
+                                    <div
+                                      title="Not pipeline-tracked (legacy format)"
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                        padding: '3px 6px',
+                                        borderRadius: 4,
+                                        background: isDarkMode ? 'rgba(148,163,184,0.08)' : 'rgba(148,163,184,0.06)',
+                                        border: `1px dashed ${isDarkMode ? 'rgba(148,163,184,0.35)' : 'rgba(100,116,139,0.35)'}`,
+                                        fontSize: 9,
+                                        fontWeight: 500,
+                                        color: isDarkMode ? 'rgba(148,163,184,0.7)' : 'rgba(71,85,105,0.7)',
+                                        whiteSpace: 'nowrap',
+                                        opacity: 0.55
+                                      }}
+                                    >
+                                      <Icon iconName="Info" styles={{ root: { fontSize: 10, opacity: 0.7 } }} />
+                                      <span style={{ fontSize: 8 }}>not tracked</span>
                                     </div>
-                                  );
-                                })()} 
-                              </div>
-                            </div>
-
-                            {/* Value */}
-                            <div style={{ 
-                              fontSize: '11px', 
-                              fontWeight: 400, 
-                              color: isDarkMode ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)', 
-                              display: 'flex', 
-                              alignItems: 'center', 
-                              height: '100%' 
-                            }}>
-                              {formatValueForDisplay(value)}
-                            </div>
+                                  )}
+                                  
+                                  {/* 1. Teams Badge with time */}
+                                  {isV2Enquiry && teamsTime && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (enrichmentData?.teamsData?.teamsLink) {
+                                          window.open((enrichmentData.teamsData as any).teamsLink, '_blank');
+                                        }
+                                      }}
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 6,
+                                        padding: '4px 8px',
+                                        borderRadius: 6,
+                                        background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                        border: `1px solid ${colours.blue}`,
+                                        fontSize: 11,
+                                        fontWeight: 600,
+                                        color: colours.blue,
+                                        cursor: 'pointer',
+                                        transition: 'all 0.2s ease',
+                                        whiteSpace: 'nowrap',
+                                        minWidth: '120px',
+                                        justifyContent: 'center',
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.18)';
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)';
+                                      }}
+                                    >
+                                      <Icon
+                                        iconName="TeamsLogo"
+                                        styles={{ root: { fontSize: 13, color: colours.blue } }}
+                                      />
+                                      <span style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)', fontFamily: 'Consolas, Monaco, monospace', fontWeight: 500 }}>
+                                        {formatDateTime(teamsTime)}
+                                      </span>
+                                    </button>
+                                  )}
+                                  
+                                  {/* Connecting line - Teams to POC */}
+                                  {isV2Enquiry && hasValidClaimTime && teamsTime && (
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                                      <div style={{ width: 16, height: 1, background: isDarkMode ? 'linear-gradient(to right, rgba(148, 163, 184, 0.3), rgba(148, 163, 184, 0.15))' : 'linear-gradient(to right, rgba(148, 163, 184, 0.25), rgba(148, 163, 184, 0.1))' }} />
+                                      <span style={{ fontSize: 7, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', fontFamily: 'Consolas, Monaco, monospace', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                                        {calculateDuration(teamsTime, pocClaimTime)}
+                                      </span>
+                                    </div>
+                                  )}
+                                  
+                                  {/* 2. POC Badge */}
+                                  {isV2Enquiry && hasValidClaimTime && (
+                                    <button
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 6,
+                                        padding: '4px 10px',
+                                        borderRadius: 6,
+                                        background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)',
+                                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'}`,
+                                        fontSize: 11,
+                                        fontWeight: 600,
+                                        color: isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)',
+                                        cursor: 'default',
+                                      }}
+                                    >
+                                      <Icon
+                                        iconName="Contact"
+                                        styles={{ root: { fontSize: 11, color: isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)' } }}
+                                      />
+                                      <span style={{ fontSize: 9 }}>{getPocInitials(item.Point_of_Contact)}</span>
+                                    </button>
+                                  )}
+                                  
+                                  {/* Connecting line - POC to Pitch */}
+                                  {isV2Enquiry && hasValidClaimTime && hasValidPitchTime && (
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                                      <div style={{ width: 16, height: 1, background: isDarkMode ? 'linear-gradient(to right, rgba(148, 163, 184, 0.3), rgba(148, 163, 184, 0.15))' : 'linear-gradient(to right, rgba(148, 163, 184, 0.25), rgba(148, 163, 184, 0.1))' }} />
+                                      <span style={{ fontSize: 7, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', fontFamily: 'Consolas, Monaco, monospace', fontWeight: 600 }}>
+                                        {calculateDuration(pocClaimTime, pitchTime)}
+                                      </span>
+                                    </div>
+                                  )}
+                                  
+                                  {/* 3. Pitch Badge */}
+                                  {isV2Enquiry && enrichmentData?.pitchData && hasValidPitchTime && (() => {
+                                    const PitchScenarioBadge = require('../../components/PitchScenarioBadge').default;
+                                    return <PitchScenarioBadge scenarioId={(enrichmentData.pitchData as any).scenarioId} size="small" />;
+                                  })()}
+                                </div>
+                              );
+                            })()}
 
                             {/* Left-side chevron for notes expansion (no heading) */}
                             <div style={{ 
                               position: 'absolute',
-                              left: '8px',
+                              left: '16px',
                               top: '50%',
                               transform: 'translateY(-50%)',
                               zIndex: 2
@@ -3543,8 +4166,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     setExpandedNotesInTable(newSet);
                                   }}
                                   style={{
-                                    width: '16px',
-                                    height: '16px',
+                                    width: '32px',
+                                    height: '32px',
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
@@ -3592,141 +4215,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               }}
                               className="row-actions"
                             >
-                              {/* Teams Widget with loading state */}
-                              {(() => {
-                                const isV2Enquiry = (item as any).__sourceType === 'new' || (item as any).source === 'instructions';
-                                if (!isV2Enquiry) return null; // Only show for v2 enquiries
-                                
-                                const enrichmentData = item.ID ? enrichmentMap.get(String(item.ID)) : null;
-                                const hasTeamsData = enrichmentData?.teamsData;
-                                const isBeingFetched = item.ID ? enrichmentRequestsRef.current.has(String(item.ID)) : false;
-                                const isLoading = !enrichmentData || isBeingFetched; // Loading if no data or currently fetching
-                                
-                                // Debug logging for specific items (coerce ID to number for comparison)
-                                const idNum = typeof item.ID === 'number' ? item.ID : Number(item.ID);
-                                if (idNum === 431 || idNum === 433 || idNum === 434) {
-                                  console.log(`🎨 Teams Widget for ${item.ID}:`, {
-                                    hasEnrichmentData: !!enrichmentData,
-                                    hasTeamsData: !!hasTeamsData,
-                                    isBeingFetched,
-                                    isLoading,
-                                    teamsData: enrichmentData?.teamsData
-                                  });
-                                }
-                                
-                                if (isLoading) {
-                                  // Show loading spinner
-                                  return (
-                                    <div
-                                      style={{
-                                        width: '24px',
-                                        height: '24px',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        pointerEvents: 'none',
-                                      }}
-                                      title="Loading Teams data..."
-                                    >
-                                      <div
-                                        style={{
-                                          width: '12px',
-                                          height: '12px',
-                                          border: `2px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
-                                          borderTop: `2px solid ${isDarkMode ? '#60a5fa' : '#3b82f6'}`,
-                                          borderRadius: '50%',
-                                          animation: 'spin 1s linear infinite',
-                                        }}
-                                      />
-                                    </div>
-                                  );
-                                }
-                                
-                                if (hasTeamsData) {
-                                  return (
-                                    <div
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (enrichmentData.teamsData?.teamsLink) {
-                                          window.open(enrichmentData.teamsData.teamsLink, '_blank');
-                                        }
-                                      }}
-                                      style={{
-                                        pointerEvents: 'auto',
-                                        cursor: 'pointer',
-                                      }}
-                                      title="Open Teams conversation"
-                                    >
-                                      <TeamsLinkWidget 
-                                        activityData={enrichmentData.teamsData || null}
-                                        size="small"
-                                        leadName={`${item.First_Name} ${item.Last_Name}`}
-                                        forceShow={true}
-                                      />
-                                    </div>
-                                  );
-                                }
-                                
-                                return null; // No Teams data available
-                              })()}
-                              
-                              {/* Pitch scenario badge with loading state */}
-                              {(() => {
-                                const enrichmentData = item.ID ? enrichmentMap.get(String(item.ID)) : null;
-                                const pitchData = enrichmentData?.pitchData;
-                                const isBeingFetched = item.ID ? enrichmentRequestsRef.current.has(String(item.ID)) : false;
-                                const isLoading = !enrichmentData || isBeingFetched; // Loading if no data or currently fetching
-                                
-                                if (isLoading) {
-                                  // Show loading spinner for pitch data
-                                  return (
-                                    <div
-                                      style={{
-                                        width: '20px',
-                                        height: '20px',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        pointerEvents: 'none',
-                                      }}
-                                      title="Loading pitch data..."
-                                    >
-                                      <div
-                                        style={{
-                                          width: '10px',
-                                          height: '10px',
-                                          border: `1.5px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
-                                          borderTop: `1.5px solid ${isDarkMode ? '#10b981' : '#059669'}`,
-                                          borderRadius: '50%',
-                                          animation: 'spin 1s linear infinite',
-                                        }}
-                                      />
-                                    </div>
-                                  );
-                                }
-                                
-                                if (pitchData && pitchData.areaOfWork) {
-                                  return (
-                                    <div
-                                      style={{
-                                        background: isDarkMode ? 'rgba(16, 185, 129, 0.1)' : 'rgba(16, 185, 129, 0.08)',
-                                        color: isDarkMode ? '#10b981' : '#059669',
-                                        padding: '2px 6px',
-                                        borderRadius: '4px',
-                                        fontSize: '10px',
-                                        fontWeight: 500,
-                                        border: `1px solid ${isDarkMode ? 'rgba(16, 185, 129, 0.2)' : 'rgba(16, 185, 129, 0.15)'}`,
-                                        pointerEvents: 'none',
-                                      }}
-                                      title={`Pitch sent: ${pitchData.serviceDescription || 'Unknown service'} - ${pitchData.scenarioDisplay || pitchData.areaOfWork}`}
-                                    >
-                                      {pitchData.scenarioDisplay || pitchData.areaOfWork}
-                                    </div>
-                                  );
-                                }
-                                
-                                return null; // No pitch data available
-                              })()}
                               {isDeletionMode && (
                                 <div
                                   onClick={(e) => {
@@ -4043,3 +4531,4 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 }
 
 export default Enquiries;
+

@@ -1516,6 +1516,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
   const [clientIds, setClientIds] = useState<number[]>([]);
   const [dealClients, setDealClients] = useState<ClientInfo[]>([]);
   const [isMultiClientFlag, setIsMultiClientFlag] = useState<boolean>(false);
+  const [selectedScenarioId, setSelectedScenarioId] = useState<string>('');
   // Inline email send/draft status for confirmation modal
   const [emailStatus, setEmailStatus] = useState<'idle' | 'processing' | 'sent' | 'error'>('idle');
   const [emailMessage, setEmailMessage] = useState<string>('');
@@ -3066,6 +3067,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
         emailBodyHtml: body || '', // Use same content for now, could be enhanced later
         reminders: [], // Could be populated from UI in future
         notes: enquiry.Initial_first_call_notes || '',
+        scenarioId: selectedScenarioId || null, // Include the selected pitch scenario
         ...(isMultiClientFlag && {
           clients: dealClients.map((c) => ({
             clientEmail: c.email,
@@ -4769,6 +4771,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
           dealStatus={dealStatus}
           emailStatus={emailStatus}
           emailMessage={emailMessage}
+          onScenarioChange={setSelectedScenarioId}
         />
 
         {snippetOptionsBlock && snippetOptionsTarget && (

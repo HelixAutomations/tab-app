@@ -168,7 +168,7 @@ function mapCompany(client, instructionRef) {
 
 const router = express.Router();
 router.post('/', async (req, res) => {
-    const { formData, initials } = req.body || {};
+    const { formData, initials, contactIds, companyId } = req.body || {};
     if (!formData || !initials) return res.status(400).json({ error: 'Missing data' });
     try {
         // 1. Refresh token (normalize initials to lower-case to match secret naming convention)
@@ -185,6 +185,10 @@ router.post('/', async (req, res) => {
         // 2. Extract matter data
         const md = formData.matter_details;
         const { instruction_ref, description, date_created, client_type, practice_area, folder_structure, dispute_value } = md;
+        
+        if (!description || description.trim() === '') {
+            console.warn(`Description is empty for instruction ${instruction_ref}. This should have been caught by form validation.`);
+        }
 
         // 3. Build custom fields
         const cf = [
@@ -194,35 +198,49 @@ router.post('/', async (req, res) => {
             { value: instruction_ref, custom_field: { id: 380722 } }
         ].filter(Boolean);
 
-        // 4. Upsert client contact
-        const first = formData.client_information[0];
-        if (!first) {
-            throw new Error('Missing client details for contact');
-        }
-        
-        // Choose the appropriate mapper based on client type
-        let contactPayload;
-        if (client_type === 'Company') {
-            contactPayload = mapCompany(first, instruction_ref);
+        // 4. Resolve client to link the matter to
+        let pid = null;
+
+        // Prefer IDs produced by the previous "Clio Contact Created/Updated" step
+        if (Array.isArray(contactIds) && contactIds.length) {
+            if (client_type === 'Company' && companyId) {
+                pid = companyId;
+            } else {
+                pid = contactIds[0];
+            }
         } else {
-            contactPayload = mapPerson(first, instruction_ref);
+            // Fallback: upsert client contact from submitted form data
+            const first = formData.client_information?.[0];
+            if (!first) {
+                throw new Error('Missing client details for contact');
+            }
+
+            // Choose the appropriate mapper based on client type
+            let contactPayload;
+            if (client_type === 'Company') {
+                contactPayload = mapCompany(first, instruction_ref);
+            } else {
+                contactPayload = mapPerson(first, instruction_ref);
+            }
+
+            const contactResult = await createOrUpdate(contactPayload, headers);
+            pid = contactResult.data.id;
         }
-        
-        const contactResult = await createOrUpdate(contactPayload, headers);
-        const pid = contactResult.data.id;
 
         // 5. Build matter payload
         const responsibleId = await teamLookup.getClioId(initials);
         const originatingInitials = formData.team_assignments.originating_solicitor_initials;
-        const originatingId  = await teamLookup.getClioId(originatingInitials);
+        let originatingId = await teamLookup.getClioId(originatingInitials);
 
         if (!responsibleId) {
             console.error(`No Clio ID for ${initials}`);
             throw new Error('No Clio ID for ' + initials);
         }
+        
+        // If originating solicitor not found or empty, use fee earner as fallback
         if (!originatingId) {
-            console.error(`No Clio ID for ${originatingInitials}`);
-            throw new Error('No Clio ID for ' + originatingInitials);
+            console.warn(`No Clio ID for originating solicitor "${originatingInitials}", using fee earner as fallback`);
+            originatingId = responsibleId;
         }
         
         // Find practice area ID with case-insensitive matching
@@ -242,7 +260,7 @@ router.post('/', async (req, res) => {
                 billable: true,
                 client: { id: pid },
                 client_reference: instruction_ref,
-                description,
+                description: description || `Matter opened for ${instruction_ref}`,
                 practice_area: { id: practiceAreaId },
                 responsible_attorney: { id: responsibleId },
                 originating_attorney: { id: originatingId },

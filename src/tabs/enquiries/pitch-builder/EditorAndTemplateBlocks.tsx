@@ -1165,6 +1165,8 @@ interface EditorAndTemplateBlocksProps {
   dealStatus?: 'idle' | 'processing' | 'ready' | 'error';
   emailStatus?: 'idle' | 'processing' | 'sent' | 'error';
   emailMessage?: string;
+  // Scenario callback to expose selectedScenarioId to parent
+  onScenarioChange?: (scenarioId: string) => void;
 }
 
 const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
@@ -1217,7 +1219,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   dealCreationInProgress,
   dealStatus,
   emailStatus,
-  emailMessage
+  emailMessage,
+  onScenarioChange
 }) => {
   // State for removed blocks
   const [removedBlocks, setRemovedBlocks] = useState<{ [key: string]: boolean }>({});
@@ -1235,10 +1238,13 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   const [selectedScenarioId, setSelectedScenarioId] = useState<string>('');
   const isBeforeCallCall = selectedScenarioId === 'before-call-call';
 
-  // Debug effect to track selectedScenarioId changes
+  // Debug effect to track selectedScenarioId changes and notify parent
   useEffect(() => {
     console.log('🔍 selectedScenarioId changed:', selectedScenarioId);
-  }, [selectedScenarioId]);
+    if (onScenarioChange) {
+      onScenarioChange(selectedScenarioId);
+    }
+  }, [selectedScenarioId, onScenarioChange]);
 
   // Debug effect to track if component is mounting properly
   useEffect(() => {

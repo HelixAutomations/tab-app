@@ -184,9 +184,9 @@ const PersonalAttendanceConfirm = forwardRef<
     nextWeekMonday.setDate(nextWeekMonday.getDate() + 7);
     const nextWeekStart = formatDateLocal(nextWeekMonday);
 
-    const userInitials = userData?.displayName?.match(/\b\w/g)?.join('').toUpperCase() || 
-                        userData?.mail?.substring(0, 2).toUpperCase() || 
-                        userData?.[0]?.Initials || '';
+    const userInitials = (userData?.[0]?.Initials || '').toString().toUpperCase() || 
+                        (userData?.displayName?.match(/\b\w/g)?.join('') || '').toUpperCase() || 
+                        (userData?.mail?.substring(0, 2) || '').toUpperCase();
     console.log('🔍 userInitials:', userInitials);
     console.log('🔍 userData:', userData);
 
@@ -210,21 +210,33 @@ const PersonalAttendanceConfirm = forwardRef<
         const filteredRecords = attendanceRecords.filter((r) => r.Initials === userInitials);
         console.log('🔍 Filtered attendance records:', filteredRecords);
         filteredRecords.forEach((rec) => {
-                if (rec.Attendance_Days) {
-                    console.log('🔍 Processing record:', rec);
-                    // Parse the attendance string - format: "Mon:office,Tue:home,Wed:out-of-office" etc
-                    const dayStatuses = rec.Attendance_Days.split(',').map(d => d.trim());
-                    console.log('🔍 Day statuses from record:', dayStatuses);
-                    dayStatuses.forEach(dayStatus => {
-                        const [dayAbbr, status] = dayStatus.includes(':') ? dayStatus.split(':') : [dayStatus, 'office'];
-                        const dayName = dayMap[dayAbbr] || dayAbbr;
-                        if (weekDays.includes(dayName)) {
-                            state[rec.Week_Start][dayName] = status || 'wfh';
-                            console.log('🔍 Set state for', rec.Week_Start, dayName, 'to', status);
-                        }
-                    });
+            if (!rec.Attendance_Days) return;
+
+            console.log('🔍 Processing record:', rec);
+            const normalized = rec.Attendance_Days.toString().trim().toLowerCase();
+            const isSingleStatus = ['office','wfh','away','off-sick','out-of-office'].includes(normalized);
+
+            if (isSingleStatus) {
+                // Apply a single status to all weekdays for this week
+                weekDays.forEach((day) => {
+                    state[rec.Week_Start][day] = normalized;
+                });
+                console.log('🔍 Applied single status for', rec.Week_Start, ':', normalized);
+                return;
+            }
+
+            // Parse the attendance string - format: "Mon:office,Tue:home,Wed:out-of-office" or legacy "Mon,Tue"
+            const dayStatuses = rec.Attendance_Days.split(',').map(d => d.trim());
+            console.log('🔍 Day statuses from record:', dayStatuses);
+            dayStatuses.forEach(dayStatus => {
+                const [dayAbbr, status] = dayStatus.includes(':') ? dayStatus.split(':') : [dayStatus, 'office'];
+                const dayName = dayMap[dayAbbr] || dayAbbr;
+                if (weekDays.includes(dayName)) {
+                    state[rec.Week_Start][dayName] = (status || 'wfh').toLowerCase();
+                    console.log('🔍 Set state for', rec.Week_Start, dayName, 'to', status);
                 }
             });
+        });
         
         // Ensure both weeks have default values for all weekdays if no data exists
         [currentWeekStart, nextWeekStart].forEach(weekStart => {

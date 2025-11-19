@@ -1543,7 +1543,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
           const attendanceResult = await attendanceResponse.json();
           
           if (attendanceResult.success) {
-            // Use the server response structure that now includes both attendance and team
+            // Use the server response structure that includes both attendance and team
             const transformedData = {
               attendance: attendanceResult.attendance.map((member: any) => ({
                 Attendance_ID: 0,
@@ -1551,13 +1551,13 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
                 First_Name: member.First,
                 Initials: member.Initials,
                 Level: member.Level || '',
-                Week_Start: new Date().toISOString().split('T')[0],
-                Week_End: new Date().toISOString().split('T')[0],
-                ISO_Week: Math.ceil(((new Date().getTime() - new Date(new Date().getFullYear(), 0, 1).getTime()) / 86400000 + 1) / 7),
+                Week_Start: member.Week_Start || new Date().toISOString().split('T')[0],
+                Week_End: member.Week_End || new Date().toISOString().split('T')[0],
+                ISO_Week: typeof member.iso === 'number' ? member.iso : Math.ceil(((new Date().getTime() - new Date(new Date().getFullYear(), 0, 1).getTime()) / 86400000 + 1) / 7),
                 Attendance_Days: member.Status || '',
-                Confirmed_At: member.IsConfirmed ? new Date().toISOString() : null,
+                Confirmed_At: member.Confirmed_At ?? null,
                 status: member.Status,
-                isConfirmed: member.IsConfirmed,
+                isConfirmed: Boolean(member.Confirmed_At),
                 isOnLeave: member.IsOnLeave
               })),
               team: attendanceResult.team || attendanceResult.attendance // Use team data if available, fallback to attendance
@@ -2093,7 +2093,7 @@ const transformedAttendanceRecords = useMemo(() => {
             Week_End: formatDateLocal(currentWeekEnd),
             ISO_Week: getISOWeek(currentWeekStart),
             Attendance_Days: record.Status === 'away' ? '' : (record.Status || ''),
-            Confirmed_At: record.IsConfirmed ? new Date().toISOString() : null,
+            Confirmed_At: record.Confirmed_At ?? null,
           },
           {
             Attendance_ID: 0,
