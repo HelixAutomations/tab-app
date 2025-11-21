@@ -64,6 +64,7 @@ export interface FilterBannerProps {
     isLoading?: boolean;
     nextUpdateTime?: string;
     collapsible?: boolean;
+    progressPercentage?: number; // 0-100% remaining time
   };
   
   // Right-side actions (placed after search/refresh)
@@ -105,6 +106,20 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
   const { isDarkMode } = useTheme();
   const [searchOpen, setSearchOpen] = React.useState<boolean>(!collapsibleSearch || !!search?.value);
   const [refreshOpen, setRefreshOpen] = React.useState<boolean>(!refresh?.collapsible);
+  const searchInputRef = React.useRef<any>(null);
+
+  // Auto-focus search when it opens
+  React.useEffect(() => {
+    if (searchOpen && searchInputRef.current) {
+      // Use setTimeout to ensure the SearchBox is rendered before focusing
+      setTimeout(() => {
+        const input = searchInputRef.current?.querySelector('input');
+        if (input) {
+          input.focus();
+        }
+      }, 50);
+    }
+  }, [searchOpen]);
 
   const containerStyle = mergeStyles({
     display: 'flex',
@@ -166,14 +181,19 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
   const searchContainerStyle = mergeStyles({
     display: 'flex',
     alignItems: 'center',
+    justifyContent: 'flex-end',
     marginLeft: 'auto',
     flex: '0 0 auto',
-    minWidth: collapsibleSearch && !searchOpen ? 0 : 240,
+    minWidth: 240,
+    width: 240,
+    transition: 'none',
     selectors: {
       '@media (max-width: 700px)': {
         marginLeft: 0,
         flex: '1 0 auto',
         minWidth: 'auto',
+        width: 'auto',
+        justifyContent: 'flex-start',
       },
       '@media (max-width: 400px)': {
         width: '100%',
@@ -313,28 +333,38 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
           {search && (
             <div className={searchContainerStyle}>
               {collapsibleSearch && !searchOpen && !search.value ? (
-                <button
-                  type="button"
-                  aria-label="Open search"
-                  onClick={() => setSearchOpen(true)}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: 28,
-                    height: 28,
-                    borderRadius: 6,
-                    border: isDarkMode ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(0,0,0,0.12)',
-                    background: 'transparent',
-                    cursor: 'pointer',
-                    color: isDarkMode ? '#E5E7EB' : '#0F172A'
-                  }}
-                >
-                  <span className="ms-Icon root" aria-hidden="true" style={{ fontFamily: 'FabricMDL2Icons', fontSize: 14 }}>
-                    
-                  </span>
-                </button>
-              ) : (
+                <div style={{ 
+                  display: 'flex', 
+                  justifyContent: 'flex-end', 
+                  width: '100%',
+                  pointerEvents: 'auto'
+                }}>
+                  <button
+                    type="button"
+                    aria-label="Open search"
+                    onClick={() => setSearchOpen(true)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: 28,
+                      height: 28,
+                      borderRadius: 6,
+                      border: isDarkMode ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(0,0,0,0.12)',
+                      background: 'transparent',
+                      cursor: 'pointer',
+                      color: isDarkMode ? '#E5E7EB' : '#0F172A'
+                    }}
+                  >
+                    <Icon iconName="Search" style={{ fontSize: 14 }} />
+                  </button>
+                </div>
+              ) : null}
+              <div ref={searchInputRef} style={{ 
+                display: collapsibleSearch && !searchOpen && !search.value ? 'none' : 'flex',
+                flex: 1,
+                width: '100%'
+              }}>
                 <SearchBox
                   placeholder={search.placeholder}
                   value={search.value}
@@ -346,7 +376,7 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
                   styles={sharedSearchBoxStyle(isDarkMode)}
                   iconProps={{ iconName: 'Search' }}
                 />
-              )}
+              </div>
             </div>
           )}
 
@@ -393,14 +423,26 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
                       left: 0,
                       right: 0,
                       height: 2,
-                      background: isDarkMode 
-                        ? 'linear-gradient(90deg, rgba(54, 144, 206, 0.4) 0%, rgba(54, 144, 206, 0.15) 100%)'
-                        : 'linear-gradient(90deg, rgba(54, 144, 206, 0.5) 0%, rgba(54, 144, 206, 0.2) 100%)',
+                      background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.2)',
                       borderRadius: '0 0 14px 14px',
-                      opacity: refreshOpen ? 0.6 : 0.4,
-                      transition: 'opacity 0.2s',
                     }}
-                  />
+                  >
+                    <div
+                      style={{
+                        position: 'absolute',
+                        bottom: 0,
+                        left: 0,
+                        height: '100%',
+                        width: `${refresh.progressPercentage || 100}%`,
+                        background: isDarkMode 
+                          ? 'linear-gradient(90deg, rgba(54, 144, 206, 0.6) 0%, rgba(54, 144, 206, 0.4) 100%)'
+                          : 'linear-gradient(90deg, rgba(54, 144, 206, 0.7) 0%, rgba(54, 144, 206, 0.5) 100%)',
+                        borderRadius: '0 0 14px 14px',
+                        opacity: refreshOpen ? 0.8 : 0.6,
+                        transition: 'width 1s linear, opacity 0.2s',
+                      }}
+                    />
+                  </div>
                 )}
                 
                 <Icon

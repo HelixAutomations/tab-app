@@ -309,10 +309,17 @@ async function performUnifiedEnquiriesQuery(queryParams) {
   const uniqueEnquiries = [];
   const seenIds = new Set();
 
-  // Prefer legacy: add all legacy records first (POC-aware composite key)
+  // Prefer legacy: add all legacy records first (with enhanced composite key to preserve distinct records)
   mainEnquiries.forEach(enquiry => {
     const pocLower = (enquiry.poc || '').toString().trim().toLowerCase();
-    const compositeKey = `main-${enquiry.id}-${pocLower}`;
+    const firstName = (enquiry.First_Name || '').toString().trim().toLowerCase();
+    const lastName = (enquiry.Last_Name || '').toString().trim().toLowerCase();
+    const email = (enquiry.email || '').toString().trim().toLowerCase();
+    const dateCreated = enquiry.Date_Created || enquiry.datetime || '';
+    
+    // Enhanced composite key to handle shared prospect IDs with different people
+    // Include name and date to distinguish between different people with same ID+POC
+    const compositeKey = `main-${enquiry.id}-${pocLower}-${firstName}-${lastName}-${email}-${dateCreated}`;
     if (!seenIds.has(compositeKey)) {
       seenIds.add(compositeKey);
       uniqueEnquiries.push(enquiry);
