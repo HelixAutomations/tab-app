@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { mergeStyles } from '@fluentui/react';
 import { TextField, DefaultButton, PrimaryButton, Dropdown, IDropdownOption, Icon } from '@fluentui/react';
@@ -146,6 +146,12 @@ export interface InstructionCardProps {
   /** Workbench control functions */
   onOpenWorkbench?: (tab: 'identity' | 'risk' | 'payment' | 'documents' | 'matter' | 'override') => void;
   idVerificationLoading?: boolean;
+  /** Callback when ID verification operation completes (success or failure) */
+  onIdVerificationComplete?: (result: { success: boolean; status: string; message: string }) => void;
+  /** Callback when Risk Assessment operation completes */
+  onRiskAssessmentComplete?: (result: { success: boolean; action: 'create' | 'edit' | 'delete'; message: string }) => void;
+  /** Callback when Matter Opening operation completes */
+  onMatterOpenComplete?: (result: { success: boolean; matterId?: string; message: string }) => void;
   animationDelay?: number;
   getClientNameByProspectId?: (prospectId: string | number | undefined) => { firstName: string; lastName: string };
   teamData?: TeamData[] | null;
@@ -257,7 +263,10 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
   getClientNameByProspectId,
   onDealEdit,
   teamData,
-  onRefreshData
+  onRefreshData,
+  onIdVerificationComplete,
+  onRiskAssessmentComplete,
+  onMatterOpenComplete
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
@@ -672,8 +681,43 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
     if (!isVerifyingId) return;
     if (eidResult || eidStatus) {
       setIsVerifyingId(false);
+      
+      // Show toast feedback when verification completes
+      if (poidPassed || eidResult === 'passed' || eidResult === 'verified') {
+        setToast({
+          show: true,
+          type: 'success',
+          message: 'ID verification completed successfully'
+        });
+        setTimeout(() => setToast(prev => ({ ...prev, show: false })), 3000);
+        
+        // Notify parent of successful completion
+        onIdVerificationComplete?.({
+          success: true,
+          status: 'complete',
+          message: 'ID verification completed successfully'
+        });
+        
+        // Trigger data refresh
+        if (onRefreshData) {
+          onRefreshData();
+        }
+      } else if (eidResult === 'review' || eidResult === 'failed') {
+        setToast({
+          show: true,
+          type: 'error',
+          message: 'ID verification requires review'
+        });
+        setTimeout(() => setToast(prev => ({ ...prev, show: false })), 4000);
+        
+        onIdVerificationComplete?.({
+          success: false,
+          status: 'review',
+          message: 'ID verification requires manual review'
+        });
+      }
     }
-  }, [eidResult, eidStatus, isVerifyingId]);
+  }, [eidResult, eidStatus, isVerifyingId, poidPassed, onIdVerificationComplete, onRefreshData]);
   
   let verifyIdStatus: 'pending' | 'received' | 'review' | 'complete';
   if (stageComplete) {
@@ -765,6 +809,107 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
 
   // CCL status - assume pending unless explicitly complete
   const cclStatus = instruction?.CCLSubmitted ? 'complete' : 'pending';
+
+  // Track previous status values for detecting transitions
+  const prevRiskStatusRef = useRef<string>(riskStatus);
+  const prevMatterStatusRef = useRef<string>(matterStatus);
+  const prevHasRiskAssessmentRef = useRef<boolean>(hasRiskAssessment);
+
+  // Effect to detect risk assessment status change and show toast
+  useEffect(() => {
+    const prevRisk = prevRiskStatusRef.current;
+    const prevHasRisk = prevHasRiskAssessmentRef.current;
+    
+    // Detect new risk assessment creation (pending -> complete/review, or !hasRisk -> hasRisk)
+    if (!prevHasRisk && hasRiskAssessment) {
+      setToast({
+        show: true,
+        type: riskStatus === 'complete' ? 'success' : 'error',
+        message: riskStatus === 'complete' 
+          ? 'Risk assessment completed - Low Risk' 
+          : 'Risk assessment completed - Review Required'
+      });
+      setTimeout(() => setToast(prev => ({ ...prev, show: false })), 3000);
+      
+      onRiskAssessmentComplete?.({
+        success: true,
+        action: 'create',
+        message: `Risk assessment created: ${risk?.RiskAssessmentResult || 'Assessed'}`
+      });
+      
+      // Trigger data refresh
+      if (onRefreshData) {
+        onRefreshData();
+      }
+    }
+    // Detect risk status change (e.g., from review to complete after edit)
+    else if (prevRisk !== riskStatus && prevHasRisk && hasRiskAssessment && prevRisk !== 'pending') {
+      setToast({
+        show: true,
+        type: riskStatus === 'complete' ? 'success' : 'error',
+        message: riskStatus === 'complete' 
+          ? 'Risk assessment updated - Low Risk' 
+          : 'Risk assessment updated - Review Required'
+      });
+      setTimeout(() => setToast(prev => ({ ...prev, show: false })), 3000);
+      
+      onRiskAssessmentComplete?.({
+        success: true,
+        action: 'edit',
+        message: `Risk assessment updated: ${risk?.RiskAssessmentResult || 'Updated'}`
+      });
+    }
+    // Detect risk assessment deletion (hasRisk -> !hasRisk)
+    else if (prevHasRisk && !hasRiskAssessment) {
+      setToast({
+        show: true,
+        type: 'success',
+        message: 'Risk assessment deleted'
+      });
+      setTimeout(() => setToast(prev => ({ ...prev, show: false })), 3000);
+      
+      onRiskAssessmentComplete?.({
+        success: true,
+        action: 'delete',
+        message: 'Risk assessment deleted successfully'
+      });
+    }
+    
+    // Update refs
+    prevRiskStatusRef.current = riskStatus;
+    prevHasRiskAssessmentRef.current = hasRiskAssessment;
+  }, [riskStatus, hasRiskAssessment, risk?.RiskAssessmentResult, onRiskAssessmentComplete, onRefreshData]);
+
+  // Effect to detect matter opening completion and show toast
+  useEffect(() => {
+    const prevMatter = prevMatterStatusRef.current;
+    
+    // Detect matter opened (pending -> complete)
+    if (prevMatter === 'pending' && matterStatus === 'complete') {
+      const matterId = instruction?.MatterId || (instruction as any)?.matters?.[0]?.MatterId;
+      
+      setToast({
+        show: true,
+        type: 'success',
+        message: matterId ? `Matter ${matterId} opened successfully` : 'Matter opened successfully'
+      });
+      setTimeout(() => setToast(prev => ({ ...prev, show: false })), 3000);
+      
+      onMatterOpenComplete?.({
+        success: true,
+        matterId: matterId,
+        message: matterId ? `Matter ${matterId} opened successfully` : 'Matter opened successfully'
+      });
+      
+      // Trigger data refresh
+      if (onRefreshData) {
+        onRefreshData();
+      }
+    }
+    
+    // Update ref
+    prevMatterStatusRef.current = matterStatus;
+  }, [matterStatus, instruction?.MatterId, instruction, onMatterOpenComplete, onRefreshData]);
 
   // New pre-ID step: Instruction/Pitch capture (integrated from pitches). Complete if a deal/service exists.
   const hasDeal = !!resolvedDeal;

@@ -419,16 +419,16 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
                   position: 'absolute',
                   width: '100%',
                   zIndex: 1,
-                  backgroundColor: '#fff',
+                  backgroundColor: isDarkMode ? colours.dark.cardBackground : '#fff',
                   padding: '10px',
                   borderRadius: '8px',
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                  boxShadow: isDarkMode ? '0 4px 12px rgba(0,0,0,0.4)' : '0 4px 12px rgba(0,0,0,0.15)',
                 },
               }}
             >
               <Stack horizontal tokens={{ childrenGap: 8 }} verticalAlign="center">
-                <Icon iconName="CheckMark" styles={{ root: { color: 'green', fontSize: '24px' } }} />
-                <Text variant="xLarge" styles={{ root: { color: 'green', fontWeight: 600 } }}>
+                <Icon iconName="CheckMark" styles={{ root: { color: colours.green, fontSize: '24px' } }} />
+                <Text variant="xLarge" styles={{ root: { color: colours.green, fontWeight: 600 } }}>
                   Booking confirmed!
                 </Text>
               </Stack>
@@ -462,17 +462,17 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
             <Stack
               styles={{
                 root: {
-                  backgroundColor: colours.grey,
+                  backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.grey,
                   borderRadius: '8px',
                   padding: '16px',
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                  boxShadow: isDarkMode ? '0 2px 8px rgba(0,0,0,0.3)' : '0 2px 8px rgba(0,0,0,0.1)',
                   border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                 },
               }}
             >
               <Text
                 variant="mediumPlus"
-                styles={{ root: { fontWeight: 600, color: isDarkMode ? '#ddd' : colours.darkBlue, marginBottom: '12px' } }}
+                styles={{ root: { fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.darkBlue, marginBottom: '12px' } }}
               >
                 {selectedSpaceType} on {new Date(formValues.bookingDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
               </Text>
@@ -485,18 +485,18 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
                     styles={{
                       root: {
                         padding: '8px 12px',
-                        backgroundColor: isDarkMode ? colours.dark.grey : '#fff',
+                        backgroundColor: isDarkMode ? colours.dark.cardBackground : '#fff',
                         borderRadius: '6px',
                         border: `1px solid ${isDarkMode ? colours.dark.border : '#e8e8e8'}`,
                         transition: 'background 0.2s ease',
-                        ':hover': { backgroundColor: isDarkMode ? '#444' : '#f9f9f9' },
+                        ':hover': { backgroundColor: isDarkMode ? colours.dark.cardHover : '#f9f9f9' },
                       },
                     }}
                   >
-                    <Text variant="medium" styles={{ root: { fontWeight: 500, width: '90px', color: colours.blue } }}>
+                    <Text variant="medium" styles={{ root: { fontWeight: 500, width: '90px', color: isDarkMode ? colours.accent : colours.blue } }}>
                       {formatBookingTime(b)}
                     </Text>
-                    <Text variant="medium" styles={{ root: { color: isDarkMode ? '#bbb' : colours.greyText } }}>
+                    <Text variant="medium" styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.greyText } }}>
                       {b.reason} <span style={{ fontWeight: 300 }}>(by {b.fee_earner})</span>
                     </Text>
                   </Stack>
@@ -508,17 +508,17 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
           <Stack
             styles={{
               root: {
-                backgroundColor: colours.grey,
+                backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.grey,
                 borderRadius: '8px',
                 padding: '16px',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                boxShadow: isDarkMode ? '0 2px 8px rgba(0,0,0,0.3)' : '0 2px 8px rgba(0,0,0,0.1)',
                 border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
               },
             }}
           >
             <Text
               variant="mediumPlus"
-              styles={{ root: { fontWeight: 600, color: isDarkMode ? '#ddd' : colours.darkBlue, marginBottom: '12px' } }}
+              styles={{ root: { fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.darkBlue, marginBottom: '12px' } }}
             >
               {selectedSpaceType ? `${selectedSpaceType} Availability` : 'Space Availability'}
             </Text>
@@ -527,7 +527,7 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
                 <Stack key={date}>
                   <Text
                     variant="medium"
-                    styles={{ root: { fontWeight: 500, color: isDarkMode ? '#ccc' : colours.websiteBlue, marginBottom: '6px' } }}
+                    styles={{ root: { fontWeight: 500, color: isDarkMode ? colours.accent : colours.websiteBlue, marginBottom: '6px' } }}
                   >
                     {new Date(date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                   </Text>
@@ -541,25 +541,25 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
                           styles={{
                             root: {
                               padding: '6px 10px',
-                              backgroundColor: isDarkMode ? colours.dark.grey : '#fff',
+                              backgroundColor: isDarkMode ? colours.dark.cardBackground : '#fff',
                               borderRadius: '6px',
                               border: `1px solid ${isDarkMode ? colours.dark.border : '#e8e8e8'}`,
                               transition: 'background 0.2s ease',
-                              ':hover': { backgroundColor: isDarkMode ? '#444' : '#f9f9f9' },
+                              ':hover': { backgroundColor: isDarkMode ? colours.dark.cardHover : '#f9f9f9' },
                             },
                           }}
                         >
-                          <Text variant="smallPlus" styles={{ root: { fontWeight: 500, width: '90px', color: colours.blue } }}>
+                          <Text variant="smallPlus" styles={{ root: { fontWeight: 500, width: '90px', color: isDarkMode ? colours.accent : colours.blue } }}>
                             {formatBookingTime(b)}
                           </Text>
-                          <Text variant="smallPlus" styles={{ root: { color: isDarkMode ? '#bbb' : colours.greyText } }}>
+                          <Text variant="smallPlus" styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.greyText } }}>
                             {b.reason} <span style={{ fontWeight: 300 }}>(by {b.fee_earner})</span>
                           </Text>
                         </Stack>
                       ))}
                     </Stack>
                   ) : (
-                    <Text variant="smallPlus" styles={{ root: { color: isDarkMode ? '#888' : '#999', marginLeft: '10px', fontStyle: 'italic' } }}>
+                    <Text variant="smallPlus" styles={{ root: { color: isDarkMode ? colours.dark.subText : '#999', marginLeft: '10px', fontStyle: 'italic' } }}>
                       No bookings scheduled
                     </Text>
                   )}
@@ -568,7 +568,18 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
               <DefaultButton
                 text="Load More"
                 onClick={handleLoadMore}
-                styles={{ root: { marginTop: '16px', alignSelf: 'center' } }}
+                styles={{ 
+                  root: { 
+                    marginTop: '16px', 
+                    alignSelf: 'center',
+                    backgroundColor: isDarkMode ? colours.dark.cardBackground : undefined,
+                    borderColor: isDarkMode ? colours.dark.border : undefined,
+                    color: isDarkMode ? colours.dark.text : undefined,
+                  },
+                  rootHovered: {
+                    backgroundColor: isDarkMode ? colours.dark.cardHover : undefined,
+                  }
+                }}
               />
             </Stack>
           </Stack>

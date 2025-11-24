@@ -33,6 +33,8 @@ interface EnhancedAttendanceProps {
   futureLeaveRecords: any[];
   userData: any;
   onAttendanceUpdated?: (updatedRecords: AttendanceRecord[]) => void;
+  currentUserConfirmed?: boolean;
+  onConfirmAttendance?: () => void;
 }
 
 export interface EnhancedAttendanceRef {
@@ -53,6 +55,8 @@ const EnhancedAttendance = forwardRef<EnhancedAttendanceRef, EnhancedAttendanceP
     futureLeaveRecords,
     userData,
     onAttendanceUpdated,
+    currentUserConfirmed,
+    onConfirmAttendance,
   } = props;
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -438,6 +442,8 @@ const EnhancedAttendance = forwardRef<EnhancedAttendanceRef, EnhancedAttendanceP
         futureLeaveRecords={futureLeaveRecords}
         onAttendanceUpdated={onAttendanceUpdated}
         onDayUpdate={handleDayUpdate}
+        currentUserConfirmed={currentUserConfirmed}
+        onConfirmAttendance={onConfirmAttendance}
       />
 
       {/* Confirmation feedback */}

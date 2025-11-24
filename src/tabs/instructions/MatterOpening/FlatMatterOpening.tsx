@@ -106,6 +106,11 @@ interface FlatMatterOpeningProps {
      * Should navigate back to the instructions page instead of using browser history.
      */
     onBack?: () => void;
+    /**
+     * Optional callback triggered when matter is successfully opened.
+     * Returns the opened matter ID for parent component feedback.
+     */
+    onMatterSuccess?: (matterId: string) => void;
 }
 
 const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
@@ -127,6 +132,7 @@ const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
     instructionRecords,
     onDraftCclNow,
     onBack,
+    onMatterSuccess,
 }) => {
     // Dark mode support
     const { isDarkMode } = useTheme();
@@ -150,12 +156,16 @@ const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
         registerMatterIdCallback((id) => {
             setMatterIdState(id);
             setOpenedMatterId(id);
+            // Notify parent that matter was successfully opened
+            if (id && onMatterSuccess) {
+                onMatterSuccess(id);
+            }
         });
         return () => {
             registerClientIdCallback(null);
             registerMatterIdCallback(null);
         };
-    }, []);
+    }, [onMatterSuccess]);
 
     const showPoidSelection = !instructionRef;
     const defaultPoidData: POID[] = useMemo(() => {

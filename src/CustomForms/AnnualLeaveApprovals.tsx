@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Stack,
@@ -6,9 +6,11 @@ import {
   DefaultButton,
   Persona,
   PersonaSize,
-  TextField
+  TextField,
+  MessageBar,
+  MessageBarType
 } from '@fluentui/react';
-import { mergeStyles } from '@fluentui/react';
+import { mergeStyles, keyframes } from '@fluentui/react';
 import { eachDayOfInterval, isWeekend, format } from 'date-fns';
 import { colours } from '../app/styles/colours';
 import { useTheme } from '../app/functionality/ThemeContext';
@@ -112,7 +114,39 @@ interface AnnualLeaveApprovalsProps {
   totals: TotalsItem[];
   allLeaveEntries: LeaveEntry[];
   onApprovalUpdate?: (id: string, newStatus: string) => void;
+  onShowToast?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 }
+
+/* ---------------------------------------------------------------------------
+   Toast & Animation Styles
+--------------------------------------------------------------------------- */
+const fadeOutAnimation = keyframes({
+  from: { opacity: 1, transform: 'translateX(0)', maxHeight: '500px' },
+  to: { opacity: 0, transform: 'translateX(20px)', maxHeight: '0px', padding: '0', margin: '0', overflow: 'hidden' }
+});
+
+const successPulseAnimation = keyframes({
+  '0%': { boxShadow: '0 0 0 0 rgba(34, 197, 94, 0.4)' },
+  '70%': { boxShadow: '0 0 0 10px rgba(34, 197, 94, 0)' },
+  '100%': { boxShadow: '0 0 0 0 rgba(34, 197, 94, 0)' }
+});
+
+const rejectPulseAnimation = keyframes({
+  '0%': { boxShadow: '0 0 0 0 rgba(239, 68, 68, 0.4)' },
+  '70%': { boxShadow: '0 0 0 10px rgba(239, 68, 68, 0)' },
+  '100%': { boxShadow: '0 0 0 0 rgba(239, 68, 68, 0)' }
+});
+
+const toastContainerStyle = mergeStyles({
+  position: 'fixed',
+  top: '20px',
+  right: '20px',
+  zIndex: 2147483001,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '8px',
+  maxWidth: '400px'
+});
 
 /* ---------------------------------------------------------------------------
    Theme-Aware Professional Styling
@@ -479,11 +513,33 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
   totals,
   allLeaveEntries,
   onApprovalUpdate,
+  onShowToast,
 }) => {
   const { isDarkMode } = useTheme();
   // Maintain a local copy so UI reflects changes immediately
   const [localApprovals, setLocalApprovals] = useState<ApprovalEntry[]>(approvals);
   const [activeIndex, setActiveIndex] = useState<number>(0);
+  
+  // Track items being animated out (approved/rejected)
+  const [animatingOut, setAnimatingOut] = useState<Set<string>>(new Set());
+  const [animationStatus, setAnimationStatus] = useState<{ [id: string]: 'approved' | 'rejected' }>({});
+  
+  // Local toast state (fallback if parent doesn't provide onShowToast)
+  const [toasts, setToasts] = useState<Array<{ id: string; message: string; type: 'success' | 'error' | 'warning' | 'info' }>>([]);
+  
+  // Helper to show toast - uses parent callback if available, otherwise local
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'warning' | 'info') => {
+    if (onShowToast) {
+      onShowToast(message, type);
+    } else {
+      const id = `toast-${Date.now()}`;
+      setToasts(prev => [...prev, { id, message, type }]);
+      // Auto-remove after 4 seconds
+      setTimeout(() => {
+        setToasts(prev => prev.filter(t => t.id !== id));
+      }, 4000);
+    }
+  }, [onShowToast]);
   
   // Refs to store action handlers for each approval card
   const actionHandlersRef = useRef<Map<number, { approve: () => Promise<void>, reject: () => Promise<void> }>>(new Map());
@@ -686,7 +742,6 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
   }
 
   const ApprovalCard: React.FC<{ entry: ApprovalEntry; isActive?: boolean; cardIndex?: number }> = ({ entry, isActive = false, cardIndex }) => {
-    const [confirmationMessage, setConfirmationMessage] = useState<string>('');
     const [localRejection, setLocalRejection] = useState<string>(rejectionReason[entry.id] || '');
     const [isExpanded, setIsExpanded] = useState<boolean>(false);
 
@@ -720,8 +775,7 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
             if (isProcessing) return;
             if (!localRejection || localRejection.trim() === '') {
               setIsExpanded(true); // Expand to show rejection reason field
-              setConfirmationMessage('⚠ Please provide a rejection reason');
-              setTimeout(() => setConfirmationMessage(''), 3000);
+              showToast('Please provide a rejection reason', 'warning');
               return;
             }
             await handleAction('reject');
@@ -734,7 +788,7 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
     }, [cardIndex, localRejection, isProcessing]);
 
     const handleAction = async (action: 'approve' | 'reject') => {
-      if (isProcessing) return;
+      if (isProcessing || animatingOut.has(entry.id)) return;
       
       console.log('🎯 Annual Leave Action:', {
         action,
@@ -748,8 +802,7 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
       // Validate that we have a valid ID
       if (!entry.id || entry.id === 'undefined' || entry.id === '') {
         console.error('❌ Invalid entry ID:', entry.id, 'Full entry:', entry);
-        setConfirmationMessage('❌ Error: Invalid leave request ID');
-        setTimeout(() => setConfirmationMessage(''), 5000);
+        showToast('Error: Invalid leave request ID', 'error');
         return;
       }
       
@@ -762,36 +815,46 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
         // Validate rejection reason for rejections
         if (action === 'reject' && (!reason || reason.trim() === '')) {
           console.warn('❌ Rejection requires a reason');
-          setConfirmationMessage('❌ Please provide a rejection reason');
-          setTimeout(() => setConfirmationMessage(''), 5000);
+          setIsExpanded(true);
+          showToast('Please provide a rejection reason', 'warning');
           setProcessingStates(prev => ({ ...prev, [entry.id]: false }));
           return;
         }
         
         await updateAnnualLeave(entry.id, newStatus, reason);
         
-        if (onApprovalUpdate) {
-          onApprovalUpdate(entry.id, newStatus);
-        }
-        // Reflect change locally for immediate feedback
-        setLocalApprovals(prev => prev.map(a => a.id === entry.id ? { ...a, status: newStatus } : a));
-        
-        setConfirmationMessage(
+        // Show success toast
+        const personName = getNickname(entry.person);
+        showToast(
           action === 'approve' 
-            ? `✓ Approved leave for ${getNickname(entry.person)}` 
-            : `✗ Rejected leave for ${getNickname(entry.person)}`
+            ? `✓ Approved ${requestDays} day${requestDays > 1 ? 's' : ''} leave for ${personName}` 
+            : `✗ Rejected leave request from ${personName}`,
+          action === 'approve' ? 'success' : 'info'
         );
         
-        setTimeout(() => setConfirmationMessage(''), 3000);
-        // Auto-close the modal shortly after a successful action
+        // Start animation
+        setAnimatingOut(prev => new Set(prev).add(entry.id));
+        setAnimationStatus(prev => ({ ...prev, [entry.id]: newStatus === 'approved' ? 'approved' : 'rejected' }));
+        
+        // After animation, remove from local state and notify parent
         setTimeout(() => {
-          onClose();
-        }, 800);
+          if (onApprovalUpdate) {
+            onApprovalUpdate(entry.id, newStatus);
+          }
+          setLocalApprovals(prev => prev.filter(a => a.id !== entry.id));
+          setAnimatingOut(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(entry.id);
+            return newSet;
+          });
+          
+          // Adjust active index if needed
+          setActiveIndex(prev => Math.min(prev, localApprovals.length - 2));
+        }, 500);
         
       } catch (error) {
         console.error(`Failed to ${action} leave:`, error);
-        setConfirmationMessage(`❌ Failed to ${action} leave request`);
-        setTimeout(() => setConfirmationMessage(''), 5000);
+        showToast(`Failed to ${action} leave request. Please try again.`, 'error');
       } finally {
         setProcessingStates(prev => ({ ...prev, [entry.id]: false }));
       }
@@ -809,17 +872,36 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
       }
       return `${format(start, 'd MMM yyyy')} - ${format(end, 'd MMM yyyy')}`;
     })();
+    
+    // Check if this card is animating out
+    const isAnimatingOut = animatingOut.has(entry.id);
+    const cardAnimationStatus = animationStatus[entry.id];
 
     return (
       <div 
         className={compactCardStyle(isDarkMode, isExpanded)}
         style={{
-          border: isActive
-            ? `2px solid ${isDarkMode ? colours.accent : colours.highlight}`
-            : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(15, 23, 42, 0.08)'}`,
-          boxShadow: isActive
+          border: isAnimatingOut
+            ? `2px solid ${cardAnimationStatus === 'approved' ? colours.green : colours.red}`
+            : isActive
+              ? `2px solid ${isDarkMode ? colours.accent : colours.highlight}`
+              : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(15, 23, 42, 0.08)'}`,
+          boxShadow: isActive && !isAnimatingOut
             ? `0 0 0 2px ${isDarkMode ? `${colours.accent}30` : `${colours.highlight}30`}`
             : undefined,
+          animation: isAnimatingOut 
+            ? `${fadeOutAnimation} 0.5s ease-out forwards` 
+            : cardAnimationStatus === 'approved'
+              ? `${successPulseAnimation} 0.6s ease-out`
+              : cardAnimationStatus === 'rejected'
+                ? `${rejectPulseAnimation} 0.6s ease-out`
+                : undefined,
+          backgroundColor: isAnimatingOut
+            ? (cardAnimationStatus === 'approved' 
+                ? (isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)')
+                : (isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)'))
+            : undefined,
+          pointerEvents: isAnimatingOut ? 'none' : 'auto',
         }}
       >
         {/* Compact Header: Avatar + Name + Date + Quick Info */}
@@ -1052,40 +1134,12 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
             )}
           </div>
         )}
-
-        {/* Compact Confirmation Message */}
-        {confirmationMessage && (
-          <div style={{ 
-            marginTop: '8px', 
-            padding: '8px 12px', 
-            borderRadius: '6px',
-            backgroundColor: confirmationMessage.includes('✓') 
-              ? (isDarkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.10)')
-              : confirmationMessage.includes('❌') 
-                ? (isDarkMode ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.10)')
-                : (isDarkMode ? 'rgba(251, 191, 36, 0.12)' : 'rgba(251, 191, 36, 0.10)'),
-            border: `1px solid ${
-              confirmationMessage.includes('✓') 
-                ? (isDarkMode ? 'rgba(34, 197, 94, 0.28)' : 'rgba(34, 197, 94, 0.25)')
-                : confirmationMessage.includes('❌') 
-                  ? (isDarkMode ? 'rgba(239, 68, 68, 0.28)' : 'rgba(239, 68, 68, 0.25)')
-                  : (isDarkMode ? 'rgba(251, 191, 36, 0.28)' : 'rgba(251, 191, 36, 0.25)')
-            }`,
-            color: confirmationMessage.includes('✓') 
-              ? (isDarkMode ? '#86efac' : '#0c4a6e')
-              : confirmationMessage.includes('❌') 
-                ? (isDarkMode ? '#fca5a5' : '#7f1d1d')
-                : (isDarkMode ? '#fcd34d' : '#92400e'),
-            fontWeight: 600,
-            fontSize: '13px',
-            textAlign: 'center'
-          }}>
-            {confirmationMessage}
-          </div>
-        )}
       </div>
     );
   };
+
+  // Count of pending (non-animating) approvals
+  const pendingCount = localApprovals.filter(a => !animatingOut.has(a.id)).length;
 
   const modalJsx = (
     <div 
@@ -1096,6 +1150,34 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
         }
       }}
     >
+      {/* Toast notifications */}
+      {toasts.length > 0 && (
+        <div className={toastContainerStyle}>
+          {toasts.map(toast => (
+            <MessageBar
+              key={toast.id}
+              messageBarType={
+                toast.type === 'success' ? MessageBarType.success :
+                toast.type === 'error' ? MessageBarType.error :
+                toast.type === 'warning' ? MessageBarType.warning :
+                MessageBarType.info
+              }
+              isMultiline={false}
+              onDismiss={() => setToasts(prev => prev.filter(t => t.id !== toast.id))}
+              dismissButtonAriaLabel="Close"
+              styles={{
+                root: {
+                  borderRadius: '8px',
+                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                }
+              }}
+            >
+              {toast.message}
+            </MessageBar>
+          ))}
+        </div>
+      )}
+      
       {/* Modal Content */}
       <div className={modalContentStyle(isDarkMode)} onClick={(e) => e.stopPropagation()}>
         {/* Close Button */}
@@ -1107,7 +1189,7 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
           ✕
         </button>
 
-        {localApprovals.length === 0 ? (
+        {pendingCount === 0 ? (
           <div style={{ 
             textAlign: 'center', 
             padding: '40px 20px',
@@ -1115,10 +1197,20 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
             color: isDarkMode ? colours.dark.text : colours.greyText
           }}>
             <FaUmbrellaBeach style={{ fontSize: '48px', marginBottom: '16px', color: colours.green }} />
-            <div>No leave requests to review</div>
+            <div>All done! 🎉</div>
             <div style={{ fontSize: '14px', marginTop: '8px' }}>
               All annual leave requests have been processed.
             </div>
+            <DefaultButton
+              text="Close"
+              onClick={onClose}
+              styles={{
+                root: {
+                  marginTop: '20px',
+                  borderRadius: '8px',
+                }
+              }}
+            />
           </div>
         ) : (
           <Stack tokens={{ childrenGap: 24 }}>
@@ -1137,7 +1229,7 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
               textAlign: 'center',
               marginBottom: '16px'
             }}>
-              {approvals.length} request{approvals.length !== 1 ? 's' : ''} require{approvals.length === 1 ? 's' : ''} your review
+              {pendingCount} request{pendingCount !== 1 ? 's' : ''} require{pendingCount === 1 ? 's' : ''} your review
             </div>
             
             {localApprovals.map((entry, index) => (

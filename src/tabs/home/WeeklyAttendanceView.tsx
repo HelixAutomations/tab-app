@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { debugLog } from '../../utils/debug';
 import { Icon, Text, DefaultButton } from '@fluentui/react';
-import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { mergeStyles, keyframes } from '@fluentui/react/lib/Styling';
 import { colours } from '../../app/styles/colours';
 import { FaUmbrellaBeach } from 'react-icons/fa';
 
@@ -36,6 +36,8 @@ interface WeeklyAttendanceViewProps {
   onAttendanceUpdated?: (updatedRecords: AttendanceRecord[]) => void;
   onOpenModal?: () => void;
   onDayUpdate?: (initials: string, day: string, status: 'office' | 'wfh' | 'away' | 'off-sick' | 'out-of-office', week: 'current' | 'next') => void;
+  currentUserConfirmed?: boolean;
+  onConfirmAttendance?: () => void;
 }
 
 // Custom icon component to handle both FluentUI icons and custom images
@@ -156,7 +158,9 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
   futureLeaveRecords,
   onAttendanceUpdated,
   onOpenModal,
-  onDayUpdate
+  onDayUpdate,
+  currentUserConfirmed = true,
+  onConfirmAttendance
 }) => {
   debugLog('WeeklyAttendanceView received data:', {
     attendanceRecordsCount: attendanceRecords?.length,
@@ -573,11 +577,11 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
     fontWeight: 600,
     background: isActive
       ? (isDarkMode
-        ? 'linear-gradient(135deg, rgba(56,189,248,0.30) 0%, rgba(37,99,235,0.26) 100%)'
+        ? 'linear-gradient(135deg, rgba(135,243,243,0.20) 0%, rgba(135,243,243,0.12) 100%)'
         : 'linear-gradient(135deg, rgba(191,219,254,0.55) 0%, rgba(191,219,254,0.35) 100%)')
       : 'transparent',
-    color: isActive ? (isDarkMode ? '#E9F5FF' : colours.highlight) : (isDarkMode ? colours.dark.text : colours.light.text),
-    border: `1px solid ${isActive ? colours.highlight : (isDarkMode ? 'rgba(148,163,184,0.26)' : 'rgba(6,23,51,0.14)')}`,
+    color: isActive ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? colours.dark.text : colours.light.text),
+    border: `1px solid ${isActive ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? 'rgba(148,163,184,0.26)' : 'rgba(6,23,51,0.14)')}`,
     borderRadius: '6px',
     lineHeight: 1.2,
     display: 'flex',
@@ -585,15 +589,15 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
     justifyContent: 'center',
     boxShadow: isActive
       ? (isDarkMode
-        ? '0 6px 14px rgba(2,132,199,0.34)'
+        ? '0 6px 14px rgba(135,243,243,0.20)'
         : '0 6px 14px rgba(54,144,206,0.20)')
       : 'none',
     '&:hover': {
       background: isActive
         ? (isDarkMode
-          ? 'linear-gradient(135deg, rgba(56,189,248,0.38) 0%, rgba(37,99,235,0.32) 100%)'
+          ? 'linear-gradient(135deg, rgba(135,243,243,0.28) 0%, rgba(135,243,243,0.18) 100%)'
           : 'linear-gradient(135deg, rgba(191,219,254,0.65) 0%, rgba(191,219,254,0.42) 100%)')
-        : (isDarkMode ? 'rgba(54,144,206,0.14)' : 'rgba(54,144,206,0.10)')
+        : (isDarkMode ? 'rgba(135,243,243,0.10)' : 'rgba(54,144,206,0.10)')
     }
   });
 
@@ -676,6 +680,11 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
 
   const selectWeek = (week: WeekFilterKey) => {
     setSelectedWeek(week);
+    // When selecting "Today", clear day and status filters since they don't apply
+    if (week === 'today') {
+      setSelectedDays([]);
+      setSelectedStatuses([]);
+    }
   };
 
   const toggleDaySelection = (day: DayFilterKey) => {
@@ -814,6 +823,14 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
 
   const getStatusForActiveFilters = (member: any): StatusFilterKey => {
     const weekOffset = selectedWeek === 'next' ? 1 : 0; // 'today' and 'current' both use current week
+    
+    // For 'today' view, return only TODAY's specific status, not a weekly average
+    if (selectedWeek === 'today') {
+      const todayStatus = getTodayAttendance(member) as StatusFilterKey;
+      console.log(`🔍 getStatusForActiveFilters TODAY for ${member.Initials}:`, todayStatus);
+      return todayStatus || 'wfh';
+    }
+    
     const attendance = getDailyAttendance(member, weekOffset);
 
     const statusesInWeek = attendance.filter((status): status is StatusFilterKey => Boolean(status)) as StatusFilterKey[];
@@ -860,8 +877,8 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
     <div className={containerStyle(isDarkMode)}>
       {/* Filter Controls */}
       <div className={filterBarStyle}>
-        {/* Top Row: Week Toggle */}
-        <div className={viewClusterStyle}>
+        {/* Top Row: Week Toggle + Confirm Attendance button */}
+        <div className={viewClusterStyle} style={{ justifyContent: 'space-between', width: '100%' }}>
           <div className={viewToggleRowStyle}>
             <div className={segmentedControlStyle}>
               {WEEK_FILTER_OPTIONS.map(option => (
@@ -875,6 +892,44 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
               ))}
             </div>
           </div>
+          
+          {/* Confirm Attendance button - only show when user hasn't confirmed */}
+          {!currentUserConfirmed && onConfirmAttendance && (
+            <DefaultButton
+              text="Confirm Attendance"
+              iconProps={{ iconName: 'Calendar' }}
+              onClick={onConfirmAttendance}
+              styles={{
+                root: {
+                  height: '26px',
+                  padding: '0 14px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  background: isDarkMode
+                    ? `linear-gradient(135deg, ${colours.cta}30 0%, ${colours.cta}20 100%)`
+                    : `linear-gradient(135deg, ${colours.cta}25 0%, ${colours.cta}15 100%)`,
+                  border: `1px solid ${colours.cta}`,
+                  color: isDarkMode ? '#fff' : colours.cta,
+                  borderRadius: '6px',
+                  animationName: keyframes({
+                    '0%, 100%': { boxShadow: `0 0 0 0 ${colours.cta}40`, transform: 'scale(1)' },
+                    '50%': { boxShadow: `0 0 12px 4px ${colours.cta}30`, transform: 'scale(1.02)' }
+                  }),
+                  animationDuration: '2s',
+                  animationIterationCount: 'infinite',
+                  animationTimingFunction: 'ease-in-out',
+                  transition: 'background 0.2s ease, transform 0.15s ease',
+                },
+                rootHovered: {
+                  background: isDarkMode
+                    ? `linear-gradient(135deg, ${colours.cta}45 0%, ${colours.cta}30 100%)`
+                    : `linear-gradient(135deg, ${colours.cta}35 0%, ${colours.cta}25 100%)`,
+                  transform: 'scale(1.05)',
+                  animationPlayState: 'paused'
+                }
+              }}
+            />
+          )}
         </div>
 
         {/* Bottom Row: Status + Days */}
@@ -926,18 +981,31 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
             /* Today/Monday view: Status-grouped cards for single day */
             <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
               {(() => {
+                console.log('🔍 TODAY VIEW - filteredData count:', filteredData.length);
+                console.log('🔍 TODAY VIEW - filteredData members:', filteredData.map(m => ({
+                  initials: m.Initials,
+                  first: m.First,
+                  attendanceDays: m.attendanceDays,
+                  status: m.status
+                })));
+                
                 // Group people by status for today
                 const statusGroups = filteredData.reduce((groups, member) => {
                   const representativeStatus = getStatusForActiveFilters(member);
+                  console.log(`🔍 Grouping ${member.Initials}: ${representativeStatus}`);
                   if (!groups[representativeStatus]) {
                     groups[representativeStatus] = [];
                   }
                   groups[representativeStatus].push(member);
                   return groups;
                 }, {} as Record<string, typeof filteredData>);
+                
+                console.log('🔍 TODAY VIEW - statusGroups:', Object.fromEntries(
+                  Object.entries(statusGroups).map(([k, v]) => [k, (v as any[]).map(m => m.Initials)])
+                ));
 
-                // Define status order and labels
-                const statusOrder = ['wfh', 'office', 'away', 'off-sick', 'out-of-office'];
+                // Define status order and labels - Office first, then WFH, then away statuses
+                const statusOrder = ['office', 'wfh', 'away', 'off-sick', 'out-of-office'];
                 const statusLabels = {
                   office: 'In Office',
                   wfh: 'Working From Home',
@@ -1006,7 +1074,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                           </div>
                           <div style={{ 
                             fontSize: '11px', 
-                            color: colours.blue
+                            color: isDarkMode ? colours.accent : colours.blue
                           }}>
                             {statusGroups[status].length} {statusGroups[status].length === 1 ? 'person' : 'people'}
                           </div>
@@ -1051,7 +1119,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px', opacity: 0.6 }}>
                                   <span style={{ 
                                     fontSize: '8px', 
-                                    color: colours.blue
+                                    color: isDarkMode ? colours.accent : colours.blue
                                   }}>
                                     {nextWorkday.label}
                                   </span>
@@ -1083,7 +1151,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                   ));
               })()}
             </div>
-          ) : selectedDays.length > 0 ? (
+          ) : (selectedDays.length > 0 || selectedStatuses.length > 0) ? (
             /* This Week/Next Week view: Compact grid of person cards */
             <div style={{
               display: 'grid',
@@ -1092,7 +1160,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
               width: '100%'
             }}>
               {(() => {
-                // Show only selected days (already filtered by selectedDays in the condition)
+                // Show only selected days, or all days if none selected
                 const daysToRender = orderedSelectedDays.length > 0 ? orderedSelectedDays : DAY_ORDER;
                 return filteredData
                   .sort((a, b) => {

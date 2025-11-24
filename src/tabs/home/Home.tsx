@@ -1543,24 +1543,46 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
           const attendanceResult = await attendanceResponse.json();
           
           if (attendanceResult.success) {
-            // Use the server response structure that includes both attendance and team
-            const transformedData = {
-              attendance: attendanceResult.attendance.map((member: any) => ({
+            // DEBUG: Log raw API response
+            console.log('🔍 RAW API RESPONSE:', {
+              attendanceCount: attendanceResult.attendance?.length,
+              teamCount: attendanceResult.team?.length,
+              sampleAttendance: attendanceResult.attendance?.[0],
+              sampleTeam: attendanceResult.team?.[0]
+            });
+            
+            // API returns:
+            // - attendance: [{ First, Initials, Status, Week_Start, ... }] (new format)
+            // - team: [{ First, Initials, Nickname, Status }]
+            // The attendance array already has the data we need in the new format
+            
+            // Transform attendance records
+            const transformedAttendance: any[] = [];
+            (attendanceResult.attendance || []).forEach((member: any) => {
+              // New format - member already has First, Initials, Status, Week_Start, etc.
+              transformedAttendance.push({
                 Attendance_ID: 0,
                 Entry_ID: 0,
-                First_Name: member.First,
-                Initials: member.Initials,
+                First_Name: member.First || member.name || '',
+                Initials: member.Initials || '',
+                Nickname: member.Nickname || member.First || '',
                 Level: member.Level || '',
-                Week_Start: member.Week_Start || new Date().toISOString().split('T')[0],
-                Week_End: member.Week_End || new Date().toISOString().split('T')[0],
-                ISO_Week: typeof member.iso === 'number' ? member.iso : Math.ceil(((new Date().getTime() - new Date(new Date().getFullYear(), 0, 1).getTime()) / 86400000 + 1) / 7),
+                Week_Start: member.Week_Start ? new Date(member.Week_Start).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+                Week_End: member.Week_End ? new Date(member.Week_End).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+                ISO_Week: typeof member.iso === 'number' ? member.iso : 0,
                 Attendance_Days: member.Status || '',
                 Confirmed_At: member.Confirmed_At ?? null,
-                status: member.Status,
+                status: member.Status || '',
                 isConfirmed: Boolean(member.Confirmed_At),
-                isOnLeave: member.IsOnLeave
-              })),
-              team: attendanceResult.team || attendanceResult.attendance // Use team data if available, fallback to attendance
+                isOnLeave: member.IsOnLeave === 1 || member.IsOnLeave === true
+              });
+            });
+            
+            console.log('🔍 TRANSFORMED ATTENDANCE:', transformedAttendance);
+            
+            const transformedData = {
+              attendance: transformedAttendance,
+              team: attendanceResult.team || []
             };
             
             cachedAttendance = transformedData;
@@ -2057,86 +2079,46 @@ const isThursdayAfterMidday = now.getDay() === 4 && now.getHours() >= 12;
 
 const transformedAttendanceRecords = useMemo(() => {
   if (!cachedAttendance && !attendanceRecords.length) return [];
-  const rawRecords = cachedAttendance?.attendance || attendanceRecords; // Fix here
+  const rawRecords = cachedAttendance?.attendance || attendanceRecords;
   
-  // Handle both old format (with weeks structure) and new API format
-  return rawRecords
+  console.log('🔍 transformedAttendanceRecords input:', {
+    rawRecordsCount: rawRecords?.length,
+    sampleRecord: rawRecords?.[0]
+  });
+  
+  // Records should already be in the correct format from the fetch handler
+  // Just pass them through, ensuring required fields are present
+  const result = rawRecords
     .map((record: any) => {
-      // New API format: {Initials, First, Status, IsConfirmed, IsOnLeave}
-      if (record.Initials && record.First && !record.weeks) {
-        const currentWeekStart = getMondayOfCurrentWeek();
-        const nextWeekStart = new Date(currentWeekStart);
-        nextWeekStart.setDate(currentWeekStart.getDate() + 7);
-        
-        const formatDateLocal = (d: Date): string => {
-          const year = d.getFullYear();
-          const month = String(d.getMonth() + 1).padStart(2, '0');
-          const day = String(d.getDate()).padStart(2, '0');
-          return `${year}-${month}-${day}`;
-        };
-        
-        const currentWeekEnd = new Date(currentWeekStart);
-        currentWeekEnd.setDate(currentWeekStart.getDate() + 6);
-        
-        const nextWeekEnd = new Date(nextWeekStart);
-        nextWeekEnd.setDate(nextWeekStart.getDate() + 6);
-        
-        // Return records for both current and next week
-        return [
-          {
-            Attendance_ID: 0,
-            Entry_ID: 0,
-            First_Name: record.First || '',
-            Initials: record.Initials || '',
-            Level: '',
-            Week_Start: formatDateLocal(currentWeekStart),
-            Week_End: formatDateLocal(currentWeekEnd),
-            ISO_Week: getISOWeek(currentWeekStart),
-            Attendance_Days: record.Status === 'away' ? '' : (record.Status || ''),
-            Confirmed_At: record.Confirmed_At ?? null,
-          },
-          {
-            Attendance_ID: 0,
-            Entry_ID: 0,
-            First_Name: record.First || '',
-            Initials: record.Initials || '',
-            Level: '',
-            Week_Start: formatDateLocal(nextWeekStart),
-            Week_End: formatDateLocal(nextWeekEnd),
-            ISO_Week: getISOWeek(nextWeekStart),
-            Attendance_Days: '', // Next week starts empty
-            Confirmed_At: null,
-          }
-        ];
+      // If record already has the correct structure, pass through
+      if (record.Initials && record.Attendance_Days !== undefined) {
+        return record;
       }
       
-      // Old format: {name, weeks: {weekKey: {attendance, confirmed}}}
-      if (record.weeks) {
-        const weekKeys = Object.keys(record.weeks);
-        return weekKeys.map((weekKey) => {
-          const rawStart = weekKey.split(' - ')[0].split(', ')[1];
-          const rawEnd = weekKey.split(' - ')[1].split(', ')[1];
-          const isoStart = convertToISO(rawStart);
-          const isoEnd = convertToISO(rawEnd);
-          return {
-            Attendance_ID: 0,
-            Entry_ID: 0,
-            First_Name: record.name || '',
-            Initials: transformedTeamData.find((t) => t.First?.toLowerCase() === (record.name || '').toLowerCase())?.Initials || '',
-            Level: '',
-            Week_Start: isoStart,
-            Week_End: isoEnd,
-            ISO_Week: getISOWeek(new Date(isoStart)),
-            Attendance_Days: record.weeks[weekKey].attendance || '',
-            Confirmed_At: record.weeks[weekKey].confirmed ? new Date().toISOString() : null,
-          };
-        });
-      }
-      
-      // Fallback for unknown formats
-      return [];
-    })
-    .flat();
+      // Fallback transformation for any legacy format
+      return {
+        Attendance_ID: record.Attendance_ID || 0,
+        Entry_ID: record.Entry_ID || 0,
+        First_Name: record.First_Name || record.First || record.name || '',
+        Initials: record.Initials || '',
+        Level: record.Level || '',
+        Week_Start: record.Week_Start || new Date().toISOString().split('T')[0],
+        Week_End: record.Week_End || new Date().toISOString().split('T')[0],
+        ISO_Week: record.ISO_Week || 0,
+        Attendance_Days: record.Attendance_Days || record.Status || '',
+        Confirmed_At: record.Confirmed_At ?? null,
+        status: record.status || record.Status || '',
+        isConfirmed: record.isConfirmed || Boolean(record.Confirmed_At),
+        isOnLeave: record.isOnLeave || false
+      };
+    });
+  
+  console.log('🔍 transformedAttendanceRecords output:', {
+    resultCount: result?.length,
+    sampleResult: result?.[0]
+  });
+  
+  return result;
 }, [attendanceRecords, transformedTeamData]);
 
 const handleAttendanceUpdated = (updatedRecords: AttendanceRecord[]) => {
@@ -3722,6 +3704,8 @@ const conversionRate = enquiriesMonthToDate
               futureLeaveRecords={futureLeaveRecords}
               userData={userData}
               onAttendanceUpdated={handleAttendanceUpdated}
+              currentUserConfirmed={currentUserConfirmed}
+              onConfirmAttendance={() => handleActionClick({ title: 'Confirm Attendance', icon: 'Calendar' })}
             />
           </SectionCard>
         </div>

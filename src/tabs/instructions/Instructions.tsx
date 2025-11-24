@@ -905,6 +905,15 @@ const Instructions: React.FC<InstructionsProps> = ({
     
     // Close the risk assessment modal
     setShowRiskPage(false);
+    
+    // Show success feedback
+    const riskLevel = risk.RiskAssessmentResult?.toLowerCase() || '';
+    const isLowRisk = riskLevel.includes('low') || riskLevel.includes('pass');
+    setActionFeedback({
+      type: isLowRisk ? 'success' : 'warning',
+      message: `Risk assessment saved - ${risk.RiskAssessmentResult || 'Assessed'}`
+    });
+    setTimeout(() => setActionFeedback(null), 4000);
   };
 
   const handleRiskAssessmentDelete = async (instructionRef: string) => {
@@ -937,10 +946,21 @@ const Instructions: React.FC<InstructionsProps> = ({
       if (selectedInstruction?.InstructionRef === instructionRef) {
         setSelectedRisk(null);
       }
+      
+      // Show success feedback
+      setActionFeedback({
+        type: 'success',
+        message: 'Risk assessment deleted successfully'
+      });
+      setTimeout(() => setActionFeedback(null), 3000);
 
     } catch (err) {
       console.error('Failed to delete risk assessment', err);
-      alert('Failed to delete risk assessment.');
+      setActionFeedback({
+        type: 'error',
+        message: 'Failed to delete risk assessment'
+      });
+      setTimeout(() => setActionFeedback(null), 5000);
     }
   };
 
@@ -3640,21 +3660,83 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
         });
       }
 
-      // Show success message
-      alert('ID verification approved successfully.');
+      // Show success feedback toast
+      setActionFeedback({
+        type: 'success',
+        message: 'ID verification approved successfully'
+      });
+      setTimeout(() => setActionFeedback(null), 4000);
+      
+      // Close the review modal
+      setShowReviewModal(false);
       
       // Force a data refresh to ensure the UI updates properly
       setTimeout(() => {
         fetchUnifiedEnquiries();
-      }, 1000);
+      }, 500);
       
     } catch (error) {
       console.error('Failed to approve verification:', error);
-      alert('Failed to approve verification. Please try again.');
+      setActionFeedback({
+        type: 'error',
+        message: 'Failed to approve verification. Please try again.'
+      });
+      setTimeout(() => setActionFeedback(null), 5000);
       throw error;
     }
   };
 
+  // Real-time feedback handlers for instruction card operations
+  const handleIdVerificationComplete = useCallback((result: { success: boolean; status: string; message: string }) => {
+    setActionFeedback({
+      type: result.success ? (result.status === 'complete' ? 'success' : 'warning') : 'error',
+      message: result.message
+    });
+    
+    // Auto-hide after appropriate duration
+    setTimeout(() => setActionFeedback(null), result.success ? 4000 : 6000);
+    
+    // Refresh data to update all cards
+    fetchUnifiedEnquiries();
+  }, [fetchUnifiedEnquiries]);
+
+  const handleRiskAssessmentComplete = useCallback((result: { success: boolean; action: 'create' | 'edit' | 'delete'; message: string }) => {
+    const actionText = result.action === 'create' ? 'created' : result.action === 'edit' ? 'updated' : 'deleted';
+    
+    setActionFeedback({
+      type: result.success ? 'success' : 'error',
+      message: result.message || `Risk assessment ${actionText} successfully`
+    });
+    
+    // Auto-hide after appropriate duration
+    setTimeout(() => setActionFeedback(null), 4000);
+    
+    // Close the risk page if open
+    if (result.action === 'create' || result.action === 'edit') {
+      setShowRiskPage(false);
+    }
+    
+    // Refresh data to update all cards
+    fetchUnifiedEnquiries();
+  }, [fetchUnifiedEnquiries]);
+
+  const handleMatterOpenComplete = useCallback((result: { success: boolean; matterId?: string; message: string }) => {
+    setActionFeedback({
+      type: result.success ? 'success' : 'error',
+      message: result.message
+    });
+    
+    // Auto-hide after appropriate duration
+    setTimeout(() => setActionFeedback(null), 4000);
+    
+    // Close the matter opening page on success
+    if (result.success) {
+      setShowNewMatterPage(false);
+    }
+    
+    // Refresh data to update all cards
+    fetchUnifiedEnquiries();
+  }, [fetchUnifiedEnquiries]);
 
   const handleOpenRiskCompliance = (ref: string) => {
     setRiskFilterRef(ref);
@@ -3941,6 +4023,20 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
           instructionPhone={selectedInstruction?.Phone}
           onDraftCclNow={handleDraftCclNow}
           onBack={() => setShowNewMatterPage(false)}
+          onMatterSuccess={(matterId) => {
+            // Show success feedback
+            setActionFeedback({
+              type: 'success',
+              message: `Matter ${matterId} opened successfully`
+            });
+            setTimeout(() => setActionFeedback(null), 4000);
+            
+            // Close the matter opening page
+            setShowNewMatterPage(false);
+            
+            // Refresh data to update card statuses
+            fetchUnifiedEnquiries();
+          }}
         />
       </Stack>
     );
@@ -4342,6 +4438,9 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                         }
                         onEIDClick={() => handleEIDCheck(item.instruction)}
                         idVerificationLoading={idVerificationLoading.has(item.instruction?.InstructionRef || '')}
+                        onIdVerificationComplete={handleIdVerificationComplete}
+                        onRiskAssessmentComplete={handleRiskAssessmentComplete}
+                        onMatterOpenComplete={handleMatterOpenComplete}
                         onRefreshData={async () => {
                           // Refresh instruction data after actions complete
                           try {
