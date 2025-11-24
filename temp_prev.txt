@@ -7,17 +7,12 @@ import {
   SpinnerSize,
   FontIcon,
   type IButtonStyles,
-  Slider,
-  TooltipHost,
-  IconButton,
-  Callout,
 } from '@fluentui/react';
 import { FaChartLine, FaClipboardList, FaFolderOpen, FaInbox } from 'react-icons/fa';
 import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { useNavigatorActions } from '../../app/functionality/NavigatorContext';
 import type { Enquiry, Matter, POID, TeamData, UserData } from '../../app/functionality/types';
-import { endOfDay, format, startOfDay, subMonths } from 'date-fns';
 import ManagementDashboard, { WIP } from './ManagementDashboard';
 import AnnualLeaveReport, { AnnualLeaveRecord } from './AnnualLeaveReport';
 import MetaMetricsReport from './MetaMetricsReport';
@@ -33,7 +28,6 @@ import { fetchWithRetry, fetchJSON } from '../../utils/fetchUtils';
 import markWhite from '../../assets/markwhite.svg';
 import type { PpcIncomeMetrics } from './PpcReport';
 import OperationStatusToast from '../enquiries/pitch-builder/OperationStatusToast';
-import type { DealRecord, InstructionRecord } from './dataSources';
 
 // Add spinner animation CSS
 const spinnerStyle = `
@@ -78,115 +72,6 @@ const STREAM_SNAPSHOT_KEY = 'reporting_stream_snapshot_v1';
 const CACHE_STATE_KEY = 'reporting_cache_state_v1';
 const CACHE_PREHEAT_TIMESTAMP_KEY = 'reporting_cache_preheat_ts';
 const CACHE_PREHEAT_INTERVAL = 5 * 60 * 1000; // 5 minutes between background preheats
-
-type ReportRangeKey = '3m' | '6m' | '12m' | '24m';
-type MattersWipRangeKey = ReportRangeKey;
-
-const REPORT_RANGE_OPTIONS: Array<{ key: ReportRangeKey; label: string; months: number }> = [
-  { key: '3m', label: '90 days', months: 3 },
-  { key: '6m', label: '6 months', months: 6 },
-  { key: '12m', label: '12 months', months: 12 },
-  { key: '24m', label: '24 months', months: 24 },
-];
-
-const MATTERS_WIP_RANGE_OPTIONS = REPORT_RANGE_OPTIONS;
-
-const RANGE_MONTH_LOOKUP = REPORT_RANGE_OPTIONS.reduce<Record<ReportRangeKey, number>>((acc, option) => {
-  acc[option.key] = option.months;
-  return acc;
-}, {} as Record<ReportRangeKey, number>);
-
-
-
-type ReportingRangeDatasetInfo = {
-  key: string;
-  label: string;
-  range: string;
-};
-
-const formatDateForQuery = (date: Date) => format(date, 'yyyy-MM-dd');
-
-const describeRangeKey = (key: ReportRangeKey) => {
-  const option = REPORT_RANGE_OPTIONS.find((entry) => entry.key === key);
-  return option ? option.label : REPORT_RANGE_OPTIONS[0].label;
-};
-
-const describeMattersRange = (key: MattersWipRangeKey) => describeRangeKey(key);
-
-const computeRangeWindowForMonths = (months: number) => {
-  const now = new Date();
-  const end = endOfDay(now);
-  const start = startOfDay(subMonths(end, months));
-  return { start, end };
-};
-
-const computeRangeWindowByKey = (key: ReportRangeKey) => computeRangeWindowForMonths(RANGE_MONTH_LOOKUP[key]);
-
-const buildDateRangeParams = (prefix: string, range: { start: Date; end: Date }) => {
-  const startStr = formatDateForQuery(range.start);
-  const endStr = formatDateForQuery(range.end);
-  return {
-    [`${prefix}RangeStart`]: startStr,
-    [`${prefix}RangeEnd`]: endStr,
-  };
-};
-
-const computeMattersRangeWindow = (key: MattersWipRangeKey) => computeRangeWindowByKey(key);
-
-const buildMattersRangeParams = (range: { start: Date; end: Date }) => ({
-  ...buildDateRangeParams('wip', range),
-  ...buildDateRangeParams('recovered', range),
-  ...buildDateRangeParams('deals', range),
-  ...buildDateRangeParams('instructions', range),
-});
-
-const buildEnquiriesRangeParams = (range: { start: Date; end: Date }) => ({
-  ...buildDateRangeParams('enquiries', range),
-  ...buildDateRangeParams('deals', range),
-  ...buildDateRangeParams('instructions', range),
-});
-
-const computeMetaDaysBackForRange = (key: ReportRangeKey) => {
-  const monthsRequested = RANGE_MONTH_LOOKUP[key] ?? RANGE_MONTH_LOOKUP['6m'];
-  const estimatedDays = Math.max(Math.round(monthsRequested * 30), 30);
-  return estimatedDays;
-};
-
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-const computeRangeLengthInDays = (range: { start: Date; end: Date }) => {
-  if (!range?.start || !range?.end) {
-    return 0;
-  }
-  const diff = range.end.getTime() - range.start.getTime();
-  return Math.max(1, Math.round(diff / MS_PER_DAY));
-};
-
-const DEFAULT_META_DAYS = computeMetaDaysBackForRange('6m');
-
-const buildMetaRangeParams = (key: ReportRangeKey) => ({
-  metaDaysBack: String(computeMetaDaysBackForRange(key)),
-});
-
-const buildEnquiriesCoverageEntries = (key: ReportRangeKey): ReportingRangeDatasetInfo[] => {
-  const rangeLabel = describeRangeKey(key);
-  return [
-    { key: 'enquiries', label: 'Enquiries feed', range: rangeLabel },
-    { key: 'deals', label: 'Deals feed', range: rangeLabel },
-    { key: 'instructions', label: 'Instructions feed', range: rangeLabel },
-    { key: 'metaAds', label: 'Meta Ads feed', range: rangeLabel },
-    { key: 'googleAnalytics', label: 'Google Analytics (sessions)', range: rangeLabel },
-    { key: 'googleAds', label: 'Google Ads (lead gen)', range: rangeLabel },
-  ];
-};
-
-const buildMattersCoverageEntries = (key: MattersWipRangeKey): ReportingRangeDatasetInfo[] => {
-  const rangeLabel = describeMattersRange(key);
-  return [
-    { key: 'allMatters', label: 'All matters feed', range: rangeLabel },
-    { key: 'wip', label: 'WIP (work in progress)', range: rangeLabel },
-    { key: 'recoveredFees', label: 'Recovered fees', range: rangeLabel },
-  ];
-};
 
 // Global refresh state to prevent application-wide refresh spamming
 let globalLastRefresh = 0;
@@ -493,6 +378,37 @@ interface GoogleAdsData {
   cpa?: number;
 }
 
+interface Deal {
+  DealId?: number;
+  ProspectId?: number;
+  InstructionRef?: string;
+  ServiceDescription?: string;
+  Amount?: number;
+  AreaOfWork?: string;
+  PitchedBy?: string;
+  PitchedDate?: string;
+  Status?: string;
+  CreatedDate?: string;
+  ModifiedDate?: string;
+  CloseDate?: string;
+  [key: string]: unknown;
+}
+
+interface InstructionSummary {
+  InstructionRef?: string;
+  ProspectId?: number;
+  Email?: string;
+  Stage?: string;
+  Status?: string;
+  CreatedDate?: string;
+  SubmissionDate?: string;
+  MatterId?: string;
+  ClientId?: string;
+  workflow?: string;
+  payments?: unknown;
+  [key: string]: unknown;
+}
+
 interface DatasetMap {
   userData: UserData[] | null;
   teamData: TeamData[] | null;
@@ -505,8 +421,8 @@ interface DatasetMap {
   metaMetrics: MarketingMetrics[] | null;
   googleAnalytics: GoogleAnalyticsData[] | null;
   googleAds: GoogleAdsData[] | null;
-  deals: DealRecord[] | null;
-  instructions: InstructionRecord[] | null;
+  deals: Deal[] | null;
+  instructions: InstructionSummary[] | null;
 }
 
 interface AnnualLeaveFetchResult {
@@ -535,32 +451,6 @@ const DATASETS = [
 
 type DatasetDefinition = typeof DATASETS[number];
 type DatasetKey = DatasetDefinition['key'];
-
-type StreamingOverride = {
-  datasets?: string[];
-  bypassCache?: boolean;
-  queryParams?: Record<string, string | number | boolean | null | undefined>;
-};
-
-interface GlobalRangeOverrides {
-  enquiriesRangeKey?: ReportRangeKey;
-  mattersRangeKey?: MattersWipRangeKey;
-}
-
-type StreamingDatasetKey = DatasetKey | 'wipClioCurrentWeek' | 'wipDbCurrentWeek';
-
-interface RefreshOptions {
-  rangeOverrides?: GlobalRangeOverrides;
-  streamTargets?: StreamingDatasetKey[];
-  statusTargets?: DatasetKey[];
-  scope?: 'all' | 'dashboard';
-}
-
-const MATTERS_RANGE_DATASETS: DatasetKey[] = ['allMatters', 'wip', 'recoveredFees'];
-const ENQUIRIES_RANGE_DATASETS: DatasetKey[] = ['enquiries', 'deals', 'instructions', 'metaMetrics'];
-const MATTERS_REPORT_REFRESH_DATASETS: DatasetKey[] = [...MATTERS_RANGE_DATASETS, 'deals', 'instructions'];
-const ENQUIRIES_REPORT_DATASETS: DatasetKey[] = ['enquiries', 'teamData', 'annualLeave', 'metaMetrics', 'deals', 'instructions'];
-const META_REPORT_DATASETS: DatasetKey[] = ['metaMetrics', 'enquiries', 'deals', 'instructions'];
 type DatasetStatusValue = 'idle' | 'loading' | 'ready' | 'error';
 
 interface DatasetMeta {
@@ -600,7 +490,7 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
     name: 'Enquiries report',
     status: 'Live today',
     action: 'enquiries',
-    requiredDatasets: ENQUIRIES_REPORT_DATASETS,
+    requiredDatasets: ['enquiries', 'teamData', 'annualLeave', 'metaMetrics'],
   },
   {
     key: 'annualLeave',
@@ -614,14 +504,14 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
     name: 'Matters',
     status: 'Focus view',
     action: 'matters',
-    requiredDatasets: MATTERS_REPORT_REFRESH_DATASETS,
+    requiredDatasets: ['allMatters', 'poidData'],
   },
   {
     key: 'metaMetrics',
     name: 'Meta ads',
     status: 'Live today',
     action: 'metaMetrics',
-    requiredDatasets: META_REPORT_DATASETS,
+    requiredDatasets: ['metaMetrics', 'enquiries'],
   },
   {
     key: 'seo',
@@ -640,36 +530,7 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
   },
 ];
 
-const REPORT_DATASET_REQUIREMENTS = AVAILABLE_REPORTS.reduce<Record<string, DatasetKey[]>>((acc, report) => {
-  acc[report.key] = report.requiredDatasets;
-  return acc;
-}, {});
-
 const MANAGEMENT_DATASET_KEYS = DATASETS.map((dataset) => dataset.key);
-const GLOBAL_STREAM_DATASETS: StreamingDatasetKey[] = [
-  ...MANAGEMENT_DATASET_KEYS.filter((key) => key !== 'annualLeave'),
-  'wipClioCurrentWeek',
-  'wipDbCurrentWeek',
-];
-const MANAGEMENT_DASHBOARD_STREAM_TARGETS: StreamingDatasetKey[] = [
-  'userData',
-  'teamData',
-  'enquiries',
-  'allMatters',
-  'wip',
-  'recoveredFees',
-  'wipClioCurrentWeek',
-  'wipDbCurrentWeek',
-];
-const MANAGEMENT_DASHBOARD_STATUS_TARGETS: DatasetKey[] = [
-  'userData',
-  'teamData',
-  'enquiries',
-  'allMatters',
-  'wip',
-  'recoveredFees',
-  'annualLeave',
-];
 
 const STATUS_BADGE_COLOURS: Record<DatasetStatusValue, {
   lightBg: string;
@@ -914,7 +775,7 @@ const REPORT_CARD_STATE_TOKENS: Record<ReportVisualState, {
     darkBadgeBg: 'rgba(34, 197, 94, 0.28)',
   },
   warming: {
-    label: 'Fetchingâ€¦',
+    label: 'FetchingÔÇª',
     accent: '#3690CE',
     lightBadgeBg: 'rgba(54, 144, 206, 0.15)',
     darkBadgeBg: 'rgba(54, 144, 206, 0.28)',
@@ -976,7 +837,7 @@ const formatPreviewRow = (row: unknown): string => {
     };
     const text = JSON.stringify(row, replacer, 2);
     // Truncate long strings
-    return text.length > 320 ? text.slice(0, 320) + 'â€¦' : text;
+    return text.length > 320 ? text.slice(0, 320) + 'ÔÇª' : text;
   } catch {
     return String(row);
   }
@@ -1276,25 +1137,25 @@ const primaryButtonStyles = (isDarkMode: boolean): IButtonStyles => ({
     borderRadius: 8,
     padding: '0 16px',
     height: 34,
-    background: isDarkMode ? 'rgba(54, 144, 206, 0.18)' : '#061733',
-    color: isDarkMode ? '#38bdf8' : '#ffffff',
-    border: isDarkMode ? '1px solid rgba(54, 144, 206, 0.4)' : '1px solid rgba(6, 23, 51, 0.4)',
+    background: isDarkMode ? 'rgba(34, 197, 94, 0.15)' : '#061733',
+    color: isDarkMode ? '#86efac' : '#ffffff',
+    border: isDarkMode ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid rgba(6, 23, 51, 0.4)',
     fontWeight: 500,
     boxShadow: 'none',
     transition: 'all 0.2s ease',
     fontFamily: 'Raleway, sans-serif',
   },
   rootHovered: {
-    background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : '#0d2f60',
-    borderColor: isDarkMode ? 'rgba(54, 144, 206, 0.5)' : 'rgba(13, 47, 96, 0.6)',
+    background: isDarkMode ? 'rgba(34, 197, 94, 0.2)' : '#0d2f60',
+    borderColor: isDarkMode ? 'rgba(34, 197, 94, 0.4)' : 'rgba(13, 47, 96, 0.6)',
   },
   rootPressed: {
-    background: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : '#051a33',
+    background: isDarkMode ? 'rgba(34, 197, 94, 0.25)' : '#051a33',
   },
   rootDisabled: {
-    background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(148, 163, 184, 0.05)',
+    background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.05)',
     color: isDarkMode ? '#64748b' : '#94a3b8',
-    border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
+    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
   },
 });
 
@@ -1428,17 +1289,17 @@ const formatElapsedTime = (ms: number): string => {
 };
 
 const REFRESH_PHASES: Array<{ thresholdMs: number; label: string }> = [
-  { thresholdMs: 15000, label: 'Connecting to reporting data sourcesâ€¦' },
-  { thresholdMs: 45000, label: 'Pulling the latest matters and enquiriesâ€¦' },
-  { thresholdMs: 90000, label: 'Crunching reporting metricsâ€¦' },
-  { thresholdMs: Number.POSITIVE_INFINITY, label: 'Finalising dashboard viewsâ€¦' },
+  { thresholdMs: 15000, label: 'Connecting to reporting data sourcesÔÇª' },
+  { thresholdMs: 45000, label: 'Pulling the latest matters and enquiriesÔÇª' },
+  { thresholdMs: 90000, label: 'Crunching reporting metricsÔÇª' },
+  { thresholdMs: Number.POSITIVE_INFINITY, label: 'Finalising dashboard viewsÔÇª' },
 ];
 
 const formatCurrency = (amount: number): string => {
   if (amount >= 1_000_000) {
-    return `Â£${(amount / 1_000_000).toFixed(1)}M`;
+    return `-ú${(amount / 1_000_000).toFixed(1)}M`;
   }
-  return `Â£${(amount / 1000).toFixed(1)}k`;
+  return `-ú${(amount / 1000).toFixed(1)}k`;
 };
 
 // Marketing Data Settings Component
@@ -1459,39 +1320,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   const { setContent } = useNavigatorActions();
   const [currentTime, setCurrentTime] = useState(() => new Date());
   const [activeView, setActiveView] = useState<'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters'>('overview');
-  const [mattersWipRangeKey, setMattersWipRangeKey] = useState<MattersWipRangeKey>('12m');
-  const [pendingMattersRangeKey, setPendingMattersRangeKey] = useState<MattersWipRangeKey>(mattersWipRangeKey);
-  const [enquiriesRangeKey, setEnquiriesRangeKey] = useState<ReportRangeKey>('6m');
-  const [pendingEnquiriesRangeKey, setPendingEnquiriesRangeKey] = useState<ReportRangeKey>(enquiriesRangeKey);
-  const refreshRangeButtonRef = useRef<HTMLSpanElement | null>(null);
-  const [isRefreshRangeCalloutOpen, setRefreshRangeCalloutOpen] = useState(false);
-  const mattersRangeWindow = useMemo(() => computeMattersRangeWindow(mattersWipRangeKey), [mattersWipRangeKey]);
-  const enquiriesRangeWindow = useMemo(() => computeRangeWindowByKey(enquiriesRangeKey), [enquiriesRangeKey]);
-  const mattersRangeDays = useMemo(() => computeRangeLengthInDays(mattersRangeWindow), [mattersRangeWindow]);
-  const enquiriesRangeDays = useMemo(() => computeRangeLengthInDays(enquiriesRangeWindow), [enquiriesRangeWindow]);
-  const managementRangeDays = useMemo(
-    () => Math.max(1, Math.min(mattersRangeDays || 1, enquiriesRangeDays || 1)),
-    [mattersRangeDays, enquiriesRangeDays]
-  );
-  const enquiriesRangeParams = useMemo(() => buildEnquiriesRangeParams(enquiriesRangeWindow), [enquiriesRangeWindow]);
-  const metaRangeParams = useMemo(() => buildMetaRangeParams(enquiriesRangeKey), [enquiriesRangeKey]);
-  const metaDaysBack = useMemo(() => computeMetaDaysBackForRange(enquiriesRangeKey), [enquiriesRangeKey]);
-  const enquiriesRangeActiveCoverage = useMemo(() => buildEnquiriesCoverageEntries(enquiriesRangeKey), [enquiriesRangeKey]);
-  const enquiriesRangePendingCoverage = useMemo(() => buildEnquiriesCoverageEntries(pendingEnquiriesRangeKey), [pendingEnquiriesRangeKey]);
-  const mattersRangeActiveCoverage = useMemo(() => buildMattersCoverageEntries(mattersWipRangeKey), [mattersWipRangeKey]);
-  const mattersRangePendingCoverage = useMemo(() => buildMattersCoverageEntries(pendingMattersRangeKey), [pendingMattersRangeKey]);
-  const streamingRangeParams = useMemo(() => ({
-    ...buildMattersRangeParams(mattersRangeWindow),
-    ...enquiriesRangeParams,
-    ...metaRangeParams,
-  }), [mattersRangeWindow, enquiriesRangeParams, metaRangeParams]);
-
-  useEffect(() => {
-    setPendingMattersRangeKey(mattersWipRangeKey);
-  }, [mattersWipRangeKey]);
-  useEffect(() => {
-    setPendingEnquiriesRangeKey(enquiriesRangeKey);
-  }, [enquiriesRangeKey]);
   const [heroHovered, setHeroHovered] = useState(false);
   const [expandedReportCards, setExpandedReportCards] = useState<string[]>([]);
   const [activePrimaryCard, setActivePrimaryCard] = useState<string | null>(null); // Track which primary card is active
@@ -1512,8 +1340,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     message: '',
     type: 'info',
   });
-  const [resumeNotice, setResumeNotice] = useState<{ message: string; startedAt: number } | null>(null);
-  const resumeNoticeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   // Test mode - only available in local development
   const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
   const [testMode, setTestMode] = useState(false);
@@ -1523,27 +1349,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   const handleBackToOverview = useCallback(() => {
     setActiveView('overview');
   }, []);
-
-  const clearResumeNoticeTimeout = useCallback(() => {
-    if (resumeNoticeTimeoutRef.current) {
-      clearTimeout(resumeNoticeTimeoutRef.current);
-      resumeNoticeTimeoutRef.current = null;
-    }
-  }, []);
-
-  const dismissResumeNotice = useCallback(() => {
-    clearResumeNoticeTimeout();
-    setResumeNotice(null);
-  }, [clearResumeNoticeTimeout]);
-
-  const showResumeNotice = useCallback((message: string) => {
-    clearResumeNoticeTimeout();
-    setResumeNotice({ message, startedAt: Date.now() });
-    resumeNoticeTimeoutRef.current = setTimeout(() => {
-      setResumeNotice(null);
-      resumeNoticeTimeoutRef.current = null;
-    }, 8000);
-  }, [clearResumeNoticeTimeout]);
 
   // Fetch Google Analytics data with time range
   const fetchGoogleAnalyticsData = useCallback(async (months: number, signal?: AbortSignal): Promise<GoogleAnalyticsData[]> => {
@@ -1645,11 +1450,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   const isFetchingRef = useRef<boolean>(isFetching);
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const preheatInFlightRef = useRef(false);
-  const lastStreamActivityRef = useRef<number>(Date.now());
-  const lastAutoResumeRef = useRef<number>(0);
-  const lastStreamingConfigRef = useRef<StreamingOverride | undefined>(undefined);
-  const streamingQueryParamsRef = useRef<Record<string, string>>(streamingRangeParams);
-  // PPC-specific Google Ads data (follows enquiries range)
+  // PPC-specific Google Ads data (24 months)
   const [ppcGoogleAdsData, setPpcGoogleAdsData] = useState<GoogleAdsData[] | null>(null);
   const [ppcLoading, setPpcLoading] = useState<boolean>(false);
   const [ppcGoogleAdsUpdatedAt, setPpcGoogleAdsUpdatedAt] = useState<number | null>(() => {
@@ -1691,6 +1492,35 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       toastTimeoutRef.current = timeout;
     }
   }, [clearToastTimeout, hideToast]);
+
+  const updatePoidDataFromReport = useCallback((value: React.SetStateAction<POID[] | null>) => {
+    let resolved: POID[] | null = null;
+    setDatasetData(prev => {
+      const previous = prev.poidData ?? null;
+      resolved = typeof value === 'function'
+        ? (value as (prevState: POID[] | null) => POID[] | null)(previous)
+        : value;
+      return { ...prev, poidData: resolved };
+    });
+
+    cachedData = { ...cachedData, poidData: resolved };
+
+    setDatasetStatus(prev => {
+      const status: DatasetStatusValue = Array.isArray(resolved) && resolved.length > 0
+        ? 'ready'
+        : resolved === null
+          ? 'idle'
+          : 'ready';
+      const updatedAt = status === 'ready' ? Date.now() : prev.poidData?.updatedAt ?? null;
+      return {
+        ...prev,
+        poidData: {
+          status,
+          updatedAt,
+        },
+      };
+    });
+  }, []);
 
   useEffect(() => () => {
     clearToastTimeout();
@@ -2086,11 +1916,14 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   }, [debouncedSetDatasetStatus]);
 
   // Prepare list of datasets to stream (stable identity across re-renders)
-  const streamableDatasets = useMemo<StreamingDatasetKey[]>(
-    () => GLOBAL_STREAM_DATASETS,
+  const streamableDatasets = useMemo(
+    () => {
+      const base = MANAGEMENT_DATASET_KEYS.filter(key => key !== 'annualLeave'); // Keep metaMetrics in streaming
+      // Ensure current-week WIP (Clio) and DB fallback are streamed so "This Week" metrics populate during streaming
+      return [...base, 'wipClioCurrentWeek' as unknown as DatasetKey, 'wipDbCurrentWeek' as unknown as DatasetKey];
+    },
     []
   );
-
 
   // Add streaming datasets hook
   const {
@@ -2105,28 +1938,11 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     entraId: propUserData?.[0]?.EntraID,
     bypassCache: false, // We'll control this via button
     autoStart: false,
-    queryParams: streamingRangeParams,
   });
-
-  const startStreamingWithMemo = useCallback((override?: StreamingOverride) => {
-    const mergedOverride: StreamingOverride = {
-      ...(override ?? {}),
-      queryParams: {
-        ...(streamingQueryParamsRef.current || {}),
-        ...(override?.queryParams ?? {}),
-      },
-    };
-    lastStreamingConfigRef.current = mergedOverride;
-    startStreaming(mergedOverride);
-  }, [startStreaming]);
 
   useEffect(() => {
     datasetStatusRef.current = datasetStatus;
   }, [datasetStatus]);
-
-  useEffect(() => {
-    streamingQueryParamsRef.current = streamingRangeParams;
-  }, [streamingRangeParams]);
 
   useEffect(() => {
     refreshStartedAtRef.current = refreshStartedAt;
@@ -2134,12 +1950,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
 
   useEffect(() => {
     isStreamingConnectedRef.current = isStreamingConnected;
-  }, [isStreamingConnected]);
-
-  useEffect(() => {
-    if (isStreamingConnected) {
-      lastStreamActivityRef.current = Date.now();
-    }
   }, [isStreamingConnected]);
 
   useEffect(() => {
@@ -2174,7 +1984,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
           setIsFetching(true);
           setRefreshStartedAt(Date.now());
           // Only restart streaming datasets, not non-streaming ones to prevent retriggering
-          startStreamingWithMemo();
+          startStreaming();
         } else if (snap && snap.isComplete === false) {
           // Clear stale incomplete session
           debugLog('ReportingHome: Clearing stale streaming session from', new Date(snap.ts).toLocaleTimeString());
@@ -2283,15 +2093,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     return () => clearInterval(timer);
   }, []);
 
-  useEffect(() => () => clearResumeNoticeTimeout(), [clearResumeNoticeTimeout]);
-
-  useEffect(() => {
-    if (!isFetching && resumeNotice) {
-      dismissResumeNotice();
-    }
-  }, [isFetching, resumeNotice, dismissResumeNotice]);
-
-  // Fetch Google Ads data for enquiries range when opening PPC report
+  // Fetch 24 months of Google Ads data when opening PPC report
   useEffect(() => {
     if (activeView !== 'ppcReport') {
       return undefined;
@@ -2308,7 +2110,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       googleAds: { status: 'loading', updatedAt: prev.googleAds?.updatedAt ?? null },
     }));
 
-    fetchGoogleAdsData(RANGE_MONTH_LOOKUP[enquiriesRangeKey], controller.signal)
+    fetchGoogleAdsData(24, controller.signal)
       .then((rows) => {
         if (cancelled || controller.signal.aborted || googleAdsRequestIdRef.current !== requestId) {
           return;
@@ -2367,7 +2169,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     return typeof statusTs === 'number' && Number.isFinite(statusTs) ? statusTs : null;
   }, [ppcGoogleAdsUpdatedAt, datasetStatus.googleAds?.updatedAt]);
 
-  // Fetch Google Analytics data for enquiries range when opening SEO report
+  // Fetch 24 months of Google Analytics data when opening SEO report
   useEffect(() => {
     if (activeView !== 'seoReport') {
       return undefined;
@@ -2383,7 +2185,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       googleAnalytics: { status: 'loading', updatedAt: prev.googleAnalytics?.updatedAt ?? null },
     }));
 
-    fetchGoogleAnalyticsData(RANGE_MONTH_LOOKUP[enquiriesRangeKey], controller.signal)
+    fetchGoogleAnalyticsData(24, controller.signal)
       .then((rows) => {
         if (cancelled || controller.signal.aborted || googleAnalyticsRequestIdRef.current !== requestId) {
           return;
@@ -2534,7 +2336,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');
-      throw new Error(`Annual leave fetch failed: ${response.status} ${response.statusText}${text ? ` â€“ ${text.slice(0, 160)}` : ''}`);
+      throw new Error(`Annual leave fetch failed: ${response.status} ${response.statusText}${text ? ` ÔÇô ${text.slice(0, 160)}` : ''}`);
     }
 
     let payload: unknown;
@@ -2565,13 +2367,12 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   }, [propUserData]);
 
   // Marketing metrics fetching function
-  const fetchMetaMetrics = useCallback(async (daysBack: number = DEFAULT_META_DAYS): Promise<MarketingMetrics[]> => {
+  const fetchMetaMetrics = useCallback(async (): Promise<MarketingMetrics[]> => {
     debugLog('ReportingHome: fetchMetaMetrics called');
     
     try {
-      const safeDays = Math.max(Math.floor(daysBack), 7);
       // Use our Express server route for live Facebook data with daily breakdown
-      const url = `/api/marketing-metrics?daysBack=${safeDays}`; // Request limited history to match UI window
+      const url = `/api/marketing-metrics?daysBack=30`; // Get last 30 days of daily data
       debugLog('ReportingHome: Fetching meta metrics from:', url);
       
       const response = await fetchWithRetry(url, {
@@ -2616,29 +2417,15 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   }, []);
 
   // Enhanced refresh function with streaming support and better throttling
-  const performStreamingRefresh = useCallback(async (forceRefresh: boolean, options?: RefreshOptions) => {
+  const performStreamingRefresh = useCallback(async (forceRefresh: boolean) => {
     // Prevent triggering if already actively loading
     if (isFetching && (isStreamingConnected || refreshStartedAt !== null)) {
       console.log('Refresh already in progress, skipping');
       return;
     }
-
-    const { rangeOverrides, scope = 'all', streamTargets, statusTargets } = options ?? {};
-    const streamingTargets = streamTargets ?? streamableDatasets;
-    const statusKeys = statusTargets ?? MANAGEMENT_DATASET_KEYS;
-    const effectiveEnquiriesKey = rangeOverrides?.enquiriesRangeKey ?? enquiriesRangeKey;
-    const effectiveMattersKey = rangeOverrides?.mattersRangeKey ?? mattersWipRangeKey;
-    const effectiveEnquiriesRange = computeRangeWindowByKey(effectiveEnquiriesKey);
-    const effectiveMattersRange = computeMattersRangeWindow(effectiveMattersKey);
-    const effectiveMetaDaysBack = computeMetaDaysBackForRange(effectiveEnquiriesKey);
-    const streamingRangeOverride = {
-      ...buildMattersRangeParams(effectiveMattersRange),
-      ...buildEnquiriesRangeParams(effectiveEnquiriesRange),
-      ...buildMetaRangeParams(effectiveEnquiriesKey),
-    };
     
     showToast({
-      message: forceRefresh ? 'Refreshing reporting data (full)' : 'Refreshing reporting dataâ€¦',
+      message: forceRefresh ? 'Refreshing reporting data (full)' : 'Refreshing reporting dataÔÇª',
       type: 'info',
       details: forceRefresh
         ? 'Requesting fresh data from every source'
@@ -2646,10 +2433,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       loading: true,
     });
 
-    debugLog('ReportingHome: refreshDatasetsWithStreaming called', {
-      forceRefresh,
-      overrides: rangeOverrides,
-    });
+    debugLog('ReportingHome: refreshDatasetsWithStreaming called', { forceRefresh });
     setHasFetchedOnce(true);
     setCacheState(true); // Persist the fetch state
     setIsFetching(true);
@@ -2659,7 +2443,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     // Initialize all dataset statuses to loading
     setDatasetStatus((prev) => {
       const next: DatasetStatus = { ...prev };
-      statusKeys.forEach((key) => {
+      MANAGEMENT_DATASET_KEYS.forEach((key) => {
         const previousMeta = prev[key];
         next[key] = { status: 'loading', updatedAt: previousMeta?.updatedAt ?? null };
       });
@@ -2667,13 +2451,9 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     });
 
     try {
-      console.log('ðŸŒŠ Starting streaming with datasets:', streamingTargets);
-      console.log('ðŸŒŠ EntraID for streaming:', propUserData?.[0]?.EntraID);
-      startStreamingWithMemo({
-        datasets: streamingTargets,
-        ...(forceRefresh ? { bypassCache: true } : {}),
-        queryParams: streamingRangeOverride,
-      });
+      console.log('­ƒîè Starting streaming with datasets:', streamableDatasets);
+      console.log('­ƒîè EntraID for streaming:', propUserData?.[0]?.EntraID);
+      startStreaming(forceRefresh ? { bypassCache: true } : undefined);
 
       const nowTs = Date.now();
       const thirtyMinutes = 30 * 60 * 1000; // Extended intervals for auxiliary data
@@ -2683,10 +2463,9 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       const lastGAds = datasetStatus.googleAds?.updatedAt ?? 0;
 
       const shouldFetchAnnualLeave = forceRefresh || !cachedData.annualLeave || (nowTs - lastAL) > thirtyMinutes;
-      const includeMarketingFeeds = scope === 'all';
-      const shouldFetchMeta = includeMarketingFeeds && (forceRefresh || !cachedData.metaMetrics || (nowTs - lastMeta) > thirtyMinutes);
-      const shouldFetchGA = includeMarketingFeeds && (forceRefresh || !cachedData.googleAnalytics || (nowTs - lastGA) > thirtyMinutes);
-      const shouldFetchGAds = includeMarketingFeeds && (forceRefresh || !cachedData.googleAds || (nowTs - lastGAds) > thirtyMinutes);
+      const shouldFetchMeta = forceRefresh || !cachedData.metaMetrics || (nowTs - lastMeta) > thirtyMinutes;
+      const shouldFetchGA = forceRefresh || !cachedData.googleAnalytics || (nowTs - lastGA) > thirtyMinutes;
+      const shouldFetchGAds = forceRefresh || !cachedData.googleAds || (nowTs - lastGAds) > thirtyMinutes;
 
       let annualLeaveData: AnnualLeaveRecord[] = cachedData.annualLeave || [];
       let metaMetricsData: MarketingMetrics[] = cachedData.metaMetrics || [];
@@ -2703,9 +2482,9 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
 
         const [annualLeaveResult, metaMetrics, gaData, gAdsData] = await Promise.all([
           shouldFetchAnnualLeave ? fetchAnnualLeaveDataset(forceRefresh) : Promise.resolve<AnnualLeaveFetchResult | null>(null),
-          shouldFetchMeta ? fetchMetaMetrics(effectiveMetaDaysBack) : Promise.resolve(metaMetricsData),
-          shouldFetchGA ? fetchGoogleAnalyticsData(RANGE_MONTH_LOOKUP[effectiveEnquiriesKey]) : Promise.resolve(googleAnalyticsData),
-          shouldFetchGAds ? fetchGoogleAdsData(RANGE_MONTH_LOOKUP[effectiveEnquiriesKey]) : Promise.resolve(googleAdsData),
+          shouldFetchMeta ? fetchMetaMetrics() : Promise.resolve(metaMetricsData),
+          shouldFetchGA ? fetchGoogleAnalyticsData(24) : Promise.resolve(googleAnalyticsData),
+          shouldFetchGAds ? fetchGoogleAdsData(24) : Promise.resolve(googleAdsData),
         ]);
 
         if (shouldFetchAnnualLeave && annualLeaveResult) {
@@ -2731,11 +2510,9 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       setDatasetData(prev => ({
         ...prev,
         annualLeave: annualLeaveData,
-        ...(includeMarketingFeeds && {
-          metaMetrics: metaMetricsData,
-          googleAnalytics: googleAnalyticsData,
-          googleAds: googleAdsData,
-        }),
+        metaMetrics: metaMetricsData,
+        googleAnalytics: googleAnalyticsData,
+        googleAds: googleAdsData,
         ...(refreshedTeamData && refreshedTeamData.length > 0 && (!prev.teamData || prev.teamData.length === 0)
           ? { teamData: refreshedTeamData }
           : {}),
@@ -2744,21 +2521,17 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       setDatasetStatus(prev => ({
         ...prev,
         annualLeave: { status: 'ready', updatedAt: shouldFetchAnnualLeave ? nowTs : (prev.annualLeave?.updatedAt ?? nowTs) },
-        ...(includeMarketingFeeds && {
-          metaMetrics: { status: 'ready', updatedAt: shouldFetchMeta ? nowTs : (prev.metaMetrics?.updatedAt ?? nowTs) },
-          googleAnalytics: { status: 'ready', updatedAt: shouldFetchGA ? nowTs : (prev.googleAnalytics?.updatedAt ?? nowTs) },
-          googleAds: { status: 'ready', updatedAt: shouldFetchGAds ? nowTs : (prev.googleAds?.updatedAt ?? nowTs) },
-        }),
+        metaMetrics: { status: 'ready', updatedAt: shouldFetchMeta ? nowTs : (prev.metaMetrics?.updatedAt ?? nowTs) },
+        googleAnalytics: { status: 'ready', updatedAt: shouldFetchGA ? nowTs : (prev.googleAnalytics?.updatedAt ?? nowTs) },
+        googleAds: { status: 'ready', updatedAt: shouldFetchGAds ? nowTs : (prev.googleAds?.updatedAt ?? nowTs) },
       }));
 
       cachedData = {
         ...cachedData,
         annualLeave: annualLeaveData,
-        ...(includeMarketingFeeds && {
-          metaMetrics: metaMetricsData,
-          googleAnalytics: googleAnalyticsData,
-          googleAds: googleAdsData,
-        }),
+        metaMetrics: metaMetricsData,
+        googleAnalytics: googleAnalyticsData,
+        googleAds: googleAdsData,
         ...(refreshedTeamData && refreshedTeamData.length > 0 ? { teamData: refreshedTeamData } : {}),
       };
       cachedTimestamp = nowTs;
@@ -2776,7 +2549,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     }
     // Note: Don't set isFetching(false) here - let the streaming completion handler do it
   }, [
-    startStreamingWithMemo,
+    startStreaming,
     fetchAnnualLeaveDataset,
     fetchMetaMetrics,
     streamableDatasets,
@@ -2785,10 +2558,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     isFetching,
     isStreamingConnected,
     refreshStartedAt,
-    enquiriesRangeKey,
-    mattersWipRangeKey,
-    datasetStatus,
-    propUserData,
     showToast,
   ]);
 
@@ -2872,7 +2641,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     }
     
     showToast({
-      message: 'Refreshing annual leave dataâ€¦',
+      message: 'Refreshing annual leave dataÔÇª',
       type: 'info',
       details: 'Pulling the latest leave records',
       loading: true,
@@ -2948,7 +2717,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     }
     
     showToast({
-      message: 'Refreshing Meta metricsâ€¦',
+      message: 'Refreshing Meta metricsÔÇª',
       type: 'info',
       details: 'Pulling the latest marketing performance figures',
       loading: true,
@@ -2959,7 +2728,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     setRefreshStartedAt(Date.now());
     setStatusesFor(['metaMetrics'], 'loading');
     try {
-      const metrics = await fetchMetaMetrics(metaDaysBack);
+      const metrics = await fetchMetaMetrics();
       setDatasetData(prev => ({ ...prev, metaMetrics: metrics }));
       const now = Date.now();
       setDatasetStatus(prev => ({ ...prev, metaMetrics: { status: 'ready', updatedAt: now } }));
@@ -2985,7 +2754,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       setIsFetching(false);
       setRefreshStartedAt(null);
     }
-  }, [fetchMetaMetrics, setStatusesFor, isFetching, datasetStatus.metaMetrics, showToast, metaDaysBack]);
+  }, [fetchMetaMetrics, setStatusesFor, isFetching, datasetStatus.metaMetrics, showToast]);
 
   const refreshGoogleAnalyticsOnly = useCallback(async () => {
     if (datasetStatus.googleAnalytics?.status === 'loading') {
@@ -3002,7 +2771,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     googleAnalyticsRequestIdRef.current = requestId;
 
     showToast({
-      message: 'Refreshing SEO analyticsâ€¦',
+      message: 'Refreshing SEO analyticsÔÇª',
       type: 'info',
       details: 'Fetching the latest GA4 metrics',
       loading: true,
@@ -3014,7 +2783,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     }));
 
     try {
-      const rows = await fetchGoogleAnalyticsData(RANGE_MONTH_LOOKUP[enquiriesRangeKey]);
+      const rows = await fetchGoogleAnalyticsData(24);
       if (googleAnalyticsRequestIdRef.current !== requestId) {
         return;
       }
@@ -3074,7 +2843,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     }
 
     showToast({
-      message: 'Refreshing PPC dataâ€¦',
+      message: 'Refreshing PPC dataÔÇª',
       type: 'info',
       details: 'Fetching the latest Google Ads performance',
       loading: true,
@@ -3086,7 +2855,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     }));
 
     try {
-      const rows = await fetchGoogleAdsData(RANGE_MONTH_LOOKUP[enquiriesRangeKey]);
+      const rows = await fetchGoogleAdsData(24);
       if (googleAdsRequestIdRef.current !== requestId) {
         return;
       }
@@ -3139,10 +2908,10 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     setError(null);
     setRefreshStartedAt(Date.now());
     // Only the datasets this report needs
-    const needed: DatasetKey[] = [...ENQUIRIES_RANGE_DATASETS, 'teamData'];
+    const needed: DatasetKey[] = ['enquiries', 'teamData'];
     setStatusesFor(needed, 'loading');
     showToast({
-      message: 'Starting enquiries refreshâ€¦',
+      message: 'Starting enquiries refreshÔÇª',
       type: 'info',
       details: 'Fetching latest enquiries and team data',
       loading: true,
@@ -3154,14 +2923,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     
     try {
       // Start streaming just the needed datasets
-      startStreamingWithMemo({
-        datasets: needed,
-        bypassCache: true,
-        queryParams: {
-          ...enquiriesRangeParams,
-          ...metaRangeParams,
-        },
-      });
+      startStreaming({ datasets: needed, bypassCache: true });
       
       // Refresh auxiliary non-streaming data in parallel with individual error handling
       const now = Date.now();
@@ -3187,6 +2949,18 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
         errors.push('Annual leave');
         console.error('Annual leave fetch failed (non-blocking):', annualLeaveError);
         setDatasetStatus(prev => ({ ...prev, annualLeave: { status: 'error', updatedAt: now } }));
+      }
+      
+      // Try to fetch meta metrics - non-blocking
+      try {
+        const meta = await fetchMetaMetrics();
+        setDatasetData(prev => ({ ...prev, metaMetrics: meta }));
+        setDatasetStatus(prev => ({ ...prev, metaMetrics: { status: 'ready', updatedAt: now } }));
+        cachedData = { ...cachedData, metaMetrics: meta };
+      } catch (metaError) {
+        errors.push('Meta metrics');
+        console.error('Meta metrics fetch failed (non-blocking):', metaError);
+        setDatasetStatus(prev => ({ ...prev, metaMetrics: { status: 'error', updatedAt: now } }));
       }
       
       cachedTimestamp = now;
@@ -3227,7 +3001,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
         }
       }
     }
-  }, [fetchAnnualLeaveDataset, enquiriesRangeParams, metaRangeParams, setStatusesFor, showToast, startStreamingWithMemo]);
+  }, [fetchAnnualLeaveDataset, fetchMetaMetrics, setStatusesFor, showToast, startStreaming]);
 
   const refreshMattersScoped = useCallback(async () => {
     setHasFetchedOnce(true);
@@ -3236,26 +3010,26 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     setError(null);
     setRefreshStartedAt(Date.now());
 
-    const datasetsToRefresh: DatasetKey[] = MATTERS_REPORT_REFRESH_DATASETS;
+    const datasetsToRefresh: DatasetKey[] = ['allMatters', 'poidData'];
     setStatusesFor(datasetsToRefresh, 'loading');
 
     showToast({
-      message: 'Starting matters refreshâ€¦',
+      message: 'Starting matters refreshÔÇª',
       type: 'info',
-      details: 'Fetching latest matters plus latest pitch and instruction data',
+      details: 'Fetching latest matters and ID submission data',
       loading: true,
       autoDismissMs: 2000,
     });
 
     try {
-      startStreamingWithMemo({ datasets: datasetsToRefresh, bypassCache: true });
+      startStreaming({ datasets: datasetsToRefresh, bypassCache: true });
       const now = Date.now();
       cachedTimestamp = now;
       updateRefreshTimestamp(now, setLastRefreshTimestamp);
       showToast({
         message: 'Matters refresh triggered',
         type: 'success',
-        details: 'Matters, WIP, recovered fees, pitches, and instructions will update as streaming completes.',
+        details: 'Matters data will update as streaming completes.',
         autoDismissMs: 5000,
       });
     } catch (error) {
@@ -3272,15 +3046,11 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       setIsFetching(false);
       setRefreshStartedAt(null);
     }
-  }, [setStatusesFor, showToast, startStreamingWithMemo]);
+  }, [setStatusesFor, showToast, startStreaming]);
 
   // Sync streaming dataset updates with local state
   useEffect(() => {
-    let sawActivity = false;
     Object.entries(streamingDatasets).forEach(([datasetName, datasetState]) => {
-      if (datasetState.status !== 'idle') {
-        sawActivity = true;
-      }
       if (datasetState.status === 'ready' && datasetState.data) {
         // Update dataset data (special-case WIP to always include current-week merge)
         if (datasetName === 'wip') {
@@ -3364,10 +3134,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
         }));
       }
     });
-
-    if (sawActivity) {
-      lastStreamActivityRef.current = Date.now();
-    }
   }, [streamingDatasets]);
 
   // Merge current-week WIP from streaming into historical WIP when streaming is used
@@ -3422,7 +3188,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
         return prev; // no change
       }
       // eslint-disable-next-line no-console
-      console.log('ðŸ”— Merged current-week activities into WIP (streaming):', {
+      console.log('­ƒöù Merged current-week activities into WIP (streaming):', {
         base: baseWip.length,
         added: merged.length - baseWip.length,
         total: merged.length,
@@ -3439,20 +3205,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
 
     const startedAt = refreshStartedAtRef.current;
     const hadActiveRefresh = isFetchingRef.current || startedAt !== null;
-    
-    debugLog('ReportingHome: Streaming completion handler triggered', {
-      isStreamingComplete,
-      hadActiveRefresh,
-      isFetchingRef: isFetchingRef.current,
-      refreshStartedAtRef: startedAt,
-    });
-    
     if (!hadActiveRefresh) {
-      // Edge case: streaming completed but no active refresh was tracked
-      // This can happen if the refs weren't updated properly, so force-clear the state anyway
-      debugWarn('ReportingHome: Streaming completed but no active refresh was tracked. Force-clearing state.');
-      setIsFetching(false);
-      setRefreshStartedAt(null);
       return;
     }
 
@@ -3461,6 +3214,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     setRefreshStartedAt(null);
     
     debugLog('ReportingHome: Streaming completed, clearing fetch state');
+    debugLog('ReportingHome: isStreamingConnected =', isStreamingConnected, 'isStreamingComplete =', isStreamingComplete);
 
     const duration = startedAt ? Date.now() - startedAt : 0;
     showToast({
@@ -3470,97 +3224,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       autoDismissMs: 5000,
     });
   }, [isStreamingComplete, isStreamingConnected, showToast]);
-
-  // Safety timeout: if streaming takes longer than 10 minutes, forcefully clear the loading state
-  // This prevents the UI from getting stuck in a loading state if something goes wrong
-  useEffect(() => {
-    if (!isFetching || !refreshStartedAt) {
-      return;
-    }
-
-    const timeout = setTimeout(() => {
-      const elapsed = Date.now() - refreshStartedAt;
-      const maxWait = 10 * 60 * 1000; // 10 minutes
-      
-      if (elapsed > maxWait) {
-        debugWarn('ReportingHome: Refresh timeout exceeded (10 minutes). Forcing clear of loading state.');
-        setIsFetching(false);
-        setRefreshStartedAt(null);
-        showToast({
-          message: 'Refresh timed out',
-          type: 'warning',
-          details: 'The refresh took longer than expected. Try again if data is not complete.',
-          autoDismissMs: 7000,
-        });
-      }
-    }, 60000); // Check every minute
-
-    return () => clearTimeout(timeout);
-  }, [isFetching, refreshStartedAt, showToast]);
-
-  // Attempt to resume streaming when the tab becomes visible again
-  useEffect(() => {
-    if (typeof document === 'undefined') {
-      return undefined;
-    }
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState !== 'visible') {
-        return;
-      }
-      if (!isFetching || isStreamingConnected) {
-        return;
-      }
-      const now = Date.now();
-      if (now - lastAutoResumeRef.current < 5000) {
-        return;
-      }
-      lastAutoResumeRef.current = now;
-      debugWarn('ReportingHome: Tab became visible while refresh stuck, auto-resuming stream');
-      const override = lastStreamingConfigRef.current;
-      startStreamingWithMemo(override);
-      showResumeNotice('We resumed the refresh after reconnecting to the data feeds. You can keep working while it finalises.');
-      showToast({
-        message: 'Refresh resumed',
-        type: 'info',
-        details: 'We picked up the in-progress refresh after you returned.',
-        autoDismissMs: 4500,
-      });
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [isFetching, isStreamingConnected, startStreamingWithMemo, showResumeNotice, showToast]);
-
-  // Watch for stalled streaming progress and auto-restart if needed
-  useEffect(() => {
-    if (!isFetching) {
-      return undefined;
-    }
-
-    const monitor = setInterval(() => {
-      if (isStreamingConnected) {
-        return;
-      }
-      const elapsed = Date.now() - lastStreamActivityRef.current;
-      const stallThresholdMs = 20000; // 20 seconds without activity triggers a restart
-      if (elapsed < stallThresholdMs) {
-        return;
-      }
-      const now = Date.now();
-      if (now - lastAutoResumeRef.current < 10000) {
-        return;
-      }
-      lastAutoResumeRef.current = now;
-      debugWarn('ReportingHome: Streaming stalled, attempting automatic restart', { elapsedMs: elapsed });
-      const override = lastStreamingConfigRef.current;
-      startStreamingWithMemo(override);
-    }, 5000);
-
-    return () => clearInterval(monitor);
-  }, [isFetching, isStreamingConnected, startStreamingWithMemo]);
 
   const refreshDatasets = useCallback(async () => {
     debugLog('ReportingHome: refreshDatasets called (delegating to streaming)');
@@ -3580,12 +3243,12 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
 
     if (!needsFreshData) {
       const cacheAgeSeconds = cacheState.lastCacheTime ? Math.round((now - cacheState.lastCacheTime) / 1000) : 0;
-      console.log(`âœ… Using cached data (${cacheAgeSeconds}s old, <30min) - instant load`);
+      console.log(`Ô£à Using cached data (${cacheAgeSeconds}s old, <30min) - instant load`);
       return;
     }
 
     if (preheatInFlightRef.current) {
-      console.log('ðŸ”„ Cache preheat already running, skipping duplicate preheat request');
+      console.log('­ƒöä Cache preheat already running, skipping duplicate preheat request');
       return;
     }
 
@@ -3593,13 +3256,13 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     if (lastPreheatTs && (now - lastPreheatTs) < CACHE_PREHEAT_INTERVAL) {
       const elapsedSeconds = Math.round((now - lastPreheatTs) / 1000);
       const remainingSeconds = Math.max(0, Math.round((CACHE_PREHEAT_INTERVAL - (now - lastPreheatTs)) / 1000));
-      console.log(`â³ Cache preheated ${elapsedSeconds}s ago, skipping background load (retry in ${remainingSeconds}s)`);
+      console.log(`ÔÅ¦ Cache preheated ${elapsedSeconds}s ago, skipping background load (retry in ${remainingSeconds}s)`);
       return;
     }
 
     const commonDatasets = ['teamData', 'userData', 'enquiries', 'allMatters'];
     const cacheAgeSeconds = cacheState.lastCacheTime ? Math.round((now - cacheState.lastCacheTime) / 1000) : null;
-    console.log(`ðŸ”„ Cache refresh needed: ${!hasFetchedOnce ? 'first load' : `cache age: ${cacheAgeSeconds}s (>30min)`}`);
+    console.log(`­ƒöä Cache refresh needed: ${!hasFetchedOnce ? 'first load' : `cache age: ${cacheAgeSeconds}s (>30min)`}`);
     debugLog('ReportingHome: Preloading common reporting datasets on tab access:', commonDatasets);
 
     preheatInFlightRef.current = true;
@@ -3658,7 +3321,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
 
     // Show immediate feedback
     showToast({
-      message: `Refreshing ${reportName} dataâ€¦`,
+      message: `Refreshing ${reportName} dataÔÇª`,
       type: 'info',
       details: `Updating ${datasets.length} dataset${datasets.length > 1 ? 's' : ''}`,
       loading: true,
@@ -3679,7 +3342,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
 
       // Start streaming for supported datasets
       if (supportedStreamingDatasets.length > 0) {
-        startStreamingWithMemo({ datasets: supportedStreamingDatasets, bypassCache: true });
+        startStreaming({ datasets: supportedStreamingDatasets, bypassCache: true });
       }
 
       // Handle special datasets individually
@@ -3692,17 +3355,17 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
             setDatasetStatus(prev => ({ ...prev, annualLeave: { status: 'ready', updatedAt: now } }));
             cachedData = { ...cachedData, annualLeave: result.records };
           } else if (datasetKey === 'metaMetrics') {
-            const metrics = await fetchMetaMetrics(metaDaysBack);
+            const metrics = await fetchMetaMetrics();
             setDatasetData(prev => ({ ...prev, metaMetrics: metrics }));
             setDatasetStatus(prev => ({ ...prev, metaMetrics: { status: 'ready', updatedAt: now } }));
             cachedData = { ...cachedData, metaMetrics: metrics };
           } else if (datasetKey === 'googleAnalytics') {
-            const data = await fetchGoogleAnalyticsData(RANGE_MONTH_LOOKUP[enquiriesRangeKey]);
+            const data = await fetchGoogleAnalyticsData(24);
             setDatasetData(prev => ({ ...prev, googleAnalytics: data }));
             setDatasetStatus(prev => ({ ...prev, googleAnalytics: { status: 'ready', updatedAt: now } }));
             cachedData = { ...cachedData, googleAnalytics: data };
           } else if (datasetKey === 'googleAds') {
-            const data = await fetchGoogleAdsData(RANGE_MONTH_LOOKUP[enquiriesRangeKey]);
+            const data = await fetchGoogleAdsData(24);
             setDatasetData(prev => ({ ...prev, googleAds: data }));
             setDatasetStatus(prev => ({ ...prev, googleAds: { status: 'ready', updatedAt: now } }));
             cachedData = { ...cachedData, googleAds: data };
@@ -3749,7 +3412,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       setIsFetching(false);
       setRefreshStartedAt(null);
     }
-  }, [datasetStatus, setStatusesFor, startStreamingWithMemo, fetchAnnualLeaveDataset, fetchMetaMetrics, fetchGoogleAnalyticsData, fetchGoogleAdsData, showToast, metaDaysBack]);
+  }, [datasetStatus, setStatusesFor, startStreaming, fetchAnnualLeaveDataset, fetchMetaMetrics, fetchGoogleAnalyticsData, fetchGoogleAdsData, showToast]);
 
   // More conservative auto-refresh logic to prevent excessive refreshing
   const handleOpenDashboard = useCallback(() => {
@@ -3871,7 +3534,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
           
           if (elapsedMs > timeoutMs) {
             const timeoutSec = Math.round(timeoutMs / 1000);
-            console.warn(`âš ï¸ Dataset ${summary.definition.key} stuck loading for ${Math.round(elapsedMs / 1000)}s (timeout: ${timeoutSec}s) - marking as error`);
+            console.warn(`ÔÜá´©Å Dataset ${summary.definition.key} stuck loading for ${Math.round(elapsedMs / 1000)}s (timeout: ${timeoutSec}s) - marking as error`);
             setDatasetStatus(prev => ({
               ...prev,
               [summary.definition.key]: {
@@ -3900,7 +3563,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       return null;
     }
     const phase = REFRESH_PHASES.find((candidate) => refreshElapsedMs < candidate.thresholdMs);
-    return phase?.label ?? 'Finalising reporting dataâ€¦';
+    return phase?.label ?? 'Finalising reporting dataÔÇª';
   }, [isFetching, refreshElapsedMs, refreshStartedAt]);
 
   useEffect(() => {
@@ -3917,7 +3580,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
         if (refreshPhaseLabel) {
           parts.push(refreshPhaseLabel);
         }
-        nextDetails = parts.join(' â€¢ ');
+        nextDetails = parts.join(' ÔÇó ');
       }
 
       if (!nextDetails || nextDetails === prev.details) {
@@ -4070,39 +3733,31 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     }
   };
 
-  const isDatasetStreamingReady = useCallback((key: DatasetKey) => {
-    const streamState = streamingDatasets[key];
-    if (!streamState) {
-      return true;
-    }
-    return streamState.status === 'ready';
-  }, [streamingDatasets]);
-
-  const isReportLoading = useCallback((reportKey: string) => {
-    const required = REPORT_DATASET_REQUIREMENTS[reportKey] ?? [];
-    if (required.length === 0) {
-      return false;
-    }
-    const waitingOnDataset = required.some((datasetKey) => datasetStatus[datasetKey]?.status === 'loading');
-    const waitingOnStream = isFetching && required.some((datasetKey) => !isDatasetStreamingReady(datasetKey));
-    return waitingOnDataset || waitingOnStream;
-  }, [datasetStatus, isDatasetStreamingReady, isFetching]);
-
   // Individual report loading states based on their specific data dependencies
   // Enhanced report loading states with progress tracking
   const reportLoadingStates = useMemo(() => {
     return {
-      dashboard: isReportLoading('dashboard'),
+      dashboard: isFetching && (!streamingDatasets.userData || streamingDatasets.userData.status !== 'ready' || 
+                               !streamingDatasets.teamData || streamingDatasets.teamData.status !== 'ready' ||
+                               !streamingDatasets.allMatters || streamingDatasets.allMatters.status !== 'ready'),
       annualLeave: datasetStatus.annualLeave?.status === 'loading',
-      enquiries: isReportLoading('enquiries'),
-      matters: isReportLoading('matters'),
-      metaMetrics: isReportLoading('metaMetrics'),
+      enquiries: datasetStatus.enquiries?.status === 'loading' || (isFetching && (!streamingDatasets.enquiries || streamingDatasets.enquiries.status !== 'ready')),
+      matters: datasetStatus.allMatters?.status === 'loading' || datasetStatus.poidData?.status === 'loading' ||
+        (isFetching && (
+          !streamingDatasets.allMatters || streamingDatasets.allMatters.status !== 'ready' ||
+          !streamingDatasets.poidData || streamingDatasets.poidData.status !== 'ready'
+        )),
+      metaMetrics: datasetStatus.metaMetrics?.status === 'loading',
       seoReport: datasetStatus.googleAnalytics?.status === 'loading',
       ppcReport: datasetStatus.googleAds?.status === 'loading' || ppcLoading,
     };
   }, [
-    isReportLoading,
+    isFetching,
+    streamingDatasets,
     datasetStatus.annualLeave?.status,
+    datasetStatus.enquiries?.status,
+    datasetStatus.allMatters?.status,
+    datasetStatus.poidData?.status,
     datasetStatus.metaMetrics?.status,
     datasetStatus.googleAnalytics?.status,
     datasetStatus.googleAds?.status,
@@ -4130,6 +3785,27 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   }, [datasetStatus]);
 
   // Helper function to get date range for datasets
+  const getDatasetDateRange = useCallback((datasetKey: DatasetKey): string => {
+    // For most datasets, show a general range based on typical data freshness
+    const dateRanges: Record<DatasetKey, string> = {
+      userData: 'Current',
+      teamData: 'Current', 
+      enquiries: 'Last 24 months',
+      allMatters: 'Last 24 months',
+      wip: 'Active matters',
+      recoveredFees: 'Last 12 months',
+      poidData: 'Last 24 months',
+      annualLeave: 'Current year',
+      metaMetrics: 'Last 90 days',
+      googleAnalytics: 'Last 24 months',
+      googleAds: 'Last 24 months', 
+      deals: 'Last 12 months',
+      instructions: 'Last 12 months',
+    };
+    
+    return dateRanges[datasetKey] || '';
+  }, []);
+
   // Helper function to determine button state based on dataset statuses
   const getButtonState = useCallback((requiredDatasets: DatasetKey[]): ButtonState => {
     if (requiredDatasets.length === 0) return 'ready'; // No dependencies = always ready
@@ -4153,12 +3829,12 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   // Memoize progress detail text to prevent string concatenation on every render
   const progressDetailText = useMemo(() => {
     if (refreshStartedAt && !isStreamingConnected) {
-      return `Elapsed ${formatDurationMs(refreshElapsedMs)}${refreshPhaseLabel ? ` â€¢ ${refreshPhaseLabel}` : ''}`;
+      return `Elapsed ${formatDurationMs(refreshElapsedMs)}${refreshPhaseLabel ? ` ÔÇó ${refreshPhaseLabel}` : ''}`;
     }
     if (isStreamingConnected) {
-      return `Elapsed ${formatDurationMs(refreshElapsedMs)} â€¢ Progress: ${Math.round(streamingProgress.percentage)}% â€¢ Redis caching active`;
+      return `Elapsed ${formatDurationMs(refreshElapsedMs)} ÔÇó Progress: ${Math.round(streamingProgress.percentage)}% ÔÇó Redis caching active`;
     }
-    return 'Preparing data sourcesâ€¦';
+    return 'Preparing data sourcesÔÇª';
   }, [refreshStartedAt, isStreamingConnected, refreshElapsedMs, refreshPhaseLabel, streamingProgress.percentage]);
 
   // Memoize hero subtitle to prevent frequent updates
@@ -4174,7 +3850,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
 
   // Memoize hero meta items to prevent array recreation on every render
   const heroMetaItems = useMemo(() => [
-    `${formattedDate} â€¢ ${formattedTime}`,
+    `${formattedDate} ÔÇó ${formattedTime}`,
     heroSubtitle,
     `${readyCount}/${datasetSummaries.length} data feeds`,
   ], [formattedDate, formattedTime, heroSubtitle, readyCount, datasetSummaries.length]);
@@ -4198,8 +3874,31 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
         return null;
       })
       .filter((value): value is string => Boolean(value));
-    return initials.length > 0 ? initials.join(' â€¢ ') : null;
+    return initials.length > 0 ? initials.join(' ÔÇó ') : null;
   }, [datasetData.userData]);
+
+  const reportCards = useMemo<ReportCard[]>(() => {
+    return AVAILABLE_REPORTS.map((report) => {
+      const dependencies = report.requiredDatasets.map<ReportDependency>((datasetKey) => {
+        const dataset = DATASETS.find((definition) => definition.key === datasetKey);
+        const status = datasetStatus[datasetKey]?.status ?? 'idle';
+        return {
+          key: datasetKey,
+          name: dataset?.name ?? datasetKey,
+          status,
+          range: getDatasetDateRange(datasetKey),
+        };
+      });
+
+      return {
+        ...report,
+        readiness: getButtonState(report.requiredDatasets),
+        dependencies,
+        readyDependencies: dependencies.filter((dependency) => dependency.status === 'ready').length,
+        totalDependencies: dependencies.length,
+      };
+    });
+  }, [datasetStatus, getDatasetDateRange, getButtonState]);
 
   const renderAvailableReportCards = () => {
     // Separate primary reports from secondary ones
@@ -4264,7 +3963,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
             return readyLabel;
           }
           if (visualState === 'warming') {
-            return 'Refreshingâ€¦';
+            return 'RefreshingÔÇª';
           }
           return 'Refresh data to unlock';
         };
@@ -4435,8 +4134,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                             </span>
                           </span>
                         ) : (
-                          visualState === 'disabled' ? (report.status || stateTokens.label) : 
-                          (stateTokens.label === 'Not loaded' ? `Ready (${describeRangeKey(enquiriesRangeKey)})` : stateTokens.label)
+                          visualState === 'disabled' ? (report.status || stateTokens.label) : stateTokens.label
                         )}
                         
                         {/* Progress bar overlay */}
@@ -4603,11 +4301,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                             >
                               <span style={dependencyDotStyle(dotColour)} />
                               <span style={{ fontWeight: 600 }}>{dependency.name}</span>
-                              <span style={{ fontSize: 10, opacity: 0.7 }}>
-                                {palette.label === 'Not loaded'
-                                  ? dependency.range || describeRangeKey(enquiriesRangeKey)
-                                  : palette.label}
-                              </span>
+                              <span style={{ fontSize: 10, opacity: 0.7 }}>{palette.label}</span>
                             </span>
                           );
                         })}
@@ -4621,129 +4315,49 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
 
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
                     {report.action === 'dashboard' && (
-                      <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                        {!managementRangeIsRefreshing && (
-                          <div
-                            style={{
-                              width: '100%',
-                              borderRadius: 12,
-                              padding: 12,
-                              background: isDarkMode ? 'rgba(15, 23, 42, 0.6)' : 'rgba(241, 248, 255, 0.9)',
-                              border: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.25)' : 'rgba(96, 165, 250, 0.4)'}`,
-                            }}
-                          >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                              <div style={{ fontSize: 13, fontWeight: 600 }}>Management data window</div>
-                              <div style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? '#e2e8f0' : '#0f172a' }}>
-                                {managementRangeIsRefreshing
-                                  ? 'Refreshingâ€¦'
-                                  : managementSliderHasPendingChange
-                                    ? `Pending: ${describeRangeKey(pendingEnquiriesRangeKey)}`
-                                    : `Active: ${describeRangeKey(enquiriesRangeKey)}`}
-                              </div>
-                            </div>
-                            <Slider
-                              min={0}
-                              max={REPORT_RANGE_OPTIONS.length - 1}
-                              step={1}
-                              value={managementSliderValue}
-                              onChange={handleManagementSliderValueChange}
-                              showValue={false}
-                              styles={{
-                                root: { margin: '8px 4px' },
-                                activeSection: { background: colours.highlight },
-                                thumb: { borderColor: colours.highlight },
-                              }}
-                            />
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
-                              {REPORT_RANGE_OPTIONS.map((option, index) => (
-                                <span
-                                  key={`${report.key}-mgmt-${option.key}`}
-                                  style={{
-                                    fontSize: 10,
-                                    fontWeight: index === managementSliderValue ? 700 : 500,
-                                    color: index === managementSliderValue
-                                      ? colours.highlight
-                                      : (isDarkMode ? '#94a3b8' : '#64748b'),
-                                    transition: 'color 0.2s ease',
-                                  }}
-                                >
-                                  {option.label}
-                                </span>
-                              ))}
-                            </div>
-                            {managementSliderHasPendingChange && (
-                              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
-                                <DefaultButton
-                                  text={`Apply ${describeRangeKey(pendingEnquiriesRangeKey)}`}
-                                  onClick={handleApplyManagementRange}
-                                  styles={subtleButtonStyles(isDarkMode)}
-                                  disabled={managementRangeIsRefreshing}
-                                  iconProps={{ iconName: 'Play' }}
-                                />
-                              </div>
-                            )}
-                            {managementSliderHasPendingChange && (
-                              <div
-                                style={{
-                                  marginTop: 8,
-                                  padding: 8,
-                                  background: 'rgba(191, 219, 254, 0.35)',
-                                  borderRadius: 6,
-                                  fontSize: 12,
-                                  color: isDarkMode ? '#e2e8f0' : '#475569',
+                      <>
+                        <PrimaryButton
+                          text={resolvePrimaryButtonLabel('Open dashboard')}
+                          onClick={() => {
+                            if (isReportReady) handleOpenDashboard();
+                          }}
+                          styles={isReportReady
+                            ? primaryButtonStyles(isDarkMode)
+                            : {
+                                root: {
+                                  borderRadius: 8,
+                                  padding: '0 16px',
+                                  height: 34,
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                  color: isDarkMode ? '#94a3b8' : '#64748b',
+                                  border: `1px solid ${colours.highlight}`,
                                   fontWeight: 500,
-                                }}
-                              >
-                                Refreshes management dashboard datasets only
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                          <PrimaryButton
-                            text={resolvePrimaryButtonLabel('Open dashboard')}
-                            onClick={() => {
-                              if (isReportReady) handleOpenDashboard();
-                            }}
-                            styles={isReportReady
-                              ? primaryButtonStyles(isDarkMode)
-                              : {
-                                  root: {
-                                    borderRadius: 8,
-                                    padding: '0 16px',
-                                    height: 34,
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
-                                    color: isDarkMode ? '#94a3b8' : '#64748b',
-                                    border: `1px solid ${colours.highlight}`,
-                                    fontWeight: 500,
-                                    boxShadow: 'none',
-                                    transition: 'all 0.2s ease',
-                                    fontFamily: 'Raleway, sans-serif',
-                                  },
-                                  rootHovered: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
-                                  },
-                                  rootPressed: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
-                                  },
-                                  rootDisabled: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
-                                    color: isDarkMode ? '#94a3b8' : '#64748b',
-                                    border: `1px solid ${colours.highlight}`,
-                                  },
-                                }}
-                            disabled={!isReportReady}
-                          />
-                          <DefaultButton
-                            text="Refresh All Datasets"
-                            onClick={refreshDatasetsWithStreaming}
-                            styles={subtleButtonStyles(isDarkMode)}
-                            disabled={reportLoadingStates.dashboard}
-                            iconProps={{ iconName: 'Refresh' }}
-                          />
-                        </div>
-                      </div>
+                                  boxShadow: 'none',
+                                  transition: 'all 0.2s ease',
+                                  fontFamily: 'Raleway, sans-serif',
+                                },
+                                rootHovered: {
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
+                                },
+                                rootPressed: {
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
+                                },
+                                rootDisabled: {
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                  color: isDarkMode ? '#94a3b8' : '#64748b',
+                                  border: `1px solid ${colours.highlight}`,
+                                },
+                              }}
+                          disabled={!isReportReady}
+                        />
+                        <DefaultButton
+                          text="Refresh All Datasets"
+                          onClick={refreshDatasetsWithStreaming}
+                          styles={subtleButtonStyles(isDarkMode)}
+                          disabled={reportLoadingStates.dashboard}
+                          iconProps={{ iconName: 'Refresh' }}
+                        />
+                      </>
                     )}
                     {report.action === 'annualLeave' && (
                       <>
@@ -4791,255 +4405,94 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                       </>
                     )}
                     {report.action === 'matters' && (
-                      <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                        {!isActivelyLoading && (
-                        <div
-                          style={{
-                            width: '100%',
-                            borderRadius: 12,
-                            padding: 12,
-                            background: isDarkMode ? 'rgba(15, 23, 42, 0.6)' : 'rgba(241, 248, 255, 0.9)',
-                            border: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.25)' : 'rgba(96, 165, 250, 0.4)'}`,
+                      <>
+                        <PrimaryButton
+                          text={resolvePrimaryButtonLabel('Open matters report')}
+                          onClick={() => {
+                            if ((!report.disabled || testMode) && isReportReady) navigateToReport('matters');
                           }}
-                        >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                            <div style={{ fontSize: 13, fontWeight: 600 }}>Matters data window</div>
-                            <div style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? '#e2e8f0' : '#0f172a' }}>
-                              {wipRangeIsRefreshing
-                                ? 'Refreshingâ€¦'
-                                : sliderHasPendingChange
-                                  ? `Pending: ${describeMattersRange(pendingMattersRangeKey)}`
-                                  : `Active: ${describeMattersRange(mattersWipRangeKey)}`}
-                            </div>
-                          </div>
-                          <Slider
-                            min={0}
-                            max={MATTERS_WIP_RANGE_OPTIONS.length - 1}
-                            step={1}
-                            value={mattersRangeSliderValue}
-                            onChange={handleMattersSliderValueChange}
-                            showValue={false}
-                            disabled={report.disabled && !testMode}
-                            styles={{
-                              root: { margin: '8px 4px' },
-                              activeSection: { background: colours.highlight },
-                              thumb: { borderColor: colours.highlight },
-                            }}
-                          />
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
-                            {MATTERS_WIP_RANGE_OPTIONS.map((option, index) => (
-                              <span
-                                key={option.key}
-                                style={{
-                                  fontSize: 10,
-                                  fontWeight: index === mattersRangeSliderValue ? 700 : 500,
-                                  color: index === mattersRangeSliderValue
-                                    ? colours.highlight
-                                    : (isDarkMode ? '#94a3b8' : '#64748b'),
-                                  transition: 'color 0.2s ease',
-                                }}
-                              >
-                                {option.label}
-                              </span>
-                            ))}
-                          </div>
-                          {sliderHasPendingChange && (
-                            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
-                              <DefaultButton
-                                text={`Apply ${describeMattersRange(pendingMattersRangeKey)}`}
-                                onClick={handleApplyPendingMattersRange}
-                                styles={subtleButtonStyles(isDarkMode)}
-                                disabled={wipRangeIsRefreshing || (report.disabled && !testMode)}
-                                iconProps={{ iconName: 'Play' }}
-                              />
-                            </div>
-                          )}
-                          {sliderHasPendingChange && (
-                            <div style={{ 
-                              marginTop: 8, 
-                              padding: 8, 
-                              background: 'rgba(191, 219, 254, 0.35)',
-                              borderRadius: 6,
-                              fontSize: 12,
-                              color: isDarkMode ? '#e2e8f0' : '#475569',
-                              fontWeight: 500
-                            }}>
-                              Will cover: {describeMattersRange(pendingMattersRangeKey)}
-                            </div>
-                          )}
-                        </div>
-                        )}
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                          <PrimaryButton
-                            text={resolvePrimaryButtonLabel('Open matters report')}
-                            onClick={() => {
-                              if ((!report.disabled || testMode) && isReportReady) navigateToReport('matters');
-                            }}
-                            styles={isReportReady && (!report.disabled || testMode)
-                              ? primaryButtonStyles(isDarkMode)
-                              : {
-                                  root: {
-                                    borderRadius: 8,
-                                    padding: '0 16px',
-                                    height: 34,
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
-                                    color: isDarkMode ? '#94a3b8' : '#64748b',
-                                    border: `1px solid ${colours.highlight}`,
-                                    fontWeight: 500,
-                                    boxShadow: 'none',
-                                    transition: 'all 0.2s ease',
-                                    fontFamily: 'Raleway, sans-serif',
-                                  },
-                                  rootHovered: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
-                                  },
-                                  rootPressed: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
-                                  },
-                                  rootDisabled: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
-                                    color: isDarkMode ? '#94a3b8' : '#64748b',
-                                    border: `1px solid ${colours.highlight}`,
-                                  },
-                                }}
-                            disabled={!isReportReady || (report.disabled && !testMode)}
-                          />
-                          <DefaultButton
-                            text="Refresh"
-                            onClick={refreshMattersScoped}
-                            styles={subtleButtonStyles(isDarkMode)}
-                            disabled={reportLoadingStates.matters || (report.disabled && !testMode)}
-                            iconProps={{ iconName: 'Refresh' }}
-                          />
-                        </div>
-                      </div>
+                          styles={isReportReady && (!report.disabled || testMode)
+                            ? primaryButtonStyles(isDarkMode)
+                            : {
+                                root: {
+                                  borderRadius: 8,
+                                  padding: '0 16px',
+                                  height: 34,
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                  color: isDarkMode ? '#94a3b8' : '#64748b',
+                                  border: `1px solid ${colours.highlight}`,
+                                  fontWeight: 500,
+                                  boxShadow: 'none',
+                                  transition: 'all 0.2s ease',
+                                  fontFamily: 'Raleway, sans-serif',
+                                },
+                                rootHovered: {
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
+                                },
+                                rootPressed: {
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
+                                },
+                                rootDisabled: {
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                  color: isDarkMode ? '#94a3b8' : '#64748b',
+                                  border: `1px solid ${colours.highlight}`,
+                                },
+                              }}
+                          disabled={!isReportReady || (report.disabled && !testMode)}
+                        />
+                        <DefaultButton
+                          text="Refresh"
+                          onClick={refreshMattersScoped}
+                          styles={subtleButtonStyles(isDarkMode)}
+                          disabled={reportLoadingStates.matters || (report.disabled && !testMode)}
+                          iconProps={{ iconName: 'Refresh' }}
+                        />
+                      </>
                     )}
                     {report.action === 'enquiries' && (
-                      <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                        {!isActivelyLoading && (
-                        <div
-                          style={{
-                            width: '100%',
-                            borderRadius: 12,
-                            padding: 12,
-                            background: isDarkMode ? 'rgba(15, 23, 42, 0.6)' : 'rgba(241, 248, 255, 0.9)',
-                            border: `1px solid ${isDarkMode ? 'rgba(129, 140, 248, 0.25)' : 'rgba(96, 165, 250, 0.4)'}`,
+                      <>
+                        <PrimaryButton
+                          text={resolvePrimaryButtonLabel('Open enquiries report')}
+                          onClick={() => {
+                            if (isReportReady) navigateToReport('enquiries');
                           }}
-                        >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <div style={{ fontSize: 13, fontWeight: 600 }}>Enquiries & marketing window</div>
-                            </div>
-                            <div style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? '#e2e8f0' : '#0f172a' }}>
-                              {enquiriesRangeIsRefreshing
-                                ? 'Refreshingâ€¦'
-                                : enquiriesSliderHasPendingChange
-                                  ? `Pending: ${describeRangeKey(pendingEnquiriesRangeKey)}`
-                                  : `Active: ${describeRangeKey(enquiriesRangeKey)}`}
-                            </div>
-                          </div>
-                          <Slider
-                            min={0}
-                            max={REPORT_RANGE_OPTIONS.length - 1}
-                            step={1}
-                            value={enquiriesRangeSliderValue}
-                            onChange={handleEnquiriesSliderValueChange}
-                            showValue={false}
-                            disabled={report.disabled && !testMode}
-                            styles={{
-                              root: { margin: '8px 4px' },
-                              activeSection: { background: colours.highlight },
-                              thumb: { borderColor: colours.highlight },
-                            }}
-                          />
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
-                            {REPORT_RANGE_OPTIONS.map((option, index) => (
-                              <span
-                                key={option.key}
-                                style={{
-                                  fontSize: 10,
-                                  fontWeight: index === enquiriesRangeSliderValue ? 700 : 500,
-                                  color: index === enquiriesRangeSliderValue
-                                    ? colours.highlight
-                                    : (isDarkMode ? '#94a3b8' : '#64748b'),
-                                  transition: 'color 0.2s ease',
-                                }}
-                              >
-                                {option.label}
-                              </span>
-                            ))}
-                          </div>
-
-                          {enquiriesSliderHasPendingChange && (
-                            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
-                              <DefaultButton
-                                text={`Apply ${describeRangeKey(pendingEnquiriesRangeKey)}`}
-                                onClick={handleApplyPendingEnquiriesRange}
-                                styles={subtleButtonStyles(isDarkMode)}
-                                disabled={enquiriesRangeIsRefreshing || (report.disabled && !testMode)}
-                                iconProps={{ iconName: 'Play' }}
-                              />
-                            </div>
-                          )}
-                          {enquiriesSliderHasPendingChange && (
-                            <div style={{ 
-                              marginTop: 8, 
-                              padding: 8, 
-                              background: 'rgba(191, 219, 254, 0.35)',
-                              borderRadius: 6,
-                              fontSize: 12,
-                              color: isDarkMode ? '#e2e8f0' : '#475569',
-                              fontWeight: 500
-                            }}>
-                              Will cover: {describeRangeKey(pendingEnquiriesRangeKey)}
-                            </div>
-                          )}
-                        </div>
-                        )}
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                          <PrimaryButton
-                            text={resolvePrimaryButtonLabel('Open enquiries report')}
-                            onClick={() => {
-                              if (isReportReady) navigateToReport('enquiries');
-                            }}
-                            styles={isReportReady
-                              ? primaryButtonStyles(isDarkMode)
-                              : {
-                                  root: {
-                                    borderRadius: 8,
-                                    padding: '0 16px',
-                                    height: 34,
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
-                                    color: isDarkMode ? '#94a3b8' : '#64748b',
-                                    border: `1px solid ${colours.highlight}`,
-                                    fontWeight: 500,
-                                    boxShadow: 'none',
-                                    transition: 'all 0.2s ease',
-                                    fontFamily: 'Raleway, sans-serif',
-                                  },
-                                  rootHovered: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
-                                  },
-                                  rootPressed: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
-                                  },
-                                  rootDisabled: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
-                                    color: isDarkMode ? '#94a3b8' : '#64748b',
-                                    border: `1px solid ${colours.highlight}`,
-                                  },
-                                }}
-                            disabled={!isReportReady}
-                          />
-                          <DefaultButton
-                            text="Refresh enquiries data"
-                            onClick={refreshEnquiriesScoped}
-                            styles={subtleButtonStyles(isDarkMode)}
-                            disabled={reportLoadingStates.enquiries}
-                            iconProps={{ iconName: 'Refresh' }}
-                          />
-                        </div>
-                      </div>
+                          styles={isReportReady
+                            ? primaryButtonStyles(isDarkMode)
+                            : {
+                                root: {
+                                  borderRadius: 8,
+                                  padding: '0 16px',
+                                  height: 34,
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                  color: isDarkMode ? '#94a3b8' : '#64748b',
+                                  border: `1px solid ${colours.highlight}`,
+                                  fontWeight: 500,
+                                  boxShadow: 'none',
+                                  transition: 'all 0.2s ease',
+                                  fontFamily: 'Raleway, sans-serif',
+                                },
+                                rootHovered: {
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
+                                },
+                                rootPressed: {
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
+                                },
+                                rootDisabled: {
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                  color: isDarkMode ? '#94a3b8' : '#64748b',
+                                  border: `1px solid ${colours.highlight}`,
+                                },
+                              }}
+                          disabled={!isReportReady}
+                        />
+                        <DefaultButton
+                          text="Refresh"
+                          onClick={refreshEnquiriesScoped}
+                          styles={subtleButtonStyles(isDarkMode)}
+                          disabled={reportLoadingStates.enquiries}
+                          iconProps={{ iconName: 'Refresh' }}
+                        />
+                      </>
                     )}
                     {report.action === 'metaMetrics' && (
                       <>
@@ -5123,7 +4576,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                           disabled={(report.disabled && !testMode) || !isReportReady}
                         />
                         <DefaultButton
-                          text={reportLoadingStates.seoReport ? 'Refreshingâ€¦' : 'Refresh'}
+                          text={reportLoadingStates.seoReport ? 'RefreshingÔÇª' : 'Refresh'}
                           onClick={refreshGoogleAnalyticsOnly}
                           styles={subtleButtonStyles(isDarkMode)}
                           disabled={reportLoadingStates.seoReport}
@@ -5168,7 +4621,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                           disabled={(report.disabled && !testMode) || !isReportReady}
                         />
                         <DefaultButton
-                          text={reportLoadingStates.ppcReport ? 'Refreshingâ€¦' : 'Refresh'}
+                          text={reportLoadingStates.ppcReport ? 'RefreshingÔÇª' : 'Refresh'}
                           onClick={refreshGoogleAdsOnly}
                           styles={subtleButtonStyles(isDarkMode)}
                           disabled={report.disabled || reportLoadingStates.ppcReport}
@@ -5197,335 +4650,17 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     setActiveView('dashboard');
   }, [canUseReports, setActiveView, showToast]);
 
-  const handleEnquiriesRangeChange = useCallback((nextKey: ReportRangeKey) => {
-    if (nextKey === enquiriesRangeKey) {
-      return;
-    }
-    const nextRangeWindow = computeRangeWindowByKey(nextKey);
-    setEnquiriesRangeKey(nextKey);
-    setPendingEnquiriesRangeKey(nextKey);
-    setStatusesFor(ENQUIRIES_RANGE_DATASETS, 'loading');
-    setIsFetching(true);
-    setRefreshStartedAt(Date.now());
-    const nextQueryParams = {
-      ...buildEnquiriesRangeParams(nextRangeWindow),
-      ...buildMetaRangeParams(nextKey),
-    };
-    startStreamingWithMemo({
-      datasets: ENQUIRIES_RANGE_DATASETS,
-      bypassCache: true,
-      queryParams: nextQueryParams,
-    });
-    showToast({
-      message: 'Updating enquiries datasetsâ€¦',
-      type: 'info',
-      details: `Range: ${describeRangeKey(nextKey)}`,
-      loading: true,
-    });
-  }, [
-    enquiriesRangeKey,
-    setStatusesFor,
-    showToast,
-    startStreamingWithMemo,
-    setIsFetching,
-    setRefreshStartedAt,
-  ]);
-
-  const handleMattersWipRangeChange = useCallback((nextKey: string) => {
-    const isValidKey = MATTERS_WIP_RANGE_OPTIONS.some((option) => option.key === nextKey);
-    if (!isValidKey) {
-      console.warn('Matters WIP range change ignored for unknown key', nextKey);
-      return;
-    }
-    const typedKey = nextKey as MattersWipRangeKey;
-    if (typedKey === mattersWipRangeKey) {
-      return;
-    }
-    const nextRange = computeMattersRangeWindow(typedKey);
-    setMattersWipRangeKey(typedKey);
-    setPendingMattersRangeKey(typedKey);
-    setStatusesFor(MATTERS_REPORT_REFRESH_DATASETS, 'loading');
-    setIsFetching(true);
-    setRefreshStartedAt(Date.now());
-    const nextQueryParams = buildMattersRangeParams(nextRange);
-    startStreamingWithMemo({
-      datasets: MATTERS_REPORT_REFRESH_DATASETS,
-      bypassCache: true,
-      queryParams: nextQueryParams,
-    });
-    showToast({
-      message: 'Updating matters datasetsâ€¦',
-      type: 'info',
-      details: `Range: ${describeMattersRange(typedKey)}`,
-      loading: true,
-    });
-  }, [
-    mattersWipRangeKey,
-    setPendingMattersRangeKey,
-    setStatusesFor,
-    showToast,
-    startStreamingWithMemo,
-    setIsFetching,
-    setRefreshStartedAt,
-  ]);
-
   const heroDescriptionCopy = 'Access management dashboards, marketing insights, and enquiries reporting with real-time data feeds.';
-
-  const wipRangeIsRefreshing = useMemo(
-    () => MATTERS_RANGE_DATASETS.some((key) => streamingDatasets[key]?.status === 'loading'),
-    [streamingDatasets]
-  );
-
-  const enquiriesRangeIsRefreshing = useMemo(
-    () => ENQUIRIES_RANGE_DATASETS.some((key) => streamingDatasets[key]?.status === 'loading'),
-    [streamingDatasets]
-  );
-
-  const wipRangeDisplayOptions = useMemo(
-    () => MATTERS_WIP_RANGE_OPTIONS.map(({ key, label }) => ({ key, label })),
-    []
-  );
-
-  const enquiriesRangeDisplayOptions = useMemo(
-    () => REPORT_RANGE_OPTIONS.map(({ key, label }) => ({ key, label })),
-    []
-  );
-
-  const mattersRangeSliderValue = useMemo(() => {
-    const idx = MATTERS_WIP_RANGE_OPTIONS.findIndex(option => option.key === pendingMattersRangeKey);
-    if (idx >= 0) {
-      return idx;
-    }
-    const defaultIdx = MATTERS_WIP_RANGE_OPTIONS.findIndex(option => option.key === '12m');
-    return defaultIdx >= 0 ? defaultIdx : 0;
-  }, [pendingMattersRangeKey]);
-
-  const handleMattersSliderValueChange = useCallback((value: number) => {
-    const rounded = Math.round(value);
-    const option = MATTERS_WIP_RANGE_OPTIONS[rounded];
-    if (!option) {
-      return;
-    }
-    setPendingMattersRangeKey(option.key);
-  }, []);
-
-  const enquiriesRangeSliderValue = useMemo(() => {
-    const idx = REPORT_RANGE_OPTIONS.findIndex(option => option.key === pendingEnquiriesRangeKey);
-    if (idx >= 0) {
-      return idx;
-    }
-    const defaultIdx = REPORT_RANGE_OPTIONS.findIndex(option => option.key === '6m');
-    return defaultIdx >= 0 ? defaultIdx : 0;
-  }, [pendingEnquiriesRangeKey]);
-
-  const handleEnquiriesSliderValueChange = useCallback((value: number) => {
-    const rounded = Math.round(value);
-    const option = REPORT_RANGE_OPTIONS[rounded];
-    if (!option) {
-      return;
-    }
-    setPendingEnquiriesRangeKey(option.key);
-    if (isRefreshRangeCalloutOpen) {
-      setPendingMattersRangeKey(option.key as MattersWipRangeKey);
-    }
-  }, [isRefreshRangeCalloutOpen, setPendingMattersRangeKey]);
-
-  const sliderHasPendingChange = pendingMattersRangeKey !== mattersWipRangeKey;
-  const enquiriesSliderHasPendingChange = pendingEnquiriesRangeKey !== enquiriesRangeKey;
-  const enquiriesCoverageEntriesForDisplay = enquiriesSliderHasPendingChange
-    ? enquiriesRangePendingCoverage
-    : enquiriesRangeActiveCoverage;
-  const mattersCoverageEntriesForDisplay = sliderHasPendingChange
-    ? mattersRangePendingCoverage
-    : mattersRangeActiveCoverage;
-
-  const applyGlobalRangeAndRefresh = useCallback((nextEnquiriesKey: ReportRangeKey, nextMattersKey: MattersWipRangeKey) => {
-    if (nextEnquiriesKey === enquiriesRangeKey && nextMattersKey === mattersWipRangeKey) {
-      return;
-    }
-    setEnquiriesRangeKey(nextEnquiriesKey);
-    setPendingEnquiriesRangeKey(nextEnquiriesKey);
-    setMattersWipRangeKey(nextMattersKey);
-    setPendingMattersRangeKey(nextMattersKey);
-    performStreamingRefresh(true, {
-      rangeOverrides: {
-        enquiriesRangeKey: nextEnquiriesKey,
-        mattersRangeKey: nextMattersKey,
-      },
-    });
-  }, [enquiriesRangeKey, mattersWipRangeKey, performStreamingRefresh]);
-
-  const applyManagementRangeAndRefresh = useCallback((nextEnquiriesKey: ReportRangeKey, nextMattersKey: MattersWipRangeKey) => {
-    if (nextEnquiriesKey === enquiriesRangeKey && nextMattersKey === mattersWipRangeKey) {
-      return;
-    }
-    setEnquiriesRangeKey(nextEnquiriesKey);
-    setPendingEnquiriesRangeKey(nextEnquiriesKey);
-    setMattersWipRangeKey(nextMattersKey);
-    setPendingMattersRangeKey(nextMattersKey);
-    performStreamingRefresh(true, {
-      rangeOverrides: {
-        enquiriesRangeKey: nextEnquiriesKey,
-        mattersRangeKey: nextMattersKey,
-      },
-      scope: 'dashboard',
-      streamTargets: MANAGEMENT_DASHBOARD_STREAM_TARGETS,
-      statusTargets: MANAGEMENT_DASHBOARD_STATUS_TARGETS,
-    });
-  }, [enquiriesRangeKey, mattersWipRangeKey, performStreamingRefresh]);
-
-  const managementSliderValue = enquiriesRangeSliderValue;
-  const managementSliderHasPendingChange = sliderHasPendingChange || enquiriesSliderHasPendingChange;
-  const managementRangeIsRefreshing = isActivelyLoading;
-
-  const handleManagementSliderValueChange = useCallback((value: number) => {
-    const rounded = Math.round(value);
-    const option = REPORT_RANGE_OPTIONS[rounded];
-    if (!option) {
-      return;
-    }
-    setPendingEnquiriesRangeKey(option.key);
-    setPendingMattersRangeKey(option.key as MattersWipRangeKey);
-  }, []);
-
-  const handleApplyManagementRange = useCallback(() => {
-    applyManagementRangeAndRefresh(pendingEnquiriesRangeKey, pendingMattersRangeKey);
-  }, [applyManagementRangeAndRefresh, pendingEnquiriesRangeKey, pendingMattersRangeKey]);
-
-  const getDatasetDateRange = useCallback(
-    (datasetKey: DatasetKey, reportKey?: string): string => {
-      const globalPreviewRangeKey = isRefreshRangeCalloutOpen ? pendingEnquiriesRangeKey : null;
-      const mattersPreviewRangeKey =
-        !globalPreviewRangeKey && reportKey === 'matters' && sliderHasPendingChange
-          ? pendingMattersRangeKey
-          : null;
-      const enquiriesPreviewRangeKey =
-        !globalPreviewRangeKey && reportKey === 'enquiries' && enquiriesSliderHasPendingChange
-          ? pendingEnquiriesRangeKey
-          : null;
-      const managementPreviewRangeKey =
-        !globalPreviewRangeKey && reportKey === 'dashboard' && managementSliderHasPendingChange
-          ? pendingEnquiriesRangeKey
-          : null;
-
-      const previewRangeKey =
-        globalPreviewRangeKey ||
-        mattersPreviewRangeKey ||
-        enquiriesPreviewRangeKey ||
-        managementPreviewRangeKey;
-
-      if (previewRangeKey) {
-        const isMattersDataset = MATTERS_RANGE_DATASETS.includes(datasetKey);
-        return isMattersDataset
-          ? describeMattersRange(previewRangeKey as MattersWipRangeKey)
-          : describeRangeKey(previewRangeKey as ReportRangeKey);
-      }
-
-      const dateRanges: Record<DatasetKey, string> = {
-        userData: 'Current',
-        teamData: 'Current',
-        enquiries: describeRangeKey(enquiriesRangeKey),
-        allMatters: describeMattersRange(mattersWipRangeKey),
-        wip: describeMattersRange(mattersWipRangeKey),
-        recoveredFees: describeMattersRange(mattersWipRangeKey),
-        poidData: 'Last 24 months',
-        annualLeave: 'Current year',
-        metaMetrics: describeRangeKey(enquiriesRangeKey),
-        googleAnalytics: describeRangeKey(enquiriesRangeKey),
-        googleAds: describeRangeKey(enquiriesRangeKey),
-        deals: describeRangeKey(enquiriesRangeKey),
-        instructions: describeRangeKey(enquiriesRangeKey),
-      };
-
-      return dateRanges[datasetKey] || '';
-    },
-    [
-      enquiriesRangeKey,
-      enquiriesSliderHasPendingChange,
-      isRefreshRangeCalloutOpen,
-      managementSliderHasPendingChange,
-      mattersWipRangeKey,
-      pendingEnquiriesRangeKey,
-      pendingMattersRangeKey,
-      sliderHasPendingChange,
-    ]
-  );
-
-  const reportCards = useMemo<ReportCard[]>(() => {
-    return AVAILABLE_REPORTS.map((report) => {
-        const dependencies = report.requiredDatasets.map<ReportDependency>((datasetKey) => {
-        const dataset = DATASETS.find((definition) => definition.key === datasetKey);
-        const status = datasetStatus[datasetKey]?.status ?? 'idle';
-        return {
-          key: datasetKey,
-          name: dataset?.name ?? datasetKey,
-          status,
-            range: getDatasetDateRange(datasetKey, report.key),
-        };
-      });
-
-      return {
-        ...report,
-        readiness: getButtonState(report.requiredDatasets),
-        dependencies,
-        readyDependencies: dependencies.filter((dependency) => dependency.status === 'ready').length,
-        totalDependencies: dependencies.length,
-      };
-    });
-  }, [datasetStatus, getDatasetDateRange, getButtonState]);
-
-  const handleApplyPendingMattersRange = useCallback(() => {
-    if (!sliderHasPendingChange || wipRangeIsRefreshing) {
-      return;
-    }
-    handleMattersWipRangeChange(pendingMattersRangeKey);
-  }, [sliderHasPendingChange, wipRangeIsRefreshing, handleMattersWipRangeChange, pendingMattersRangeKey]);
-
-  const handleApplyPendingEnquiriesRange = useCallback(() => {
-    if (!enquiriesSliderHasPendingChange || enquiriesRangeIsRefreshing) {
-      return;
-    }
-    handleEnquiriesRangeChange(pendingEnquiriesRangeKey);
-  }, [enquiriesSliderHasPendingChange, enquiriesRangeIsRefreshing, handleEnquiriesRangeChange, pendingEnquiriesRangeKey]);
-
-  const handleToggleRefreshRangeCallout = useCallback(() => {
-    setRefreshRangeCalloutOpen((prev) => !prev);
-  }, []);
-
-  const handleCloseRefreshRangeCallout = useCallback(() => {
-    setRefreshRangeCalloutOpen(false);
-  }, []);
-
-  const handleApplyGlobalRangeFromCallout = useCallback(() => {
-    const nextEnquiriesKey = enquiriesSliderHasPendingChange ? pendingEnquiriesRangeKey : enquiriesRangeKey;
-    const nextMattersKey = sliderHasPendingChange ? pendingMattersRangeKey : mattersWipRangeKey;
-    applyGlobalRangeAndRefresh(nextEnquiriesKey, nextMattersKey);
-    setRefreshRangeCalloutOpen(false);
-  }, [
-    applyGlobalRangeAndRefresh,
-    enquiriesSliderHasPendingChange,
-    pendingEnquiriesRangeKey,
-    sliderHasPendingChange,
-    pendingMattersRangeKey,
-    enquiriesRangeKey,
-    mattersWipRangeKey,
-  ]);
-
-
 
   // Safety: if streaming disconnected and nothing is loading, clear fetching flag
   useEffect(() => {
     const anyLoading = datasetSummaries.some(s => s.status === 'loading');
     if (!isStreamingConnected && !anyLoading && isFetching) {
-      const started = refreshStartedAt ?? refreshStartedAtRef.current ?? null;
-      if (started && Date.now() - started < 1500) {
-        return; // allow freshly triggered refreshes to establish streaming connection
-      }
       debugLog('ReportingHome: Clearing fetching state (no active loads and stream closed)');
       setIsFetching(false);
       setRefreshStartedAt(null);
     }
-  }, [isStreamingConnected, datasetSummaries, isFetching, refreshStartedAt]);
+  }, [isStreamingConnected, datasetSummaries, isFetching]);
 
   if (activeView === 'dashboard') {
     return (
@@ -5545,7 +4680,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               triggerRefresh={refreshDatasetsWithStreaming}
               lastRefreshTimestamp={lastRefreshTimestamp ?? undefined}
               isFetching={isFetching}
-              dataWindowDays={managementRangeDays}
             />
           </div>
         </div>
@@ -5581,20 +4715,15 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
           <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
             <MattersReport
               matters={datasetData.allMatters ?? []}
-              isLoading={reportLoadingStates.matters}
+              isLoading={reportLoadingStates.matters || isFetching}
               error={error}
               userData={datasetData.userData ?? []}
               teamData={datasetData.teamData}
-              deals={datasetData.deals}
-              instructions={datasetData.instructions}
+              poidData={datasetData.poidData ?? []}
+              setPoidData={updatePoidDataFromReport}
               wip={datasetData.wip}
               recoveredFees={datasetData.recoveredFees}
               enquiries={datasetData.enquiries}
-              wipRangeKey={mattersWipRangeKey}
-              wipRangeOptions={wipRangeDisplayOptions}
-              onWipRangeChange={handleMattersWipRangeChange}
-              wipRangeIsRefreshing={wipRangeIsRefreshing}
-              dataWindowDays={mattersRangeDays}
             />
           </div>
         </div>
@@ -5613,16 +4742,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               teamData={datasetData.teamData}
               annualLeave={datasetData.annualLeave}
               metaMetrics={datasetData.metaMetrics}
-              deals={datasetData.deals}
-              instructions={datasetData.instructions}
-              reportingRangeKey={enquiriesRangeKey}
-              reportingRangeLabel={describeRangeKey(enquiriesRangeKey)}
-              reportingRangeOptions={enquiriesRangeDisplayOptions}
-              onReportingRangeChange={handleEnquiriesRangeChange}
-              reportingRangeIsRefreshing={enquiriesRangeIsRefreshing}
-              dataWindowDays={enquiriesRangeDays}
-
-              reportingRangeDatasets={enquiriesRangeActiveCoverage}
               triggerRefresh={refreshEnquiriesScoped}
               lastRefreshTimestamp={lastRefreshTimestamp ?? undefined}
               isFetching={isFetching}
@@ -5710,52 +4829,27 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                 {isActivelyLoading ? 'Refreshing data feeds...' : 'All systems ready'}
               </p>
             </div>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <DefaultButton
-                  text={isActivelyLoading ? 'Refreshingâ€¦' : 'Refresh All Datasets'}
-                  onClick={refreshDatasetsWithStreaming}
-                  styles={{
-                    root: {
-                      borderRadius: 10,
-                      padding: '0 20px',
-                      height: 38,
-                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'}`,
-                      background: isDarkMode ? 'rgba(30, 41, 59, 0.6)' : 'transparent',
-                      color: isDarkMode ? '#e2e8f0' : '#475569',
-                      fontWeight: 500,
-                    },
-                    rootHovered: {
-                      background: isDarkMode ? 'rgba(30, 41, 59, 0.8)' : 'rgba(248, 250, 252, 0.8)',
-                    },
-                  }}
-                  disabled={isActivelyLoading}
-                  iconProps={{ iconName: 'Sync' }}
-                />
-                <TooltipHost content="Adjust global data window">
-                  <span ref={refreshRangeButtonRef}>
-                    <IconButton
-                      ariaLabel="Adjust data window"
-                      iconProps={{ iconName: 'Settings' }}
-                      onClick={handleToggleRefreshRangeCallout}
-                      styles={{
-                        root: {
-                          width: 32,
-                          height: 32,
-                          borderRadius: 10,
-                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.35)'}`,
-                          background: isDarkMode ? 'rgba(30, 41, 59, 0.7)' : 'rgba(248, 250, 252, 0.9)',
-                          color: isDarkMode ? '#cbd5f5' : '#475569',
-                        },
-                        rootHovered: {
-                          background: isDarkMode ? 'rgba(30, 41, 59, 0.9)' : '#fff',
-                          color: isDarkMode ? '#e0f2fe' : colours.missedBlue,
-                        },
-                      }}
-                    />
-                  </span>
-                </TooltipHost>
-              </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <DefaultButton
+                text={isActivelyLoading ? 'RefreshingÔÇª' : 'Refresh All Datasets'}
+                onClick={refreshDatasetsWithStreaming}
+                styles={{
+                  root: {
+                    borderRadius: 10,
+                    padding: '0 20px',
+                    height: 38,
+                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'}`,
+                    background: isDarkMode ? 'rgba(30, 41, 59, 0.6)' : 'transparent',
+                    color: isDarkMode ? '#e2e8f0' : '#475569',
+                    fontWeight: 500,
+                  },
+                  rootHovered: {
+                    background: isDarkMode ? 'rgba(30, 41, 59, 0.8)' : 'rgba(248, 250, 252, 0.8)',
+                  },
+                }}
+                disabled={isActivelyLoading}
+                iconProps={{ iconName: 'Sync' }}
+              />
               <PrimaryButton
                 text='Open dashboard'
                 onClick={handleLaunchDashboard}
@@ -5780,220 +4874,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               />
             </div>
           </div>
-
-          {isRefreshRangeCalloutOpen && refreshRangeButtonRef.current && (
-            <Callout
-              target={refreshRangeButtonRef.current}
-              onDismiss={handleCloseRefreshRangeCallout}
-              setInitialFocus
-              styles={{
-                root: {
-                  width: 360,
-                  borderRadius: 16,
-                  boxShadow: isDarkMode 
-                    ? '0 25px 45px rgba(0, 0, 0, 0.5)' 
-                    : '0 25px 45px rgba(15, 23, 42, 0.35)',
-                  border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.4)' : 'rgba(15, 23, 42, 0.08)'}`,
-                  background: isDarkMode
-                    ? 'linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.95) 100%)'
-                    : 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-                  backdropFilter: 'blur(24px) saturate(160%)',
-                  padding: 0,
-                },
-                calloutMain: {
-                  borderRadius: 16,
-                  background: isDarkMode
-                    ? 'linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.95) 100%)'
-                    : 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-                  color: isDarkMode ? '#e2e8f0' : '#0f172a',
-                  padding: 0,
-                },
-                beak: {
-                  background: isDarkMode
-                    ? 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)'
-                    : '#ffffff',
-                  border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.4)' : 'rgba(15, 23, 42, 0.1)'}`,
-                  boxShadow: isDarkMode ? '0 4px 12px rgba(0,0,0,0.4)' : '0 4px 12px rgba(15,23,42,0.15)',
-                },
-                beakCurtain: {
-                  background: isDarkMode
-                    ? 'linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.95) 100%)'
-                    : 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-                  borderRadius: 16,
-                },
-              }}
-            >
-              <div style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-                <div>
-                  <div style={{ fontSize: 12, textTransform: 'uppercase', fontWeight: 700, letterSpacing: 0.5, color: isDarkMode ? '#cbd5e1' : '#64748b', opacity: isDarkMode ? 0.8 : 0.7 }}>
-                    Reporting data window
-                  </div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: isDarkMode ? '#f8fafc' : '#0f172a', marginTop: 4 }}>
-                    {enquiriesSliderHasPendingChange
-                      ? `Pending: ${describeRangeKey(pendingEnquiriesRangeKey)}`
-                      : `Active: ${describeRangeKey(enquiriesRangeKey)}`}
-                  </div>
-                </div>
-                <Slider
-                  min={0}
-                  max={REPORT_RANGE_OPTIONS.length - 1}
-                  step={1}
-                  showValue={false}
-                  value={enquiriesRangeSliderValue}
-                  onChange={handleEnquiriesSliderValueChange}
-                  styles={{
-                    root: { margin: '10px 4px 0' },
-                    slideBox: {
-                      selectors: {
-                        '::before': {
-                          background: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(148, 163, 184, 0.5)',
-                        },
-                      },
-                    },
-                    activeSection: {
-                      background: isDarkMode ? colours.highlight : colours.missedBlue,
-                      boxShadow: isDarkMode ? `0 0 8px ${colours.highlight}40` : 'none',
-                    },
-                    thumb: {
-                      borderColor: isDarkMode ? colours.highlight : colours.missedBlue,
-                      background: isDarkMode ? colours.highlight : colours.missedBlue,
-                      boxShadow: isDarkMode ? `0 2px 8px ${colours.highlight}60` : 'none',
-                    },
-                  }}
-                />
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  {REPORT_RANGE_OPTIONS.map((option, index) => {
-                    const isSelected = enquiriesRangeSliderValue === index;
-                    return (
-                      <span
-                        key={option.key}
-                        style={{
-                          fontSize: 12,
-                          fontWeight: isSelected ? 700 : 500,
-                          color: isSelected
-                            ? (isDarkMode ? '#fff' : colours.missedBlue)
-                            : (isDarkMode ? '#cbd5e1' : '#64748b'),
-                          padding: '4px 12px',
-                          borderRadius: 999,
-                          border: isSelected
-                            ? `1.5px solid ${isDarkMode ? colours.highlight : colours.missedBlue}`
-                            : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.4)'}`,
-                          background: isSelected
-                            ? (isDarkMode ? `${colours.highlight}30` : `${colours.missedBlue}15`)
-                            : (isDarkMode ? 'rgba(71, 85, 105, 0.25)' : 'rgba(248, 250, 252, 0.9)'),
-                          transition: 'all 0.2s ease',
-                          cursor: 'default',
-                        }}
-                      >
-                        {option.label}
-                      </span>
-                    );
-                  })}
-                </div>
-                {(enquiriesCoverageEntriesForDisplay.length > 0 || mattersCoverageEntriesForDisplay.length > 0) && (
-                  <div style={{
-                    background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(191, 219, 254, 0.35)',
-                    borderRadius: 12,
-                    padding: '12px 14px',
-                    fontSize: 12,
-                    color: isDarkMode ? '#e2e8f0' : '#0f172a',
-                    border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(59, 130, 246, 0.15)'}`,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 8,
-                  }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase', opacity: 0.8 }}>
-                      Data window coverage
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      {[...enquiriesCoverageEntriesForDisplay, ...mattersCoverageEntriesForDisplay].map((entry) => (
-                        <div
-                          key={entry.key}
-                          style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            gap: 12,
-                            fontSize: 12,
-                            fontWeight: 500,
-                            color: isDarkMode ? '#cbd5e1' : '#1f2937',
-                            paddingBottom: 6,
-                            borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(59, 130, 246, 0.1)'}`,
-                          }}
-                        >
-                          <span>{entry.label}</span>
-                          <span style={{ fontWeight: 600, color: isDarkMode ? '#f1f5f9' : '#0f172a' }}>{entry.range}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                  <PrimaryButton
-                    text={enquiriesSliderHasPendingChange ? `Apply ${describeRangeKey(pendingEnquiriesRangeKey)}` : 'Range active'}
-                    onClick={handleApplyGlobalRangeFromCallout}
-                    disabled={!enquiriesSliderHasPendingChange || enquiriesRangeIsRefreshing}
-                    styles={primaryButtonStyles(isDarkMode)}
-                  />
-                  <DefaultButton
-                    text="Close"
-                    onClick={handleCloseRefreshRangeCallout}
-                    styles={subtleButtonStyles(isDarkMode)}
-                  />
-                </div>
-              </div>
-            </Callout>
-          )}
-
-          {resumeNotice && (
-            <div
-              style={{
-                marginBottom: 18,
-                padding: '14px 18px',
-                borderRadius: 14,
-                border: `1px solid ${isDarkMode ? 'rgba(147, 197, 253, 0.35)' : 'rgba(59, 130, 246, 0.25)'}`,
-                background: isDarkMode ? 'rgba(30, 64, 175, 0.35)' : 'rgba(191, 219, 254, 0.4)',
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: 12,
-              }}
-            >
-              <FontIcon
-                iconName="SyncStatus"
-                style={{
-                  fontSize: 18,
-                  color: isDarkMode ? '#bfdbfe' : '#1d4ed8',
-                  marginTop: 2,
-                }}
-              />
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: isDarkMode ? '#e0f2fe' : '#1d4ed8' }}>
-                  Resuming refresh
-                </span>
-                <span style={{ fontSize: 13, color: isDarkMode ? '#f8fafc' : '#0f172a', lineHeight: 1.4 }}>
-                  {resumeNotice.message}
-                </span>
-                <span style={{ fontSize: 11, color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(31, 41, 55, 0.8)' }}>
-                  {progressDetailText}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={dismissResumeNotice}
-                style={{
-                  border: 'none',
-                  background: 'transparent',
-                  color: isDarkMode ? '#bfdbfe' : '#1d4ed8',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  padding: '4px 8px',
-                }}
-                aria-label="Dismiss resume notice"
-              >
-                Dismiss
-              </button>
-            </div>
-          )}
 
           <div
             style={{
@@ -6050,7 +4930,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
         </section>
       )}
 
-      {/* Marketing Data Settings removed (GA4 and Google Ads now follow enquiries range) */}
+      {/* Marketing Data Settings removed (always using 24 months for GA4 and Google Ads) */}
       </div>
     </>
   );
@@ -6152,7 +5032,7 @@ const NotesAndSuggestionsBox: React.FC<NotesAndSuggestionsBoxProps> = ({ isDarkM
           gap: 6,
         }}>
           <FontIcon iconName="CheckMark" style={{ fontSize: 10 }} />
-          thanks! sent that through ðŸš€
+          thanks! sent that through ­ƒÜÇ
         </div>
       )}
 

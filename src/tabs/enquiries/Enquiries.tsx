@@ -6100,4 +6100,3 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 }
 
 export default Enquiries;
-

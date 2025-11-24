@@ -433,7 +433,8 @@ export async function postFinancialTaskHandler(req: HttpRequest, context: Invoca
         }
 
         // Build task details for Asana using the updated description.
-        const matterRef = data["Matter Reference"];
+        // Accept multiple possible field labels for the matter/file reference so title stays clean.
+        const matterRef = data["Matter Reference"] || data["File/ Matter Reference"] || data["File Reference"];
         const finalTaskName = matterRef ? `${matterRef} - ${formType}` : formType;
         const today = new Date();
         const dueOn = today.toISOString().split("T")[0];

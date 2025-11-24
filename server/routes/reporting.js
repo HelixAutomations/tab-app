@@ -1,5 +1,6 @@
 const express = require('express');
 const { withRequest } = require('../utils/db');
+const { getMatterDateExpressions } = require('../utils/matterDateColumns');
 const { DefaultAzureCredential } = require('@azure/identity');
 const { SecretClient } = require('@azure/keyvault-secrets');
 const fetch = require('node-fetch');
@@ -338,9 +339,34 @@ async function fetchEnquiries({ connectionString }) {
   });
 }
 
-async function fetchAllMatters({ connectionString }) {
-  return withRequest(connectionString, async (request) => {
-    const result = await request.query('SELECT * FROM [dbo].[matters]');
+async function fetchAllMatters({ connectionString, range }) {
+  const shouldApplyRange = Boolean(range?.from && range?.to);
+  const dateExpressions = shouldApplyRange ? await getMatterDateExpressions(connectionString) : [];
+
+  return withRequest(connectionString, async (request, sqlClient) => {
+    let query = 'SELECT * FROM [dbo].[matters]';
+
+    if (shouldApplyRange) {
+      if (dateExpressions.length) {
+        const [fromDate, toDate] = [formatDateOnly(range.from), formatDateOnly(range.to)];
+        request.input('dateFrom', sqlClient.Date, fromDate);
+        request.input('dateTo', sqlClient.Date, toDate);
+        const coalesceClause = dateExpressions.join(', ');
+        query = `
+          SELECT *
+          FROM [dbo].[matters]
+          WHERE TRY_CONVERT(date, COALESCE(${coalesceClause}))
+            BETWEEN @dateFrom AND @dateTo
+        `;
+        console.log(`[Reporting] Fetching matters scoped (${coalesceClause}) ${fromDate} → ${toDate}`);
+      } else {
+        console.warn('[Reporting] Range requested for matters but no recognized date columns; returning unfiltered dataset');
+      }
+    } else {
+      console.log('[Reporting] Fetching matters without range filter');
+    }
+
+    const result = await request.query(query);
     return Array.isArray(result.recordset) ? result.recordset : [];
   });
 }

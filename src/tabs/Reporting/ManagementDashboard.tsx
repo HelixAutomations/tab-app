@@ -47,6 +47,7 @@ interface ManagementDashboardProps {
   triggerRefresh?: () => void;
   lastRefreshTimestamp?: number;
   isFetching?: boolean;
+  dataWindowDays?: number;
 }
 
 type RangeKey = 'all' | 'today' | 'yesterday' | 'week' | 'lastWeek' | 'month' | 'lastMonth' | 'last90Days' | 'quarter' | 'yearToDate' | 'year' | 'custom';
@@ -83,6 +84,8 @@ const RANGE_OPTIONS: RangeOption[] = [
   { key: 'yearToDate', label: 'Year To Date' },
   { key: 'year', label: 'Current Year' },
 ];
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const getDatePickerStyles = (isDarkMode: boolean): Partial<IDatePickerStyles> => {
   const baseBorder = isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.18)';
@@ -873,6 +876,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   triggerRefresh,
   lastRefreshTimestamp,
   isFetching = false,
+  dataWindowDays,
 }) => {
   // Add CSS animation for spinning refresh icon
   useEffect(() => {
@@ -904,6 +908,29 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   const [showDatasetInfo, setShowDatasetInfo] = useState(false);
   const [showCollectedInfo, setShowCollectedInfo] = useState(false);
   const [timeElapsed, setTimeElapsed] = useState(0); // Time since last refresh in seconds
+  const effectiveDataWindowDays = useMemo(() => (
+    typeof dataWindowDays === 'number' && dataWindowDays > 0 ? dataWindowDays : null
+  ), [dataWindowDays]);
+
+  const getRangeDurationDays = (key: RangeKey): number | null => {
+    if (key === 'all' || key === 'custom') {
+      return null;
+    }
+    const { start, end } = computeRange(key);
+    const diff = end.getTime() - start.getTime();
+    return Math.max(1, Math.ceil(diff / DAY_MS));
+  };
+
+  const isRangeDisabled = (key: RangeKey): boolean => {
+    if (!effectiveDataWindowDays) {
+      return false;
+    }
+    const duration = getRangeDurationDays(key);
+    if (duration == null) {
+      return false;
+    }
+    return duration > effectiveDataWindowDays;
+  };
 
   // Auto-refresh configuration
   const AUTO_REFRESH_INTERVAL = 15 * 60 * 1000; // 15 minutes in milliseconds
@@ -2174,50 +2201,70 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         <div className="filter-toolbar__middle">
           <div className="filter-toolbar__presets">
             <div className="filter-preset-group">
-              {RANGE_OPTIONS.slice(0, 2).map(({ key, label }) => (
-                <DefaultButton
-                  key={key}
-                  text={label}
-                  onClick={() => handleRangeSelect(key)}
-                  styles={getRangeButtonStyles(isDarkMode, activePresetKey === key, false)}
-                />
-              ))}
+              {RANGE_OPTIONS.slice(0, 2).map(({ key, label }) => {
+                const presetDisabled = isRangeDisabled(key);
+                return (
+                  <DefaultButton
+                    key={key}
+                    text={label}
+                    onClick={() => handleRangeSelect(key)}
+                    disabled={presetDisabled}
+                    styles={getRangeButtonStyles(isDarkMode, activePresetKey === key, presetDisabled)}
+                  />
+                );
+              })}
               <div className="preset-separator">|</div>
-              {RANGE_OPTIONS.slice(2, 4).map(({ key, label }) => (
-                <DefaultButton
-                  key={key}
-                  text={label}
-                  onClick={() => handleRangeSelect(key)}
-                  styles={getRangeButtonStyles(isDarkMode, activePresetKey === key, false)}
-                />
-              ))}
+              {RANGE_OPTIONS.slice(2, 4).map(({ key, label }) => {
+                const presetDisabled = isRangeDisabled(key);
+                return (
+                  <DefaultButton
+                    key={key}
+                    text={label}
+                    onClick={() => handleRangeSelect(key)}
+                    disabled={presetDisabled}
+                    styles={getRangeButtonStyles(isDarkMode, activePresetKey === key, presetDisabled)}
+                  />
+                );
+              })}
               <div className="preset-separator">|</div>
-              {RANGE_OPTIONS.slice(4, 6).map(({ key, label }) => (
-                <DefaultButton
-                  key={key}
-                  text={label}
-                  onClick={() => handleRangeSelect(key)}
-                  styles={getRangeButtonStyles(isDarkMode, activePresetKey === key, false)}
-                />
-              ))}
+              {RANGE_OPTIONS.slice(4, 6).map(({ key, label }) => {
+                const presetDisabled = isRangeDisabled(key);
+                return (
+                  <DefaultButton
+                    key={key}
+                    text={label}
+                    onClick={() => handleRangeSelect(key)}
+                    disabled={presetDisabled}
+                    styles={getRangeButtonStyles(isDarkMode, activePresetKey === key, presetDisabled)}
+                  />
+                );
+              })}
               <div className="preset-separator">|</div>
-              {RANGE_OPTIONS.slice(6, 8).map(({ key, label }) => (
-                <DefaultButton
-                  key={key}
-                  text={label}
-                  onClick={() => handleRangeSelect(key)}
-                  styles={getRangeButtonStyles(isDarkMode, activePresetKey === key, false)}
-                />
-              ))}
+              {RANGE_OPTIONS.slice(6, 8).map(({ key, label }) => {
+                const presetDisabled = isRangeDisabled(key);
+                return (
+                  <DefaultButton
+                    key={key}
+                    text={label}
+                    onClick={() => handleRangeSelect(key)}
+                    disabled={presetDisabled}
+                    styles={getRangeButtonStyles(isDarkMode, activePresetKey === key, presetDisabled)}
+                  />
+                );
+              })}
               <div className="preset-separator">|</div>
-              {RANGE_OPTIONS.slice(8, 10).map(({ key, label }) => (
-                <DefaultButton
-                  key={key}
-                  text={label}
-                  onClick={() => handleRangeSelect(key)}
-                  styles={getRangeButtonStyles(isDarkMode, activePresetKey === key, false)}
-                />
-              ))}
+              {RANGE_OPTIONS.slice(8, 10).map(({ key, label }) => {
+                const presetDisabled = isRangeDisabled(key);
+                return (
+                  <DefaultButton
+                    key={key}
+                    text={label}
+                    onClick={() => handleRangeSelect(key)}
+                    disabled={presetDisabled}
+                    styles={getRangeButtonStyles(isDarkMode, activePresetKey === key, presetDisabled)}
+                  />
+                );
+              })}
               {activePresetKey && activePresetKey !== 'all' && (
                 <button
                   onClick={handleClearAllTime}

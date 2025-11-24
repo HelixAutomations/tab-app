@@ -5,6 +5,7 @@ const router = express.Router();
 
 // Import dataset fetchers from the main reporting route
 const { withRequest } = require('../utils/db');
+const { getMatterDateExpressions } = require('../utils/matterDateColumns');
 const { DefaultAzureCredential } = require('@azure/identity');
 const { SecretClient } = require('@azure/keyvault-secrets');
 const fetch = require('node-fetch');
@@ -107,6 +108,23 @@ router.get('/stream-datasets', async (req, res) => {
 
   const bypassCache = String(req.query.bypassCache || '').toLowerCase() === 'true';
 
+  const datasetRangeOverrides = buildRangeOverridesFromQuery(req.query);
+  const getRangeCacheSuffix = (datasetName) => {
+    const override = datasetRangeOverrides?.[datasetName];
+    if (!override) return '';
+    if (typeof override === 'number') {
+      return `:${override}`;
+    }
+    if (override && typeof override === 'object' && override.from && override.to) {
+      try {
+        return `:${formatDateOnly(override.from)}_${formatDateOnly(override.to)}`;
+      } catch {
+        return '';
+      }
+    }
+    return '';
+  };
+
   // Send initial status for all datasets
   // Instruct EventSource to retry if disconnected
   try { res.write('retry: 10000\n\n'); } catch { /* ignore */ }
@@ -140,13 +158,14 @@ router.get('/stream-datasets', async (req, res) => {
       let result = null;
       let fromCache = false;
 
+      const rangeSuffix = getRangeCacheSuffix(datasetName);
       if (!bypassCache) {
         try {
           const redisClient = await getRedisClient();
           if (redisClient) {
             // For wipClioCurrentWeek we always use team scope; key by 'team' to avoid per-user caching
             const scopeKey = datasetName === 'wipClioCurrentWeek' ? 'team' : (entraId || 'team');
-            const cacheKey = generateCacheKey('stream', `${datasetName}:${scopeKey}`);
+            const cacheKey = generateCacheKey('stream', `${datasetName}:${scopeKey}${rangeSuffix}`);
             const cached = await redisClient.get(cacheKey);
             if (cached) {
               try {
@@ -204,7 +223,7 @@ router.get('/stream-datasets', async (req, res) => {
         
         try {
           result = await Promise.race([
-            fetchDatasetByName(datasetName, { connectionString, entraId }),
+            fetchDatasetByName(datasetName, { connectionString, entraId, rangeOverrides: datasetRangeOverrides }),
             new Promise((_, reject) => setTimeout(() => reject(new Error(`Query timeout after ${timeoutMs}ms`)), timeoutMs)),
             // Also abort if client disconnects during fetch
             new Promise((_, reject) => {
@@ -230,7 +249,7 @@ router.get('/stream-datasets', async (req, res) => {
           const redisClient = await getRedisClient();
           if (redisClient) {
             const scopeKey2 = datasetName === 'wipClioCurrentWeek' ? 'team' : (entraId || 'team');
-            const cacheKey = generateCacheKey('stream', `${datasetName}:${scopeKey2}`);
+            const cacheKey = generateCacheKey('stream', `${datasetName}:${scopeKey2}${rangeSuffix}`);
             const baseTtl = DATASET_TTL[datasetName] || 1800;
             
             // Use base TTL directly - no multipliers that cause unpredictable behavior
@@ -321,20 +340,20 @@ router.get('/stream-datasets', async (req, res) => {
 });
 
 // Dataset fetcher dispatcher
-async function fetchDatasetByName(datasetName, { connectionString, entraId, clioId }) {
+async function fetchDatasetByName(datasetName, { connectionString, entraId, clioId, rangeOverrides = {} }) {
   switch (datasetName) {
     case 'userData':
       return fetchUserData({ connectionString, entraId });
     case 'teamData':
       return fetchTeamData({ connectionString });
     case 'enquiries':
-      return fetchEnquiries({ connectionString });
+      return fetchEnquiries({ connectionString, range: rangeOverrides.enquiries });
     case 'allMatters':
-      return fetchAllMatters({ connectionString });
+      return fetchAllMatters({ connectionString, range: rangeOverrides.allMatters });
     case 'wip':
-      return fetchWip({ connectionString });
+      return fetchWip({ connectionString, range: rangeOverrides.wip });
     case 'recoveredFees':
-      return fetchRecoveredFees({ connectionString });
+      return fetchRecoveredFees({ connectionString, range: rangeOverrides.recoveredFees });
     case 'recoveredFeesSummary':
       return fetchRecoveredFeesSummary({ connectionString, entraId, clioId });
     case 'poidData':
@@ -345,16 +364,22 @@ async function fetchDatasetByName(datasetName, { connectionString, entraId, clio
       return fetchWipDbLastWeek({ connectionString });
     case 'wipDbCurrentWeek':
       return fetchWipDbCurrentWeek({ connectionString });
-    case 'googleAnalytics':
-      return fetchGoogleAnalyticsData(3); // Default to 3 months, TODO: parameterize
-    case 'googleAds':
-      return fetchGoogleAdsData(3); // Default to 3 months, TODO: parameterize
-    case 'metaMetrics':
-      return fetchMetaMetrics(30); // Default to 30 days, TODO: parameterize
+    case 'googleAnalytics': {
+      const months = sanitizeMonths(rangeOverrides.googleAnalytics, 24) ?? 3;
+      return fetchGoogleAnalyticsData(months);
+    }
+    case 'googleAds': {
+      const months = sanitizeMonths(rangeOverrides.googleAds, 24) ?? 3;
+      return fetchGoogleAdsData(months);
+    }
+    case 'metaMetrics': {
+      const daysBack = sanitizeDays(rangeOverrides.metaMetrics, 90) ?? 30;
+      return fetchMetaMetrics(daysBack);
+    }
     case 'deals':
-      return fetchDeals({ connectionString });
+      return fetchDeals({ connectionString, range: rangeOverrides.deals });
     case 'instructions':
-      return fetchInstructions({ connectionString });
+      return fetchInstructions({ connectionString, range: rangeOverrides.instructions });
     default:
       throw new Error(`Unknown dataset: ${datasetName}`);
   }
@@ -393,8 +418,9 @@ async function fetchTeamData({ connectionString }) {
   });
 }
 
-async function fetchEnquiries({ connectionString }) {
-  const { from, to } = getLast24MonthsRange();
+async function fetchEnquiries({ connectionString, range }) {
+  const resolvedRange = range ?? getLast24MonthsRange();
+  const { from, to } = resolvedRange;
   return withRequest(connectionString, async (request, sqlClient) => {
     request.input('dateFrom', sqlClient.Date, formatDateOnly(from));
     request.input('dateTo', sqlClient.Date, formatDateOnly(to));
@@ -407,16 +433,45 @@ async function fetchEnquiries({ connectionString }) {
   });
 }
 
-async function fetchAllMatters({ connectionString }) {
-  return withRequest(connectionString, async (request) => {
-    const result = await request.query('SELECT * FROM [dbo].[matters]');
+async function fetchAllMatters({ connectionString, range }) {
+  const shouldApplyRange = Boolean(range?.from && range?.to);
+  const dateExpressions = shouldApplyRange ? await getMatterDateExpressions(connectionString) : [];
+
+  return withRequest(connectionString, async (request, sqlClient) => {
+    let query = 'SELECT * FROM [dbo].[matters]';
+
+    if (shouldApplyRange) {
+      if (dateExpressions.length) {
+        const [fromDate, toDate] = [formatDateOnly(range.from), formatDateOnly(range.to)];
+        request.input('dateFrom', sqlClient.Date, fromDate);
+        request.input('dateTo', sqlClient.Date, toDate);
+        const coalesceClause = dateExpressions.join(', ');
+        query = `
+          SELECT *
+          FROM [dbo].[matters]
+          WHERE TRY_CONVERT(date, COALESCE(${coalesceClause}))
+            BETWEEN @dateFrom AND @dateTo
+        `;
+        console.log(`🔍 Matters Query (scoped via ${coalesceClause}): ${fromDate} → ${toDate}`);
+      } else {
+        console.warn('⚠️ Matters range requested but no recognized date columns found; returning full dataset');
+      }
+    } else {
+      console.log('🔍 Matters Query: no range supplied, returning full dataset');
+    }
+
+    const result = await request.query(query);
     return Array.isArray(result.recordset) ? result.recordset : [];
   });
 }
 
-async function fetchWip({ connectionString }) {
-  const { from, to } = getLast24MonthsExcludingCurrentWeek();
-  console.log(`🔍 WIP Query (paged): ${formatDateOnly(from)} → ${formatDateOnly(to)}`);
+async function fetchWip({ connectionString, range }) {
+  const resolvedRange = range
+    ? { from: new Date(range.from), to: new Date(range.to) }
+    : getLast24MonthsExcludingCurrentWeek();
+  const { from, to } = resolvedRange;
+  const rangeLabel = range ? 'custom' : 'default';
+  console.log(`🔍 WIP Query (${rangeLabel}, paged): ${formatDateOnly(from)} → ${formatDateOnly(to)}`);
 
   // Page by calendar month to avoid any implicit row caps
   const windows = enumerateMonthlyWindows(from, to);
@@ -454,9 +509,13 @@ async function fetchWip({ connectionString }) {
   return all;
 }
 
-async function fetchRecoveredFees({ connectionString }) {
-  const { from, to } = getLast24MonthsRange();
-  console.log(`🔍 Recovered Fees Query (optimized paged): ${formatDateOnly(from)} → ${formatDateOnly(to)}`);
+async function fetchRecoveredFees({ connectionString, range }) {
+  const resolvedRange = range
+    ? { from: new Date(range.from), to: new Date(range.to) }
+    : getLast24MonthsRange();
+  const { from, to } = resolvedRange;
+  const rangeLabel = range ? 'custom' : 'default';
+  console.log(`🔍 Recovered Fees Query (${rangeLabel}, optimized paged): ${formatDateOnly(from)} → ${formatDateOnly(to)}`);
 
   // Optimize by using 3-month windows instead of monthly for better performance
   const windows = enumerateQuarterlyWindows(from, to);
@@ -673,6 +732,99 @@ function enumerateQuarterlyWindows(from, to) {
     cursor.setMonth(cursor.getMonth() + 3, 1);
   }
   return windows;
+}
+
+function buildRangeOverridesFromQuery(query) {
+  const wipRange = createRangeOverride(
+    getQueryValue(query.wipRangeStart),
+    getQueryValue(query.wipRangeEnd)
+  );
+  const recoveredRange = createRangeOverride(
+    getQueryValue(query.recoveredRangeStart) ?? getQueryValue(query.wipRangeStart),
+    getQueryValue(query.recoveredRangeEnd) ?? getQueryValue(query.wipRangeEnd)
+  );
+  const enquiriesRange = createRangeOverride(
+    getQueryValue(query.enquiriesRangeStart),
+    getQueryValue(query.enquiriesRangeEnd)
+  );
+  const dealsRange = createRangeOverride(
+    getQueryValue(query.dealsRangeStart) ?? getQueryValue(query.enquiriesRangeStart),
+    getQueryValue(query.dealsRangeEnd) ?? getQueryValue(query.enquiriesRangeEnd)
+  ) || enquiriesRange;
+  const instructionsRange = createRangeOverride(
+    getQueryValue(query.instructionsRangeStart) ?? getQueryValue(query.enquiriesRangeStart),
+    getQueryValue(query.instructionsRangeEnd) ?? getQueryValue(query.enquiriesRangeEnd)
+  ) || enquiriesRange;
+
+  const metaDaysBack = parsePositiveInt(getQueryValue(query.metaDaysBack));
+  const gaMonths = parsePositiveInt(getQueryValue(query.gaMonths));
+  const adsMonths = parsePositiveInt(getQueryValue(query.googleAdsMonths));
+
+  return {
+    wip: wipRange,
+    recoveredFees: recoveredRange,
+    allMatters: wipRange,
+    enquiries: enquiriesRange,
+    deals: dealsRange,
+    instructions: instructionsRange,
+    metaMetrics: metaDaysBack,
+    googleAnalytics: gaMonths,
+    googleAds: adsMonths,
+  };
+}
+
+function getQueryValue(value) {
+  if (Array.isArray(value)) {
+    return value[0];
+  }
+  if (typeof value === 'string') {
+    return value;
+  }
+  return undefined;
+}
+
+function createRangeOverride(rawStart, rawEnd) {
+  if (!rawStart && !rawEnd) return null;
+  const parsedStart = rawStart ? new Date(rawStart) : null;
+  const parsedEnd = rawEnd ? new Date(rawEnd) : null;
+  if (parsedStart && Number.isNaN(parsedStart.getTime())) {
+    return null;
+  }
+  if (parsedEnd && Number.isNaN(parsedEnd.getTime())) {
+    return null;
+  }
+  const from = parsedStart ? new Date(parsedStart) : (parsedEnd ? new Date(parsedEnd) : null);
+  const to = parsedEnd ? new Date(parsedEnd) : (parsedStart ? new Date(parsedStart) : null);
+  if (!from || !to) {
+    return null;
+  }
+  from.setHours(0, 0, 0, 0);
+  to.setHours(23, 59, 59, 999);
+  if (to < from) {
+    return null;
+  }
+  return { from, to };
+}
+
+function parsePositiveInt(raw) {
+  if (raw == null) return null;
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+  return value;
+}
+
+function sanitizeMonths(value, maxMonths = 24) {
+  if (!Number.isFinite(value)) return null;
+  const months = Math.max(1, Math.floor(value));
+  return Math.min(months, maxMonths);
+}
+
+function sanitizeDays(value, defaultCap = 90) {
+  if (!Number.isFinite(value)) return null;
+  const days = Math.max(7, Math.floor(value));
+  return Math.min(days, defaultCap);
 }
 
 // Google Analytics data fetcher
@@ -909,8 +1061,9 @@ async function fetchMetaMetrics(daysBack = 30) {
 }
 
 // Fetch deals/pitches data for Meta metrics conversion tracking
-async function fetchDeals({ connectionString }) {
-  const { from, to } = getLast24MonthsRange();
+async function fetchDeals({ connectionString, range }) {
+  const resolvedRange = range ?? getLast24MonthsRange();
+  const { from, to } = resolvedRange;
   console.log(`🔍 Deals Query: Fetching data from ${formatDateOnly(from)} to ${formatDateOnly(to)}`);
   
   try {
@@ -952,8 +1105,9 @@ async function fetchDeals({ connectionString }) {
 }
 
 // Fetch instruction summaries for conversion tracking
-async function fetchInstructions({ connectionString }) {
-  const { from, to } = getLast24MonthsRange();
+async function fetchInstructions({ connectionString, range }) {
+  const resolvedRange = range ?? getLast24MonthsRange();
+  const { from, to } = resolvedRange;
   console.log(`🔍 Instructions Query: Fetching data from ${formatDateOnly(from)} to ${formatDateOnly(to)}`);
   
   try {

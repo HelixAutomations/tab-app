@@ -17,6 +17,7 @@ interface UseStreamingDatasetsOptions {
   bypassCache?: boolean;
   autoStart?: boolean;
   maxConcurrent?: number; // Maximum number of datasets to fetch in parallel
+  queryParams?: Record<string, string | number | boolean | null | undefined>;
 }
 
 interface DatasetState {
@@ -33,7 +34,7 @@ interface UseStreamingDatasetsResult {
   datasets: Record<string, DatasetState>;
   isConnected: boolean;
   isComplete: boolean;
-  start: (override?: { datasets?: string[]; bypassCache?: boolean }) => void;
+  start: (override?: { datasets?: string[]; bypassCache?: boolean; queryParams?: Record<string, string | number | boolean | null | undefined> }) => void;
   stop: (options?: { resetComplete?: boolean }) => void;
   progress: {
     completed: number;
@@ -49,6 +50,7 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
     bypassCache = false,
     autoStart = false,
     maxConcurrent = 3, // Process up to 3 datasets in parallel for optimal performance
+    queryParams = {},
   } = options;
 
   const [datasetStates, setDatasetStates] = useState<Record<string, DatasetState>>({});
@@ -72,7 +74,7 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
     }
   }, []);
 
-  const start = useCallback((override?: { datasets?: string[]; bypassCache?: boolean }) => {
+  const start = useCallback((override?: { datasets?: string[]; bypassCache?: boolean; queryParams?: Record<string, string | number | boolean | null | undefined> }) => {
     // Close existing connection first and clear timeouts
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
@@ -91,6 +93,19 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
     // Build URL with query parameters
     const effectiveDatasets = override?.datasets && override.datasets.length > 0 ? override.datasets : datasets;
     const effectiveBypass = override?.bypassCache ?? bypassCache;
+    const overrideQueryParams = override?.queryParams ?? {};
+    const mergedQueryParams: Record<string, string> = {};
+
+    const addParams = (source?: Record<string, string | number | boolean | null | undefined>) => {
+      if (!source) return;
+      Object.entries(source).forEach(([key, value]) => {
+        if (value === undefined || value === null) return;
+        mergedQueryParams[key] = String(value);
+      });
+    };
+
+    addParams(queryParams);
+    addParams(overrideQueryParams);
 
     const url = new URL('/api/reporting-stream/stream-datasets', window.location.origin);
     url.searchParams.set('datasets', effectiveDatasets.join(','));
@@ -103,6 +118,9 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
     if (maxConcurrent) {
       url.searchParams.set('maxConcurrent', maxConcurrent.toString());
     }
+    Object.entries(mergedQueryParams).forEach(([key, value]) => {
+      url.searchParams.set(key, value);
+    });
 
     // Create EventSource connection
     const eventSource = new EventSource(url.toString());
@@ -282,7 +300,7 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
         setIsComplete(true);
       }
     };
-  }, [datasets, entraId, bypassCache]);
+  }, [datasets, entraId, bypassCache, maxConcurrent, queryParams]);
 
   // Auto-start if requested (do not depend on `start` to avoid effect restarts on re-render)
   useEffect(() => {

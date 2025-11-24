@@ -36,6 +36,7 @@ import './ManagementDashboard.css';
 import { getNormalizedEnquirySourceLabel, getNormalizedEnquiryMOCLabel } from '../../utils/enquirySource';
 import { findMatches, type OldEnquiry, type NewEnquiry } from '../../utils/enquiryCrossReference';
 import type { AnnualLeaveRecord } from './AnnualLeaveReport';
+import type { DealRecord, InstructionRecord } from './dataSources';
 
 // Marketing Metrics Interfaces
 interface GoogleAnalyticsMetrics {
@@ -83,14 +84,31 @@ interface MarketingMetrics {
   metaAds?: MetaAdsMetrics;
 }
 
+interface ReportingRangeDataset {
+  key: string;
+  label: string;
+  range: string;
+  note?: string;
+}
+
 interface EnquiriesReportProps {
   enquiries: Enquiry[] | null;
   teamData?: TeamData[] | null;
   annualLeave?: AnnualLeaveRecord[] | null;
   metaMetrics?: MarketingMetrics[] | null;
+  deals?: DealRecord[] | null;
+  instructions?: InstructionRecord[] | null;
+  reportingRangeKey?: DataWindowRangeKey;
+  reportingRangeLabel?: string;
+  reportingRangeOptions?: Array<{ key: DataWindowRangeKey; label: string }>;
+  onReportingRangeChange?: (key: DataWindowRangeKey) => void;
+  reportingRangeIsRefreshing?: boolean;
+  reportingRangeCoverageNote?: string | null;
+  reportingRangeDatasets?: ReportingRangeDataset[];
   triggerRefresh?: () => void;
   lastRefreshTimestamp?: number;
   isFetching?: boolean;
+  dataWindowDays?: number;
 }
 
 const EMPTY_DAY_FILTER = { name: '', poc: '', taker: '', status: '' } as const;
@@ -109,6 +127,8 @@ type RangeKey =
   | 'year'
   | 'custom';
 
+type DataWindowRangeKey = '3m' | '6m' | '12m' | '24m';
+
 const RANGE_OPTIONS: Array<{ key: RangeKey; label: string }> = [
   { key: 'today', label: 'Today' },
   { key: 'yesterday', label: 'Yesterday' },
@@ -121,6 +141,8 @@ const RANGE_OPTIONS: Array<{ key: RangeKey; label: string }> = [
   { key: 'yearToDate', label: 'Year To Date' },
   { key: 'year', label: 'Current Year' },
 ];
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const ROLE_OPTIONS = [
   { key: 'Partner', label: 'Partner' },
@@ -1059,9 +1081,19 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
   teamData, 
   annualLeave, 
   metaMetrics,
+  deals,
+  instructions,
+  reportingRangeKey,
+  reportingRangeLabel,
+  reportingRangeOptions,
+  onReportingRangeChange,
+  reportingRangeIsRefreshing,
+  reportingRangeCoverageNote,
+  reportingRangeDatasets,
   triggerRefresh, 
   lastRefreshTimestamp, 
-  isFetching 
+  isFetching,
+  dataWindowDays,
 }) => {
   const { isDarkMode } = useTheme();
   // Safe formatting helpers
@@ -1077,6 +1109,8 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
     // If value is > 1, assume it's a percentage (e.g. 3.2 means 3.2%) and convert to ratio
     return n > 1 ? n / 100 : n;
   };
+  const pitchCount = Array.isArray(deals) ? deals.length : 0;
+  const instructionCount = Array.isArray(instructions) ? instructions.length : 0;
   
   // Add CSS animations for smooth loading
   React.useEffect(() => {
@@ -1111,6 +1145,29 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
   const [pocFilter, setPocFilter] = useState<string | null>(null);
   const [showMarketing, setShowMarketing] = useState<boolean>(false);
   const [showCharts, setShowCharts] = useState<boolean>(false);
+  const effectiveDataWindowDays = useMemo(() => (
+    typeof dataWindowDays === 'number' && dataWindowDays > 0 ? dataWindowDays : null
+  ), [dataWindowDays]);
+
+  const getRangeDurationDays = (key: RangeKey): number | null => {
+    if (key === 'all' || key === 'custom') {
+      return null;
+    }
+    const { start, end } = computeRange(key);
+    const diff = end.getTime() - start.getTime();
+    return Math.max(1, Math.ceil(diff / DAY_MS));
+  };
+
+  const isPresetDisabled = (key: RangeKey): boolean => {
+    if (!effectiveDataWindowDays) {
+      return false;
+    }
+    const duration = getRangeDurationDays(key);
+    if (duration == null) {
+      return false;
+    }
+    return duration > effectiveDataWindowDays;
+  };
   
   // Modal state for showing underlying data
   const [modalData, setModalData] = useState<{
@@ -2335,6 +2392,129 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
 
   return (
     <div style={containerStyle(isDarkMode)}>
+      {(reportingRangeLabel || (reportingRangeOptions && reportingRangeOptions.length > 0) || reportingRangeCoverageNote || (reportingRangeDatasets && reportingRangeDatasets.length > 0)) && (
+        <div style={{
+          marginBottom: 18,
+          padding: '16px 20px',
+          borderRadius: 16,
+          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.22)' : 'rgba(15, 23, 42, 0.08)'}`,
+          background: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.95)',
+          boxShadow: isDarkMode ? '0 10px 30px rgba(0,0,0,0.35)' : '0 10px 30px rgba(15,23,42,0.08)'
+        }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center', marginBottom: reportingRangeOptions && reportingRangeOptions.length > 0 ? 12 : 0 }}>
+            <div>
+              <div style={{ fontSize: 12, opacity: 0.7, textTransform: 'uppercase', fontWeight: 600 }}>Data window</div>
+              <div style={{ fontSize: 18, fontWeight: 700 }}>
+                {reportingRangeLabel ?? 'Auto-selected'}
+              </div>
+            </div>
+            <div style={{
+              display: 'flex',
+              gap: 12,
+              flexWrap: 'wrap',
+              alignItems: 'center'
+            }}>
+              <div style={{
+                padding: '6px 12px',
+                borderRadius: 999,
+                border: `1px solid ${isDarkMode ? 'rgba(129, 140, 248, 0.5)' : 'rgba(54, 144, 206, 0.35)'}`,
+                fontSize: 12,
+                fontWeight: 600,
+                color: isDarkMode ? '#c4b5fd' : colours.missedBlue,
+                background: isDarkMode ? 'rgba(79, 70, 229, 0.15)' : 'rgba(54, 144, 206, 0.08)'
+              }}>
+                {pitchCount.toLocaleString()} pitches
+              </div>
+              <div style={{
+                padding: '6px 12px',
+                borderRadius: 999,
+                border: `1px solid ${isDarkMode ? 'rgba(74, 222, 128, 0.4)' : 'rgba(16, 185, 129, 0.35)'}`,
+                fontSize: 12,
+                fontWeight: 600,
+                color: isDarkMode ? '#86efac' : colours.green,
+                background: isDarkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(16, 185, 129, 0.08)'
+              }}>
+                {instructionCount.toLocaleString()} instructions
+              </div>
+            </div>
+            {reportingRangeCoverageNote && (
+              <div style={{
+                flex: 1,
+                minWidth: 200,
+                fontSize: 12,
+                color: isDarkMode ? '#bae6fd' : '#0f172a',
+                opacity: 0.85,
+                fontWeight: 600,
+              }}>
+                {reportingRangeCoverageNote}
+              </div>
+            )}
+          </div>
+          {reportingRangeDatasets && reportingRangeDatasets.length > 0 && (
+            <div style={{
+              marginTop: 8,
+              borderRadius: 12,
+              border: `1px solid ${isDarkMode ? 'rgba(59, 130, 246, 0.3)' : 'rgba(147, 197, 253, 0.45)'}`,
+              background: isDarkMode ? 'rgba(2, 6, 23, 0.85)' : 'rgba(191, 219, 254, 0.3)',
+              padding: '12px 16px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+            }}>
+              {reportingRangeDatasets.map((dataset) => (
+                <div
+                  key={dataset.key}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    fontSize: 12,
+                    color: isDarkMode ? '#e2e8f0' : '#0f172a',
+                  }}
+                >
+                  <span style={{ fontWeight: 600 }}>{dataset.label}</span>
+                  <span style={{ fontWeight: 700, color: isDarkMode ? '#f8fafc' : '#0f172a' }}>{dataset.range}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {reportingRangeOptions && reportingRangeOptions.length > 0 && onReportingRangeChange && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {reportingRangeOptions.map((option) => {
+                const isActive = reportingRangeKey === option.key;
+                return (
+                  <DefaultButton
+                    key={option.key}
+                    text={option.label}
+                    onClick={() => onReportingRangeChange(option.key)}
+                    disabled={reportingRangeIsRefreshing || isActive}
+                    styles={{
+                      root: {
+                        borderRadius: 999,
+                        padding: '0 14px',
+                        height: 30,
+                        border: isActive
+                          ? `1px solid ${isDarkMode ? '#60a5fa' : colours.highlight}`
+                          : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.35)'}`,
+                        background: isActive
+                          ? (isDarkMode ? 'rgba(37, 99, 235, 0.25)' : 'rgba(54, 144, 206, 0.15)')
+                          : 'transparent',
+                        color: isActive ? (isDarkMode ? '#bfdbfe' : colours.missedBlue) : (isDarkMode ? '#cbd5f5' : '#475569'),
+                        fontWeight: isActive ? 700 : 500,
+                        fontSize: 12,
+                      },
+                      rootDisabled: {
+                        background: isActive ? (isDarkMode ? 'rgba(37, 99, 235, 0.2)' : 'rgba(54, 144, 206, 0.12)') : 'transparent',
+                        color: isActive ? (isDarkMode ? '#bfdbfe' : colours.missedBlue) : (isDarkMode ? '#94a3b8' : '#94a3b8'),
+                      },
+                    }}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
       {/* Active Filters Indicator */}
       {(sourceFilter || mocFilter || pocFilter) && (
         <div style={{
@@ -2697,12 +2877,14 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
             {/* All */}
             {quickRanges.slice(0, 1).map(r => {
               const active = isActive(r.key);
+              const disabled = r.key === 'all' ? false : isPresetDisabled(r.key);
               return (
                 <DefaultButton
                   key={r.key}
                   text={r.label}
                   onClick={() => handleRangeSelect(r.key)}
-                  styles={getRangeButtonStyles(isDarkMode, active, false)}
+                  disabled={disabled}
+                  styles={getRangeButtonStyles(isDarkMode, active, disabled)}
                 />
               );
             })}
@@ -2716,12 +2898,14 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
             {/* Today, Yesterday */}
             {quickRanges.slice(1, 3).map(r => {
               const active = isActive(r.key);
+              const disabled = isPresetDisabled(r.key);
               return (
                 <DefaultButton
                   key={r.key}
                   text={r.label}
                   onClick={() => handleRangeSelect(r.key)}
-                  styles={getRangeButtonStyles(isDarkMode, active, false)}
+                  disabled={disabled}
+                  styles={getRangeButtonStyles(isDarkMode, active, disabled)}
                 />
               );
             })}
@@ -2735,12 +2919,14 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
             {/* This Week, Last Week */}
             {quickRanges.slice(3, 5).map(r => {
               const active = isActive(r.key);
+              const disabled = isPresetDisabled(r.key);
               return (
                 <DefaultButton
                   key={r.key}
                   text={r.label}
                   onClick={() => handleRangeSelect(r.key)}
-                  styles={getRangeButtonStyles(isDarkMode, active, false)}
+                  disabled={disabled}
+                  styles={getRangeButtonStyles(isDarkMode, active, disabled)}
                 />
               );
             })}
@@ -2754,12 +2940,14 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
             {/* This Month, Last Month */}
             {quickRanges.slice(5, 7).map(r => {
               const active = isActive(r.key);
+              const disabled = isPresetDisabled(r.key);
               return (
                 <DefaultButton
                   key={r.key}
                   text={r.label}
                   onClick={() => handleRangeSelect(r.key)}
-                  styles={getRangeButtonStyles(isDarkMode, active, false)}
+                  disabled={disabled}
+                  styles={getRangeButtonStyles(isDarkMode, active, disabled)}
                 />
               );
             })}
@@ -2773,12 +2961,14 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
             {/* Last 90 Days, This Quarter */}
             {quickRanges.slice(7, 9).map(r => {
               const active = isActive(r.key);
+              const disabled = isPresetDisabled(r.key);
               return (
                 <DefaultButton
                   key={r.key}
                   text={r.label}
                   onClick={() => handleRangeSelect(r.key)}
-                  styles={getRangeButtonStyles(isDarkMode, active, false)}
+                  disabled={disabled}
+                  styles={getRangeButtonStyles(isDarkMode, active, disabled)}
                 />
               );
             })}
@@ -2792,12 +2982,14 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
             {/* Year To Date, Current Year */}
             {quickRanges.slice(9, 11).map(r => {
               const active = isActive(r.key);
+              const disabled = isPresetDisabled(r.key);
               return (
                 <DefaultButton
                   key={r.key}
                   text={r.label}
                   onClick={() => handleRangeSelect(r.key)}
-                  styles={getRangeButtonStyles(isDarkMode, active, false)}
+                  disabled={disabled}
+                  styles={getRangeButtonStyles(isDarkMode, active, disabled)}
                 />
               );
             })}

@@ -1,7 +1,5 @@
-// src/tabs/matters/MatterCard.tsx
-// invisible change
-
 import React from 'react';
+import type { CSSProperties } from 'react';
 import { Stack, Text, Icon, IconButton, TooltipHost } from '@fluentui/react';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { Matter } from '../../app/functionality/types';
@@ -9,10 +7,20 @@ import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import '../../app/styles/MatterCard.css';
 
+export interface MatterPitchTag {
+  key: string;
+  label: string;
+  type: 'deal' | 'instruction' | 'extra';
+  title?: string;
+}
+
 interface MatterCardProps {
   matter: Matter;
   onSelect: (matter: Matter) => void;
   animationDelay?: number;
+  pitchTags?: MatterPitchTag[];
+  pitchTagContainerStyle?: CSSProperties;
+  getPitchTagStyle?: (type: MatterPitchTag['type']) => CSSProperties;
 }
 
 // --- Action Button Style ---
@@ -195,12 +203,63 @@ const DetailRow: React.FC<DetailRowProps> = ({ label, value, isDarkMode }) => (
 // --- Badge Style ---
 const solicitorBadgeClass = mergeStyles('solicitor-badge');
 
-const MatterCard: React.FC<MatterCardProps> = ({ matter, onSelect, animationDelay = 0 }) => {
+const MatterCard: React.FC<MatterCardProps> = ({
+  matter,
+  onSelect,
+  animationDelay = 0,
+  pitchTags,
+  pitchTagContainerStyle,
+  getPitchTagStyle,
+}) => {
   const { isDarkMode } = useTheme();
 
   const handleCardClick = () => {
     onSelect(matter);
   };
+
+  const fallbackGetPitchTagStyle = (type: MatterPitchTag['type']): CSSProperties => {
+    switch (type) {
+      case 'deal':
+        return {
+          background: isDarkMode ? 'rgba(249, 115, 22, 0.2)' : 'rgba(251, 191, 36, 0.15)',
+          border: `1px solid ${isDarkMode ? 'rgba(251, 191, 36, 0.45)' : 'rgba(245, 158, 11, 0.45)'}`,
+          color: isDarkMode ? '#fb923c' : '#92400e',
+          padding: '2px 6px',
+          borderRadius: 999,
+          fontSize: 10,
+          fontWeight: 600,
+        };
+      case 'instruction':
+        return {
+          background: isDarkMode ? 'rgba(34, 197, 94, 0.18)' : 'rgba(16, 185, 129, 0.12)',
+          border: `1px solid ${isDarkMode ? 'rgba(74, 222, 128, 0.45)' : 'rgba(34, 197, 94, 0.4)'}`,
+          color: isDarkMode ? '#86efac' : '#065f46',
+          padding: '2px 6px',
+          borderRadius: 999,
+          fontSize: 10,
+          fontWeight: 600,
+        };
+      default:
+        return {
+          background: isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.12)',
+          border: '1px solid rgba(148, 163, 184, 0.4)',
+          color: isDarkMode ? '#cbd5e1' : '#475569',
+          padding: '2px 6px',
+          borderRadius: 999,
+          fontSize: 10,
+          fontWeight: 600,
+        };
+    }
+  };
+
+  const resolvedPitchTagContainer: CSSProperties = pitchTagContainerStyle ?? {
+    marginTop: 6,
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 6,
+  };
+
+  const resolvePitchTagStyle = getPitchTagStyle ?? fallbackGetPitchTagStyle;
 
   const matterDetails = [
     { label: 'Approx. Value', value: matter.ApproxValue },
@@ -291,6 +350,20 @@ const MatterCard: React.FC<MatterCardProps> = ({ matter, onSelect, animationDela
             </Text>
           </Stack>
 
+          {pitchTags && pitchTags.length > 0 && (
+            <div style={resolvedPitchTagContainer}>
+              {pitchTags.map((tag) => (
+                <span
+                  key={tag.key}
+                  style={{ display: 'inline-flex', alignItems: 'center', ...resolvePitchTagStyle(tag.type) }}
+                  title={tag.title}
+                >
+                  {tag.label}
+                </span>
+              ))}
+            </div>
+          )}
+
           {/* Spacer */}
           <div style={{ height: '12px' }} />
 
@@ -374,4 +447,40 @@ const MatterCard: React.FC<MatterCardProps> = ({ matter, onSelect, animationDela
   );
 };
 
-export default MatterCard;
+const arePropsEqual = (prevProps: MatterCardProps, nextProps: MatterCardProps) => {
+  // Compare simple props
+  if (
+    prevProps.matter !== nextProps.matter ||
+    prevProps.onSelect !== nextProps.onSelect ||
+    prevProps.animationDelay !== nextProps.animationDelay ||
+    prevProps.pitchTagContainerStyle !== nextProps.pitchTagContainerStyle ||
+    prevProps.getPitchTagStyle !== nextProps.getPitchTagStyle
+  ) {
+    return false;
+  }
+
+  // Deep compare pitchTags
+  const prevTags = prevProps.pitchTags;
+  const nextTags = nextProps.pitchTags;
+
+  if (prevTags === nextTags) return true;
+  if (!prevTags || !nextTags) return false;
+  if (prevTags.length !== nextTags.length) return false;
+
+  for (let i = 0; i < prevTags.length; i++) {
+    const p = prevTags[i];
+    const n = nextTags[i];
+    if (
+      p.key !== n.key ||
+      p.label !== n.label ||
+      p.type !== n.type ||
+      p.title !== n.title
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
+export default React.memo(MatterCard, arePropsEqual);

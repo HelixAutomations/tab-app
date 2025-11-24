@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import type { CSSProperties } from 'react';
 import {
     Stack,
     Text,
@@ -30,8 +31,8 @@ import {
     LabelList,
 } from 'recharts';
 import { parseISO, startOfMonth, format, isValid, startOfDay, endOfDay, subDays, startOfWeek, endOfWeek, startOfMonth as startOfMonthFns, endOfMonth, subMonths, startOfQuarter, endOfQuarter, startOfYear, endOfYear } from 'date-fns';
-import { Matter, UserData, TeamData, POID, Transaction, Enquiry } from '../../app/functionality/types';
-import MatterCard from '../matters/MatterCard';
+import { Matter, UserData, TeamData, Transaction, Enquiry } from '../../app/functionality/types';
+import MatterCard, { MatterPitchTag } from '../matters/MatterCard';
 import MatterOverview from '../matters/MatterOverview';
 import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext';
@@ -43,6 +44,7 @@ import Documents from '../matters/documents/Documents';
 import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
 import { useNavigatorActions } from '../../app/functionality/NavigatorContext';
 import './ManagementDashboard.css';
+import type { DealRecord, InstructionRecord } from './dataSources';
 
 // ----------------------------------------------
 // Type interfaces for additional datasets
@@ -515,25 +517,40 @@ interface MattersReportProps {
     userData: any;
     teamData?: TeamData[] | null;
     outstandingBalances?: any;
-    poidData: POID[];
-    setPoidData: React.Dispatch<React.SetStateAction<POID[] | null>>;
+    deals?: DealRecord[] | null;
+    instructions?: InstructionRecord[] | null;
     transactions?: Transaction[];
     wip?: WIP[] | null;
     recoveredFees?: RecoveredFee[] | null;
     enquiries?: Enquiry[] | null;
+    wipRangeKey?: string;
+    wipRangeOptions?: Array<{ key: string; label: string }>;
+    onWipRangeChange?: (key: string) => void;
+    wipRangeIsRefreshing?: boolean;
+    dataWindowDays?: number;
 }
+
+const DEFAULT_WIP_RANGE_OPTIONS = [
+    { key: '3m', label: '90 days' },
+    { key: '6m', label: '6 months' },
+    { key: '12m', label: '12 months' },
+    { key: '24m', label: '24 months' },
+];
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 // ---------------------------------------------------
 // Financial calculation helpers
 // ---------------------------------------------------
+// NOTE: These are now used primarily for single-matter lookups or inside the pre-calculation memo.
+// We avoid calling these inside sort functions directly to prevent O(N*M) performance issues.
+
 const calculateMatterWIP = (matter: Matter, wipData?: WIP[] | null): number => {
     if (!wipData || !Array.isArray(wipData)) return 0;
     
     const displayNumber = (matter as any)['Display Number'] || matter.DisplayNumber || '';
     const matterUniqueId = (matter as any)['Unique ID'] || matter.UniqueID || '';
     
-    // Find WIP entries that match this matter by Display Number or Unique ID
-    // Since WIP data structure might vary, we'll check common fields via (as any)
     return wipData
         .filter(entry => {
             const entryMatter = (entry as any).matter_id || (entry as any).matter_ref || '';
@@ -548,8 +565,6 @@ const calculateMatterCollected = (matter: Matter, recoveredData?: RecoveredFee[]
     const displayNumber = (matter as any)['Display Number'] || matter.DisplayNumber || '';
     const matterUniqueId = (matter as any)['Unique ID'] || matter.UniqueID || '';
     
-    // Find recovered fee entries that match this matter
-    // Since RecoveredFee data structure might vary, we'll check common fields via (as any)
     return recoveredData
         .filter(entry => {
             const entryMatter = (entry as any).matter_id || (entry as any).bill_id || '';
@@ -561,6 +576,118 @@ const calculateMatterCollected = (matter: Matter, recoveredData?: RecoveredFee[]
                    entryDesc.includes(displayNumber);
         })
         .reduce((sum, entry) => sum + (entry.payment_allocated || 0), 0);
+};
+
+const normaliseKey = (value: unknown): string => {
+    if (value == null) return '';
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return String(value);
+    }
+    return String(value)
+        .trim()
+        .replace(/[^a-zA-Z0-9]/g, '')
+        .toLowerCase();
+};
+
+const toKeySet = (values: unknown[]): string[] => {
+    const seen = new Set<string>();
+    values.forEach((value) => {
+        const key = normaliseKey(value);
+        if (key) {
+            seen.add(key);
+        }
+    });
+    return Array.from(seen);
+};
+
+const extractMatterKeys = (matter: Matter): string[] => {
+    return toKeySet([
+        (matter as any)['Display Number'],
+        matter.DisplayNumber,
+        (matter as any)['DisplayNumber'],
+        (matter as any)['Unique ID'],
+        matter.UniqueID,
+        (matter as any).unique_id,
+        (matter as any).MatterID,
+        (matter as any).MatterId,
+        (matter as any).MatterRef,
+        (matter as any)['Matter Ref'],
+        (matter as any).ID,
+    ]);
+};
+
+const extractDealKeys = (deal: DealRecord | undefined): string[] => {
+    if (!deal) return [];
+    return toKeySet([
+        deal.InstructionRef,
+        (deal as any).instruction_ref,
+        (deal as any).InstructionId,
+        (deal as any).instructionId,
+        (deal as any).MatterId,
+        (deal as any).matterId,
+    ]);
+};
+
+const extractInstructionKeys = (instruction: InstructionRecord | undefined): string[] => {
+    if (!instruction) return [];
+    return toKeySet([
+        instruction.InstructionRef,
+        instruction.MatterId,
+        (instruction as any).MatterID,
+        instruction.ClientId,
+        (instruction as any).matter_ref,
+    ]);
+};
+
+const buildDealIdentifier = (deal: DealRecord): string => {
+    if (typeof deal.DealId === 'number') return `deal-${deal.DealId}`;
+    if (deal.InstructionRef) return `deal-${deal.InstructionRef}`;
+    return `deal-${normaliseKey(`${deal.PitchedBy ?? ''}-${deal.ServiceDescription ?? ''}-${deal.PitchedDate ?? ''}`)}`;
+};
+
+const buildInstructionIdentifier = (instruction: InstructionRecord): string => {
+    if (instruction.InstructionRef) return `inst-${instruction.InstructionRef}`;
+    if (instruction.MatterId) return `inst-${instruction.MatterId}`;
+    return `inst-${normaliseKey(`${instruction.ClientId ?? ''}-${instruction.Stage ?? instruction.Status ?? ''}`)}`;
+};
+
+const MAX_PITCH_TAGS = 3;
+
+const formatDateLabel = (value?: string): string | null => {
+    if (!value) return null;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return format(parsed, 'dd MMM yyyy');
+};
+
+const describeDealTag = (deal: DealRecord) => {
+    const status = (deal.Status || deal.Stage || '').trim();
+    const service = (deal.ServiceDescription || '').trim();
+    const owner = (deal.PitchedBy || '').trim();
+    const label = status ? `Pitch • ${status}` : (service ? `Pitch • ${service}` : 'Pitch');
+    const titleParts: string[] = [];
+    if (service) titleParts.push(service);
+    if (owner) titleParts.push(`By ${owner}`);
+    const pitchedDate = formatDateLabel(deal.PitchedDate || deal.CreatedDate);
+    if (pitchedDate) titleParts.push(pitchedDate);
+    return { label, title: titleParts.length > 0 ? titleParts.join(' • ') : undefined };
+};
+
+const describeInstructionTag = (instruction: InstructionRecord) => {
+    const stage = (instruction.Stage || instruction.Status || '').trim();
+    const label = stage ? `Instruction • ${stage}` : 'Instruction';
+    const titleParts: string[] = [];
+    if (instruction.InstructionRef) titleParts.push(instruction.InstructionRef);
+    const submitted = formatDateLabel(instruction.SubmissionDate || instruction.CreatedDate);
+    if (submitted) titleParts.push(submitted);
+    return { label, title: titleParts.length > 0 ? titleParts.join(' • ') : undefined };
+};
+
+const pitchTagContainerBaseStyle: CSSProperties = {
+    marginTop: 6,
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 6,
 };
 
 const formatCurrency = (amount: number): string => {
@@ -580,15 +707,127 @@ const MattersReport: React.FC<MattersReportProps> = ({
     userData,
     teamData,
     outstandingBalances,
-    poidData,
-    setPoidData,
+    deals,
+    instructions,
     transactions,
     wip,
     recoveredFees,
     enquiries,
+    wipRangeKey,
+    wipRangeOptions,
+    onWipRangeChange,
+    wipRangeIsRefreshing,
+    dataWindowDays,
 }) => {
     const { isDarkMode } = useTheme();
     const { setContent } = useNavigatorActions();
+
+    // --- Performance Optimization: Pre-calculate Financial Data ---
+    const financialDataMap = useMemo(() => {
+        const map = new Map<string, { wip: number; collected: number }>();
+        
+        const getEntry = (key: string) => {
+            if (!map.has(key)) {
+                map.set(key, { wip: 0, collected: 0 });
+            }
+            return map.get(key)!;
+        };
+
+        if (wip && Array.isArray(wip)) {
+            wip.forEach(entry => {
+                const rawId = (entry as any).matter_id || (entry as any).matter_ref || '';
+                const key = String(rawId);
+                if (key) {
+                    const data = getEntry(key);
+                    data.wip += (entry.total || 0);
+                }
+            });
+        }
+
+        if (recoveredFees && Array.isArray(recoveredFees)) {
+            recoveredFees.forEach(entry => {
+                const rawId = (entry as any).matter_id || (entry as any).bill_id || '';
+                const key = String(rawId);
+                if (key) {
+                    const data = getEntry(key);
+                    data.collected += (entry.payment_allocated || 0);
+                }
+            });
+        }
+        
+        return map;
+    }, [wip, recoveredFees]);
+
+    const getMatterFinancials = useCallback((matter: Matter) => {
+        const dNum = String((matter as any)['Display Number'] || matter.DisplayNumber || '');
+        const uId = String((matter as any)['Unique ID'] || matter.UniqueID || '');
+        
+        let wipTotal = 0;
+        let collectedTotal = 0;
+        
+        if (dNum && financialDataMap.has(dNum)) {
+            const data = financialDataMap.get(dNum)!;
+            wipTotal += data.wip;
+            collectedTotal += data.collected;
+        }
+        
+        if (uId && uId !== dNum && financialDataMap.has(uId)) {
+            const data = financialDataMap.get(uId)!;
+            wipTotal += data.wip;
+            collectedTotal += data.collected;
+        }
+        
+        return { wip: wipTotal, collected: collectedTotal };
+    }, [financialDataMap]);
+
+    // --- Performance Optimization: Pre-calculate Date Timestamps ---
+    const matterTimestamps = useMemo(() => {
+        const map = new Map<string, number>();
+        matters.forEach(m => {
+            const dateStr = (m as any)['Open Date'] || m.OpenDate;
+            const ts = dateStr ? parseISO(dateStr).getTime() : 0;
+            map.set(m.UniqueID, ts);
+        });
+        return map;
+    }, [matters]);
+
+    const pitchTagContainerStyle = pitchTagContainerBaseStyle;
+    const getPitchTagStyle = useCallback((type: MatterPitchTag['type']): CSSProperties => {
+        const palette = (() => {
+            switch (type) {
+                case 'deal':
+                    return {
+                        bg: isDarkMode ? 'rgba(249, 115, 22, 0.2)' : 'rgba(251, 191, 36, 0.15)',
+                        border: isDarkMode ? 'rgba(251, 191, 36, 0.5)' : 'rgba(245, 158, 11, 0.5)',
+                        color: isDarkMode ? '#fb923c' : '#92400e',
+                    };
+                case 'instruction':
+                    return {
+                        bg: isDarkMode ? 'rgba(34, 197, 94, 0.18)' : 'rgba(16, 185, 129, 0.12)',
+                        border: isDarkMode ? 'rgba(74, 222, 128, 0.45)' : 'rgba(34, 197, 94, 0.45)',
+                        color: isDarkMode ? '#86efac' : '#064e3b',
+                    };
+                default:
+                    return {
+                        bg: isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.14)',
+                        border: isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.35)',
+                        color: isDarkMode ? '#cbd5e1' : '#475569',
+                    };
+            }
+        })();
+
+        return {
+            display: 'inline-flex',
+            alignItems: 'center',
+            fontSize: 10,
+            fontWeight: 600,
+            padding: '2px 6px',
+            borderRadius: 999,
+            background: palette.bg,
+            border: `1px solid ${palette.border}`,
+            color: palette.color,
+        };
+    }, [isDarkMode]);
 
     // Sortable header component
     const SortableHeader: React.FC<{
@@ -599,7 +838,8 @@ const MattersReport: React.FC<MattersReportProps> = ({
         onSort: (field: SortField) => void;
         isDarkMode: boolean;
         textAlign?: 'left' | 'center';
-    }> = ({ field, label, currentField, direction, onSort, isDarkMode, textAlign = 'left' }) => {
+        width?: number | string;
+    }> = ({ field, label, currentField, direction, onSort, isDarkMode, textAlign = 'left', width }) => {
         const isActive = currentField === field;
         
         return (
@@ -607,6 +847,8 @@ const MattersReport: React.FC<MattersReportProps> = ({
                 onClick={() => onSort(field)}
                 style={{
                     textAlign,
+                    width,
+                    minWidth: width,
                     padding: '8px 10px',
                     borderBottom: `1px solid ${isDarkMode ? '#1e293b' : '#e5e7eb'}`,
                     fontWeight: 600,
@@ -699,6 +941,138 @@ const MattersReport: React.FC<MattersReportProps> = ({
     const [startDate, setStartDate] = useState<Date | undefined>(undefined);
     const [endDate, setEndDate] = useState<Date | undefined>(undefined);
     const [showDatasetInfo, setShowDatasetInfo] = useState<boolean>(false);
+
+    const dealsIndex = useMemo(() => {
+        const map = new Map<string, DealRecord[]>();
+        if (!Array.isArray(deals)) {
+            return map;
+        }
+        deals.forEach((deal) => {
+            extractDealKeys(deal).forEach((key) => {
+                if (!key) return;
+                const bucket = map.get(key);
+                if (bucket) {
+                    bucket.push(deal);
+                } else {
+                    map.set(key, [deal]);
+                }
+            });
+        });
+        return map;
+    }, [deals]);
+
+    const instructionsIndex = useMemo(() => {
+        const map = new Map<string, InstructionRecord[]>();
+        if (!Array.isArray(instructions)) {
+            return map;
+        }
+        instructions.forEach((instruction) => {
+            extractInstructionKeys(instruction).forEach((key) => {
+                if (!key) return;
+                const bucket = map.get(key);
+                if (bucket) {
+                    bucket.push(instruction);
+                } else {
+                    map.set(key, [instruction]);
+                }
+            });
+        });
+        return map;
+    }, [instructions]);
+
+    const getMatterAssociations = useCallback((matter: Matter) => {
+        const keys = extractMatterKeys(matter);
+        if (keys.length === 0) {
+            return { deals: [] as DealRecord[], instructions: [] as InstructionRecord[] };
+        }
+        const matchedDeals: DealRecord[] = [];
+        const matchedInstructions: InstructionRecord[] = [];
+        const dealSeen = new Set<string>();
+        const instructionSeen = new Set<string>();
+
+        keys.forEach((key) => {
+            const dealMatches = dealsIndex.get(key);
+            if (dealMatches) {
+                dealMatches.forEach((deal) => {
+                    const identifier = buildDealIdentifier(deal);
+                    if (!dealSeen.has(identifier)) {
+                        dealSeen.add(identifier);
+                        matchedDeals.push(deal);
+                    }
+                });
+            }
+
+            const instructionMatches = instructionsIndex.get(key);
+            if (instructionMatches) {
+                instructionMatches.forEach((instruction) => {
+                    const identifier = buildInstructionIdentifier(instruction);
+                    if (!instructionSeen.has(identifier)) {
+                        instructionSeen.add(identifier);
+                        matchedInstructions.push(instruction);
+                    }
+                });
+            }
+        });
+
+        return { deals: matchedDeals, instructions: matchedInstructions };
+    }, [dealsIndex, instructionsIndex]);
+
+    const getPitchTagsForMatter = useCallback((matter: Matter): MatterPitchTag[] => {
+        const associations = getMatterAssociations(matter);
+        if (associations.deals.length === 0 && associations.instructions.length === 0) {
+            return [];
+        }
+
+        const tags: MatterPitchTag[] = [];
+        const pushTag = (tag: MatterPitchTag) => {
+            if (tags.length < MAX_PITCH_TAGS) {
+                tags.push(tag);
+            }
+        };
+
+        const sortedDeals = [...associations.deals].sort((a, b) => {
+            const aDate = Date.parse(a.PitchedDate ?? a.CreatedDate ?? '') || 0;
+            const bDate = Date.parse(b.PitchedDate ?? b.CreatedDate ?? '') || 0;
+            return bDate - aDate;
+        });
+
+        const sortedInstructions = [...associations.instructions].sort((a, b) => {
+            const aDate = Date.parse(a.SubmissionDate ?? a.CreatedDate ?? '') || 0;
+            const bDate = Date.parse(b.SubmissionDate ?? b.CreatedDate ?? '') || 0;
+            return bDate - aDate;
+        });
+
+        sortedDeals.forEach((deal) => {
+            const { label, title } = describeDealTag(deal);
+            pushTag({
+                key: buildDealIdentifier(deal),
+                label,
+                type: 'deal',
+                title,
+            });
+        });
+
+        sortedInstructions.forEach((instruction) => {
+            const { label, title } = describeInstructionTag(instruction);
+            pushTag({
+                key: buildInstructionIdentifier(instruction),
+                label,
+                type: 'instruction',
+                title,
+            });
+        });
+
+        const totalMatches = associations.deals.length + associations.instructions.length;
+        if (totalMatches > tags.length) {
+            tags.push({
+                key: `extra-${matter.UniqueID ?? extractMatterKeys(matter)[0] ?? 'row'}`,
+                label: `+${totalMatches - tags.length} more`,
+                type: 'extra',
+            });
+        }
+
+        return tags;
+    }, [getMatterAssociations]);
     
     // ---------- Sorting States ----------
     type SortField = 'displayNumber' | 'clientName' | 'practiceArea' | 'openDate' | 'originatingSolicitor' | 'responsibleSolicitor' | 'status' | 'wipValue' | 'collectedValue';
@@ -764,6 +1138,18 @@ const MattersReport: React.FC<MattersReportProps> = ({
     const loader = useRef<HTMLDivElement | null>(null);
 
     const [activeTab, setActiveTab] = useState('Overview'); // Add this near your other state
+    const resolvedWipRangeOptions = useMemo(
+        () => (wipRangeOptions && wipRangeOptions.length > 0 ? wipRangeOptions : DEFAULT_WIP_RANGE_OPTIONS),
+        [wipRangeOptions]
+    );
+    const activeWipRangeKey = wipRangeKey ?? resolvedWipRangeOptions[0]?.key ?? 'default';
+    const canAdjustWipRange = typeof onWipRangeChange === 'function';
+    const handleWipRangeSelect = useCallback((key: string) => {
+        if (key === activeWipRangeKey) {
+            return;
+        }
+        onWipRangeChange?.(key);
+    }, [activeWipRangeKey, onWipRangeChange]);
 
     // ---------- Date Slider Setup ----------
     const sortedMatters = useMemo(() => {
@@ -894,6 +1280,49 @@ const MattersReport: React.FC<MattersReportProps> = ({
         }
         return null;
     };
+
+    const effectiveDataWindowDays = useMemo(() => (
+        typeof dataWindowDays === 'number' && dataWindowDays > 0 ? dataWindowDays : null
+    ), [dataWindowDays]);
+
+    const getRangeDurationDays = useCallback((key: RangeKey): number | null => {
+        if (key === 'all' || key === 'custom') {
+            return null;
+        }
+        const { start, end } = getRangeFromKey(key);
+        const diff = end.getTime() - start.getTime();
+        return Math.max(1, Math.ceil(diff / DAY_MS));
+    }, [getRangeFromKey]);
+
+    const isPresetDisabled = useCallback((key: RangeKey) => {
+        if (!effectiveDataWindowDays) {
+            return false;
+        }
+        const duration = getRangeDurationDays(key);
+        if (duration == null) {
+            return false;
+        }
+        return duration > effectiveDataWindowDays;
+    }, [effectiveDataWindowDays, getRangeDurationDays]);
+
+    const getWipOptionDurationDays = useCallback((key: string): number | null => {
+        const match = /^([0-9]+)/.exec(key);
+        if (!match) {
+            return null;
+        }
+        return Number(match[1]) * 30;
+    }, []);
+
+    const isWipOptionDisabled = useCallback((key: string) => {
+        if (!effectiveDataWindowDays) {
+            return false;
+        }
+        const optionDays = getWipOptionDurationDays(key);
+        if (optionDays == null) {
+            return false;
+        }
+        return optionDays > effectiveDataWindowDays;
+    }, [effectiveDataWindowDays, getWipOptionDurationDays]);
 
     useEffect(() => {
         if (validDates.length > 0) {
@@ -1112,7 +1541,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
     // ---------- Date Range Filtered Matters (based on toolbar date selection) ----------
     const dateRangeFilteredMatters = useMemo(() => {
         if (rangeKey === 'all' || !startDate || !endDate) {
-            return matters;
+            return matters.slice();
         }
         return matters.filter((m) => {
             const openDate = parseISO(m.OpenDate || '');
@@ -1171,8 +1600,8 @@ const MattersReport: React.FC<MattersReportProps> = ({
             );
         }
         
-        // Apply sorting
-        final.sort((a, b) => {
+        // Apply sorting without mutating upstream arrays
+        const sorted = [...final].sort((a, b) => {
             let aVal: any;
             let bVal: any;
             
@@ -1190,8 +1619,8 @@ const MattersReport: React.FC<MattersReportProps> = ({
                     bVal = (b as any)['Practice Area'] || b.PracticeArea || '';
                     break;
                 case 'openDate':
-                    aVal = (a as any)['Open Date'] ? parseISO((a as any)['Open Date']) : (a.OpenDate ? parseISO(a.OpenDate) : new Date(0));
-                    bVal = (b as any)['Open Date'] ? parseISO((b as any)['Open Date']) : (b.OpenDate ? parseISO(b.OpenDate) : new Date(0));
+                    aVal = matterTimestamps.get(a.UniqueID) || 0;
+                    bVal = matterTimestamps.get(b.UniqueID) || 0;
                     break;
                 case 'originatingSolicitor':
                     aVal = (a as any)['Originating Solicitor'] || a.OriginatingSolicitor || '';
@@ -1206,20 +1635,20 @@ const MattersReport: React.FC<MattersReportProps> = ({
                     bVal = (b as any).Status || b.Status || 'Open';
                     break;
                 case 'wipValue':
-                    aVal = calculateMatterWIP(a, wip);
-                    bVal = calculateMatterWIP(b, wip);
+                    aVal = getMatterFinancials(a).wip;
+                    bVal = getMatterFinancials(b).wip;
                     break;
                 case 'collectedValue':
-                    aVal = calculateMatterCollected(a, recoveredFees);
-                    bVal = calculateMatterCollected(b, recoveredFees);
+                    aVal = getMatterFinancials(a).collected;
+                    bVal = getMatterFinancials(b).collected;
                     break;
                 default:
-                    aVal = (a as any)['Open Date'] ? parseISO((a as any)['Open Date']) : (a.OpenDate ? parseISO(a.OpenDate) : new Date(0));
-                    bVal = (b as any)['Open Date'] ? parseISO((b as any)['Open Date']) : (b.OpenDate ? parseISO(b.OpenDate) : new Date(0));
+                    aVal = matterTimestamps.get(a.UniqueID) || 0;
+                    bVal = matterTimestamps.get(b.UniqueID) || 0;
             }
             
             if (sortField === 'openDate') {
-                const result = aVal.getTime() - bVal.getTime();
+                const result = (aVal as number) - (bVal as number);
                 return sortDirection === 'asc' ? result : -result;
             } else if (sortField === 'wipValue' || sortField === 'collectedValue') {
                 const result = Number(aVal) - Number(bVal);
@@ -1230,7 +1659,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
             }
         });
         
-        return final;
+        return sorted;
     }, [
         dateRangeFilteredMatters,
         selectedTeams,
@@ -1244,12 +1673,19 @@ const MattersReport: React.FC<MattersReportProps> = ({
         userData,
         sortField,
         sortDirection,
+        getMatterFinancials,
+        matterTimestamps,
     ]);
 
     // Display matters with current sorting applied
     const displayedMatters = useMemo(
         () => filteredMatters.slice(0, itemsToShow),
         [filteredMatters, itemsToShow]
+    );
+
+    const tableMatters = useMemo(
+        () => filteredMatters.slice(0, Math.min(filteredMatters.length, 100)),
+        [filteredMatters]
     );
 
     // ---------- Infinite Scroll Effect ----------
@@ -1271,17 +1707,6 @@ const MattersReport: React.FC<MattersReportProps> = ({
 
     const showOverview =
         !activeGroupedArea && activePracticeAreas.length === 0 && !activeState && !searchTerm;
-
-    // Debug logging
-    console.log('MattersReport Debug:', {
-        showOverview,
-        activeGroupedArea,
-        activePracticeAreas: activePracticeAreas.length,
-        activeState,
-        searchTerm,
-        mattersLength: matters.length,
-        filteredMattersLength: filteredMatters.length
-    });
 
     const groupedCounts = useMemo(() => {
         const counts: { [group: string]: number } = {};
@@ -1494,16 +1919,21 @@ const MattersReport: React.FC<MattersReportProps> = ({
         };
     };
 
-    const getRangeButtonStyles = (isDarkMode: boolean, active: boolean): IButtonStyles => {
+    const getRangeButtonStyles = (isDarkMode: boolean, active: boolean, disabled: boolean = false): IButtonStyles => {
         const activeBackground = colours.highlight;
         const inactiveBackground = isDarkMode ? 'rgba(148, 163, 184, 0.16)' : 'transparent';
-        const resolvedBackground = active ? activeBackground : inactiveBackground;
-        const resolvedBorder = active
-            ? `1px solid ${isDarkMode ? 'rgba(135, 176, 255, 0.5)' : 'rgba(13, 47, 96, 0.32)'}`
-            : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.16)'}`;
-        const resolvedColor = active
-            ? '#ffffff'
-            : (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(13, 47, 96, 0.8)');
+        const disabledBackground = isDarkMode ? 'rgba(15, 23, 42, 0.75)' : 'rgba(148, 163, 184, 0.08)';
+        const resolvedBackground = disabled ? disabledBackground : (active ? activeBackground : inactiveBackground);
+        const resolvedBorder = disabled
+            ? `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.4)'}`
+            : active
+                ? `1px solid ${isDarkMode ? 'rgba(135, 176, 255, 0.5)' : 'rgba(13, 47, 96, 0.32)'}`
+                : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.16)'}`;
+        const resolvedColor = disabled
+            ? (isDarkMode ? 'rgba(226, 232, 240, 0.45)' : 'rgba(15, 23, 42, 0.35)')
+            : (active
+                ? '#ffffff'
+                : (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(13, 47, 96, 0.8)'));
         
         return {
             root: {
@@ -1518,22 +1948,33 @@ const MattersReport: React.FC<MattersReportProps> = ({
                 fontSize: 13,
                 fontFamily: 'Raleway, sans-serif',
                 transition: 'all 0.2s ease',
+                cursor: disabled ? 'default' : 'pointer',
                 boxShadow: isDarkMode
-                    ? (active ? '0 2px 6px rgba(0, 0, 0, 0.3)' : '0 1px 2px rgba(0, 0, 0, 0.2)')
-                    : (active ? '0 2px 4px rgba(15, 23, 42, 0.15)' : '0 1px 2px rgba(15, 23, 42, 0.08)'),
+                    ? (active && !disabled ? '0 2px 6px rgba(0, 0, 0, 0.3)' : '0 1px 2px rgba(0, 0, 0, 0.2)')
+                    : (active && !disabled ? '0 2px 4px rgba(15, 23, 42, 0.15)' : '0 1px 2px rgba(15, 23, 42, 0.08)'),
             },
             rootHovered: {
-                background: active ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(248, 250, 252, 1)'),
-                border: active ? resolvedBorder : `1px solid ${isDarkMode ? 'rgba(135, 206, 255, 0.4)' : 'rgba(54, 144, 206, 0.3)'}`,
-                color: active ? '#ffffff' : (isDarkMode ? '#f1f5f9' : colours.highlight),
-                transform: 'translateY(-1px)',
-                boxShadow: isDarkMode
-                    ? '0 4px 12px rgba(0, 0, 0, 0.4)'
-                    : '0 3px 8px rgba(15, 23, 42, 0.12)',
+                background: disabled
+                    ? resolvedBackground
+                    : (active ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(248, 250, 252, 1)')),
+                border: disabled
+                    ? resolvedBorder
+                    : (active ? resolvedBorder : `1px solid ${isDarkMode ? 'rgba(135, 206, 255, 0.4)' : 'rgba(54, 144, 206, 0.3)'}`),
+                color: disabled
+                    ? resolvedColor
+                    : (active ? '#ffffff' : (isDarkMode ? '#f1f5f9' : colours.highlight)),
+                transform: disabled ? 'none' : 'translateY(-1px)',
+                boxShadow: disabled
+                    ? 'none'
+                    : (isDarkMode
+                        ? '0 4px 12px rgba(0, 0, 0, 0.4)'
+                        : '0 3px 8px rgba(15, 23, 42, 0.12)'),
             },
             rootPressed: {
-                background: active ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.32)' : 'rgba(241, 245, 249, 1)'),
-                transform: 'translateY(0)',
+                background: disabled
+                    ? resolvedBackground
+                    : (active ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.32)' : 'rgba(241, 245, 249, 1)')),
+                transform: disabled ? 'none' : 'translateY(0)',
             },
         };
     };
@@ -1707,10 +2148,24 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                         Dataset Date Ranges
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                                            <span style={{ opacity: 0.8 }}>Matters:</span>
-                                            <span style={{ fontWeight: 600 }}>Last 24 months</span>
-                                        </div>
+                                        {[{
+                                            label: 'Matters',
+                                            range: 'Last 24 months'
+                                        }, {
+                                            label: 'ID submissions',
+                                            range: 'Last 24 months'
+                                        }, {
+                                            label: 'WIP ledger',
+                                            range: 'Active matters'
+                                        }, {
+                                            label: 'Collected fees',
+                                            range: 'Last 12 months'
+                                        }].map(({ label, range }) => (
+                                            <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                                                <span style={{ opacity: 0.8 }}>{label}:</span>
+                                                <span style={{ fontWeight: 600 }}>{range}</span>
+                                            </div>
+                                        ))}
                                     </div>
                                     <div style={{
                                         marginTop: 10,
@@ -1720,7 +2175,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                         opacity: 0.7,
                                         fontStyle: 'italic'
                                     }}>
-                                        Data outside these ranges won't appear in metrics
+                                        ROI columns depend on the WIP and collected feeds, so data outside these ranges won't appear in metrics
                                     </div>
                                 </div>
                             )}
@@ -1731,50 +2186,70 @@ const MattersReport: React.FC<MattersReportProps> = ({
                 <div className="filter-toolbar__middle">
                     <div className="filter-toolbar__presets">
                         <div className="filter-preset-group">
-                            {RANGE_OPTIONS.slice(0, 2).map(({ key, label }) => (
-                                <DefaultButton
-                                    key={key}
-                                    text={label}
-                                    onClick={() => handleRangeSelect(key)}
-                                    styles={getRangeButtonStyles(isDarkMode, activePresetKey === key)}
-                                />
-                            ))}
+                            {RANGE_OPTIONS.slice(0, 2).map(({ key, label }) => {
+                                const presetDisabled = isPresetDisabled(key);
+                                return (
+                                    <DefaultButton
+                                        key={key}
+                                        text={label}
+                                        onClick={() => handleRangeSelect(key)}
+                                        disabled={presetDisabled}
+                                        styles={getRangeButtonStyles(isDarkMode, activePresetKey === key, presetDisabled)}
+                                    />
+                                );
+                            })}
                             <div className="preset-separator">|</div>
-                            {RANGE_OPTIONS.slice(2, 4).map(({ key, label }) => (
-                                <DefaultButton
-                                    key={key}
-                                    text={label}
-                                    onClick={() => handleRangeSelect(key)}
-                                    styles={getRangeButtonStyles(isDarkMode, activePresetKey === key)}
-                                />
-                            ))}
+                            {RANGE_OPTIONS.slice(2, 4).map(({ key, label }) => {
+                                const presetDisabled = isPresetDisabled(key);
+                                return (
+                                    <DefaultButton
+                                        key={key}
+                                        text={label}
+                                        onClick={() => handleRangeSelect(key)}
+                                        disabled={presetDisabled}
+                                        styles={getRangeButtonStyles(isDarkMode, activePresetKey === key, presetDisabled)}
+                                    />
+                                );
+                            })}
                             <div className="preset-separator">|</div>
-                            {RANGE_OPTIONS.slice(4, 6).map(({ key, label }) => (
-                                <DefaultButton
-                                    key={key}
-                                    text={label}
-                                    onClick={() => handleRangeSelect(key)}
-                                    styles={getRangeButtonStyles(isDarkMode, activePresetKey === key)}
-                                />
-                            ))}
+                            {RANGE_OPTIONS.slice(4, 6).map(({ key, label }) => {
+                                const presetDisabled = isPresetDisabled(key);
+                                return (
+                                    <DefaultButton
+                                        key={key}
+                                        text={label}
+                                        onClick={() => handleRangeSelect(key)}
+                                        disabled={presetDisabled}
+                                        styles={getRangeButtonStyles(isDarkMode, activePresetKey === key, presetDisabled)}
+                                    />
+                                );
+                            })}
                             <div className="preset-separator">|</div>
-                            {RANGE_OPTIONS.slice(6, 8).map(({ key, label }) => (
-                                <DefaultButton
-                                    key={key}
-                                    text={label}
-                                    onClick={() => handleRangeSelect(key)}
-                                    styles={getRangeButtonStyles(isDarkMode, activePresetKey === key)}
-                                />
-                            ))}
+                            {RANGE_OPTIONS.slice(6, 8).map(({ key, label }) => {
+                                const presetDisabled = isPresetDisabled(key);
+                                return (
+                                    <DefaultButton
+                                        key={key}
+                                        text={label}
+                                        onClick={() => handleRangeSelect(key)}
+                                        disabled={presetDisabled}
+                                        styles={getRangeButtonStyles(isDarkMode, activePresetKey === key, presetDisabled)}
+                                    />
+                                );
+                            })}
                             <div className="preset-separator">|</div>
-                            {RANGE_OPTIONS.slice(8).map(({ key, label }) => (
-                                <DefaultButton
-                                    key={key}
-                                    text={label}
-                                    onClick={() => handleRangeSelect(key)}
-                                    styles={getRangeButtonStyles(isDarkMode, activePresetKey === key)}
-                                />
-                            ))}
+                            {RANGE_OPTIONS.slice(8).map(({ key, label }) => {
+                                const presetDisabled = isPresetDisabled(key);
+                                return (
+                                    <DefaultButton
+                                        key={key}
+                                        text={label}
+                                        onClick={() => handleRangeSelect(key)}
+                                        disabled={presetDisabled}
+                                        styles={getRangeButtonStyles(isDarkMode, activePresetKey === key, presetDisabled)}
+                                    />
+                                );
+                            })}
                         </div>
                         {!isAllPresetActive && (
                             <DefaultButton
@@ -1878,13 +2353,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                     color: isDarkMode ? '#64748b' : '#6b7280',
                                     marginTop: '4px'
                                 }}>
-                                    Showing {Math.min(100, filteredMatters.length)} of {filteredMatters.length} matters
-                                    {/* Debug info */}
-                                    <span style={{ marginLeft: '10px', color: isDarkMode ? '#f59e0b' : '#dc2626', fontWeight: 'bold' }}>
-                                        [Debug: showOverview={showOverview ? 'true' : 'false'}, 
-                                        matters={matters.length}, 
-                                        filtered={filteredMatters.length}]
-                                    </span>
+                                    Showing {tableMatters.length} of {filteredMatters.length} matters
                                 </div>
                             </div>
                             <table style={{
@@ -1900,20 +2369,13 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                         top: 0
                                     }}>
                                         <SortableHeader 
-                                            field="displayNumber" 
-                                            label="Display #" 
+                                            field="status" 
+                                            label="Status" 
                                             currentField={sortField}
                                             direction={sortDirection}
                                             onSort={handleSort}
                                             isDarkMode={isDarkMode}
-                                        />
-                                        <SortableHeader 
-                                            field="clientName" 
-                                            label="Client" 
-                                            currentField={sortField}
-                                            direction={sortDirection}
-                                            onSort={handleSort}
-                                            isDarkMode={isDarkMode}
+                                            width={110}
                                         />
                                         <SortableHeader 
                                             field="practiceArea" 
@@ -1923,10 +2385,29 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                             onSort={handleSort}
                                             isDarkMode={isDarkMode}
                                             textAlign="center"
+                                            width={80}
                                         />
                                         <SortableHeader 
                                             field="openDate" 
                                             label="Opened" 
+                                            currentField={sortField}
+                                            direction={sortDirection}
+                                            onSort={handleSort}
+                                            isDarkMode={isDarkMode}
+                                            width={110}
+                                        />
+                                        <SortableHeader 
+                                            field="displayNumber" 
+                                            label="Display #" 
+                                            currentField={sortField}
+                                            direction={sortDirection}
+                                            onSort={handleSort}
+                                            isDarkMode={isDarkMode}
+                                            width={120}
+                                        />
+                                        <SortableHeader 
+                                            field="clientName" 
+                                            label="Client" 
                                             currentField={sortField}
                                             direction={sortDirection}
                                             onSort={handleSort}
@@ -1940,6 +2421,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                             onSort={handleSort}
                                             isDarkMode={isDarkMode}
                                             textAlign="center"
+                                            width={90}
                                         />
                                         <SortableHeader 
                                             field="responsibleSolicitor" 
@@ -1949,14 +2431,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                             onSort={handleSort}
                                             isDarkMode={isDarkMode}
                                             textAlign="center"
-                                        />
-                                        <SortableHeader 
-                                            field="status" 
-                                            label="Status" 
-                                            currentField={sortField}
-                                            direction={sortDirection}
-                                            onSort={handleSort}
-                                            isDarkMode={isDarkMode}
+                                            width={90}
                                         />
                                         <SortableHeader 
                                             field="wipValue" 
@@ -1966,6 +2441,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                             onSort={handleSort}
                                             isDarkMode={isDarkMode}
                                             textAlign="center"
+                                            width={115}
                                         />
                                         <SortableHeader 
                                             field="collectedValue" 
@@ -1975,20 +2451,17 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                             onSort={handleSort}
                                             isDarkMode={isDarkMode}
                                             textAlign="center"
+                                            width={115}
                                         />
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {filteredMatters.slice(0, 100).map((matter, idx) => {
-                                        // Debug: Log the first few matters to see the actual structure
-                                        if (idx < 3) {
-                                            console.log(`Matter ${idx}:`, matter);
-                                            console.log(`Properties:`, Object.keys(matter));
-                                        }
-                                        
+                                    {tableMatters.map((matter) => {
+
                                         const openDate = (matter as any)['Open Date'] ? parseISO((matter as any)['Open Date']) : null;
                                         const practiceAreaGroup = groupPracticeArea((matter as any)['Practice Area'] || matter.PracticeArea);
                                         const groupIconName = getGroupIcon(practiceAreaGroup);
+                                        const pitchTags = getPitchTagsForMatter(matter);
                                         
                                         return (
                                             <tr key={matter.UniqueID} style={{
@@ -2004,24 +2477,29 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                             onClick={() => setSelectedMatter(matter)}
                                             >
                                                 <td style={{
-                                                    padding: '10px 12px',
-                                                    color: isDarkMode ? '#ffffff' : '#000000', // Force high contrast colors
-                                                    fontFamily: 'monospace',
-                                                    fontSize: '12px',
-                                                    fontWeight: 600 // Make text bold
+                                                    padding: '6px 8px',
+                                                    width: 110,
+                                                    minWidth: 110,
+                                                    textAlign: 'center'
                                                 }}>
-                                                    {(matter as any)['Display Number'] || matter.DisplayNumber || 'N/A'}
+                                                    <span style={{
+                                                        background: ((matter as any).Status || matter.Status) === 'Open' ? (isDarkMode ? '#10b98140' : '#dcfce7') : (isDarkMode ? '#6b728040' : '#f3f4f6'),
+                                                        color: ((matter as any).Status || matter.Status) === 'Open' ? (isDarkMode ? '#ffffff' : '#16a34a') : (isDarkMode ? '#ffffff' : '#6b7280'),
+                                                        padding: '4px 8px',
+                                                        borderRadius: '4px',
+                                                        fontWeight: 700,
+                                                        fontSize: '10px',
+                                                        display: 'inline-block',
+                                                        border: `1px solid ${((matter as any).Status || matter.Status) === 'Open' ? (isDarkMode ? '#10b981' : '#16a34a') : (isDarkMode ? '#6b7280' : '#6b7280')}`,
+                                                        minWidth: 70
+                                                    }}>
+                                                        {(matter as any).Status || matter.Status || 'Open'}
+                                                    </span>
                                                 </td>
                                                 <td style={{
-                                                    padding: '10px 12px',
-                                                    color: isDarkMode ? '#ffffff' : '#000000', // Force high contrast colors
-                                                    fontWeight: 600,
-                                                    overflow: 'hidden',
-                                                    textOverflow: 'ellipsis',
-                                                    whiteSpace: 'nowrap'
-                                                }}>{(matter as any)['Client Name'] || matter.ClientName || 'N/A'}</td>
-                                                <td style={{
-                                                    padding: '10px 12px',
+                                                    padding: '6px 8px',
+                                                    width: 80,
+                                                    minWidth: 80,
                                                     textAlign: 'center'
                                                 }}>
                                                     <Icon 
@@ -2034,11 +2512,13 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                     />
                                                 </td>
                                                 <td style={{
-                                                    padding: '10px 12px',
-                                                    color: isDarkMode ? '#ffffff' : '#000000', // Force high contrast colors
+                                                    padding: '6px 8px',
+                                                    width: 110,
+                                                    minWidth: 110,
+                                                    color: isDarkMode ? '#ffffff' : '#000000',
                                                     fontFamily: 'monospace',
-                                                    fontSize: '12px',
-                                                    lineHeight: '1.3',
+                                                    fontSize: '11px',
+                                                    lineHeight: '1.2',
                                                     fontWeight: 600
                                                 }}>
                                                     {openDate && isValid(openDate) ? (
@@ -2049,45 +2529,69 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                     ) : '–'}
                                                 </td>
                                                 <td style={{
+                                                    padding: '8px 10px',
+                                                    width: 120,
+                                                    minWidth: 120,
+                                                    color: isDarkMode ? '#ffffff' : '#000000',
+                                                    fontFamily: 'monospace',
+                                                    fontSize: '12px',
+                                                    fontWeight: 600
+                                                }}>
+                                                    {(matter as any)['Display Number'] || matter.DisplayNumber || 'N/A'}
+                                                </td>
+                                                <td style={{
                                                     padding: '10px 12px',
                                                     color: isDarkMode ? '#ffffff' : '#000000', // Force high contrast colors
+                                                    fontWeight: 600,
+                                                    overflow: 'hidden',
+                                                    textOverflow: 'ellipsis',
+                                                    whiteSpace: 'nowrap'
+                                                }}>
+                                                    {(matter as any)['Client Name'] || matter.ClientName || 'N/A'}
+                                                    {pitchTags.length > 0 && (
+                                                        <div style={pitchTagContainerStyle}>
+                                                            {pitchTags.map((tag) => (
+                                                                <span
+                                                                    key={tag.key}
+                                                                    style={getPitchTagStyle(tag.type)}
+                                                                    title={tag.title}
+                                                                >
+                                                                    {tag.label}
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </td>
+                                                <td style={{
+                                                    padding: '6px 8px',
+                                                    width: 90,
+                                                    minWidth: 90,
+                                                    color: isDarkMode ? '#ffffff' : '#000000',
                                                     fontSize: '12px',
                                                     textAlign: 'center',
                                                     fontFamily: 'monospace',
                                                     fontWeight: 700,
-                                                    letterSpacing: '1px'
+                                                    letterSpacing: '0.6px'
                                                 }}>
                                                     {getInitialsFromName((matter as any)['Originating Solicitor'] || matter.OriginatingSolicitor || '')}
                                                 </td>
                                                 <td style={{
-                                                    padding: '10px 12px',
-                                                    color: isDarkMode ? '#ffffff' : '#000000', // Force high contrast colors
+                                                    padding: '6px 8px',
+                                                    width: 90,
+                                                    minWidth: 90,
+                                                    color: isDarkMode ? '#ffffff' : '#000000',
                                                     fontSize: '12px',
                                                     textAlign: 'center',
                                                     fontFamily: 'monospace',
                                                     fontWeight: 700,
-                                                    letterSpacing: '1px'
+                                                    letterSpacing: '0.6px'
                                                 }}>
                                                     {getInitialsFromName((matter as any)['Responsible Solicitor'] || matter.ResponsibleSolicitor || '')}
                                                 </td>
                                                 <td style={{
-                                                    padding: '10px 12px'
-                                                }}>
-                                                    <span style={{
-                                                        background: ((matter as any).Status || matter.Status) === 'Open' ? (isDarkMode ? '#10b98140' : '#dcfce7') : (isDarkMode ? '#6b728040' : '#f3f4f6'),
-                                                        color: ((matter as any).Status || matter.Status) === 'Open' ? (isDarkMode ? '#ffffff' : '#16a34a') : (isDarkMode ? '#ffffff' : '#6b7280'),
-                                                        padding: '6px 10px',
-                                                        borderRadius: '4px',
-                                                        fontWeight: 700,
-                                                        fontSize: '11px',
-                                                        display: 'inline-block',
-                                                        border: `1px solid ${((matter as any).Status || matter.Status) === 'Open' ? (isDarkMode ? '#10b981' : '#16a34a') : (isDarkMode ? '#6b7280' : '#6b7280')}`
-                                                    }}>
-                                                        {(matter as any).Status || matter.Status || 'Open'}
-                                                    </span>
-                                                </td>
-                                                <td style={{
-                                                    padding: '10px 12px',
+                                                    padding: '8px 10px',
+                                                    width: 115,
+                                                    minWidth: 115,
                                                     textAlign: 'center',
                                                     color: isDarkMode ? '#ffffff' : '#000000',
                                                     fontFamily: 'monospace',
@@ -2097,7 +2601,9 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                     {formatCurrency(calculateMatterWIP(matter, wip))}
                                                 </td>
                                                 <td style={{
-                                                    padding: '10px 12px',
+                                                    padding: '8px 10px',
+                                                    width: 115,
+                                                    minWidth: 115,
                                                     textAlign: 'center',
                                                     color: isDarkMode ? '#ffffff' : '#000000',
                                                     fontFamily: 'monospace',
@@ -2121,7 +2627,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                     No matters found with current filters.
                                 </div>
                             )}
-                            {filteredMatters.length > 100 && (
+                            {filteredMatters.length > tableMatters.length && (
                                 <div style={{
                                     padding: '12px 16px',
                                     textAlign: 'center',
@@ -2130,7 +2636,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                     borderTop: `1px solid ${isDarkMode ? '#1e293b' : '#e5e7eb'}`,
                                     background: isDarkMode ? '#0f172a' : '#f9fafb'
                                 }}>
-                                    Showing first 100 of {dateRangeFilteredMatters.length} matters · Scroll to view more
+                                    Showing first {tableMatters.length} of {filteredMatters.length} matters · Refine filters to narrow further
                                 </div>
                             )}
                         </div>
@@ -2159,6 +2665,9 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                 matter={matter}
                                                 onSelect={() => setSelectedMatter(matter)}
                                                 animationDelay={animationDelay}
+                                                pitchTags={getPitchTagsForMatter(matter)}
+                                                pitchTagContainerStyle={pitchTagContainerStyle}
+                                                getPitchTagStyle={getPitchTagStyle}
                                             />
                                         );
                                     })}

@@ -52,6 +52,41 @@ const getFileColour = (ext: string, coloursRef: typeof colours): string => {
   }
 };
 
+type PitchContentShape = {
+  EmailSubject?: string;
+  subject?: string;
+  EmailBody?: string;
+  body?: string;
+  EmailBodyHtml?: string;
+  bodyHtml?: string;
+  [key: string]: unknown;
+};
+
+const coercePitchContent = (value: unknown): PitchContentShape | null => {
+  if (!value) return null;
+  if (Array.isArray(value)) {
+    const first = value.find(Boolean);
+    return coercePitchContent(first);
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === 'object') {
+        return parsed as PitchContentShape;
+      }
+    } catch {
+      // Fall through to treat as raw HTML body
+    }
+    return { EmailBodyHtml: trimmed };
+  }
+  if (typeof value === 'object') {
+    return value as PitchContentShape;
+  }
+  return null;
+};
+
 // Move interface to separate file
 /**
  * Compact instruction card with clear information hierarchy for legibility.
@@ -257,6 +292,9 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
   const [selectedDocumentIndex, setSelectedDocumentIndex] = useState<number>(0);
   const [fetchedDocuments, setFetchedDocuments] = useState<any[]>([]);
   const [isLoadingDocuments, setIsLoadingDocuments] = useState(false);
+  const [isVerifyingId, setIsVerifyingId] = useState(false);
+  const [showPitchDetails, setShowPitchDetails] = useState(false);
+  const resolvedDeal = deal ?? (instruction as any)?.deal ?? null;
 
   // Use fetched documents if available, otherwise fall back to props
   const documentsToUse = fetchedDocuments.length > 0 ? fetchedDocuments : (documents || []);
@@ -297,8 +335,8 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
   const handleEditDealClick = () => {
     setIsEditingDeal(true);
     setEditDealData({
-      ServiceDescription: deal?.ServiceDescription || '',
-      Amount: deal?.Amount?.toString() || ''
+      ServiceDescription: resolvedDeal?.ServiceDescription || '',
+      Amount: resolvedDeal?.Amount?.toString() || ''
     });
   };
 
@@ -311,23 +349,23 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
   };
 
   const handleSaveDeal = async () => {
-    if (!deal?.DealId || !onDealEdit) return;
+    if (!resolvedDeal?.DealId || !onDealEdit) return;
 
     setIsSavingDeal(true);
     try {
       const updates: { ServiceDescription?: string; Amount?: number } = {};
       
-      if (editDealData.ServiceDescription !== (deal?.ServiceDescription || '')) {
+      if (editDealData.ServiceDescription !== (resolvedDeal?.ServiceDescription || '')) {
         updates.ServiceDescription = editDealData.ServiceDescription;
       }
       
       const newAmount = parseFloat(editDealData.Amount);
-      if (!isNaN(newAmount) && newAmount !== (deal?.Amount || 0)) {
+      if (!isNaN(newAmount) && newAmount !== (resolvedDeal?.Amount || 0)) {
         updates.Amount = newAmount;
       }
 
       if (Object.keys(updates).length > 0) {
-        await onDealEdit(deal.DealId, updates);
+        await onDealEdit(resolvedDeal.DealId, updates);
         
         // Trigger parent data refresh after successful edit
         if (onRefreshData) {
@@ -627,6 +665,15 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
   const stageComplete = instruction?.Stage === 'proof-of-id-complete' || instruction?.stage === 'proof-of-id-complete';
   const stageLower_ = ((instruction?.Stage || instruction?.stage || '') + '').trim().toLowerCase();
   const isInstructedOrLater = stageLower_ === 'proof-of-id-complete' || stageLower_ === 'completed';
+
+  // When a fresh EID result arrives, clear the local "verifying" flag so the
+  // chip/pill can reflect the real backend status instead of staying in limbo.
+  useEffect(() => {
+    if (!isVerifyingId) return;
+    if (eidResult || eidStatus) {
+      setIsVerifyingId(false);
+    }
+  }, [eidResult, eidStatus, isVerifyingId]);
   
   let verifyIdStatus: 'pending' | 'received' | 'review' | 'complete';
   if (stageComplete) {
@@ -642,7 +689,10 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
       verifyIdStatus = 'review';
     }
   } else if ((!eid && !eids?.length) || eidStatus === 'pending') {
-    verifyIdStatus = proofOfIdComplete ? 'received' : 'pending';
+    // Only show 'received' if we have actual proof of ID AND EID verification has been attempted
+    // If no EID data exists but we have documents, it means verification hasn't been triggered
+    const hasEidAttempt = Boolean(eid || (eids && eids.length > 0));
+    verifyIdStatus = proofOfIdComplete && hasEidAttempt ? 'received' : 'pending';
   } else if (poidPassed) {
     verifyIdStatus = 'complete';
   } else {
@@ -717,8 +767,7 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
   const cclStatus = instruction?.CCLSubmitted ? 'complete' : 'pending';
 
   // New pre-ID step: Instruction/Pitch capture (integrated from pitches). Complete if a deal/service exists.
-  const hasDeal = !!(deal);
-  const instructionCaptureStatus = hasDeal ? 'complete' : 'pending';
+  const hasDeal = !!resolvedDeal;
 
   // Calculate instruction completion progress (0-100)
   const calculateInstructionProgress = (): number => {
@@ -763,8 +812,8 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
     if (instruction?.SubmissionDate || instruction?.SubmissionTime) {
       dt = combineLocal(instruction?.SubmissionDate, instruction?.SubmissionTime);
     }
-    if (!dt && (deal?.PitchedDate || deal?.PitchedTime)) {
-      dt = combineLocal(deal?.PitchedDate, deal?.PitchedTime);
+    if (!dt && (resolvedDeal?.PitchedDate || resolvedDeal?.PitchedTime)) {
+      dt = combineLocal(resolvedDeal?.PitchedDate, resolvedDeal?.PitchedTime);
     }
     if (dt && !isNaN(dt.getTime())) {
       const now = new Date();
@@ -829,14 +878,49 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
     instruction?.area_of_work || instruction?.ServiceType || instruction?.serviceType || 
     instruction?.Type || instruction?.type ||
     // Try deal prop
-    deal?.AreaOfWork ||
+    resolvedDeal?.AreaOfWork ||
     // Try deals array (get first deal's area)
     (deals && deals.length > 0 ? deals[0].AreaOfWork : '') ||
     // Fallback to empty string
     '';
   
   // Determine if this is a pitched deal (no instruction yet)
-  const isPitchedDeal = !instruction && deal;
+  const isPitchedDeal = !instruction && Boolean(resolvedDeal);
+
+  const pitchSourceFromDeal = resolvedDeal
+    ? (resolvedDeal as any)?.pitchContent ?? (resolvedDeal as any)?.PitchContent ?? (resolvedDeal as any)?.pitch ?? (resolvedDeal as any)?.Pitch
+    : null;
+  const pitchSourceFromInstruction = instruction
+    ? (instruction as any)?.pitchContent ?? (instruction as any)?.PitchContent ?? null
+    : null;
+
+  const normalizedPitch = useMemo(() => {
+    const fromDeal = coercePitchContent(pitchSourceFromDeal);
+    if (fromDeal) return fromDeal;
+    return coercePitchContent(pitchSourceFromInstruction);
+  }, [pitchSourceFromDeal, pitchSourceFromInstruction]);
+
+  const pitchSubject: string | undefined =
+    normalizedPitch?.EmailSubject ||
+    normalizedPitch?.subject ||
+    (resolvedDeal as any)?.EmailSubject ||
+    (resolvedDeal as any)?.emailSubject ||
+    (resolvedDeal as any)?.subject ||
+    (resolvedDeal as any)?.Subject;
+  const pitchBodyHtml: string | undefined =
+    normalizedPitch?.EmailBodyHtml ||
+    normalizedPitch?.bodyHtml ||
+    (resolvedDeal as any)?.EmailBodyHtml ||
+    (resolvedDeal as any)?.emailBodyHtml;
+  const pitchBody: string | undefined =
+    normalizedPitch?.EmailBody ||
+    normalizedPitch?.body ||
+    (resolvedDeal as any)?.EmailBody ||
+    (resolvedDeal as any)?.emailBody;
+  const effectivePitchSubject = pitchSubject?.trim() ? pitchSubject.trim() : undefined;
+  const hasPitchDetails = Boolean(effectivePitchSubject || pitchBody || pitchBodyHtml);
+  const canExpandPitchDetails = hasDeal && hasPitchDetails;
+  const instructionCaptureStatus = hasDeal ? 'complete' : 'pending';
   
   const areaColor = getAreaColor(areaOfWork);
   const areaIcon = getAreaIcon(areaOfWork);
@@ -849,7 +933,7 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
       instruction?.Handler,
       instruction?.PointOfContact,
       instructionData?.HelixContact,
-      deal?.PitchedBy,
+      resolvedDeal?.PitchedBy,
     ];
 
     const found = candidates.find(
@@ -857,7 +941,7 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
     );
 
     return typeof found === 'string' ? found.trim() : null;
-  }, [instruction, instructionData, deal]);
+  }, [instruction, instructionData, resolvedDeal]);
 
   const normalizedSolicitor = solicitorContact?.toLowerCase() ?? '';
   // Generic contact identifiers used to detect unclaimed/placeholder contacts
@@ -1050,6 +1134,33 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
     '--animation-delay': `${animationDelay}s`,
   } as React.CSSProperties;
 
+  const summaryIsInteractive = canExpandPitchDetails && !isEditingDeal;
+
+  const dealSummaryInteractionProps: React.HTMLAttributes<HTMLDivElement> = summaryIsInteractive
+    ? {
+        role: 'button',
+        tabIndex: 0,
+        'aria-expanded': showPitchDetails,
+        onClick: (event) => {
+          event.stopPropagation();
+          setShowPitchDetails((prev) => !prev);
+        },
+        onKeyDown: (event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            event.stopPropagation();
+            setShowPitchDetails((prev) => !prev);
+          }
+        }
+      }
+    : {};
+
+  useEffect(() => {
+    if (!summaryIsInteractive && showPitchDetails) {
+      setShowPitchDetails(false);
+    }
+  }, [summaryIsInteractive, showPitchDetails]);
+
   const handleCardClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     
@@ -1176,9 +1287,9 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
             };
 
             const getDealPersonName = (): string | undefined => {
-              if (isPitchedDeal && deal) {
-                const dealFirstName = (deal as any).firstName || '';
-                const dealLastName = (deal as any).lastName || '';
+              if (isPitchedDeal && resolvedDeal) {
+                const dealFirstName = (resolvedDeal as any).firstName || '';
+                const dealLastName = (resolvedDeal as any).lastName || '';
                 if (dealFirstName || dealLastName) {
                   return `${dealFirstName} ${dealLastName}`.trim();
                 }
@@ -1342,7 +1453,7 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
         }}>
           {(() => {
             // Get instruction date
-            const instructionDate = instruction?.Date_Created || instruction?.date_created || instruction?.InstructionDate || instruction?.instructionDate || instruction?.Created_Date || instruction?.DateCreated || deal?.PitchedDate;
+            const instructionDate = instruction?.Date_Created || instruction?.date_created || instruction?.InstructionDate || instruction?.instructionDate || instruction?.Created_Date || instruction?.DateCreated || resolvedDeal?.PitchedDate;
             if (instructionDate) {
               try {
                 const date = new Date(instructionDate);
@@ -1406,8 +1517,8 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
           flexWrap: 'wrap'
         }}>
         {(() => {
-          const email = instruction?.Email || instruction?.email || (deal as any)?.LeadClientEmail || (instruction as any)?.LeadClientEmail;
-          const phone = instruction?.Phone || instruction?.phone || (deal as any)?.Phone || (instruction as any)?.PhoneNumber || (instruction as any)?.ContactNumber;
+          const email = instruction?.Email || instruction?.email || (resolvedDeal as any)?.LeadClientEmail || (instruction as any)?.LeadClientEmail;
+          const phone = instruction?.Phone || instruction?.phone || (resolvedDeal as any)?.Phone || (instruction as any)?.PhoneNumber || (instruction as any)?.ContactNumber;
           const instructionRefVal = instruction?.InstructionRef || instruction?.instructionRef || instruction?.ref || instruction?.Ref;
           const prospectVal = prospectId;
           const contactValue = solicitorContact;
@@ -1568,24 +1679,31 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
 
       {/* Deal summary: service + amount (clamped) */}
       {hasDeal && (
-        <div style={{
-          backgroundColor: selected 
-            ? (isDarkMode ? '#334155' : 'rgba(59, 130, 246, 0.04)') // Solid background in dark mode
-            : (isDarkMode ? '#1e293b' : 'rgba(0,0,0,0.03)'),
-          border: selected
-            ? (isDarkMode ? `1px solid ${colours.blue}` : `1px solid ${colours.blue}`) // Thinner border, same for both modes
-            : (isDarkMode ? '1px solid #334155' : '1px solid rgba(0,0,0,0.06)'), // Solid border
-          borderRadius: 8, // constant
-          padding: '10px 14px', // constant
-          marginTop: 6,
-          marginBottom: 2,
-          marginLeft: onToggle ? 26 : 0,
-          position: 'relative',
-          boxShadow: selected 
-            ? (isDarkMode ? 'none' : `0 2px 8px ${colours.blue}15`) // No shadow in dark mode
-            : 'none',
-          transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
-        }}>
+        <div
+          {...dealSummaryInteractionProps}
+          style={{
+            backgroundColor: selected 
+              ? (isDarkMode ? '#334155' : 'rgba(59, 130, 246, 0.04)')
+              : (isDarkMode ? '#1e293b' : 'rgba(0,0,0,0.03)'),
+            border: selected
+              ? (isDarkMode ? `1px solid ${colours.blue}` : `1px solid ${colours.blue}`)
+              : (summaryIsInteractive && showPitchDetails)
+                ? `1px solid ${colours.blue}`
+                : (isDarkMode ? '1px solid #334155' : '1px solid rgba(0,0,0,0.06)'),
+            borderRadius: 8,
+            padding: '10px 14px',
+            marginTop: 6,
+            marginBottom: 2,
+            marginLeft: onToggle ? 26 : 0,
+            position: 'relative',
+            boxShadow: selected 
+              ? (isDarkMode ? 'none' : `0 2px 8px ${colours.blue}15`)
+              : 'none',
+            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+            cursor: summaryIsInteractive ? 'pointer' : 'default',
+            outline: 'none'
+          }}
+        >
           {isEditingDeal ? (
             /* Edit mode */
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1684,13 +1802,13 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
                 WebkitLineClamp: 2,
                 WebkitBoxOrient: 'vertical' as any,
                 overflow: 'hidden',
-                fontStyle: !deal?.ServiceDescription ? 'italic' : 'normal',
-                opacity: !deal?.ServiceDescription ? 0.7 : 1
+                fontStyle: !resolvedDeal?.ServiceDescription ? 'italic' : 'normal',
+                opacity: !resolvedDeal?.ServiceDescription ? 0.7 : 1
               }}>
-                {deal?.ServiceDescription || 'No service description'}
+                {resolvedDeal?.ServiceDescription || 'No service description'}
               </div>
               {/* Show pitch email subject if available */}
-              {deal?.pitchContent?.EmailSubject && (
+              {effectivePitchSubject && (
                 <div style={{
                   fontSize: 11,
                   fontWeight: 400,
@@ -1699,7 +1817,8 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
                   marginTop: 4,
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 6
+                  gap: 6,
+                  flex: summaryIsInteractive ? '0 1 auto' : undefined
                 }}>
                   <FaEnvelope style={{ fontSize: 10 }} />
                   <span style={{ 
@@ -1708,8 +1827,20 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
                     WebkitBoxOrient: 'vertical' as any,
                     overflow: 'hidden'
                   }}>
-                    {deal.pitchContent.EmailSubject}
+                    {effectivePitchSubject}
                   </span>
+                  {summaryIsInteractive && (
+                    <Icon
+                      iconName={showPitchDetails ? 'ChevronUp' : 'ChevronDown'}
+                      styles={{
+                        root: {
+                          fontSize: 10,
+                          transition: 'transform 0.2s ease',
+                          transform: showPitchDetails ? 'rotate(180deg)' : 'rotate(0deg)'
+                        }
+                      }}
+                    />
+                  )}
                 </div>
               )}
               <div style={{
@@ -1719,11 +1850,49 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
                 fontFamily: 'Raleway, sans-serif',
                 textAlign: 'right',
                 whiteSpace: 'nowrap',
-                fontStyle: typeof deal?.Amount !== 'number' ? 'italic' : 'normal',
-                opacity: typeof deal?.Amount !== 'number' ? 0.7 : 1
+                fontStyle: typeof resolvedDeal?.Amount !== 'number' ? 'italic' : 'normal',
+                opacity: typeof resolvedDeal?.Amount !== 'number' ? 0.7 : 1,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6
               }}>
-                {typeof deal?.Amount === 'number' ? `£${deal.Amount.toLocaleString()}` : 'No amount set'}
+                <span>
+                  {typeof resolvedDeal?.Amount === 'number' ? `£${resolvedDeal.Amount.toLocaleString()}` : 'No amount set'}
+                </span>
+                {summaryIsInteractive && !effectivePitchSubject && (
+                  <Icon
+                    iconName={showPitchDetails ? 'ChevronUp' : 'ChevronDown'}
+                    styles={{
+                      root: {
+                        fontSize: 10,
+                        transition: 'transform 0.2s ease',
+                        transform: showPitchDetails ? 'rotate(180deg)' : 'rotate(0deg)'
+                      }
+                    }}
+                  />
+                )}
               </div>
+              {summaryIsInteractive && showPitchDetails && (
+                <div
+                  style={{
+                    width: '100%',
+                    marginTop: 8,
+                    paddingTop: 8,
+                    borderTop: `1px solid ${isDarkMode ? 'rgba(51,65,85,0.9)' : 'rgba(148,163,184,0.35)'}`,
+                    fontSize: 11,
+                    lineHeight: 1.5,
+                    color: isDarkMode ? 'rgba(226,232,240,0.9)' : 'rgba(15,23,42,0.9)'
+                  }}
+                >
+                  {pitchBodyHtml ? (
+                    <div dangerouslySetInnerHTML={{ __html: pitchBodyHtml }} />
+                  ) : pitchBody ? (
+                    <div style={{ whiteSpace: 'pre-wrap' }}>{pitchBody}</div>
+                  ) : (
+                    <div style={{ fontStyle: 'italic', opacity: 0.85 }}>No pitch email content available.</div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1795,12 +1964,25 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
             keySteps.push({
               key: 'id',
               label: 'ID',
-              status: verifyIdStatus === 'complete' ? 'Verified' : 
-                     verifyIdStatus === 'review' ? 'Review Required' : 
-                     verifyIdStatus === 'received' ? 'Under Review' : 'Pending',
+              status: isVerifyingId
+                ? 'Verifying…'
+                : verifyIdStatus === 'complete' ? 'Verified'
+                : verifyIdStatus === 'review' ? 'Review Required'
+                : verifyIdStatus === 'received' ? 'Under Review'
+                : proofOfIdComplete ? 'Click to Verify'
+                : 'Pending',
               icon: <FaIdCard />,
               clickable: true,
-              onClick: onEIDClick ?? null
+              onClick: () => {
+                if (!onEIDClick) return;
+                setIsVerifyingId(true);
+                try {
+                  onEIDClick();
+                } finally {
+                  // Fallback: if upstream doesn't refresh card, clear after short delay
+                  setTimeout(() => setIsVerifyingId(false), 10000);
+                }
+              }
             });
             
             // Payment - check if bank transfer for special status text
@@ -1895,12 +2077,12 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
             
             const stepsLen = keySteps.length;
             return keySteps.map((step, index) => {
-              const isComplete = (() => {
-                const statusText = step.status.toLowerCase();
-                return statusText.includes('complete') || statusText.includes('paid') || statusText.includes('assessed') || statusText.includes('opened') || statusText.includes('verified') || statusText.includes('uploaded') || statusText.includes('generated');
-              })();
               const statusColour = (() => {
                 const statusText = step.status.toLowerCase();
+                const isAttentionState = (step.key === 'id') && (statusText.includes('click to verify') || statusText.includes('verifying'));
+                if (isAttentionState) {
+                  return '#f59e0b';
+                }
                 if (statusText.includes('complete') || statusText.includes('paid') || statusText.includes('assessed') || statusText.includes('opened') || statusText.includes('verified') || statusText.includes('uploaded') || statusText.includes('generated')) {
                   return colours.green;
                 } else if (statusText.includes('review') || statusText.includes('high risk')) {
@@ -1928,6 +2110,10 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
                       borderRadius: 6,
                       backgroundColor: (() => {
                         const statusText = step.status.toLowerCase();
+                        const isAttentionState = (step.key === 'id') && (statusText.includes('click to verify') || statusText.includes('verifying'));
+                        if (isAttentionState) {
+                          return isDarkMode ? 'rgba(251, 191, 36, 0.2)' : 'rgba(251, 191, 36, 0.15)';
+                        }
                         if (statusText.includes('complete') || statusText.includes('paid') || statusText.includes('assessed') || statusText.includes('opened') || statusText.includes('verified') || statusText.includes('uploaded') || statusText.includes('generated')) {
                           return isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)';
                         } else if (statusText.includes('review') || statusText.includes('high risk')) {
@@ -1944,6 +2130,10 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
                           return `1px solid ${cardBorderColor}`;
                         }
                         const statusText = step.status.toLowerCase();
+                        const isAttentionState = (step.key === 'id') && (statusText.includes('click to verify') || statusText.includes('verifying'));
+                        if (isAttentionState) {
+                          return '1px solid rgba(251, 191, 36, 0.6)';
+                        }
                         if (statusText.includes('complete') || statusText.includes('paid') || statusText.includes('assessed') || statusText.includes('opened') || statusText.includes('verified') || statusText.includes('uploaded') || statusText.includes('generated')) {
                           return `1px solid ${colours.green}30`;
                         } else if (statusText.includes('review') || statusText.includes('high risk')) {
@@ -1976,6 +2166,10 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
                       fontSize: '10px',
                       color: (() => {
                         const statusText = step.status.toLowerCase();
+                        const isAttentionState = (step.key === 'id') && (statusText.includes('click to verify') || statusText.includes('verifying'));
+                        if (isAttentionState) {
+                          return '#f59e0b';
+                        }
                         if (statusText.includes('complete') || statusText.includes('paid') || statusText.includes('assessed') || statusText.includes('opened') || statusText.includes('verified') || statusText.includes('uploaded') || statusText.includes('generated')) {
                           return colours.green;
                         } else if (statusText.includes('review') || statusText.includes('high risk')) {
@@ -1999,6 +2193,10 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
                         fontWeight: 600,
                         color: (() => {
                           const statusText = step.status.toLowerCase();
+                          const isAttentionState = (step.key === 'id') && (statusText.includes('click to verify') || statusText.includes('verifying'));
+                          if (isAttentionState) {
+                            return '#f59e0b';
+                          }
                           if (statusText.includes('complete') || statusText.includes('paid') || statusText.includes('assessed') || statusText.includes('opened') || statusText.includes('verified') || statusText.includes('uploaded') || statusText.includes('generated')) {
                             return colours.green;
                           } else if (statusText.includes('review') || statusText.includes('high risk')) {

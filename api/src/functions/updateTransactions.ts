@@ -294,7 +294,8 @@ async function processTransactionUpdate(
     context.log("SUB-STEP 7: Creating Asana task...");
     const asanaTaskBody = {
       data: {
-        name: `v2 Transfer Request:- ${matter_ref}`,
+        // Keep task title minimal: file/matter reference + transaction type only.
+        name: `${matter_ref} - Transfer Request`,
         notes: `Transaction ID: ${transaction_id}\n\nHere are the details of the transfer:\n\nMatter ref: ${matter_ref}\nAmount: £${actualAmount}\nFE: ${userFirstName}`,
         completed: false,
         due_on: "",
