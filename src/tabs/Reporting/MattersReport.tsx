@@ -54,6 +54,10 @@ interface RecoveredFee {
   payment_allocated: number;
   user_id: number;
   kind?: string; // 'Service', 'Expense', or 'Product'
+  matter_id?: number;
+  bill_id?: number;
+  description?: string;
+  source?: 'clio' | 'sql' | 'manual'; // Data source tracking
 }
 
 export interface WIP {
@@ -62,8 +66,11 @@ export interface WIP {
   total?: number;
   quantity_in_hours?: number;
   user_id?: number;
+  matter_id?: number | string;
+  matter_ref?: string;
   // When sourced from Clio API, user is nested
   user?: { id?: number | string };
+  source?: 'clio' | 'sql' | 'manual'; // Data source tracking
 }
 
 // ----------------------------------------------
@@ -697,6 +704,200 @@ const formatCurrency = (amount: number): string => {
     return `£${amount.toLocaleString()}`;
 };
 
+type FinancialSourceTotals = { clio: number; sql: number; manual: number };
+
+interface FinancialAggregateEntry {
+    wip: number;
+    collected: number;
+    wipSources: FinancialSourceTotals;
+    collectedSources: FinancialSourceTotals;
+    wipEntries: number;
+    collectedEntries: number;
+    lastUpdated: number | null;
+}
+
+interface MatterFinancialDetail extends FinancialAggregateEntry {
+    roi: number;
+    roiSources: { clioRoi: number; sqlRoi: number; manualRoi: number };
+}
+
+interface NormalizedMatterIdentifiers {
+    cacheKey: string;
+    lookupKeys: string[];
+}
+
+const SOURCE_KEYS: Array<keyof FinancialSourceTotals> = ['clio', 'sql', 'manual'];
+
+const createSourceTotals = (): FinancialSourceTotals => ({ clio: 0, sql: 0, manual: 0 });
+
+const createAggregateEntry = (): FinancialAggregateEntry => ({
+    wip: 0,
+    collected: 0,
+    wipSources: createSourceTotals(),
+    collectedSources: createSourceTotals(),
+    wipEntries: 0,
+    collectedEntries: 0,
+    lastUpdated: null,
+});
+
+const createMatterFinancialDetail = (): MatterFinancialDetail => ({
+    ...createAggregateEntry(),
+    roi: 0,
+    roiSources: { clioRoi: 0, sqlRoi: 0, manualRoi: 0 },
+});
+
+const normalizeSourceKey = (source: unknown): keyof FinancialSourceTotals => {
+    const normalized = typeof source === 'string' ? source.trim().toLowerCase() : '';
+    if (normalized === 'clio') return 'clio';
+    if (normalized === 'manual') return 'manual';
+    return 'sql';
+};
+
+const normalizeIdValue = (value: unknown): string => {
+    if (value === undefined || value === null) return '';
+    const str = String(value).trim();
+    return str;
+};
+
+const normalizeMatterIdentifiers = (matter: Matter, fallbackKey: string): NormalizedMatterIdentifiers => {
+    const candidateValues: unknown[] = [
+        (matter as any)['Display Number'],
+        matter.DisplayNumber,
+        (matter as any)['Unique ID'],
+        matter.UniqueID,
+        (matter as any).matter_id,
+        (matter as any).matter_ref,
+        (matter as any).id,
+        (matter as any).Id,
+    ];
+
+    const lookupKeys = Array.from(
+        new Set(
+            candidateValues
+                .map(normalizeIdValue)
+                .filter(Boolean)
+        )
+    );
+
+    const cacheKey = lookupKeys.join('::') || fallbackKey;
+
+    return { cacheKey, lookupKeys };
+};
+
+const pickLatestTimestamp = (current: number | null, candidate: number | null): number | null => {
+    if (candidate === null) return current;
+    if (current === null || candidate > current) return candidate;
+    return current;
+};
+
+const resolveEntryTimestamp = (entry: any): number | null => {
+    if (!entry || typeof entry !== 'object') return null;
+    const timestampFields = ['last_updated', 'updated_at', 'updatedAt', 'modified_at', 'modifiedAt', 'timestamp'];
+    for (const field of timestampFields) {
+        if (entry[field]) {
+            const value = entry[field];
+            const parsed = typeof value === 'number' ? value : Date.parse(value);
+            if (!Number.isNaN(parsed)) {
+                return parsed;
+            }
+        }
+    }
+    return null;
+};
+
+const computeRoiForDetail = (detail: MatterFinancialDetail): MatterFinancialDetail => {
+    detail.roi = detail.wip > 0 ? ((detail.collected - detail.wip) / detail.wip) * 100 : 0;
+    detail.roiSources.clioRoi = detail.wipSources.clio > 0
+        ? ((detail.collectedSources.clio - detail.wipSources.clio) / detail.wipSources.clio) * 100
+        : 0;
+    detail.roiSources.sqlRoi = detail.wipSources.sql > 0
+        ? ((detail.collectedSources.sql - detail.wipSources.sql) / detail.wipSources.sql) * 100
+        : 0;
+    detail.roiSources.manualRoi = detail.wipSources.manual > 0
+        ? ((detail.collectedSources.manual - detail.wipSources.manual) / detail.wipSources.manual) * 100
+        : 0;
+    return detail;
+};
+
+const toNumber = (value: unknown): number => {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string') {
+        const parsed = parseFloat(value);
+        return Number.isFinite(parsed) ? parsed : 0;
+    }
+    return 0;
+};
+
+const resolveFinancialEntryKey = (entry: any): string => {
+    if (!entry || typeof entry !== 'object') return '';
+    const candidates = ['matter_id', 'matterId', 'matter_ref', 'matterRef', 'bill_id', 'billId'];
+    for (const field of candidates) {
+        if (entry[field]) {
+            const normalized = normalizeIdValue(entry[field]);
+            if (normalized) return normalized;
+        }
+    }
+    return '';
+};
+
+const getMatterSourceLabel = (matter: Matter): string => {
+    const raw = (matter as any)['Source'] ?? (matter as any).Source ?? matter.Source ?? '';
+    return raw ? String(raw).trim() : 'Unknown';
+};
+
+// Helper function to get data source quality score
+const getDataQualityScore = (wipSources: { clio: number; sql: number; manual: number }, collectedSources: { clio: number; sql: number; manual: number }): { score: number; description: string } => {
+    const totalWip = wipSources.clio + wipSources.sql + wipSources.manual;
+    const totalCollected = collectedSources.clio + collectedSources.sql + collectedSources.manual;
+    
+    if (totalWip === 0 && totalCollected === 0) {
+        return { score: 0, description: 'No data available' };
+    }
+    
+    // Higher score for more automated data sources (Clio > SQL > Manual)
+    const wipScore = totalWip > 0 ? (
+        (wipSources.clio * 3 + wipSources.sql * 2 + wipSources.manual * 1) / (totalWip * 3) * 100
+    ) : 0;
+    
+    const collectedScore = totalCollected > 0 ? (
+        (collectedSources.clio * 3 + collectedSources.sql * 2 + collectedSources.manual * 1) / (totalCollected * 3) * 100
+    ) : 0;
+    
+    const overallScore = totalWip > 0 && totalCollected > 0 
+        ? (wipScore + collectedScore) / 2
+        : Math.max(wipScore, collectedScore);
+    
+    let description = 'Mixed sources';
+    if (overallScore >= 90) description = 'Excellent - mostly Clio';
+    else if (overallScore >= 70) description = 'Good - mostly automated';
+    else if (overallScore >= 50) description = 'Fair - some manual data';
+    else description = 'Poor - mostly manual';
+    
+    return { score: Math.round(overallScore), description };
+};
+
+// Helper function to format ROI with context
+const formatROI = (roi: number, wipSources: { clio: number; sql: number; manual: number }, collectedSources: { clio: number; sql: number; manual: number }): { display: string; color: string; reliability: string } => {
+    const quality = getDataQualityScore(wipSources, collectedSources);
+    
+    let color = '#6b7280'; // gray for no data
+    let reliability = 'No data';
+    
+    if (quality.score > 0) {
+        // Color based on ROI performance
+        if (roi >= 50) color = '#059669'; // green for good ROI
+        else if (roi >= 0) color = '#d97706'; // amber for break-even
+        else color = '#dc2626'; // red for negative ROI
+        
+        // Reliability based on data quality
+        reliability = quality.score >= 70 ? 'High' : quality.score >= 50 ? 'Medium' : 'Low';
+    }
+    
+    const display = quality.score > 0 ? `${roi.toFixed(1)}%` : '—';
+    
+    return { display, color, reliability };
+};
+
 // ---------------------------------------------------
 // Matters component
 // ---------------------------------------------------
@@ -724,61 +925,103 @@ const MattersReport: React.FC<MattersReportProps> = ({
 
     // --- Performance Optimization: Pre-calculate Financial Data ---
     const financialDataMap = useMemo(() => {
-        const map = new Map<string, { wip: number; collected: number }>();
-        
-        const getEntry = (key: string) => {
+        const map = new Map<string, FinancialAggregateEntry>();
+
+        const touchEntry = (key: string): FinancialAggregateEntry | null => {
+            if (!key) return null;
             if (!map.has(key)) {
-                map.set(key, { wip: 0, collected: 0 });
+                map.set(key, createAggregateEntry());
             }
             return map.get(key)!;
         };
 
-        if (wip && Array.isArray(wip)) {
-            wip.forEach(entry => {
-                const rawId = (entry as any).matter_id || (entry as any).matter_ref || '';
-                const key = String(rawId);
-                if (key) {
-                    const data = getEntry(key);
-                    data.wip += (entry.total || 0);
-                }
-            });
+        const upsertEntry = (entry: any, type: 'wip' | 'collected') => {
+            const key = resolveFinancialEntryKey(entry);
+            const aggregate = touchEntry(key);
+            if (!aggregate) return;
+
+            const sourceKey = normalizeSourceKey(entry?.source);
+            if (type === 'wip') {
+                const amount = toNumber(entry?.total ?? entry?.amount ?? 0);
+                aggregate.wip += amount;
+                aggregate.wipSources[sourceKey] += amount;
+                aggregate.wipEntries += 1;
+            } else {
+                const amount = toNumber(entry?.payment_allocated ?? entry?.amount ?? entry?.total ?? 0);
+                aggregate.collected += amount;
+                aggregate.collectedSources[sourceKey] += amount;
+                aggregate.collectedEntries += 1;
+            }
+
+            const timestamp = resolveEntryTimestamp(entry);
+            aggregate.lastUpdated = pickLatestTimestamp(aggregate.lastUpdated, timestamp);
+        };
+
+        if (Array.isArray(wip)) {
+            wip.forEach(entry => upsertEntry(entry, 'wip'));
         }
 
-        if (recoveredFees && Array.isArray(recoveredFees)) {
-            recoveredFees.forEach(entry => {
-                const rawId = (entry as any).matter_id || (entry as any).bill_id || '';
-                const key = String(rawId);
-                if (key) {
-                    const data = getEntry(key);
-                    data.collected += (entry.payment_allocated || 0);
-                }
-            });
+        if (Array.isArray(recoveredFees)) {
+            recoveredFees.forEach(entry => upsertEntry(entry, 'collected'));
         }
         
         return map;
     }, [wip, recoveredFees]);
 
+    const matterIdentifierCache = useMemo(() => {
+        const cache = new WeakMap<Matter, NormalizedMatterIdentifiers>();
+        matters.forEach((matter, index) => {
+            cache.set(matter, normalizeMatterIdentifiers(matter, `idx-${index}`));
+        });
+        return cache;
+    }, [matters]);
+
+    const matterFinancialDetails = useMemo(() => {
+        const detailMap = new Map<string, MatterFinancialDetail>();
+        matters.forEach(matter => {
+            const identifiers = matterIdentifierCache.get(matter);
+            if (!identifiers) return;
+
+            const detail = createMatterFinancialDetail();
+            identifiers.lookupKeys.forEach(key => {
+                const aggregate = financialDataMap.get(key);
+                if (!aggregate) return;
+
+                detail.wip += aggregate.wip;
+                detail.collected += aggregate.collected;
+                detail.wipEntries += aggregate.wipEntries;
+                detail.collectedEntries += aggregate.collectedEntries;
+                SOURCE_KEYS.forEach(sourceKey => {
+                    detail.wipSources[sourceKey] += aggregate.wipSources[sourceKey];
+                    detail.collectedSources[sourceKey] += aggregate.collectedSources[sourceKey];
+                });
+                detail.lastUpdated = pickLatestTimestamp(detail.lastUpdated, aggregate.lastUpdated);
+            });
+
+            detailMap.set(identifiers.cacheKey, computeRoiForDetail(detail));
+        });
+        return detailMap;
+    }, [financialDataMap, matterIdentifierCache, matters]);
+
     const getMatterFinancials = useCallback((matter: Matter) => {
-        const dNum = String((matter as any)['Display Number'] || matter.DisplayNumber || '');
-        const uId = String((matter as any)['Unique ID'] || matter.UniqueID || '');
-        
-        let wipTotal = 0;
-        let collectedTotal = 0;
-        
-        if (dNum && financialDataMap.has(dNum)) {
-            const data = financialDataMap.get(dNum)!;
-            wipTotal += data.wip;
-            collectedTotal += data.collected;
+        const identifiers = matterIdentifierCache.get(matter);
+        if (!identifiers) {
+            return { wip: 0, collected: 0 };
         }
-        
-        if (uId && uId !== dNum && financialDataMap.has(uId)) {
-            const data = financialDataMap.get(uId)!;
-            wipTotal += data.wip;
-            collectedTotal += data.collected;
+        const detail = matterFinancialDetails.get(identifiers.cacheKey);
+        if (!detail) {
+            return { wip: 0, collected: 0 };
         }
-        
-        return { wip: wipTotal, collected: collectedTotal };
-    }, [financialDataMap]);
+        return { wip: detail.wip, collected: detail.collected };
+    }, [matterFinancialDetails, matterIdentifierCache]);
+
+    const getMatterFinancialsDetailed = useCallback((matter: Matter) => {
+        const identifiers = matterIdentifierCache.get(matter);
+        if (!identifiers) {
+            return createMatterFinancialDetail();
+        }
+        return matterFinancialDetails.get(identifiers.cacheKey) ?? createMatterFinancialDetail();
+    }, [matterFinancialDetails, matterIdentifierCache]);
 
     // --- Performance Optimization: Pre-calculate Date Timestamps ---
     const matterTimestamps = useMemo(() => {
@@ -849,7 +1092,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                     textAlign,
                     width,
                     minWidth: width,
-                    padding: '8px 10px',
+                    padding: '6px 8px',
                     borderBottom: `1px solid ${isDarkMode ? '#1e293b' : '#e5e7eb'}`,
                     fontWeight: 600,
                     color: isDarkMode ? '#cbd5e1' : '#374151',
@@ -1075,9 +1318,12 @@ const MattersReport: React.FC<MattersReportProps> = ({
     }, [getMatterAssociations]);
     
     // ---------- Sorting States ----------
-    type SortField = 'displayNumber' | 'clientName' | 'practiceArea' | 'openDate' | 'originatingSolicitor' | 'responsibleSolicitor' | 'status' | 'wipValue' | 'collectedValue';
+    type SortField = 'displayNumber' | 'clientName' | 'practiceArea' | 'openDate' | 'originatingSolicitor' | 'responsibleSolicitor' | 'status' | 'wipValue' | 'collectedValue' | 'roiValue' | 'source';
     const [sortField, setSortField] = useState<SortField>('openDate');
     const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+
+    // ---------- Expanded Rows (for source tray) ----------
+    const [expandedMatterId, setExpandedMatterId] = useState<string | null>(null);
     
     // ---------- Team and Role Filter States ----------
     const [selectedTeams, setSelectedTeams] = useState<string[]>([]);
@@ -1642,6 +1888,14 @@ const MattersReport: React.FC<MattersReportProps> = ({
                     aVal = getMatterFinancials(a).collected;
                     bVal = getMatterFinancials(b).collected;
                     break;
+                case 'roiValue':
+                    aVal = getMatterFinancialsDetailed(a).roi;
+                    bVal = getMatterFinancialsDetailed(b).roi;
+                    break;
+                case 'source':
+                    aVal = getMatterSourceLabel(a);
+                    bVal = getMatterSourceLabel(b);
+                    break;
                 default:
                     aVal = matterTimestamps.get(a.UniqueID) || 0;
                     bVal = matterTimestamps.get(b.UniqueID) || 0;
@@ -1650,7 +1904,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
             if (sortField === 'openDate') {
                 const result = (aVal as number) - (bVal as number);
                 return sortDirection === 'asc' ? result : -result;
-            } else if (sortField === 'wipValue' || sortField === 'collectedValue') {
+            } else if (sortField === 'wipValue' || sortField === 'collectedValue' || sortField === 'roiValue') {
                 const result = Number(aVal) - Number(bVal);
                 return sortDirection === 'asc' ? result : -result;
             } else {
@@ -1674,6 +1928,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
         sortField,
         sortDirection,
         getMatterFinancials,
+        getMatterFinancialsDetailed,
         matterTimestamps,
     ]);
 
@@ -2360,7 +2615,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                 width: '100%',
                                 borderCollapse: 'collapse',
                                 fontSize: '11px',
-                                tableLayout: 'fixed'
+                                tableLayout: 'auto'
                             }}>
                                 <thead>
                                     <tr style={{
@@ -2375,17 +2630,17 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                             direction={sortDirection}
                                             onSort={handleSort}
                                             isDarkMode={isDarkMode}
-                                            width={110}
+                                            width={95}
                                         />
                                         <SortableHeader 
                                             field="practiceArea" 
-                                            label="Practice Area" 
+                                            label="AOW" 
                                             currentField={sortField}
                                             direction={sortDirection}
                                             onSort={handleSort}
                                             isDarkMode={isDarkMode}
                                             textAlign="center"
-                                            width={80}
+                                            width={60}
                                         />
                                         <SortableHeader 
                                             field="openDate" 
@@ -2394,16 +2649,16 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                             direction={sortDirection}
                                             onSort={handleSort}
                                             isDarkMode={isDarkMode}
-                                            width={110}
+                                            width={95}
                                         />
                                         <SortableHeader 
                                             field="displayNumber" 
-                                            label="Display #" 
+                                            label="Ref" 
                                             currentField={sortField}
                                             direction={sortDirection}
                                             onSort={handleSort}
                                             isDarkMode={isDarkMode}
-                                            width={120}
+                                            width={140}
                                         />
                                         <SortableHeader 
                                             field="clientName" 
@@ -2415,33 +2670,33 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                         />
                                         <SortableHeader 
                                             field="originatingSolicitor" 
-                                            label="Originating" 
+                                            label="Orig." 
                                             currentField={sortField}
                                             direction={sortDirection}
                                             onSort={handleSort}
                                             isDarkMode={isDarkMode}
                                             textAlign="center"
-                                            width={90}
+                                            width={80}
                                         />
                                         <SortableHeader 
                                             field="responsibleSolicitor" 
-                                            label="Responsible" 
+                                            label="Resp." 
                                             currentField={sortField}
                                             direction={sortDirection}
                                             onSort={handleSort}
                                             isDarkMode={isDarkMode}
                                             textAlign="center"
-                                            width={90}
+                                            width={80}
                                         />
                                         <SortableHeader 
                                             field="wipValue" 
-                                            label="WIP Value" 
+                                            label="WIP" 
                                             currentField={sortField}
                                             direction={sortDirection}
                                             onSort={handleSort}
                                             isDarkMode={isDarkMode}
                                             textAlign="center"
-                                            width={115}
+                                            width={100}
                                         />
                                         <SortableHeader 
                                             field="collectedValue" 
@@ -2451,7 +2706,65 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                             onSort={handleSort}
                                             isDarkMode={isDarkMode}
                                             textAlign="center"
-                                            width={115}
+                                            width={105}
+                                        />
+                                        <th style={{
+                                            textAlign: 'center',
+                                            width: 90,
+                                            minWidth: 90,
+                                            padding: '8px 10px',
+                                            borderBottom: `1px solid ${isDarkMode ? '#1e293b' : '#e5e7eb'}`,
+                                            fontWeight: 600,
+                                            color: isDarkMode ? '#cbd5e1' : '#374151',
+                                            textTransform: 'uppercase',
+                                            letterSpacing: '0.2px',
+                                            cursor: 'pointer',
+                                            userSelect: 'none',
+                                            position: 'relative',
+                                            background: sortField === 'roiValue' 
+                                                ? (isDarkMode ? '#1e293b' : '#f3f4f6')
+                                                : 'transparent',
+                                            transition: 'background-color 0.15s ease'
+                                        }}
+                                        onClick={() => handleSort('roiValue')}
+                                        onMouseEnter={(e) => {
+                                            if (sortField !== 'roiValue') {
+                                                e.currentTarget.style.background = isDarkMode ? '#1e293b' : '#f9fafb';
+                                            }
+                                        }}
+                                        onMouseLeave={(e) => {
+                                            if (sortField !== 'roiValue') {
+                                                e.currentTarget.style.background = 'transparent';
+                                            }
+                                        }}
+                                        >
+                                            <div style={{ 
+                                                display: 'flex', 
+                                                alignItems: 'center', 
+                                                justifyContent: 'center',
+                                                gap: '4px'
+                                            }}>
+                                                <span>ROI %</span>
+                                                <Icon 
+                                                    iconName={sortField === 'roiValue' ? (sortDirection === 'asc' ? 'ChevronUpSmall' : 'ChevronDownSmall') : 'ChevronUpSmall'}
+                                                    style={{ 
+                                                        fontSize: '12px',
+                                                        opacity: sortField === 'roiValue' ? 1 : 0.4,
+                                                        transition: 'opacity 0.15s ease',
+                                                        color: isDarkMode ? '#cbd5e1' : '#374151'
+                                                    }}
+                                                />
+                                            </div>
+                                        </th>
+                                        <SortableHeader 
+                                            field="source" 
+                                            label="Source" 
+                                            currentField={sortField}
+                                            direction={sortDirection}
+                                            onSort={handleSort}
+                                            isDarkMode={isDarkMode}
+                                            textAlign="center"
+                                            width={140}
                                         />
                                     </tr>
                                 </thead>
@@ -2462,24 +2775,26 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                         const practiceAreaGroup = groupPracticeArea((matter as any)['Practice Area'] || matter.PracticeArea);
                                         const groupIconName = getGroupIcon(practiceAreaGroup);
                                         const pitchTags = getPitchTagsForMatter(matter);
+                                        const isExpanded = expandedMatterId === matter.UniqueID;
                                         
                                         return (
-                                            <tr key={matter.UniqueID} style={{
+                                            <React.Fragment key={matter.UniqueID}>
+                                            <tr style={{
                                                 borderBottom: `1px solid ${isDarkMode ? '#1e293b' : '#f3f4f6'}`,
-                                                fontSize: '12px', // Increased from 10px
+                                                fontSize: '11px',
                                                 transition: 'background 0.2s',
                                                 cursor: 'pointer',
-                                                minHeight: '40px', // Ensure row height
-                                                background: isDarkMode ? 'rgba(30, 41, 59, 0.3)' : 'rgba(255, 255, 255, 0.8)' // Add background
+                                                minHeight: '36px',
+                                                background: isDarkMode ? 'rgba(30, 41, 59, 0.3)' : 'rgba(255, 255, 255, 0.8)'
                                             }}
                                             onMouseEnter={(e) => e.currentTarget.style.background = isDarkMode ? '#1e293b' : '#f9fafb'}
                                             onMouseLeave={(e) => e.currentTarget.style.background = isDarkMode ? 'rgba(30, 41, 59, 0.3)' : 'rgba(255, 255, 255, 0.8)'}
                                             onClick={() => setSelectedMatter(matter)}
                                             >
                                                 <td style={{
-                                                    padding: '6px 8px',
-                                                    width: 110,
-                                                    minWidth: 110,
+                                                    padding: '4px 6px',
+                                                    width: 95,
+                                                    minWidth: 95,
                                                     textAlign: 'center'
                                                 }}>
                                                     <span style={{
@@ -2491,15 +2806,15 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                         fontSize: '10px',
                                                         display: 'inline-block',
                                                         border: `1px solid ${((matter as any).Status || matter.Status) === 'Open' ? (isDarkMode ? '#10b981' : '#16a34a') : (isDarkMode ? '#6b7280' : '#6b7280')}`,
-                                                        minWidth: 70
+                                                        minWidth: 60
                                                     }}>
                                                         {(matter as any).Status || matter.Status || 'Open'}
                                                     </span>
                                                 </td>
                                                 <td style={{
-                                                    padding: '6px 8px',
-                                                    width: 80,
-                                                    minWidth: 80,
+                                                    padding: '4px 6px',
+                                                    width: 60,
+                                                    minWidth: 60,
                                                     textAlign: 'center'
                                                 }}>
                                                     <Icon 
@@ -2512,12 +2827,12 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                     />
                                                 </td>
                                                 <td style={{
-                                                    padding: '6px 8px',
-                                                    width: 110,
-                                                    minWidth: 110,
+                                                    padding: '4px 6px',
+                                                    width: 95,
+                                                    minWidth: 95,
                                                     color: isDarkMode ? '#ffffff' : '#000000',
                                                     fontFamily: 'monospace',
-                                                    fontSize: '11px',
+                                                    fontSize: '10px',
                                                     lineHeight: '1.2',
                                                     fontWeight: 600
                                                 }}>
@@ -2529,20 +2844,20 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                     ) : '–'}
                                                 </td>
                                                 <td style={{
-                                                    padding: '8px 10px',
-                                                    width: 120,
-                                                    minWidth: 120,
-                                                    color: isDarkMode ? '#ffffff' : '#000000',
+                                                    padding: '6px 10px',
+                                                    width: 140,
+                                                    minWidth: 140,
+                                                    color: isDarkMode ? '#e5e7eb' : '#111827',
                                                     fontFamily: 'monospace',
-                                                    fontSize: '12px',
-                                                    fontWeight: 600
+                                                    fontSize: '11px',
+                                                    fontWeight: 500
                                                 }}>
                                                     {(matter as any)['Display Number'] || matter.DisplayNumber || 'N/A'}
                                                 </td>
                                                 <td style={{
-                                                    padding: '10px 12px',
-                                                    color: isDarkMode ? '#ffffff' : '#000000', // Force high contrast colors
-                                                    fontWeight: 600,
+                                                    padding: '6px 10px',
+                                                    color: isDarkMode ? '#e5e7eb' : '#111827',
+                                                    fontWeight: 500,
                                                     overflow: 'hidden',
                                                     textOverflow: 'ellipsis',
                                                     whiteSpace: 'nowrap'
@@ -2563,56 +2878,201 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                     )}
                                                 </td>
                                                 <td style={{
-                                                    padding: '6px 8px',
-                                                    width: 90,
-                                                    minWidth: 90,
-                                                    color: isDarkMode ? '#ffffff' : '#000000',
-                                                    fontSize: '12px',
+                                                    padding: '4px 6px',
+                                                    width: 80,
+                                                    minWidth: 80,
+                                                    color: isDarkMode ? '#e5e7eb' : '#111827',
+                                                    fontSize: '11px',
                                                     textAlign: 'center',
                                                     fontFamily: 'monospace',
-                                                    fontWeight: 700,
+                                                    fontWeight: 500,
                                                     letterSpacing: '0.6px'
                                                 }}>
                                                     {getInitialsFromName((matter as any)['Originating Solicitor'] || matter.OriginatingSolicitor || '')}
                                                 </td>
                                                 <td style={{
-                                                    padding: '6px 8px',
-                                                    width: 90,
-                                                    minWidth: 90,
-                                                    color: isDarkMode ? '#ffffff' : '#000000',
-                                                    fontSize: '12px',
+                                                    padding: '4px 6px',
+                                                    width: 80,
+                                                    minWidth: 80,
+                                                    color: isDarkMode ? '#e5e7eb' : '#111827',
+                                                    fontSize: '11px',
                                                     textAlign: 'center',
                                                     fontFamily: 'monospace',
-                                                    fontWeight: 700,
+                                                    fontWeight: 500,
                                                     letterSpacing: '0.6px'
                                                 }}>
                                                     {getInitialsFromName((matter as any)['Responsible Solicitor'] || matter.ResponsibleSolicitor || '')}
                                                 </td>
                                                 <td style={{
-                                                    padding: '8px 10px',
-                                                    width: 115,
-                                                    minWidth: 115,
+                                                    padding: '6px 8px',
+                                                    width: 100,
+                                                    minWidth: 100,
                                                     textAlign: 'center',
-                                                    color: isDarkMode ? '#ffffff' : '#000000',
+                                                    color: isDarkMode ? '#e5e7eb' : '#111827',
                                                     fontFamily: 'monospace',
-                                                    fontSize: '12px',
-                                                    fontWeight: 600
+                                                    fontSize: '11px',
+                                                    fontWeight: 500
                                                 }}>
                                                     {formatCurrency(calculateMatterWIP(matter, wip))}
                                                 </td>
                                                 <td style={{
-                                                    padding: '8px 10px',
-                                                    width: 115,
-                                                    minWidth: 115,
+                                                    padding: '6px 8px',
+                                                    width: 105,
+                                                    minWidth: 105,
                                                     textAlign: 'center',
-                                                    color: isDarkMode ? '#ffffff' : '#000000',
+                                                    color: isDarkMode ? '#e5e7eb' : '#111827',
                                                     fontFamily: 'monospace',
-                                                    fontSize: '12px',
-                                                    fontWeight: 600
+                                                    fontSize: '11px',
+                                                    fontWeight: 500
                                                 }}>
                                                     {formatCurrency(calculateMatterCollected(matter, recoveredFees))}
                                                 </td>
+                                                <td style={{
+                                                    padding: '6px 8px',
+                                                    width: 90,
+                                                    minWidth: 90,
+                                                    textAlign: 'center',
+                                                    fontFamily: 'monospace',
+                                                    fontSize: '11px',
+                                                    fontWeight: 600
+                                                }}>
+                                                    {(() => {
+                                                        const detailed = getMatterFinancialsDetailed(matter);
+                                                        const roiFormatted = formatROI(detailed.roi, detailed.wipSources, detailed.collectedSources);
+                                                        
+                                                        const sourceBreakdown = [
+                                                            'WIP Sources:',
+                                                            `• Clio: ${formatCurrency(detailed.wipSources.clio)}`,
+                                                            `• SQL: ${formatCurrency(detailed.wipSources.sql)}`,
+                                                            `• Manual: ${formatCurrency(detailed.wipSources.manual)}`,
+                                                            '',
+                                                            'Collected Sources:',
+                                                            `• Clio: ${formatCurrency(detailed.collectedSources.clio)}`,
+                                                            `• SQL: ${formatCurrency(detailed.collectedSources.sql)}`,
+                                                            `• Manual: ${formatCurrency(detailed.collectedSources.manual)}`,
+                                                            '',
+                                                            `Entries: ${detailed.wipEntries} WIP, ${detailed.collectedEntries} collected`,
+                                                            `Reliability: ${roiFormatted.reliability}`,
+                                                            `Last Updated: ${detailed.lastUpdated ? new Date(detailed.lastUpdated).toLocaleDateString() : 'N/A'}`
+                                                        ].join('\n');
+                                                        
+                                                        return (
+                                                            <span 
+                                                                style={{ 
+                                                                    color: roiFormatted.color,
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    justifyContent: 'center',
+                                                                    gap: '4px'
+                                                                }}
+                                                                title={sourceBreakdown}
+                                                            >
+                                                                {roiFormatted.display}
+                                                                {roiFormatted.reliability === 'Low' && (
+                                                                    <Icon 
+                                                                        iconName="Warning" 
+                                                                        style={{ 
+                                                                            fontSize: '10px', 
+                                                                            color: '#f59e0b',
+                                                                            opacity: 0.7
+                                                                        }} 
+                                                                        title="Low data reliability"
+                                                                    />
+                                                                )}
+                                                            </span>
+                                                        );
+                                                    })()}
+                                                </td>
+                                                <td style={{
+                                                    padding: '6px 8px',
+                                                    width: 140,
+                                                    minWidth: 140,
+                                                    textAlign: 'left',
+                                                    color: isDarkMode ? '#e5e7eb' : '#111827',
+                                                    fontFamily: 'Raleway, sans-serif',
+                                                    fontSize: '11px',
+                                                    fontWeight: 500
+                                                }}>
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setExpandedMatterId(prev => prev === matter.UniqueID ? null : matter.UniqueID);
+                                                        }}
+                                                        style={{
+                                                            display: 'inline-flex',
+                                                            alignItems: 'center',
+                                                            gap: 6,
+                                                            background: expandedMatterId === matter.UniqueID
+                                                                ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.1)')
+                                                                : 'transparent',
+                                                            border: 'none',
+                                                            borderRadius: 4,
+                                                            padding: '4px 8px',
+                                                            cursor: 'pointer',
+                                                            color: isDarkMode ? '#e5e7eb' : '#111827',
+                                                            fontSize: '11px',
+                                                            fontFamily: 'Raleway, sans-serif',
+                                                            fontWeight: 500,
+                                                            transition: 'background 0.15s ease'
+                                                        }}
+                                                        onMouseEnter={(e) => {
+                                                            if (expandedMatterId !== matter.UniqueID) {
+                                                                e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)';
+                                                            }
+                                                        }}
+                                                        onMouseLeave={(e) => {
+                                                            if (expandedMatterId !== matter.UniqueID) {
+                                                                e.currentTarget.style.background = 'transparent';
+                                                            }
+                                                        }}
+                                                        title={`Expand source details for ${getMatterSourceLabel(matter)}`}
+                                                    >
+                                                        <Icon 
+                                                            iconName={expandedMatterId === matter.UniqueID ? 'ChevronDown' : 'ChevronRight'}
+                                                            style={{ fontSize: 12, transition: 'transform 0.15s ease' }}
+                                                        />
+                                                        {getMatterSourceLabel(matter)}
+                                                    </button>
+                                                </td>
                                             </tr>
+                                            {expandedMatterId === matter.UniqueID && (
+                                                <tr style={{ background: isDarkMode ? 'rgba(15, 23, 42, 0.6)' : 'rgba(249, 250, 251, 0.95)' }}>
+                                                    <td colSpan={11} style={{
+                                                        padding: '12px 20px',
+                                                        borderBottom: `1px solid ${isDarkMode ? '#1e293b' : '#e5e7eb'}`
+                                                    }}>
+                                                        <div style={{
+                                                            display: 'grid',
+                                                            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                                                            gap: 16,
+                                                            fontSize: '11px',
+                                                            color: isDarkMode ? '#94a3b8' : '#4b5563'
+                                                        }}>
+                                                            <div>
+                                                                <div style={{ fontWeight: 600, marginBottom: 4, color: isDarkMode ? '#cbd5e1' : '#374151' }}>Campaign</div>
+                                                                <div>{(matter as any).Campaign || (matter as any).campaign || '—'}</div>
+                                                            </div>
+                                                            <div>
+                                                                <div style={{ fontWeight: 600, marginBottom: 4, color: isDarkMode ? '#cbd5e1' : '#374151' }}>Ad Set</div>
+                                                                <div>{(matter as any).AdSet || (matter as any).ad_set || '—'}</div>
+                                                            </div>
+                                                            <div>
+                                                                <div style={{ fontWeight: 600, marginBottom: 4, color: isDarkMode ? '#cbd5e1' : '#374151' }}>Keyword</div>
+                                                                <div>{(matter as any).Keyword || (matter as any).keyword || '—'}</div>
+                                                            </div>
+                                                            <div>
+                                                                <div style={{ fontWeight: 600, marginBottom: 4, color: isDarkMode ? '#cbd5e1' : '#374151' }}>URL</div>
+                                                                <div style={{ wordBreak: 'break-all' }}>{(matter as any).ReferralURL || (matter as any).Referral_URL || (matter as any).url || '—'}</div>
+                                                            </div>
+                                                            <div>
+                                                                <div style={{ fontWeight: 600, marginBottom: 4, color: isDarkMode ? '#cbd5e1' : '#374151' }}>Most Recent Activity</div>
+                                                                <div>{(matter as any).LastActivityDate ? format(parseISO((matter as any).LastActivityDate), 'dd MMM yyyy') : (matter as any).mod_stamp ? format(parseISO((matter as any).mod_stamp), 'dd MMM yyyy') : '—'}</div>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            )}
+                                            </React.Fragment>
                                         );
                                     })}
                                 </tbody>
