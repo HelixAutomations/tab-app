@@ -21,6 +21,7 @@ module.exports.PRACTICE_AREAS = {
     "Landlord & Tenant – Commercial Dispute": 948863,
     "Landlord & Tenant - Residential Dispute": 948854,
     "Landlord & Tenant – Residential Dispute": 948854,
+    "Miscellaneous": 948830,  // Short form used by UI dropdowns
     "Miscellaneous (None of the above)": 948830,
     "Miscellaneous (None of the above)_1": 948830,
     "Partnership Advice": 1872650,
@@ -29,6 +30,7 @@ module.exports.PRACTICE_AREAS = {
     "Restrictive Covenant Advice": 948953,
     "Right of Way": 949037,
     "Service charge Recovery & Dispute Advice": 948956,
+    "Service Charge Recovery & Dispute Advice": 948956,  // UI uses title case
     "Settlement Agreement - Advising": 948944,
     "Shareholder Rights & Dispute Advice": 948851,
     "Small Claim Advice": 948950,

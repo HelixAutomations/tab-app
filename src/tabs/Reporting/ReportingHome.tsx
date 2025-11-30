@@ -171,20 +171,20 @@ const buildEnquiriesCoverageEntries = (key: ReportRangeKey): ReportingRangeDatas
   const rangeLabel = describeRangeKey(key);
   return [
     { key: 'enquiries', label: 'Enquiries feed', range: rangeLabel },
-    { key: 'deals', label: 'Deals feed', range: rangeLabel },
+    { key: 'deals', label: 'Pitches feed', range: rangeLabel },
     { key: 'instructions', label: 'Instructions feed', range: rangeLabel },
     { key: 'metaAds', label: 'Meta Ads feed', range: rangeLabel },
-    { key: 'googleAnalytics', label: 'Google Analytics (sessions)', range: rangeLabel },
-    { key: 'googleAds', label: 'Google Ads (lead gen)', range: rangeLabel },
+    { key: 'googleAnalytics', label: 'Google Analytics', range: rangeLabel },
+    { key: 'googleAds', label: 'Google Ads', range: rangeLabel },
   ];
 };
 
 const buildMattersCoverageEntries = (key: MattersWipRangeKey): ReportingRangeDatasetInfo[] => {
   const rangeLabel = describeMattersRange(key);
   return [
-    { key: 'allMatters', label: 'All matters feed', range: rangeLabel },
-    { key: 'wip', label: 'WIP (work in progress)', range: rangeLabel },
-    { key: 'recoveredFees', label: 'Recovered fees', range: rangeLabel },
+    { key: 'allMatters', label: 'Matters feed', range: rangeLabel },
+    { key: 'wip', label: 'WIP', range: rangeLabel },
+    { key: 'recoveredFees', label: 'Collected fees', range: rangeLabel },
   ];
 };
 

@@ -66,11 +66,12 @@ import {
   replacePlaceholders,
   applyDynamicSubstitutions,
   wrapInsertPlaceholders,
+  sanitizeBodyForSend,
+  sanitizeFinalHtml,
 } from './pitch-builder/emailUtils';
 import { inputFieldStyle } from '../../CustomForms/BespokeForms';
 import { ADDITIONAL_CLIENT_PLACEHOLDER_ID } from '../../constants/deals';
 import EmailProcessor from './pitch-builder/EmailProcessor';
-import { EMAIL_V2_CONFIG } from './pitch-builder/emailFormattingV2';
 
 // PROOF_OF_ID_URL constant removed - now constructed dynamically with passcode in applyDynamicSubstitutions
 
@@ -440,10 +441,10 @@ if (typeof window !== 'undefined' && !document.getElementById('block-label-style
     }
   .insert-placeholder {
     background: ${colours.highlightBlue}20;
-    color: ${colours.darkBlue};
+    color: inherit;
     padding: 1px 3px;
     border-radius: 3px;
-    border: 1px dotted ${colours.darkBlue}60;
+    border: 1px dotted currentColor;
     font-style: italic;
     cursor: pointer;
     transition: all 0.15s ease;
@@ -452,12 +453,12 @@ if (typeof window !== 'undefined' && !document.getElementById('block-label-style
     word-wrap: break-word;
     white-space: normal;
     font-size: 0.9em;
-    opacity: 0.8;
+    opacity: 0.85;
   }
     .insert-placeholder:hover,
     .insert-placeholder:focus {
       background: ${colours.blue}40;
-      color: ${colours.darkBlue};
+      color: inherit;
       border-color: ${colours.blue};
       box-shadow: 0 0 0 2px ${colours.blue}30;
       transform: translateY(-1px);
@@ -560,7 +561,6 @@ if (typeof window !== 'undefined' && !document.getElementById('block-label-style
 }
 
 const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDealCapture = true }) => {
-  const emailV2Enabled = EMAIL_V2_CONFIG.enabled;
   /**
    * Ensure any raw passcode (api or fallback) is converted to a 5‑digit numeric string.
    * Rules:
@@ -3338,26 +3338,8 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
     }
 
     await delay(400);
-    // Sanitize body before processing to remove any detached style fragments that leaked from preview styling
-    const sanitizeBodyForSend = (html: string): string => {
-      if (!html) return html;
-      let cleaned = html;
-      // Remove stray colour fragments like "144, 206); text-decoration: underline;" that sometimes detach from anchor style
-      cleaned = cleaned.replace(/\b\d{2,3},\s*\d{2,3}\);\s*text-decoration:\s*underline;?/gi, '');
-      // Normalize any styled instruct-link anchors to a clean version without inline style
-      cleaned = cleaned.replace(/<a([^>]*?)class=("|')[^"']*instruct-link[^"']*(\2)([^>]*)>(.*?)<\/a>/gi, (m, pre, q, _q2, post, text) => {
-        // Extract existing href if present
-        const hrefMatch = m.match(/href=("|')(.*?)(\1)/i);
-        const href = hrefMatch ? hrefMatch[2] : '';
-        return `<a href="${href}" target="_blank" rel="noopener noreferrer">${text || 'Instruct Helix Law'}</a>`;
-      });
-      // As a final guard, if a bare "Instruct Helix Law" follows a stray style fragment without an <a>, wrap it
-      cleaned = cleaned.replace(/(?:clicking\s+)?Instruct Helix Law(?!<)/gi, (m) => {
-        // Don't double-wrap if already inside anchor
-        return `<a href="${process.env.REACT_APP_INSTRUCTIONS_URL || 'https://instruct.helix-law.com/pitch'}" target="_blank" rel="noopener noreferrer">Instruct Helix Law</a>`;
-      });
-      return cleaned;
-    };
+    
+    // Use shared sanitization utilities
     const cleanedBody = sanitizeBodyForSend(body);
 
     let finalHtml = EmailProcessor.processCompleteEmail(cleanedBody, {
@@ -3368,25 +3350,13 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
       editorElement: bodyEditorRef.current
     });
 
-    // Post-processing: aggressively sanitize any corrupted inline style fragments preceding the Instruct Helix Law anchor
+    // Build canonical instructions link for final sanitization
     const finalInstructionsUrlBase = (process.env.REACT_APP_INSTRUCTIONS_URL || 'https://instruct.helix-law.com');
     const passForLink = normalizePasscode(dealPasscode, enquiry?.ID) || dealPasscode;
     const canonicalInstructionsHref = passForLink ? `${finalInstructionsUrlBase}/pitch/${passForLink}` : `${finalInstructionsUrlBase}/pitch`;
-    const sanitizeFinalHtml = (html: string): string => {
-      if (!html) return html;
-      let out = html;
-  // Remove orphaned fragments like "144, 206); text-decoration: underline;" or "color: rgb(54, 144, 206); text-decoration: underline;"
-  out = out.replace(/color:\s*(?:rgb\([^\)]*\)|#[0-9a-f]{3,6}|[0-9.\s%,()-]+);\s*text-decoration:\s*underline;?/gi, '');
-  out = out.replace(/(?:rgb\([^\)]*\)|\b\d{1,3},\s*\d{1,3}(?:,\s*\d{1,3})?)\);\s*text-decoration:\s*underline;?/gi, '');
-      // Normalize any styled or partially broken Instruct Helix Law anchors to canonical form
-      out = out.replace(/<a[^>]*?>\s*Instruct\s+Helix\s+Law\s*<\/a>/gi, `<a href="${canonicalInstructionsHref}" target="_blank" rel="noopener noreferrer">Instruct Helix Law</a>`);
-  // Remove any lingering `style="..."` fragments that directly precede the text node
-  out = out.replace(/style=\"[^\"]*?\">\s*Instruct Helix Law/gi, `>Instruct Helix Law`);
-  // Wrap any bare occurrences not already inside an anchor (heuristic: not immediately followed by </a>)
-  out = out.replace(/Instruct Helix Law(?!\s*<\/a>)/gi, `<a href="${canonicalInstructionsHref}" target="_blank" rel="noopener noreferrer">Instruct Helix Law</a>`);
-      return out;
-    };
-    finalHtml = sanitizeFinalHtml(finalHtml);
+    
+    // Apply final sanitization pass
+    finalHtml = sanitizeFinalHtml(finalHtml, canonicalInstructionsHref);
 
     // Step 3: Email composition with signature
     setEmailMessage('Generating final email…');
@@ -3400,7 +3370,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
     }
 
     const fullEmailHtml = ReactDOMServer.renderToStaticMarkup(
-      <EmailSignature bodyHtml={finalHtml} userData={effectiveUserData} experimentalLayout={emailV2Enabled} />
+      <EmailSignature bodyHtml={finalHtml} userData={effectiveUserData} />
     );
 
     // Use fee earner's email as sender, fallback to automations
@@ -3566,7 +3536,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
       return;
     }
 
-    // Step 2: Content processing
+    // Step 2: Content processing (same as sendEmail for consistency)
     setEmailMessage('Processing content…');
     showToast('Processing email content...', 'info', {
       loading: true,
@@ -3575,15 +3545,26 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
       duration: 0
     });
 
-    await delay(400); // Brief pause to show progress
+    await delay(400);
 
-    const finalHtml = EmailProcessor.processCompleteEmail(body, {
+    // Use shared sanitization utilities (same as sendEmail)
+    const cleanedBody = sanitizeBodyForSend(body);
+
+    let finalHtml = EmailProcessor.processCompleteEmail(cleanedBody, {
       userData: effectiveUserData,
       enquiry,
       amount,
       passcode: normalizePasscode(currentPasscode, enquiry?.ID) || currentPasscode,
       editorElement: bodyEditorRef.current
     });
+
+    // Build canonical instructions link for final sanitization
+    const finalInstructionsUrlBase = (process.env.REACT_APP_INSTRUCTIONS_URL || 'https://instruct.helix-law.com');
+    const passForLink = normalizePasscode(currentPasscode, enquiry?.ID) || currentPasscode;
+    const canonicalInstructionsHref = passForLink ? `${finalInstructionsUrlBase}/pitch/${passForLink}` : `${finalInstructionsUrlBase}/pitch`;
+    
+    // Apply final sanitization pass (same as sendEmail)
+    finalHtml = sanitizeFinalHtml(finalHtml, canonicalInstructionsHref);
 
     // Step 3: Email composition
     setEmailMessage('Generating email draft…');
@@ -3595,11 +3576,11 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
     });
 
     const fullEmailHtml = ReactDOMServer.renderToStaticMarkup(
-  <EmailSignature bodyHtml={finalHtml} userData={effectiveUserData} />
+      <EmailSignature bodyHtml={finalHtml} userData={effectiveUserData} />
     );
 
-  // Draft: send to the user themselves; BCC only safety addresses (no CC)
-  const bccList = buildBccList(); // LZ/CB only
+    // Draft: send to the user themselves; BCC only safety addresses (no CC)
+    const bccList = buildBccList(); // LZ/CB only
 
     const requestBody = {
       email_contents: fullEmailHtml,
@@ -3715,10 +3696,15 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
   useEffect(() => {
     if (
       bodyEditorRef.current &&
-      bodyEditorRef.current.innerHTML !== body &&
       document.activeElement !== bodyEditorRef.current
     ) {
-      bodyEditorRef.current.innerHTML = body;
+      // Wrap placeholders before setting innerHTML to ensure they're styled
+      const hasWrappedPlaceholders = body.includes('class="insert-placeholder"');
+      const wrappedContent = hasWrappedPlaceholders ? body : wrapInsertPlaceholders(body);
+      
+      if (bodyEditorRef.current.innerHTML !== wrappedContent) {
+        bodyEditorRef.current.innerHTML = wrappedContent;
+      }
     }
   }, [body]);
 

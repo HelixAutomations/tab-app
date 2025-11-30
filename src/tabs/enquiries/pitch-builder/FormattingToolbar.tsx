@@ -314,6 +314,7 @@ const FormattingToolbar: React.FC<FormattingToolbarProps> = ({
   return (
     <div 
       className={className}
+      onMouseDown={(e) => e.preventDefault()} // Prevent focus loss from editor
       style={{
         display: 'flex',
         alignItems: 'center',

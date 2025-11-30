@@ -671,8 +671,9 @@ const describeDealTag = (deal: DealRecord) => {
     const status = (deal.Status || deal.Stage || '').trim();
     const service = (deal.ServiceDescription || '').trim();
     const owner = (deal.PitchedBy || '').trim();
-    const label = status ? `Pitch • ${status}` : (service ? `Pitch • ${service}` : 'Pitch');
+    const label = 'Pitch';
     const titleParts: string[] = [];
+    if (status) titleParts.push(status);
     if (service) titleParts.push(service);
     if (owner) titleParts.push(`By ${owner}`);
     const pitchedDate = formatDateLabel(deal.PitchedDate || deal.CreatedDate);
@@ -682,8 +683,9 @@ const describeDealTag = (deal: DealRecord) => {
 
 const describeInstructionTag = (instruction: InstructionRecord) => {
     const stage = (instruction.Stage || instruction.Status || '').trim();
-    const label = stage ? `Instruction • ${stage}` : 'Instruction';
+    const label = 'Instruction';
     const titleParts: string[] = [];
+    if (stage) titleParts.push(stage);
     if (instruction.InstructionRef) titleParts.push(instruction.InstructionRef);
     const submitted = formatDateLabel(instruction.SubmissionDate || instruction.CreatedDate);
     if (submitted) titleParts.push(submitted);
@@ -694,7 +696,8 @@ const pitchTagContainerBaseStyle: CSSProperties = {
     marginTop: 6,
     display: 'flex',
     flexWrap: 'wrap',
-    gap: 6,
+    gap: 4,
+    alignItems: 'center',
 };
 
 const formatCurrency = (amount: number): string => {
@@ -792,7 +795,8 @@ const pickLatestTimestamp = (current: number | null, candidate: number | null): 
 
 const resolveEntryTimestamp = (entry: any): number | null => {
     if (!entry || typeof entry !== 'object') return null;
-    const timestampFields = ['last_updated', 'updated_at', 'updatedAt', 'modified_at', 'modifiedAt', 'timestamp'];
+    // Prioritize 'date' and 'created_at' which represent actual WIP activity dates
+    const timestampFields = ['date', 'created_at', 'createdAt', 'last_updated', 'updated_at', 'updatedAt', 'modified_at', 'modifiedAt', 'timestamp'];
     for (const field of timestampFields) {
         if (entry[field]) {
             const value = entry[field];
@@ -1789,10 +1793,22 @@ const MattersReport: React.FC<MattersReportProps> = ({
         if (rangeKey === 'all' || !startDate || !endDate) {
             return matters.slice();
         }
+        // Normalize range boundaries to start/end of day for consistent comparison
+        const rangeStart = startOfDay(startDate).getTime();
+        const rangeEnd = endOfDay(endDate).getTime();
+        
         return matters.filter((m) => {
-            const openDate = parseISO(m.OpenDate || '');
+            const rawDate = m.OpenDate || '';
+            if (!rawDate) return false;
+            
+            // Handle both ISO strings and date-only strings
+            // parseISO handles "2025-11-25" and "2025-11-25T00:00:00.000Z"
+            const openDate = parseISO(rawDate);
             if (!isValid(openDate)) return false;
-            return openDate >= startDate && openDate <= endDate;
+            
+            // Compare using timestamps to avoid timezone issues
+            const openTime = openDate.getTime();
+            return openTime >= rangeStart && openTime <= rangeEnd;
         });
     }, [matters, rangeKey, startDate, endDate]);
 
@@ -2675,7 +2691,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                             direction={sortDirection}
                                             onSort={handleSort}
                                             isDarkMode={isDarkMode}
-                                            textAlign="center"
+                                            textAlign="left"
                                             width={80}
                                         />
                                         <SortableHeader 
@@ -2685,7 +2701,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                             direction={sortDirection}
                                             onSort={handleSort}
                                             isDarkMode={isDarkMode}
-                                            textAlign="center"
+                                            textAlign="left"
                                             width={80}
                                         />
                                         <SortableHeader 
@@ -2695,7 +2711,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                             direction={sortDirection}
                                             onSort={handleSort}
                                             isDarkMode={isDarkMode}
-                                            textAlign="center"
+                                            textAlign="left"
                                             width={100}
                                         />
                                         <SortableHeader 
@@ -2705,7 +2721,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                             direction={sortDirection}
                                             onSort={handleSort}
                                             isDarkMode={isDarkMode}
-                                            textAlign="center"
+                                            textAlign="left"
                                             width={105}
                                         />
                                         <th style={{
@@ -2744,7 +2760,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                 justifyContent: 'center',
                                                 gap: '4px'
                                             }}>
-                                                <span>ROI %</span>
+                                                <span>Owed %</span>
                                                 <Icon 
                                                     iconName={sortField === 'roiValue' ? (sortDirection === 'asc' ? 'ChevronUpSmall' : 'ChevronDownSmall') : 'ChevronUpSmall'}
                                                     style={{ 
@@ -2783,13 +2799,11 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                 borderBottom: `1px solid ${isDarkMode ? '#1e293b' : '#f3f4f6'}`,
                                                 fontSize: '11px',
                                                 transition: 'background 0.2s',
-                                                cursor: 'pointer',
                                                 minHeight: '36px',
                                                 background: isDarkMode ? 'rgba(30, 41, 59, 0.3)' : 'rgba(255, 255, 255, 0.8)'
                                             }}
                                             onMouseEnter={(e) => e.currentTarget.style.background = isDarkMode ? '#1e293b' : '#f9fafb'}
                                             onMouseLeave={(e) => e.currentTarget.style.background = isDarkMode ? 'rgba(30, 41, 59, 0.3)' : 'rgba(255, 255, 255, 0.8)'}
-                                            onClick={() => setSelectedMatter(matter)}
                                             >
                                                 <td style={{
                                                     padding: '4px 6px',
@@ -2839,7 +2853,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                     {openDate && isValid(openDate) ? (
                                                         <div>
                                                             <div>{format(openDate, 'MM-dd')}</div>
-                                                            <div style={{ opacity: 0.7 }}>{format(openDate, 'HH:mm')}</div>
+                                                            <div style={{ opacity: 0.7 }}>--:--</div>
                                                         </div>
                                                     ) : '–'}
                                                 </td>
@@ -2865,15 +2879,49 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                     {(matter as any)['Client Name'] || matter.ClientName || 'N/A'}
                                                     {pitchTags.length > 0 && (
                                                         <div style={pitchTagContainerStyle}>
-                                                            {pitchTags.map((tag) => (
-                                                                <span
-                                                                    key={tag.key}
-                                                                    style={getPitchTagStyle(tag.type)}
-                                                                    title={tag.title}
-                                                                >
-                                                                    {tag.label}
-                                                                </span>
-                                                            ))}
+                                                            {(() => {
+                                                                const deals = pitchTags.filter(t => t.type === 'deal');
+                                                                const instructions = pitchTags.filter(t => t.type === 'instruction');
+                                                                const extras = pitchTags.filter(t => t.type === 'extra');
+                                                                return (
+                                                                    <>
+                                                                        {deals.map((tag) => (
+                                                                            <span
+                                                                                key={tag.key}
+                                                                                style={getPitchTagStyle(tag.type)}
+                                                                                title={tag.title}
+                                                                            >
+                                                                                {tag.label}
+                                                                            </span>
+                                                                        ))}
+                                                                        {deals.length > 0 && instructions.length > 0 && (
+                                                                            <span style={{ 
+                                                                                color: isDarkMode ? 'rgba(148,163,184,0.5)' : 'rgba(100,116,139,0.5)', 
+                                                                                fontSize: 10,
+                                                                                margin: '0 2px'
+                                                                            }}>→</span>
+                                                                        )}
+                                                                        {instructions.map((tag) => (
+                                                                            <span
+                                                                                key={tag.key}
+                                                                                style={getPitchTagStyle(tag.type)}
+                                                                                title={tag.title}
+                                                                            >
+                                                                                {tag.label}
+                                                                            </span>
+                                                                        ))}
+                                                                        {extras.map((tag) => (
+                                                                            <span
+                                                                                key={tag.key}
+                                                                                style={getPitchTagStyle(tag.type)}
+                                                                                title={tag.title}
+                                                                            >
+                                                                                {tag.label}
+                                                                            </span>
+                                                                        ))}
+                                                                    </>
+                                                                );
+                                                            })()}
                                                         </div>
                                                     )}
                                                 </td>
@@ -2883,7 +2931,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                     minWidth: 80,
                                                     color: isDarkMode ? '#e5e7eb' : '#111827',
                                                     fontSize: '11px',
-                                                    textAlign: 'center',
+                                                    textAlign: 'left',
                                                     fontFamily: 'monospace',
                                                     fontWeight: 500,
                                                     letterSpacing: '0.6px'
@@ -2896,7 +2944,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                     minWidth: 80,
                                                     color: isDarkMode ? '#e5e7eb' : '#111827',
                                                     fontSize: '11px',
-                                                    textAlign: 'center',
+                                                    textAlign: 'left',
                                                     fontFamily: 'monospace',
                                                     fontWeight: 500,
                                                     letterSpacing: '0.6px'
@@ -2907,7 +2955,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                     padding: '6px 8px',
                                                     width: 100,
                                                     minWidth: 100,
-                                                    textAlign: 'center',
+                                                    textAlign: 'left',
                                                     color: isDarkMode ? '#e5e7eb' : '#111827',
                                                     fontFamily: 'monospace',
                                                     fontSize: '11px',
@@ -2919,7 +2967,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                     padding: '6px 8px',
                                                     width: 105,
                                                     minWidth: 105,
-                                                    textAlign: 'center',
+                                                    textAlign: 'left',
                                                     color: isDarkMode ? '#e5e7eb' : '#111827',
                                                     fontFamily: 'monospace',
                                                     fontSize: '11px',
@@ -3066,7 +3114,13 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                             </div>
                                                             <div>
                                                                 <div style={{ fontWeight: 600, marginBottom: 4, color: isDarkMode ? '#cbd5e1' : '#374151' }}>Most Recent Activity</div>
-                                                                <div>{(matter as any).LastActivityDate ? format(parseISO((matter as any).LastActivityDate), 'dd MMM yyyy') : (matter as any).mod_stamp ? format(parseISO((matter as any).mod_stamp), 'dd MMM yyyy') : '—'}</div>
+                                                                <div>{(() => {
+                                                                    const detailed = getMatterFinancialsDetailed(matter);
+                                                                    if (detailed.lastUpdated) {
+                                                                        return format(new Date(detailed.lastUpdated), 'dd MMM yyyy');
+                                                                    }
+                                                                    return '—';
+                                                                })()}</div>
                                                             </div>
                                                         </div>
                                                     </td>

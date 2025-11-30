@@ -115,8 +115,8 @@ const PitchHeaderRow: React.FC<PitchHeaderRowProps> = ({
       right: '0',
       height: '3px',
       background: isDarkMode 
-        ? `linear-gradient(90deg, ${colours.blue}, #60A5FA)`
-        : `linear-gradient(90deg, ${colours.blue}, #60A5FA)`,
+        ? `linear-gradient(90deg, ${colours.blue}, ${colours.accent})`
+        : `linear-gradient(90deg, ${colours.blue}, ${colours.highlight})`,
       borderRadius: '0 0 8px 8px'
     }
   });

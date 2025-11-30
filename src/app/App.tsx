@@ -17,6 +17,8 @@ import localInstructionData from '../localData/localInstructionData.json';
 import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
 import { ADMIN_USERS, isAdminUser, hasInstructionsAccess } from './admin';
 import Loading from './styles/Loading';
+import MaintenanceNotice from './MaintenanceNotice';
+import { useServiceHealthMonitor } from './functionality/useServiceHealthMonitor';
 
 const proxyBaseUrl = getProxyBaseUrl();
 
@@ -42,6 +44,7 @@ interface AppProps {
   originalAdminUser?: UserData | null;
   onRefreshEnquiries?: () => Promise<void>;
   onRefreshMatters?: () => Promise<void>;
+  onOptimisticClaim?: (enquiryId: string, claimerEmail: string) => void;
 }
 
 const App: React.FC<AppProps> = ({
@@ -59,8 +62,10 @@ const App: React.FC<AppProps> = ({
   originalAdminUser,
   onRefreshEnquiries,
   onRefreshMatters,
+  onOptimisticClaim,
 }) => {
   const [activeTab, setActiveTab] = useState('home');
+  const { state: serviceHealth, dismiss: dismissMaintenance } = useServiceHealthMonitor();
   const systemPrefersDark = typeof window !== 'undefined' && window.matchMedia
     ? window.matchMedia('(prefers-color-scheme: dark)').matches
     : false;
@@ -672,6 +677,7 @@ const App: React.FC<AppProps> = ({
             poidData={poidData}
             setPoidData={setPoidData}
             onRefreshEnquiries={onRefreshEnquiries}
+            onOptimisticClaim={onOptimisticClaim}
             instructionData={allInstructionData}
           />
         );
@@ -795,6 +801,11 @@ const App: React.FC<AppProps> = ({
           <ResourcesModal
             isOpen={isResourcesModalOpen}
             onDismiss={closeResourcesModal}
+          />
+          <MaintenanceNotice
+            state={serviceHealth}
+            isDarkMode={Boolean(isDarkMode)}
+            onDismiss={dismissMaintenance}
           />
           
           <Suspense fallback={<ThemedSuspenseFallback /> }>

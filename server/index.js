@@ -81,6 +81,7 @@ const clearCacheRouter = require('./routes/clearCache');
 const teamsActivityTrackingRouter = require('./routes/teamsActivityTracking');
 const pitchTrackingRouter = require('./routes/pitchTracking');
 const enquiryEnrichmentRouter = require('./routes/enquiryEnrichment');
+const claimEnquiryRouter = require('./routes/claimEnquiry');
 const { userContextMiddleware } = require('./middleware/userContext');
 
 const app = express();
@@ -162,6 +163,7 @@ app.use('/api/ccl', cclRouter);
 app.use('/api/enquiries', enquiriesRouter);
 app.use('/api/enquiries-unified', enquiriesUnifiedRouter);
 app.use('/api/updateEnquiryPOC', updateEnquiryPOCRouter);
+app.use('/api/claimEnquiry', claimEnquiryRouter);
 app.use('/api/matters-unified', mattersUnifiedRouter);
 app.use('/api/enquiry-emails', enquiryEmailsRouter);
 app.use('/api/ops', opsRouter);

@@ -222,19 +222,30 @@ router.get('/stream-datasets', async (req, res) => {
         console.log(`🚀 Fetching ${datasetName} from source (timeout: ${timeoutMs}ms, heavy: ${isHeavyDataset}, collected/poid: ${isCollectedTimeOrPoid}) - cache miss`);
         
         try {
-          result = await Promise.race([
+          // For heavy datasets, DON'T abort on client disconnect - continue fetching and cache the result
+          // This ensures the next request gets a cache hit instead of starting another slow fetch
+          const racePromises = [
             fetchDatasetByName(datasetName, { connectionString, entraId, rangeOverrides: datasetRangeOverrides }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error(`Query timeout after ${timeoutMs}ms`)), timeoutMs)),
-            // Also abort if client disconnects during fetch
-            new Promise((_, reject) => {
-              const checkConnection = setInterval(() => {
-                if (!isClientConnected) {
-                  clearInterval(checkConnection);
-                  reject(new Error('Client disconnected during fetch'));
-                }
-              }, 1000);
-            })
-          ]);
+            new Promise((_, reject) => setTimeout(() => reject(new Error(`Query timeout after ${timeoutMs}ms`)), timeoutMs))
+          ];
+          
+          // Only abort light datasets on client disconnect - heavy ones should complete and cache
+          if (!isHeavyDataset) {
+            racePromises.push(
+              new Promise((_, reject) => {
+                const checkConnection = setInterval(() => {
+                  if (!isClientConnected) {
+                    clearInterval(checkConnection);
+                    reject(new Error('Client disconnected during fetch'));
+                  }
+                }, 1000);
+              })
+            );
+          } else {
+            console.log(`🔒 Heavy dataset ${datasetName} will complete even if client disconnects (for caching)`);
+          }
+          
+          result = await Promise.race(racePromises);
           
           const fetchTime = Date.now() - fetchStartTime;
           console.log(`✅ Dataset ${datasetName} fetched in ${fetchTime}ms, result type:`, typeof result, 'array length:', Array.isArray(result) ? result.length : 'not array');

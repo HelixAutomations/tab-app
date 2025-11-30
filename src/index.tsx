@@ -773,6 +773,32 @@ const AppWithContext: React.FC = () => {
     }
   };
 
+  /**
+   * Optimistically update a claimed enquiry in local state.
+   * This provides instant UI feedback by moving the enquiry from unclaimed to claimed.
+   * @param enquiryId The ID of the enquiry being claimed
+   * @param claimerEmail The email of the user claiming the enquiry
+   */
+  const optimisticClaimEnquiry = (enquiryId: string, claimerEmail: string) => {
+    setEnquiries(prev => {
+      if (!prev) return prev;
+      return prev.map(enq => {
+        // Match on ID (could be string or number comparison)
+        const enqId = String(enq.ID || (enq as any).id || '');
+        if (enqId === String(enquiryId)) {
+          return {
+            ...enq,
+            Point_of_Contact: claimerEmail,
+            poc: claimerEmail,
+            // Also update stage if it exists
+            stage: (enq as any).stage === 'new' ? 'claimed' : (enq as any).stage,
+          };
+        }
+        return enq;
+      });
+    });
+  };
+
   // Refresh matters function - clears local caches and fetches normalized matters for current user
   const refreshMatters = async () => {
     if (!userData || !userData[0]) return;
@@ -1204,6 +1230,7 @@ const AppWithContext: React.FC = () => {
         originalAdminUser={originalAdminUser}
         onRefreshEnquiries={refreshEnquiries}
         onRefreshMatters={refreshMatters}
+        onOptimisticClaim={optimisticClaimEnquiry}
       />
       <PasscodeDialog
         isOpen={showPasscode}

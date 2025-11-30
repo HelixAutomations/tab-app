@@ -9,10 +9,11 @@ interface UnclaimedEnquiriesProps {
     userEmail: string | undefined;
     onAreaChange: (enquiryId: string, newArea: string) => Promise<void> | void;
     onClaimSuccess?: () => void;
+    onOptimisticClaim?: (enquiryId: string, claimerEmail: string) => void;
     getPromotionStatusSimple?: (enquiry: Enquiry) => 'pitch' | 'instruction' | null;
 }
 
-const UnclaimedEnquiries: React.FC<UnclaimedEnquiriesProps> = ({ enquiries, onSelect, userEmail, onAreaChange, onClaimSuccess, getPromotionStatusSimple }) => {
+const UnclaimedEnquiries: React.FC<UnclaimedEnquiriesProps> = ({ enquiries, onSelect, userEmail, onAreaChange, onClaimSuccess, onOptimisticClaim, getPromotionStatusSimple }) => {
 
     if (!enquiries || enquiries.length === 0) {
         return (
@@ -40,6 +41,7 @@ const UnclaimedEnquiries: React.FC<UnclaimedEnquiriesProps> = ({ enquiries, onSe
                     onAreaChange={onAreaChange}
                     userEmail={userEmail || ''}
                     onClaimSuccess={onClaimSuccess}
+                    onOptimisticClaim={onOptimisticClaim}
                     promotionStatus={getPromotionStatusSimple ? getPromotionStatusSimple(enquiry) : null}
                 />
             ))}

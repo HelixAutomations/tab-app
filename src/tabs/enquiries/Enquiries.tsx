@@ -57,6 +57,7 @@ import FilterBanner from '../../components/filter/FilterBanner';
 import CreateContactModal from './CreateContactModal';
 import TeamsLinkWidget from '../../components/TeamsLinkWidget';
 import { EnquiryEnrichmentData, EnquiryEnrichmentResponse, fetchEnquiryEnrichment } from '../../app/functionality/enquiryEnrichment';
+import { claimEnquiry } from '../../utils/claimEnquiry';
 import { app } from '@microsoft/teams-js';
 import AreaCountCard from './AreaCountCard';
 import 'rc-slider/assets/index.css';
@@ -151,6 +152,7 @@ interface EnquiriesProps {
   setPoidData: React.Dispatch<React.SetStateAction<POID[]>>;
   teamData?: TeamData[] | null;
   onRefreshEnquiries?: () => Promise<void>;
+  onOptimisticClaim?: (enquiryId: string, claimerEmail: string) => void;
   instructionData?: any[]; // For detecting promoted enquiries
 }
 
@@ -177,6 +179,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   setPoidData,
   teamData,
   onRefreshEnquiries,
+  onOptimisticClaim,
   instructionData,
 }) => {
 
@@ -525,6 +528,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [nextRefreshIn, setNextRefreshIn] = useState<number>(5 * 60); // 5 minutes in seconds
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const handleManualRefreshRef = useRef<(() => Promise<void>) | null>(null);
   // Track recent updates to prevent overwriting with stale prop data
   const recentUpdatesRef = useRef<Map<string, { field: string; value: any; timestamp: number }>>(new Map());
   // Admin check (match Matters logic) – be robust to spaced keys and fallbacks
@@ -594,8 +598,19 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         .catch((err) => console.error('Failed to copy text:', err));
     }
   }, []);
+
+  // Track claim operations in progress (keyed by enquiry ID)
+  const [claimingEnquiries, setClaimingEnquiries] = useState<Set<string>>(new Set());
+
   const renderClaimPromptChip = useCallback(
-    (options?: { size?: 'default' | 'compact'; teamsLink?: string | null; leadName?: string; areaOfWork?: string }) => {
+    (options?: { 
+      size?: 'default' | 'compact'; 
+      teamsLink?: string | null; 
+      leadName?: string; 
+      areaOfWork?: string;
+      enquiryId?: string;
+      dataSource?: 'new' | 'legacy';
+    }) => {
       const size = options?.size ?? 'default';
       const metrics = size === 'compact'
         ? { padding: '3px 8px', fontSize: 9, iconSize: 11, minWidth: 110 }
@@ -607,12 +622,65 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         ? '0 3px 8px rgba(135, 243, 243, 0.12)'
         : '0 3px 8px rgba(54, 144, 206, 0.15)';
       const leadLabel = options?.leadName?.trim() || 'this lead';
+      const isClaiming = options?.enquiryId ? claimingEnquiries.has(options.enquiryId) : false;
 
-      const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+      const handleClick = async (e: React.MouseEvent<HTMLButtonElement>) => {
         e.stopPropagation();
-        const destination = (options?.teamsLink || '').trim() || getAreaSpecificChannelUrl(options?.areaOfWork);
-        if (typeof window !== 'undefined') {
-          window.open(destination, '_blank');
+        
+        // If we have enquiry ID and user email, perform the claim via API
+        const currentUserEmail = userData?.[0]?.Email;
+        if (options?.enquiryId && currentUserEmail) {
+          // Mark as claiming
+          setClaimingEnquiries(prev => new Set(prev).add(options.enquiryId!));
+          
+          // Optimistic update - immediately move enquiry to claimed state in UI
+          if (onOptimisticClaim) {
+            onOptimisticClaim(options.enquiryId, currentUserEmail);
+          }
+          
+          try {
+            const result = await claimEnquiry(
+              options.enquiryId, 
+              currentUserEmail, 
+              options.dataSource || 'legacy'
+            );
+            
+            if (result.success) {
+              console.log('✅ Enquiry claimed successfully from table view', { 
+                enquiryId: options.enquiryId, 
+                dataSource: options.dataSource,
+                operations: result.operations 
+              });
+              // Background refresh to sync with server (non-blocking)
+              if (onRefreshEnquiries) {
+                onRefreshEnquiries().catch(err => console.warn('Background refresh failed:', err));
+              }
+            } else {
+              console.error('❌ Failed to claim enquiry:', result.error);
+              // Revert optimistic update by refreshing
+              if (onRefreshEnquiries) {
+                await onRefreshEnquiries();
+              }
+            }
+          } catch (err) {
+            console.error('❌ Error claiming enquiry:', err);
+            // Revert optimistic update by refreshing
+            if (onRefreshEnquiries) {
+              await onRefreshEnquiries();
+            }
+          } finally {
+            setClaimingEnquiries(prev => {
+              const next = new Set(prev);
+              next.delete(options.enquiryId!);
+              return next;
+            });
+          }
+        } else {
+          // Fallback: open Teams channel (legacy behavior)
+          const destination = (options?.teamsLink || '').trim() || getAreaSpecificChannelUrl(options?.areaOfWork);
+          if (typeof window !== 'undefined') {
+            window.open(destination, '_blank');
+          }
         }
       };
 
@@ -620,6 +688,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         <button
           type="button"
           onClick={handleClick}
+          disabled={isClaiming}
           style={{
             display: 'inline-flex',
             alignItems: 'center',
@@ -633,34 +702,39 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             fontWeight: 700,
             letterSpacing: '0.45px',
             fontSize: `${metrics.fontSize}px`,
-            cursor: 'pointer',
+            cursor: isClaiming ? 'wait' : 'pointer',
             minWidth: `${metrics.minWidth}px`,
             justifyContent: 'center',
             boxShadow: baseShadow,
             transition: 'all 0.2s ease',
             fontFamily: 'inherit',
-            animation: 'pulse-glow 3s infinite ease-in-out',
+            animation: isClaiming ? 'none' : 'pulse-glow 3s infinite ease-in-out',
             position: 'relative',
+            opacity: isClaiming ? 0.7 : 1,
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.boxShadow = hoverShadow;
-            e.currentTarget.style.transform = 'translateY(-1px) scale(1.02)';
-            e.currentTarget.style.animation = 'none';
+            if (!isClaiming) {
+              e.currentTarget.style.boxShadow = hoverShadow;
+              e.currentTarget.style.transform = 'translateY(-1px) scale(1.02)';
+              e.currentTarget.style.animation = 'none';
+            }
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.boxShadow = baseShadow;
-            e.currentTarget.style.transform = 'translateY(0) scale(1)';
-            e.currentTarget.style.animation = 'pulse-glow 2s infinite';
+            if (!isClaiming) {
+              e.currentTarget.style.boxShadow = baseShadow;
+              e.currentTarget.style.transform = 'translateY(0) scale(1)';
+              e.currentTarget.style.animation = 'pulse-glow 2s infinite';
+            }
           }}
-          title={options?.teamsLink ? `Open Teams widget for ${leadLabel}` : 'Open shared inbox channel in Teams'}
+          title={isClaiming ? 'Claiming...' : (options?.enquiryId ? `Claim ${leadLabel}` : 'Open shared inbox channel in Teams')}
         >
-          <Icon iconName="LockSolid" styles={{ root: { fontSize: metrics.iconSize, color: 'inherit' } }} />
-          <span>Claim</span>
-          <Icon iconName="ChevronRight" styles={{ root: { fontSize: metrics.iconSize - 1, opacity: 0.85, color: 'inherit' } }} />
+          <Icon iconName={isClaiming ? 'Sync' : 'LockSolid'} styles={{ root: { fontSize: metrics.iconSize, color: 'inherit', animation: isClaiming ? 'spin 1s linear infinite' : 'none' } }} />
+          <span>{isClaiming ? 'Claiming...' : 'Claim'}</span>
+          {!isClaiming && <Icon iconName="ChevronRight" styles={{ root: { fontSize: metrics.iconSize - 1, opacity: 0.85, color: 'inherit' } }} />}
         </button>
       );
     },
-    [isDarkMode]
+    [isDarkMode, claimingEnquiries, userData, onRefreshEnquiries, onOptimisticClaim]
   );
   
   // Cleanup timeout on unmount
@@ -1740,48 +1814,55 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     }
   }, [isRefreshing, onRefreshEnquiries]);
 
-  // Auto-refresh timer (30 minutes)
+  // Keep ref updated with latest handleManualRefresh function
   useEffect(() => {
-    const startAutoRefresh = () => {
-      // Clear existing intervals
-      if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current);
-      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+    handleManualRefreshRef.current = handleManualRefresh;
+  }, [handleManualRefresh]);
 
-      // Set up 5-minute auto-refresh
-      refreshIntervalRef.current = setInterval(() => {
-        handleManualRefresh();
-      }, 5 * 60 * 1000); // 5 minutes
+  // Auto-refresh timer (5 minutes) - uses ref to avoid interval reset on function recreation
+  useEffect(() => {
+    // Clear existing intervals
+    if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current);
+    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
 
-      // Set up countdown timer (updates every second for smooth progress)
-      countdownIntervalRef.current = setInterval(() => {
-        setNextRefreshIn(prev => {
-          const newValue = prev - 1;
-          if (newValue <= 0) {
-            return 5 * 60; // Reset to 5 minutes
-          }
-          return newValue;
-        });
-      }, 1000); // 1 second
-    };
+    // Set up 5-minute auto-refresh - uses ref so interval doesn't reset when function changes
+    refreshIntervalRef.current = setInterval(() => {
+      debugLog('⏰ Auto-refresh timer fired');
+      if (handleManualRefreshRef.current) {
+        handleManualRefreshRef.current();
+      }
+    }, 5 * 60 * 1000); // 5 minutes
 
-    startAutoRefresh();
+    // Set up countdown timer (updates every second for smooth progress)
+    countdownIntervalRef.current = setInterval(() => {
+      setNextRefreshIn(prev => {
+        const newValue = prev - 1;
+        if (newValue <= 0) {
+          return 5 * 60; // Reset to 5 minutes
+        }
+        return newValue;
+      });
+    }, 1000); // 1 second
+
+    debugLog('🕐 Auto-refresh intervals initialized');
 
     return () => {
       if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current);
       if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
     };
-  }, [handleManualRefresh]);
+  }, []); // Empty deps - only run once on mount
 
   // Format time remaining for display
   const formatTimeRemaining = (seconds: number): string => {
     const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
     const hours = Math.floor(minutes / 60);
     const remainingMinutes = minutes % 60;
     
     if (hours > 0) {
-      return `${hours}h ${remainingMinutes}m`;
+      return `${hours}h ${remainingMinutes}m ${remainingSeconds}s`;
     }
-    return `${remainingMinutes}m`;
+    return `${remainingMinutes}m ${remainingSeconds}s`;
   };
 
   const handleRate = useCallback((id: string) => {
@@ -3173,18 +3254,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                     color: viewMode === 'table' 
                       ? (isDarkMode ? '#1f2937' : '#1f2937')
                       : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4,
                   }}>
                     Table
-                    <span style={{
-                      width: 4,
-                      height: 4,
-                      borderRadius: '50%',
-                      backgroundColor: '#10b981',
-                      opacity: 0.8,
-                    }} />
                   </span>
                 </button>
               </div>
@@ -3470,6 +3541,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           userEmail={userData?.[0]?.Email || ''}
           onAreaChange={() => { /* no-op in unclaimed view for now */ }}
           onClaimSuccess={() => { try { handleManualRefresh(); } catch (e) { /* ignore */ } }}
+          onOptimisticClaim={onOptimisticClaim}
           getPromotionStatusSimple={getPromotionStatusSimple}
         />
       ) : null}
@@ -3623,6 +3695,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               isLast={isLast}
                               userEmail={currentUserEmail}
                               onClaimSuccess={onRefreshEnquiries}
+                              onOptimisticClaim={onOptimisticClaim}
                               promotionStatus={getPromotionStatusSimple(item)}
                             />
                           );
@@ -4610,7 +4683,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                               size: 'compact', 
                                               teamsLink: childTeamsLink, 
                                               leadName: childContactName,
-                                              areaOfWork: childEnquiry['Area_of_Work']
+                                              areaOfWork: childEnquiry['Area_of_Work'],
+                                              enquiryId: childEnquiry.ID,
+                                              dataSource: childIsV2 ? 'new' : 'legacy'
                                             })
                                           : (
                                             <button
@@ -5317,7 +5392,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                       ? renderClaimPromptChip({ 
                                           teamsLink: enquiryTeamsLink, 
                                           leadName: contactName,
-                                          areaOfWork: item['Area_of_Work']
+                                          areaOfWork: item['Area_of_Work'],
+                                          enquiryId: item.ID,
+                                          dataSource: isFromInstructions ? 'new' : 'legacy'
                                         })
                                       : (
                                         <button
@@ -5610,49 +5687,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                 Notes
                               </div>
                               {item.Initial_first_call_notes?.replace(/\\n/g, '\n').replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()}
-
-                              {/* Teams Link Debug Section - only show for claimed items */}
-                              {enrichmentData?.teamsData?.teamsLink && 
-                               (item.Point_of_Contact || (item as any).poc || '').toLowerCase() !== 'team@helix-law.com' && (
-                                <div
-                                  style={{
-                                    marginTop: '16px',
-                                    paddingTop: '12px',
-                                    borderTop: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)'}`,
-                                  }}
-                                >
-                                  <div
-                                    style={{
-                                      fontSize: '10px',
-                                      fontWeight: 600,
-                                      textTransform: 'uppercase',
-                                      letterSpacing: '0.5px',
-                                      color: isDarkMode
-                                        ? 'rgba(255, 255, 255, 0.5)'
-                                        : 'rgba(0, 0, 0, 0.5)',
-                                      marginBottom: '6px',
-                                    }}
-                                  >
-                                    Teams Link (Debug)
-                                  </div>
-                                  <a
-                                    href={enrichmentData.teamsData.teamsLink}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    style={{
-                                      color: isDarkMode ? '#60a5fa' : '#3b82f6',
-                                      fontSize: '11px',
-                                      wordBreak: 'break-all',
-                                      textDecoration: 'none',
-                                      transition: 'opacity 0.2s',
-                                    }}
-                                    onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.7')}
-                                    onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
-                                  >
-                                    {enrichmentData.teamsData.teamsLink}
-                                  </a>
-                                </div>
-                              )}
                             </div>
                           )}
                           </React.Fragment>

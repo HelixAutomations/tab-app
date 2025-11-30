@@ -1522,7 +1522,46 @@ const handleClearAll = () => {
                 created_at: new Date().toISOString(),
                 form_version: "1.0",
                 processing_status: "pending_review"
-            }
+            },
+            // Instruction-level summary for fee earner confirmation email
+            instruction_summary: (() => {
+                // Find the instruction record for this instruction ref
+                const inst = Array.isArray(instructionRecords) 
+                    ? (instructionRecords as any[]).find(r => r?.InstructionRef === instructionRef)
+                    : null;
+                if (!inst) return null;
+                return {
+                    // Payment status
+                    payment_result: inst.PaymentResult || null,
+                    payment_amount: inst.PaymentAmount || null,
+                    payment_timestamp: inst.PaymentTimestamp || null,
+                    // EID verification
+                    eid_overall_result: inst.EIDOverallResult || null,
+                    eid_check_id: inst.EIDCheckId || null,
+                    eid_status: inst.EIDStatus || null,
+                    pep_sanctions_result: inst.PEPAndSanctionsCheckResult || null,
+                    address_verification_result: inst.AddressVerificationResult || null,
+                    // Risk assessment
+                    risk_assessment: inst.RiskAssessment ? {
+                        result: inst.RiskAssessment.RiskAssessmentResult || null,
+                        score: inst.RiskAssessment.RiskScore || null,
+                        assessor: inst.RiskAssessment.RiskAssessor || null,
+                        compliance_date: inst.RiskAssessment.ComplianceDate || null,
+                        transaction_risk_level: inst.RiskAssessment.TransactionRiskLevel || null
+                    } : null,
+                    // Documents - full array with details for email
+                    document_count: Array.isArray(inst.documents) ? inst.documents.length : 0,
+                    documents: Array.isArray(inst.documents) ? inst.documents.map((doc: any) => ({
+                        file_name: doc.FileName || doc.filename || doc.name || null,
+                        file_size_bytes: doc.FileSizeBytes || doc.filesize || doc.size || null,
+                        document_type: doc.DocumentType || doc.type || null,
+                        uploaded_at: doc.UploadedAt || doc.uploadedAt || null
+                    })) : [],
+                    // Deal info
+                    deal_id: inst.DealId || inst.dealId || null,
+                    service_description: inst.ServiceDescription || null
+                };
+            })()
         };
     };
 

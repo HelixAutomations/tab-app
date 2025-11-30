@@ -77,8 +77,8 @@ function convertElementToInlineStyles(element: HTMLElement): void {
       break;
       
     case 'p':
-      inlineStyles['margin'] = '0 0 12px 0';
-      inlineStyles['line-height'] = '1.6';
+      inlineStyles['margin'] = '0';
+      inlineStyles['line-height'] = '1.4';
       inlineStyles['color'] = '#000000';
       break;
       
@@ -117,7 +117,7 @@ function convertElementToInlineStyles(element: HTMLElement): void {
       
     case 'li':
       inlineStyles['margin'] = '0 0 4px 0';
-      inlineStyles['line-height'] = '1.6';
+      inlineStyles['line-height'] = '1.4';
       inlineStyles['color'] = '#000000';
       break;
       
@@ -137,7 +137,7 @@ function convertElementToInlineStyles(element: HTMLElement): void {
     case 'div':
       // Only add line-height for divs that don't have specific styling
       if (!element.style.cssText) {
-        inlineStyles['line-height'] = '1.6';
+        inlineStyles['line-height'] = '1.4';
       }
       break;
   }
@@ -310,19 +310,19 @@ export function enhanceListFormatting(html: string): string {
 
   // Process unordered lists
   tempDiv.querySelectorAll('ul').forEach(ul => {
-    ul.style.cssText = 'margin:0 0 12px 20px;padding:0;list-style-type:disc;';
+    ul.style.cssText = 'margin:0 0 12px 20px;padding:0;list-style-type:disc;font-family:Raleway,Arial,sans-serif;';
     
     ul.querySelectorAll('li').forEach(li => {
-      li.style.cssText = 'margin:0 0 4px 0;line-height:1.6;color:#000000;';
+      li.style.cssText = 'margin:0 0 4px 0;line-height:1.4;font-family:Raleway,Arial,sans-serif;';
     });
   });
 
   // Process ordered lists with custom styling for better email compatibility
   tempDiv.querySelectorAll('ol').forEach(ol => {
-    ol.style.cssText = 'margin:0 0 12px 20px;padding:0;list-style-type:decimal;';
+    ol.style.cssText = 'margin:0 0 12px 20px;padding:0;list-style-type:decimal;font-family:Raleway,Arial,sans-serif;';
     
     ol.querySelectorAll('li').forEach(li => {
-      li.style.cssText = 'margin:0 0 4px 0;line-height:1.6;color:#000000;';
+      li.style.cssText = 'margin:0 0 4px 0;line-height:1.4;font-family:Raleway,Arial,sans-serif;';
     });
   });
 

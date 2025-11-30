@@ -101,8 +101,10 @@ function wrapSystemSignature(bodyHtml) {
 
 function maybeWrapSignature(html) {
   // Avoid double-signature: if disclaimer or company blurb already present, return as-is
+  // Also skip for system emails marked with data-no-signature or already having full HTML structure
   const hasSignature = /Helix Law Limited is a limited liability company/i.test(html)
-    || /DISCLAIMER: Please be aware of cyber-crime/i.test(html);
+    || /DISCLAIMER: Please be aware of cyber-crime/i.test(html)
+    || /data-no-signature/i.test(html);
   return hasSignature ? html : wrapSystemSignature(html);
 }
 
@@ -125,6 +127,8 @@ router.post('/sendEmail', async (req, res) => {
   const bccList = normalizeEmails([body.bcc_emails, body.bcc_email].filter(Boolean));
     const replyToList = normalizeEmails(body.reply_to || body.replyTo || body['reply-to']);
     const saveToSentItems = typeof body.saveToSentItems === 'boolean' ? body.saveToSentItems : false;
+    // Allow callers to explicitly skip signature
+    const skipSignature = body.skipSignature === true || body.skip_signature === true;
 
     // Always write an ops log entry for observability
     opLog.append({
@@ -191,7 +195,7 @@ router.post('/sendEmail', async (req, res) => {
     const payload = {
       message: {
         subject,
-        body: { contentType: 'HTML', content: maybeWrapSignature(html) },
+        body: { contentType: 'HTML', content: skipSignature ? html : maybeWrapSignature(html) },
         toRecipients: toRecipients(to),
         from: { emailAddress: { address: fromEmail } },
         ...(ccList.length ? { ccRecipients: toRecipients(ccList) } : {}),

@@ -9,6 +9,11 @@ let lastAuthContext = { method: null, username: undefined, tenantId: undefined, 
 // In-flight de-duplication map: cacheKey -> Promise
 const inflightCache = new Map();
 
+// Token management for Entra ID auth
+let cachedCredential = null;
+let lastTokenExpiry = 0;
+const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000; // Refresh 5 minutes before expiry
+
 // Cache configuration
 const CACHE_CONFIG = {
   // TTL values in seconds
@@ -28,6 +33,79 @@ const CACHE_CONFIG = {
     UNIFIED: 'unified',       // Cross-database aggregated data
   }
 };
+
+/**
+ * Get or refresh Entra ID credential and token for Redis authentication
+ * @returns {Object|null} { token, username, claims } or null if unavailable
+ */
+async function getEntraToken() {
+  const requestedTenant = process.env.REDIS_TENANT_ID || process.env.AZURE_TENANT_ID || undefined;
+  
+  try {
+    const { DefaultAzureCredential, AzureCliCredential } = require('@azure/identity');
+
+    // Create credential if not cached
+    if (!cachedCredential) {
+      if (requestedTenant) {
+        try {
+          cachedCredential = new AzureCliCredential({ tenantId: requestedTenant });
+          const tprev = String(requestedTenant).slice(0, 8);
+          console.log(`🎯 Using Azure CLI credential for tenant ${tprev}…`);
+        } catch (e) {
+          console.warn('⚠️  AzureCliCredential init failed, falling back to DefaultAzureCredential');
+          cachedCredential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
+        }
+      } else {
+        cachedCredential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
+      }
+    }
+
+    const tokenResponse = await cachedCredential.getToken('https://redis.azure.com/.default');
+    if (!tokenResponse?.token) {
+      console.warn('⚠️  Entra ID token not acquired; Redis cache will be disabled');
+      return null;
+    }
+
+    // Store expiry for proactive refresh
+    lastTokenExpiry = tokenResponse.expiresOnTimestamp || (Date.now() + 3600000);
+
+    // Decode claims
+    function decodeJwtClaims(t) {
+      try {
+        const parts = String(t).split('.');
+        if (parts.length < 2) return {};
+        const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        const padded = b64 + '==='.slice((b64.length + 3) % 4);
+        const json = Buffer.from(padded, 'base64').toString('utf8');
+        return JSON.parse(json);
+      } catch {
+        return {};
+      }
+    }
+
+    const claims = decodeJwtClaims(tokenResponse.token);
+    const derivedUsername = process.env.REDIS_USER
+      || claims.oid
+      || claims.appid
+      || claims.sub
+      || 'default';
+
+    return { token: tokenResponse.token, username: derivedUsername, claims };
+  } catch (tokenError) {
+    console.warn('⚠️  Could not acquire Entra ID token for Redis:', tokenError?.message || tokenError);
+    // Reset credential on error to allow fresh attempt
+    cachedCredential = null;
+    return null;
+  }
+}
+
+/**
+ * Check if current token needs refresh
+ */
+function needsTokenRefresh() {
+  if (!lastTokenExpiry) return true;
+  return Date.now() >= (lastTokenExpiry - TOKEN_REFRESH_BUFFER_MS);
+}
 
 /**
  * Initialize Redis client with Azure connection and Entra ID support

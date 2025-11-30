@@ -1,9 +1,9 @@
 import { colours } from '../../../app/styles/colours';
 
 const FONT_FAMILY = 'Raleway,Arial,sans-serif';
-const BASE_PARAGRAPH_STYLE = `margin:0 0 8px 0;line-height:1.6;font-family:${FONT_FAMILY};`;
-const LIST_MARGIN = '0 0 8px 20px';
-const LIST_ITEM_STYLE = `margin:0 0 4px 0;line-height:1.6;font-family:${FONT_FAMILY};`;
+const BASE_PARAGRAPH_STYLE = `margin:0;line-height:1.4;font-family:${FONT_FAMILY};`;
+const LIST_MARGIN = '0 0 12px 20px';
+const LIST_ITEM_STYLE = `margin:0 0 4px 0;line-height:1.4;font-family:${FONT_FAMILY};`;
 
 const emailV2Flag = process.env.REACT_APP_EMAIL_V2_ENABLED;
 const emailV2Enabled = emailV2Flag === 'true'
@@ -20,9 +20,9 @@ export const EMAIL_V2_CONFIG = {
 };
 
 const HEADING_STYLES: Record<'h1' | 'h2' | 'h3', string> = {
-  h1: `font-size:24px;font-weight:700;margin:4px 0 8px 0;font-family:${FONT_FAMILY};line-height:1.3;`,
-  h2: `font-size:20px;font-weight:700;margin:4px 0 8px 0;font-family:${FONT_FAMILY};line-height:1.3;`,
-  h3: `font-size:18px;font-weight:700;margin:4px 0 8px 0;font-family:${FONT_FAMILY};line-height:1.3;`
+  h1: `font-size:24px;font-weight:700;margin:0;font-family:${FONT_FAMILY};line-height:1.3;`,
+  h2: `font-size:20px;font-weight:700;margin:0;font-family:${FONT_FAMILY};line-height:1.3;`,
+  h3: `font-size:18px;font-weight:700;margin:0;font-family:${FONT_FAMILY};line-height:1.3;`
 };
 
 const REDUNDANT_SPAN_STYLES = new Set([
@@ -535,6 +535,24 @@ export function enhanceParagraphFormatting(html: string): string {
 }
 
 /**
+ * Add structural breaks between paragraphs for email client compatibility
+ * Many email clients (especially Outlook) collapse CSS margins on paragraphs.
+ * This function adds an empty line break element between paragraphs to ensure
+ * visible separation that holds in all email clients.
+ */
+export function addStructuralParagraphBreaks(html: string): string {
+  if (!html) {
+    return '';
+  }
+
+  // Insert a <br> between closing </p> and opening <p> tags
+  // This creates a structural break that email clients won't collapse
+  let processed = html.replace(/<\/p>\s*<p/gi, '</p><br><p');
+
+  return processed;
+}
+
+/**
  * Main V2 email processing function
  */
 export function processEmailContentV2(html: string): string {
@@ -579,6 +597,9 @@ export function processEmailContentV2(html: string): string {
 
     processed = enhanceLinkFormatting(processed);
     EMAIL_V2_CONFIG.logOperations && console.log('[EmailV2] Links enhanced');
+
+    processed = addStructuralParagraphBreaks(processed);
+    EMAIL_V2_CONFIG.logOperations && console.log('[EmailV2] Structural paragraph breaks added');
 
     processed = wrapWithEmailContainer(processed);
     EMAIL_V2_CONFIG.logOperations && console.log('[EmailV2] Container applied');

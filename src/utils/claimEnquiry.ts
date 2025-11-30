@@ -1,5 +1,6 @@
 /**
- * Client-side API functions for claiming enquiries
+ * Client-side API functions for claiming enquiries via the enquiry-processing platform.
+ * This triggers the full claim flow: SQL update, ActiveCampaign sync, and Teams card update.
  */
 import { useState } from 'react';
 import { getProxyBaseUrl } from './getProxyBaseUrl';
@@ -7,6 +8,14 @@ import { getProxyBaseUrl } from './getProxyBaseUrl';
 interface ClaimEnquiryRequest {
     enquiryId: string;
     userEmail: string;
+    /** 'new' = instructions DB (lowercase id), 'legacy' = helix-core-data (uppercase ID) */
+    dataSource: 'new' | 'legacy';
+}
+
+interface ClaimOperations {
+    sql?: boolean;
+    activeCampaign?: boolean;
+    teamsCard?: boolean;
 }
 
 interface ClaimEnquiryResponse {
@@ -14,20 +23,30 @@ interface ClaimEnquiryResponse {
     message: string;
     enquiryId: string;
     claimedBy: string;
-    timestamp: string;
+    operations?: ClaimOperations;
     error?: string;
 }
 
 /**
- * Claims an enquiry by updating its Point_of_Contact field
+ * Claims an enquiry via the enquiry-processing platform.
+ * This triggers the full claim flow:
+ * - SQL: Updates enquiries table (Point_of_Contact, Claim = 'Claimed', Stage = 'Follow Up')
+ * - ActiveCampaign: Updates field 23 (Point of Contact)
+ * - Teams: Transforms the enquiry card from Claim/Discard to Edit/Unclaim
+ * 
  * @param enquiryId The ID of the enquiry to claim
  * @param userEmail The email of the user claiming the enquiry
- * @returns Promise with the API response
+ * @param dataSource 'new' for instructions DB, 'legacy' for helix-core-data
+ * @returns Promise with the API response including which operations succeeded
  */
-export async function claimEnquiry(enquiryId: string, userEmail: string): Promise<ClaimEnquiryResponse> {
+export async function claimEnquiry(
+    enquiryId: string, 
+    userEmail: string,
+    dataSource: 'new' | 'legacy' = 'legacy'
+): Promise<ClaimEnquiryResponse> {
     try {
-        // Use the deployed Azure Function with environment variables
-        const url = `${getProxyBaseUrl()}/${process.env.REACT_APP_CLAIM_ENQUIRY_PATH}?code=${process.env.REACT_APP_CLAIM_ENQUIRY_CODE}`;
+        // Use the server route which calls the enquiry-processing platform
+        const url = `${getProxyBaseUrl()}/api/claimEnquiry`;
         
         const response = await fetch(url, {
             method: 'POST',
@@ -36,7 +55,8 @@ export async function claimEnquiry(enquiryId: string, userEmail: string): Promis
             },
             body: JSON.stringify({
                 enquiryId,
-                userEmail
+                userEmail,
+                dataSource
             } as ClaimEnquiryRequest)
         });
 
@@ -72,12 +92,16 @@ export function useClaimEnquiry() {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const handleClaimEnquiry = async (enquiryId: string, userEmail: string) => {
+    const handleClaimEnquiry = async (
+        enquiryId: string, 
+        userEmail: string,
+        dataSource: 'new' | 'legacy' = 'legacy'
+    ) => {
         setIsLoading(true);
         setError(null);
 
         try {
-            const result = await claimEnquiry(enquiryId, userEmail);
+            const result = await claimEnquiry(enquiryId, userEmail, dataSource);
             console.log('Enquiry claimed successfully:', result);
             return result;
         } catch (err) {

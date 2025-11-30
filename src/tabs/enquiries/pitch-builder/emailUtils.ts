@@ -3,6 +3,8 @@ import { colours } from '../../../app/styles/colours';
 import { templateBlocks, TemplateBlock } from '../../../app/customisation/ProductionTemplateBlocks';
 import { finalizeHTMLForEmail, extractFormattingForEmail } from './emailFormattingUtils';
 
+const EMAIL_PARAGRAPH_STYLE = 'margin:0;line-height:1.4;font-family:Raleway,Arial,sans-serif;';
+
 function escapeRegExp(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -16,6 +18,7 @@ export const leftoverPlaceholders = getLeftoverPlaceholders();
  * Utility: turn consecutive <br><br> lines into real paragraphs (<p>...).
  * Some email clients (especially Outlook) collapse repeated <br> tags.
  * Converting them into <p> ensures consistent spacing.
+ * We also add <br> between paragraphs so email clients create structural breaks.
  */
 export function convertDoubleBreaksToParagraphs(html: string): string {
   let normalized = html
@@ -33,9 +36,10 @@ export function convertDoubleBreaksToParagraphs(html: string): string {
     const t = paragraph.trim();
     // Keep block-level lists as-is to avoid invalid <p><ol> nesting in Outlook
     if (/^<ol\b/i.test(t) && /<\/ol>\s*$/i.test(t)) return t;
-    return `<p>${t}</p>`;
+    return `<p style="${EMAIL_PARAGRAPH_STYLE}">${t}</p>`;
   });
-  return wrapped.join('');
+  // Join with <br> between paragraphs for structural breaks that email clients respect
+  return wrapped.join('<br>');
 }
 
 /**
@@ -67,7 +71,7 @@ export function convertNumberedListsToHTML(text: string): string {
           `<ol class="hlx-numlist" style="list-style:none;padding-left:0;margin:16px 0;">` +
           listItems
             .map(({ n, content }) =>
-              `<li style="margin:0 0 12px 0;line-height:1.6;">` +
+              `<li style="margin:0 0 12px 0;line-height:1.4;">` +
               `<span style="display:inline-block;min-width:1.6em;color:#D65541;font-weight:700;">${n}.` +
               `</span><span>${content}</span></li>`
             )
@@ -86,7 +90,7 @@ export function convertNumberedListsToHTML(text: string): string {
       `<ol class="hlx-numlist" style="list-style:none;padding-left:0;margin:16px 0;">` +
       listItems
         .map(({ n, content }) =>
-          `<li style="margin:0 0 12px 0;line-height:1.6;">` +
+          `<li style="margin:0 0 12px 0;line-height:1.4;">` +
           `<span style="display:inline-block;min-width:1.6em;color:#D65541;font-weight:700;">${n}.` +
           `</span><span>${content}</span></li>`
         )
@@ -343,6 +347,8 @@ export function wrapInsertPlaceholders(text: string): string {
       const span = document.createElement('span');
       span.className = 'insert-placeholder';
       span.setAttribute('data-insert', '');
+      // Apply inline styles as fallback - no color so CSS dark/light mode can take over
+      span.style.cssText = 'background: rgba(54, 144, 206, 0.18); padding: 1px 3px; border-radius: 3px; border: 1px dotted currentColor; font-style: italic; cursor: pointer; display: inline-block; font-size: 0.9em;';
       span.textContent = match;
       fragment.appendChild(span);
 
@@ -536,4 +542,48 @@ export function applyDynamicSubstitutions(
     .replace(/\[Passcode\]/g, passcode || '[Passcode]')
   // Render a human-friendly hyperlink instead of a raw URL
   .replace(/\[InstructLink\]/g, instructAnchor);
+}
+
+/**
+ * Sanitize body HTML before processing.
+ * Removes detached style fragments that leak from preview styling.
+ */
+export function sanitizeBodyForSend(html: string): string {
+  if (!html) return html;
+  let cleaned = html;
+  // Remove stray colour fragments like "144, 206); text-decoration: underline;" that sometimes detach from anchor style
+  cleaned = cleaned.replace(/\b\d{2,3},\s*\d{2,3}\);\s*text-decoration:\s*underline;?/gi, '');
+  // Normalize any styled instruct-link anchors to a clean version without inline style
+  cleaned = cleaned.replace(/<a([^>]*?)class=("|')[^"']*instruct-link[^"']*(\2)([^>]*)>(.*?)<\/a>/gi, (m) => {
+    // Extract existing href if present
+    const hrefMatch = m.match(/href=("|')(.*?)(\1)/i);
+    const href = hrefMatch ? hrefMatch[2] : '';
+    const textMatch = m.match(/>([^<]*)</);
+    const text = textMatch ? textMatch[1] : 'Instruct Helix Law';
+    return `<a href="${href}" target="_blank" rel="noopener noreferrer">${text || 'Instruct Helix Law'}</a>`;
+  });
+  // As a final guard, if a bare "Instruct Helix Law" follows a stray style fragment without an <a>, wrap it
+  cleaned = cleaned.replace(/(?:clicking\s+)?Instruct Helix Law(?!<)/gi, () => {
+    return `<a href="${process.env.REACT_APP_INSTRUCTIONS_URL || 'https://instruct.helix-law.com/pitch'}" target="_blank" rel="noopener noreferrer">Instruct Helix Law</a>`;
+  });
+  return cleaned;
+}
+
+/**
+ * Final sanitization pass after all processing.
+ * Cleans up corrupted style fragments and normalizes Instruct Helix Law links.
+ */
+export function sanitizeFinalHtml(html: string, instructionsHref: string): string {
+  if (!html) return html;
+  let out = html;
+  // Remove orphaned fragments like "144, 206); text-decoration: underline;" or "color: rgb(54, 144, 206); text-decoration: underline;"
+  out = out.replace(/color:\s*(?:rgb\([^\)]*\)|#[0-9a-f]{3,6}|[0-9.\s%,()-]+);\s*text-decoration:\s*underline;?/gi, '');
+  out = out.replace(/(?:rgb\([^\)]*\)|\b\d{1,3},\s*\d{1,3}(?:,\s*\d{1,3})?)\);\s*text-decoration:\s*underline;?/gi, '');
+  // Normalize any styled or partially broken Instruct Helix Law anchors to canonical form
+  out = out.replace(/<a[^>]*?>\s*Instruct\s+Helix\s+Law\s*<\/a>/gi, `<a href="${instructionsHref}" target="_blank" rel="noopener noreferrer">Instruct Helix Law</a>`);
+  // Remove any lingering `style="..."` fragments that directly precede the text node
+  out = out.replace(/style=\"[^\"]*?\">\s*Instruct Helix Law/gi, `>Instruct Helix Law`);
+  // Wrap any bare occurrences not already inside an anchor (heuristic: not immediately followed by </a>)
+  out = out.replace(/Instruct Helix Law(?!\s*<\/a>)/gi, `<a href="${instructionsHref}" target="_blank" rel="noopener noreferrer">Instruct Helix Law</a>`);
+  return out;
 }

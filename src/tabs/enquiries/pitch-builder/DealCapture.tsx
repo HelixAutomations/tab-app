@@ -30,7 +30,8 @@ export const DealCapture: React.FC<DealCaptureProps> = ({
   const border = isDarkMode ? colours.dark.border : '#E2E8F0';
   const text = isDarkMode ? colours.dark.text : colours.light.text;
   const subtle = isDarkMode ? '#94a3b8' : '#64748B';
-  const accent = isDarkMode ? '#60A5FA' : '#3690CE';
+  // Use brand highlight in light mode, accent in dark mode (except for signature/email links)
+  const accent = isDarkMode ? colours.accent : colours.highlight;
 
   const handleScope = useCallback((ev: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>, v?: string) => {
     onScopeChange(v || '');
@@ -61,14 +62,14 @@ export const DealCapture: React.FC<DealCaptureProps> = ({
     if (scopeDescription && scopeDescription.trim()) {
       return isDarkMode ? 'rgba(74, 222, 128, 0.35)' : 'rgba(5, 150, 105, 0.3)';
     }
-    return isDarkMode ? 'rgba(96, 165, 250, 0.25)' : 'rgba(54, 144, 206, 0.2)';
+    return isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(54, 144, 206, 0.2)';
   };
 
   const getAmountConnectorColor = () => {
     if (amount && parseFloat(amount) > 0) {
       return isDarkMode ? 'rgba(74, 222, 128, 0.35)' : 'rgba(5, 150, 105, 0.3)';
     }
-    return isDarkMode ? 'rgba(96, 165, 250, 0.25)' : 'rgba(54, 144, 206, 0.2)';
+    return isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(54, 144, 206, 0.2)';
   };
 
   return (
@@ -122,7 +123,7 @@ export const DealCapture: React.FC<DealCaptureProps> = ({
                     borderColor: isDarkMode ? 'rgba(125, 211, 252, 0.35)' : 'rgba(148, 163, 184, 0.35)'
                   },
                   '.is-focused':{ 
-                    borderColor: isDarkMode ? '#60A5FA' : '#3690CE',
+                    borderColor: accent,
                     background: isDarkMode
                       ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.8) 0%, rgba(11, 30, 55, 0.6) 100%)'
                       : 'linear-gradient(135deg, rgba(248, 250, 252, 0.95) 0%, rgba(255, 255, 255, 0.8) 100%)'
@@ -161,7 +162,7 @@ export const DealCapture: React.FC<DealCaptureProps> = ({
             padding:'0 12px',
             fontSize:16,
             fontWeight:600,
-            color: isDarkMode ? '#60A5FA' : '#3690CE',
+            color: accent,
             borderRight:`1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.2)' : 'rgba(148, 163, 184, 0.25)'}`
           }}>
             £
@@ -201,11 +202,11 @@ export const DealCapture: React.FC<DealCaptureProps> = ({
         <div style={{ display:'flex', gap:6 }}>
           <button type="button" onClick={() => adjust(50)} style={{
               padding:'8px 14px',
-              border:`1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.3)' : 'rgba(54, 144, 206, 0.25)'}`,
+              border:`1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(54, 144, 206, 0.25)'}`,
               background: isDarkMode 
-                ? 'linear-gradient(135deg, rgba(96, 165, 250, 0.15) 0%, rgba(59, 130, 246, 0.1) 100%)'
-                : 'linear-gradient(135deg, rgba(54, 144, 206, 0.1) 0%, rgba(96, 165, 250, 0.08) 100%)',
-              color: isDarkMode ? '#60A5FA' : '#3690CE',
+                ? 'linear-gradient(135deg, rgba(135, 243, 243, 0.15) 0%, rgba(135, 243, 243, 0.1) 100%)'
+                : 'linear-gradient(135deg, rgba(54, 144, 206, 0.1) 0%, rgba(54, 144, 206, 0.08) 100%)',
+              color: accent,
               borderRadius:6,
               cursor:'pointer',
               fontSize:12,
@@ -215,13 +216,13 @@ export const DealCapture: React.FC<DealCaptureProps> = ({
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.background = isDarkMode
-                ? 'linear-gradient(135deg, rgba(96, 165, 250, 0.25) 0%, rgba(59, 130, 246, 0.18) 100%)'
-                : 'linear-gradient(135deg, rgba(54, 144, 206, 0.18) 0%, rgba(96, 165, 250, 0.15) 100%)';
+                ? 'linear-gradient(135deg, rgba(135, 243, 243, 0.25) 0%, rgba(135, 243, 243, 0.18) 100%)'
+                : 'linear-gradient(135deg, rgba(54, 144, 206, 0.18) 0%, rgba(54, 144, 206, 0.15) 100%)';
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.background = isDarkMode
-                ? 'linear-gradient(135deg, rgba(96, 165, 250, 0.15) 0%, rgba(59, 130, 246, 0.1) 100%)'
-                : 'linear-gradient(135deg, rgba(54, 144, 206, 0.1) 0%, rgba(96, 165, 250, 0.08) 100%)';
+                ? 'linear-gradient(135deg, rgba(135, 243, 243, 0.15) 0%, rgba(135, 243, 243, 0.1) 100%)'
+                : 'linear-gradient(135deg, rgba(54, 144, 206, 0.1) 0%, rgba(54, 144, 206, 0.08) 100%)';
             }}
             >+50</button>
           <button type="button" onClick={() => adjust(-50)} style={{
@@ -260,7 +261,7 @@ export const DealCapture: React.FC<DealCaptureProps> = ({
             paddingLeft: 2
           }}>
             <span style={{ opacity: 0.8 }}>Inc. VAT (20%): </span>
-            <strong style={{ color: isDarkMode ? '#60A5FA' : '#3690CE' }}>{vatInfo.total}</strong>
+            <strong style={{ color: accent }}>{vatInfo.total}</strong>
           </div>
         )}
         </div>

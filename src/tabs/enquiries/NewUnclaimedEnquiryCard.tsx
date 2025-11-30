@@ -15,6 +15,7 @@ interface Props {
   isLast: boolean;
   userEmail?: string;
   onClaimSuccess?: () => void;
+  onOptimisticClaim?: (enquiryId: string, claimerEmail: string) => void;
   promotionStatus?: 'pitch' | 'instruction' | null;
 }
 
@@ -120,7 +121,7 @@ const getAreaColour = (area?: string) => {
   return colours.greyText;
 };
 
-const NewUnclaimedEnquiryCard: React.FC<Props> = ({ enquiry, onSelect, onAreaChange, userEmail, onClaimSuccess, promotionStatus }) => {
+const NewUnclaimedEnquiryCard: React.FC<Props> = ({ enquiry, onSelect, onAreaChange, userEmail, onClaimSuccess, onOptimisticClaim, promotionStatus }) => {
   const { isDarkMode } = useTheme();
   const [selected, setSelected] = useState(false);
   const [showActions, setShowActions] = useState(false);
@@ -208,21 +209,39 @@ const NewUnclaimedEnquiryCard: React.FC<Props> = ({ enquiry, onSelect, onAreaCha
       return;
     }
     
+    // Determine data source from __sourceType property
+    const dataSource = enquiry.__sourceType || 'legacy';
+    
+    // Optimistic update - immediately show as claimed in UI
+    setJustClaimed(true);
+    setShowActions(true);
+    if (onOptimisticClaim) {
+      onOptimisticClaim(enquiry.ID, userEmail);
+    }
+    
     try {
-      const result = await claimEnquiry(enquiry.ID, userEmail);
+      const result = await claimEnquiry(enquiry.ID, userEmail, dataSource);
       if (result.success) {
-        console.log('✅ Enquiry claimed successfully');
-        setJustClaimed(true);
-        setShowActions(true);
-        // Trigger refresh to move enquiry from unclaimed to claimed list
+        console.log('✅ Enquiry claimed successfully', { dataSource, operations: result.operations });
+        // Background refresh to sync with server (non-blocking)
         if (onClaimSuccess) {
-          onClaimSuccess();
+          Promise.resolve(onClaimSuccess()).catch(err => console.warn('Background refresh failed:', err));
         }
       } else {
         console.error('❌ Failed to claim enquiry:', result.error);
+        // Revert optimistic update
+        setJustClaimed(false);
+        if (onClaimSuccess) {
+          onClaimSuccess();
+        }
       }
     } catch (err) {
       console.error('❌ Error claiming enquiry:', err);
+      // Revert optimistic update
+      setJustClaimed(false);
+      if (onClaimSuccess) {
+        onClaimSuccess();
+      }
     }
   };
 
