@@ -712,4 +712,57 @@ router.patch('/:instructionRef', async (req, res) => {
   }
 });
 
+// ============================================================================
+// GET /api/instructions/matters - Fetch all matters from Instructions DB
+// Experimental endpoint for v2 matters visualizer
+// ============================================================================
+router.get('/matters', async (req, res) => {
+  const requestId = `instr-matters-${Date.now()}`;
+  console.log(`[${requestId}] Fetching all matters from Instructions DB`);
+  
+  try {
+    const runQuery = (executor) => instructionsQuery(executor);
+    
+    const result = await runQuery((request) =>
+      request.query(`
+        SELECT 
+          MatterID,
+          InstructionRef,
+          DisplayNumber,
+          Status,
+          ClientID,
+          ClientName,
+          OpenDate,
+          Description,
+          PracticeArea,
+          ResponsibleSolicitor,
+          OriginatingSolicitor
+        FROM Matters
+        ORDER BY OpenDate DESC
+      `)
+    );
+    
+    const matters = result.recordset || [];
+    console.log(`[${requestId}] Retrieved ${matters.length} matters from Instructions DB`);
+    
+    res.json({
+      success: true,
+      matters,
+      count: matters.length,
+      source: 'instructions-db',
+      requestId
+    });
+    
+  } catch (error) {
+    const transient = isTransientSqlError(error);
+    console.error(`[${requestId}] ❌ Error fetching instruction matters${transient ? ' (transient)' : ''}`, error);
+    res.status(transient ? 503 : 500).json({
+      error: 'Failed to fetch instruction matters',
+      details: error.message,
+      transient,
+      requestId
+    });
+  }
+});
+
 module.exports = router;

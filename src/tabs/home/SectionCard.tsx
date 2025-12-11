@@ -38,7 +38,7 @@ const baseClass = (isDark: boolean, variant: string, animationDelay: number) => 
     : undefined,
   backgroundColor: isDark ? undefined : colours.light.sectionBackground,
   padding: variant === 'minimal' ? '12px' : '16px',
-  borderRadius: variant === 'minimal' ? '8px' : '8px',
+  borderRadius: '2px',
   border: `1px solid ${isDark ? colours.dark.border : colours.light.border}`,
   boxShadow: variant === 'elevated' 
     ? isDark 

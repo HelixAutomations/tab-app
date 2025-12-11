@@ -29,6 +29,7 @@ if (typeof document !== 'undefined' && !document.querySelector('#filter-banner-a
 export interface FilterOption {
   key: string;
   label: string;
+  icon?: React.ReactNode;
 }
 
 export interface FilterBannerProps {
@@ -67,6 +68,9 @@ export interface FilterBannerProps {
     progressPercentage?: number; // 0-100% remaining time
   };
   
+  // Actions between search and refresh (e.g., view toggle)
+  middleActions?: React.ReactNode;
+  
   // Right-side actions (placed after search/refresh)
   rightActions?: React.ReactNode;
   
@@ -94,6 +98,7 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
   secondaryFilter,
   search,
   refresh,
+  middleActions,
   rightActions,
   children,
   className,
@@ -327,8 +332,8 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
           </div>
         )}
 
-        {/* Right-side: Search + Refresh + Actions grouped to wrap together */}
-        {(search || refresh || rightActions) && (
+        {/* Right-side: Search + Middle Actions + Refresh + Right Actions grouped to wrap together */}
+        {(search || refresh || middleActions || rightActions) && (
           <div className={rightClusterStyle}>
           {search && (
             <div className={searchContainerStyle}>
@@ -380,6 +385,18 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
             </div>
           )}
 
+          {/* Middle actions (between search and refresh) */}
+          {middleActions && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              flex: '0 0 auto'
+            }}>
+              {middleActions}
+            </div>
+          )}
+
           {refresh && (
             <div className={refreshContainerStyle}>
               <button
@@ -395,7 +412,8 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
                   gap: refreshOpen ? 6 : 0,
                   height: 28,
                   padding: refreshOpen ? '0 10px 0 8px' : '0',
-                  minWidth: 28,
+                  width: refreshOpen ? 90 : 28, // Fixed widths to prevent layout shift
+                  minWidth: refreshOpen ? 90 : 28,
                   borderRadius: 14,
                   border: isDarkMode ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(0,0,0,0.12)',
                   background: 'transparent',
@@ -463,6 +481,8 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
                       opacity: 0.8,
                       whiteSpace: 'nowrap',
                       animation: 'fadeIn 0.15s ease',
+                      minWidth: 28, // Fixed width to prevent layout shift (handles "4:59" to "0:01")
+                      textAlign: 'center',
                     }}>
                       {refresh.nextUpdateTime}
                     </span>

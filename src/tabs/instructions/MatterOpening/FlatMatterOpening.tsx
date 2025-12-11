@@ -1010,16 +1010,37 @@ const handleClearAll = () => {
     // Helper to get initials from full name via team data
     function getInitialsFromName(name: string, teamData: any[]): string {
         if (!name) return '';
+        const nameLower = name.toLowerCase().trim();
+        
+        // Try multiple matching strategies
         const found = teamData.find(t => {
-            const full = (t['Full Name'] || `${t.First || ''} ${t.Last || ''}`).trim();
-            return full.toLowerCase() === name.toLowerCase();
+            const fullName = (t['Full Name'] || '').toLowerCase().trim();
+            const constructedName = `${t.First || ''} ${t.Last || ''}`.toLowerCase().trim();
+            const nickname = (t.Nickname || '').toLowerCase().trim();
+            const firstName = (t.First || '').toLowerCase().trim();
+            
+            return fullName === nameLower ||
+                   constructedName === nameLower ||
+                   nickname === nameLower ||
+                   firstName === nameLower;
         });
+        
         if (found && found.Initials) return found.Initials;
-        return name
+        
+        // Fallback: derive initials but check for conflicts
+        const derivedInitials = name
             .split(' ')
             .filter(Boolean)
             .map(part => part[0].toUpperCase())
             .join('');
+        
+        // Check if derived initials conflict with an existing team member
+        const conflict = teamData.find(t => t.Initials === derivedInitials);
+        if (conflict) {
+            console.warn(`[getInitialsFromName] Derived initials "${derivedInitials}" for "${name}" conflict with ${conflict['Full Name']}. Please verify team data.`);
+        }
+        
+        return derivedInitials;
     }
 
     // Determine requesting user nickname based on environment

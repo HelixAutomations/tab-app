@@ -653,6 +653,50 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
   }, []);
 
   // Add this function inside the component
+  // Clear placeholder/dummy data so user starts with empty fields
+  const clearPlaceholderData = () => {
+    // Clear opponent individual fields
+    _setOpponentTitle('');
+    _setOpponentFirst('');
+    _setOpponentLast('');
+    _setOpponentEmail('');
+    _setOpponentPhone('');
+    _setOpponentHouseNumber('');
+    _setOpponentStreet('');
+    _setOpponentCity('');
+    _setOpponentCounty('');
+    _setOpponentPostcode('');
+    _setOpponentCountry('');
+    _setOpponentHasCompany(false);
+    _setOpponentCompanyName('');
+    _setOpponentCompanyNumber('');
+    _setOpponentCompanyHouseNumber('');
+    _setOpponentCompanyStreet('');
+    _setOpponentCompanyCity('');
+    _setOpponentCompanyCounty('');
+    _setOpponentCompanyPostcode('');
+    _setOpponentCompanyCountry('');
+
+    // Clear solicitor fields
+    setOpponentSolicitorCompany('');
+    _setSolicitorCompanyNumber('');
+    _setSolicitorTitle('');
+    _setSolicitorFirst('');
+    _setSolicitorLast('');
+    _setOpponentSolicitorEmail('');
+    _setSolicitorPhone('');
+    _setSolicitorHouseNumber('');
+    _setSolicitorStreet('');
+    _setSolicitorCity('');
+    _setSolicitorCounty('');
+    _setSolicitorPostcode('');
+    _setSolicitorCountry('');
+
+    // Clear all placeholder and touched flags
+    setPlaceholderFilledFields({});
+    setTouchedFields({});
+  };
+
   const fillDummyData = () => {
     if (!opponentType) {
       setOpponentType('Company');
@@ -1262,6 +1306,8 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                   setEnterOpponentNow(willEnter);
                   if (willEnter) {
                     setShowSummary(false);
+                    // Clear any placeholder data so user starts fresh
+                    clearPlaceholderData();
                     // Reset to folded state (all sections unchecked) when starting entry
                     setVisibleSections({
                       opponent: { name: false, contact: false, address: false, company: false },

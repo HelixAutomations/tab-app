@@ -520,7 +520,7 @@ const Attendance: React.FC<AttendanceProps & RefAttributes<{ focusTable: () => v
     borderCollapse: 'separate',
     borderSpacing: '0px',
     border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-    borderRadius: '8px',
+    borderRadius: '2px',
     overflow: 'visible',
   });
 
@@ -756,7 +756,7 @@ const Attendance: React.FC<AttendanceProps & RefAttributes<{ focusTable: () => v
                     overflow: 'auto',
                     background: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
                     boxShadow: '0 12px 40px rgba(0,0,0,0.5)',
-                    borderRadius: '8px',
+                    borderRadius: '2px',
                     padding: '12px',
                   }}
                 >

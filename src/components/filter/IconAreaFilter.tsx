@@ -72,10 +72,10 @@ const IconAreaFilter: React.FC<IconAreaFilterProps> = ({
         display: 'flex',
         alignItems: 'center',
         gap: 4,
-        height: 28,
-        padding: '2px 4px',
+        height: 32,
+        padding: '3px 5px',
         background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-        borderRadius: 14,
+        borderRadius: 16,
         fontFamily: 'Raleway, sans-serif',
         pointerEvents: 'auto', // Ensure container allows pointer events
       }}
@@ -95,20 +95,20 @@ const IconAreaFilter: React.FC<IconAreaFilterProps> = ({
               console.log('🎯 IconAreaFilter: Button clicked for area:', areaKey);
               toggleArea(areaKey);
             }}
-            title={`${isSelected ? 'Deselect' : 'Select'} ${area.label}`}
-            aria-label={`${isSelected ? 'Deselect' : 'Select'} ${area.label}`}
+            title={`${isSelected ? 'Hide' : 'Show'} ${area.label}`}
+            aria-label={`${isSelected ? 'Hide' : 'Show'} ${area.label}`}
             aria-pressed={isSelected}
             style={{
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              width: 22,
-              height: 22,
+              width: 26,
+              height: 26,
               background: isSelected 
                 ? '#FFFFFF'
                 : 'transparent',
               border: 'none',
-              borderRadius: 11,
+              borderRadius: 13,
               cursor: 'pointer',
               transition: 'all 200ms ease',
               opacity: noneSelected || isSelected ? 1 : 0.4,
@@ -131,7 +131,7 @@ const IconAreaFilter: React.FC<IconAreaFilterProps> = ({
             <Icon
               iconName={area.icon}
               style={{
-                fontSize: 10,
+                fontSize: 12,
                 color: isSelected 
                   ? area.color
                   : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),

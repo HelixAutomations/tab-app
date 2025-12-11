@@ -291,7 +291,7 @@ const EnhancedAttendance = forwardRef<EnhancedAttendanceRef, EnhancedAttendanceP
     padding: '16px',
     background: isDark ? colours.dark.background : colours.light.background,
     color: isDark ? colours.dark.text : colours.light.text,
-    borderRadius: '8px',
+    borderRadius: '2px',
   });
 
   const modalContentStyle = mergeStyles({
@@ -374,52 +374,6 @@ const EnhancedAttendance = forwardRef<EnhancedAttendanceRef, EnhancedAttendanceP
     color: selected ? colours.blue : colours.grey,
   });
 
-  // Loading state
-  if (isLoadingAttendance || isLoadingAnnualLeave) {
-    return (
-      <div
-        className={containerStyle(isDarkMode)}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '12px',
-          padding: '36px 40px',
-          background: isDarkMode
-            ? 'linear-gradient(135deg, rgba(46, 60, 78, 0.75) 0%, rgba(31, 45, 65, 0.85) 100%)'
-            : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-          borderRadius: '12px',
-          border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(6,23,51,0.06)'}`,
-          boxShadow: isDarkMode
-            ? '0 12px 30px rgba(0, 0, 0, 0.35)'
-            : '0 12px 30px rgba(6, 23, 51, 0.12)',
-        }}
-      >
-        <Icon
-          iconName="Sync"
-          style={{
-            fontSize: '24px',
-            color: colours.blue,
-            animation: 'spin 1s linear infinite',
-            lineHeight: 1,
-          }}
-        />
-        <Text
-          style={{
-            color: isDarkMode ? '#E5E7EB' : colours.light.subText,
-            fontWeight: 600,
-            letterSpacing: '0.3px',
-            lineHeight: 1.4,
-            display: 'flex',
-            alignItems: 'center',
-          }}
-        >
-          Loading attendance data...
-        </Text>
-      </div>
-    );
-  }
-
   // Error state
   if (attendanceError || annualLeaveError) {
     return (
@@ -431,20 +385,68 @@ const EnhancedAttendance = forwardRef<EnhancedAttendanceRef, EnhancedAttendanceP
     );
   }
 
+  // Loading state - show skeleton with spinner overlay
+  const isLoading = isLoadingAttendance || isLoadingAnnualLeave;
+
   return (
-    <>
-      <WeeklyAttendanceView
-        isDarkMode={isDarkMode}
-        attendanceRecords={attendanceRecords}
-        teamData={teamData}
-        userData={userData}
-        annualLeaveRecords={annualLeaveRecords}
-        futureLeaveRecords={futureLeaveRecords}
-        onAttendanceUpdated={onAttendanceUpdated}
-        onDayUpdate={handleDayUpdate}
-        currentUserConfirmed={currentUserConfirmed}
-        onConfirmAttendance={onConfirmAttendance}
-      />
+    <div style={{ position: 'relative' }}>
+      {/* Loading overlay */}
+      {isLoading && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '10px',
+            background: isDarkMode 
+              ? 'rgba(15, 23, 42, 0.85)' 
+              : 'rgba(255, 255, 255, 0.9)',
+            backdropFilter: 'blur(2px)',
+            borderRadius: '2px',
+            zIndex: 10,
+            transition: 'opacity 0.3s ease',
+          }}
+        >
+          <Icon
+            iconName="Sync"
+            style={{
+              fontSize: '18px',
+              color: colours.blue,
+              animation: 'spin 1s linear infinite',
+            }}
+          />
+          <span
+            style={{
+              fontSize: '13px',
+              fontWeight: 500,
+              color: isDarkMode ? colours.dark.subText : colours.light.subText,
+            }}
+          >
+            Loading...
+          </span>
+        </div>
+      )}
+      
+      <div style={{ 
+        opacity: isLoading ? 0.4 : 1, 
+        transition: 'opacity 0.3s ease',
+        pointerEvents: isLoading ? 'none' : 'auto'
+      }}>
+        <WeeklyAttendanceView
+          isDarkMode={isDarkMode}
+          attendanceRecords={attendanceRecords}
+          teamData={teamData}
+          userData={userData}
+          annualLeaveRecords={annualLeaveRecords}
+          futureLeaveRecords={futureLeaveRecords}
+          onAttendanceUpdated={onAttendanceUpdated}
+          onDayUpdate={handleDayUpdate}
+          currentUserConfirmed={currentUserConfirmed}
+          onConfirmAttendance={onConfirmAttendance}
+        />
+      </div>
 
       {/* Confirmation feedback */}
       {showConfirmation && (
@@ -558,7 +560,7 @@ const EnhancedAttendance = forwardRef<EnhancedAttendanceRef, EnhancedAttendanceP
           </div>
         </div>
       </BespokePanel>
-    </>
+    </div>
   );
 });
 

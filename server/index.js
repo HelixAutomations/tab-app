@@ -82,6 +82,7 @@ const teamsActivityTrackingRouter = require('./routes/teamsActivityTracking');
 const pitchTrackingRouter = require('./routes/pitchTracking');
 const enquiryEnrichmentRouter = require('./routes/enquiryEnrichment');
 const claimEnquiryRouter = require('./routes/claimEnquiry');
+const rateChangesRouter = require('./routes/rate-changes');
 const { userContextMiddleware } = require('./middleware/userContext');
 
 const app = express();
@@ -202,6 +203,9 @@ app.use('/api/cache', clearCacheRouter);
 app.use('/api/teams-activity-tracking', teamsActivityTrackingRouter);
 app.use('/api/pitch-tracking', pitchTrackingRouter);
 app.use('/api/enquiry-enrichment', enquiryEnrichmentRouter);
+
+// Rate change notification tracking (for Jan 2026 hourly rate increase)
+app.use('/api/rate-changes', rateChangesRouter);
 
 // IMPORTANT: Attendance routes must come BEFORE proxy routes to avoid conflicts
 app.use('/api/attendance', attendanceRouter);

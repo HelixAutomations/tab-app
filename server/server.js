@@ -76,6 +76,7 @@ const cachePreheaterRouter = require('./routes/cache-preheater');
 const teamsActivityTrackingRouter = require('./routes/teamsActivityTracking');
 const pitchTrackingRouter = require('./routes/pitchTracking');
 const enquiryEnrichmentRouter = require('./routes/enquiryEnrichment');
+const rateChangesRouter = require('./routes/rate-changes');
 // const { router: cclRouter, CCL_DIR } = require('./routes/ccl');
 
 // Initialize ops log (loads recent entries and ensures log dir)
@@ -173,6 +174,8 @@ app.use('/api/cache-preheater', cachePreheaterRouter);
 app.use('/api/teams-activity-tracking', teamsActivityTrackingRouter);
 app.use('/api/pitch-tracking', pitchTrackingRouter);
 app.use('/api/enquiry-enrichment', enquiryEnrichmentRouter);
+// Rate change notification tracking
+app.use('/api/rate-changes', rateChangesRouter);
 
 // IMPORTANT: Attendance routes must come BEFORE proxy routes to avoid conflicts
 app.use('/api/attendance', attendanceRouter);

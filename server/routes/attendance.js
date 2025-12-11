@@ -8,6 +8,7 @@ const router = express.Router();
 
 const TRANSIENT_SQL_CODES = new Set(['ESOCKET', 'ECONNCLOSED', 'ECONNRESET', 'ETIMEDOUT', 'ETIMEOUT']);
 const DEFAULT_ATTENDANCE_RETRIES = Number(process.env.SQL_ATTENDANCE_MAX_RETRIES || 4);
+const FORCE_REFRESH_LOCK_TTL_SECONDS = Number(process.env.ANNUAL_LEAVE_REFRESH_LOCK_TTL_SECONDS || 120);
 
 const isTransientSqlError = (error) => {
   const code = error?.code || error?.originalError?.code || error?.cause?.code;
@@ -22,6 +23,66 @@ const attendanceQuery = (connectionString, executor, retries = DEFAULT_ATTENDANC
   withRequest(connectionString, executor, retries);
 
 const getTodayIso = () => new Date().toISOString().split('T')[0];
+
+async function acquireAnnualLeaveRefreshLock(today) {
+  const lockKey = generateCacheKey('attendance', 'annual-leave-refresh-lock', today);
+  try {
+    const redisClient = await getRedisClient();
+    if (!redisClient) {
+      return { acquired: true, release: async () => {} };
+    }
+
+    const result = await redisClient.set(lockKey, String(Date.now()), { NX: true, EX: FORCE_REFRESH_LOCK_TTL_SECONDS });
+    if (result !== 'OK') {
+      return { acquired: false, skipReason: 'refresh-already-running' };
+    }
+
+    return {
+      acquired: true,
+      release: async () => {
+        try {
+          await redisClient.del(lockKey);
+        } catch (releaseError) {
+          console.warn('Failed to release annual leave refresh lock:', releaseError.message);
+        }
+      }
+    };
+  } catch (lockError) {
+    console.warn('Annual leave refresh lock acquisition failed; continuing without lock:', lockError.message);
+    return { acquired: true, release: async () => {} };
+  }
+}
+
+async function getAnnualLeaveDataWithForceControl(today, forceRefreshRequested) {
+  let lockContext = null;
+  let effectiveForceRefresh = forceRefreshRequested;
+  let skippedReason = null;
+
+  if (forceRefreshRequested) {
+    lockContext = await acquireAnnualLeaveRefreshLock(today);
+    if (!lockContext?.acquired) {
+      effectiveForceRefresh = false;
+      skippedReason = lockContext?.skipReason || 'refresh-already-running';
+      console.log('⚠️  Annual leave force refresh skipped:', skippedReason);
+    }
+  }
+
+  try {
+    const data = await getGeneralAnnualLeaveData(today, { forceRefresh: effectiveForceRefresh });
+    return {
+      data,
+      metadata: {
+        requestedForceRefresh: forceRefreshRequested,
+        executedForceRefresh: effectiveForceRefresh,
+        skippedForceRefreshReason: skippedReason
+      }
+    };
+  } finally {
+    if (lockContext?.acquired && typeof lockContext.release === 'function') {
+      await lockContext.release();
+    }
+  }
+}
 
 async function getGeneralAnnualLeaveData(today, { forceRefresh = false } = {}) {
   const cacheKey = generateCacheKey('attendance', 'annual-leave-general', today);
@@ -599,13 +660,20 @@ async function getClioAccessToken(clioSecrets) {
 
 // GET /api/attendance/annual-leave - Get all annual leave data
 router.post('/getAnnualLeave', async (req, res) => {
+  const { userInitials } = req.body;
+  const forceRefresh = String(req.query?.forceRefresh || '').toLowerCase() === 'true';
+  const today = getTodayIso();
+  let refreshMetadata = {
+    requestedForceRefresh: forceRefresh,
+    executedForceRefresh: false,
+    skippedForceRefreshReason: null
+  };
+
   try {
-    const { userInitials } = req.body;
-    const forceRefresh = String(req.query?.forceRefresh || '').toLowerCase() === 'true';
-    const today = getTodayIso();
 
     // Get cached or fresh general annual leave data
-    const generalLeaveData = await getGeneralAnnualLeaveData(today, { forceRefresh });
+    const { data: generalLeaveData, metadata } = await getAnnualLeaveDataWithForceControl(today, forceRefresh);
+    refreshMetadata = metadata;
 
     // Handle user-specific data (not cached since it's user-specific and varies per request)
     let userDetails = { leaveEntries: [], totals: { standard: 0, unpaid: 0, sale: 0, rejected: 0 } };
@@ -728,7 +796,8 @@ router.post('/getAnnualLeave', async (req, res) => {
       success: true,
       ...generalLeaveData,
       user_details: userDetails,
-      user_leave: userDetails.leaveEntries
+      user_leave: userDetails.leaveEntries,
+      refresh: refreshMetadata
     });
 
   } catch (error) {
@@ -741,7 +810,11 @@ router.post('/getAnnualLeave', async (req, res) => {
       future_leave: [],
       user_details: emptyUserDetails,
       all_data: [],
-      team: []
+      team: [],
+      refresh: {
+        ...refreshMetadata,
+        skippedForceRefreshReason: refreshMetadata.skippedForceRefreshReason || 'failed-before-response'
+      }
     };
 
     if (isTransientSqlError(error)) {
@@ -986,14 +1059,15 @@ router.get('/annual-leave-all', async (req, res) => {
   try {
     const forceRefresh = String(req.query?.forceRefresh || '').toLowerCase() === 'true';
     const today = getTodayIso();
-    const generalLeaveData = await getGeneralAnnualLeaveData(today, { forceRefresh });
+    const { data: generalLeaveData, metadata: refreshMetadata } = await getAnnualLeaveDataWithForceControl(today, forceRefresh);
 
     res.json({
       success: true,
       all_data: generalLeaveData.all_data,
       annual_leave: generalLeaveData.annual_leave,
       future_leave: generalLeaveData.future_leave,
-      team: generalLeaveData.team
+      team: generalLeaveData.team,
+      refresh: refreshMetadata
     });
 
   } catch (error) {

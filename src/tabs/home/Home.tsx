@@ -85,6 +85,7 @@ import localRecovered from '../../localData/localRecovered.json';
 import localPrevRecovered from '../../localData/localPrevRecovered.json';
 import localSnippetEdits from '../../localData/localSnippetEdits.json';
 import localV3Blocks from '../../localData/localV3Blocks.json';
+import { checkIsLocalDev } from '../../utils/useIsLocalDev';
 
 // Enhanced components
 import SectionCard from './SectionCard';
@@ -102,6 +103,8 @@ import OutstandingBalancesList from '../transactions/OutstandingBalancesList';
 import Attendance from './AttendanceCompact';
 import EnhancedAttendance from './EnhancedAttendanceNew';
 import PersonalAttendanceConfirm from './PersonalAttendanceConfirm';
+import RateChangeModal from './RateChangeModal';
+import { useRateChangeData } from './useRateChangeData';
 
 import TransactionCard from '../transactions/TransactionCard';
 import TransactionApprovalPopup from '../transactions/TransactionApprovalPopup';
@@ -227,6 +230,7 @@ interface HomeProps {
   isInMatterOpeningWorkflow?: boolean;
   onImmediateActionsChange?: (hasActions: boolean) => void;
   originalAdminUser?: any; // For admin user switching context
+  featureToggles?: Record<string, boolean>;
 }
 
 interface QuickLink {
@@ -340,7 +344,7 @@ const containerStyle = (isDarkMode: boolean) =>
     // Model the Immediate Actions banner surface, but keep it subtly distinct
     // Light: softly frosted light surface; Dark: translucent slate surface
     background: isDarkMode
-      ? 'linear-gradient(135deg, rgba(15,23,42,0.72) 0%, rgba(17,24,39,0.74) 50%, rgba(15,23,42,0.72) 100%)'
+      ? 'linear-gradient(135deg, #0b1220 0%, #111827 45%, #0f1c32 100%)'
       : colours.light.background,
     backdropFilter: 'none',
     WebkitBackdropFilter: 'none',
@@ -765,7 +769,7 @@ const CognitoForm: React.FC<{ dataKey: string; dataForm: string }> = ({ dataKey,
 // Home Component
 //////////////////////
 
-const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: providedMatters, instructionData: propInstructionData, onAllMattersFetched, onOutstandingBalancesFetched, onPOID6YearsFetched, onTransactionsFetched, teamData, onBoardroomBookingsFetched, onSoundproofBookingsFetched, isInMatterOpeningWorkflow = false, onImmediateActionsChange, originalAdminUser }) => {
+const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: providedMatters, instructionData: propInstructionData, onAllMattersFetched, onOutstandingBalancesFetched, onPOID6YearsFetched, onTransactionsFetched, teamData, onBoardroomBookingsFetched, onSoundproofBookingsFetched, isInMatterOpeningWorkflow = false, onImmediateActionsChange, originalAdminUser, featureToggles = {} }) => {
   const { isDarkMode, toggleTheme } = useTheme();
   const { setContent } = useNavigatorActions();
   const inTeams = isInTeams();
@@ -929,6 +933,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
   const [allMattersError, setAllMattersError] = useState<string | null>(null);
   const [isLoadingAllMatters, setIsLoadingAllMatters] = useState<boolean>(false);
 
+  // State for refreshing time metrics
+  const [isRefreshingTimeMetrics, setIsRefreshingTimeMetrics] = useState<boolean>(false);
+
   // Reset ref for QuickActionsBar to clear selection when panels close
   const resetQuickActionsSelectionRef = useRef<(() => void) | null>(null);
 
@@ -989,6 +996,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
 
   // Pending snippet edits for approval
   const [snippetEdits, setSnippetEdits] = useState<SnippetEdit[]>([]);
+
+  // Rate change notification modal state
+  const [showRateChangeModal, setShowRateChangeModal] = useState<boolean>(false);
 
   // List of unclaimed enquiries for quick access panel
   const unclaimedEnquiries = useMemo(
@@ -1204,6 +1214,99 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
     }
   }, [teamData, userData?.[0]?.EntraID, userData?.[0]?.['Entra ID'], userData?.[0]?.Initials, userData?.[0]?.['Clio ID']]);
 
+  // Refresh time metrics callback - clears cache and re-fetches WIP and recovered fees
+  const handleRefreshTimeMetrics = useCallback(async () => {
+    if (!userData?.[0]) return;
+    
+    setIsRefreshingTimeMetrics(true);
+    
+    const currentUserData = userData[0];
+    const isLocalhostEnv = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const isLukeUser = currentUserData?.Email?.toLowerCase().includes('luke') || currentUserData?.Initials === 'LW';
+    const isLZUser = currentUserData?.Initials === 'LZ';
+    
+    // Clear caches to force fresh fetch
+    cachedWipClio = null;
+    cachedWipClioError = null;
+    cachedRecovered = null;
+    cachedRecoveredError = null;
+    cachedPrevRecovered = null;
+    cachedPrevRecoveredError = null;
+    recoveredFeesInitialized.current = false;
+    
+    try {
+      // Fetch WIP data
+      let entraId = currentUserData?.EntraID ?? currentUserData?.['Entra ID'];
+      let userClioId = currentUserData?.['Clio ID'] ? String(currentUserData['Clio ID']) : null;
+      let userEntraId = currentUserData?.EntraID ? String(currentUserData.EntraID) : null;
+      
+      // Fallback for local development or Luke/LZ: use Alex's (AC) data
+      if ((isLocalhostEnv || isLukeUser || isLZUser) && teamData) {
+        const alex = teamData.find((t: any) => t.Initials === 'AC' || t.First === 'Alex' || t.Email?.toLowerCase().includes('alex'));
+        if (alex) {
+          if (alex['Entra ID']) {
+            entraId = alex['Entra ID'];
+            userEntraId = String(alex['Entra ID']);
+          }
+          if (alex['Clio ID']) {
+            userClioId = String(alex['Clio ID']);
+          }
+        }
+      }
+      
+      // Parallel fetch of WIP and recovered fees
+      const [wipResult, recoveredResult] = await Promise.all([
+        // Fetch WIP
+        (async () => {
+          const url = new URL('/api/reporting/management-datasets', window.location.origin);
+          url.searchParams.set('datasets', 'wipClioCurrentWeek');
+          if (entraId) url.searchParams.set('entraId', entraId);
+          
+          const resp = await fetch(url.toString(), { method: 'GET', credentials: 'include', headers: { Accept: 'application/json' } });
+          if (resp.ok && (resp.headers.get('content-type') || '').toLowerCase().includes('application/json')) {
+            const data = await resp.json();
+            const merged = data.wipClioCurrentWeek;
+            if (merged && merged.current_week && merged.last_week) {
+              cachedWipClio = merged;
+              setWipClioData(merged);
+              setWipClioError(null);
+            }
+          }
+        })(),
+        // Fetch recovered fees
+        (async () => {
+          if (!userClioId && !userEntraId) return;
+          
+          const url = new URL('/api/reporting/management-datasets', window.location.origin);
+          url.searchParams.set('datasets', 'recoveredFeesSummary');
+          if (userClioId) url.searchParams.set('clioId', userClioId);
+          if (userEntraId) url.searchParams.set('entraId', userEntraId);
+          
+          const resp = await fetch(url.toString(), { method: 'GET', credentials: 'include', headers: { Accept: 'application/json' } });
+          if (resp.ok) {
+            const data = await resp.json();
+            const summary = data.recoveredFeesSummary;
+            if (summary && typeof summary === 'object') {
+              const currentTotal = Number(summary.currentMonthTotal) || 0;
+              const lastTotal = Number(summary.previousMonthTotal) || 0;
+              cachedRecovered = currentTotal;
+              cachedPrevRecovered = lastTotal;
+              setRecoveredData(currentTotal);
+              setPrevRecoveredData(lastTotal);
+              recoveredFeesInitialized.current = true;
+            }
+          }
+        })(),
+      ]);
+      
+      debugLog('✅ Time metrics refreshed');
+    } catch (error) {
+      debugWarn('❌ Error refreshing time metrics:', error);
+    } finally {
+      setIsRefreshingTimeMetrics(false);
+    }
+  }, [userData, teamData]);
+
   // Use app-provided normalized matters when available; otherwise normalize local allMatters
   const normalizedMatters = useMemo<NormalizedMatter[]>(() => {
     if (providedMatters && providedMatters.length > 0) return providedMatters;
@@ -1282,6 +1385,22 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
   }, [rawUserInitials]);
   // Now anywhere we used userInitials, we can do:
   const userInitials = storedUserInitials.current || rawUserInitials;
+
+  // Rate change notification data hook - for Jan 2026 hourly rate increase
+  const rateChangeYear = 2026;
+  const { 
+    clients: rateChangeClients, 
+    stats: rateChangeStats, 
+    isLoading: isLoadingRateChanges,
+    refetch: refetchRateChanges,
+    markSent: markRateChangeSent,
+    markNA: markRateChangeNA,
+    markSentStreaming: markRateChangeSentStreaming,
+    markNAStreaming: markRateChangeNAStreaming,
+    undo: undoRateChange,
+    undoStreaming: undoRateChangeStreaming,
+    pendingCountForUser: rateChangePendingCount,
+  } = useRateChangeData(rateChangeYear, currentUserName, true);
 
   useEffect(() => {
     const fetchBankHolidays = async () => {
@@ -2275,7 +2394,8 @@ const handleAttendanceUpdated = (updatedRecords: AttendanceRecord[]) => {
   const relevantWeekKey = isThursdayAfterMidday ? nextKey : currentKey;
 
 // Does the user have an object at all for that week?
-  const isLocalhost = window.location.hostname === 'localhost';
+  // Use checkIsLocalDev - respects "View as Production" toggle
+  const isLocalhost = checkIsLocalDev(featureToggles);
 
   // Does the user have an object at all for that week?
   // If currentUserRecord is not found (user not in attendance data), treat as confirmed to avoid nagging  
@@ -2887,7 +3007,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
               setIsBespokePanelOpen(false);
               resetQuickActionsSelection();
             }}
-            team={(teamData ?? []) as any}
+            team={transformedTeamData}
             totals={annualLeaveTotals}
             allLeaveEntries={annualLeaveAllData}
             onApprovalUpdate={handleApprovalUpdate}  // Pass the callback here
@@ -2943,7 +3063,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
             setIsBespokePanelOpen(false);
             resetQuickActionsSelection();
           }}
-          team={(teamData ?? []) as any}
+          team={transformedTeamData}
           totals={annualLeaveTotals}
           allLeaveEntries={annualLeaveAllData}
           onApprovalUpdate={handleApprovalUpdate}  // Pass the callback here
@@ -3050,12 +3170,13 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
   };
 
   const immediateALActions = useMemo(() => {
-    const actions: Array<{ title: string; onClick: () => void; icon?: string; category?: ImmediateActionCategory; count?: number }> = [];
+    const actions: Array<{ title: string; subtitle?: string; onClick: () => void; icon?: string; category?: ImmediateActionCategory; count?: number }> = [];
     
-    // Add test annual leave approval for localhost (only if no real approvals exist)
-    if (isLocalhost && approvalsNeeded.length === 0) {
+    // Add test annual leave approval for localhost (only if no real approvals exist and toggle enabled)
+    if (isLocalhost && approvalsNeeded.length === 0 && featureToggles.annualLeaveTestCards) {
       actions.push({
         title: 'Approve Annual Leave (Test)',
+        subtitle: 'Test approval flow',
         onClick: handleTestApproveLeaveClick,
         icon: 'PalmTree',
         category: 'critical',
@@ -3063,8 +3184,14 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     }
     
     if (isApprover && approvalsNeeded.length > 0) {
+      // Build subtitle from requestor initials
+      const firstRequestor = approvalsNeeded[0]?.person?.toUpperCase() || '';
+      const subtitle = approvalsNeeded.length > 1 
+        ? `${firstRequestor} +${approvalsNeeded.length - 1} more`
+        : firstRequestor;
       actions.push({
         title: 'Approve Annual Leave',
+        subtitle,
         onClick: handleApproveLeaveClick,
         icon: 'PalmTree',
         category: 'critical',
@@ -3072,8 +3199,14 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       });
     }
     if (isApprover && snippetApprovalsNeeded.length > 0) {
+      // Build subtitle from snippet names
+      const firstSnippet = snippetApprovalsNeeded[0]?.blockTitle || '';
+      const subtitle = snippetApprovalsNeeded.length > 1
+        ? `${firstSnippet} +${snippetApprovalsNeeded.length - 1} more`
+        : firstSnippet;
       actions.push({
         title: 'Approve Snippet Edits',
+        subtitle,
         onClick: handleSnippetApprovalClick,
         icon: 'Edit',
         category: 'standard',
@@ -3081,17 +3214,24 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       });
     }
     if (bookingsNeeded.length > 0) {
+      // Show first booking's date range
+      const first = bookingsNeeded[0];
+      const subtitle = bookingsNeeded.length > 1 
+        ? `${first?.start_date || ''} +${bookingsNeeded.length - 1} more`
+        : `${first?.start_date || ''} - ${first?.end_date || ''}`;
       actions.push({
         title: 'Book Requested Leave',
+        subtitle,
         onClick: handleBookLeaveClick,
         icon: 'Accept',
         category: 'success',
         count: bookingsNeeded.length,
       });
     }
-    if (isLocalhost && bookingsNeeded.length === 0) {
+    if (isLocalhost && bookingsNeeded.length === 0 && featureToggles.annualLeaveTestCards) {
       actions.push({
         title: 'Book Requested Leave',
+        subtitle: 'Test booking flow',
         onClick: handleBookLeavePreviewClick,
         icon: 'Accept',
         category: 'success',
@@ -3109,11 +3249,12 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     handleBookLeaveClick,
     handleBookLeavePreviewClick,
     isLocalhost,
+    featureToggles.annualLeaveTestCards,
   ]);
 
   // Build immediate actions list
   // Ensure every action has an icon (never undefined)
-  type Action = { title: string; onClick: () => void; icon: string; disabled?: boolean; category?: ImmediateActionCategory; count?: number };
+  type Action = { title: string; onClick: () => void; icon: string; disabled?: boolean; category?: ImmediateActionCategory; count?: number; totalCount?: number; subtitle?: string };
 
   const resetQuickActionsSelection = useCallback(() => {
     if (resetQuickActionsSelectionRef.current) {
@@ -3330,9 +3471,9 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     setReviewedInstructionIds,
   ]);
 
-  // Group instruction next actions by type with counts
+  // Group instruction next actions by type with counts and sample detail
   const groupedInstructionActions = useMemo(() => {
-    const actionGroups: Record<string, { count: number; icon: string; disabled?: boolean }> = {};
+    const actionGroups: Record<string, { count: number; icon: string; disabled?: boolean; sampleDetail: string }> = {};
     
     actionableSummaries.forEach(summary => {
       const action = summary.nextAction;
@@ -3346,10 +3487,14 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         else if (action === 'Submit to CCL') icon = 'Send';
         else if (action === 'Review') icon = 'ReviewRequestMirrored';
         
+        // Use first item's client name as sample detail
+        const detail = summary.clientName || summary.service || '';
+        
         actionGroups[action] = { 
           count: 1, 
           icon,
-          disabled: summary.disabled // Pass through disabled state
+          disabled: summary.disabled,
+          sampleDetail: detail,
         };
       }
     });
@@ -3359,8 +3504,11 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
   const immediateActionsList: Action[] = useMemo(() => {
     const actions: Action[] = [];
     if (!isLoadingAttendance && !currentUserConfirmed) {
+      // Show today's date as the detail
+      const todayFormatted = new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
       actions.push({
         title: 'Confirm Attendance',
+        subtitle: todayFormatted,
         icon: 'Calendar',
         onClick: () => handleActionClick({ title: 'Confirm Attendance', icon: 'Calendar' }),
         category: 'critical',
@@ -3377,12 +3525,18 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         return 'critical';
       };
 
-      Object.entries(groupedInstructionActions).forEach(([actionType, { count, icon, disabled }]) => {
-        const title = count === 1 ? actionType : `${actionType} (${count})`;
+      Object.entries(groupedInstructionActions).forEach(([actionType, { count, icon, disabled, sampleDetail }]) => {
+        const title = actionType;
+        // Show client name or "+X more" if multiple
+        const subtitle = count > 1 
+          ? `${sampleDetail} +${count - 1} more`
+          : sampleDetail || '';
         actions.push({
           title,
+          subtitle,
           icon,
           disabled,
+          count: count > 1 ? count : undefined,
           onClick: disabled 
             ? () => debugLog('CCL action disabled in production') 
             : () => handleActionClick({ title: actionType, icon }),
@@ -3396,8 +3550,32 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         icon: a.icon || '',
         category: a.category ?? 'standard',
         count: a.count, // Preserve count property
+        subtitle: a.subtitle, // Preserve subtitle property
       }))
     );
+
+    // Add rate change notification action if enabled in user settings and there are clients to track
+    // All users can view the tracker; non-admins see All view as read-only
+    if (featureToggles.rateChangeTracker && (rateChangeStats.total > 0 || rateChangeStats.pending > 0)) {
+      // Show clear subtitle: "X yours · Y firm pending" or just firm total
+      let pendingDetail: string;
+      if (rateChangePendingCount > 0 && rateChangeStats.pending > 0) {
+        pendingDetail = `${rateChangePendingCount} yours · ${rateChangeStats.pending} firm pending`;
+      } else if (rateChangeStats.pending > 0) {
+        pendingDetail = `${rateChangeStats.pending} firm pending`;
+      } else {
+        pendingDetail = `${rateChangeStats.total} tracked`;
+      }
+      actions.push({
+        title: 'Rate Change Notices',
+        subtitle: pendingDetail,
+        icon: 'Money',
+        onClick: () => setShowRateChangeModal(true),
+        category: 'standard' as ImmediateActionCategory,
+        count: rateChangePendingCount > 0 ? rateChangePendingCount : undefined, // Only show badge if user has pending
+      });
+    }
+
     // Normalize titles (strip count suffix like " (3)") when sorting
     const sortKey = (title: string) => {
       const base = title.replace(/\s*\(\d+\)$/,'');
@@ -3417,6 +3595,10 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     hasActivePitch,
     userInitials,
     isLocalhost,
+    rateChangeStats.total,
+    rateChangeStats.pending,
+    rateChangePendingCount,
+    featureToggles.rateChangeTracker,
   ]);
 
   // Notify parent component when immediate actions state changes
@@ -3677,7 +3859,9 @@ const conversionRate = enquiriesMonthToDate
             isPercentage: true 
           }
         ]}
-        isDarkMode={isDarkMode} 
+        isDarkMode={isDarkMode}
+        onRefresh={handleRefreshTimeMetrics}
+        isRefreshing={isRefreshingTimeMetrics}
       />
       </div>
 
@@ -3845,6 +4029,27 @@ const conversionRate = enquiriesMonthToDate
           resetQuickActionsSelection();
         }} />
       )}
+
+      {/* Rate Change Notification Modal */}
+      <RateChangeModal
+        isOpen={showRateChangeModal}
+        onClose={() => setShowRateChangeModal(false)}
+        year={rateChangeYear}
+        clients={rateChangeClients}
+        stats={rateChangeStats}
+        isLoading={isLoadingRateChanges}
+        onRefresh={refetchRateChanges}
+        onMarkSent={markRateChangeSent}
+        onMarkNA={markRateChangeNA}
+        onMarkSentStreaming={markRateChangeSentStreaming}
+        onMarkNAStreaming={markRateChangeNAStreaming}
+        onUndo={undoRateChange}
+        onUndoStreaming={undoRateChangeStreaming}
+        currentUserName={currentUserName}
+        userData={userData?.[0] || null}
+        isDarkMode={isDarkMode}
+      />
+
   {/* Removed version and info button per request */}
     </div>
   );

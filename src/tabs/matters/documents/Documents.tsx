@@ -5,7 +5,6 @@ import {
   Stack,
   Text,
   mergeStyles,
-  DefaultButton,
   Icon,
   Link,
   SearchBox,
@@ -88,28 +87,6 @@ const dummyFieldStyle = mergeStyles({
 
 /* 
 ============================================================================== 
-                     Draft Prompt & Wizard-Related Helpers 
-============================================================================== 
-*/
-
-function generateDraftPrompt(doc: DocumentEntry): string {
-  return `
-Please generate a bespoke "${doc.title}" with the following details:
-
-- Client Name: [Client Name]
-- Case Reference: [Case Reference]
-- Key Details: [Insert key details here]
-  
-Reference the perfect example below:
-
-${doc.fullContent}
-
-Make sure to replace all placeholders with the actual data and maintain the structure.
-  `.trim();
-}
-
-/* 
-============================================================================== 
                               Main Component 
 ============================================================================== 
 */
@@ -128,7 +105,7 @@ const Documents: React.FC<DocumentsProps> = ({ matter, category }) => {
     setSearchTerm(newValue || '');
   };
 
-  const [showFavoritesOnly, setShowFavoritesOnly] = useState<boolean>(false);
+  const [showFavoritesOnly] = useState<boolean>(false);
   const [favoriteDocs, setFavoriteDocs] = useState<number[]>([]);
   const toggleFavorite = (docId: number) => {
     setFavoriteDocs((prev) =>

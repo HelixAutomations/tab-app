@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef, useLayoutEffect, useCallback } from "react";
 import { flushSync } from "react-dom";
+import { format } from "date-fns";
 // Clean admin tools - legacy toggles removed - cache cleared
 import {
   Stack,
@@ -16,6 +17,7 @@ import {
   DatePicker,
   IDatePickerStyles,
   Icon,
+  TooltipHost,
 } from "@fluentui/react";
 import DocumentPreviewModal from "../../components/DocumentPreviewModal";
 import { ActionFeedback } from "../../components/feedback/FeedbackComponents";
@@ -64,6 +66,7 @@ import FilterBanner from '../../components/filter/FilterBanner';
 import IDVerificationReviewModal from '../../components/modals/IDVerificationReviewModal';
 import { fetchVerificationDetails, approveVerification } from '../../services/verificationAPI';
 import { debugLog, debugWarn } from '../../utils/debug';
+import { checkIsLocalDev } from '../../utils/useIsLocalDev';
 
 interface InstructionsProps {
   userInitials: string;
@@ -78,6 +81,7 @@ interface InstructionsProps {
   hasActiveMatter?: boolean;
   setIsInMatterOpeningWorkflow?: (inWorkflow: boolean) => void;
   enquiries?: any[] | null;
+  featureToggles?: Record<string, boolean>;
 }
 const Instructions: React.FC<InstructionsProps> = ({
   userInitials,
@@ -92,6 +96,7 @@ const Instructions: React.FC<InstructionsProps> = ({
   hasActiveMatter = false,
   setIsInMatterOpeningWorkflow,
   enquiries = [],
+  featureToggles = {},
 }) => {
   const { isDarkMode } = useTheme();
   const { setContent } = useNavigatorActions();
@@ -1154,11 +1159,31 @@ const Instructions: React.FC<InstructionsProps> = ({
   const [showAllInstructions, setShowAllInstructions] = useState<boolean>(false); // User toggle for mine vs all instructions - defaults to false (show user's own data first)
   // Layout: 1 or 2 columns for overview grid
   const [twoColumn, setTwoColumn] = useState<boolean>(false);
+  // View mode: card or table
+  const [viewMode, setViewMode] = useState<'card' | 'table'>('card');
+  // Track expanded descriptions in table view
+  const [expandedDescriptions, setExpandedDescriptions] = useState<Set<string>>(new Set());
+  
+  // Area of Work icon mapping to match Teams channels (same as Enquiries)
+  const getAreaOfWorkIcon = (areaOfWork: string): string => {
+    const area = (areaOfWork || '').toLowerCase().trim();
+    
+    if (area.includes('triage')) return '🩺';
+    if (area.includes('construction') || area.includes('building')) return '🏗️';
+    if (area.includes('property') || area.includes('real estate') || area.includes('conveyancing')) return '🏠';
+    if (area.includes('commercial') || area.includes('business')) return '🏢';
+    if (area.includes('employment') || area.includes('hr') || area.includes('workplace')) return '👩🏻‍💼';
+    if (area.includes('allocation')) return '📂';
+    if (area.includes('general') || area.includes('misc') || area.includes('other')) return 'ℹ️';
+    
+    return 'ℹ️'; // Default icon
+  };
   
   const currentUser: UserData | undefined = userData?.[0] || (localUserData as UserData[])[0];
   // Admin detection using proper utility
   const isAdmin = isAdminUser(userData?.[0] || null);
-  const isLocalhost = (typeof window !== 'undefined') && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+  // Use checkIsLocalDev - respects "View as Production" toggle
+  const isLocalhost = checkIsLocalDev(featureToggles);
   
   // State for showing only user's own pitches/deals (defaults to true for non-admin users)
   const [showOnlyMyDeals, setShowOnlyMyDeals] = useState<boolean>(!isAdmin);
@@ -2016,6 +2041,8 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                   { key: 'all', label: 'All', badge: toggleCounts.all }
                 ]}
               />
+              {/* Layout Toggle - Only show for Card view */}
+              {viewMode === 'card' && (
               <div 
                 role="group" 
                 aria-label="Layout: choose 1 or 2 columns"
@@ -2101,6 +2128,113 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                   />
                 </button>
               </div>
+              )}
+              {/* View Mode Toggle - Card vs Table (hidden in prod until ready) */}
+              <div 
+                role="group" 
+                aria-label="View: choose card or table view"
+                style={{
+                  display: window.location.hostname === 'localhost' ? 'flex' : 'none', // Show locally, hide in prod
+                  alignItems: 'center',
+                  gap: 2,
+                  height: 28,
+                  padding: '2px 4px',
+                  background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                  borderRadius: 14,
+                  fontFamily: 'Raleway, sans-serif',
+                }}
+              >
+                <button
+                  type="button"
+                  title="Card view"
+                  aria-label="Card view"
+                  aria-pressed={viewMode === 'card'}
+                  onClick={() => setViewMode('card')}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 4,
+                    height: 22,
+                    padding: '0 6px',
+                    background: viewMode === 'card' ? '#FFFFFF' : 'transparent',
+                    border: 'none',
+                    borderRadius: 11,
+                    cursor: 'pointer',
+                    transition: 'all 200ms ease',
+                    opacity: viewMode === 'card' ? 1 : 0.6,
+                    boxShadow: viewMode === 'card' 
+                      ? (isDarkMode
+                          ? '0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.24)'
+                          : '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)')
+                      : 'none',
+                  }}
+                >
+                  <Icon
+                    iconName="GridViewMedium"
+                    style={{
+                      fontSize: 10,
+                      color: viewMode === 'card' 
+                        ? (isDarkMode ? '#1f2937' : '#1f2937')
+                        : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
+                    }}
+                  />
+                  <span style={{
+                    fontSize: 11,
+                    fontWeight: 500,
+                    color: viewMode === 'card' 
+                      ? (isDarkMode ? '#1f2937' : '#1f2937')
+                      : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
+                  }}>
+                    Card
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  title="Table view"
+                  aria-label="Table view"
+                  aria-pressed={viewMode === 'table'}
+                  onClick={() => setViewMode('table')}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 4,
+                    height: 22,
+                    padding: '0 6px',
+                    background: viewMode === 'table' ? '#FFFFFF' : 'transparent',
+                    border: 'none',
+                    borderRadius: 11,
+                    cursor: 'pointer',
+                    transition: 'all 200ms ease',
+                    opacity: viewMode === 'table' ? 1 : 0.6,
+                    boxShadow: viewMode === 'table' 
+                      ? (isDarkMode
+                          ? '0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.24)'
+                          : '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)')
+                      : 'none',
+                  }}
+                >
+                  <Icon
+                    iconName="Table"
+                    style={{
+                      fontSize: 10,
+                      color: viewMode === 'table' 
+                        ? (isDarkMode ? '#1f2937' : '#1f2937')
+                        : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
+                    }}
+                  />
+                  <span style={{
+                    fontSize: 11,
+                    fontWeight: 500,
+                    color: viewMode === 'table' 
+                      ? (isDarkMode ? '#1f2937' : '#1f2937')
+                      : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
+                  }}>
+                    Table
+                  </span>
+                </button>
+              </div>
             </div>
           }
         />
@@ -2122,6 +2256,8 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
     clientsActionFilter,
     riskStatusFilter,
     secondaryFilter,
+    viewMode,
+    twoColumn,
   ]);
 
   const containerStyle = mergeStyles({
@@ -4280,7 +4416,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
             ))}
           </div>
         )}
-      {activeTab === "pitches" && (
+      {activeTab === "pitches" && viewMode === 'card' && (
               <div className={overviewGridStyle} ref={overviewGridRef}>
         {(() => {
           // Get deals that haven't been converted to instructions yet (pure pitches)
@@ -4373,7 +4509,274 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                 })()}
             </div>
           )}
-      {activeTab === "clients" && (
+      {activeTab === "pitches" && viewMode === 'table' && (
+        /* Table View for Pitches */
+        <div 
+          style={{
+            backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.6)' : '#ffffff',
+            border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
+            borderRadius: 12,
+            overflow: 'visible',
+            overflowY: 'auto',
+            fontFamily: 'Raleway, sans-serif',
+            margin: '16px',
+          }}
+        >
+          {/* Table Header */}
+          <div 
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '0.6fr 1.3fr 1.8fr 0.8fr 0.8fr 0.8fr 0.6fr 0.7fr',
+              gap: '12px',
+              padding: '14px 20px',
+              alignItems: 'center',
+              position: 'sticky',
+              top: 0,
+              zIndex: 100,
+              background: isDarkMode 
+                ? 'rgba(15, 23, 42, 0.95)'
+                : 'rgba(255, 255, 255, 0.95)',
+              backdropFilter: 'blur(12px)',
+              borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)'}`,
+              fontSize: '10px',
+              fontWeight: 500,
+              color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.8px',
+              boxShadow: isDarkMode 
+                ? '0 2px 8px rgba(0, 0, 0, 0.3)'
+                : '0 2px 8px rgba(0, 0, 0, 0.08)',
+            }}
+          >
+            <div>ID</div>
+            <div>Client</div>
+            <div>Service</div>
+            <div>Status</div>
+            <div>Pitched By</div>
+            <div>Source</div>
+            <div>Date</div>
+            <div style={{ textAlign: 'center' }}>Value</div>
+          </div>
+          
+          {/* Table Rows */}
+          {(() => {
+            const pitchedItems = overviewItems.filter(item => 
+              !item.instruction && !!item.deal
+            ).filter(item => {
+              if (pitchesStatusFilter === 'All') return true;
+              if (pitchesStatusFilter === 'Open') return String(item.deal?.Status).toLowerCase() !== 'closed';
+              if (pitchesStatusFilter === 'Closed') return String(item.deal?.Status).toLowerCase() === 'closed';
+              return true;
+            });
+            
+            if (pitchedItems.length === 0) {
+              return (
+                <div style={{
+                  padding: '40px',
+                  textAlign: 'center',
+                  color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
+                }}>
+                  <Icon iconName="Search" style={{ fontSize: '32px', marginBottom: '12px', opacity: 0.5 }} />
+                  <div style={{ fontSize: '14px', fontWeight: 500 }}>No pitches found</div>
+                  <div style={{ fontSize: '12px', marginTop: '4px' }}>No unconverted deals available</div>
+                </div>
+              );
+            }
+            
+            return pitchedItems.map((item, idx) => {
+              const deal = item.deal;
+              const isLast = idx === pitchedItems.length - 1;
+              
+              // Get client name
+              const clientName = item.clients?.[0]?.ClientEmail?.split('@')[0] || 
+                deal?.LeadClientEmail?.split('@')[0] || 
+                deal?.ClientName || 
+                'Unknown';
+              
+              // Get service description
+              const service = deal?.ServiceDescription || 'N/A';
+              
+              // Get status
+              const status = deal?.Status || 'Pitched';
+              
+              // Get pitched by
+              const pitchedBy = deal?.PitchedBy || deal?.Owner || 'N/A';
+              
+              // Get source
+              const source = deal?.Source || deal?.LeadSource || 'N/A';
+              
+              // Get date - prefer PitchedDate
+              const dateStr = deal?.PitchedDate || deal?.CreatedDate || deal?.CreatedAt;
+              let formattedDate = 'N/A';
+              try {
+                if (dateStr) {
+                  formattedDate = format(new Date(dateStr), 'd MMM');
+                }
+              } catch { /* ignore */ }
+              
+              // Get value
+              const value = deal?.Amount || deal?.Value || deal?.EstimatedValue || 0;
+              const formattedValue = typeof value === 'number' && value > 0
+                ? `£${value.toLocaleString()}`
+                : '—';
+              
+              // Status color - use house colors
+              const getStatusColor = (s: string) => {
+                const lower = s?.toLowerCase() || '';
+                if (lower.includes('closed') || lower.includes('won')) return colours.green;
+                if (lower.includes('pitched') || lower.includes('open')) return colours.cta;
+                if (lower.includes('lost')) return colours.red;
+                if (lower.includes('pending') || lower.includes('wait')) return colours.yellow;
+                return colours.greyText;
+              };
+              
+              return (
+                <div
+                  key={`pitch-table-row-${deal?.DealId || idx}`}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '0.6fr 1.3fr 1.8fr 0.8fr 0.8fr 0.8fr 0.6fr 0.7fr',
+                    gap: '12px',
+                    padding: '12px 20px',
+                    alignItems: 'center',
+                    borderBottom: isLast ? 'none' : `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)'}`,
+                    fontSize: '13px',
+                    color: isDarkMode ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0, 0, 0, 0.85)',
+                    background: idx % 2 === 0 
+                      ? (isDarkMode ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.01)')
+                      : 'transparent',
+                    cursor: 'default',
+                    transition: 'background 0.2s ease',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = isDarkMode 
+                      ? 'rgba(255, 255, 255, 0.06)' 
+                      : 'rgba(0, 0, 0, 0.03)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = idx % 2 === 0 
+                      ? (isDarkMode ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.01)')
+                      : 'transparent';
+                  }}
+                >
+                  {/* Deal ID */}
+                  <div style={{ 
+                    fontFamily: 'Consolas, Monaco, monospace',
+                    fontSize: '11px',
+                    color: colours.cta,
+                    fontWeight: 500,
+                  }}>
+                    {deal?.DealId || 'N/A'}
+                  </div>
+                  
+                  {/* Client */}
+                  <div style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '6px',
+                    overflow: 'hidden',
+                  }}>
+                    <div style={{
+                      width: '22px',
+                      height: '22px',
+                      borderRadius: '50%',
+                      background: isDarkMode ? 'rgba(214, 85, 65, 0.2)' : 'rgba(214, 85, 65, 0.15)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}>
+                      <FaUser style={{ fontSize: '9px', color: colours.cta }} />
+                    </div>
+                    <span style={{ 
+                      overflow: 'hidden', 
+                      textOverflow: 'ellipsis', 
+                      whiteSpace: 'nowrap',
+                      textTransform: 'capitalize',
+                      fontSize: '12px',
+                    }}>
+                      {clientName}
+                    </span>
+                  </div>
+                  
+                  {/* Service */}
+                  <div style={{ 
+                    overflow: 'hidden', 
+                    textOverflow: 'ellipsis', 
+                    whiteSpace: 'nowrap',
+                    color: isDarkMode ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.65)',
+                    fontSize: '12px',
+                  }}>
+                    {service}
+                  </div>
+                  
+                  {/* Status */}
+                  <div>
+                    <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      padding: '3px 8px',
+                      borderRadius: 10,
+                      background: `${getStatusColor(status)}15`,
+                      border: `1px solid ${getStatusColor(status)}40`,
+                      fontSize: '9px',
+                      fontWeight: 600,
+                      color: getStatusColor(status),
+                      textTransform: 'capitalize',
+                    }}>
+                      {status}
+                    </span>
+                  </div>
+                  
+                  {/* Pitched By */}
+                  <div style={{ 
+                    overflow: 'hidden', 
+                    textOverflow: 'ellipsis', 
+                    whiteSpace: 'nowrap',
+                    color: isDarkMode ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.55)',
+                    fontSize: '11px',
+                  }}>
+                    {pitchedBy}
+                  </div>
+                  
+                  {/* Source */}
+                  <div style={{ 
+                    overflow: 'hidden', 
+                    textOverflow: 'ellipsis', 
+                    whiteSpace: 'nowrap',
+                    color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
+                    fontSize: '10px',
+                  }}>
+                    {source}
+                  </div>
+                  
+                  {/* Date */}
+                  <div style={{
+                    fontSize: '10px',
+                    color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
+                    fontFamily: 'Consolas, Monaco, monospace',
+                  }}>
+                    {formattedDate}
+                  </div>
+                  
+                  {/* Value */}
+                  <div style={{ 
+                    textAlign: 'center',
+                    fontWeight: 600,
+                    color: formattedValue === '—' 
+                      ? (isDarkMode ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.25)')
+                      : colours.green,
+                    fontSize: '12px',
+                  }}>
+                    {formattedValue}
+                  </div>
+                </div>
+              );
+            });
+          })()}
+        </div>
+      )}
+      {activeTab === "clients" && viewMode === 'card' && (
               <div className={overviewGridStyle} ref={overviewGridRef}>
         {filteredOverviewItems.filter(item => 
           // Show only items with instructions (exclude pitched deals)
@@ -4486,6 +4889,792 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
 
                   );
                 })}
+            </div>
+          )}
+          {activeTab === "clients" && viewMode === 'table' && (
+            /* Table View for Instructions */
+            <div 
+              style={{
+                backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.6)' : '#ffffff',
+                border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
+                borderRadius: 12,
+                overflow: 'visible',
+                overflowY: 'auto',
+                fontFamily: 'Raleway, sans-serif',
+                margin: '16px',
+                paddingLeft: '32px', // Left padding for timeline sidebar
+              }}
+            >
+              {/* Table Header */}
+              <div 
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '50px 0.35fr 0.7fr 1.3fr 0.7fr 0.5fr 2.2fr 0.4fr',
+                  gap: '10px',
+                  padding: '14px 16px 14px 40px',
+                  alignItems: 'center',
+                  position: 'sticky',
+                  top: 0,
+                  zIndex: 100,
+                  background: isDarkMode 
+                    ? 'rgba(15, 23, 42, 0.95)'
+                    : 'rgba(255, 255, 255, 0.95)',
+                  backdropFilter: 'blur(12px)',
+                  borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)'}`,
+                  borderLeft: '3px solid transparent',
+                  fontSize: '10px',
+                  fontWeight: 500,
+                  color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.8px',
+                  boxShadow: isDarkMode 
+                    ? '0 2px 8px rgba(0, 0, 0, 0.3)'
+                    : '0 2px 8px rgba(0, 0, 0, 0.08)',
+                }}
+              >
+                <div style={{ paddingLeft: '0px' }}>Date</div>
+                <div style={{ textAlign: 'center' }}>Area</div>
+                <div>Reference</div>
+                <div>Client</div>
+                <div>Fee Earner</div>
+                <div>Amount</div>
+                <div>Status</div>
+                <div style={{ textAlign: 'center', paddingRight: '0px' }}>Actions</div>
+              </div>
+              
+              {/* Table Rows */}
+              {filteredOverviewItems.filter(item => item.instruction).map((item, idx) => {
+                const inst = item.instruction;
+                const deal = item.deal;
+                const risk = (item as any).risk;
+                const eid = (item as any).eid;
+                const eids = (item as any).eids;
+                const payments = (item as any).payments || inst?.payments || [];
+                const documents = item.documents || inst?.documents || [];
+                const isLast = idx === filteredOverviewItems.filter(i => i.instruction).length - 1;
+                const isSelected = selectedInstruction?.InstructionRef === inst?.InstructionRef;
+                
+                // Get client name and email
+                const clientEmail = item.clients?.[0]?.ClientEmail || deal?.LeadClientEmail || inst?.ClientEmail || '';
+                
+                // Build client name from actual name fields, not email
+                const firstName = inst?.FirstName || inst?.firstName || inst?.first_name || 
+                  item.clients?.[0]?.FirstName || deal?.FirstName || '';
+                const lastName = inst?.LastName || inst?.lastName || inst?.last_name || 
+                  item.clients?.[0]?.LastName || deal?.LastName || '';
+                const fullNameFromFields = `${firstName} ${lastName}`.trim();
+                
+                // Use actual name fields first, then ClientName field, then fall back to email parsing
+                const clientName = fullNameFromFields 
+                  || inst?.ClientName || inst?.clientName || inst?.client_name
+                  || item.clients?.[0]?.ClientName || deal?.ClientName
+                  || (clientEmail ? clientEmail.split('@')[0].split('.').map((p: string) => p.charAt(0).toUpperCase() + p.slice(1)).join(' ') : 'Unknown');
+                
+                // Get service description
+                const service = deal?.ServiceDescription || inst?.ServiceDescription || 'N/A';
+                
+                // Get Area of Work and WorkType
+                const areaOfWork = inst?.AreaOfWork || inst?.Area_of_Work || inst?.areaOfWork || 
+                  deal?.AreaOfWork || deal?.Area_of_Work || deal?.areaOfWork || '';
+                const workType = inst?.WorkType || inst?.workType || inst?.work_type ||
+                  inst?.PracticeArea || inst?.practiceArea || inst?.Department ||
+                  deal?.WorkType || deal?.workType || deal?.work_type ||
+                  deal?.PracticeArea || deal?.practiceArea || deal?.Department ||
+                  deal?.ServiceDescription || '';
+                
+                // Get Fee Earner - check HelixContact (initials), PitchedBy (initials), then email fields
+                const feeEarnerInitials = inst?.HelixContact || inst?.helixContact || 
+                  deal?.PitchedBy || deal?.pitchedBy || deal?.Owner || '';
+                const feeEarnerEmailRaw = inst?.poc || inst?.POC || inst?.FeeEarner || inst?.fee_earner ||
+                  inst?.AssignedTo || inst?.assigned_to || inst?.Lead || inst?.lead ||
+                  deal?.poc || deal?.POC || deal?.Lead || deal?.lead || deal?.assignedTo ||
+                  (item as any).poc || (item as any).POC || '';
+                
+                // Try to find name from teamData using initials first
+                let feeEarnerName = '—';
+                if (feeEarnerInitials && teamData) {
+                  const teamMember = teamData.find(t => 
+                    t.Initials?.toUpperCase() === feeEarnerInitials.toUpperCase()
+                  );
+                  if (teamMember) {
+                    feeEarnerName = teamMember["Full Name"] || teamMember.First || feeEarnerInitials;
+                  } else {
+                    // Just show the initials if no team match
+                    feeEarnerName = feeEarnerInitials;
+                  }
+                } else if (feeEarnerEmailRaw) {
+                  // Fall back to email parsing
+                  feeEarnerName = feeEarnerEmailRaw.split('@')[0].split('.').map((p: string) => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+                }
+                
+                // Get Amount
+                const amount = deal?.Amount || deal?.Value || deal?.EstimatedValue || inst?.Amount || 0;
+                const formattedAmount = typeof amount === 'number' && amount > 0
+                  ? `£${amount.toLocaleString()}`
+                  : '—';
+                
+                // Unique key for description expansion
+                const descKey = `${inst?.InstructionRef || idx}`;
+                const hasDescription = service && service !== 'N/A';
+                const isDescExpanded = expandedDescriptions.has(descKey);
+                
+                // Get date - use same fallback logic as InstructionCard
+                const dateStr = inst?.Date_Created || inst?.date_created || inst?.InstructionDate || 
+                  inst?.instructionDate || inst?.Created_Date || inst?.DateCreated || 
+                  inst?.InstructedDate || deal?.PitchedDate || deal?.CreatedDate || inst?.CreatedAt;
+                let formattedDate = 'N/A';
+                try {
+                  if (dateStr) {
+                    formattedDate = format(new Date(dateStr), 'd MMM');
+                  }
+                } catch { /* ignore */ }
+                
+                // Day separator logic - show dot only when date changes between rows
+                const filteredItems = filteredOverviewItems.filter(i => i.instruction);
+                const toDayKey = (s: string | undefined): string => {
+                  if (!s) return '';
+                  const d = new Date(s);
+                  if (isNaN(d.getTime())) return '';
+                  return d.toISOString().split('T')[0];
+                };
+                const extractDateStr = (i: typeof item): string => {
+                  const inst = i.instruction;
+                  const deal = i.deal;
+                  return inst?.Date_Created || inst?.date_created || inst?.InstructionDate || 
+                    inst?.instructionDate || inst?.Created_Date || inst?.DateCreated || 
+                    inst?.InstructedDate || deal?.PitchedDate || deal?.CreatedDate || inst?.CreatedAt || '';
+                };
+                const prevItem = idx > 0 ? filteredItems[idx - 1] : null;
+                const prevDateStr = prevItem ? extractDateStr(prevItem) : '';
+                const showDaySeparator = idx === 0 || toDayKey(dateStr) !== toDayKey(prevDateStr);
+                
+                // === Calculate statuses like InstructionCard ===
+                
+                // ID Verification status - match InstructionCard logic exactly
+                const eidResult = (eid?.EIDOverallResult || eids?.[0]?.EIDOverallResult || inst?.EIDOverallResult)?.toLowerCase() ?? "";
+                const eidStatusVal = (eid?.EIDStatus || eids?.[0]?.EIDStatus)?.toLowerCase() ?? "";
+                const poidPassed = eidResult === 'passed' || eidResult === 'approved' || eidResult === 'verified' || eidResult === 'pass';
+                const stageLower = ((inst?.Stage || inst?.stage || '') + '').trim().toLowerCase();
+                const stageComplete = stageLower === 'proof-of-id-complete';
+                const isInstructedOrLater = stageLower === 'proof-of-id-complete' || stageLower === 'completed';
+                
+                let idStatus: 'pending' | 'review' | 'complete' = 'pending';
+                if (stageComplete) {
+                  // If stage shows proof-of-id-complete, check the actual EID result
+                  if (eidResult === 'review') {
+                    idStatus = 'review';
+                  } else if (eidResult === 'failed' || eidResult === 'rejected' || eidResult === 'fail') {
+                    idStatus = 'review';
+                  } else if (poidPassed || eidResult === 'passed') {
+                    idStatus = 'complete';
+                  } else {
+                    // Stage complete but no clear result - assume review
+                    idStatus = 'review';
+                  }
+                } else if ((!eid && !eids?.length) || eidStatusVal === 'pending') {
+                  // Only show 'review' if we have actual proof of ID AND EID verification has been attempted
+                  const hasEidAttempt = Boolean(eid || (eids && eids.length > 0));
+                  const hasProofOfId = Boolean(inst?.PassportNumber || inst?.DriversLicenseNumber);
+                  idStatus = hasProofOfId && hasEidAttempt ? 'review' : 'pending';
+                } else if (poidPassed) {
+                  idStatus = 'complete';
+                } else {
+                  idStatus = 'review';
+                }
+                
+                // For instructed clients without EID data, show review (fast-tracked) not pending
+                if (isInstructedOrLater && idStatus === 'pending') {
+                  idStatus = 'review';
+                }
+                
+                // Risk status
+                const riskResultRaw = risk?.RiskAssessmentResult?.toString().toLowerCase() ?? "";
+                const riskStatus = riskResultRaw
+                  ? ['low', 'low risk', 'pass', 'approved'].includes(riskResultRaw) ? 'complete' : 'review'
+                  : 'pending';
+                
+                // Payment status
+                const getPaymentStatus = () => {
+                  if (inst?.InternalStatus === 'paid') return 'complete';
+                  if (!payments || payments.length === 0) return 'pending';
+                  const latest = payments[0];
+                  if ((latest.payment_status === 'succeeded' || latest.payment_status === 'confirmed') && 
+                      (latest.internal_status === 'completed' || latest.internal_status === 'paid')) {
+                    return 'complete';
+                  }
+                  if (latest.internal_status === 'completed' || latest.internal_status === 'paid') return 'complete';
+                  if (latest.payment_status === 'processing') return 'processing';
+                  return 'pending';
+                };
+                const paymentStatus = getPaymentStatus();
+                
+                // Check if bank transfer for special status text
+                const isBankTransfer = (() => {
+                  if (!payments || payments.length === 0) return false;
+                  const latestPayment = payments[0];
+                  const hasStripePaymentIntent = Boolean(latestPayment.payment_intent_id && 
+                                                         String(latestPayment.payment_intent_id).startsWith('pi_'));
+                  const isConfirmedStatus = latestPayment.payment_status === 'confirmed';
+                  const isExplicitlyBank = latestPayment.payment_method === 'bank' || 
+                                           latestPayment.PaymentMethod === 'bank';
+                  return isExplicitlyBank || (isConfirmedStatus && !hasStripePaymentIntent);
+                })();
+                
+                // Matter status
+                const matterStatus = (inst?.MatterId || (inst as any)?.matters?.length > 0) ? 'complete' : 'pending';
+                
+                // Documents status
+                const docCount = documents.length;
+                const docStatus = docCount > 0 ? 'complete' : 'neutral';
+                
+                // Rich status chip component - compact like Enquiries pipeline stages
+                const StatusStage = ({ 
+                  label, 
+                  status, 
+                  icon 
+                }: { 
+                  label: string; 
+                  status: 'complete' | 'review' | 'pending' | 'processing' | 'neutral';
+                  icon: string;
+                }) => {
+                  const getColors = () => {
+                    if (status === 'complete') return { 
+                      bg: isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)',
+                      border: colours.green,
+                      text: colours.green
+                    };
+                    if (status === 'review') return {
+                      bg: isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)',
+                      border: '#ef4444',
+                      text: '#ef4444'
+                    };
+                    if (status === 'processing') return {
+                      bg: isDarkMode ? 'rgba(251, 191, 36, 0.15)' : 'rgba(251, 191, 36, 0.1)',
+                      border: '#f59e0b',
+                      text: '#f59e0b'
+                    };
+                    // pending or neutral
+                    return {
+                      bg: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
+                      border: isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)',
+                      text: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)'
+                    };
+                  };
+                  const colors = getColors();
+                  
+                  return (
+                    <div 
+                      title={label}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        padding: '4px 8px',
+                        borderRadius: '6px',
+                        background: colors.bg,
+                        border: `1px solid ${colors.border}`,
+                        minWidth: '50px',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Icon iconName={icon} style={{ fontSize: '11px', color: colors.text }} />
+                      <span style={{ 
+                        fontSize: '9px', 
+                        fontWeight: 600, 
+                        color: colors.text,
+                      }}>
+                        {label}
+                      </span>
+                    </div>
+                  );
+                };
+                
+                // Horizontal connector between stages
+                const StageConnector = ({ complete }: { complete: boolean }) => (
+                  <div style={{ 
+                    width: 12, 
+                    height: 1, 
+                    background: complete
+                      ? (isDarkMode ? `linear-gradient(to right, ${colours.green}, rgba(34, 197, 94, 0.3))` : `linear-gradient(to right, ${colours.green}, rgba(34, 197, 94, 0.2))`)
+                      : (isDarkMode ? 'linear-gradient(to right, rgba(148, 163, 184, 0.3), rgba(148, 163, 184, 0.15))' : 'linear-gradient(to right, rgba(148, 163, 184, 0.25), rgba(148, 163, 184, 0.1))')
+                  }} />
+                );
+                
+                // Calculate status texts like InstructionCard
+                const idStatusText = idStatus === 'complete' ? 'Verified' 
+                  : idStatus === 'review' ? 'Review Required' 
+                  : 'Pending';
+                
+                const payStatusText = paymentStatus === 'complete' 
+                  ? (isBankTransfer ? 'Transfer Pending' : 'Paid')
+                  : paymentStatus === 'processing' ? 'Processing' 
+                  : 'Required';
+                
+                const riskStatusText = riskStatus === 'complete' ? 'Assessed' 
+                  : riskStatus === 'review' ? 'High Risk' 
+                  : 'Pending';
+                
+                const matterStatusText = matterStatus === 'complete' ? 'Opened' : 'Ready';
+                
+                const docStatusText = docCount > 0 ? `${docCount} Uploaded` : 'None';
+                
+                return (
+                  <React.Fragment key={`table-row-${inst?.InstructionRef || idx}`}>
+                  <div
+                    onClick={() => {
+                      if (selectedInstruction?.InstructionRef === inst?.InstructionRef) {
+                        setSelectedInstruction(null);
+                      } else {
+                        setSelectedInstruction(inst);
+                      }
+                    }}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '50px 0.35fr 0.7fr 1.3fr 0.7fr 0.5fr 2.2fr 0.4fr',
+                      gap: '10px',
+                      padding: '12px 16px 12px 40px',
+                      alignItems: 'center',
+                      borderBottom: (isLast && !isDescExpanded) ? 'none' : `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)'}`,
+                      fontSize: '13px',
+                      color: isDarkMode ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0, 0, 0, 0.85)',
+                      background: isSelected
+                        ? (isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.08)')
+                        : idx % 2 === 0 
+                          ? (isDarkMode ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.01)')
+                          : 'transparent',
+                      cursor: 'pointer',
+                      transition: 'background 0.2s ease',
+                      borderLeft: isSelected ? `3px solid ${colours.blue}` : '3px solid transparent',
+                      position: 'relative',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isSelected) {
+                        e.currentTarget.style.backgroundColor = isDarkMode 
+                          ? 'rgba(255, 255, 255, 0.06)' 
+                          : 'rgba(0, 0, 0, 0.03)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isSelected) {
+                        e.currentTarget.style.backgroundColor = idx % 2 === 0 
+                          ? (isDarkMode ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.01)')
+                          : 'transparent';
+                      }
+                    }}
+                  >
+                    {/* Timeline bookmark on the left */}
+                    <div style={{
+                      position: 'absolute',
+                      left: '-27px',
+                      top: 0,
+                      bottom: 0,
+                      width: '8px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}>
+                      {/* Timeline line */}
+                      <div style={{
+                        position: 'absolute',
+                        left: '3px',
+                        top: 0,
+                        bottom: 0,
+                        width: '2px',
+                        background: isDarkMode 
+                          ? 'linear-gradient(to bottom, rgba(135, 243, 243, 0.15), rgba(135, 243, 243, 0.3), rgba(135, 243, 243, 0.15))' 
+                          : 'linear-gradient(to bottom, rgba(54, 144, 206, 0.15), rgba(54, 144, 206, 0.25), rgba(54, 144, 206, 0.15))',
+                      }} />
+                      
+                      {/* Timeline dot - only show on day separator */}
+                      {showDaySeparator && (
+                        <div style={{
+                          position: 'absolute',
+                          left: '0px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          width: '8px',
+                          height: '8px',
+                          borderRadius: '50%',
+                          background: isDarkMode ? colours.accent : colours.highlightBlue,
+                          border: `2px solid ${isDarkMode ? 'rgba(15, 23, 42, 0.9)' : 'rgba(255, 255, 255, 0.95)'}`,
+                          boxShadow: `0 0 6px ${isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(54, 144, 206, 0.3)'}`,
+                          zIndex: 2
+                        }} />
+                      )}
+                    </div>
+                    
+                    {/* Date - first column */}
+                    <div style={{
+                      fontSize: '11px',
+                      color: isDarkMode ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)',
+                      fontFamily: 'Consolas, Monaco, monospace',
+                    }}>
+                      {formattedDate}
+                    </div>
+                    
+                    {/* Area of Work Icon with Worktype tooltip */}
+                    <TooltipHost
+                      content={
+                        <div style={{
+                          padding: '8px 12px',
+                          maxWidth: '200px',
+                        }}>
+                          <div style={{
+                            fontSize: '10px',
+                            fontWeight: 600,
+                            color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.5px',
+                            marginBottom: '4px',
+                          }}>
+                            Work Type
+                          </div>
+                          <div style={{
+                            fontSize: '12px',
+                            fontWeight: 500,
+                            color: isDarkMode ? '#e5e7eb' : '#1f2937',
+                          }}>
+                            {workType || areaOfWork || 'Not specified'}
+                          </div>
+                          {areaOfWork && workType && areaOfWork !== workType && (
+                            <div style={{
+                              fontSize: '10px',
+                              color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)',
+                              marginTop: '4px',
+                            }}>
+                              Area: {areaOfWork}
+                            </div>
+                          )}
+                        </div>
+                      }
+                      calloutProps={{
+                        gapSpace: 8,
+                        styles: {
+                          beak: { display: 'none' },
+                          calloutMain: {
+                            borderRadius: '8px',
+                            boxShadow: isDarkMode 
+                              ? '0 4px 20px rgba(0, 0, 0, 0.4)'
+                              : '0 4px 20px rgba(0, 0, 0, 0.12)',
+                            background: isDarkMode ? '#1e293b' : '#ffffff',
+                            border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
+                          }
+                        }
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'help' }}>
+                        <span style={{ fontSize: '16px', lineHeight: 1 }}>
+                          {getAreaOfWorkIcon(areaOfWork)}
+                        </span>
+                      </div>
+                    </TooltipHost>
+                    
+                    {/* Reference */}
+                    <div style={{ 
+                      fontFamily: 'Consolas, Monaco, monospace',
+                      fontSize: '11px',
+                      color: colours.blue,
+                      fontWeight: 500,
+                    }}>
+                      {inst?.InstructionRef || 'N/A'}
+                    </div>
+                    
+                    {/* Client */}
+                    <div style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: '6px',
+                      overflow: 'hidden',
+                    }}>
+                      {inst?.ClientType === 'Company' ? (
+                        <FaBuilding style={{ fontSize: '11px', color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.4)', flexShrink: 0 }} />
+                      ) : (
+                        <FaUser style={{ fontSize: '11px', color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.4)', flexShrink: 0 }} />
+                      )}
+                      <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0, gap: '0px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                          <span 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigator.clipboard.writeText(clientName);
+                            }}
+                            style={{ 
+                              overflow: 'hidden', 
+                              textOverflow: 'ellipsis', 
+                              whiteSpace: 'nowrap',
+                              textTransform: 'capitalize',
+                              fontSize: '12px',
+                              lineHeight: 1.2,
+                              cursor: 'pointer',
+                              padding: '1px 3px',
+                              borderRadius: '3px',
+                              transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                              background: 'transparent',
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(214, 232, 255, 0.8)';
+                              e.currentTarget.style.color = isDarkMode ? '#87F3F3' : '#3690CE';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = 'transparent';
+                              e.currentTarget.style.color = isDarkMode ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0, 0, 0, 0.85)';
+                            }}
+                            title="Click to copy client name"
+                          >
+                            {clientName}
+                          </span>
+                          <span 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigator.clipboard.writeText(inst?.InstructionRef || '');
+                            }}
+                            style={{
+                              fontSize: '9px',
+                              color: isDarkMode ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.4)',
+                              fontWeight: 400,
+                              cursor: 'pointer',
+                              fontFamily: 'Consolas, Monaco, monospace',
+                              padding: '2px 4px',
+                              borderRadius: '3px',
+                              transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                              background: 'transparent',
+                              border: '1px solid transparent',
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.color = isDarkMode ? '#87F3F3' : '#3690CE';
+                              e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(214, 232, 255, 0.8)';
+                              e.currentTarget.style.border = `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(54, 144, 206, 0.25)'}`;
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.color = isDarkMode ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.4)';
+                              e.currentTarget.style.background = 'transparent';
+                              e.currentTarget.style.border = '1px solid transparent';
+                            }}
+                            title="Click to copy instruction ID"
+                          >
+                            {inst?.InstructionRef || ''}
+                          </span>
+                          {clientEmail && (
+                            <span 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigator.clipboard.writeText(clientEmail);
+                              }}
+                              style={{ 
+                                fontSize: '9px',
+                                color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
+                                fontFamily: 'Consolas, Monaco, monospace',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                maxWidth: '120px',
+                                cursor: 'pointer',
+                                padding: '2px 4px',
+                                borderRadius: '3px',
+                                transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                                background: 'transparent',
+                                border: '1px solid transparent',
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(214, 232, 255, 0.8)';
+                                e.currentTarget.style.color = isDarkMode ? '#87F3F3' : '#3690CE';
+                                e.currentTarget.style.border = `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(54, 144, 206, 0.25)'}`;
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.background = 'transparent';
+                                e.currentTarget.style.color = isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)';
+                                e.currentTarget.style.border = '1px solid transparent';
+                              }}
+                              title={`Click to copy: ${clientEmail}`}
+                            >
+                              {clientEmail}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Fee Earner */}
+                    <div style={{ 
+                      fontSize: '11px',
+                      color: isDarkMode ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.55)',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}>
+                      {feeEarnerName}
+                    </div>
+                    
+                    {/* Amount */}
+                    <div style={{
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: formattedAmount !== '—' ? colours.green : (isDarkMode ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.35)'),
+                    }}>
+                      {formattedAmount}
+                    </div>
+                    
+                    {/* Status Pipeline - connected stages like Enquiries */}
+                    <div style={{ 
+                      display: 'flex', 
+                      alignItems: 'center',
+                      gap: '0',
+                      justifyContent: 'flex-start',
+                    }}>
+                      {/* Vertical separator first */}
+                      <div style={{ 
+                        width: 1, 
+                        height: 24, 
+                        background: isDarkMode 
+                          ? 'linear-gradient(to bottom, transparent, rgba(148, 163, 184, 0.3), transparent)'
+                          : 'linear-gradient(to bottom, transparent, rgba(148, 163, 184, 0.25), transparent)',
+                        marginRight: '8px',
+                      }} />
+                      
+                      {/* ID Stage */}
+                      <StatusStage status={idStatus} label="ID" icon="ContactCard" />
+                      <StageConnector complete={idStatus === 'complete'} />
+                      
+                      {/* Payment Stage */}
+                      <StatusStage status={paymentStatus === 'processing' ? 'processing' : paymentStatus === 'complete' ? 'complete' : 'pending'} label="Pay" icon="Money" />
+                      <StageConnector complete={paymentStatus === 'complete'} />
+                      
+                      {/* Risk Stage */}
+                      <StatusStage status={riskStatus} label="Risk" icon="Shield" />
+                      <StageConnector complete={riskStatus === 'complete'} />
+                      
+                      {/* Matter Stage */}
+                      <StatusStage status={matterStatus === 'complete' ? 'complete' : 'pending'} label="Matter" icon="DocumentSet" />
+                      <StageConnector complete={matterStatus === 'complete'} />
+                      
+                      {/* Docs Stage */}
+                      <StatusStage status={docStatus === 'complete' ? 'complete' : 'neutral'} label="Docs" icon="Page" />
+                    </div>
+                    
+                    {/* Actions */}
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: '2px', alignItems: 'center' }}>
+                      {/* Expand chevron for details */}
+                      {hasDescription && (
+                        <IconButton
+                          iconProps={{ iconName: isDescExpanded ? 'ChevronUp' : 'ChevronDown' }}
+                          title={isDescExpanded ? 'Hide details' : 'Show details'}
+                          ariaLabel={isDescExpanded ? 'Hide details' : 'Show details'}
+                          styles={{
+                            root: {
+                              width: 26,
+                              height: 26,
+                              color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.4)',
+                            },
+                            rootHovered: {
+                              background: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+                              color: colours.blue,
+                            },
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExpandedDescriptions(prev => {
+                              const next = new Set(prev);
+                              if (next.has(descKey)) {
+                                next.delete(descKey);
+                              } else {
+                                next.add(descKey);
+                              }
+                              return next;
+                            });
+                          }}
+                        />
+                      )}
+                      <IconButton
+                        iconProps={{ iconName: 'View' }}
+                        title="View Details"
+                        ariaLabel="View instruction details"
+                        styles={{
+                          root: {
+                            width: 26,
+                            height: 26,
+                            color: isDarkMode ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.55)',
+                          },
+                          rootHovered: {
+                            background: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+                            color: colours.blue,
+                          },
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedInstruction(inst);
+                          setIsWorkbenchVisible(true);
+                        }}
+                      />
+                    </div>
+                  </div>
+                  
+                  {/* Details Row - expanded below */}
+                  {hasDescription && isDescExpanded && (
+                    <div style={{
+                      padding: '12px 60px 12px 80px',
+                      backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.015)' : 'rgba(0, 0, 0, 0.008)',
+                      borderBottom: isLast ? 'none' : `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)'}`,
+                      fontSize: '11px',
+                      lineHeight: '1.5',
+                      color: isDarkMode ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)',
+                      display: 'flex',
+                      gap: '32px',
+                    }}>
+                      {/* Amount */}
+                      <div style={{ minWidth: '80px' }}>
+                        <div style={{
+                          fontSize: '9px',
+                          fontWeight: 600,
+                          color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
+                          marginBottom: '4px',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                        }}>
+                          Amount
+                        </div>
+                        <div style={{
+                          fontSize: '13px',
+                          fontWeight: 600,
+                          color: formattedAmount !== '—' ? colours.green : (isDarkMode ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.35)'),
+                        }}>
+                          {formattedAmount}
+                        </div>
+                      </div>
+                      {/* Service Description */}
+                      <div style={{ flex: 1 }}>
+                        <div style={{
+                          fontSize: '9px',
+                          fontWeight: 600,
+                          color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
+                          marginBottom: '4px',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                        }}>
+                          Service Description
+                        </div>
+                        <div style={{ whiteSpace: 'pre-line' }}>
+                          {service}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  </React.Fragment>
+                );
+              })}
+              
+              {/* Empty state */}
+              {filteredOverviewItems.filter(item => item.instruction).length === 0 && (
+                <div style={{
+                  padding: '40px',
+                  textAlign: 'center',
+                  color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
+                }}>
+                  <Icon iconName="Search" style={{ fontSize: '32px', marginBottom: '12px', opacity: 0.5 }} />
+                  <div style={{ fontSize: '14px', fontWeight: 500 }}>No instructions found</div>
+                  <div style={{ fontSize: '12px', marginTop: '4px' }}>Try adjusting your search or filters</div>
+                </div>
+              )}
             </div>
           )}
           {activeTab === "risk" && (

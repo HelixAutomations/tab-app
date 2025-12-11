@@ -40,6 +40,36 @@ function formatPhoneNumber(phone) {
   return phone;
 }
 
+// Extract searchable digits from phone - CallRail search works best with just digits
+function getSearchablePhone(phone) {
+  // Remove all non-digit characters
+  const digits = phone.replace(/\D/g, '');
+  // Return last 10 digits (UK mobile format without country code)
+  return digits.slice(-10);
+}
+
+const milestonePreferenceOrder = ['lead_created', 'last_touch', 'first_touch', 'qualified'];
+
+function pickString(...values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return '';
+}
+
+function pickMilestoneField(milestones, field) {
+  if (!milestones || typeof milestones !== 'object') return '';
+  for (const key of milestonePreferenceOrder) {
+    const candidate = milestones?.[key]?.[field];
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      return candidate.trim();
+    }
+  }
+  return '';
+}
+
 router.post('/callrailCalls', async (req, res) => {
   try {
     const reqId = randomUUID();
@@ -102,12 +132,57 @@ router.post('/callrailCalls', async (req, res) => {
     // CallRail API endpoint - search by phone number
     // Format phone number to match Python code (convert UK format to international)
     const formattedPhone = formatPhoneNumber(phoneNumber);
+    // Also get just digits for search - CallRail search works best with partial number
+    const searchablePhone = getSearchablePhone(phoneNumber);
     
-    // CallRail API - search for calls using search parameter (not caller_phone_number)
-    // This matches the working Python code
+    // CallRail API - search for calls using search parameter
+    // IMPORTANT: Must include start_date to search historical calls (CallRail defaults to recent only)
+    // Use last 10 digits for better matching across different phone formats
+    // CallRail retains data for 2 years, so search from 2 years ago
+    const twoYearsAgo = new Date();
+    twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+    twoYearsAgo.setDate(twoYearsAgo.getDate() + 7); // Add buffer for safety
+    const startDate = twoYearsAgo.toISOString().split('T')[0];
+    const fields = [
+      'id',
+      'start_time',
+      'duration',
+      'direction',
+      'answered',
+      'customer_phone_number',
+      'business_phone_number',
+      'customer_name',
+      'tracking_phone_number',
+      'source',
+      'medium',
+      'campaign',
+      'keywords',
+      'landing_page_url',
+      'source_name',
+      'utm_source',
+      'utm_medium',
+      'utm_campaign',
+      'utm_term',
+      'utm_content',
+      'referring_url',
+      'last_requested_url',
+      'milestones',
+      'timeline_url',
+      'gclid',
+      'fbclid',
+      'msclkid',
+      'recording',
+      'transcription',
+      'note',
+      'value',
+      'company_name'
+    ].join(',');
+
     const callRailUrl = `https://api.callrail.com/v3/a/${CALLRAIL_ACCOUNT_ID}/calls.json?` +
-      `search=${encodeURIComponent(formattedPhone)}&` +
-      `per_page=${maxResults}`;
+      `search=${encodeURIComponent(searchablePhone)}&` +
+      `start_date=${startDate}&` +
+      `per_page=${maxResults}&` +
+      `fields=${fields}`;
 
     if (debug) {
       console.log(`[callrail ${reqId}] searching calls`, { 
@@ -152,26 +227,72 @@ router.post('/callrailCalls', async (req, res) => {
       const calls = searchResults.calls || [];
       
       // Transform the results for frontend consumption
-      const transformedCalls = calls.map(call => ({
-        id: call.id,
-        duration: call.duration,
-        startTime: call.start_time,
-        direction: call.direction, // 'inbound' or 'outbound'
-        answered: call.answered,
-        customerPhoneNumber: call.customer_phone_number,
-        businessPhoneNumber: call.business_phone_number,
-        customerName: call.customer_name || 'Unknown Caller',
-        trackingPhoneNumber: call.tracking_phone_number,
-        source: call.source || 'Unknown',
-        keywords: call.keywords || '',
-        medium: call.medium || '',
-        campaign: call.campaign || '',
-        recordingUrl: call.recording || null,
-        transcription: call.transcription || null,
-        note: call.note || '',
-        value: call.value || null,
-        companyName: call.company_name || '',
-      }));
+      const transformedCalls = calls.map(call => {
+        const source = pickString(
+          call.source,
+          call.utm_source,
+          call.source_name,
+          call.medium,
+          pickMilestoneField(call.milestones, 'source')
+        ) || 'Unknown';
+        const campaign = pickString(
+          call.campaign,
+          call.utm_campaign,
+          pickMilestoneField(call.milestones, 'campaign')
+        );
+        const keywords = pickString(
+          call.keywords,
+          call.utm_term,
+          pickMilestoneField(call.milestones, 'keywords')
+        );
+        const medium = pickString(
+          call.medium,
+          call.utm_medium,
+          pickMilestoneField(call.milestones, 'medium')
+        );
+        const landingPageUrl = pickString(
+          call.landing_page_url,
+          pickMilestoneField(call.milestones, 'landing'),
+          call.last_requested_url,
+          call.referring_url
+        );
+        return {
+          id: call.id,
+          duration: call.duration,
+          startTime: call.start_time,
+          direction: call.direction, // 'inbound' or 'outbound'
+          answered: call.answered,
+          customerPhoneNumber: call.customer_phone_number,
+          businessPhoneNumber: call.business_phone_number,
+          customerName: call.customer_name || 'Unknown Caller',
+          trackingPhoneNumber: call.tracking_phone_number,
+          source,
+          keywords,
+          medium,
+          campaign,
+          landingPageUrl,
+          channel: pickString(call.source_name),
+          sourceName: call.source_name || '',
+          utmSource: call.utm_source || '',
+          utmMedium: call.utm_medium || '',
+          utmCampaign: call.utm_campaign || '',
+          utmTerm: call.utm_term || '',
+          utmContent: call.utm_content || '',
+          gclid: call.gclid || '',
+          fbclid: call.fbclid || '',
+          msclkid: call.msclkid || '',
+          referrer: '',
+          referringUrl: call.referring_url || '',
+          lastRequestedUrl: call.last_requested_url || '',
+          timelineUrl: call.timeline_url || '',
+          milestones: call.milestones || null,
+          recordingUrl: call.recording || null,
+          transcription: call.transcription || null,
+          note: call.note || '',
+          value: call.value || null,
+          companyName: call.company_name || '',
+        };
+      });
 
       // Sort by start time (most recent first)
       transformedCalls.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());

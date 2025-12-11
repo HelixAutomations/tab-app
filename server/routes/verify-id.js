@@ -31,16 +31,19 @@ function getContactEmail(contactName, teamData) {
   if (!contactName) return 'lz@helix-law.com'; // Fallback to LZ
   if (!teamData || !Array.isArray(teamData)) return 'lz@helix-law.com';
 
+  const contactLower = contactName.toLowerCase().trim();
+  const contactUpper = contactName.toUpperCase().trim();
+
   const contact = teamData.find(person => {
-    const fullName = person['Full Name'] || '';
-    const initials = person.Initials || '';
-    const firstName = person.First || '';
-    const nickname = person.Nickname || '';
+    const fullName = (person['Full Name'] || '').toLowerCase().trim();
+    const initials = (person.Initials || '').toUpperCase().trim();
+    const firstName = (person.First || '').toLowerCase().trim();
+    const nickname = (person.Nickname || '').toLowerCase().trim();
     
-    return fullName === contactName ||
-           initials === contactName.toUpperCase() ||
-           firstName === contactName ||
-           nickname === contactName;
+    return fullName === contactLower ||
+           initials === contactUpper ||
+           firstName === contactLower ||
+           nickname === contactLower;
   });
 
   if (contact && contact.Email) {
@@ -48,7 +51,9 @@ function getContactEmail(contactName, teamData) {
   }
 
   // Fallback: if it looks like initials, convert to lowercase@helix-law.com
-  if (contactName.length <= 4 && contactName.match(/^[A-Z]+$/)) {
+  // But warn about potential conflicts
+  if (contactName.length <= 4 && contactName.match(/^[A-Za-z]+$/i)) {
+    console.warn(`[getContactEmail] No team member found for "${contactName}", falling back to ${contactName.toLowerCase()}@helix-law.com`);
     return `${contactName.toLowerCase()}@helix-law.com`;
   }
 

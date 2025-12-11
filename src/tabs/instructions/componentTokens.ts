@@ -15,7 +15,7 @@ export const cardTokens: IStackTokens = {
 export const cardStyles: IStackStyles = {
   root: {
     padding: 20,
-    borderRadius: 8,
+    borderRadius: 2,
     boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
     backgroundColor: colours.light.sectionBackground,
   },

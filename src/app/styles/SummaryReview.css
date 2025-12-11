@@ -14,6 +14,14 @@
     transition: padding 0.35s ease, background 0.35s ease, border-color 0.35s ease;
 }
 
+/* Dark mode support for summary pane */
+.dark .summary-pane,
+[data-theme="dark"] .summary-pane {
+    background: #1f2937;
+    border-color: #374151;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+}
+
 /* Style when the summary needs attention - red demanding border */
 .summary-pane-demanding {
     border: 2px solid #D65541;
@@ -33,6 +41,14 @@
 .summary-pane-complete {
     background: #f5fdf7;
     border-color: #49B670;
+}
+
+/* Dark mode for collapsed/complete states */
+.dark .summary-pane-collapsed,
+.dark .summary-pane-complete,
+[data-theme="dark"] .summary-pane-collapsed,
+[data-theme="dark"] .summary-pane-complete {
+    background: rgba(73, 182, 112, 0.1);
 }
 
 .summary-pane-collapsed .summary-complete-header {
@@ -65,13 +81,19 @@
     opacity: 1;
 }
 
-/* Main “Summary” title */
+/* Main "Summary" title */
 .summary-title-main {
     font-weight: 600;
     font-size: 1.1rem;
     margin-bottom: 0.7rem;
     color: var(--helix-dark-blue);
     letter-spacing: 0.01em;
+}
+
+/* Dark mode for title */
+.dark .summary-title-main,
+[data-theme="dark"] .summary-title-main {
+    color: #e5e7eb;
 }
 
 /* Each toggleable subsection */
@@ -106,6 +128,19 @@
     background: #eaf0fa;
 }
 
+/* Dark mode for toggle */
+.dark .summary-toggle,
+[data-theme="dark"] .summary-toggle {
+    color: #e5e7eb;
+}
+
+.dark .summary-toggle:hover,
+.dark .summary-toggle:focus,
+[data-theme="dark"] .summary-toggle:hover,
+[data-theme="dark"] .summary-toggle:focus {
+    background: #374151;
+}
+
 /* Chevron icon size */
 .summary-toggle .chevron {
     font-size: 1.1rem;
@@ -117,6 +152,12 @@
     font-size: 0.92rem;
     /* slightly smaller for a cleaner look */
     color: var(--helix-dark-blue);
+}
+
+/* Dark mode for content */
+.dark .summary-content,
+[data-theme="dark"] .summary-content {
+    color: #e5e7eb;
 }
 
 /* Individual paragraphs/lines inside content */
@@ -161,6 +202,12 @@
     border-top: 1px solid #e3e8ef;
 }
 
+/* Dark mode for confirmation border */
+.dark .summary-confirmation,
+[data-theme="dark"] .summary-confirmation {
+    border-top-color: #374151;
+}
+
 .modern-checkbox-label {
     display: flex;
     align-items: center;
@@ -171,6 +218,12 @@
     font-weight: 500;
     cursor: pointer;
     user-select: none;
+}
+
+/* Dark mode for checkbox label */
+.dark .modern-checkbox-label,
+[data-theme="dark"] .modern-checkbox-label {
+    color: #e5e7eb;
 }
 
 .modern-checkbox-input {
@@ -196,6 +249,14 @@
     box-shadow: 0 2px 7px rgba(44, 71, 129, 0.07);
     transition: border 0.13s, box-shadow 0.14s, background 0.18s;
     position: relative;
+}
+
+/* Dark mode for checkbox custom */
+.dark .modern-checkbox-custom,
+[data-theme="dark"] .modern-checkbox-custom {
+    background: #1f2937;
+    border-color: #60a5fa;
+    box-shadow: 0 2px 7px rgba(0, 0, 0, 0.2);
 }
 
 .modern-checkbox-label:hover .modern-checkbox-custom,
@@ -252,6 +313,12 @@
     justify-content: space-between;
 }
 
+/* Dark mode for group header */
+.dark .summary-group-header,
+[data-theme="dark"] .summary-group-header {
+    color: #e5e7eb;
+}
+
 .summary-edit-btn {
     background: none;
     border: none;
@@ -299,11 +366,33 @@
     color: var(--helix-dark-blue);
 }
 
+/* Dark mode for field labels and values */
+.dark .summary-content .field-label,
+[data-theme="dark"] .summary-content .field-label {
+    color: #9ca3af;
+}
+
+.dark .summary-content .field-value,
+[data-theme="dark"] .summary-content .field-value {
+    color: #60a5fa;
+}
+
+.dark .summary-content .field-value.empty,
+[data-theme="dark"] .summary-content .field-value.empty {
+    color: #6b7280;
+}
+
 .summary-status-note {
     color: var(--helix-dark-blue);
     margin-bottom: 2px;
     font-weight: 400;
     font-size: 0.95em;
+}
+
+/* Dark mode for status note */
+.dark .summary-status-note,
+[data-theme="dark"] .summary-status-note {
+    color: #d1d5db;
 }
 
 .summary-placeholder {
@@ -334,6 +423,13 @@
     font-weight: 500;
     color: var(--helix-dark-blue);
     transition: background 0.2s ease, padding 0.35s ease, border-color 0.35s ease;
+}
+
+/* Dark mode for complete header */
+.dark .summary-complete-header,
+[data-theme="dark"] .summary-complete-header {
+    background: rgba(73, 182, 112, 0.15);
+    color: #e5e7eb;
 }
 
 .summary-complete-header-open {

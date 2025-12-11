@@ -7,6 +7,7 @@ export interface SegmentedOption {
   label: string;
   badge?: number | string; // optional count / indicator
   disabled?: boolean;
+  icon?: React.ReactNode; // optional custom icon
 }
 
 interface SegmentedControlProps {
@@ -36,9 +37,9 @@ const SegmentedControl: React.FC<SegmentedControlProps> = ({
   style,
 }) => {
   const { isDarkMode } = useTheme();
-  const height = size === 'sm' ? 28 : 34;
+  const height = size === 'sm' ? 32 : 36;
   const fontSize = size === 'sm' ? 12 : 13;
-  const paddingX = 14;
+  const paddingX = 12;
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const btnRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -156,7 +157,7 @@ const SegmentedControl: React.FC<SegmentedControlProps> = ({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: 6,
+              gap: 5,
               background: 'transparent',
               border: 'none',
               cursor: opt.disabled ? 'not-allowed' : 'pointer',
@@ -189,6 +190,21 @@ const SegmentedControl: React.FC<SegmentedControlProps> = ({
               }
             }}
           >
+            {opt.icon && (
+              <span style={{ 
+                display: 'flex', 
+                alignItems: 'center',
+                color: opt.disabled
+                  ? (isDarkMode ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.25)')
+                  : isActive
+                  ? '#1f2937'
+                  : isDarkMode
+                  ? 'rgba(255,255,255,0.70)'
+                  : 'rgba(0,0,0,0.55)',
+              }}>
+                {opt.icon}
+              </span>
+            )}
             <span>{opt.label}</span>
             {typeof opt.badge !== 'undefined' && (
               <span style={{

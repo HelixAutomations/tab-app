@@ -70,7 +70,6 @@ function looksLikeFacebookLead(notes: string, campaign: string): boolean {
 export function getNormalizedEnquirySource(raw: unknown): NormalizedEnquirySource {
   const e = (raw ?? {}) as Record<string, unknown>;
   const ultimate = safeLower(e.Ultimate_Source ?? (e as any).source ?? (e as any).Source);
-  const moc = safeLower(e.Method_of_Contact ?? (e as any).method_of_contact ?? (e as any).moc);
   const contactRef = toStr(e.Contact_Referrer ?? (e as any).contact_referrer).trim();
   const referringCompany = toStr(e.Referring_Company ?? (e as any).referring_company).trim();
   const url = toStr(e.Referral_URL ?? (e as any).referral_url).trim();

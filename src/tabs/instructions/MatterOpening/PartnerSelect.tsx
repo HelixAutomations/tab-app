@@ -22,7 +22,7 @@ const PartnerSelect: React.FC<PartnerSelectProps> = ({
     className = '',
     disabled = false
 }) => {
-    // Helper function to get initials from full name
+    // Helper function to get initials from full name (display only - actual initials come from team data)
     const getInitials = (name: string): string => {
         return name
             .split(' ')

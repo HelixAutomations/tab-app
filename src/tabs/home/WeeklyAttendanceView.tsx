@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { debugLog } from '../../utils/debug';
 import { Icon, Text, DefaultButton } from '@fluentui/react';
 import { mergeStyles, keyframes } from '@fluentui/react/lib/Styling';
@@ -177,9 +177,411 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
   const [selectedWeek, setSelectedWeek] = useState<WeekFilterKey>('today');
   const [selectedDays, setSelectedDays] = useState<DayFilterKey[]>([]);
   const [selectedStatuses, setSelectedStatuses] = useState<StatusFilterKey[]>([]);
+  
+  // Edit mode state
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editingMember, setEditingMember] = useState<string | null>(null); // initials of member being edited
+  const [editingDay, setEditingDay] = useState<DayFilterKey | null>(null);
+  const [expandedMember, setExpandedMember] = useState<string | null>(null); // initials of member with week editor open
+  const [pendingChanges, setPendingChanges] = useState<Record<string, Record<string, string>>>({}); // { initials: { day: status } }
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const [optimisticAttendance, setOptimisticAttendance] = useState<Record<string, string>>({});
+
+  // Clear optimistic overrides only when server data matches what we optimistically set
+  // This prevents the UI from reverting while the server is still returning stale data
+  useEffect(() => {
+    setOptimisticAttendance((prev) => {
+      const next: Record<string, string> = {};
+      for (const [initials, optimisticValue] of Object.entries(prev)) {
+        const serverRecord = attendanceRecords.find(r => r.Initials === initials);
+        const serverValue = serverRecord?.Attendance_Days || serverRecord?.Status || '';
+        // Keep optimistic value if server hasn't caught up yet
+        if (serverValue !== optimisticValue) {
+          next[initials] = optimisticValue;
+        }
+        // If server matches optimistic, drop it (server is now authoritative)
+      }
+      return next;
+    });
+  }, [attendanceRecords]);
+  
+  // Drag and drop state
+  const [draggedMember, setDraggedMember] = useState<{ initials: string; name: string; currentStatus: string } | null>(null);
+  const [dragOverStatus, setDragOverStatus] = useState<string | null>(null);
+
+  // Normalize helpers for reliable matching
+  const normalizeEmail = (email?: string) => (email ? email.toLowerCase().trim() : '');
+  const getMemberEmail = (member: any) =>
+    normalizeEmail(member?.Email)
+      || normalizeEmail(member?.email)
+      || normalizeEmail(member?.Mail)
+      || normalizeEmail(member?.mail)
+      || normalizeEmail(member?.UserPrincipalName)
+      || normalizeEmail(member?.userPrincipalName)
+      || normalizeEmail(member?.UPN)
+      || normalizeEmail(member?.upn)
+      || normalizeEmail(member?.WorkEmail)
+      || normalizeEmail(member?.workEmail);
+
+  // Check if current user is admin (based on Level in teamData)
+  const userInitials = userData?.displayName?.match(/\b\w/g)?.join('').toUpperCase() || 
+                       userData?.mail?.substring(0, 2).toUpperCase() || 'UN';
+  const userEmail = normalizeEmail(userData?.mail) || normalizeEmail(userData?.userPrincipalName);
+  const adminLevels = new Set([
+    'director',
+    'partner',
+    'admin',
+    'manager',
+    'team lead',
+    'teamlead',
+    'lead',
+    'owner',
+    'principal',
+    'head',
+    'supervisor'
+  ]);
+
+  const currentUserTeamRecord = teamData.find(t => {
+    const memberInitials = (t?.Initials || '').toString().trim().toUpperCase();
+    const memberEmail = getMemberEmail(t);
+    return (userEmail && memberEmail && memberEmail === userEmail) || memberInitials === userInitials;
+  });
+
+  const memberLevel = (currentUserTeamRecord?.Level || '').toString().trim().toLowerCase();
+  const memberRole = (currentUserTeamRecord?.Role || currentUserTeamRecord?.role || '').toString().trim().toLowerCase();
+
+  const isAdmin = adminLevels.has(memberLevel)
+    || adminLevels.has(memberRole)
+    || currentUserTeamRecord?.IsAdmin === true
+    || currentUserTeamRecord?.isAdmin === true
+    || userData?.isAdmin === true
+    || (Array.isArray(userData?.roles) && userData.roles.some((r: any) => adminLevels.has((r || '').toString().toLowerCase())));
+
+  // Get week start date for a given week offset
+  const getWeekStartDate = (weekOffset: 0 | 1): string => {
+    const today = new Date();
+    const dayOfWeek = today.getDay();
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1) + (weekOffset * 7));
+    return monday.toISOString().split('T')[0];
+  };
+  
+  // Check if user can drag a member (admin can drag anyone, users can drag themselves)
+  const canDragMember = (_memberInitials: string): boolean => {
+    return isEditMode;
+  };
+  
+  // Handle drag start
+  const handleDragStart = (e: React.DragEvent, initials: string, name: string, currentStatus: string) => {
+    if (!canDragMember(initials)) {
+      e.preventDefault();
+      return;
+    }
+    setDraggedMember({ initials, name, currentStatus });
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', initials);
+  };
+  
+  // Handle drag over a status group
+  const handleDragOver = (e: React.DragEvent, status: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragOverStatus !== status) {
+      setDragOverStatus(status);
+    }
+  };
+  
+  // Handle drag leave
+  const handleDragLeave = (e: React.DragEvent) => {
+    // Only clear if we're leaving the container, not entering a child
+    const relatedTarget = e.relatedTarget as HTMLElement;
+    if (!relatedTarget || !e.currentTarget.contains(relatedTarget)) {
+      setDragOverStatus(null);
+    }
+  };
+  
+  // Handle drop - immediately save to database
+  const handleDrop = async (e: React.DragEvent, newStatus: string) => {
+    e.preventDefault();
+    setDragOverStatus(null);
+    
+    if (!draggedMember || draggedMember.currentStatus === newStatus) {
+      setDraggedMember(null);
+      return;
+    }
+    
+    const { initials, name } = draggedMember;
+    const member = processedTeamData.find(m => m.Initials === initials);
+    if (!member) {
+      setDraggedMember(null);
+      setSaveError(`Could not find ${name}'s attendance record`);
+      setTimeout(() => setSaveError(null), 4000);
+      return;
+    }
+    setDraggedMember(null);
+    setSaveError(null);
+    setSaveSuccess(null);
+    
+    // Get the current day's key for today view
+    const today = new Date();
+    const todayIndex = today.getDay();
+    const dayKeys: DayFilterKey[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
+    const todayDayKey = todayIndex >= 1 && todayIndex <= 5 ? dayKeys[todayIndex - 1] : 'monday';
+    
+    const weekOffset = selectedWeek === 'next' ? 1 : 0;
+    const weekStart = getWeekStartDate(weekOffset);
+    
+    // Get current attendance pattern for this user
+    const currentPattern = getDailyAttendance(member, weekOffset);
+    const previousAttendance = member.attendanceDays; // Save for rollback
+    
+    // Build new pattern - for "Today" view, only change today's status
+    const newPattern = [...currentPattern];
+    if (selectedWeek === 'today') {
+      const dayIndex = DAY_INDEX_MAP[todayDayKey];
+      newPattern[dayIndex] = newStatus as any;
+    } else {
+      // For week view, change all days to new status
+      for (let i = 0; i < 5; i++) {
+        newPattern[i] = newStatus as any;
+      }
+    }
+    
+    const attendanceDays = newPattern.join(',');
+    
+    // OPTIMISTIC UPDATE: Move the chip immediately before API call
+    setOptimisticAttendance((prev) => ({ ...prev, [initials]: attendanceDays }));
+    
+    console.log(`📤 Drag-drop save for ${initials}:`, { weekStart, attendanceDays, newStatus });
+    
+    setIsSaving(true);
+    
+    try {
+      const response = await fetch('/api/attendance/updateAttendance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initials, weekStart, attendanceDays })
+      });
+      
+      let result: any = null;
+      try {
+        result = await response.json();
+      } catch {
+        result = null;
+      }
+      console.log(`📥 Drag-drop response for ${initials}:`, result);
+      
+      if (!response.ok || (result && result.success === false)) {
+        throw new Error(result?.error || `Failed to update attendance for ${name}`);
+      }
+      
+      const statusLabelMap: Record<string, string> = {
+        office: 'Office',
+        wfh: 'Working From Home',
+        away: 'Away',
+        'off-sick': 'Off Sick',
+        'out-of-office': 'Out of Office'
+      };
+
+      // Calmer reassurance message
+      setSaveSuccess(`${name} updated to ${statusLabelMap[newStatus] || newStatus}.`);
+      setTimeout(() => setSaveSuccess(null), 2000);
+
+      // Notify parent of the update
+      if (onAttendanceUpdated) {
+        const updatedRecord = {
+          Attendance_ID: member.Attendance_ID ?? 0,
+          Entry_ID: member.Entry_ID ?? 0,
+          First_Name: member.First || member.name || name,
+          Initials: initials,
+          Level: member.Level ?? '',
+          Week_Start: weekStart,
+          Week_End: weekStart,
+          ISO_Week: member.ISO_Week ?? 0,
+          Attendance_Days: attendanceDays,
+          Confirmed_At: null,
+        } as AttendanceRecord;
+        onAttendanceUpdated([updatedRecord]);
+      }
+      
+    } catch (error: any) {
+      console.error('Error updating attendance via drag-drop:', error);
+      // ROLLBACK: Revert optimistic update on error
+      setOptimisticAttendance((prev) => {
+        const next = { ...prev };
+        if (previousAttendance) {
+          next[initials] = previousAttendance;
+        } else {
+          delete next[initials];
+        }
+        return next;
+      });
+      setSaveError(error.message || 'Failed to update attendance');
+      setTimeout(() => setSaveError(null), 4000);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+  
+  // Handle drag end (cleanup)
+  const handleDragEnd = () => {
+    setDraggedMember(null);
+    setDragOverStatus(null);
+  };
+
+  // Handle immediate single-day status change (used by week editor)
+  const handleSingleDayChange = async (initials: string, day: DayFilterKey, newStatus: string) => {
+    const member = processedTeamData.find(m => m.Initials === initials);
+    if (!member) return;
+
+    const weekOffset = selectedWeek === 'next' ? 1 : 0;
+    const weekStart = getWeekStartDate(weekOffset);
+    const currentPattern = getDailyAttendance(member, weekOffset);
+    const previousAttendance = member.attendanceDays;
+    
+    // Build new pattern with just this day changed
+    const newPattern = [...currentPattern];
+    const dayIndex = DAY_INDEX_MAP[day];
+    newPattern[dayIndex] = newStatus as any;
+    const attendanceDays = newPattern.join(',');
+    
+    // Optimistic update
+    setOptimisticAttendance((prev) => ({ ...prev, [initials]: attendanceDays }));
+    
+    try {
+      const response = await fetch('/api/attendance/updateAttendance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initials, weekStart, attendanceDays })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to update');
+      }
+      
+      setSaveSuccess(`Updated ${member.First || initials}'s ${day}`);
+      setTimeout(() => setSaveSuccess(null), 1500);
+      
+    } catch (error) {
+      // Rollback
+      setOptimisticAttendance((prev) => {
+        const next = { ...prev };
+        if (previousAttendance) {
+          next[initials] = previousAttendance;
+        } else {
+          delete next[initials];
+        }
+        return next;
+      });
+      setSaveError('Failed to update');
+      setTimeout(() => setSaveError(null), 3000);
+    }
+  };
+
+  // Handle status change for a specific day (legacy - adds to pending changes)
+  const handleStatusChange = (initials: string, day: DayFilterKey, newStatus: string) => {
+    setPendingChanges(prev => ({
+      ...prev,
+      [initials]: {
+        ...(prev[initials] || {}),
+        [day]: newStatus
+      }
+    }));
+    setEditingDay(null);
+    setEditingMember(null);
+  };
+
+  // Save pending changes to the server
+  const savePendingChanges = async () => {
+    if (Object.keys(pendingChanges).length === 0) return;
+    
+    setIsSaving(true);
+    setSaveError(null);
+    setSaveSuccess(null);
+    
+    try {
+      const weekOffset = selectedWeek === 'next' ? 1 : 0;
+      const weekStart = getWeekStartDate(weekOffset);
+      
+      // Process each user's changes
+      for (const [initials, dayChanges] of Object.entries(pendingChanges)) {
+        // Get current attendance pattern for this user
+        const member = processedTeamData.find(m => m.Initials === initials);
+        if (!member) {
+          console.warn('Missing team member for attendance save', initials);
+          continue;
+        }
+        const currentPattern = getDailyAttendance(member, weekOffset);
+        
+        // Build new pattern by applying changes
+        const newPattern = [...currentPattern];
+        for (const [day, status] of Object.entries(dayChanges)) {
+          const dayIndex = DAY_INDEX_MAP[day as DayFilterKey];
+          if (dayIndex >= 0 && dayIndex < 5) {
+            newPattern[dayIndex] = status as any;
+          }
+        }
+        
+        // Convert pattern to comma-separated string
+        const attendanceDays = newPattern.join(',');
+        
+        console.log(`📤 Saving attendance for ${initials}:`, { weekStart, attendanceDays, changes: dayChanges });
+        
+        const response = await fetch('/api/attendance/updateAttendance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ initials, weekStart, attendanceDays })
+        });
+        
+        let result: any = null;
+        try {
+          result = await response.json();
+        } catch {
+          result = null;
+        }
+        console.log(`📥 Response for ${initials}:`, result);
+        
+        if (!response.ok || (result && result.success === false)) {
+          throw new Error(result?.error || `Failed to save attendance for ${initials}`);
+        }
+      }
+      
+      setPendingChanges({});
+      setSaveSuccess('Attendance saved successfully!');
+      setTimeout(() => setSaveSuccess(null), 3000);
+      
+      // Refresh attendance data
+      if (onAttendanceUpdated) {
+        onAttendanceUpdated([]);
+      }
+      
+    } catch (error: any) {
+      console.error('Error saving attendance:', error);
+      setSaveError(error.message || 'Failed to save attendance');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Cancel editing and clear pending changes
+  const cancelEditing = () => {
+    setIsEditMode(false);
+    setEditingMember(null);
+    setEditingDay(null);
+    setPendingChanges({});
+    setSaveError(null);
+    setOptimisticAttendance({});
+  };
+
+  // Check if user can edit a specific member's attendance
+  const canEditMember = (memberInitials: string): boolean => {
+    return isAdmin || memberInitials === userInitials;
+  };
 
   // Helper function to check if someone is on leave for a specific week
-  const getLeaveStatusForWeek = (
+  const getLeaveStatusForWeek = useCallback((
     initials: string,
     weekOffset: 0 | 1 = 0
   ): 'away' | 'out-of-office' | null => {
@@ -267,10 +669,10 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
     }
 
     return null;
-  };
+  }, [annualLeaveRecords, futureLeaveRecords]);
 
   // Helper function to get daily attendance pattern for a specific week
-  const getDailyAttendance = (member: any, weekOffset: 0 | 1 = 0): ('wfh' | 'office' | 'away' | 'off-sick' | 'out-of-office')[] => {
+  const getDailyAttendance = useCallback((member: any, weekOffset: 0 | 1 = 0): ('wfh' | 'office' | 'away' | 'off-sick' | 'out-of-office')[] => {
     const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
     
     // Check if on leave for this specific week (from leave arrays)
@@ -321,7 +723,8 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
     const normalizedLower = normalized.toLowerCase();
 
     // If attendance is just a status string (single token), apply to all days
-    if (['wfh', 'office', 'away', 'off-sick', 'out-of-office'].includes(normalizedLower)) {
+    const validStatuses = ['wfh', 'office', 'away', 'off-sick', 'out-of-office'];
+    if (validStatuses.includes(normalizedLower)) {
       const statusValue = normalizedLower as 'wfh' | 'office' | 'away' | 'off-sick' | 'out-of-office';
       return Array(5).fill(statusValue);
     }
@@ -331,13 +734,19 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
       return ['wfh', 'wfh', 'wfh', 'wfh', 'wfh'];
     }
     
-    // Otherwise, parse a comma-separated list of weekdays
+    // Otherwise, parse a comma-separated list
     const tokens = normalized
       .split(',')
       .map((t: string) => t.trim().toLowerCase())
       .filter(Boolean);
 
-    return days.map((day) => {
+    // NEW: Positional status format (e.g. "office,wfh,office,wfh,wfh")
+    // If we have exactly 5 tokens and all are valid statuses, treat them positionally
+    if (tokens.length === 5 && tokens.every(t => validStatuses.includes(t))) {
+      return tokens as ('wfh' | 'office' | 'away' | 'off-sick' | 'out-of-office')[];
+    }
+
+    return days.map((day, idx) => {
       // Parse status from format like "Mon:office,Tue:wfh" or just office days like "Mon,Tue"
       const dayStatus = tokens.find(token => token.includes(':') && token.startsWith(day.slice(0, 3).toLowerCase()));
       if (dayStatus) {
@@ -351,7 +760,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
       const status = isInOffice ? 'office' : 'wfh';
       return status;
     });
-  };
+        }, [attendanceRecords, getLeaveStatusForWeek]);
 
   const getDayIcon = (status: 'wfh' | 'office' | 'away' | 'off-sick' | 'out-of-office') => {
     switch (status) {
@@ -378,15 +787,20 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
   // Process team data
   const processedTeamData = useMemo(() => {
     return teamData.map(member => {
-      const userInitials = userData?.displayName?.match(/\b\w/g)?.join('').toUpperCase() || 
-                          userData?.mail?.substring(0, 2).toUpperCase() || 'UN';
+      // Match by email if available, fallback to initials
+      const memberEmail = getMemberEmail(member);
+      const initialsMatch = (member.Initials || '').toString().trim().toUpperCase() === userInitials;
+      const isCurrentUser = userEmail
+        ? memberEmail === userEmail || initialsMatch
+        : initialsMatch;
                           
       const attendanceRecord = attendanceRecords.find(
         (rec) => rec.Initials === member.Initials
       );
 
       // Prefer Attendance_Days; fall back to backend Status or team member Status
-      const attendanceDays = attendanceRecord?.Attendance_Days 
+      const attendanceDays = optimisticAttendance[member.Initials]
+        || attendanceRecord?.Attendance_Days 
         || attendanceRecord?.Status 
         || (member as any).Status 
         || '';
@@ -426,14 +840,14 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
         status,
         attendanceDays,
         isConfirmed: attendanceRecord?.Confirmed_At !== null,
-        isUser: member.Initials === userInitials,
+        isUser: isCurrentUser,
         isOnLeaveCurrentWeek: Boolean(leaveStatusCurrentWeek),
         isOnLeaveNextWeek: Boolean(leaveStatusNextWeek),
         currentWeekLeaveStatus: leaveStatusCurrentWeek,
         nextWeekLeaveStatus: leaveStatusNextWeek,
       };
     });
-  }, [teamData, attendanceRecords, userData, annualLeaveRecords, futureLeaveRecords]);
+  }, [teamData, attendanceRecords, userData, annualLeaveRecords, futureLeaveRecords, userInitials, userEmail, optimisticAttendance, getDailyAttendance, getLeaveStatusForWeek]);
 
   // Styles
   const containerStyle = (isDark: boolean) => mergeStyles({
@@ -455,7 +869,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
     border: isUser 
       ? `3px solid ${isDark ? colours.blue : colours.missedBlue}` 
       : `1px solid ${isDark ? colours.dark.border : colours.light.border}`,
-    borderRadius: '8px',
+    borderRadius: '2px',
     transition: 'all 0.2s ease',
     minHeight: '70px',
     position: 'relative',
@@ -481,7 +895,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
       top: '-3px',
       right: '-3px',
       bottom: '-3px',
-      borderRadius: '8px',
+      borderRadius: '2px',
       background: `linear-gradient(135deg, ${isDark ? colours.blue : colours.missedBlue} 0%, ${colours.blue} 100%)`,
       zIndex: -1,
       opacity: 0.6
@@ -539,7 +953,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
       : 'transparent',
     border: `1px solid ${isActive ? colours.highlight : (isDarkMode ? colours.dark.border : colours.light.border)}`,
     color: isActive ? (isDarkMode ? '#E9F5FF' : colours.highlight) : (isDarkMode ? colours.dark.text : colours.light.text),
-    borderRadius: '6px',
+    borderRadius: '2px',
     lineHeight: 1.2,
     display: 'flex',
     alignItems: 'center',
@@ -562,7 +976,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
     display: 'flex',
     gap: '4px',
     padding: '2px',
-    borderRadius: '8px',
+    borderRadius: '2px',
     background: isDarkMode
       ? 'linear-gradient(135deg, rgba(30,64,175,0.14) 0%, rgba(2,132,199,0.10) 100%)'
       : 'linear-gradient(135deg, rgba(191,219,254,0.35) 0%, rgba(219,234,254,0.30) 100%)',
@@ -582,7 +996,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
       : 'transparent',
     color: isActive ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? colours.dark.text : colours.light.text),
     border: `1px solid ${isActive ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? 'rgba(148,163,184,0.26)' : 'rgba(6,23,51,0.14)')}`,
-    borderRadius: '6px',
+    borderRadius: '2px',
     lineHeight: 1.2,
     display: 'flex',
     alignItems: 'center',
@@ -610,7 +1024,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
       ? 'linear-gradient(135deg, rgba(30,41,59,0.55) 0%, rgba(15,23,42,0.55) 100%)'
       : colours.light.cardBackground,
     border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.18)' : 'rgba(6,23,51,0.08)'}`,
-    borderRadius: '10px',
+    borderRadius: '2px',
     padding: '10px',
     boxShadow: isDarkMode
       ? '0 8px 18px rgba(0,0,0,0.28)'
@@ -815,7 +1229,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
 
       return weekAttendance.some(status => status && selectedStatuses.includes(status));
     });
-  }, [processedTeamData, selectedWeek, selectedDays, selectedStatuses]);
+  }, [processedTeamData, selectedWeek, selectedDays, selectedStatuses, getDailyAttendance]);
 
   const orderedSelectedDays = useMemo(() => {
     return DAY_ORDER.filter(day => selectedDays.includes(day));
@@ -910,7 +1324,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                     : `linear-gradient(135deg, ${colours.cta}25 0%, ${colours.cta}15 100%)`,
                   border: `1px solid ${colours.cta}`,
                   color: isDarkMode ? '#fff' : colours.cta,
-                  borderRadius: '6px',
+                  borderRadius: '2px',
                   animationName: keyframes({
                     '0%, 100%': { boxShadow: `0 0 0 0 ${colours.cta}40`, transform: 'scale(1)' },
                     '50%': { boxShadow: `0 0 12px 4px ${colours.cta}30`, transform: 'scale(1.02)' }
@@ -930,7 +1344,140 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
               }}
             />
           )}
+          
+          {/* Edit Mode Controls */}
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            {isEditMode && Object.keys(pendingChanges).length > 0 && (
+              <>
+                <DefaultButton
+                  text={isSaving ? 'Saving...' : 'Save Changes'}
+                  iconProps={{ iconName: 'Save' }}
+                  disabled={isSaving}
+                  onClick={savePendingChanges}
+                  styles={{
+                    root: {
+                      height: '26px',
+                      padding: '0 14px',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      background: isDarkMode
+                        ? `linear-gradient(135deg, ${colours.green}30 0%, ${colours.green}20 100%)`
+                        : `linear-gradient(135deg, ${colours.green}25 0%, ${colours.green}15 100%)`,
+                      border: `1px solid ${colours.green}`,
+                      color: isDarkMode ? '#fff' : colours.green,
+                      borderRadius: '2px',
+                    },
+                    rootHovered: {
+                      background: isDarkMode
+                        ? `linear-gradient(135deg, ${colours.green}45 0%, ${colours.green}30 100%)`
+                        : `linear-gradient(135deg, ${colours.green}35 0%, ${colours.green}25 100%)`,
+                    }
+                  }}
+                />
+                <DefaultButton
+                  text="Cancel"
+                  iconProps={{ iconName: 'Cancel' }}
+                  onClick={cancelEditing}
+                  styles={{
+                    root: {
+                      height: '26px',
+                      padding: '0 10px',
+                      fontSize: '11px',
+                      background: 'transparent',
+                      border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.3)' : 'rgba(6,23,51,0.15)'}`,
+                      color: isDarkMode ? colours.dark.text : colours.light.text,
+                      borderRadius: '2px',
+                    }
+                  }}
+                />
+              </>
+            )}
+            <DefaultButton
+              text={isEditMode ? 'Exit Edit' : 'Edit'}
+              iconProps={{ iconName: isEditMode ? 'ChromeClose' : 'Edit' }}
+              onClick={() => {
+                if (isEditMode) {
+                  cancelEditing();
+                } else {
+                  setIsEditMode(true);
+                  setSaveError(null);
+                  setSaveSuccess(null);
+                }
+              }}
+              styles={{
+                root: {
+                  height: '26px',
+                  padding: '0 12px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  background: isEditMode
+                    ? (isDarkMode ? `${colours.highlight}25` : `${colours.highlight}15`)
+                    : 'transparent',
+                  border: `1px solid ${isEditMode ? colours.highlight : (isDarkMode ? 'rgba(148,163,184,0.3)' : 'rgba(6,23,51,0.15)')}`,
+                  color: isEditMode ? colours.highlight : (isDarkMode ? colours.dark.text : colours.light.text),
+                  borderRadius: '2px',
+                },
+                rootHovered: {
+                  background: isDarkMode
+                    ? `${colours.highlight}30`
+                    : `${colours.highlight}20`,
+                  borderColor: colours.highlight
+                }
+              }}
+            />
+          </div>
         </div>
+        
+        {/* Edit Mode Status Messages */}
+        {(saveError || saveSuccess) && (
+          <div style={{
+            padding: '8px 12px',
+            marginBottom: '8px',
+            borderRadius: '2px',
+            fontSize: '12px',
+            background: saveError
+              ? (isDarkMode ? `${colours.cta}20` : `${colours.cta}10`)
+              : (isDarkMode ? `${colours.green}20` : `${colours.green}10`),
+            border: `1px solid ${saveError ? colours.cta : colours.green}`,
+            color: saveError ? colours.cta : colours.green
+          }}>
+            <Icon iconName={saveError ? 'ErrorBadge' : 'CheckMark'} style={{ marginRight: '8px' }} />
+            {saveError || saveSuccess}
+          </div>
+        )}
+        
+        {/* Edit Mode Helper */}
+        {isEditMode && (
+          <div style={{
+            padding: '8px 12px',
+            marginBottom: '8px',
+            borderRadius: '2px',
+            fontSize: '11px',
+            background: isDarkMode ? 'rgba(148,163,184,0.08)' : 'rgba(6,23,51,0.04)',
+            border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.15)' : 'rgba(6,23,51,0.08)'}`,
+            color: isDarkMode ? colours.dark.subText : colours.light.subText,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            flexWrap: 'wrap'
+          }}>
+            <Icon iconName="Info" style={{ fontSize: '12px' }} />
+            <span>
+              <strong>Edit mode:</strong> Drag to move • Click to edit week
+            </span>
+            {isSaving && (
+              <span style={{ marginLeft: 'auto', fontWeight: 600, color: colours.highlight }}>
+                <Icon iconName="Sync" style={{ marginRight: '4px', animation: 'spin 1s linear infinite' }} />
+                Saving...
+              </span>
+            )}
+            {draggedMember && (
+              <span style={{ marginLeft: 'auto', fontWeight: 600, color: colours.orange }}>
+                Moving {draggedMember.name}...
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Bottom Row: Status + Days */}
         {selectedWeek !== 'today' && (
@@ -967,6 +1514,138 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* Summary Bar - Quick glance at totals */}
+      {selectedWeek === 'today' && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '16px',
+          marginBottom: '12px',
+          padding: '10px 14px',
+          background: isDarkMode
+            ? 'linear-gradient(135deg, rgba(30,41,59,0.45) 0%, rgba(15,23,42,0.45) 100%)'
+            : 'linear-gradient(135deg, rgba(248,250,252,0.9) 0%, rgba(241,245,249,0.9) 100%)',
+          borderRadius: '2px',
+          border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.12)' : 'rgba(6,23,51,0.06)'}`,
+          flexWrap: 'wrap'
+        }}>
+          {(() => {
+            // Calculate totals for today
+            const statusCounts = filteredData.reduce((acc, member) => {
+              const status = getStatusForActiveFilters(member);
+              acc[status] = (acc[status] || 0) + 1;
+              return acc;
+            }, {} as Record<string, number>);
+            
+            const summaryItems = [
+              { status: 'office', label: 'Office', color: isDarkMode ? colours.blue : colours.missedBlue },
+              { status: 'wfh', label: 'WFH', color: colours.green },
+              { status: 'away', label: 'Away', color: colours.subtleGrey },
+              { status: 'off-sick', label: 'Sick', color: colours.cta },
+              { status: 'out-of-office', label: 'OOO', color: colours.orange }
+            ].filter(item => statusCounts[item.status] > 0);
+
+            // Find current user's status
+            const currentUser = filteredData.find(m => m.isUser);
+            const userStatus = currentUser ? getStatusForActiveFilters(currentUser) : null;
+            const userStatusLabel = userStatus ? {
+              office: 'In Office',
+              wfh: 'Working From Home',
+              away: 'Away',
+              'off-sick': 'Off Sick',
+              'out-of-office': 'Out Of Office'
+            }[userStatus] : null;
+
+            return (
+              <>
+                {/* Current user status highlight */}
+                {currentUser && userStatus && (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '4px 10px',
+                    background: isDarkMode
+                      ? `linear-gradient(135deg, ${getDayColor(userStatus as any)}25 0%, ${getDayColor(userStatus as any)}15 100%)`
+                      : `linear-gradient(135deg, ${getDayColor(userStatus as any)}18 0%, ${getDayColor(userStatus as any)}08 100%)`,
+                    borderRadius: '2px',
+                    border: `1px solid ${getDayColor(userStatus as any)}50`,
+                  }}>
+                    <span style={{
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: isDarkMode ? colours.dark.subText : colours.light.subText
+                    }}>
+                      You:
+                    </span>
+                    <StatusIcon
+                      status={userStatus as any}
+                      size="10px"
+                      color={getDayColor(userStatus as any)}
+                    />
+                    <span style={{
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: getDayColor(userStatus as any)
+                    }}>
+                      {userStatusLabel}
+                    </span>
+                  </div>
+                )}
+                
+                {/* Divider */}
+                {currentUser && (
+                  <div style={{
+                    width: '1px',
+                    height: '20px',
+                    background: isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(6,23,51,0.1)'
+                  }} />
+                )}
+                
+                {/* Status counts */}
+                {summaryItems.map((item, idx) => (
+                  <div 
+                    key={item.status}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <StatusIcon
+                      status={item.status as any}
+                      size="10px"
+                      color={item.color}
+                    />
+                    <span style={{
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      color: item.color
+                    }}>
+                      {statusCounts[item.status]}
+                    </span>
+                    <span style={{
+                      fontSize: '11px',
+                      color: isDarkMode ? colours.dark.subText : colours.light.subText
+                    }}>
+                      {item.label}
+                    </span>
+                    {idx < summaryItems.length - 1 && (
+                      <span style={{
+                        margin: '0 4px',
+                        color: isDarkMode ? 'rgba(148,163,184,0.3)' : 'rgba(6,23,51,0.15)'
+                      }}>
+                        •
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </>
+            );
+          })()}
+        </div>
+      )}
 
       {/* Weekly Attendance Grid */}
       <div style={{ marginBottom: '12px' }}>
@@ -1018,23 +1697,60 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                   .filter(status => {
                     const hasMembers = statusGroups[status]?.length > 0;
                     const passesFilter = selectedStatuses.length === 0 || selectedStatuses.includes(status as StatusFilterKey);
-                    return hasMembers && passesFilter;
+                    // Show empty groups when dragging to provide drop targets
+                    const showForDragging = draggedMember && draggedMember.currentStatus !== status && isEditMode;
+                    return (hasMembers && passesFilter) || showForDragging;
                   })
-                  .map(status => (
+                  .map(status => {
+                    // Get subtle tinted background for each status
+                    const statusColor = getDayColor(status as 'office' | 'wfh' | 'away' | 'off-sick' | 'out-of-office');
+                    const tintedBackground = isDarkMode
+                      ? `linear-gradient(135deg, ${statusColor}08 0%, rgba(15,23,42,0.70) 100%)`
+                      : `linear-gradient(135deg, ${statusColor}06 0%, ${colours.light.cardBackground} 100%)`;
+                    
+                    // Sort members to put current user first
+                    const membersForStatus = statusGroups[status] || [];
+                    const sortedMembers = [...membersForStatus].sort((a, b) => {
+                      if (a.isUser && !b.isUser) return -1;
+                      if (!a.isUser && b.isUser) return 1;
+                      return 0;
+                    });
+                    const isDropTarget = dragOverStatus === status;
+                    const isValidDropTarget = isEditMode && draggedMember && draggedMember.currentStatus !== status;
+                    
+                    // Close expanded member when clicking on the status group background
+                    const handleGroupClick = (e: React.MouseEvent) => {
+                      if (e.target === e.currentTarget) {
+                        setExpandedMember(null);
+                      }
+                    };
+                    
+                    return (
                     <div 
                       key={status}
+                      onClick={handleGroupClick}
+                      onDragOver={(e) => isEditMode && handleDragOver(e, status)}
+                      onDragLeave={handleDragLeave}
+                      onDrop={(e) => isEditMode && handleDrop(e, status)}
                       style={{
-                        background: isDarkMode
-                          ? 'linear-gradient(135deg, rgba(2,6,23,0.65) 0%, rgba(15,23,42,0.70) 100%)'
-                          : colours.light.cardBackground,
-                        border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.16)' : 'rgba(6,23,51,0.08)'}`,
-                        borderRadius: '12px',
+                        background: isDropTarget && isValidDropTarget
+                          ? (isDarkMode 
+                              ? `linear-gradient(135deg, ${statusColor}25 0%, rgba(15,23,42,0.85) 100%)`
+                              : `linear-gradient(135deg, ${statusColor}20 0%, ${colours.light.cardBackground} 100%)`)
+                          : tintedBackground,
+                        border: isDropTarget && isValidDropTarget
+                          ? `2px dashed ${statusColor}`
+                          : `1px solid ${isDarkMode ? `${statusColor}20` : `${statusColor}15`}`,
+                        borderRadius: '2px',
                         padding: '16px',
                         minWidth: '280px',
                         flex: '1',
-                        boxShadow: isDarkMode ? '0 10px 24px rgba(0,0,0,0.35)' : '0 10px 24px rgba(6,23,51,0.10)',
-                        transition: 'background 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease',
-                        cursor: 'default'
+                        boxShadow: isDropTarget && isValidDropTarget
+                          ? `0 0 20px ${statusColor}40`
+                          : (isDarkMode ? '0 10px 24px rgba(0,0,0,0.35)' : '0 10px 24px rgba(6,23,51,0.10)'),
+                        transition: 'background 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease, border 0.2s ease',
+                        cursor: 'default',
+                        transform: isDropTarget && isValidDropTarget ? 'scale(1.02)' : 'none'
                       }}
                     >
                       {/* Status Header */}
@@ -1044,13 +1760,13 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                         gap: '8px', 
                         marginBottom: '12px',
                         paddingBottom: '8px',
-                        borderBottom: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.14)' : 'rgba(6,23,51,0.08)'}`
+                        borderBottom: `1px solid ${isDarkMode ? `${statusColor}18` : `${statusColor}12`}`
                       }}>
                         <div 
                           style={{
                             width: '24px',
                             height: '24px',
-                            borderRadius: '6px',
+                            borderRadius: '2px',
                             backgroundColor: `${getDayColor(status as 'office' | 'wfh' | 'away' | 'off-sick' | 'out-of-office')}1c`,
                             border: `1px solid ${getDayColor(status as 'office' | 'wfh' | 'away' | 'off-sick' | 'out-of-office')}85`,
                             display: 'flex',
@@ -1076,7 +1792,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                             fontSize: '11px', 
                             color: isDarkMode ? colours.accent : colours.blue
                           }}>
-                            {statusGroups[status].length} {statusGroups[status].length === 1 ? 'person' : 'people'}
+                            {membersForStatus.length} {membersForStatus.length === 1 ? 'person' : 'people'}
                           </div>
                         </div>
                       </div>
@@ -1085,37 +1801,148 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                       <div style={{ 
                         display: 'grid',
                         gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
-                        gap: '6px'
+                        gap: '6px',
+                        minHeight: sortedMembers.length === 0 ? '60px' : 'auto'
                       }}>
-                        {statusGroups[status].map((member: any) => {
+                        {sortedMembers.length === 0 && draggedMember && (
+                          <div style={{
+                            gridColumn: '1 / -1',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            padding: '16px',
+                            color: isDarkMode ? colours.dark.subText : colours.light.subText,
+                            fontSize: '12px',
+                            fontStyle: 'italic'
+                          }}>
+                            Drop here to set status
+                          </div>
+                        )}
+                        {sortedMembers.map((member: any) => {
                           const nextWorkday = getNextWorkdayAttendance(member);
                           const nextWorkdayDifferent = nextWorkday.status !== status && nextWorkday.label !== '';
+                          const statusColor = getDayColor(status as 'office' | 'wfh' | 'away' | 'off-sick' | 'out-of-office');
+                          // User can drag themselves OR admin can drag anyone
+                          const canDrag = isEditMode;
+                          
+                          // Get today's day key for pending changes and editing state
+                          const today = new Date();
+                          const todayIndex = today.getDay();
+                          const dayKeys: DayFilterKey[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
+                          const todayDayKey = todayIndex >= 1 && todayIndex <= 5 ? dayKeys[todayIndex - 1] : 'monday';
+                          const isEditingThisMember = editingMember === member.Initials && editingDay === todayDayKey;
+                          const isExpandedMember = expandedMember === member.Initials;
+                          const hasPendingChange = !!pendingChanges[member.Initials]?.[todayDayKey];
+                          const isDraggingThisMember = draggedMember?.initials === member.Initials;
+                          const memberWeekPattern = getDailyAttendance(member, 0); // Today view always uses current week
                           
                           return (
                             <div 
                               key={member.Initials}
+                              draggable={canDrag && !isExpandedMember}
+                              onDragStart={(e) => {
+                                if (canDrag && !isExpandedMember) {
+                                  handleDragStart(e, member.Initials, member.Name || member.First || member.Initials, status);
+                                }
+                              }}
+                              onDragEnd={handleDragEnd}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (canDrag && !draggedMember) {
+                                  // Toggle week editor on click
+                                  if (isExpandedMember) {
+                                    setExpandedMember(null);
+                                  } else {
+                                    setExpandedMember(member.Initials);
+                                    setEditingMember(null);
+                                    setEditingDay(null);
+                                  }
+                                }
+                              }}
                               style={{
                                 display: 'flex',
                                 flexDirection: 'column',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                padding: '8px',
-                                borderRadius: '8px',
-                                background: isDarkMode ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.025)',
-                                border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.12)' : 'rgba(6,23,51,0.06)'}`,
-                                gap: '4px'
+                                padding: member.isUser ? '8px 8px 8px 8px' : '8px',
+                                borderRadius: '2px',
+                                background: member.isUser
+                                  ? (isDarkMode ? `${statusColor}18` : `${statusColor}12`)
+                                  : (isDarkMode ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.025)'),
+                                border: hasPendingChange
+                                  ? `2px dashed ${colours.orange}`
+                                  : isExpandedMember
+                                    ? `2px solid ${colours.highlight}`
+                                    : isEditingThisMember
+                                      ? `2px solid ${colours.blue}`
+                                      : member.isUser
+                                        ? `2px solid ${statusColor}60`
+                                        : `1px solid ${isDarkMode ? 'rgba(148,163,184,0.12)' : 'rgba(6,23,51,0.06)'}`,
+                                gap: '4px',
+                                position: 'relative',
+                                boxShadow: isExpandedMember
+                                  ? `0 4px 16px ${colours.highlight}50`
+                                  : isEditingThisMember
+                                    ? `0 4px 12px ${colours.blue}40`
+                                    : member.isUser
+                                      ? (isDarkMode ? `0 2px 8px ${statusColor}25` : `0 2px 8px ${statusColor}20`)
+                                      : 'none',
+                                cursor: canDrag ? (draggedMember ? 'grabbing' : 'pointer') : 'default',
+                                transition: 'transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease',
+                                transform: isExpandedMember ? 'scale(1.02)' : isEditingThisMember ? 'scale(1.05)' : 'none',
+                                opacity: isDraggingThisMember ? 0.5 : 1,
+                                userSelect: 'none'
                               }}
                             >
+                              {/* "You" badge for current user */}
+                              {member.isUser && (
+                                <div style={{
+                                  position: 'absolute',
+                                  top: '-6px',
+                                  right: '-6px',
+                                  background: statusColor,
+                                  color: '#fff',
+                                  fontSize: '8px',
+                                  fontWeight: 700,
+                                  padding: '2px 5px',
+                                  borderRadius: '2px',
+                                  textTransform: 'uppercase',
+                                  letterSpacing: '0.5px'
+                                }}>
+                                  You
+                                </div>
+                              )}
+                              
+                              {/* Edit indicator */}
+                              {canDrag && !isEditingThisMember && (
+                                <div style={{
+                                  position: 'absolute',
+                                  top: '-4px',
+                                  left: '-4px',
+                                  background: isDarkMode ? '#1e293b' : '#fff',
+                                  border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.3)' : 'rgba(6,23,51,0.15)'}`,
+                                  borderRadius: '50%',
+                                  width: '14px',
+                                  height: '14px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  opacity: 0.7
+                                }}>
+                                  <Icon iconName="Edit" style={{ fontSize: '8px', color: isDarkMode ? colours.dark.subText : colours.light.subText }} />
+                                </div>
+                              )}
+                              
                               <span style={{
                                 fontSize: '13px',
-                                fontWeight: member.isUser ? '600' : '400',
-                                color: isDarkMode ? colours.dark.text : colours.light.text,
+                                fontWeight: member.isUser ? '700' : '400',
+                                color: member.isUser ? statusColor : (isDarkMode ? colours.dark.text : colours.light.text),
                                 textAlign: 'center'
                               }}>
                                 {member.Nickname || member.First || member.Initials}
                               </span>
                               
-                              {nextWorkdayDifferent && (
+                              {nextWorkdayDifferent && !isEditingThisMember && (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px', opacity: 0.6 }}>
                                   <span style={{ 
                                     fontSize: '8px', 
@@ -1143,15 +1970,158 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                                   </div>
                                 </div>
                               )}
+                              
+                              {/* Week Editor - shows all days when expanded */}
+                              {isExpandedMember && (
+                                <div 
+                                  onClick={(e) => e.stopPropagation()}
+                                  style={{
+                                    position: 'absolute',
+                                    bottom: '100%',
+                                    left: '50%',
+                                    transform: 'translateX(-50%)',
+                                    marginBottom: '6px',
+                                    background: isDarkMode ? 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)' : '#fff',
+                                    border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.25)' : 'rgba(6,23,51,0.12)'}`,
+                                    borderRadius: '6px',
+                                    boxShadow: isDarkMode ? '0 -8px 32px rgba(0,0,0,0.6)' : '0 -8px 32px rgba(0,0,0,0.18)',
+                                    zIndex: 1000,
+                                    padding: '10px',
+                                    minWidth: '220px'
+                                  }}
+                                >
+                                  {/* Header */}
+                                  <div style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    marginBottom: '10px',
+                                    paddingBottom: '8px',
+                                    borderBottom: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.15)' : 'rgba(6,23,51,0.08)'}`
+                                  }}>
+                                    <span style={{
+                                      fontSize: '12px',
+                                      fontWeight: 600,
+                                      color: isDarkMode ? colours.dark.text : colours.light.text
+                                    }}>
+                                      {member.First || member.Initials}'s Week
+                                    </span>
+                                    <div
+                                      onClick={() => setExpandedMember(null)}
+                                      style={{
+                                        cursor: 'pointer',
+                                        padding: '2px',
+                                        borderRadius: '2px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center'
+                                      }}
+                                    >
+                                      <Icon iconName="Cancel" style={{ fontSize: '10px', color: isDarkMode ? colours.dark.subText : colours.light.subText }} />
+                                    </div>
+                                  </div>
+                                  
+                                  {/* Days Grid */}
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                    {DAY_FILTER_OPTIONS.map((dayOption, dayIdx) => {
+                                      const dayStatus = memberWeekPattern[dayIdx];
+                                      const dayColor = getDayColor(dayStatus);
+                                      const isToday = todayIndex >= 1 && todayIndex <= 5 && dayIdx === todayIndex - 1;
+                                      
+                                      return (
+                                        <div 
+                                          key={dayOption.key}
+                                          style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px',
+                                            padding: '6px 8px',
+                                            borderRadius: '4px',
+                                            background: isToday 
+                                              ? (isDarkMode ? 'rgba(54,144,206,0.15)' : 'rgba(54,144,206,0.1)')
+                                              : 'transparent',
+                                            border: isToday 
+                                              ? `1px solid ${colours.highlight}40`
+                                              : '1px solid transparent'
+                                          }}
+                                        >
+                                          {/* Day label */}
+                                          <span style={{
+                                            fontSize: '11px',
+                                            fontWeight: isToday ? 600 : 400,
+                                            color: isToday ? colours.highlight : (isDarkMode ? colours.dark.subText : colours.light.subText),
+                                            width: '32px'
+                                          }}>
+                                            {dayOption.label}
+                                            {isToday && <span style={{ fontSize: '8px', marginLeft: '2px' }}>•</span>}
+                                          </span>
+                                          
+                                          {/* Status buttons */}
+                                          <div style={{ display: 'flex', gap: '3px', flex: 1 }}>
+                                            {STATUS_FILTER_OPTIONS.map(statusOption => {
+                                              const isActive = dayStatus === statusOption.key;
+                                              const btnColor = getDayColor(statusOption.key as any);
+                                              
+                                              return (
+                                                <div
+                                                  key={statusOption.key}
+                                                  onClick={() => handleSingleDayChange(member.Initials, dayOption.key, statusOption.key)}
+                                                  title={statusOption.label}
+                                                  style={{
+                                                    width: '26px',
+                                                    height: '22px',
+                                                    borderRadius: '3px',
+                                                    background: isActive 
+                                                      ? btnColor 
+                                                      : (isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'),
+                                                    border: isActive 
+                                                      ? `1px solid ${btnColor}` 
+                                                      : `1px solid ${isDarkMode ? 'rgba(148,163,184,0.15)' : 'rgba(6,23,51,0.08)'}`,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    cursor: 'pointer',
+                                                    transition: 'all 0.15s ease',
+                                                    opacity: isActive ? 1 : 0.6
+                                                  }}
+                                                  onMouseEnter={(e) => {
+                                                    if (!isActive) {
+                                                      (e.currentTarget as HTMLElement).style.opacity = '1';
+                                                      (e.currentTarget as HTMLElement).style.background = `${btnColor}30`;
+                                                    }
+                                                  }}
+                                                  onMouseLeave={(e) => {
+                                                    if (!isActive) {
+                                                      (e.currentTarget as HTMLElement).style.opacity = '0.6';
+                                                      (e.currentTarget as HTMLElement).style.background = isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)';
+                                                    }
+                                                  }}
+                                                >
+                                                  <StatusIcon
+                                                    status={statusOption.key as any}
+                                                    size="10px"
+                                                    color={isActive ? '#fff' : btnColor}
+                                                  />
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           );
                         })}
                       </div>
                     </div>
-                  ));
+                  );
+                  });
               })()}
             </div>
-          ) : (selectedDays.length > 0 || selectedStatuses.length > 0) ? (
+          ) : (selectedWeek === 'current' || selectedWeek === 'next') ? (
             /* This Week/Next Week view: Compact grid of person cards */
             <div style={{
               display: 'grid',
@@ -1181,7 +2151,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                             ? 'linear-gradient(135deg, rgba(2,6,23,0.62) 0%, rgba(15,23,42,0.68) 100%)'
                             : colours.light.cardBackground,
                           border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.16)' : 'rgba(6,23,51,0.08)'}`,
-                          borderRadius: '10px',
+                          borderRadius: '2px',
                           padding: '12px',
                           display: 'flex',
                           flexDirection: 'column',
@@ -1207,8 +2177,13 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                           {daysToRender.map(dayKey => {
                             const index = DAY_INDEX_MAP[dayKey];
                             const dayStatusRaw = weekAttendance[index];
-                            const dayStatus = (dayStatusRaw || 'wfh') as StatusFilterKey;
+                            // Check for pending change first
+                            const pendingStatus = pendingChanges[member.Initials]?.[dayKey];
+                            const dayStatus = (pendingStatus || dayStatusRaw || 'wfh') as StatusFilterKey;
                             const label = dayKey.charAt(0).toUpperCase() + dayKey.slice(1, 3);
+                            const canEdit = isEditMode && canEditMember(member.Initials);
+                            const isEditing = editingMember === member.Initials && editingDay === dayKey;
+                            const hasPendingChange = !!pendingStatus;
 
                             return (
                               <div
@@ -1217,7 +2192,8 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                                   display: 'flex',
                                   flexDirection: 'column',
                                   alignItems: 'center',
-                                  gap: '3px'
+                                  gap: '3px',
+                                  position: 'relative'
                                 }}
                               >
                                 <div
@@ -1230,17 +2206,36 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                                   {label}
                                 </div>
                                 <div
+                                  onClick={() => {
+                                    if (canEdit) {
+                                      if (isEditing) {
+                                        setEditingMember(null);
+                                        setEditingDay(null);
+                                      } else {
+                                        setEditingMember(member.Initials);
+                                        setEditingDay(dayKey);
+                                      }
+                                    }
+                                  }}
                                   style={{
                                     width: '32px',
                                     height: '32px',
-                                    borderRadius: '6px',
+                                    borderRadius: '2px',
                                     backgroundColor: `${getDayColor(dayStatus)}1c`,
-                                    border: `1px solid ${getDayColor(dayStatus)}85`,
+                                    border: hasPendingChange
+                                      ? `2px dashed ${colours.orange}`
+                                      : isEditing
+                                        ? `2px solid ${colours.blue}`
+                                        : `1px solid ${getDayColor(dayStatus)}85`,
                                     display: 'flex',
                                     alignItems: 'center',
-                                    justifyContent: 'center'
+                                    justifyContent: 'center',
+                                    cursor: canEdit ? 'pointer' : 'default',
+                                    transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+                                    transform: isEditing ? 'scale(1.1)' : 'none',
+                                    boxShadow: isEditing ? `0 2px 8px ${colours.blue}40` : 'none'
                                   }}
-                                  title={`${label}: ${dayStatus}`}
+                                  title={canEdit ? `Click to change ${label}: ${dayStatus}` : `${label}: ${dayStatus}`}
                                 >
                                   <StatusIcon
                                     status={dayStatus}
@@ -1248,6 +2243,82 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                                     color={getDayColor(dayStatus)}
                                   />
                                 </div>
+                                
+                                {/* Status Picker Dropdown */}
+                                {isEditing && (
+                                  <div style={{
+                                    position: 'absolute',
+                                    top: '100%',
+                                    left: '50%',
+                                    transform: 'translateX(-50%)',
+                                    marginTop: '4px',
+                                    background: isDarkMode ? '#1e293b' : '#fff',
+                                    border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.25)' : 'rgba(6,23,51,0.12)'}`,
+                                    borderRadius: '4px',
+                                    boxShadow: isDarkMode ? '0 8px 24px rgba(0,0,0,0.5)' : '0 8px 24px rgba(0,0,0,0.15)',
+                                    zIndex: 1000,
+                                    minWidth: '100px',
+                                    overflow: 'hidden'
+                                  }}>
+                                    {STATUS_FILTER_OPTIONS.map(option => (
+                                      <div
+                                        key={option.key}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleStatusChange(member.Initials, dayKey, option.key);
+                                        }}
+                                        style={{
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: '8px',
+                                          padding: '8px 12px',
+                                          cursor: 'pointer',
+                                          background: option.key === dayStatus
+                                            ? (isDarkMode ? 'rgba(148,163,184,0.15)' : 'rgba(6,23,51,0.08)')
+                                            : 'transparent',
+                                          transition: 'background 0.15s ease',
+                                          borderBottom: option.key !== 'out-of-office' ? `1px solid ${isDarkMode ? 'rgba(148,163,184,0.1)' : 'rgba(6,23,51,0.05)'}` : 'none'
+                                        }}
+                                        onMouseEnter={(e) => {
+                                          if (option.key !== dayStatus) {
+                                            (e.target as HTMLElement).style.background = isDarkMode ? 'rgba(148,163,184,0.1)' : 'rgba(6,23,51,0.05)';
+                                          }
+                                        }}
+                                        onMouseLeave={(e) => {
+                                          if (option.key !== dayStatus) {
+                                            (e.target as HTMLElement).style.background = 'transparent';
+                                          }
+                                        }}
+                                      >
+                                        <div style={{
+                                          width: '18px',
+                                          height: '18px',
+                                          borderRadius: '2px',
+                                          backgroundColor: `${getDayColor(option.key as StatusFilterKey)}25`,
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center'
+                                        }}>
+                                          <StatusIcon
+                                            status={option.key as StatusFilterKey}
+                                            size="10px"
+                                            color={getDayColor(option.key as StatusFilterKey)}
+                                          />
+                                        </div>
+                                        <span style={{
+                                          fontSize: '11px',
+                                          fontWeight: option.key === dayStatus ? 600 : 400,
+                                          color: isDarkMode ? colours.dark.text : colours.light.text
+                                        }}>
+                                          {option.label}
+                                        </span>
+                                        {option.key === dayStatus && (
+                                          <Icon iconName="CheckMark" style={{ fontSize: '10px', marginLeft: 'auto', color: colours.green }} />
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
                             );
                           })}

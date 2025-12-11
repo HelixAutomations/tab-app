@@ -1,5 +1,6 @@
 module.exports.PRACTICE_AREAS = {
     "Adjudication Advice & Dispute": 949034,
+    "Bankruptcy Petition Advice": 919594,  // Maps to Insolvency - Personal
     "Boundary and Nuisance Advice": 948938,
     "Breach of Lease Advice": 948827,
     "Business Contract Dispute": 948896,

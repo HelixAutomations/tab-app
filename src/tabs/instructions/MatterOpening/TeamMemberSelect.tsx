@@ -20,8 +20,11 @@ const TeamMemberSelect: React.FC<TeamMemberSelectProps> = ({
     className = '',
     disabled = false
 }) => {
-    // Helper function to get initials from full name
+    // Helper function to get initials from full name using team data
     const getInitials = (name: string): string => {
+        // Try to find in options (which come from team data)
+        const found = options.find(opt => opt.toLowerCase() === name.toLowerCase());
+        // For display, use first letters - but actual initials should come from team data lookup
         return name
             .split(' ')
             .map(word => word.charAt(0).toUpperCase())

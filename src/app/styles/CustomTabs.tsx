@@ -42,6 +42,8 @@ interface CustomTabsProps {
   hasImmediateActions?: boolean;
   onRefreshEnquiries?: () => Promise<void> | void;
   onRefreshMatters?: () => Promise<void> | void;
+  onFeatureToggle?: (feature: string, enabled: boolean) => void;
+  featureToggles?: Record<string, boolean>;
 }
 
 const customPivotStyles = (isDarkMode: boolean): Partial<IPivotStyles> => ({
@@ -89,6 +91,8 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
   hasImmediateActions = false,
   onRefreshEnquiries,
   onRefreshMatters,
+  onFeatureToggle,
+  featureToggles = {},
 }) => {
   const { isDarkMode } = useTheme();
   const pivotWrapRef = React.useRef<HTMLDivElement | null>(null);
@@ -313,6 +317,8 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
           originalAdminUser={originalAdminUser}
           onRefreshEnquiries={onRefreshEnquiries}
           onRefreshMatters={onRefreshMatters}
+          onFeatureToggle={onFeatureToggle}
+          featureToggles={featureToggles}
         />
       )}
     </div>

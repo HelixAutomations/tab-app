@@ -521,12 +521,12 @@ interface MattersReportProps {
     matters: Matter[];
     isLoading?: boolean;
     error?: string | null;
-    userData: any;
+    userData: UserData[] | null;
     teamData?: TeamData[] | null;
-    outstandingBalances?: any;
+    outstandingBalances?: { data: Array<{ associated_matter_ids: number[]; total_outstanding_balance?: number; due?: number; balance?: number }> } | null;
     deals?: DealRecord[] | null;
     instructions?: InstructionRecord[] | null;
-    transactions?: Transaction[];
+    transactions?: Transaction[] | null;
     wip?: WIP[] | null;
     recoveredFees?: RecoveredFee[] | null;
     enquiries?: Enquiry[] | null;
@@ -549,41 +549,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // ---------------------------------------------------
 // Financial calculation helpers
 // ---------------------------------------------------
-// NOTE: These are now used primarily for single-matter lookups or inside the pre-calculation memo.
-// We avoid calling these inside sort functions directly to prevent O(N*M) performance issues.
-
-const calculateMatterWIP = (matter: Matter, wipData?: WIP[] | null): number => {
-    if (!wipData || !Array.isArray(wipData)) return 0;
-    
-    const displayNumber = (matter as any)['Display Number'] || matter.DisplayNumber || '';
-    const matterUniqueId = (matter as any)['Unique ID'] || matter.UniqueID || '';
-    
-    return wipData
-        .filter(entry => {
-            const entryMatter = (entry as any).matter_id || (entry as any).matter_ref || '';
-            return String(entryMatter) === displayNumber || String(entryMatter) === matterUniqueId;
-        })
-        .reduce((sum, entry) => sum + (entry.total || 0), 0);
-};
-
-const calculateMatterCollected = (matter: Matter, recoveredData?: RecoveredFee[] | null): number => {
-    if (!recoveredData || !Array.isArray(recoveredData)) return 0;
-    
-    const displayNumber = (matter as any)['Display Number'] || matter.DisplayNumber || '';
-    const matterUniqueId = (matter as any)['Unique ID'] || matter.UniqueID || '';
-    
-    return recoveredData
-        .filter(entry => {
-            const entryMatter = (entry as any).matter_id || (entry as any).bill_id || '';
-            const entryMatterStr = String(entryMatter);
-            const entryDesc = (entry as any).description || '';
-            
-            return entryMatterStr === displayNumber || 
-                   entryMatterStr === matterUniqueId ||
-                   entryDesc.includes(displayNumber);
-        })
-        .reduce((sum, entry) => sum + (entry.payment_allocated || 0), 0);
-};
+// NOTE: Financial calculations are now handled via pre-computed caches (financialDataMap, matterFinancialDetails)
+// accessed through getMatterFinancials() and getMatterFinancialsDetailed() for O(1) lookups.
 
 const normaliseKey = (value: unknown): string => {
     if (value == null) return '';
@@ -758,20 +725,29 @@ const normalizeSourceKey = (source: unknown): keyof FinancialSourceTotals => {
 
 const normalizeIdValue = (value: unknown): string => {
     if (value === undefined || value === null) return '';
-    const str = String(value).trim();
-    return str;
+    return String(value)
+        .trim()
+        .replace(/\s+/g, '')
+        .toLowerCase();
 };
 
 const normalizeMatterIdentifiers = (matter: Matter, fallbackKey: string): NormalizedMatterIdentifiers => {
-    const candidateValues: unknown[] = [
-        (matter as any)['Display Number'],
-        matter.DisplayNumber,
+    const candidateValues = [
         (matter as any)['Unique ID'],
         matter.UniqueID,
-        (matter as any).matter_id,
-        (matter as any).matter_ref,
-        (matter as any).id,
+        (matter as any)['Display Number'],
+        matter.DisplayNumber,
+        (matter as any).DisplayNumber,
+        (matter as any).MatterID,
+        (matter as any).MatterId,
+        (matter as any).MatterRef,
+        (matter as any)['Matter Ref'],
+        (matter as any).ID,
         (matter as any).Id,
+        (matter as any).id,
+        (matter as any).unique_id,
+        (matter as any).ClientMatterId,
+        (matter as any).clientMatterId,
     ];
 
     const lookupKeys = Array.from(
@@ -1182,6 +1158,14 @@ const MattersReport: React.FC<MattersReportProps> = ({
     const [activeFeeEarner, setActiveFeeEarner] = useState<string | null>(null);
     const [feeEarnerType, setFeeEarnerType] = useState<'Originating' | 'Responsible' | null>(null);
     
+    // ---------- Advanced Filter States ----------
+    const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'closed'>('all');
+    const [collectedMin, setCollectedMin] = useState<string>('');
+    const [collectedMax, setCollectedMax] = useState<string>('');
+    const [wipMin, setWipMin] = useState<string>('');
+    const [wipMax, setWipMax] = useState<string>('');
+    const [showAdvancedFilters, setShowAdvancedFilters] = useState<boolean>(false);
+    
     // ---------- Date Range States (ManagementDashboard pattern) ----------
     type RangeKey = 'all' | 'today' | 'yesterday' | 'week' | 'lastWeek' | 'month' | 'lastMonth' | 'last90Days' | 'quarter' | 'yearToDate' | 'year' | 'custom';
     const [rangeKey, setRangeKey] = useState<RangeKey>('all');
@@ -1329,6 +1313,455 @@ const MattersReport: React.FC<MattersReportProps> = ({
     // ---------- Expanded Rows (for source tray) ----------
     const [expandedMatterId, setExpandedMatterId] = useState<string | null>(null);
     
+    // ---------- Matter Inspection State ----------
+    interface EnquiryMatch {
+        id: string | number;
+        name: string | null;
+        email: string;
+        aow?: string;
+        tow?: string;
+        date?: string;
+        stage?: string;
+        poc?: string;
+        acid?: string;
+        source?: string;
+        campaign?: string;
+        adSet?: string;
+        keyword?: string;
+        url?: string;
+        gclid?: string;
+        phone?: string;
+    }
+    interface EnquiryLookupResult {
+        found: boolean;
+        count: number;
+        matches: EnquiryMatch[];
+        error: string | null;
+        loading?: boolean;
+    }
+    interface CallRailCall {
+        id: string;
+        duration: number;
+        startTime: string;
+        direction: 'inbound' | 'outbound';
+        answered: boolean;
+        customerPhoneNumber: string;
+        businessPhoneNumber: string;
+        customerName: string;
+        trackingPhoneNumber: string;
+        source: string;
+        keywords: string;
+        medium: string;
+        campaign: string;
+        recordingUrl: string | null;
+        note: string;
+        landingPageUrl?: string;
+        channel?: string;
+    }
+    interface WebFormSignal {
+        id: string;
+        source: 'legacy' | 'instructions';
+        url?: string | null;
+        gclid?: string | null;
+        campaign?: string | null;
+        phone?: string | null;
+        date?: string | null;
+    }
+    interface CallRailLookupResult {
+        found: boolean;
+        count: number;
+        calls: CallRailCall[];
+        error: string | null;
+        loading: boolean;
+        phoneSearched?: string | null;
+        searched?: boolean;  // true if API was called, false if skipped (no phone)
+    }
+    interface GoogleAdsClickData {
+        gclid: string;
+        clickDate?: string;
+        campaignId?: string;
+        campaignName?: string;
+        adGroupId?: string;
+        adGroupName?: string;
+        keyword?: string;
+        keywordMatchType?: string;
+        device?: string;
+        locationCity?: string;
+        locationCountry?: string;
+        adNetworkType?: string;
+        clickType?: string;
+        pageNumber?: number;
+        slot?: string;
+        error?: string;
+    }
+    interface MatterInspection {
+        matterId: string;
+        uniqueId: string;
+        clientId: string;
+        clientName: string;
+        clientEmail: string;
+        clientPhone: string;
+        displayNumber: string;
+        version: 'v1' | 'v2';  // v1 = legacy, v2 = new space (has InstructionRef)
+        instructionRef?: string;
+        loading: boolean;
+        error?: string;
+        enquiryLookup?: {
+            legacy: EnquiryLookupResult;
+            instructions: EnquiryLookupResult;
+            loading: boolean;
+        };
+        webFormMatches?: WebFormSignal[];
+        callRailLookup?: CallRailLookupResult;
+        googleAdsData?: Map<string, GoogleAdsClickData>; // keyed by GCLID
+    }
+    const extractGclidToken = (value?: string | null): string | null => {
+        if (!value) return null;
+        const trimmed = value.trim();
+        if (!trimmed) return null;
+        const match = trimmed.match(/(?:[?&]gclid=)([^&#]+)/i);
+        return match ? decodeURIComponent(match[1]) : null;
+    };
+
+    const collectWebFormSignals = (lookup?: MatterInspection['enquiryLookup']): WebFormSignal[] => {
+        if (!lookup) return [];
+        const signals: WebFormSignal[] = [];
+        const pushMatches = (matches: EnquiryMatch[] | undefined, source: 'legacy' | 'instructions') => {
+            if (!Array.isArray(matches)) return;
+            matches.forEach((match, idx) => {
+                const url = (match.url || '').trim() || null;
+                const explicitGclid = (match.gclid || '').trim() || null;
+                const derivedGclid = explicitGclid || extractGclidToken(url || undefined);
+                if (!derivedGclid) return;
+                signals.push({
+                    id: `${source}-${match.id ?? idx}-${derivedGclid}`,
+                    source,
+                    url,
+                    gclid: derivedGclid,
+                    campaign: match.campaign || null,
+                    phone: match.phone || null,
+                    date: match.date || null,
+                });
+            });
+        };
+        pushMatches(lookup.legacy?.matches, 'legacy');
+        pushMatches(lookup.instructions?.matches, 'instructions');
+        return signals;
+    };
+    const [matterInspection, setMatterInspection] = useState<MatterInspection | null>(null);
+    
+    // ---------- Multi-Select for Bulk Operations ----------
+    const [selectedMatterIds, setSelectedMatterIds] = useState<Set<string>>(new Set());
+    const [bulkInspectionResults, setBulkInspectionResults] = useState<Map<string, MatterInspection>>(new Map());
+    const [bulkProcessing, setBulkProcessing] = useState(false);
+    const [bulkProcessingProgress, setBulkProcessingProgress] = useState<{ current: number; total: number; currentMatter: string } | null>(null);
+    const [googleAdsEnriching, setGoogleAdsEnriching] = useState(false);
+    const [googleAdsProgress, setGoogleAdsProgress] = useState<{ current: number; total: number } | null>(null);
+    
+    // Google Ads Customer ID - should ideally come from config/env
+    const GOOGLE_ADS_CUSTOMER_ID = process.env.REACT_APP_GOOGLE_ADS_CUSTOMER_ID || '';
+    
+    const toggleMatterSelection = useCallback((matterId: string) => {
+        setSelectedMatterIds(prev => {
+            const next = new Set(prev);
+            if (next.has(matterId)) {
+                next.delete(matterId);
+            } else {
+                next.add(matterId);
+            }
+            return next;
+        });
+    }, []);
+    
+    // Note: selectAllVisible is defined after tableMatters useMemo
+    
+    const clearSelection = useCallback(() => {
+        setSelectedMatterIds(new Set());
+        setBulkInspectionResults(new Map());
+    }, []);
+    
+    // Enrich inspection results with Google Ads data
+    const enrichWithGoogleAdsData = useCallback(async () => {
+        if (bulkInspectionResults.size === 0 || !GOOGLE_ADS_CUSTOMER_ID) return;
+        
+        // Collect all unique GCLIDs from the inspection results
+        const gclidMap = new Map<string, string[]>(); // gclid -> matterIds
+        bulkInspectionResults.forEach((inspection, matterId) => {
+            const signals = inspection.webFormMatches || [];
+            signals.forEach(signal => {
+                if (signal.gclid) {
+                    const existing = gclidMap.get(signal.gclid) || [];
+                    existing.push(matterId);
+                    gclidMap.set(signal.gclid, existing);
+                }
+            });
+        });
+        
+        const gclids = Array.from(gclidMap.keys());
+        if (gclids.length === 0) {
+            console.log('[GoogleAds] No GCLIDs found in inspection results');
+            return;
+        }
+        
+        setGoogleAdsEnriching(true);
+        setGoogleAdsProgress({ current: 0, total: gclids.length });
+        
+        try {
+            const baseUrl = getProxyBaseUrl();
+            const code = process.env.REACT_APP_GET_GOOGLE_ADS_CLICK_DATA_CODE;
+            const path = process.env.REACT_APP_GET_GOOGLE_ADS_CLICK_DATA_PATH || 'api/getGoogleAdsClickData';
+            
+            // Process in batches of 20
+            const batchSize = 20;
+            const allResults = new Map<string, GoogleAdsClickData>();
+            
+            for (let i = 0; i < gclids.length; i += batchSize) {
+                const batch = gclids.slice(i, i + batchSize);
+                setGoogleAdsProgress({ current: Math.min(i + batchSize, gclids.length), total: gclids.length });
+                
+                try {
+                    const url = code ? `${baseUrl}/${path}?code=${code}` : `${baseUrl}/${path}`;
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            gclids: batch,
+                            customerId: GOOGLE_ADS_CUSTOMER_ID,
+                        }),
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.results && Array.isArray(data.results)) {
+                            data.results.forEach((result: GoogleAdsClickData) => {
+                                allResults.set(result.gclid, result);
+                            });
+                        }
+                    }
+                } catch (err) {
+                    console.error('[GoogleAds] Batch error:', err);
+                }
+            }
+            
+            // Update inspection results with Google Ads data
+            if (allResults.size > 0) {
+                setBulkInspectionResults(prev => {
+                    const updated = new Map(prev);
+                    updated.forEach((inspection, matterId) => {
+                        const relevantGclids = (inspection.webFormMatches || [])
+                            .map(s => s.gclid)
+                            .filter((g): g is string => !!g);
+                        
+                        if (relevantGclids.length > 0) {
+                            const googleAdsData = new Map<string, GoogleAdsClickData>();
+                            relevantGclids.forEach(gclid => {
+                                const data = allResults.get(gclid);
+                                if (data) googleAdsData.set(gclid, data);
+                            });
+                            if (googleAdsData.size > 0) {
+                                updated.set(matterId, { ...inspection, googleAdsData });
+                            }
+                        }
+                    });
+                    return updated;
+                });
+            }
+            
+            console.log(`[GoogleAds] Enriched ${allResults.size} GCLIDs with Google Ads data`);
+        } catch (err) {
+            console.error('[GoogleAds] Error enriching with Google Ads data:', err);
+        } finally {
+            setGoogleAdsEnriching(false);
+            setGoogleAdsProgress(null);
+        }
+    }, [bulkInspectionResults, GOOGLE_ADS_CUSTOMER_ID]);
+    
+    // Bulk process selected matters
+    const runBulkInspection = useCallback(async () => {
+        if (selectedMatterIds.size === 0) return;
+        setBulkProcessing(true);
+        setBulkProcessingProgress({ current: 0, total: selectedMatterIds.size, currentMatter: '' });
+        const results = new Map<string, MatterInspection>();
+        const matterIds = Array.from(selectedMatterIds);
+        
+        for (let i = 0; i < matterIds.length; i++) {
+            const matterId = matterIds[i];
+            setBulkProcessingProgress({ current: i + 1, total: matterIds.length, currentMatter: matterId });
+            
+            try {
+                // Step 1: Fetch from Clio
+                const clioResp = await fetch(`/api/matters/${matterId}/client-email`);
+                const clioData = await clioResp.json();
+                
+                const inspection: MatterInspection = {
+                    matterId,
+                    uniqueId: matterId,
+                    clientId: clioData.clientId || '',
+                    clientName: clioData.clientName || '',
+                    clientEmail: clioData.clientEmail || '',
+                    clientPhone: clioData.clientPhone || '',
+                    displayNumber: clioData.displayNumber || '',
+                    version: 'v1',
+                    loading: false,
+                    webFormMatches: []
+                };
+                
+                // Step 2: Enquiry lookup if we have email
+                if (inspection.clientEmail) {
+                    const enquiryResp = await fetch(`/api/matters/enquiry-lookup/${encodeURIComponent(inspection.clientEmail)}`);
+                    const enquiryData = await enquiryResp.json();
+                    if (enquiryData.ok) {
+                        inspection.enquiryLookup = {
+                            legacy: { ...enquiryData.legacy, loading: false },
+                            instructions: { ...enquiryData.instructions, loading: false },
+                            loading: false
+                        };
+                        inspection.webFormMatches = collectWebFormSignals(inspection.enquiryLookup);
+                    }
+                }
+                if (!inspection.webFormMatches) {
+                    inspection.webFormMatches = [];
+                }
+                
+                // Collect phone numbers
+                const phones: string[] = [];
+                if (inspection.clientPhone) phones.push(inspection.clientPhone);
+                inspection.enquiryLookup?.legacy.matches.forEach(m => m.phone && phones.push(m.phone));
+                inspection.enquiryLookup?.instructions.matches.forEach(m => m.phone && phones.push(m.phone));
+                const uniquePhones = [...new Set(phones.filter(p => p && p.length > 5))];
+                
+                // Step 3: CallRail lookup if we have phone
+                if (uniquePhones.length > 0) {
+                    try {
+                        const callRailResp = await fetch('/api/callrailCalls', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ phoneNumber: uniquePhones[0], maxResults: 20 })
+                        });
+                        const callRailData = await callRailResp.json();
+                        if (callRailData.success) {
+                            inspection.callRailLookup = {
+                                found: callRailData.calls.length > 0,
+                                count: callRailData.calls.length,
+                                calls: callRailData.calls,
+                                error: null,
+                                loading: false,
+                                phoneSearched: uniquePhones[0],
+                                searched: true
+                            };
+                        } else {
+                            inspection.callRailLookup = {
+                                found: false,
+                                count: 0,
+                                calls: [],
+                                error: callRailData.error || 'Unknown error',
+                                loading: false,
+                                phoneSearched: uniquePhones[0],
+                                searched: true
+                            };
+                        }
+                    } catch (callRailErr) {
+                        inspection.callRailLookup = {
+                            found: false,
+                            count: 0,
+                            calls: [],
+                            error: callRailErr instanceof Error ? callRailErr.message : 'Network error',
+                            loading: false,
+                            phoneSearched: uniquePhones[0],
+                            searched: true
+                        };
+                    }
+                } else {
+                    // No phone to search - mark as not searched
+                    inspection.callRailLookup = {
+                        found: false,
+                        count: 0,
+                        calls: [],
+                        error: null,
+                        loading: false,
+                        phoneSearched: null,
+                        searched: false
+                    };
+                }
+                
+                results.set(matterId, inspection);
+            } catch (err) {
+                console.error(`Bulk inspection failed for ${matterId}:`, err);
+            }
+        }
+        
+        setBulkInspectionResults(results);
+        setBulkProcessing(false);
+        setBulkProcessingProgress(null);
+    }, [selectedMatterIds]);
+    
+    // ---------- Instructions DB Matters Toggle (Experimental) ----------
+    type MatterSource = 'legacy' | 'instructions';
+    const [matterSource, setMatterSource] = useState<MatterSource>('legacy');
+    const [instructionsMatters, setInstructionsMatters] = useState<Matter[]>([]);
+    const [instructionsMattersLoading, setInstructionsMattersLoading] = useState(false);
+    const [instructionsMattersError, setInstructionsMattersError] = useState<string | null>(null);
+    
+    // Fetch matters from Instructions DB when toggled
+    const fetchInstructionsMatters = useCallback(async () => {
+        setInstructionsMattersLoading(true);
+        setInstructionsMattersError(null);
+        try {
+            const response = await fetch('/api/instructions/matters');
+            if (!response.ok) {
+                throw new Error(`Failed to fetch: ${response.status}`);
+            }
+            const data = await response.json();
+            if (data.success && Array.isArray(data.matters)) {
+                // Map to Matter interface format
+                const mappedMatters: Matter[] = data.matters.map((m: any) => ({
+                    MatterID: m.MatterID || '',
+                    InstructionRef: m.InstructionRef || '',
+                    DisplayNumber: m.DisplayNumber || '',
+                    OpenDate: m.OpenDate || '',
+                    MonthYear: '',
+                    YearMonthNumeric: 0,
+                    ClientID: m.ClientID || '',
+                    ClientName: m.ClientName || '',
+                    ClientPhone: '',
+                    ClientEmail: '',
+                    Status: m.Status || 'Unknown',
+                    UniqueID: m.MatterID || m.InstructionRef || `instr-${Math.random()}`,
+                    Description: m.Description || '',
+                    PracticeArea: m.PracticeArea || '',
+                    Source: 'Instructions DB',
+                    Referrer: '',
+                    ResponsibleSolicitor: m.ResponsibleSolicitor || '',
+                    OriginatingSolicitor: m.OriginatingSolicitor || '',
+                    SupervisingPartner: '',
+                    Opponent: '',
+                    OpponentSolicitor: '',
+                    CloseDate: '',
+                    ApproxValue: '',
+                    mod_stamp: '',
+                    method_of_contact: '',
+                    CCL_date: null
+                }));
+                setInstructionsMatters(mappedMatters);
+            } else {
+                throw new Error(data.error || 'Invalid response');
+            }
+        } catch (err) {
+            console.error('Failed to fetch instructions matters:', err);
+            setInstructionsMattersError(err instanceof Error ? err.message : 'Unknown error');
+            setInstructionsMatters([]);
+        } finally {
+            setInstructionsMattersLoading(false);
+        }
+    }, []);
+    
+    // Fetch instructions matters when source changes to 'instructions'
+    useEffect(() => {
+        if (matterSource === 'instructions' && instructionsMatters.length === 0 && !instructionsMattersLoading) {
+            fetchInstructionsMatters();
+        }
+    }, [matterSource, instructionsMatters.length, instructionsMattersLoading, fetchInstructionsMatters]);
+    
     // ---------- Team and Role Filter States ----------
     const [selectedTeams, setSelectedTeams] = useState<string[]>([]);
     const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
@@ -1366,7 +1799,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
     const allowedUsers = ['LZ', 'LUKE', 'LUKASZ'];
     const userInitials = userData?.[0]?.Initials?.toUpperCase() || '';
     const userFirstName =
-        userData && userData.length > 0 ? userData[0].First.trim().toUpperCase() : '';
+        userData && userData.length > 0 ? userData[0]?.First?.trim().toUpperCase() ?? '' : '';
     const isLocalhost = window.location.hostname === 'localhost';
     const canViewDocuments =
         allowedUsers.includes(userInitials) || allowedUsers.includes(userFirstName) || isLocalhost;
@@ -1670,7 +2103,10 @@ const MattersReport: React.FC<MattersReportProps> = ({
             setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
         } else {
             setSortField(field);
-            setSortDirection('asc');
+            // For numeric/financial fields, default to descending (highest first)
+            // For text/date fields, default to ascending
+            const numericFields: SortField[] = ['wipValue', 'collectedValue', 'roiValue'];
+            setSortDirection(numericFields.includes(field) ? 'desc' : 'asc');
         }
     }, [sortField]);
 
@@ -1790,15 +2226,19 @@ const MattersReport: React.FC<MattersReportProps> = ({
     
     // ---------- Date Range Filtered Matters (based on toolbar date selection) ----------
     const dateRangeFilteredMatters = useMemo(() => {
+        // Use instructions matters when toggle is set to 'instructions'
+        const sourceMatters = matterSource === 'instructions' ? (instructionsMatters || []) : matters;
+        
         if (rangeKey === 'all' || !startDate || !endDate) {
-            return matters.slice();
+            return sourceMatters.slice();
         }
         // Normalize range boundaries to start/end of day for consistent comparison
         const rangeStart = startOfDay(startDate).getTime();
         const rangeEnd = endOfDay(endDate).getTime();
         
-        return matters.filter((m) => {
-            const rawDate = m.OpenDate || '';
+        return sourceMatters.filter((m) => {
+            // Check both camelCase and legacy spaced field names
+            const rawDate = (m as any)['Open Date'] || m.OpenDate || '';
             if (!rawDate) return false;
             
             // Handle both ISO strings and date-only strings
@@ -1810,7 +2250,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
             const openTime = openDate.getTime();
             return openTime >= rangeStart && openTime <= rangeEnd;
         });
-    }, [matters, rangeKey, startDate, endDate]);
+    }, [matters, instructionsMatters, matterSource, rangeKey, startDate, endDate]);
 
     // ---------- Filtering (applied on top of the date range) ----------
     const filteredMatters = useMemo(() => {
@@ -1861,6 +2301,51 @@ const MattersReport: React.FC<MattersReportProps> = ({
                     m.PracticeArea.toLowerCase().includes(lower)
             );
         }
+        
+        // Status filter (Open/Closed)
+        if (statusFilter !== 'all') {
+            final = final.filter((m) => {
+                const status = ((m as any).Status || m.Status || '').toLowerCase();
+                return statusFilter === 'open' ? status === 'open' : status === 'closed';
+            });
+        }
+        
+        // Financial filters - Collected range
+        const collectedMinVal = collectedMin ? parseFloat(collectedMin) : null;
+        const collectedMaxVal = collectedMax ? parseFloat(collectedMax) : null;
+        if (collectedMinVal !== null || collectedMaxVal !== null) {
+            final = final.filter((m) => {
+                const financials = getMatterFinancials(m);
+                const collected = financials.collected;
+                if (collectedMinVal !== null && collected < collectedMinVal) return false;
+                if (collectedMaxVal !== null && collected > collectedMaxVal) return false;
+                return true;
+            });
+        }
+        
+        // Financial filters - WIP range
+        const wipMinVal = wipMin ? parseFloat(wipMin) : null;
+        const wipMaxVal = wipMax ? parseFloat(wipMax) : null;
+        if (wipMinVal !== null || wipMaxVal !== null) {
+            final = final.filter((m) => {
+                const financials = getMatterFinancials(m);
+                const wip = financials.wip;
+                if (wipMinVal !== null && wip < wipMinVal) return false;
+                if (wipMaxVal !== null && wip > wipMaxVal) return false;
+                return true;
+            });
+        }
+        
+        // Deduplicate matters by UniqueID to prevent duplicate rows
+        const seenIds = new Set<string>();
+        final = final.filter((m) => {
+            const id = m.UniqueID || (m as any)['Unique ID'] || m.DisplayNumber;
+            if (seenIds.has(id)) {
+                return false;
+            }
+            seenIds.add(id);
+            return true;
+        });
         
         // Apply sorting without mutating upstream arrays
         const sorted = [...final].sort((a, b) => {
@@ -1919,10 +2404,19 @@ const MattersReport: React.FC<MattersReportProps> = ({
             
             if (sortField === 'openDate') {
                 const result = (aVal as number) - (bVal as number);
-                return sortDirection === 'asc' ? result : -result;
+                if (result !== 0) return sortDirection === 'asc' ? result : -result;
+                // Secondary sort by UniqueID for stability when dates are equal
+                return (a.UniqueID || '').localeCompare(b.UniqueID || '');
             } else if (sortField === 'wipValue' || sortField === 'collectedValue' || sortField === 'roiValue') {
-                const result = Number(aVal) - Number(bVal);
-                return sortDirection === 'asc' ? result : -result;
+                // Ensure we have valid numbers, treating NaN/undefined as 0
+                const numA = Number(aVal) || 0;
+                const numB = Number(bVal) || 0;
+                const result = numA - numB;
+                if (result !== 0) return sortDirection === 'asc' ? result : -result;
+                // Secondary sort by open date (newest first) when financial values are equal
+                const dateA = matterTimestamps.get(a.UniqueID) || 0;
+                const dateB = matterTimestamps.get(b.UniqueID) || 0;
+                return dateB - dateA; // Descending (newest first)
             } else {
                 const result = String(aVal).localeCompare(String(bVal), undefined, { numeric: true });
                 return sortDirection === 'asc' ? result : -result;
@@ -1946,6 +2440,11 @@ const MattersReport: React.FC<MattersReportProps> = ({
         getMatterFinancials,
         getMatterFinancialsDetailed,
         matterTimestamps,
+        statusFilter,
+        collectedMin,
+        collectedMax,
+        wipMin,
+        wipMax,
     ]);
 
     // Display matters with current sorting applied
@@ -1958,6 +2457,28 @@ const MattersReport: React.FC<MattersReportProps> = ({
         () => filteredMatters.slice(0, Math.min(filteredMatters.length, 100)),
         [filteredMatters]
     );
+    const tableMatterLookup = useMemo(() => {
+        const map = new Map<string, Matter>();
+        tableMatters.forEach((matter) => {
+            const uniqueId = matter.UniqueID ? String(matter.UniqueID) : null;
+            const displayNumber = matter.DisplayNumber ? String(matter.DisplayNumber) : null;
+            if (uniqueId) map.set(uniqueId, matter);
+            if (displayNumber) map.set(displayNumber, matter);
+        });
+        return map;
+    }, [tableMatters]);
+
+    const hasBulkInspectionResults = bulkInspectionResults.size > 0;
+
+    // Select all visible matters for bulk operations
+    const selectAllVisible = useCallback(() => {
+        const visibleIds = tableMatters.map(m => {
+            // Match the same ID logic used for matterRowId in the table rows
+            const fallbackRowId = (m as any)['Display Number'] || m.DisplayNumber || '';
+            return m.UniqueID || fallbackRowId;
+        }).filter(Boolean);
+        setSelectedMatterIds(new Set(visibleIds));
+    }, [tableMatters]);
 
     // ---------- Infinite Scroll Effect ----------
     const handleLoadMore = useCallback(() => {
@@ -2098,15 +2619,206 @@ const MattersReport: React.FC<MattersReportProps> = ({
                 {/* Card Content */}
                 <div className={innerDetailCardStyle(isDarkMode)}>
                     {activeTab === 'Overview' && (
-                        <div style={{ padding: '20px', textAlign: 'center' }}>
-                            <h3>Matter Overview</h3>
-                            <p>disabled during migration</p>
-                            <p>Selected Matter: {selectedMatter?.DisplayNumber} - {selectedMatter?.ClientName}</p>
-                            {/* TODO: MattersReport needs to be updated to use normalized data */}
+                        <div style={{ padding: '24px' }}>
+                            {/* Header with Display Number and Clio Link */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+                                <Icon iconName="OpenFolderHorizontal" style={{ fontSize: 24, color: colours.highlight }} />
+                                <FluentLink
+                                    href={`https://eu.app.clio.com/nc/#/matters/${encodeURIComponent(selectedMatter?.DisplayNumber || '')}`}
+                                    target="_blank"
+                                    style={{ fontSize: 18, fontWeight: 600 }}
+                                >
+                                    {selectedMatter?.DisplayNumber}
+                                </FluentLink>
+                                <span style={{ 
+                                    background: selectedMatter?.Status === 'Open' ? (isDarkMode ? '#10b98140' : '#dcfce7') : (isDarkMode ? '#6b728040' : '#f3f4f6'),
+                                    color: selectedMatter?.Status === 'Open' ? (isDarkMode ? '#34d399' : '#16a34a') : (isDarkMode ? '#9ca3af' : '#6b7280'),
+                                    padding: '4px 12px',
+                                    borderRadius: '6px',
+                                    fontWeight: 600,
+                                    fontSize: '12px',
+                                    border: `1px solid ${selectedMatter?.Status === 'Open' ? (isDarkMode ? '#10b981' : '#16a34a') : (isDarkMode ? '#6b7280' : '#d1d5db')}`
+                                }}>
+                                    {selectedMatter?.Status || 'Open'}
+                                </span>
+                            </div>
+
+                            {/* Main Grid Layout */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20 }}>
+                                {/* Left Column - Financial Metrics */}
+                                <div>
+                                    {/* Financial Cards Row */}
+                                    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 20 }}>
+                                        {/* WIP Card */}
+                                        <div style={{
+                                            background: isDarkMode ? colours.dark.sectionBackground : 'white',
+                                            borderRadius: 12,
+                                            border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                                            padding: 16,
+                                            minWidth: 200,
+                                            flex: 1
+                                        }}>
+                                            <span style={{ color: isDarkMode ? '#94a3b8' : colours.light.subText, fontSize: 12, display: 'block', marginBottom: 8 }}>Work in Progress</span>
+                                            <span style={{ fontSize: 24, fontWeight: 700, color: isDarkMode ? '#f1f5f9' : '#111827' }}>
+                                                {formatCurrency(getMatterFinancials(selectedMatter).wip)}
+                                            </span>
+                                        </div>
+                                        {/* Collected Card */}
+                                        <div style={{
+                                            background: isDarkMode ? colours.dark.sectionBackground : 'white',
+                                            borderRadius: 12,
+                                            border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                                            padding: 16,
+                                            minWidth: 200,
+                                            flex: 1
+                                        }}>
+                                            <span style={{ color: isDarkMode ? '#94a3b8' : colours.light.subText, fontSize: 12, display: 'block', marginBottom: 8 }}>Collected Fees</span>
+                                            <span style={{ fontSize: 24, fontWeight: 700, color: isDarkMode ? '#34d399' : '#16a34a' }}>
+                                                {formatCurrency(getMatterFinancials(selectedMatter).collected)}
+                                            </span>
+                                        </div>
+                                        {/* Outstanding Card */}
+                                        {matterOutstandingData && (
+                                            <div style={{
+                                                background: isDarkMode ? colours.dark.sectionBackground : 'white',
+                                                borderRadius: 12,
+                                                border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                                                padding: 16,
+                                                minWidth: 200,
+                                                flex: 1
+                                            }}>
+                                                <span style={{ color: isDarkMode ? '#94a3b8' : colours.light.subText, fontSize: 12, display: 'block', marginBottom: 8 }}>Outstanding Balance</span>
+                                                <span style={{ fontSize: 24, fontWeight: 700, color: isDarkMode ? '#f59e0b' : '#d97706' }}>
+                                                    {formatCurrency(matterOutstandingData.total_outstanding_balance || matterOutstandingData.due || 0)}
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Matter Details Section */}
+                                    <div style={{
+                                        background: isDarkMode ? colours.dark.sectionBackground : 'white',
+                                        borderRadius: 12,
+                                        border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                                        padding: 20
+                                    }}>
+                                        <span style={{ fontWeight: 600, color: isDarkMode ? '#e2e8f0' : '#374151', display: 'block', marginBottom: 16 }}>Matter Details</span>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                                            <div>
+                                                <span style={{ color: isDarkMode ? '#64748b' : colours.light.subText, fontSize: 12 }}>Practice Area</span>
+                                                <div style={{ fontWeight: 500, color: isDarkMode ? '#f1f5f9' : '#111827' }}>{selectedMatter?.PracticeArea || '—'}</div>
+                                            </div>
+                                            <div>
+                                                <span style={{ color: isDarkMode ? '#64748b' : colours.light.subText, fontSize: 12 }}>Description</span>
+                                                <div style={{ fontWeight: 500, color: isDarkMode ? '#f1f5f9' : '#111827' }}>{selectedMatter?.Description || '—'}</div>
+                                            </div>
+                                            <div>
+                                                <span style={{ color: isDarkMode ? '#64748b' : colours.light.subText, fontSize: 12 }}>Open Date</span>
+                                                <div style={{ fontWeight: 500, color: isDarkMode ? '#f1f5f9' : '#111827' }}>
+                                                    {selectedMatter?.OpenDate ? format(parseISO(selectedMatter.OpenDate), 'dd MMM yyyy') : '—'}
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <span style={{ color: isDarkMode ? '#64748b' : colours.light.subText, fontSize: 12 }}>Source</span>
+                                                <div style={{ fontWeight: 500, color: isDarkMode ? '#f1f5f9' : '#111827' }}>{selectedMatter?.Source || '—'}</div>
+                                            </div>
+                                            <div>
+                                                <span style={{ color: isDarkMode ? '#64748b' : colours.light.subText, fontSize: 12 }}>Opponent</span>
+                                                <div style={{ fontWeight: 500, color: isDarkMode ? '#f1f5f9' : '#111827' }}>{selectedMatter?.Opponent || '—'}</div>
+                                            </div>
+                                            <div>
+                                                <span style={{ color: isDarkMode ? '#64748b' : colours.light.subText, fontSize: 12 }}>Opponent Solicitor</span>
+                                                <div style={{ fontWeight: 500, color: isDarkMode ? '#f1f5f9' : '#111827' }}>{selectedMatter?.OpponentSolicitor || '—'}</div>
+                                            </div>
+                                        </div>
+
+                                        {/* Team Avatars */}
+                                        <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}` }}>
+                                            <span style={{ color: isDarkMode ? '#64748b' : colours.light.subText, fontSize: 12, display: 'block', marginBottom: 12 }}>Team</span>
+                                            <div style={{ display: 'flex', gap: 12 }}>
+                                                <div title={`${selectedMatter?.OriginatingSolicitor} (Originating)`} style={{
+                                                    width: 40, height: 40, borderRadius: '50%', background: '#0ea5e9', color: 'white',
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14
+                                                }}>
+                                                    {getInitialsFromName(selectedMatter?.OriginatingSolicitor || '')}
+                                                </div>
+                                                <div title={`${selectedMatter?.ResponsibleSolicitor} (Responsible)`} style={{
+                                                    width: 40, height: 40, borderRadius: '50%', background: '#22c55e', color: 'white',
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14
+                                                }}>
+                                                    {getInitialsFromName(selectedMatter?.ResponsibleSolicitor || '')}
+                                                </div>
+                                                {selectedMatter?.SupervisingPartner && (
+                                                    <div title={`${selectedMatter?.SupervisingPartner} (Supervising)`} style={{
+                                                        width: 40, height: 40, borderRadius: '50%', background: '#f59e0b', color: 'white',
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14
+                                                    }}>
+                                                        {getInitialsFromName(selectedMatter?.SupervisingPartner || '')}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Right Column - Client Info */}
+                                <div>
+                                    <div style={{
+                                        background: isDarkMode ? colours.dark.sectionBackground : 'white',
+                                        borderRadius: 12,
+                                        border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                                        padding: 20
+                                    }}>
+                                        <span style={{ fontWeight: 600, color: isDarkMode ? '#e2e8f0' : '#374151', display: 'block', marginBottom: 16 }}>Client</span>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                                            <Icon iconName="Contact" style={{ fontSize: 20, color: colours.highlight }} />
+                                            <span style={{ fontWeight: 600, color: isDarkMode ? '#f1f5f9' : '#111827' }}>{selectedMatter?.ClientName || '—'}</span>
+                                        </div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                                            {selectedMatter?.ClientEmail && (
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                    <Icon iconName="Mail" style={{ fontSize: 14, color: isDarkMode ? '#64748b' : colours.light.subText }} />
+                                                    <span style={{ color: isDarkMode ? '#94a3b8' : '#6b7280', fontSize: 13 }}>{selectedMatter.ClientEmail}</span>
+                                                </div>
+                                            )}
+                                            {selectedMatter?.ClientPhone && (
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                    <Icon iconName="Phone" style={{ fontSize: 14, color: isDarkMode ? '#64748b' : colours.light.subText }} />
+                                                    <span style={{ color: isDarkMode ? '#94a3b8' : '#6b7280', fontSize: 13 }}>{selectedMatter.ClientPhone}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Pitch/Instruction Tags */}
+                                    {(() => {
+                                        const tags = getPitchTagsForMatter(selectedMatter);
+                                        if (tags.length === 0) return null;
+                                        return (
+                                            <div style={{
+                                                background: isDarkMode ? colours.dark.sectionBackground : 'white',
+                                                borderRadius: 12,
+                                                border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                                                padding: 20,
+                                                marginTop: 16
+                                            }}>
+                                                <span style={{ fontWeight: 600, color: isDarkMode ? '#e2e8f0' : '#374151', display: 'block', marginBottom: 12 }}>Related Activity</span>
+                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                                    {tags.map(tag => (
+                                                        <span key={tag.key} style={getPitchTagStyle(tag.type)} title={tag.title}>
+                                                            {tag.label}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
+                            </div>
                         </div>
                     )}
                     {activeTab === 'Transactions' && (
-                        <MatterTransactions matter={selectedMatter} transactions={transactions} />
+                        <MatterTransactions matter={selectedMatter} transactions={transactions ?? undefined} />
                     )}
                     {activeTab === 'Documents' &&
                         (canViewDocuments ? (
@@ -2588,6 +3300,422 @@ const MattersReport: React.FC<MattersReportProps> = ({
 
             </div>
 
+            {/* Advanced Filters Panel */}
+            <div style={{
+                margin: '12px 0',
+                background: isDarkMode ? 'rgba(15, 23, 42, 0.6)' : 'rgba(249, 250, 251, 0.8)',
+                border: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(209, 213, 219, 0.6)'}`,
+                borderRadius: 8,
+                overflow: 'hidden'
+            }}>
+                <button
+                    onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+                    style={{
+                        width: '100%',
+                        padding: '10px 16px',
+                        background: 'transparent',
+                        border: 'none',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        color: isDarkMode ? '#94a3b8' : '#6b7280',
+                        fontSize: 12,
+                        fontWeight: 600
+                    }}
+                >
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Icon iconName="FilterSettings" style={{ fontSize: 14 }} />
+                        Advanced Filters
+                        {(statusFilter !== 'all' || collectedMin || collectedMax || wipMin || wipMax) && (
+                            <span style={{
+                                background: isDarkMode ? '#3b82f6' : '#2563eb',
+                                color: '#fff',
+                                padding: '2px 6px',
+                                borderRadius: 10,
+                                fontSize: 10,
+                                fontWeight: 700
+                            }}>
+                                Active
+                            </span>
+                        )}
+                    </span>
+                    <span style={{ transform: showAdvancedFilters ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s' }}>▼</span>
+                </button>
+                
+                {showAdvancedFilters && (
+                    <div style={{
+                        padding: '16px',
+                        borderTop: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(209, 213, 219, 0.6)'}`,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 16
+                    }}>
+                        {/* Status Filter */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                            <label style={{ 
+                                fontSize: 11, 
+                                fontWeight: 600, 
+                                color: isDarkMode ? '#cbd5e1' : '#374151',
+                                minWidth: 70
+                            }}>
+                                Status:
+                            </label>
+                            <div style={{ display: 'flex', gap: 8 }}>
+                                {(['all', 'open', 'closed'] as const).map((status) => (
+                                    <button
+                                        key={status}
+                                        onClick={() => setStatusFilter(status)}
+                                        style={{
+                                            padding: '6px 14px',
+                                            fontSize: 11,
+                                            fontWeight: statusFilter === status ? 700 : 500,
+                                            background: statusFilter === status 
+                                                ? (isDarkMode ? 'rgba(59, 130, 246, 0.3)' : 'rgba(37, 99, 235, 0.1)')
+                                                : 'transparent',
+                                            border: `1px solid ${statusFilter === status 
+                                                ? (isDarkMode ? '#3b82f6' : '#2563eb')
+                                                : (isDarkMode ? 'rgba(71, 85, 105, 0.4)' : 'rgba(209, 213, 219, 0.8)')}`,
+                                            borderRadius: 6,
+                                            cursor: 'pointer',
+                                            color: statusFilter === status
+                                                ? (isDarkMode ? '#60a5fa' : '#2563eb')
+                                                : (isDarkMode ? '#94a3b8' : '#6b7280'),
+                                            transition: 'all 0.15s'
+                                        }}
+                                    >
+                                        {status.charAt(0).toUpperCase() + status.slice(1)}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Collected Range Filter */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                            <label style={{ 
+                                fontSize: 11, 
+                                fontWeight: 600, 
+                                color: isDarkMode ? '#cbd5e1' : '#374151',
+                                minWidth: 70
+                            }}>
+                                Collected:
+                            </label>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{ fontSize: 11, color: isDarkMode ? '#64748b' : '#9ca3af' }}>£</span>
+                                <input
+                                    type="number"
+                                    placeholder="Min"
+                                    value={collectedMin}
+                                    onChange={(e) => setCollectedMin(e.target.value)}
+                                    style={{
+                                        width: 80,
+                                        padding: '6px 10px',
+                                        fontSize: 11,
+                                        border: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.4)' : 'rgba(209, 213, 219, 0.8)'}`,
+                                        borderRadius: 6,
+                                        background: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#fff',
+                                        color: isDarkMode ? '#e2e8f0' : '#1f2937',
+                                        outline: 'none'
+                                    }}
+                                />
+                                <span style={{ fontSize: 11, color: isDarkMode ? '#64748b' : '#9ca3af' }}>to £</span>
+                                <input
+                                    type="number"
+                                    placeholder="Max"
+                                    value={collectedMax}
+                                    onChange={(e) => setCollectedMax(e.target.value)}
+                                    style={{
+                                        width: 80,
+                                        padding: '6px 10px',
+                                        fontSize: 11,
+                                        border: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.4)' : 'rgba(209, 213, 219, 0.8)'}`,
+                                        borderRadius: 6,
+                                        background: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#fff',
+                                        color: isDarkMode ? '#e2e8f0' : '#1f2937',
+                                        outline: 'none'
+                                    }}
+                                />
+                            </div>
+                            {/* Quick presets for Collected */}
+                            <div style={{ display: 'flex', gap: 6, marginLeft: 8 }}>
+                                {[
+                                    { label: '£0', min: '0', max: '0' },
+                                    { label: '£1+', min: '1', max: '' },
+                                    { label: '£1k+', min: '1000', max: '' },
+                                    { label: '£5k+', min: '5000', max: '' },
+                                ].map((preset) => (
+                                    <button
+                                        key={preset.label}
+                                        onClick={() => {
+                                            setCollectedMin(preset.min);
+                                            setCollectedMax(preset.max);
+                                        }}
+                                        style={{
+                                            padding: '4px 8px',
+                                            fontSize: 10,
+                                            fontWeight: 500,
+                                            background: (collectedMin === preset.min && collectedMax === preset.max)
+                                                ? (isDarkMode ? 'rgba(34, 197, 94, 0.2)' : 'rgba(22, 163, 74, 0.1)')
+                                                : 'transparent',
+                                            border: `1px solid ${(collectedMin === preset.min && collectedMax === preset.max)
+                                                ? (isDarkMode ? '#22c55e' : '#16a34a')
+                                                : (isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(209, 213, 219, 0.6)')}`,
+                                            borderRadius: 4,
+                                            cursor: 'pointer',
+                                            color: (collectedMin === preset.min && collectedMax === preset.max)
+                                                ? (isDarkMode ? '#4ade80' : '#16a34a')
+                                                : (isDarkMode ? '#64748b' : '#9ca3af'),
+                                            transition: 'all 0.15s'
+                                        }}
+                                    >
+                                        {preset.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* WIP Range Filter */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                            <label style={{ 
+                                fontSize: 11, 
+                                fontWeight: 600, 
+                                color: isDarkMode ? '#cbd5e1' : '#374151',
+                                minWidth: 70
+                            }}>
+                                WIP:
+                            </label>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{ fontSize: 11, color: isDarkMode ? '#64748b' : '#9ca3af' }}>£</span>
+                                <input
+                                    type="number"
+                                    placeholder="Min"
+                                    value={wipMin}
+                                    onChange={(e) => setWipMin(e.target.value)}
+                                    style={{
+                                        width: 80,
+                                        padding: '6px 10px',
+                                        fontSize: 11,
+                                        border: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.4)' : 'rgba(209, 213, 219, 0.8)'}`,
+                                        borderRadius: 6,
+                                        background: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#fff',
+                                        color: isDarkMode ? '#e2e8f0' : '#1f2937',
+                                        outline: 'none'
+                                    }}
+                                />
+                                <span style={{ fontSize: 11, color: isDarkMode ? '#64748b' : '#9ca3af' }}>to £</span>
+                                <input
+                                    type="number"
+                                    placeholder="Max"
+                                    value={wipMax}
+                                    onChange={(e) => setWipMax(e.target.value)}
+                                    style={{
+                                        width: 80,
+                                        padding: '6px 10px',
+                                        fontSize: 11,
+                                        border: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.4)' : 'rgba(209, 213, 219, 0.8)'}`,
+                                        borderRadius: 6,
+                                        background: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#fff',
+                                        color: isDarkMode ? '#e2e8f0' : '#1f2937',
+                                        outline: 'none'
+                                    }}
+                                />
+                            </div>
+                            {/* Quick presets for WIP */}
+                            <div style={{ display: 'flex', gap: 6, marginLeft: 8 }}>
+                                {[
+                                    { label: '£0', min: '0', max: '0' },
+                                    { label: 'Has WIP', min: '1', max: '' },
+                                    { label: '£1k+', min: '1000', max: '' },
+                                ].map((preset) => (
+                                    <button
+                                        key={preset.label}
+                                        onClick={() => {
+                                            setWipMin(preset.min);
+                                            setWipMax(preset.max);
+                                        }}
+                                        style={{
+                                            padding: '4px 8px',
+                                            fontSize: 10,
+                                            fontWeight: 500,
+                                            background: (wipMin === preset.min && wipMax === preset.max)
+                                                ? (isDarkMode ? 'rgba(251, 191, 36, 0.2)' : 'rgba(245, 158, 11, 0.1)')
+                                                : 'transparent',
+                                            border: `1px solid ${(wipMin === preset.min && wipMax === preset.max)
+                                                ? (isDarkMode ? '#fbbf24' : '#f59e0b')
+                                                : (isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(209, 213, 219, 0.6)')}`,
+                                            borderRadius: 4,
+                                            cursor: 'pointer',
+                                            color: (wipMin === preset.min && wipMax === preset.max)
+                                                ? (isDarkMode ? '#fcd34d' : '#d97706')
+                                                : (isDarkMode ? '#64748b' : '#9ca3af'),
+                                            transition: 'all 0.15s'
+                                        }}
+                                    >
+                                        {preset.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Clear All Advanced Filters */}
+                        {(statusFilter !== 'all' || collectedMin || collectedMax || wipMin || wipMax) && (
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 8, borderTop: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.2)' : 'rgba(209, 213, 219, 0.4)'}` }}>
+                                <button
+                                    onClick={() => {
+                                        setStatusFilter('all');
+                                        setCollectedMin('');
+                                        setCollectedMax('');
+                                        setWipMin('');
+                                        setWipMax('');
+                                    }}
+                                    style={{
+                                        padding: '6px 14px',
+                                        fontSize: 11,
+                                        fontWeight: 600,
+                                        background: isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(220, 38, 38, 0.08)',
+                                        border: `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.4)' : 'rgba(220, 38, 38, 0.3)'}`,
+                                        borderRadius: 6,
+                                        cursor: 'pointer',
+                                        color: isDarkMode ? '#f87171' : '#dc2626',
+                                        transition: 'all 0.15s'
+                                    }}
+                                >
+                                    Clear All Advanced Filters
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+
+            {/* Active Filters Summary Bar */}
+            {(() => {
+                const activeFilters: { label: string; onClear: () => void }[] = [];
+                
+                if (rangeKey !== 'all') {
+                    const rangeLabel = rangeKey === 'custom' 
+                        ? `${formatDateTag(startDate)} - ${formatDateTag(endDate)}`
+                        : RANGE_OPTIONS.find(r => r.key === rangeKey)?.label || rangeKey;
+                    activeFilters.push({ label: `Date: ${rangeLabel}`, onClear: () => handleRangeSelect('all') });
+                }
+                if (selectedTeams.length > 0 && selectedTeams.length < displayableTeamMembers.length) {
+                    activeFilters.push({ label: `Team: ${selectedTeams.join(', ')}`, onClear: handleSelectAllTeams });
+                }
+                if (activeGroupedArea) {
+                    activeFilters.push({ label: `Area: ${activeGroupedArea}`, onClear: () => setActiveGroupedArea(null) });
+                }
+                if (activePracticeAreas.length > 0) {
+                    activeFilters.push({ label: `Practice: ${activePracticeAreas.length} selected`, onClear: () => setActivePracticeAreas([]) });
+                }
+                if (activeFeeEarner) {
+                    activeFilters.push({ label: `${feeEarnerType}: ${activeFeeEarner}`, onClear: () => { setActiveFeeEarner(null); setFeeEarnerType(null); } });
+                }
+                if (searchTerm) {
+                    activeFilters.push({ label: `Search: "${searchTerm}"`, onClear: () => setSearchTerm('') });
+                }
+                if (statusFilter !== 'all') {
+                    activeFilters.push({ label: `Status: ${statusFilter}`, onClear: () => setStatusFilter('all') });
+                }
+                if (collectedMin || collectedMax) {
+                    const range = collectedMin && collectedMax ? `£${collectedMin}-£${collectedMax}` 
+                        : collectedMin ? `£${collectedMin}+` 
+                        : `≤£${collectedMax}`;
+                    activeFilters.push({ label: `Collected: ${range}`, onClear: () => { setCollectedMin(''); setCollectedMax(''); } });
+                }
+                if (wipMin || wipMax) {
+                    const range = wipMin && wipMax ? `£${wipMin}-£${wipMax}` 
+                        : wipMin ? `£${wipMin}+` 
+                        : `≤£${wipMax}`;
+                    activeFilters.push({ label: `WIP: ${range}`, onClear: () => { setWipMin(''); setWipMax(''); } });
+                }
+
+                if (activeFilters.length === 0) return null;
+
+                return (
+                    <div style={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '10px 14px',
+                        marginBottom: 8,
+                        background: isDarkMode ? 'rgba(30, 41, 59, 0.4)' : 'rgba(243, 244, 246, 0.6)',
+                        border: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(209, 213, 219, 0.6)'}`,
+                        borderRadius: 8
+                    }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? '#94a3b8' : '#6b7280', marginRight: 4 }}>
+                            Active Filters:
+                        </span>
+                        {activeFilters.map((filter, idx) => (
+                            <span
+                                key={idx}
+                                style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    padding: '4px 10px',
+                                    fontSize: 10,
+                                    fontWeight: 500,
+                                    background: isDarkMode ? 'rgba(59, 130, 246, 0.15)' : 'rgba(37, 99, 235, 0.08)',
+                                    border: `1px solid ${isDarkMode ? 'rgba(59, 130, 246, 0.3)' : 'rgba(37, 99, 235, 0.2)'}`,
+                                    borderRadius: 12,
+                                    color: isDarkMode ? '#60a5fa' : '#2563eb'
+                                }}
+                            >
+                                {filter.label}
+                                <button
+                                    onClick={filter.onClear}
+                                    style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        padding: 0,
+                                        fontSize: 14,
+                                        lineHeight: 1,
+                                        color: isDarkMode ? '#60a5fa' : '#2563eb',
+                                        opacity: 0.7
+                                    }}
+                                    title="Remove filter"
+                                >
+                                    ×
+                                </button>
+                            </span>
+                        ))}
+                        {activeFilters.length > 1 && (
+                            <button
+                                onClick={() => {
+                                    handleRangeSelect('all');
+                                    handleSelectAllTeams();
+                                    setActiveGroupedArea(null);
+                                    setActivePracticeAreas([]);
+                                    setActiveFeeEarner(null);
+                                    setFeeEarnerType(null);
+                                    setSearchTerm('');
+                                    setStatusFilter('all');
+                                    setCollectedMin('');
+                                    setCollectedMax('');
+                                    setWipMin('');
+                                    setWipMax('');
+                                }}
+                                style={{
+                                    padding: '4px 10px',
+                                    fontSize: 10,
+                                    fontWeight: 600,
+                                    background: isDarkMode ? 'rgba(239, 68, 68, 0.1)' : 'rgba(220, 38, 38, 0.05)',
+                                    border: `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.3)' : 'rgba(220, 38, 38, 0.2)'}`,
+                                    borderRadius: 12,
+                                    cursor: 'pointer',
+                                    color: isDarkMode ? '#f87171' : '#dc2626',
+                                    marginLeft: 'auto'
+                                }}
+                            >
+                                Clear All
+                            </button>
+                        )}
+                    </div>
+                );
+            })()}
+
             {isLoading ? (
                 <Spinner label="Loading matters..." size={SpinnerSize.medium} />
             ) : error ? (
@@ -2607,38 +3735,499 @@ const MattersReport: React.FC<MattersReportProps> = ({
                             <div style={{
                                 padding: '12px 16px',
                                 borderBottom: `1px solid ${isDarkMode ? '#1e293b' : '#e5e7eb'}`,
-                                background: isDarkMode ? '#0f172a' : '#f9fafb'
+                                background: isDarkMode ? '#0f172a' : '#f9fafb',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'flex-start'
                             }}>
-                                <h3 style={{
-                                    margin: 0,
-                                    fontSize: '14px',
-                                    fontWeight: 600,
-                                    color: isDarkMode ? '#cbd5e1' : '#374151',
-                                    textTransform: 'uppercase',
-                                    letterSpacing: '0.5px'
-                                }}>
-                                    Matters Table
-                                </h3>
-                                <div style={{
-                                    fontSize: '11px',
-                                    color: isDarkMode ? '#64748b' : '#6b7280',
-                                    marginTop: '4px'
-                                }}>
-                                    Showing {tableMatters.length} of {filteredMatters.length} matters
+                                <div>
+                                    <h3 style={{
+                                        margin: 0,
+                                        fontSize: '14px',
+                                        fontWeight: 600,
+                                        color: isDarkMode ? '#cbd5e1' : '#374151',
+                                        textTransform: 'uppercase',
+                                        letterSpacing: '0.5px'
+                                    }}>
+                                        Matters Table {matterSource === 'instructions' && (
+                                            <span style={{
+                                                marginLeft: '8px',
+                                                fontSize: '10px',
+                                                padding: '2px 6px',
+                                                borderRadius: '4px',
+                                                background: isDarkMode ? '#0f766e' : '#0d9488',
+                                                color: '#f0fdfa',
+                                                fontWeight: 500,
+                                                textTransform: 'none',
+                                                letterSpacing: 'normal'
+                                            }}>
+                                                INSTRUCTIONS DB
+                                            </span>
+                                        )}
+                                    </h3>
+                                    <div style={{
+                                        fontSize: '11px',
+                                        color: isDarkMode ? '#64748b' : '#6b7280',
+                                        marginTop: '4px'
+                                    }}>
+                                        Showing {tableMatters.length} of {filteredMatters.length} matters
+                                        {matterSource === 'instructions' && instructionsMattersLoading && ' (Loading...)'}
+                                        {matterSource === 'instructions' && instructionsMattersError && ` (Error: ${instructionsMattersError})`}
+                                    </div>
+                                </div>
+                                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                                    <button
+                                        onClick={() => {
+                                            const newSource = matterSource === 'legacy' ? 'instructions' : 'legacy';
+                                            setMatterSource(newSource);
+                                            if (newSource === 'instructions' && !instructionsMatters) {
+                                                fetchInstructionsMatters();
+                                            }
+                                        }}
+                                        style={{
+                                            padding: '6px 12px',
+                                            fontSize: '11px',
+                                            fontWeight: 500,
+                                            borderRadius: '6px',
+                                            border: `1px solid ${matterSource === 'instructions'
+                                                ? (isDarkMode ? '#0f766e' : '#0d9488')
+                                                : (isDarkMode ? '#334155' : '#d1d5db')}`,
+                                            background: matterSource === 'instructions'
+                                                ? (isDarkMode ? 'rgba(15, 118, 110, 0.2)' : 'rgba(13, 148, 136, 0.12)')
+                                                : (isDarkMode ? '#1e293b' : '#f9fafb'),
+                                            color: matterSource === 'instructions'
+                                                ? (isDarkMode ? '#5eead4' : '#0f766e')
+                                                : (isDarkMode ? '#94a3b8' : '#6b7280'),
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                            transition: 'all 0.2s ease'
+                                        }}
+                                        title={matterSource === 'legacy' 
+                                            ? 'Switch to Instructions DB matters (experimental)'
+                                            : 'Switch back to Legacy Clio matters'}
+                                    >
+                                        {matterSource === 'legacy' ? 'View Instructions Matters' : 'View Legacy Matters'}
+                                    </button>
                                 </div>
                             </div>
+                            
+                            {/* Bulk Selection Action Bar */}
+                            {selectedMatterIds.size > 0 && (
+                                <div style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 12,
+                                    padding: '10px 14px',
+                                    marginBottom: 8,
+                                    background: isDarkMode ? 'rgba(56, 189, 248, 0.1)' : 'rgba(2, 132, 199, 0.05)',
+                                    border: `1px solid ${isDarkMode ? 'rgba(56, 189, 248, 0.3)' : 'rgba(2, 132, 199, 0.2)'}`,
+                                    borderRadius: 6
+                                }}>
+                                    <span style={{ 
+                                        fontSize: 11, 
+                                        fontWeight: 600, 
+                                        color: isDarkMode ? '#38bdf8' : '#0284c7' 
+                                    }}>
+                                        {selectedMatterIds.size} matter{selectedMatterIds.size !== 1 ? 's' : ''} selected
+                                    </span>
+                                    <button
+                                        onClick={runBulkInspection}
+                                        disabled={bulkProcessing}
+                                        style={{
+                                            padding: '5px 12px',
+                                            fontSize: 10,
+                                            fontWeight: 600,
+                                            background: isDarkMode ? 'rgba(56, 189, 248, 0.15)' : 'rgba(2, 132, 199, 0.1)',
+                                            border: `1px solid ${isDarkMode ? 'rgba(56, 189, 248, 0.4)' : 'rgba(2, 132, 199, 0.3)'}`,
+                                            borderRadius: 4,
+                                            cursor: bulkProcessing ? 'wait' : 'pointer',
+                                            color: isDarkMode ? '#38bdf8' : '#0284c7',
+                                            opacity: bulkProcessing ? 0.6 : 1,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 6
+                                        }}
+                                    >
+                                        <Icon iconName={bulkProcessing ? 'ProgressRingDots' : 'Processing'} style={{ fontSize: 12 }} />
+                                        {bulkProcessing && bulkProcessingProgress 
+                                            ? `Processing ${bulkProcessingProgress.current}/${bulkProcessingProgress.total}...` 
+                                            : 'Run Source Analysis'}
+                                    </button>
+                                    {bulkProcessing && bulkProcessingProgress && (
+                                        <div style={{ 
+                                            flex: 1, 
+                                            maxWidth: 200,
+                                            height: 4, 
+                                            background: isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(209, 213, 219, 0.5)',
+                                            borderRadius: 2,
+                                            overflow: 'hidden'
+                                        }}>
+                                            <div style={{
+                                                width: `${(bulkProcessingProgress.current / bulkProcessingProgress.total) * 100}%`,
+                                                height: '100%',
+                                                background: isDarkMode ? '#38bdf8' : '#0284c7',
+                                                transition: 'width 0.3s ease'
+                                            }} />
+                                        </div>
+                                    )}
+                                    <button
+                                        onClick={clearSelection}
+                                        style={{
+                                            padding: '5px 10px',
+                                            fontSize: 10,
+                                            fontWeight: 500,
+                                            background: 'transparent',
+                                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(100, 116, 139, 0.2)'}`,
+                                            borderRadius: 4,
+                                            cursor: 'pointer',
+                                            color: isDarkMode ? '#94a3b8' : '#64748b'
+                                        }}
+                                    >
+                                        Clear
+                                    </button>
+                                    {bulkInspectionResults.size > 0 && !bulkProcessing && (
+                                        <span style={{ 
+                                            fontSize: 10, 
+                                            color: isDarkMode ? '#4ade80' : '#16a34a',
+                                            marginLeft: 'auto',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 4
+                                        }}>
+                                            <Icon iconName="CheckMark" style={{ fontSize: 10 }} />
+                                            {bulkInspectionResults.size} analyzed
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+                            
+                            {/* Source Analysis - Compact Attribution Table */}
+                            {bulkInspectionResults.size > 0 && (() => {
+                                const visibleResults = Array.from(bulkInspectionResults.entries());
+                                if (visibleResults.length === 0) return null;
+                                return (
+                                <details open style={{ marginBottom: 12 }}>
+                                    <summary style={{
+                                        cursor: 'pointer',
+                                        fontSize: 11,
+                                        fontWeight: 600,
+                                        color: isDarkMode ? '#cbd5e1' : '#374151',
+                                        padding: '8px 12px',
+                                        background: isDarkMode ? 'rgba(30, 41, 59, 0.4)' : 'rgba(243, 244, 246, 0.6)',
+                                        borderRadius: 6,
+                                        marginBottom: 8,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 8,
+                                        listStyle: 'none'
+                                    }}>
+                                        <Icon iconName="AnalyticsView" style={{ fontSize: 14 }} />
+                                        Source Analysis
+                                        <span style={{
+                                            background: isDarkMode ? 'rgba(59, 130, 246, 0.2)' : 'rgba(37, 99, 235, 0.1)',
+                                            color: isDarkMode ? '#60a5fa' : '#2563eb',
+                                            padding: '2px 8px',
+                                            borderRadius: 10,
+                                            fontSize: 10,
+                                            fontWeight: 700
+                                        }}>
+                                            {visibleResults.length}
+                                        </span>
+                                        
+                                        {/* Google Ads Enrich Button */}
+                                        {GOOGLE_ADS_CUSTOMER_ID && (
+                                            <button
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    enrichWithGoogleAdsData();
+                                                }}
+                                                disabled={googleAdsEnriching}
+                                                style={{
+                                                    marginLeft: 'auto',
+                                                    padding: '3px 10px',
+                                                    fontSize: 9,
+                                                    fontWeight: 600,
+                                                    background: googleAdsEnriching
+                                                        ? (isDarkMode ? 'rgba(251, 191, 36, 0.15)' : 'rgba(251, 191, 36, 0.1)')
+                                                        : (isDarkMode ? 'rgba(251, 191, 36, 0.2)' : 'rgba(251, 191, 36, 0.15)'),
+                                                    border: `1px solid ${isDarkMode ? 'rgba(251, 191, 36, 0.4)' : 'rgba(217, 119, 6, 0.3)'}`,
+                                                    borderRadius: 4,
+                                                    cursor: googleAdsEnriching ? 'wait' : 'pointer',
+                                                    color: isDarkMode ? '#fbbf24' : '#d97706',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: 4
+                                                }}
+                                            >
+                                                <Icon iconName={googleAdsEnriching ? 'Sync' : 'WebComponents'} style={{ fontSize: 10 }} />
+                                                {googleAdsEnriching 
+                                                    ? `Enriching${googleAdsProgress ? ` ${googleAdsProgress.current}/${googleAdsProgress.total}` : '...'}`
+                                                    : 'Enrich from Google Ads'
+                                                }
+                                            </button>
+                                        )}
+                                    </summary>
+                                    
+                                    {/* Clean attribution table */}
+                                    <div style={{
+                                        background: isDarkMode ? 'rgba(15, 23, 42, 0.4)' : '#fff',
+                                        border: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.2)' : 'rgba(229, 231, 235, 0.8)'}`,
+                                        borderRadius: 8,
+                                        overflow: 'hidden'
+                                    }}>
+                                        {/* Header row */}
+                                        <div style={{
+                                            display: 'grid',
+                                            gridTemplateColumns: '120px 1fr 90px 90px 90px 90px 70px',
+                                            gap: 0,
+                                            padding: '8px 12px',
+                                            background: isDarkMode ? 'rgba(30, 41, 59, 0.6)' : 'rgba(249, 250, 251, 0.9)',
+                                            borderBottom: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.2)' : 'rgba(229, 231, 235, 0.8)'}`,
+                                            fontSize: 9,
+                                            fontWeight: 700,
+                                            color: isDarkMode ? '#94a3b8' : '#6b7280',
+                                            textTransform: 'uppercase',
+                                            letterSpacing: '0.5px'
+                                        }}>
+                                            <div>Matter</div>
+                                            <div>Chain</div>
+                                            <div style={{ textAlign: 'center' }}>Source</div>
+                                            <div style={{ textAlign: 'center' }}>Campaign</div>
+                                            <div style={{ textAlign: 'center' }}>Ad Set</div>
+                                            <div style={{ textAlign: 'center' }}>Keyword</div>
+                                            <div style={{ textAlign: 'center' }}>Signal</div>
+                                        </div>
+                                        
+                                        {/* Data rows */}
+                                        {visibleResults.map(([id, result], rowIdx) => {
+                                            const hasEmail = !!result.clientEmail;
+                                            const hasClioPhone = !!result.clientPhone;
+                                            const enquiryCount = (result.enquiryLookup?.legacy.count || 0) + (result.enquiryLookup?.instructions.count || 0);
+                                            const hasEnquiry = enquiryCount > 0;
+                                            const hasCalls = result.callRailLookup?.found && (result.callRailLookup?.count || 0) > 0;
+                                            const legacyMatch = result.enquiryLookup?.legacy.matches?.[0];
+                                            const instructionsMatch = result.enquiryLookup?.instructions.matches?.[0];
+                                            const preferredEnquiry = legacyMatch || instructionsMatch;
+                                            const latestCall = result.callRailLookup?.calls?.[0];
+                                            const primaryForm = result.webFormMatches?.[0];
+                                            const hasWebForm = (result.webFormMatches?.length || 0) > 0;
+                                            
+                                            // Get Google Ads enriched data if available
+                                            const primaryGclid = primaryForm?.gclid || preferredEnquiry?.gclid;
+                                            const googleAdsEntry: GoogleAdsClickData | undefined = primaryGclid ? result.googleAdsData?.get(primaryGclid) : undefined;
+                                            const hasGoogleAdsData = !!googleAdsEntry && !googleAdsEntry.error;
+                                            
+                                            const formHasGclid = !!primaryForm?.gclid;
+                                            const callRailSource = latestCall?.source?.toLowerCase() || '';
+                                            const callRailIsPaid = callRailSource.includes('paid') || callRailSource.includes('google') || callRailSource.includes('ppc') || callRailSource.includes('cpc');
+                                            const enquirySource = preferredEnquiry?.source?.toLowerCase() || '';
+                                            const enquiryIsPaid = enquirySource.includes('paid') || enquirySource.includes('google') || enquirySource.includes('ppc');
+                                            const isPaid = formHasGclid || callRailIsPaid || enquiryIsPaid || !!preferredEnquiry?.gclid;
+                                            
+                                            // Prefer Google Ads data when available, fall back to existing sources
+                                            const resolvedSource = latestCall?.source || preferredEnquiry?.source || (hasWebForm ? 'Web Form' : null);
+                                            const resolvedCampaign = googleAdsEntry?.campaignName || latestCall?.campaign || preferredEnquiry?.campaign || null;
+                                            const resolvedAdSet = googleAdsEntry?.adGroupName || preferredEnquiry?.adSet || null;
+                                            const resolvedKeyword = googleAdsEntry?.keyword || latestCall?.keywords || preferredEnquiry?.keyword || null;
+                                            
+                                            const chainSteps = [
+                                                { key: 'C', active: hasEmail || hasClioPhone, color: '#38bdf8', title: 'Clio', detail: hasEmail ? result.clientEmail?.split('@')[0] : (hasClioPhone ? result.clientPhone?.slice(-4) : null) },
+                                                { key: 'E', active: hasEnquiry, color: '#a78bfa', title: 'Enquiry', detail: preferredEnquiry ? `${enquiryCount}` : null },
+                                                { key: 'R', active: hasCalls, color: '#f59e0b', title: 'CallRail', detail: latestCall ? `${result.callRailLookup?.count || 0}` : null },
+                                                { key: 'F', active: hasWebForm, color: '#34d399', title: 'Form', detail: primaryForm?.gclid ? 'GCLID' : (primaryForm?.url ? 'URL' : null) },
+                                                { key: 'G', active: hasGoogleAdsData, color: '#facc15', title: 'Google Ads', detail: googleAdsEntry?.keyword ? googleAdsEntry.keyword.slice(0, 8) : null },
+                                            ];
+                                            
+                                            return (
+                                                <div
+                                                    key={id}
+                                                    style={{
+                                                        display: 'grid',
+                                                        gridTemplateColumns: '120px 1fr 90px 90px 90px 90px 70px',
+                                                        gap: 0,
+                                                        padding: '8px 12px',
+                                                        borderBottom: rowIdx < visibleResults.length - 1 
+                                                            ? `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.12)' : 'rgba(229, 231, 235, 0.5)'}` 
+                                                            : 'none',
+                                                        fontSize: 11,
+                                                        alignItems: 'center',
+                                                        background: rowIdx % 2 === 0 
+                                                            ? 'transparent' 
+                                                            : (isDarkMode ? 'rgba(30, 41, 59, 0.15)' : 'rgba(249, 250, 251, 0.4)')
+                                                    }}
+                                                >
+                                                    {/* Matter */}
+                                                    <div>
+                                                        <div style={{ fontWeight: 600, color: isDarkMode ? '#e2e8f0' : '#1f2937', fontSize: 10 }}>
+                                                            {result.displayNumber || id}
+                                                        </div>
+                                                        <div style={{ fontSize: 9, color: isDarkMode ? '#64748b' : '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                            {result.clientName}
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    {/* Chain indicators */}
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                                                        {chainSteps.map((step, idx) => (
+                                                            <React.Fragment key={step.key}>
+                                                                <span
+                                                                    title={`${step.title}: ${step.active ? 'Found' : 'Not found'}${step.detail ? ` (${step.detail})` : ''}`}
+                                                                    style={{
+                                                                        display: 'inline-flex',
+                                                                        alignItems: 'center',
+                                                                        gap: 3,
+                                                                        padding: '2px 6px',
+                                                                        borderRadius: 4,
+                                                                        fontSize: 8,
+                                                                        fontWeight: 600,
+                                                                        background: step.active 
+                                                                            ? (isDarkMode ? `${step.color}20` : `${step.color}12`)
+                                                                            : (isDarkMode ? 'rgba(71, 85, 105, 0.1)' : 'rgba(229, 231, 235, 0.3)'),
+                                                                        color: step.active ? step.color : (isDarkMode ? '#475569' : '#9ca3af'),
+                                                                        border: step.active 
+                                                                            ? `1px solid ${step.color}40` 
+                                                                            : `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.15)' : 'rgba(209, 213, 219, 0.4)'}`,
+                                                                        opacity: step.active ? 1 : 0.5
+                                                                    }}
+                                                                >
+                                                                    <span style={{ fontWeight: 700 }}>{step.key}</span>
+                                                                    {step.active && step.detail && (
+                                                                        <span style={{ fontSize: 7, opacity: 0.85 }}>{step.detail}</span>
+                                                                    )}
+                                                                </span>
+                                                                {idx < chainSteps.length - 1 && (
+                                                                    <span style={{
+                                                                        width: 4,
+                                                                        height: 1,
+                                                                        background: step.active && chainSteps[idx + 1].active
+                                                                            ? (isDarkMode ? '#4ade80' : '#22c55e')
+                                                                            : (isDarkMode ? 'rgba(71, 85, 105, 0.15)' : 'rgba(209, 213, 219, 0.3)')
+                                                                    }} />
+                                                                )}
+                                                            </React.Fragment>
+                                                        ))}
+                                                    </div>
+                                                    
+                                                    {/* Source */}
+                                                    <div style={{ textAlign: 'center' }}>
+                                                        {resolvedSource ? (
+                                                            <span style={{ fontSize: 10, color: isDarkMode ? '#cbd5e1' : '#374151' }}>
+                                                                {resolvedSource.length > 14 ? resolvedSource.slice(0, 14) + '…' : resolvedSource}
+                                                            </span>
+                                                        ) : (
+                                                            <span style={{ color: isDarkMode ? '#475569' : '#d1d5db', fontSize: 10 }}>—</span>
+                                                        )}
+                                                    </div>
+                                                    
+                                                    {/* Campaign */}
+                                                    <div style={{ textAlign: 'center' }}>
+                                                        {resolvedCampaign ? (
+                                                            <span style={{ fontSize: 10, color: isDarkMode ? '#cbd5e1' : '#374151' }} title={resolvedCampaign}>
+                                                                {resolvedCampaign.length > 12 ? resolvedCampaign.slice(0, 12) + '…' : resolvedCampaign}
+                                                            </span>
+                                                        ) : (
+                                                            <span style={{ color: isDarkMode ? '#475569' : '#d1d5db', fontSize: 10 }}>—</span>
+                                                        )}
+                                                    </div>
+                                                    
+                                                    {/* Ad Set */}
+                                                    <div style={{ textAlign: 'center' }}>
+                                                        {resolvedAdSet ? (
+                                                            <span style={{ fontSize: 10, color: isDarkMode ? '#cbd5e1' : '#374151' }} title={resolvedAdSet}>
+                                                                {resolvedAdSet.length > 12 ? resolvedAdSet.slice(0, 12) + '…' : resolvedAdSet}
+                                                            </span>
+                                                        ) : (
+                                                            <span style={{ color: isDarkMode ? '#475569' : '#d1d5db', fontSize: 10 }}>—</span>
+                                                        )}
+                                                    </div>
+                                                    
+                                                    {/* Keyword */}
+                                                    <div style={{ textAlign: 'center' }}>
+                                                        {resolvedKeyword ? (
+                                                            <span style={{ fontSize: 10, color: isDarkMode ? '#cbd5e1' : '#374151' }} title={resolvedKeyword}>
+                                                                {resolvedKeyword.length > 12 ? resolvedKeyword.slice(0, 12) + '…' : resolvedKeyword}
+                                                            </span>
+                                                        ) : (
+                                                            <span style={{ color: isDarkMode ? '#475569' : '#d1d5db', fontSize: 10 }}>—</span>
+                                                        )}
+                                                    </div>
+                                                    
+                                                    {/* Signal */}
+                                                    <div style={{ textAlign: 'center' }}>
+                                                        <span style={{
+                                                            display: 'inline-block',
+                                                            padding: '2px 8px',
+                                                            borderRadius: 4,
+                                                            fontSize: 9,
+                                                            fontWeight: 600,
+                                                            background: isPaid 
+                                                                ? (isDarkMode ? 'rgba(251, 191, 36, 0.15)' : 'rgba(251, 191, 36, 0.12)')
+                                                                : resolvedSource 
+                                                                    ? (isDarkMode ? 'rgba(74, 222, 128, 0.12)' : 'rgba(34, 197, 94, 0.08)')
+                                                                    : (isDarkMode ? 'rgba(71, 85, 105, 0.2)' : 'rgba(243, 244, 246, 0.8)'),
+                                                            color: isPaid 
+                                                                ? (isDarkMode ? '#fbbf24' : '#d97706')
+                                                                : resolvedSource 
+                                                                    ? (isDarkMode ? '#4ade80' : '#16a34a')
+                                                                    : (isDarkMode ? '#64748b' : '#9ca3af'),
+                                                            border: `1px solid ${isPaid 
+                                                                ? (isDarkMode ? 'rgba(251, 191, 36, 0.3)' : 'rgba(217, 119, 6, 0.2)')
+                                                                : resolvedSource 
+                                                                    ? (isDarkMode ? 'rgba(74, 222, 128, 0.2)' : 'rgba(22, 163, 74, 0.15)')
+                                                                    : 'transparent'}`
+                                                        }}>
+                                                            {isPaid ? 'Paid' : resolvedSource ? 'Organic' : '—'}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </details>
+                                );
+                            })()}
+                            
                             <table style={{
                                 width: '100%',
                                 borderCollapse: 'collapse',
                                 fontSize: '11px',
-                                tableLayout: 'auto'
+                                tableLayout: 'auto',
+                                lineHeight: 1.4
                             }}>
                                 <thead>
                                     <tr style={{
-                                        background: isDarkMode ? '#0f172a' : '#f9fafb',
+                                        background: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : '#f9fafb',
                                         position: 'sticky',
-                                        top: 0
+                                        top: 0,
+                                        borderBottom: `2px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(229, 231, 235, 0.8)'}`
                                     }}>
+                                        <th style={{ 
+                                            padding: '6px 4px', 
+                                            width: 32, 
+                                            minWidth: 32,
+                                            textAlign: 'center'
+                                        }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedMatterIds.size > 0 && selectedMatterIds.size === tableMatters.length}
+                                                ref={(el) => {
+                                                    if (el) el.indeterminate = selectedMatterIds.size > 0 && selectedMatterIds.size < tableMatters.length;
+                                                }}
+                                                onChange={() => {
+                                                    // Toggle: if all are selected, clear; otherwise select all
+                                                    if (selectedMatterIds.size === tableMatters.length) {
+                                                        clearSelection();
+                                                    } else {
+                                                        selectAllVisible();
+                                                    }
+                                                }}
+                                                style={{ cursor: 'pointer', accentColor: isDarkMode ? '#38bdf8' : '#0284c7' }}
+                                                title={selectedMatterIds.size === tableMatters.length ? "Deselect all" : "Select all visible"}
+                                            />
+                                        </th>
                                         <SortableHeader 
                                             field="status" 
                                             label="Status" 
@@ -2753,6 +4342,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                 e.currentTarget.style.background = 'transparent';
                                             }
                                         }}
+                                        title="Profit margin: (Collected − WIP) ÷ WIP × 100"
                                         >
                                             <div style={{ 
                                                 display: 'flex', 
@@ -2760,7 +4350,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                 justifyContent: 'center',
                                                 gap: '4px'
                                             }}>
-                                                <span>Owed %</span>
+                                                <span>Margin</span>
                                                 <Icon 
                                                     iconName={sortField === 'roiValue' ? (sortDirection === 'asc' ? 'ChevronUpSmall' : 'ChevronDownSmall') : 'ChevronUpSmall'}
                                                     style={{ 
@@ -2785,42 +4375,70 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {tableMatters.map((matter) => {
-
+                                    {tableMatters.map((matter, idx) => {
+                                        // Create a stable unique key and reuse it for expansion state fallback
+                                        const fallbackRowId = (matter as any)['Display Number'] || matter.DisplayNumber || `matter-${idx}`;
+                                        const rowKey = matter.UniqueID || fallbackRowId;
                                         const openDate = (matter as any)['Open Date'] ? parseISO((matter as any)['Open Date']) : null;
                                         const practiceAreaGroup = groupPracticeArea((matter as any)['Practice Area'] || matter.PracticeArea);
                                         const groupIconName = getGroupIcon(practiceAreaGroup);
                                         const pitchTags = getPitchTagsForMatter(matter);
-                                        const isExpanded = expandedMatterId === matter.UniqueID;
+                                        const matterRowId = matter.UniqueID || fallbackRowId;
+                                        const isExpanded = expandedMatterId !== null && expandedMatterId === matterRowId;
                                         
                                         return (
-                                            <React.Fragment key={matter.UniqueID}>
+                                            <React.Fragment key={rowKey}>
                                             <tr style={{
-                                                borderBottom: `1px solid ${isDarkMode ? '#1e293b' : '#f3f4f6'}`,
+                                                borderBottom: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.15)' : 'rgba(229, 231, 235, 0.6)'}`,
                                                 fontSize: '11px',
-                                                transition: 'background 0.2s',
-                                                minHeight: '36px',
-                                                background: isDarkMode ? 'rgba(30, 41, 59, 0.3)' : 'rgba(255, 255, 255, 0.8)'
+                                                transition: 'background 0.15s ease',
+                                                background: idx % 2 === 0 
+                                                    ? 'transparent' 
+                                                    : (isDarkMode ? 'rgba(30, 41, 59, 0.2)' : 'rgba(249, 250, 251, 0.5)')
                                             }}
-                                            onMouseEnter={(e) => e.currentTarget.style.background = isDarkMode ? '#1e293b' : '#f9fafb'}
-                                            onMouseLeave={(e) => e.currentTarget.style.background = isDarkMode ? 'rgba(30, 41, 59, 0.3)' : 'rgba(255, 255, 255, 0.8)'}
+                                            onMouseEnter={(e) => e.currentTarget.style.background = isDarkMode ? 'rgba(59, 130, 246, 0.08)' : 'rgba(59, 130, 246, 0.04)'}
+                                            onMouseLeave={(e) => e.currentTarget.style.background = idx % 2 === 0 
+                                                ? 'transparent' 
+                                                : (isDarkMode ? 'rgba(30, 41, 59, 0.2)' : 'rgba(249, 250, 251, 0.5)')}
                                             >
                                                 <td style={{
-                                                    padding: '4px 6px',
+                                                    padding: '4px',
+                                                    width: 32,
+                                                    minWidth: 32,
+                                                    textAlign: 'center'
+                                                }}>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedMatterIds.has(matterRowId)}
+                                                        onChange={(e) => {
+                                                            e.stopPropagation();
+                                                            toggleMatterSelection(matterRowId);
+                                                        }}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                        style={{ cursor: 'pointer', accentColor: isDarkMode ? '#38bdf8' : '#0284c7' }}
+                                                    />
+                                                </td>
+                                                <td style={{
+                                                    padding: '8px 6px',
                                                     width: 95,
                                                     minWidth: 95,
                                                     textAlign: 'center'
                                                 }}>
                                                     <span style={{
-                                                        background: ((matter as any).Status || matter.Status) === 'Open' ? (isDarkMode ? '#10b98140' : '#dcfce7') : (isDarkMode ? '#6b728040' : '#f3f4f6'),
-                                                        color: ((matter as any).Status || matter.Status) === 'Open' ? (isDarkMode ? '#ffffff' : '#16a34a') : (isDarkMode ? '#ffffff' : '#6b7280'),
-                                                        padding: '4px 8px',
+                                                        background: ((matter as any).Status || matter.Status) === 'Open' 
+                                                            ? (isDarkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.08)') 
+                                                            : (isDarkMode ? 'rgba(100, 116, 139, 0.12)' : 'rgba(100, 116, 139, 0.08)'),
+                                                        color: ((matter as any).Status || matter.Status) === 'Open' 
+                                                            ? (isDarkMode ? '#4ade80' : '#16a34a') 
+                                                            : (isDarkMode ? '#94a3b8' : '#6b7280'),
+                                                        padding: '3px 8px',
                                                         borderRadius: '4px',
-                                                        fontWeight: 700,
+                                                        fontWeight: 600,
                                                         fontSize: '10px',
                                                         display: 'inline-block',
-                                                        border: `1px solid ${((matter as any).Status || matter.Status) === 'Open' ? (isDarkMode ? '#10b981' : '#16a34a') : (isDarkMode ? '#6b7280' : '#6b7280')}`,
-                                                        minWidth: 60
+                                                        border: `1px solid ${((matter as any).Status || matter.Status) === 'Open' 
+                                                            ? (isDarkMode ? 'rgba(34, 197, 94, 0.25)' : 'rgba(34, 197, 94, 0.2)') 
+                                                            : (isDarkMode ? 'rgba(100, 116, 139, 0.2)' : 'rgba(100, 116, 139, 0.15)')}`
                                                     }}>
                                                         {(matter as any).Status || matter.Status || 'Open'}
                                                     </span>
@@ -2841,40 +4459,59 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                     />
                                                 </td>
                                                 <td style={{
-                                                    padding: '4px 6px',
+                                                    padding: '8px 6px',
                                                     width: 95,
                                                     minWidth: 95,
-                                                    color: isDarkMode ? '#ffffff' : '#000000',
+                                                    color: isDarkMode ? '#94a3b8' : '#6b7280',
                                                     fontFamily: 'monospace',
                                                     fontSize: '10px',
-                                                    lineHeight: '1.2',
-                                                    fontWeight: 600
+                                                    lineHeight: '1.3'
                                                 }}>
                                                     {openDate && isValid(openDate) ? (
-                                                        <div>
-                                                            <div>{format(openDate, 'MM-dd')}</div>
-                                                            <div style={{ opacity: 0.7 }}>--:--</div>
-                                                        </div>
+                                                        <span>{format(openDate, 'dd MMM yy')}</span>
                                                     ) : '–'}
                                                 </td>
                                                 <td style={{
-                                                    padding: '6px 10px',
+                                                    padding: '8px 10px',
                                                     width: 140,
                                                     minWidth: 140,
-                                                    color: isDarkMode ? '#e5e7eb' : '#111827',
+                                                    color: isDarkMode ? '#e2e8f0' : '#1f2937',
                                                     fontFamily: 'monospace',
                                                     fontSize: '11px',
                                                     fontWeight: 500
                                                 }}>
-                                                    {(matter as any)['Display Number'] || matter.DisplayNumber || 'N/A'}
+                                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                                        {(matter as any)['Display Number'] || matter.DisplayNumber || 'N/A'}
+                                                        <span 
+                                                            style={{
+                                                                fontSize: 8,
+                                                                fontWeight: 600,
+                                                                padding: '1px 4px',
+                                                                borderRadius: 3,
+                                                                fontFamily: 'system-ui, sans-serif',
+                                                                background: matter.InstructionRef 
+                                                                    ? (isDarkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.08)')
+                                                                    : (isDarkMode ? 'rgba(100, 116, 139, 0.12)' : 'rgba(100, 116, 139, 0.08)'),
+                                                                color: matter.InstructionRef
+                                                                    ? (isDarkMode ? '#4ade80' : '#16a34a')
+                                                                    : (isDarkMode ? '#64748b' : '#9ca3af')
+                                                            }}
+                                                            title={matter.InstructionRef 
+                                                                ? `New space matter (${matter.InstructionRef})` 
+                                                                : 'Legacy matter'}
+                                                        >
+                                                            {matter.InstructionRef ? 'v2' : 'v1'}
+                                                        </span>
+                                                    </span>
                                                 </td>
                                                 <td style={{
-                                                    padding: '6px 10px',
-                                                    color: isDarkMode ? '#e5e7eb' : '#111827',
+                                                    padding: '8px 10px',
+                                                    color: isDarkMode ? '#e2e8f0' : '#1f2937',
                                                     fontWeight: 500,
                                                     overflow: 'hidden',
                                                     textOverflow: 'ellipsis',
-                                                    whiteSpace: 'nowrap'
+                                                    whiteSpace: 'nowrap',
+                                                    maxWidth: 200
                                                 }}>
                                                     {(matter as any)['Client Name'] || matter.ClientName || 'N/A'}
                                                     {pitchTags.length > 0 && (
@@ -2926,62 +4563,60 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                     )}
                                                 </td>
                                                 <td style={{
-                                                    padding: '4px 6px',
+                                                    padding: '8px 6px',
                                                     width: 80,
                                                     minWidth: 80,
-                                                    color: isDarkMode ? '#e5e7eb' : '#111827',
-                                                    fontSize: '11px',
+                                                    color: isDarkMode ? '#94a3b8' : '#6b7280',
+                                                    fontSize: '10px',
                                                     textAlign: 'left',
                                                     fontFamily: 'monospace',
-                                                    fontWeight: 500,
-                                                    letterSpacing: '0.6px'
+                                                    fontWeight: 500
                                                 }}>
                                                     {getInitialsFromName((matter as any)['Originating Solicitor'] || matter.OriginatingSolicitor || '')}
                                                 </td>
                                                 <td style={{
-                                                    padding: '4px 6px',
+                                                    padding: '8px 6px',
                                                     width: 80,
                                                     minWidth: 80,
-                                                    color: isDarkMode ? '#e5e7eb' : '#111827',
-                                                    fontSize: '11px',
+                                                    color: isDarkMode ? '#94a3b8' : '#6b7280',
+                                                    fontSize: '10px',
                                                     textAlign: 'left',
                                                     fontFamily: 'monospace',
-                                                    fontWeight: 500,
-                                                    letterSpacing: '0.6px'
+                                                    fontWeight: 500
                                                 }}>
                                                     {getInitialsFromName((matter as any)['Responsible Solicitor'] || matter.ResponsibleSolicitor || '')}
                                                 </td>
                                                 <td style={{
-                                                    padding: '6px 8px',
+                                                    padding: '8px 8px',
                                                     width: 100,
                                                     minWidth: 100,
-                                                    textAlign: 'left',
-                                                    color: isDarkMode ? '#e5e7eb' : '#111827',
+                                                    textAlign: 'right',
+                                                    color: isDarkMode ? '#cbd5e1' : '#374151',
                                                     fontFamily: 'monospace',
-                                                    fontSize: '11px',
+                                                    fontSize: '10px',
                                                     fontWeight: 500
                                                 }}>
-                                                    {formatCurrency(calculateMatterWIP(matter, wip))}
+                                                    {formatCurrency(getMatterFinancials(matter).wip)}
                                                 </td>
                                                 <td style={{
-                                                    padding: '6px 8px',
+                                                    padding: '8px 8px',
                                                     width: 105,
                                                     minWidth: 105,
-                                                    textAlign: 'left',
-                                                    color: isDarkMode ? '#e5e7eb' : '#111827',
+                                                    textAlign: 'right',
+                                                    color: isDarkMode ? '#cbd5e1' : '#374151',
                                                     fontFamily: 'monospace',
-                                                    fontSize: '11px',
+                                                    fontSize: '10px',
                                                     fontWeight: 500
                                                 }}>
-                                                    {formatCurrency(calculateMatterCollected(matter, recoveredFees))}
+                                                    {formatCurrency(getMatterFinancials(matter).collected)}
                                                 </td>
                                                 <td style={{
-                                                    padding: '6px 8px',
+                                                    padding: '8px 8px',
                                                     width: 90,
                                                     minWidth: 90,
                                                     textAlign: 'center',
                                                     fontFamily: 'monospace',
-                                                    fontSize: '11px',
+                                                    fontSize: '10px',
                                                     fontWeight: 600
                                                 }}>
                                                     {(() => {
@@ -3032,58 +4667,56 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                     })()}
                                                 </td>
                                                 <td style={{
-                                                    padding: '6px 8px',
+                                                    padding: '8px 8px',
                                                     width: 140,
                                                     minWidth: 140,
                                                     textAlign: 'left',
-                                                    color: isDarkMode ? '#e5e7eb' : '#111827',
-                                                    fontFamily: 'Raleway, sans-serif',
-                                                    fontSize: '11px',
-                                                    fontWeight: 500
+                                                    color: isDarkMode ? '#94a3b8' : '#6b7280',
+                                                    fontFamily: 'system-ui, sans-serif',
+                                                    fontSize: '10px'
                                                 }}>
                                                     <button
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            setExpandedMatterId(prev => prev === matter.UniqueID ? null : matter.UniqueID);
+                                                            setExpandedMatterId(prev => prev === matterRowId ? null : matterRowId);
                                                         }}
                                                         style={{
                                                             display: 'inline-flex',
                                                             alignItems: 'center',
-                                                            gap: 6,
-                                                            background: expandedMatterId === matter.UniqueID
-                                                                ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.1)')
+                                                            gap: 4,
+                                                            background: isExpanded
+                                                                ? (isDarkMode ? 'rgba(59, 130, 246, 0.15)' : 'rgba(59, 130, 246, 0.08)')
                                                                 : 'transparent',
                                                             border: 'none',
                                                             borderRadius: 4,
-                                                            padding: '4px 8px',
+                                                            padding: '3px 6px',
                                                             cursor: 'pointer',
-                                                            color: isDarkMode ? '#e5e7eb' : '#111827',
-                                                            fontSize: '11px',
-                                                            fontFamily: 'Raleway, sans-serif',
-                                                            fontWeight: 500,
+                                                            color: isDarkMode ? '#94a3b8' : '#6b7280',
+                                                            fontSize: '10px',
+                                                            fontFamily: 'system-ui, sans-serif',
                                                             transition: 'background 0.15s ease'
                                                         }}
                                                         onMouseEnter={(e) => {
-                                                            if (expandedMatterId !== matter.UniqueID) {
-                                                                e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)';
+                                                            if (!isExpanded) {
+                                                                e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)';
                                                             }
                                                         }}
                                                         onMouseLeave={(e) => {
-                                                            if (expandedMatterId !== matter.UniqueID) {
+                                                            if (!isExpanded) {
                                                                 e.currentTarget.style.background = 'transparent';
                                                             }
                                                         }}
                                                         title={`Expand source details for ${getMatterSourceLabel(matter)}`}
                                                     >
                                                         <Icon 
-                                                            iconName={expandedMatterId === matter.UniqueID ? 'ChevronDown' : 'ChevronRight'}
-                                                            style={{ fontSize: 12, transition: 'transform 0.15s ease' }}
+                                                            iconName={isExpanded ? 'ChevronDown' : 'ChevronRight'}
+                                                            style={{ fontSize: 10, transition: 'transform 0.15s ease' }}
                                                         />
                                                         {getMatterSourceLabel(matter)}
                                                     </button>
                                                 </td>
                                             </tr>
-                                            {expandedMatterId === matter.UniqueID && (
+                                            {isExpanded && (
                                                 <tr style={{ background: isDarkMode ? 'rgba(15, 23, 42, 0.6)' : 'rgba(249, 250, 251, 0.95)' }}>
                                                     <td colSpan={11} style={{
                                                         padding: '12px 20px',
@@ -3096,32 +4729,778 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                             fontSize: '11px',
                                                             color: isDarkMode ? '#94a3b8' : '#4b5563'
                                                         }}>
-                                                            <div>
-                                                                <div style={{ fontWeight: 600, marginBottom: 4, color: isDarkMode ? '#cbd5e1' : '#374151' }}>Campaign</div>
-                                                                <div>{(matter as any).Campaign || (matter as any).campaign || '—'}</div>
-                                                            </div>
-                                                            <div>
-                                                                <div style={{ fontWeight: 600, marginBottom: 4, color: isDarkMode ? '#cbd5e1' : '#374151' }}>Ad Set</div>
-                                                                <div>{(matter as any).AdSet || (matter as any).ad_set || '—'}</div>
-                                                            </div>
-                                                            <div>
-                                                                <div style={{ fontWeight: 600, marginBottom: 4, color: isDarkMode ? '#cbd5e1' : '#374151' }}>Keyword</div>
-                                                                <div>{(matter as any).Keyword || (matter as any).keyword || '—'}</div>
-                                                            </div>
-                                                            <div>
-                                                                <div style={{ fontWeight: 600, marginBottom: 4, color: isDarkMode ? '#cbd5e1' : '#374151' }}>URL</div>
-                                                                <div style={{ wordBreak: 'break-all' }}>{(matter as any).ReferralURL || (matter as any).Referral_URL || (matter as any).url || '—'}</div>
-                                                            </div>
-                                                            <div>
-                                                                <div style={{ fontWeight: 600, marginBottom: 4, color: isDarkMode ? '#cbd5e1' : '#374151' }}>Most Recent Activity</div>
-                                                                <div>{(() => {
-                                                                    const detailed = getMatterFinancialsDetailed(matter);
-                                                                    if (detailed.lastUpdated) {
-                                                                        return format(new Date(detailed.lastUpdated), 'dd MMM yyyy');
-                                                                    }
-                                                                    return '—';
-                                                                })()}</div>
-                                                            </div>
+                                                            {/* Only show source fields that have data */}
+                                                            {((matter as any).Campaign || (matter as any).campaign) && (
+                                                                <div>
+                                                                    <div style={{ fontWeight: 600, marginBottom: 4, color: isDarkMode ? '#cbd5e1' : '#374151' }}>Campaign</div>
+                                                                    <div>{(matter as any).Campaign || (matter as any).campaign}</div>
+                                                                </div>
+                                                            )}
+                                                            {((matter as any).AdSet || (matter as any).ad_set) && (
+                                                                <div>
+                                                                    <div style={{ fontWeight: 600, marginBottom: 4, color: isDarkMode ? '#cbd5e1' : '#374151' }}>Ad Set</div>
+                                                                    <div>{(matter as any).AdSet || (matter as any).ad_set}</div>
+                                                                </div>
+                                                            )}
+                                                            {((matter as any).Keyword || (matter as any).keyword) && (
+                                                                <div>
+                                                                    <div style={{ fontWeight: 600, marginBottom: 4, color: isDarkMode ? '#cbd5e1' : '#374151' }}>Keyword</div>
+                                                                    <div>{(matter as any).Keyword || (matter as any).keyword}</div>
+                                                                </div>
+                                                            )}
+                                                            {((matter as any).ReferralURL || (matter as any).Referral_URL || (matter as any).url) && (
+                                                                <div>
+                                                                    <div style={{ fontWeight: 600, marginBottom: 4, color: isDarkMode ? '#cbd5e1' : '#374151' }}>URL</div>
+                                                                    <div style={{ wordBreak: 'break-all' }}>{(matter as any).ReferralURL || (matter as any).Referral_URL || (matter as any).url}</div>
+                                                                </div>
+                                                            )}
+                                                            {(() => {
+                                                                const detailed = getMatterFinancialsDetailed(matter);
+                                                                return detailed.lastUpdated ? (
+                                                                    <div>
+                                                                        <div style={{ fontWeight: 600, marginBottom: 4, color: isDarkMode ? '#cbd5e1' : '#374151' }}>Most Recent Activity</div>
+                                                                        <div>{format(new Date(detailed.lastUpdated), 'dd MMM yyyy')}</div>
+                                                                    </div>
+                                                                ) : null;
+                                                            })()}
+                                                        </div>
+                                                        
+                                                        {/* Inspect Button & Results */}
+                                                        <div style={{
+                                                            marginTop: 16,
+                                                            paddingTop: 12,
+                                                            borderTop: `1px solid ${isDarkMode ? '#334155' : '#e5e7eb'}`
+                                                        }}>
+                                                            {matterInspection && matterInspection.uniqueId === matterRowId ? (
+                                                                <div style={{
+                                                                    display: 'flex',
+                                                                    flexDirection: 'column',
+                                                                    gap: 8
+                                                                }}>
+                                                                    <div style={{
+                                                                        display: 'flex',
+                                                                        alignItems: 'center',
+                                                                        gap: 8,
+                                                                        marginBottom: 4
+                                                                    }}>
+                                                                        <Icon iconName="Search" style={{ fontSize: 14, color: isDarkMode ? '#3690ce' : '#2563eb' }} />
+                                                                        <span style={{ fontWeight: 600, color: isDarkMode ? '#e2e8f0' : '#1f2937' }}>Inspection</span>
+                                                                        <button
+                                                                            onClick={() => setMatterInspection(null)}
+                                                                            style={{
+                                                                                marginLeft: 'auto',
+                                                                                background: 'transparent',
+                                                                                border: 'none',
+                                                                                cursor: 'pointer',
+                                                                                color: isDarkMode ? '#64748b' : '#6b7280',
+                                                                                padding: '2px 6px',
+                                                                                borderRadius: 4
+                                                                            }}
+                                                                            title="Clear inspection"
+                                                                        >
+                                                                            <Icon iconName="Cancel" style={{ fontSize: 12 }} />
+                                                                        </button>
+                                                                    </div>
+                                                                    
+                                                                    {/* LOCAL DATA - From Matter Record */}
+                                                                    <div style={{
+                                                                        display: 'grid',
+                                                                        gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+                                                                        gap: 8,
+                                                                        background: isDarkMode ? 'rgba(30, 41, 59, 0.4)' : 'rgba(243, 244, 246, 0.6)',
+                                                                        borderRadius: 6,
+                                                                        padding: 10,
+                                                                        marginBottom: 10
+                                                                    }}>
+                                                                        <div>
+                                                                            <div style={{ fontSize: 9, color: isDarkMode ? '#64748b' : '#9ca3af', marginBottom: 2 }}>Matter ID</div>
+                                                                            <div style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 11, color: isDarkMode ? '#38bdf8' : '#0284c7' }}>{matterInspection.matterId || '—'}</div>
+                                                                        </div>
+                                                                        <div>
+                                                                            <div style={{ fontSize: 9, color: isDarkMode ? '#64748b' : '#9ca3af', marginBottom: 2 }}>Client ID</div>
+                                                                            <div style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 11, color: isDarkMode ? '#a78bfa' : '#7c3aed' }}>{matterInspection.clientId || '—'}</div>
+                                                                        </div>
+                                                                        <div>
+                                                                            <div style={{ fontSize: 9, color: isDarkMode ? '#64748b' : '#9ca3af', marginBottom: 2 }}>Display #</div>
+                                                                            <div style={{ fontFamily: 'monospace', fontWeight: 500, fontSize: 10 }}>{matterInspection.displayNumber || '—'}</div>
+                                                                        </div>
+                                                                        <div>
+                                                                            <div style={{ fontSize: 9, color: isDarkMode ? '#64748b' : '#9ca3af', marginBottom: 2 }}>Version</div>
+                                                                            <div style={{ 
+                                                                                fontWeight: 600, fontSize: 10,
+                                                                                color: matterInspection.version === 'v2' ? (isDarkMode ? '#4ade80' : '#16a34a') : (isDarkMode ? '#94a3b8' : '#64748b')
+                                                                            }}>
+                                                                                {matterInspection.version}
+                                                                            </div>
+                                                                        </div>
+                                                                        <div>
+                                                                            <div style={{ fontSize: 9, color: isDarkMode ? '#64748b' : '#9ca3af', marginBottom: 2 }}>Client</div>
+                                                                            <div style={{ fontWeight: 500, fontSize: 10 }}>{matterInspection.clientName || '—'}</div>
+                                                                        </div>
+                                                                        {matterInspection.instructionRef && (
+                                                                            <div>
+                                                                                <div style={{ fontSize: 9, color: isDarkMode ? '#64748b' : '#9ca3af', marginBottom: 2 }}>Instruction</div>
+                                                                                <div style={{ fontFamily: 'monospace', fontWeight: 500, fontSize: 10, color: isDarkMode ? '#4ade80' : '#16a34a' }}>{matterInspection.instructionRef}</div>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                    
+                                                                    {/* STEP 1: Clio API - Get Email */}
+                                                                    <div style={{
+                                                                        display: 'flex',
+                                                                        alignItems: 'center',
+                                                                        gap: 8,
+                                                                        padding: '8px 10px',
+                                                                        background: isDarkMode ? 'rgba(30, 41, 59, 0.3)' : 'rgba(243, 244, 246, 0.5)',
+                                                                        borderRadius: 5,
+                                                                        marginBottom: 6
+                                                                    }}>
+                                                                        <div style={{ 
+                                                                            width: 18, height: 18, borderRadius: '50%',
+                                                                            background: matterInspection.clientEmail 
+                                                                                ? (isDarkMode ? '#166534' : '#dcfce7')
+                                                                                : (isDarkMode ? '#1e293b' : '#e5e7eb'),
+                                                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                                            fontSize: 10, fontWeight: 700,
+                                                                            color: matterInspection.clientEmail 
+                                                                                ? (isDarkMode ? '#4ade80' : '#16a34a')
+                                                                                : (isDarkMode ? '#64748b' : '#9ca3af')
+                                                                        }}>
+                                                                            {matterInspection.clientEmail ? '✓' : '1'}
+                                                                        </div>
+                                                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                                                            <div style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? '#cbd5e1' : '#374151' }}>
+                                                                                Clio → Contact Info
+                                                                            </div>
+                                                                            {matterInspection.clientEmail ? (
+                                                                                <div>
+                                                                                    <div style={{ 
+                                                                                        fontSize: 11, fontWeight: 500, fontFamily: 'monospace',
+                                                                                        color: isDarkMode ? '#4ade80' : '#16a34a',
+                                                                                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+                                                                                    }}>
+                                                                                        {matterInspection.clientEmail}
+                                                                                    </div>
+                                                                                    {matterInspection.clientPhone && (
+                                                                                        <div style={{ 
+                                                                                            fontSize: 10, fontFamily: 'monospace',
+                                                                                            color: isDarkMode ? '#94a3b8' : '#64748b',
+                                                                                            marginTop: 2
+                                                                                        }}>
+                                                                                            {matterInspection.clientPhone}
+                                                                                        </div>
+                                                                                    )}
+                                                                                </div>
+                                                                            ) : (
+                                                                                <div style={{ fontSize: 9, color: isDarkMode ? '#64748b' : '#9ca3af' }}>
+                                                                                    {matterInspection.loading ? 'Fetching...' : 'Not fetched'}
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                        {!matterInspection.clientEmail && (
+                                                                            <button
+                                                                                onClick={async (e) => {
+                                                                                    e.stopPropagation();
+                                                                                    if (!matterInspection.matterId) return;
+                                                                                    setMatterInspection(prev => prev ? { ...prev, loading: true, error: undefined } : null);
+                                                                                    try {
+                                                                                        const resp = await fetch(`/api/matters/${matterInspection.matterId}/client-email`);
+                                                                                        const data = await resp.json();
+                                                                                        if (data.ok) {
+                                                                                            setMatterInspection(prev => prev ? {
+                                                                                                ...prev,
+                                                                                                clientId: data.clientId || prev.clientId,
+                                                                                                clientName: data.clientName || prev.clientName,
+                                                                                                clientEmail: data.clientEmail || '',
+                                                                                                clientPhone: data.clientPhone || '',
+                                                                                                loading: false
+                                                                                            } : null);
+                                                                                        } else {
+                                                                                            setMatterInspection(prev => prev ? { ...prev, loading: false, error: data.error } : null);
+                                                                                        }
+                                                                                    } catch (err) {
+                                                                                        setMatterInspection(prev => prev ? { ...prev, loading: false, error: 'Network error' } : null);
+                                                                                    }
+                                                                                }}
+                                                                                disabled={!matterInspection.matterId || matterInspection.loading}
+                                                                                style={{
+                                                                                    padding: '3px 8px', fontSize: 9, fontWeight: 600,
+                                                                                    background: isDarkMode ? 'rgba(56, 189, 248, 0.15)' : 'rgba(2, 132, 199, 0.1)',
+                                                                                    border: `1px solid ${isDarkMode ? 'rgba(56, 189, 248, 0.3)' : 'rgba(2, 132, 199, 0.2)'}`,
+                                                                                    borderRadius: 4, cursor: 'pointer',
+                                                                                    color: isDarkMode ? '#38bdf8' : '#0284c7',
+                                                                                    opacity: matterInspection.loading ? 0.5 : 1
+                                                                                }}
+                                                                            >
+                                                                                {matterInspection.loading ? '...' : 'Fetch'}
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                    
+                                                                    {/* STEP 2: Enquiry Lookup */}
+                                                                    <div style={{
+                                                                        display: 'flex',
+                                                                        alignItems: 'flex-start',
+                                                                        gap: 8,
+                                                                        padding: '8px 10px',
+                                                                        background: isDarkMode ? 'rgba(30, 41, 59, 0.3)' : 'rgba(243, 244, 246, 0.5)',
+                                                                        borderRadius: 5,
+                                                                        marginBottom: 6
+                                                                    }}>
+                                                                        <div style={{ 
+                                                                            width: 18, height: 18, borderRadius: '50%', flexShrink: 0, marginTop: 2,
+                                                                            background: matterInspection.enquiryLookup?.legacy.found || matterInspection.enquiryLookup?.instructions.found
+                                                                                ? (isDarkMode ? '#166534' : '#dcfce7')
+                                                                                : (isDarkMode ? '#1e293b' : '#e5e7eb'),
+                                                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                                            fontSize: 10, fontWeight: 700,
+                                                                            color: matterInspection.enquiryLookup?.legacy.found || matterInspection.enquiryLookup?.instructions.found
+                                                                                ? (isDarkMode ? '#4ade80' : '#16a34a')
+                                                                                : (isDarkMode ? '#64748b' : '#9ca3af')
+                                                                        }}>
+                                                                            {matterInspection.enquiryLookup?.legacy.found || matterInspection.enquiryLookup?.instructions.found ? '✓' : '2'}
+                                                                        </div>
+                                                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                                                            <div style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? '#cbd5e1' : '#374151', marginBottom: 4 }}>
+                                                                                Enquiries → Match by Email
+                                                                            </div>
+                                                                            {matterInspection.enquiryLookup ? (
+                                                                                <div style={{ fontSize: 9 }}>
+                                                                                    {/* Legacy Results */}
+                                                                                    <div style={{ marginBottom: 6 }}>
+                                                                                        <div style={{ 
+                                                                                            display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3,
+                                                                                            color: isDarkMode ? '#94a3b8' : '#64748b'
+                                                                                        }}>
+                                                                                            <span style={{ 
+                                                                                                padding: '1px 4px', borderRadius: 3, fontSize: 8, fontWeight: 600,
+                                                                                                background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.1)',
+                                                                                                color: isDarkMode ? '#94a3b8' : '#64748b'
+                                                                                            }}>Legacy</span>
+                                                                                            {matterInspection.enquiryLookup.legacy.found ? (
+                                                                                                <span style={{ color: isDarkMode ? '#4ade80' : '#16a34a', fontWeight: 600 }}>
+                                                                                                    {matterInspection.enquiryLookup.legacy.count} match{matterInspection.enquiryLookup.legacy.count !== 1 ? 'es' : ''}
+                                                                                                </span>
+                                                                                            ) : matterInspection.enquiryLookup.legacy.error ? (
+                                                                                                <span style={{ color: '#ef4444' }}>Error</span>
+                                                                                            ) : (
+                                                                                                <span>No matches</span>
+                                                                                            )}
+                                                                                        </div>
+                                                                                        {/* Legacy match details */}
+                                                                                        {matterInspection.enquiryLookup.legacy.matches.map((m, i) => (
+                                                                                            <div key={`leg-${i}`} style={{
+                                                                                                marginLeft: 8, marginBottom: 10, padding: '10px 12px',
+                                                                                                background: isDarkMode ? 'rgba(30, 41, 59, 0.25)' : 'rgba(248, 250, 252, 0.8)',
+                                                                                                borderRadius: 6, border: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(203, 213, 225, 0.5)'}`
+                                                                                            }}>
+                                                                                                {/* Header: ID + Name */}
+                                                                                                <div style={{ marginBottom: 8 }}>
+                                                                                                    <span style={{ fontFamily: 'monospace', fontSize: 10, color: isDarkMode ? '#94a3b8' : '#64748b' }}>#{m.id}</span>
+                                                                                                    {m.name && <span style={{ marginLeft: 8, fontWeight: 600, fontSize: 11, color: isDarkMode ? '#e2e8f0' : '#1e293b' }}>{m.name}</span>}
+                                                                                                </div>
+                                                                                                {/* Details grid */}
+                                                                                                <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '4px 8px', fontSize: 9, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                                                                                                    <span>Email</span>
+                                                                                                    <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.email || '—'}</span>
+                                                                                                    <span>Phone</span>
+                                                                                                    <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.phone || '—'}</span>
+                                                                                                    <span>Area</span>
+                                                                                                    <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.aow || '—'}</span>
+                                                                                                    <span>Type</span>
+                                                                                                    <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.tow || '—'}</span>
+                                                                                                    <span>Date</span>
+                                                                                                    <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.date ? new Date(m.date).toLocaleDateString() : '—'}</span>
+                                                                                                    <span>POC</span>
+                                                                                                    <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.poc || '—'}</span>
+                                                                                                </div>
+                                                                                                {/* Source Attribution */}
+                                                                                                <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.25)' : 'rgba(203, 213, 225, 0.4)'}` }}>
+                                                                                                    <div style={{ fontSize: 8, fontWeight: 600, color: isDarkMode ? '#64748b' : '#9ca3af', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Tracking</div>
+                                                                                                    <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '4px 8px', fontSize: 9, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                                                                                                        <span>Source</span>
+                                                                                                        <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.source || '—'}</span>
+                                                                                                        <span>Campaign</span>
+                                                                                                        <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.campaign || '—'}</span>
+                                                                                                        <span>Ad Set</span>
+                                                                                                        <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.adSet || '—'}</span>
+                                                                                                        <span>Keyword</span>
+                                                                                                        <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.keyword || '—'}</span>
+                                                                                                        <span>GCLID</span>
+                                                                                                        <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569', fontFamily: 'monospace', fontSize: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.gclid || ''}>{m.gclid || '—'}</span>
+                                                                                                        <span>URL</span>
+                                                                                                        <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.url || ''}>{m.url || '—'}</span>
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        ))}
+                                                                                    </div>
+                                                                                    {/* Instructions Results */}
+                                                                                    <div>
+                                                                                        <div style={{ 
+                                                                                            display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3,
+                                                                                            color: isDarkMode ? '#94a3b8' : '#64748b'
+                                                                                        }}>
+                                                                                            <span style={{ 
+                                                                                                padding: '1px 4px', borderRadius: 3, fontSize: 8, fontWeight: 600,
+                                                                                                background: isDarkMode ? 'rgba(74, 222, 128, 0.15)' : 'rgba(22, 163, 74, 0.1)',
+                                                                                                color: isDarkMode ? '#4ade80' : '#16a34a'
+                                                                                            }}>Instructions</span>
+                                                                                            {matterInspection.enquiryLookup.instructions.found ? (
+                                                                                                <span style={{ color: isDarkMode ? '#4ade80' : '#16a34a', fontWeight: 600 }}>
+                                                                                                    {matterInspection.enquiryLookup.instructions.count} match{matterInspection.enquiryLookup.instructions.count !== 1 ? 'es' : ''}
+                                                                                                </span>
+                                                                                            ) : matterInspection.enquiryLookup.instructions.error ? (
+                                                                                                <span style={{ color: '#ef4444' }}>Error</span>
+                                                                                            ) : (
+                                                                                                <span>No matches</span>
+                                                                                            )}
+                                                                                        </div>
+                                                                                        {/* Instructions match details */}
+                                                                                        {matterInspection.enquiryLookup.instructions.matches.map((m, i) => (
+                                                                                            <div key={`ins-${i}`} style={{
+                                                                                                marginLeft: 8, marginBottom: 10, padding: '10px 12px',
+                                                                                                background: isDarkMode ? 'rgba(30, 41, 59, 0.25)' : 'rgba(248, 250, 252, 0.8)',
+                                                                                                borderRadius: 6, border: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(203, 213, 225, 0.5)'}`
+                                                                                            }}>
+                                                                                                {/* Header: ID + ACID + Name */}
+                                                                                                <div style={{ marginBottom: 8 }}>
+                                                                                                    <span style={{ fontFamily: 'monospace', fontSize: 10, color: isDarkMode ? '#94a3b8' : '#64748b' }}>#{m.id}</span>
+                                                                                                    {m.acid && <span style={{ marginLeft: 6, fontFamily: 'monospace', fontSize: 9, color: isDarkMode ? '#64748b' : '#9ca3af' }}>acid:{m.acid}</span>}
+                                                                                                    {m.name && <span style={{ marginLeft: 8, fontWeight: 600, fontSize: 11, color: isDarkMode ? '#e2e8f0' : '#1e293b' }}>{m.name}</span>}
+                                                                                                </div>
+                                                                                                {/* Details grid */}
+                                                                                                <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '4px 8px', fontSize: 9, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                                                                                                    <span>Email</span>
+                                                                                                    <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.email || '—'}</span>
+                                                                                                    <span>Phone</span>
+                                                                                                    <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.phone || '—'}</span>
+                                                                                                    <span>Area</span>
+                                                                                                    <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.aow || '—'}</span>
+                                                                                                    <span>Type</span>
+                                                                                                    <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.tow || '—'}</span>
+                                                                                                    <span>Stage</span>
+                                                                                                    <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.stage || '—'}</span>
+                                                                                                    <span>Date</span>
+                                                                                                    <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.date ? new Date(m.date).toLocaleDateString() : '—'}</span>
+                                                                                                    <span>POC</span>
+                                                                                                    <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.poc || '—'}</span>
+                                                                                                </div>
+                                                                                                {/* Source Attribution */}
+                                                                                                <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.25)' : 'rgba(203, 213, 225, 0.4)'}` }}>
+                                                                                                    <div style={{ fontSize: 8, fontWeight: 600, color: isDarkMode ? '#64748b' : '#9ca3af', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Tracking</div>
+                                                                                                    <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '4px 8px', fontSize: 9, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                                                                                                        <span>Source</span>
+                                                                                                        <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.source || '—'}</span>
+                                                                                                        <span>URL</span>
+                                                                                                        <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.url || ''}>{m.url || '—'}</span>
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        ))}
+                                                                                    </div>
+                                                                                </div>
+                                                                            ) : (
+                                                                                <div style={{ fontSize: 9, color: isDarkMode ? '#64748b' : '#9ca3af' }}>
+                                                                                    {!matterInspection.clientEmail ? 'Requires email first' : 'Not searched'}
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                        {matterInspection.clientEmail && !matterInspection.enquiryLookup && (
+                                                                            <button
+                                                                                onClick={async (e) => {
+                                                                                    e.stopPropagation();
+                                                                                    if (!matterInspection.clientEmail) return;
+                                                                                    setMatterInspection(prev => prev ? { 
+                                                                                        ...prev, 
+                                                                                        enquiryLookup: {
+                                                                                            legacy: { found: false, count: 0, matches: [], error: null, loading: true },
+                                                                                            instructions: { found: false, count: 0, matches: [], error: null, loading: true },
+                                                                                            loading: true
+                                                                                        }
+                                                                                    } : null);
+                                                                                    try {
+                                                                                        const resp = await fetch(`/api/matters/enquiry-lookup/${encodeURIComponent(matterInspection.clientEmail)}`);
+                                                                                        const data = await resp.json();
+                                                                                        if (data.ok) {
+                                                                                            setMatterInspection(prev => prev ? {
+                                                                                                ...prev,
+                                                                                                enquiryLookup: {
+                                                                                                    legacy: { ...data.legacy, loading: false },
+                                                                                                    instructions: { ...data.instructions, loading: false },
+                                                                                                    loading: false
+                                                                                                },
+                                                                                                webFormMatches: collectWebFormSignals({
+                                                                                                    legacy: { ...data.legacy, loading: false },
+                                                                                                    instructions: { ...data.instructions, loading: false },
+                                                                                                    loading: false
+                                                                                                })
+                                                                                            } : null);
+                                                                                        }
+                                                                                    } catch (err) {
+                                                                                        console.error('Enquiry lookup error:', err);
+                                                                                    }
+                                                                                }}
+                                                                                style={{
+                                                                                    padding: '3px 8px', fontSize: 9, fontWeight: 600,
+                                                                                    background: isDarkMode ? 'rgba(167, 139, 250, 0.15)' : 'rgba(124, 58, 237, 0.1)',
+                                                                                    border: `1px solid ${isDarkMode ? 'rgba(167, 139, 250, 0.3)' : 'rgba(124, 58, 237, 0.2)'}`,
+                                                                                    borderRadius: 4, cursor: 'pointer',
+                                                                                    color: isDarkMode ? '#a78bfa' : '#7c3aed',
+                                                                                    marginTop: 2
+                                                                                }}
+                                                                            >
+                                                                                Search
+                                                                            </button>
+                                                                        )}
+                                                                        {matterInspection.enquiryLookup?.loading && (
+                                                                            <Spinner size={SpinnerSize.xSmall} style={{ marginTop: 2 }} />
+                                                                        )}
+                                                                    </div>
+                                                                    
+                                                                    {/* STEP 3: Web Form Evidence */}
+                                                                    <div style={{
+                                                                        display: 'flex',
+                                                                        alignItems: 'flex-start',
+                                                                        gap: 8,
+                                                                        padding: '8px 10px',
+                                                                        background: isDarkMode ? 'rgba(30, 41, 59, 0.3)' : 'rgba(243, 244, 246, 0.5)',
+                                                                        borderRadius: 5,
+                                                                        marginBottom: 6
+                                                                    }}>
+                                                                        <div style={{
+                                                                            width: 18,
+                                                                            height: 18,
+                                                                            borderRadius: '50%',
+                                                                            flexShrink: 0,
+                                                                            marginTop: 2,
+                                                                            background: (matterInspection.webFormMatches?.length || 0) > 0
+                                                                                ? (isDarkMode ? '#166534' : '#dcfce7')
+                                                                                : (isDarkMode ? '#1e293b' : '#e5e7eb'),
+                                                                            display: 'flex',
+                                                                            alignItems: 'center',
+                                                                            justifyContent: 'center',
+                                                                            fontSize: 10,
+                                                                            fontWeight: 700,
+                                                                            color: (matterInspection.webFormMatches?.length || 0) > 0
+                                                                                ? (isDarkMode ? '#4ade80' : '#16a34a')
+                                                                                : (isDarkMode ? '#64748b' : '#9ca3af')
+                                                                        }}>
+                                                                            {(matterInspection.webFormMatches?.length || 0) > 0 ? '✓' : '3'}
+                                                                        </div>
+                                                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                                                            <div style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? '#cbd5e1' : '#374151', marginBottom: 4 }}>
+                                                                                Enquiries → Web Form Trace
+                                                                            </div>
+                                                                            {matterInspection.webFormMatches && matterInspection.webFormMatches.length > 0 ? (
+                                                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                                                                    {matterInspection.webFormMatches.map((signal) => (
+                                                                                        <div key={signal.id} style={{
+                                                                                            padding: '8px 10px',
+                                                                                            borderRadius: 6,
+                                                                                            border: `1px solid ${isDarkMode ? 'rgba(74, 222, 128, 0.3)' : 'rgba(5, 150, 105, 0.2)'}`,
+                                                                                            background: isDarkMode ? 'rgba(15, 23, 42, 0.35)' : 'rgba(236, 253, 245, 0.7)'
+                                                                                        }}>
+                                                                                            <div style={{ fontSize: 9, color: isDarkMode ? '#34d399' : '#065f46', fontWeight: 600, marginBottom: 4 }}>
+                                                                                                {signal.source === 'legacy' ? 'Legacy DB' : 'Instructions DB'} Web Form
+                                                                                            </div>
+                                                                                            <div style={{ fontSize: 9, color: isDarkMode ? '#cbd5e1' : '#374151', display: 'grid', gridTemplateColumns: '70px 1fr', gap: '4px 8px' }}>
+                                                                                                <span>GCLID</span>
+                                                                                                <span style={{ fontFamily: 'monospace' }}>{signal.gclid || '—'}</span>
+                                                                                                <span>URL</span>
+                                                                                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={signal.url || ''}>
+                                                                                                    {signal.url ? (signal.url.length > 80 ? `${signal.url.slice(0, 80)}…` : signal.url) : '—'}
+                                                                                                </span>
+                                                                                                <span>Campaign</span>
+                                                                                                <span>{signal.campaign || '—'}</span>
+                                                                                                <span>Date</span>
+                                                                                                <span>{signal.date ? new Date(signal.date).toLocaleString() : '—'}</span>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    ))}
+                                                                                </div>
+                                                                            ) : (
+                                                                                <div style={{ fontSize: 9, color: isDarkMode ? '#64748b' : '#9ca3af' }}>
+                                                                                    No URL + GCLID evidence yet. Run an enquiry lookup or verify the enquiry captured the web form submission.
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+
+                                                                    {/* STEP 4: CallRail Lookup */}
+                                                                    <div style={{
+                                                                        display: 'flex',
+                                                                        alignItems: 'flex-start',
+                                                                        gap: 8,
+                                                                        padding: '8px 10px',
+                                                                        background: isDarkMode ? 'rgba(30, 41, 59, 0.3)' : 'rgba(243, 244, 246, 0.5)',
+                                                                        borderRadius: 5,
+                                                                        marginBottom: 6
+                                                                    }}>
+                                                                        <div style={{ 
+                                                                            width: 18, height: 18, borderRadius: '50%', flexShrink: 0, marginTop: 2,
+                                                                            background: matterInspection.callRailLookup?.found
+                                                                                ? (isDarkMode ? '#166534' : '#dcfce7')
+                                                                                : (isDarkMode ? '#1e293b' : '#e5e7eb'),
+                                                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                                            fontSize: 10, fontWeight: 700,
+                                                                            color: matterInspection.callRailLookup?.found
+                                                                                ? (isDarkMode ? '#4ade80' : '#16a34a')
+                                                                                : (isDarkMode ? '#64748b' : '#9ca3af')
+                                                                        }}>
+                                                                            {matterInspection.callRailLookup?.found ? '✓' : '4'}
+                                                                        </div>
+                                                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                                                            <div style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? '#cbd5e1' : '#374151', marginBottom: 4 }}>
+                                                                                CallRail → Calls by Phone
+                                                                            </div>
+                                                                            {matterInspection.callRailLookup ? (
+                                                                                <div style={{ fontSize: 9 }}>
+                                                                                    {matterInspection.callRailLookup.loading ? (
+                                                                                        <span style={{ color: isDarkMode ? '#64748b' : '#9ca3af' }}>Searching...</span>
+                                                                                    ) : matterInspection.callRailLookup.error ? (
+                                                                                        <span style={{ color: '#ef4444' }}>{matterInspection.callRailLookup.error}</span>
+                                                                                    ) : matterInspection.callRailLookup.found ? (
+                                                                                        <div>
+                                                                                            <div style={{ color: isDarkMode ? '#4ade80' : '#16a34a', fontWeight: 600, marginBottom: 6 }}>
+                                                                                                {matterInspection.callRailLookup.count} call{matterInspection.callRailLookup.count !== 1 ? 's' : ''} found
+                                                                                                {matterInspection.callRailLookup.phoneSearched && (
+                                                                                                    <span style={{ fontWeight: 400, color: isDarkMode ? '#64748b' : '#9ca3af', marginLeft: 6 }}>
+                                                                                                        ({matterInspection.callRailLookup.phoneSearched})
+                                                                                                    </span>
+                                                                                                )}
+                                                                                            </div>
+                                                                                            {matterInspection.callRailLookup.calls.slice(0, 5).map((call, i) => (
+                                                                                                <div key={call.id || i} style={{
+                                                                                                    marginBottom: 8, padding: '8px 10px',
+                                                                                                    background: isDarkMode ? 'rgba(30, 41, 59, 0.25)' : 'rgba(248, 250, 252, 0.8)',
+                                                                                                    borderRadius: 6, border: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(203, 213, 225, 0.5)'}`
+                                                                                                }}>
+                                                                                                    <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '3px 8px', fontSize: 9, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                                                                                                        <span>Date</span>
+                                                                                                        <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{call.startTime ? new Date(call.startTime).toLocaleString() : '—'}</span>
+                                                                                                        <span>Direction</span>
+                                                                                                        <span style={{ color: call.direction === 'inbound' ? (isDarkMode ? '#4ade80' : '#16a34a') : (isDarkMode ? '#38bdf8' : '#0284c7') }}>{call.direction || '—'}</span>
+                                                                                                        <span>Duration</span>
+                                                                                                        <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{call.duration ? `${Math.floor(call.duration / 60)}m ${call.duration % 60}s` : '—'}</span>
+                                                                                                        <span>Answered</span>
+                                                                                                        <span style={{ color: call.answered ? (isDarkMode ? '#4ade80' : '#16a34a') : (isDarkMode ? '#f87171' : '#dc2626') }}>{call.answered ? 'Yes' : 'No'}</span>
+                                                                                                        <span>Source</span>
+                                                                                                        <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{call.source || '—'}</span>
+                                                                                                        <span>Campaign</span>
+                                                                                                        <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{call.campaign || '—'}</span>
+                                                                                                        <span>Keywords</span>
+                                                                                                        <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{call.keywords || '—'}</span>
+                                                                                                        {call.customerName && call.customerName !== 'Unknown Caller' && (
+                                                                                                            <>
+                                                                                                                <span>Caller</span>
+                                                                                                                <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{call.customerName}</span>
+                                                                                                            </>
+                                                                                                        )}
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                            ))}
+                                                                                            {matterInspection.callRailLookup.count > 5 && (
+                                                                                                <div style={{ fontSize: 8, color: isDarkMode ? '#64748b' : '#9ca3af', marginTop: 4 }}>
+                                                                                                    ... and {matterInspection.callRailLookup.count - 5} more
+                                                                                                </div>
+                                                                                            )}
+                                                                                        </div>
+                                                                                    ) : (
+                                                                                        <span style={{ color: isDarkMode ? '#64748b' : '#9ca3af' }}>No calls found</span>
+                                                                                    )}
+                                                                                </div>
+                                                                            ) : (
+                                                                                <div style={{ fontSize: 9, color: isDarkMode ? '#64748b' : '#9ca3af' }}>
+                                                                                    {(() => {
+                                                                                        // Collect phone numbers from Clio and enquiry matches
+                                                                                        const phones: string[] = [];
+                                                                                        if (matterInspection.clientPhone) phones.push(matterInspection.clientPhone);
+                                                                                        matterInspection.enquiryLookup?.legacy.matches.forEach(m => m.phone && phones.push(m.phone));
+                                                                                        matterInspection.enquiryLookup?.instructions.matches.forEach(m => m.phone && phones.push(m.phone));
+                                                                                        const uniquePhones = [...new Set(phones.filter(p => p && p.length > 5))];
+                                                                                        if (uniquePhones.length > 0) {
+                                                                                            return `${uniquePhones.length} phone number${uniquePhones.length !== 1 ? 's' : ''} available`;
+                                                                                        }
+                                                                                        // Show hint about what steps to run
+                                                                                        if (!matterInspection.clientEmail) {
+                                                                                            return 'Run Step 1 first (Clio fetch)';
+                                                                                        }
+                                                                                        if (!matterInspection.enquiryLookup) {
+                                                                                            return 'Run Step 2 first (Enquiry lookup) - phone may be there';
+                                                                                        }
+                                                                                        return 'No phone numbers in Clio or Enquiries';
+                                                                                    })()}
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                        {!matterInspection.callRailLookup && (
+                                                                            <button
+                                                                                onClick={async (e) => {
+                                                                                    e.stopPropagation();
+                                                                                    // Collect phone numbers from Clio and enquiry matches
+                                                                                    const phones: string[] = [];
+                                                                                    if (matterInspection.clientPhone) phones.push(matterInspection.clientPhone);
+                                                                                    matterInspection.enquiryLookup?.legacy.matches.forEach(m => m.phone && phones.push(m.phone));
+                                                                                    matterInspection.enquiryLookup?.instructions.matches.forEach(m => m.phone && phones.push(m.phone));
+                                                                                    const uniquePhones = [...new Set(phones.filter(p => p && p.length > 5))];
+                                                                                    
+                                                                                    if (uniquePhones.length === 0) return;
+                                                                                    
+                                                                                    setMatterInspection(prev => prev ? { 
+                                                                                        ...prev, 
+                                                                                        callRailLookup: { found: false, count: 0, calls: [], error: null, loading: true }
+                                                                                    } : null);
+                                                                                    
+                                                                                    try {
+                                                                                        // Search CallRail for the first phone number (most likely Clio's)
+                                                                                        const phoneToSearch = uniquePhones[0];
+                                                                                        const resp = await fetch('/api/callrailCalls', {
+                                                                                            method: 'POST',
+                                                                                            headers: { 'Content-Type': 'application/json' },
+                                                                                            body: JSON.stringify({ phoneNumber: phoneToSearch, maxResults: 20 })
+                                                                                        });
+                                                                                        const data = await resp.json();
+                                                                                        if (data.success) {
+                                                                                            setMatterInspection(prev => prev ? {
+                                                                                                ...prev,
+                                                                                                callRailLookup: {
+                                                                                                    found: data.calls.length > 0,
+                                                                                                    count: data.calls.length,
+                                                                                                    calls: data.calls,
+                                                                                                    error: null,
+                                                                                                    loading: false,
+                                                                                                    phoneSearched: phoneToSearch
+                                                                                                }
+                                                                                            } : null);
+                                                                                        } else {
+                                                                                            setMatterInspection(prev => prev ? {
+                                                                                                ...prev,
+                                                                                                callRailLookup: { found: false, count: 0, calls: [], error: data.error || 'Search failed', loading: false }
+                                                                                            } : null);
+                                                                                        }
+                                                                                    } catch (err) {
+                                                                                        console.error('CallRail lookup error:', err);
+                                                                                        setMatterInspection(prev => prev ? {
+                                                                                            ...prev,
+                                                                                            callRailLookup: { found: false, count: 0, calls: [], error: 'Network error', loading: false }
+                                                                                        } : null);
+                                                                                    }
+                                                                                }}
+                                                                                disabled={(() => {
+                                                                                    const phones: string[] = [];
+                                                                                    if (matterInspection.clientPhone) phones.push(matterInspection.clientPhone);
+                                                                                    matterInspection.enquiryLookup?.legacy.matches.forEach(m => m.phone && phones.push(m.phone));
+                                                                                    matterInspection.enquiryLookup?.instructions.matches.forEach(m => m.phone && phones.push(m.phone));
+                                                                                    return phones.filter(p => p && p.length > 5).length === 0;
+                                                                                })()}
+                                                                                style={{
+                                                                                    padding: '3px 8px', fontSize: 9, fontWeight: 600,
+                                                                                    background: isDarkMode ? 'rgba(251, 146, 60, 0.15)' : 'rgba(234, 88, 12, 0.1)',
+                                                                                    border: `1px solid ${isDarkMode ? 'rgba(251, 146, 60, 0.3)' : 'rgba(234, 88, 12, 0.2)'}`,
+                                                                                    borderRadius: 4, cursor: 'pointer',
+                                                                                    color: isDarkMode ? '#fb923c' : '#ea580c',
+                                                                                    marginTop: 2,
+                                                                                    opacity: (() => {
+                                                                                        const phones: string[] = [];
+                                                                                        if (matterInspection.clientPhone) phones.push(matterInspection.clientPhone);
+                                                                                        matterInspection.enquiryLookup?.legacy.matches.forEach(m => m.phone && phones.push(m.phone));
+                                                                                        matterInspection.enquiryLookup?.instructions.matches.forEach(m => m.phone && phones.push(m.phone));
+                                                                                        return phones.filter(p => p && p.length > 5).length === 0 ? 0.5 : 1;
+                                                                                    })()
+                                                                                }}
+                                                                            >
+                                                                                Search
+                                                                            </button>
+                                                                        )}
+                                                                        {matterInspection.callRailLookup?.loading && (
+                                                                            <Spinner size={SpinnerSize.xSmall} style={{ marginTop: 2 }} />
+                                                                        )}
+                                                                    </div>
+                                                                    
+                                                                    {/* Error Display */}
+                                                                    {matterInspection.error && (
+                                                                        <div style={{ fontSize: 9, color: '#ef4444', padding: '4px 8px', marginBottom: 6 }}>
+                                                                            {matterInspection.error}
+                                                                        </div>
+                                                                    )}
+                                                                    
+                                                                    {/* Debug: Full Matter Record */}
+                                                                    <details style={{ marginTop: 8 }}>
+                                                                        <summary style={{
+                                                                            cursor: 'pointer', fontSize: 9,
+                                                                            color: isDarkMode ? '#475569' : '#9ca3af',
+                                                                            padding: '2px 0'
+                                                                        }}>
+                                                                            Raw data
+                                                                        </summary>
+                                                                        <pre style={{
+                                                                            marginTop: 6, padding: 8,
+                                                                            background: isDarkMode ? '#0f172a' : '#f1f5f9',
+                                                                            borderRadius: 4, fontSize: 9, fontFamily: 'monospace',
+                                                                            overflow: 'auto', maxHeight: 200,
+                                                                            color: isDarkMode ? '#64748b' : '#64748b',
+                                                                            whiteSpace: 'pre-wrap', wordBreak: 'break-all'
+                                                                        }}>
+                                                                            {JSON.stringify(matter, null, 2)}
+                                                                        </pre>
+                                                                    </details>
+                                                                </div>
+                                                            ) : (
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        // The matter data uses field names:
+                                                                        // "Unique ID" = Clio Matter ID (use this to call Clio API)
+                                                                        // "Client ID" = Clio Client/Contact ID
+                                                                        const m = matter as any;
+                                                                        const clioMatterId = m.UniqueID || m['Unique ID'] || m.id || '';
+                                                                        const clientId = m.ClientID || m['Client ID'] || m.client_id || '';
+                                                                        const displayNumber = m.DisplayNumber || m['Display Number'] || '';
+                                                                        const clientName = m.ClientName || m['Client Name'] || '';
+                                                                        
+                                                                        // Set state with local data only - no automatic API call
+                                                                        setMatterInspection({
+                                                                            matterId: clioMatterId,
+                                                                            uniqueId: matterRowId,
+                                                                            clientId: clientId,
+                                                                            clientName: clientName,
+                                                                            clientEmail: '', // Will be fetched separately via Clio API
+                                                                            clientPhone: '', // Will be fetched separately via Clio API
+                                                                            displayNumber: displayNumber,
+                                                                            version: m.InstructionRef ? 'v2' : 'v1',
+                                                                            instructionRef: m.InstructionRef || m.instruction_ref || '',
+                                                                            loading: false,
+                                                                            webFormMatches: []
+                                                                        });
+                                                                    }}
+                                                                    style={{
+                                                                        display: 'inline-flex',
+                                                                        alignItems: 'center',
+                                                                        gap: 6,
+                                                                        background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(37, 99, 235, 0.1)',
+                                                                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(37, 99, 235, 0.2)'}`,
+                                                                        borderRadius: 6,
+                                                                        padding: '6px 12px',
+                                                                        cursor: 'pointer',
+                                                                        color: isDarkMode ? '#7dd3fc' : '#2563eb',
+                                                                        fontSize: '11px',
+                                                                        fontFamily: 'Raleway, sans-serif',
+                                                                        fontWeight: 600,
+                                                                        transition: 'all 0.15s ease'
+                                                                    }}
+                                                                    onMouseEnter={(e) => {
+                                                                        e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(37, 99, 235, 0.15)';
+                                                                    }}
+                                                                    onMouseLeave={(e) => {
+                                                                        e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(37, 99, 235, 0.1)';
+                                                                    }}
+                                                                    title="Inspect matter to resolve IDs and find linked enquiries"
+                                                                >
+                                                                    <Icon iconName="Search" style={{ fontSize: 12 }} />
+                                                                    Inspect
+                                                                </button>
+                                                            )}
                                                         </div>
                                                     </td>
                                                 </tr>

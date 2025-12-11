@@ -4,6 +4,40 @@ import { FaMoneyBillWave } from 'react-icons/fa';
 import { colours } from '../../app/styles/colours';
 import EnquiryMetricsV2 from './EnquiryMetricsV2';
 
+// Inject keyframes for spin animation
+const spinKeyframes = `
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes fadeOut {
+    from { opacity: 1; transform: translateY(0); }
+    to { opacity: 0; transform: translateY(-4px); }
+  }
+  @keyframes metricPulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+  }
+  @keyframes metricRefresh {
+    0% { opacity: 0.6; transform: scale(0.98); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+`;
+if (typeof document !== 'undefined' && !document.getElementById('time-metrics-spin-keyframes')) {
+  const style = document.createElement('style');
+  style.id = 'time-metrics-spin-keyframes';
+  style.textContent = spinKeyframes;
+  document.head.appendChild(style);
+}
+
+// Auto-refresh interval in seconds (5 minutes)
+const AUTO_REFRESH_INTERVAL = 5 * 60;
+
 interface TimeMetric {
   title: string;
   isTimeMoney?: boolean;
@@ -32,11 +66,125 @@ interface TimeMetricsV2Props {
   metrics: TimeMetric[];
   enquiryMetrics?: EnquiryMetric[];
   isDarkMode: boolean;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
 }
 
-const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, isDarkMode }) => {
+// Toast notification component - positioned inside section header
+const Toast: React.FC<{ message: string; type: 'info' | 'success' | 'error'; visible: boolean; isDarkMode: boolean }> = ({ message, type, visible, isDarkMode }) => {
+  const bgColor = type === 'success' 
+    ? (isDarkMode ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.1)') 
+    : type === 'error' 
+      ? (isDarkMode ? 'rgba(214, 85, 65, 0.15)' : 'rgba(214, 85, 65, 0.1)') 
+      : (isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)');
+  const textColor = type === 'success' ? colours.green : type === 'error' ? colours.cta : colours.highlight;
+  return (
+    <div
+      style={{
+        padding: '4px 10px',
+        borderRadius: '4px',
+        background: bgColor,
+        border: `1px solid ${type === 'success' ? colours.green : type === 'error' ? colours.cta : colours.highlight}`,
+        color: textColor,
+        fontSize: '11px',
+        fontWeight: 500,
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px',
+        animation: visible ? 'fadeIn 0.2s ease' : 'fadeOut 0.2s ease forwards',
+        pointerEvents: 'none',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {type === 'success' && (
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <path d="M20 6L9 17l-5-5" />
+        </svg>
+      )}
+      {type === 'info' && (
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite' }}>
+          <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+          <path d="M3 3v5h5" />
+        </svg>
+      )}
+      {message}
+    </div>
+  );
+};
+
+const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, isDarkMode, onRefresh, isRefreshing }) => {
   const [showEnquiryMetrics, setShowEnquiryMetrics] = React.useState(false);
   const [mounted, setMounted] = React.useState(false);
+  
+  // Auto-refresh countdown state
+  const [countdown, setCountdown] = React.useState(AUTO_REFRESH_INTERVAL);
+  const [toast, setToast] = React.useState<{ message: string; type: 'info' | 'success' | 'error'; visible: boolean } | null>(null);
+  const countdownRef = React.useRef<NodeJS.Timeout | null>(null);
+  const wasRefreshingRef = React.useRef(false);
+  
+  // Animation key to trigger refresh animation on metric values
+  const [refreshAnimationKey, setRefreshAnimationKey] = React.useState(0);
+  
+  // Format countdown as mm:ss
+  const formatCountdown = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+  
+  // Show toast notification
+  const showToast = React.useCallback((message: string, type: 'info' | 'success' | 'error', duration: number = 2500) => {
+    setToast({ message, type, visible: true });
+    setTimeout(() => {
+      setToast(prev => prev ? { ...prev, visible: false } : null);
+      setTimeout(() => setToast(null), 200);
+    }, duration);
+  }, []);
+  
+  // Handle manual refresh - resets countdown
+  const handleRefresh = React.useCallback(() => {
+    if (onRefresh && !isRefreshing) {
+      setCountdown(AUTO_REFRESH_INTERVAL); // Reset countdown on manual refresh
+      showToast('Refreshing metrics...', 'info', 1500);
+      onRefresh();
+    }
+  }, [onRefresh, isRefreshing, showToast]);
+  
+  // Auto-refresh countdown effect
+  React.useEffect(() => {
+    if (!onRefresh) return;
+    
+    countdownRef.current = setInterval(() => {
+      setCountdown(prev => {
+        if (prev <= 1) {
+          // Trigger auto-refresh
+          if (!isRefreshing) {
+            showToast('Auto-refreshing...', 'info', 1500);
+            onRefresh();
+          }
+          return AUTO_REFRESH_INTERVAL;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    
+    return () => {
+      if (countdownRef.current) {
+        clearInterval(countdownRef.current);
+      }
+    };
+  }, [onRefresh, isRefreshing, showToast]);
+  
+  // Track refresh completion for success toast and trigger metric animation
+  React.useEffect(() => {
+    if (wasRefreshingRef.current && !isRefreshing) {
+      showToast('Updated', 'success', 1800);
+      // Trigger refresh animation on all metric values
+      setRefreshAnimationKey(prev => prev + 1);
+    }
+    wasRefreshingRef.current = !!isRefreshing;
+  }, [isRefreshing, showToast]);
+  
   const formatCurrency = (amount: number): string => {
     return new Intl.NumberFormat('en-GB', {
       style: 'currency',
@@ -288,51 +436,57 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
   // If showing enquiry metrics, render the EnquiryMetricsV2 component instead
   if (showEnquiryMetrics && enquiryMetrics) {
     const headerActions = (
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-        <span style={{
-          fontSize: '13px',
-          color: isDarkMode ? '#E5E7EB' : '#111827',
-          fontWeight: showEnquiryMetrics ? 400 : 700,
-        }}>
-          Time
-        </span>
-        <button
-          onClick={() => setShowEnquiryMetrics(!showEnquiryMetrics)}
-          style={{
-            width: '50px',
-            height: '26px',
-            borderRadius: '13px',
-            border: `1px solid ${isDarkMode ? '#374151' : '#CBD5E1'}`,
-            background: showEnquiryMetrics 
-              ? colours.highlight
-              : (isDarkMode ? '#111827' : '#FFFFFF'),
-            position: 'relative',
-            cursor: 'pointer',
-            transition: 'all 0.2s ease',
-            boxShadow: isDarkMode ? 'inset 0 0 0 1px rgba(255,255,255,0.04)' : 'inset 0 0 0 1px rgba(0,0,0,0.02)'
-          }}
-          aria-label="Toggle Time/Enquiries"
-        >
-          <div style={{
-            width: '22px',
-            height: '22px',
-            borderRadius: '50%',
-            background: isDarkMode ? '#E5E7EB' : '#FFFFFF',
-            border: `1px solid ${isDarkMode ? '#4B5563' : '#E5E7EB'}`,
-            position: 'absolute',
-            top: '1px',
-            left: showEnquiryMetrics ? '24px' : '2px',
-            transition: 'all 0.2s ease',
-            boxShadow: isDarkMode ? '0 4px 6px rgba(0, 0, 0, 0.3)' : '0 4px 6px rgba(0, 0, 0, 0.07)',
-          }} />
-        </button>
-        <span style={{
-          fontSize: '13px',
-          color: isDarkMode ? '#E5E7EB' : '#111827',
-          fontWeight: showEnquiryMetrics ? 700 : 400,
-        }}>
-          Conversion
-        </span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+        {/* Toast notification - inline in header */}
+        {toast && <Toast message={toast.message} type={toast.type} visible={toast.visible} isDarkMode={isDarkMode} />}
+        
+        {/* Toggle switch */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <span style={{
+            fontSize: '13px',
+            color: isDarkMode ? '#E5E7EB' : '#111827',
+            fontWeight: showEnquiryMetrics ? 400 : 700,
+          }}>
+            Time
+          </span>
+          <button
+            onClick={() => setShowEnquiryMetrics(!showEnquiryMetrics)}
+            style={{
+              width: '50px',
+              height: '26px',
+              borderRadius: '13px',
+              border: `1px solid ${isDarkMode ? '#374151' : '#CBD5E1'}`,
+              background: showEnquiryMetrics 
+                ? colours.highlight
+                : (isDarkMode ? '#111827' : '#FFFFFF'),
+              position: 'relative',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              boxShadow: isDarkMode ? 'inset 0 0 0 1px rgba(255,255,255,0.04)' : 'inset 0 0 0 1px rgba(0,0,0,0.02)'
+            }}
+            aria-label="Toggle Time/Enquiries"
+          >
+            <div style={{
+              width: '22px',
+              height: '22px',
+              borderRadius: '50%',
+              background: isDarkMode ? '#E5E7EB' : '#FFFFFF',
+              border: `1px solid ${isDarkMode ? '#4B5563' : '#E5E7EB'}`,
+              position: 'absolute',
+              top: '1px',
+              left: showEnquiryMetrics ? '24px' : '2px',
+              transition: 'all 0.2s ease',
+              boxShadow: isDarkMode ? '0 4px 6px rgba(0, 0, 0, 0.3)' : '0 4px 6px rgba(0, 0, 0, 0.07)',
+            }} />
+          </button>
+          <span style={{
+            fontSize: '13px',
+            color: isDarkMode ? '#E5E7EB' : '#111827',
+            fontWeight: showEnquiryMetrics ? 700 : 400,
+          }}>
+            Conversion
+          </span>
+        </div>
       </div>
     );
 
@@ -343,6 +497,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
           isDarkMode={isDarkMode} 
           headerActions={headerActions}
           title={'Conversion Metrics'}
+          refreshAnimationKey={refreshAnimationKey}
         />
       </div>
     );
@@ -360,7 +515,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
         background: isDarkMode 
           ? 'linear-gradient(135deg, #0B1224 0%, #0F1B33 100%)'
           : colours.light.cardBackground,
-        borderRadius: '8px',
+        borderRadius: '2px',
         border: isDarkMode 
           ? `1px solid ${colours.dark.border}` 
           : `1px solid ${colours.light.border}`,
@@ -382,22 +537,91 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
             : `1px solid ${colours.light.border}`,
           marginBottom: '12px',
         }}>
-          <h2 style={{
-            margin: 0,
-            fontSize: '18px',
-            fontWeight: 600,
-            color: isDarkMode ? colours.dark.text : colours.light.text,
-            letterSpacing: '-0.025em',
-          }}>
-            Time Metrics
-          </h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <h2 style={{
+              margin: 0,
+              fontSize: '18px',
+              fontWeight: 600,
+              color: isDarkMode ? colours.dark.text : colours.light.text,
+              letterSpacing: '-0.025em',
+            }}>
+              Time Metrics
+            </h2>
+            {onRefresh && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <button
+                  onClick={handleRefresh}
+                  disabled={isRefreshing}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: isRefreshing ? 'default' : 'pointer',
+                    padding: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderRadius: '4px',
+                    opacity: isRefreshing ? 0.5 : 0.6,
+                    transition: 'opacity 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => { if (!isRefreshing) e.currentTarget.style.opacity = '1'; }}
+                  onMouseLeave={(e) => { if (!isRefreshing) e.currentTarget.style.opacity = '0.6'; }}
+                  aria-label="Refresh time metrics"
+                  title={`Refresh time metrics (auto-refresh in ${formatCountdown(countdown)})`}
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke={isDarkMode ? colours.dark.text : colours.light.text}
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    style={{
+                      animation: isRefreshing ? 'spin 1s linear infinite' : 'none',
+                    }}
+                  >
+                    <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                    <path d="M3 3v5h5" />
+                    <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+                    <path d="M16 21h5v-5" />
+                  </svg>
+                </button>
+                {/* Subtle countdown timer */}
+                <span
+                  style={{
+                    fontSize: '10px',
+                    fontFamily: 'SF Mono, Monaco, Consolas, monospace',
+                    color: isDarkMode ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)',
+                    fontWeight: 500,
+                    letterSpacing: '0.02em',
+                    transition: 'color 0.15s ease',
+                    minWidth: '32px',
+                  }}
+                  title={`Auto-refresh in ${formatCountdown(countdown)}`}
+                >
+                  {formatCountdown(countdown)}
+                </span>
+              </div>
+            )}
+          </div>
           
-          {/* Toggle Switch */}
+          {/* Right side: Toast notification + Toggle Switch */}
           <div style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '12px',
+            gap: '16px',
           }}>
+            {/* Toast notification - inline in header */}
+            {toast && <Toast message={toast.message} type={toast.type} visible={toast.visible} isDarkMode={isDarkMode} />}
+            
+            {/* Toggle Switch */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+            }}>
             <span style={{ fontSize: '13px', color: isDarkMode ? '#E5E7EB' : '#111827', fontWeight: showEnquiryMetrics ? 400 : 700 }}>Time</span>
             <button
               onClick={() => setShowEnquiryMetrics(!showEnquiryMetrics)}
@@ -430,6 +654,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
               }} />
             </button>
             <span style={{ fontSize: '13px', color: isDarkMode ? '#E5E7EB' : '#111827', fontWeight: showEnquiryMetrics ? 700 : 400 }}>Conversion</span>
+            </div>
           </div>
         </div>
         
@@ -455,12 +680,12 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
 
           return (
             <div
-              key={metric.title}
+              key={`${metric.title}-${refreshAnimationKey}`}
               style={{
                 background: isDarkMode 
                   ? 'linear-gradient(135deg, rgba(31, 41, 55, 1) 0%, rgba(17, 24, 39, 1) 100%)'
                   : colours.light.cardBackground,
-                borderRadius: '8px',
+                borderRadius: '2px',
                 padding: '20px',
                 border: isDarkMode 
                   ? `1px solid ${colours.dark.border}`
@@ -468,20 +693,22 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                 boxShadow: isDarkMode
                   ? '0 2px 4px rgba(0, 0, 0, 0.3)'
                   : '0 1px 3px rgba(0, 0, 0, 0.1)',
-                transition: 'all 0.2s ease',
+                transition: 'box-shadow 0.15s ease',
                 cursor: 'default',
                 // Natural card styling that sits on the page background
                 ...staggerStyle(index),
+                // Apply refresh animation when refreshAnimationKey changes
+                animation: refreshAnimationKey > 0 ? `metricRefresh 0.4s ease ${index * 0.05}s both` : undefined,
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'translateY(-2px)';
                 e.currentTarget.style.boxShadow = isDarkMode
-                  ? '0 8px 25px rgba(0, 0, 0, 0.4)'
-                  : '0 8px 25px rgba(0, 0, 0, 0.1)';
+                  ? '0 4px 12px rgba(0, 0, 0, 0.3)'
+                  : '0 4px 12px rgba(0, 0, 0, 0.08)';
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = 'none';
+                e.currentTarget.style.boxShadow = isDarkMode
+                  ? '0 2px 4px rgba(0, 0, 0, 0.3)'
+                  : '0 1px 3px rgba(0, 0, 0, 0.1)';
               }}
             >
               <div style={{
@@ -493,7 +720,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                 <div style={{
                   width: '28px',
                   height: '28px',
-                  borderRadius: '6px',
+                  borderRadius: '2px',
                   background: isDarkMode 
                     ? 'rgba(135, 243, 243, 0.1)'
                     : 'rgba(54, 144, 206, 0.1)',
@@ -604,7 +831,8 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                     width: '100%',
                     height: '6px',
                     background: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                    borderRadius: '3px',
+                    borderTopLeftRadius: '6px',
+                    borderBottomRightRadius: '6px',
                     overflow: 'hidden',
                   }}>
                     <div style={{
@@ -615,7 +843,8 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                         : isDarkMode
                         ? `linear-gradient(90deg, ${colours.highlight} 0%, ${colours.accent} 100%)`
                         : colours.highlight,
-                      borderRadius: '3px',
+                      borderTopLeftRadius: '6px',
+                      borderBottomRightRadius: '6px',
                       transition: enableAnimationThisMount ? 'width 0.3s ease' : 'none',
                     }} />
                   </div>
@@ -652,12 +881,12 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
 
               return (
                 <div
-                  key={metric.title}
+                  key={`${metric.title}-${refreshAnimationKey}`}
                   style={{
                     background: isDarkMode 
                       ? 'linear-gradient(135deg, rgba(31, 41, 55, 1) 0%, rgba(17, 24, 39, 1) 100%)'
                       : colours.light.cardBackground,
-                    borderRadius: '8px',
+                    borderRadius: '2px',
                     padding: '20px',
                     border: isDarkMode 
                       ? `1px solid ${colours.dark.border}`
@@ -665,9 +894,11 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                     boxShadow: isDarkMode
                       ? '0 2px 4px rgba(0, 0, 0, 0.3)'
                       : '0 1px 3px rgba(0, 0, 0, 0.1)',
-                    transition: 'all 0.2s ease',
+                    transition: 'box-shadow 0.15s ease',
                     cursor: 'default',
                     ...staggerStyle(index + 3),
+                    // Apply refresh animation when refreshAnimationKey changes
+                    animation: refreshAnimationKey > 0 ? `metricRefresh 0.4s ease ${(index + 3) * 0.05}s both` : undefined,
                   }}
                 >
                   {/* Same card content structure */}
@@ -795,7 +1026,8 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                         width: '100%',
                         height: '6px',
                         background: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                        borderRadius: '3px',
+                        borderTopLeftRadius: '6px',
+                        borderBottomRightRadius: '6px',
                         overflow: 'hidden',
                       }}>
                         <div style={{
@@ -806,7 +1038,8 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                             : isDarkMode
                             ? `linear-gradient(90deg, ${colours.highlight} 0%, ${colours.accent} 100%)`
                             : colours.highlight,
-                          borderRadius: '3px',
+                          borderTopLeftRadius: '6px',
+                          borderBottomRightRadius: '6px',
                           transition: enableAnimationThisMount ? 'width 0.3s ease' : 'none',
                         }} />
                       </div>

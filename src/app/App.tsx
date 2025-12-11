@@ -1,4 +1,4 @@
-import React, { useState, useEffect, lazy, Suspense, useMemo } from 'react';
+import React, { useState, useEffect, lazy, Suspense, useMemo, useCallback } from 'react';
 import CustomTabs from './styles/CustomTabs';
 import './styles/index.css';
 import './styles/ImmediateActionsPortal.css';
@@ -247,6 +247,26 @@ const App: React.FC<AppProps> = ({
   const [hasActiveMatter, setHasActiveMatter] = useState(false);
   const [hasImmediateActions, setHasImmediateActions] = useState(false);
   const [isInMatterOpeningWorkflow, setIsInMatterOpeningWorkflow] = useState(false);
+  
+  // Feature toggles - persisted in localStorage
+  const [featureToggles, setFeatureToggles] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem('featureToggles');
+      const parsed = saved ? JSON.parse(saved) : {};
+      // Default rateChangeTracker to true if not explicitly set
+      return { rateChangeTracker: true, ...parsed };
+    } catch {
+      return { rateChangeTracker: true };
+    }
+  });
+  
+  const handleFeatureToggle = useCallback((feature: string, enabled: boolean) => {
+    setFeatureToggles(prev => {
+      const next = { ...prev, [feature]: enabled };
+      localStorage.setItem('featureToggles', JSON.stringify(next));
+      return next;
+    });
+  }, []);
 
   // Check for active matter opening every 2 seconds
   useEffect(() => {
@@ -665,6 +685,7 @@ const App: React.FC<AppProps> = ({
             isInMatterOpeningWorkflow={isInMatterOpeningWorkflow}
             onImmediateActionsChange={setHasImmediateActions}
             originalAdminUser={originalAdminUser}
+            featureToggles={featureToggles}
           />
         );
       case 'enquiries':
@@ -679,6 +700,7 @@ const App: React.FC<AppProps> = ({
             onRefreshEnquiries={onRefreshEnquiries}
             onOptimisticClaim={onOptimisticClaim}
             instructionData={allInstructionData}
+            featureToggles={featureToggles}
           />
         );
       case 'instructions':
@@ -696,6 +718,7 @@ const App: React.FC<AppProps> = ({
             poidData={poidData}
             setPoidData={setPoidData}
             enquiries={enquiries}
+            featureToggles={featureToggles}
           />
         );
       case 'matters':
@@ -725,6 +748,7 @@ const App: React.FC<AppProps> = ({
             teamData={teamData}
             onImmediateActionsChange={setHasImmediateActions}
             originalAdminUser={originalAdminUser}
+            featureToggles={featureToggles}
           />
         );
     }
@@ -770,11 +794,43 @@ const App: React.FC<AppProps> = ({
             hasImmediateActions={hasImmediateActions}
             onRefreshEnquiries={onRefreshEnquiries}
             onRefreshMatters={onRefreshMatters}
+            onFeatureToggle={handleFeatureToggle}
+            featureToggles={featureToggles}
           />
           {/* Navigator wrapper ensures correct layering and clickability */}
           <div className="app-navigator">
             <Navigator />
           </div>
+          
+          {/* Production Preview Mode Indicator */}
+          {isLocalDev && featureToggles.viewAsProd && (
+            <div
+              style={{
+                position: 'fixed',
+                bottom: 16,
+                left: 16,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '6px 12px',
+                background: 'rgba(234, 179, 8, 0.95)',
+                color: '#000',
+                fontSize: 11,
+                fontWeight: 600,
+                zIndex: 9999,
+                boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+                cursor: 'pointer',
+              }}
+              onClick={() => handleFeatureToggle('viewAsProd', false)}
+              title="Click to disable Production Preview mode"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M12 8v4M12 16h.01"/>
+              </svg>
+              PRODUCTION PREVIEW
+            </div>
+          )}
           
           {/* App-level Immediate Actions Bar */}
           {activeTab === 'home' && (
