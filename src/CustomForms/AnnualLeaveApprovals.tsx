@@ -167,25 +167,23 @@ const formContainerStyle = mergeStyles({
 
 const modalContentStyle = (isDarkMode: boolean) => mergeStyles({
   background: isDarkMode
-    ? 'rgba(17, 24, 39, 0.72)'
-    : 'rgba(255, 255, 255, 0.78)',
-  borderRadius: '16px',
+    ? '#0f172a'
+    : '#fafafa',
+  borderRadius: 0,
   boxShadow: isDarkMode
     ? '0 10px 30px rgba(0, 0, 0, 0.35)'
-    : '0 10px 30px rgba(2, 6, 23, 0.10)',
+    : '0 10px 30px rgba(0, 0, 0, 0.08)',
   width: 'min(1200px, 96%)',
   maxHeight: '90vh',
   overflow: 'auto',
-  padding: '28px',
+  padding: '1.5rem',
   position: 'relative',
   border: isDarkMode
-    ? '1px solid rgba(148, 163, 184, 0.18)'
-    : '1px solid rgba(15, 23, 42, 0.08)',
-  backdropFilter: 'blur(10px)',
-  WebkitBackdropFilter: 'blur(10px)',
+    ? '1px solid rgba(148, 163, 184, 0.12)'
+    : '1px solid rgba(0, 0, 0, 0.06)',
   '@media (max-width: 768px)': {
     padding: '20px',
-    borderRadius: '12px',
+    borderRadius: 0,
     width: '98%',
     maxHeight: '95vh',
   },
@@ -216,20 +214,21 @@ const closeButtonStyle = (isDarkMode: boolean) => mergeStyles({
 
 // Compact card design for better information density
 const compactCardStyle = (isDarkMode: boolean, isExpanded: boolean) => mergeStyles({
-  background: isDarkMode ? 'rgba(31, 41, 55, 0.65)' : 'rgba(255, 255, 255, 0.9)',
-  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(15, 23, 42, 0.08)'}`,
-  borderRadius: '12px',
-  padding: '16px',
+  background: isDarkMode ? 'rgba(30, 41, 59, 0.3)' : '#ffffff',
+  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+  borderLeft: `3px solid ${isDarkMode ? colours.accent : colours.highlight}`,
+  borderRadius: 0,
+  padding: '1rem',
   marginBottom: '12px',
   boxShadow: isDarkMode 
-    ? '0 2px 8px rgba(0, 0, 0, 0.25)'
-    : '0 2px 8px rgba(2, 6, 23, 0.06)',
+    ? '0 2px 8px rgba(0, 0, 0, 0.15)'
+    : '0 2px 8px rgba(0, 0, 0, 0.03)',
   transition: 'all 0.2s ease',
   cursor: 'default',
   ':hover': {
     boxShadow: isDarkMode 
-      ? '0 4px 12px rgba(0, 0, 0, 0.3)'
-      : '0 4px 12px rgba(2, 6, 23, 0.10)',
+      ? '0 4px 12px rgba(0, 0, 0, 0.2)'
+      : '0 4px 12px rgba(0, 0, 0, 0.05)',
   },
   maxHeight: isExpanded ? '2000px' : 'auto',
   overflow: isExpanded ? 'visible' : 'hidden',

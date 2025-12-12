@@ -1461,7 +1461,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   const [activeView, setActiveView] = useState<'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters'>('overview');
   const [mattersWipRangeKey, setMattersWipRangeKey] = useState<MattersWipRangeKey>('12m');
   const [pendingMattersRangeKey, setPendingMattersRangeKey] = useState<MattersWipRangeKey>(mattersWipRangeKey);
-  const [enquiriesRangeKey, setEnquiriesRangeKey] = useState<ReportRangeKey>('6m');
+  const [enquiriesRangeKey, setEnquiriesRangeKey] = useState<ReportRangeKey>('12m');
   const [pendingEnquiriesRangeKey, setPendingEnquiriesRangeKey] = useState<ReportRangeKey>(enquiriesRangeKey);
   const refreshRangeButtonRef = useRef<HTMLSpanElement | null>(null);
   const [isRefreshRangeCalloutOpen, setRefreshRangeCalloutOpen] = useState(false);
@@ -5314,7 +5314,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     if (idx >= 0) {
       return idx;
     }
-    const defaultIdx = REPORT_RANGE_OPTIONS.findIndex(option => option.key === '6m');
+    const defaultIdx = REPORT_RANGE_OPTIONS.findIndex(option => option.key === '12m');
     return defaultIdx >= 0 ? defaultIdx : 0;
   }, [pendingEnquiriesRangeKey]);
 

@@ -27,12 +27,12 @@ const EmailSignature: React.FC<EmailSignatureProps> = ({ bodyHtml, userData, isD
   const forceTextColor = isDarkMode ? 'color:#E2E8F0 !important;' : '';
 
   const signatureHtml = `
-<div style="margin:0; padding:0; font-family: Raleway, Arial, sans-serif; font-size:11pt; line-height:1.4; color:${baseTextColor};">
+<div style="margin:0; padding:0; font-family: Raleway, Arial, sans-serif; font-size:10pt; line-height:1.4; color:${baseTextColor};">
   <div style="margin-bottom:4px;">${bodyHtml}</div>
   <p style="margin:16px 0 8px; color:${baseTextColor};">${userFirstName}</p>
-  <table border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse; margin:0; padding:0; width:auto; font-size:11pt; ${forceTextColor}">
+  <table border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse; margin:0; padding:0; width:auto; font-size:10pt; ${forceTextColor}">
     <tr>
-      <td style="padding-bottom:8px; font-size:11pt; ${forceTextColor}">
+      <td style="padding-bottom:8px; font-size:10pt; font-family:Raleway, Arial, sans-serif; ${forceTextColor}">
         ${userFullName}<br />${userRole}
       </td>
     </tr>
@@ -43,7 +43,7 @@ const EmailSignature: React.FC<EmailSignatureProps> = ({ bodyHtml, userData, isD
     </tr>
     <tr>
       <td style="padding-top:8px; padding-bottom:0;">
-        <table border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse; font-size:11pt; line-height:1.5;">
+        <table border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse; font-size:10pt; line-height:1.5;">
           <tr>
             <td style="padding-right:6px; vertical-align:middle;">
               <img src="https://helix-law.co.uk/wp-content/uploads/2025/01/email.png" alt="Email" style="height:14px; vertical-align:middle;" />
@@ -63,7 +63,7 @@ const EmailSignature: React.FC<EmailSignatureProps> = ({ bodyHtml, userData, isD
     </tr>
     <tr>
       <td style="padding-top:6px; padding-bottom:8px;">
-        <table border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse; font-size:11pt; line-height:1.5;">
+        <table border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse; font-size:10pt; line-height:1.5;">
           <tr>
             <td style="padding-right:6px; vertical-align:middle;">
               <img src="https://helix-law.co.uk/wp-content/uploads/2025/01/location.png" alt="Address" style="height:14px; vertical-align:middle;" />

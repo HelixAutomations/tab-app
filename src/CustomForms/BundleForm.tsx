@@ -1,301 +1,46 @@
-import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { colours } from '../app/styles/colours';
-import { Stack, Dropdown, IDropdownOption, ComboBox, IComboBox, IComboBoxOption, TextField, DatePicker, PrimaryButton, DefaultButton, IButtonStyles, IDropdownStyles, IComboBoxStyles, ITextFieldStyles, Icon, Text, Label } from '@fluentui/react';
-import { Matter, UserData, NormalizedMatter } from '../app/functionality/types';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import {
+    TextField,
+    PrimaryButton,
+    DefaultButton,
+    Stack,
+    Text,
+    Dropdown,
+    IDropdownOption,
+    DatePicker,
+    Label,
+    Icon,
+    IButtonStyles
+} from '@fluentui/react';
+import { UserData, NormalizedMatter } from '../app/functionality/types';
+import { useTheme } from '../app/functionality/ThemeContext';
+import {
+    getFormContainerStyle,
+    getFormScrollContainerStyle,
+    getFormCardStyle,
+    getFormHeaderStyle,
+    getFormSectionStyle,
+    getFormSectionHeaderStyle,
+    getInputStyles,
+    getDropdownStyles,
+    getFormPrimaryButtonStyles,
+    getFormDefaultButtonStyles,
+    formAccentColors
+} from './shared/formStyles';
 
-// Add spinning animation CSS
-const spinKeyframes = `
-@keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-}
-`;
+// ─────────────────────────────────────────────────────────────────────────────
+// TYPES
+// ─────────────────────────────────────────────────────────────────────────────
 
-// Inject the keyframes into the document head
-if (typeof document !== 'undefined') {
-    const style = document.createElement('style');
-    style.textContent = spinKeyframes;
-    document.head.appendChild(style);
-}
-
-// Premium styling inspired by the checkout components
-const premiumContainerStyle: React.CSSProperties = {
-    background: 'transparent',
-    padding: '1rem',
-    paddingTop: '4rem',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-    maxHeight: 'calc(100vh - 60px)',
-    overflowY: 'auto',
-    overflowX: 'hidden',
-    paddingBottom: '4rem',
-    boxSizing: 'border-box',
-};
-
-const premiumCardStyle: React.CSSProperties = {
-    background: 'transparent',
-    borderRadius: '16px',
-    border: '1px solid rgba(229, 231, 235, 0.3)',
-    overflow: 'hidden',
-    maxWidth: '900px',
-    margin: '0 auto',
-};
-
-const premiumHeaderStyle: React.CSSProperties = {
-    background: 'transparent',
-    color: '#374151',
-    padding: '1rem 1.5rem',
-    position: 'relative',
-    borderBottom: '1px solid rgba(0, 0, 0, 0.06)',
-};
-
-const premiumContentStyle: React.CSSProperties = {
-    padding: '1.5rem',
-    paddingTop: '2rem',
-};
-
-const premiumSectionStyle: React.CSSProperties = {
-    background: 'rgba(255, 255, 255, 0.7)',
-    border: '1px solid rgba(255, 255, 255, 0.8)',
-    borderRadius: '12px',
-    padding: '1.25rem',
-    marginBottom: '1.25rem',
-    boxShadow: '0 4px 16px rgba(0, 0, 0, 0.02)',
-    backdropFilter: 'blur(8px)',
-    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-};
-
-const premiumBannerStyle: React.CSSProperties = {
-    background: 'linear-gradient(135deg, rgba(54, 144, 206, 0.06) 0%, rgba(6, 23, 51, 0.06) 100%)',
-    color: '#374151',
-    padding: '0.75rem 1rem',
-    borderRadius: '6px',
-    fontWeight: '600',
-    fontSize: '0.875rem',
-    marginBottom: '1rem',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '0.5rem',
-    border: '1px solid rgba(229, 231, 235, 0.4)',
-};
-
-const premiumInputStyle = {
-    fieldGroup: {
-        borderRadius: '8px',
-        border: '1px solid rgba(229, 231, 235, 0.4)',
-        background: 'transparent',
-        minHeight: '48px',
-        fontSize: '16px',
-        transition: 'all 0.2s ease',
-        selectors: {
-            ':hover': {
-                borderColor: 'rgba(229, 231, 235, 0.6)',
-                background: 'rgba(255, 255, 255, 0.1)',
-            },
-        },
-    },
-    fieldGroupFocused: {
-        borderColor: '#3690CE',
-        background: 'rgba(255, 255, 255, 0.1)',
-        boxShadow: '0 0 0 3px rgba(54, 144, 206, 0.1)',
-    },
-    field: {
-        background: 'transparent',
-        color: '#374151',
-        fontSize: '16px',
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-    },
-    label: {
-        fontWeight: '600',
-        fontSize: '14px',
-        color: '#374151',
-        marginBottom: '6px',
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-    },
-};
-
-const premiumDatePickerStyle = {
-    root: { width: '100%' },
-    textField: {
-        fieldGroup: {
-            borderRadius: '8px !important',
-            border: '1px solid rgba(229, 231, 235, 0.4) !important',
-            background: 'transparent !important',
-            minHeight: '48px',
-            fontSize: '16px',
-            transition: 'all 0.2s ease',
-            boxShadow: 'none !important',
-            selectors: {
-                ':hover': {
-                    borderColor: 'rgba(229, 231, 235, 0.6) !important',
-                    background: 'rgba(255, 255, 255, 0.1) !important',
-                    boxShadow: 'none !important',
-                },
-                ':after': {
-                    display: 'none !important',
-                },
-            },
-        },
-        fieldGroupFocused: {
-            borderColor: '#3690CE !important',
-            background: 'rgba(255, 255, 255, 0.1) !important',
-            boxShadow: '0 0 0 3px rgba(54, 144, 206, 0.1) !important',
-            selectors: {
-                ':after': {
-                    display: 'none !important',
-                },
-            },
-        },
-        field: {
-            background: 'transparent !important',
-            color: '#374151',
-            fontSize: '16px',
-            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-            padding: '0 12px',
-        },
-        label: {
-            fontWeight: '600',
-            fontSize: '14px',
-            color: '#374151',
-            marginBottom: '6px',
-            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-        },
-    },
-    callout: {
-        background: 'rgba(255, 255, 255, 0.98)',
-        backdropFilter: 'blur(12px)',
-        border: '1px solid rgba(229, 231, 235, 0.6)',
-        borderRadius: '8px',
-        boxShadow: '0 12px 32px rgba(0, 0, 0, 0.18)',
-    },
-};
-
-const premiumDropdownStyle = {
-    dropdown: {
-        borderRadius: '8px',
-        border: '2px solid #e5e7eb',
-        height: '48px',
-        fontSize: '16px',
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-        backgroundColor: '#ffffff',
-        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-        transition: 'all 0.2s ease',
-        selectors: {
-            ':hover': {
-                borderColor: '#d1d5db',
-                boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)',
-            },
-        },
-    },
-    dropdownFocused: {
-        borderColor: '#3690CE',
-        boxShadow: '0 0 0 3px rgba(54, 144, 206, 0.1)',
-    },
-    label: {
-        fontWeight: '600',
-        fontSize: '14px',
-        color: '#374151',
-        marginBottom: '6px',
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-    },
-    callout: {
-        borderRadius: '8px',
-        boxShadow: '0 8px 24px rgba(0, 0, 0, 0.12)',
-        border: '2px solid #e5e7eb',
-    },
-    dropdownOption: {
-        fontSize: '16px',
-        padding: '12px',
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-        selectors: {
-            ':hover': {
-                backgroundColor: '#f3f4f6',
-            },
-        },
-    },
-};
-
-const premiumButtonStyle: IButtonStyles = {
-    root: {
-        background: '#3690CE',
-        border: 'none',
-        borderRadius: '8px',
-        minHeight: '48px',
-        fontSize: '16px',
-        fontWeight: '600',
-        color: '#ffffff',
-        padding: '0 2rem',
-        boxShadow: '0 2px 8px rgba(54, 144, 206, 0.25)',
-        transition: 'all 0.2s ease',
-    },
-    rootHovered: {
-        background: '#2c7bb8',
-        transform: 'translateY(-1px)',
-        boxShadow: '0 4px 12px rgba(54, 144, 206, 0.35)',
-    },
-    rootPressed: {
-        transform: 'translateY(0)',
-        boxShadow: '0 2px 8px rgba(54, 144, 206, 0.25)',
-    },
-};
-
-const premiumSecondaryButtonStyle: IButtonStyles = {
-    root: {
-        background: 'transparent',
-        border: '2px solid #e5e7eb',
-        borderRadius: '8px',
-        minHeight: '48px',
-        fontSize: '16px',
-        fontWeight: '600',
-        color: '#374151',
-        padding: '0 2rem',
-        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-        transition: 'all 0.2s ease',
-    },
-    rootHovered: {
-        background: '#f9fafb',
-        borderColor: '#d1d5db',
-        transform: 'translateY(-1px)',
-        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-    },
-    rootPressed: {
-        transform: 'translateY(0)',
-        background: '#f3f4f6',
-    },
-};
-
-const toggleStyles: IButtonStyles = {
-    root: {
-        padding: '12px 20px',
-        borderRadius: '8px',
-        backgroundColor: '#f9fafb',
-        border: '2px solid #e5e7eb',
-        height: '48px',
-        fontWeight: 600,
-        color: '#374151',
-        flex: 1,
-        transition: 'all 0.2s ease',
-    },
-    rootHovered: {
-        backgroundColor: '#f3f4f6',
-        borderColor: '#d1d5db',
-        transform: 'translateY(-1px)',
-        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
-    },
-    rootPressed: {
-        transform: 'translateY(0)',
-    },
-    rootChecked: {
-        backgroundColor: '#3690CE',
-        borderColor: '#3690CE',
-        color: '#ffffff',
-        boxShadow: '0 4px 12px rgba(54, 144, 206, 0.3)',
-    },
-};
-
-// Only allow a single covering letter
 interface CoverLetter {
     link: string;
     copies: number;
+}
+
+interface PostedRecipient {
+    recipient: string;
+    addressee: string;
+    email: string;
 }
 
 interface BundleFormProps {
@@ -304,55 +49,28 @@ interface BundleFormProps {
     onBack: () => void;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// COMPONENT
+// ─────────────────────────────────────────────────────────────────────────────
+
 const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) => {
-    // Set default name to first user if available
-    const [name, setName] = useState<string>(users.length > 0 ? users[0].FullName || users[0].Nickname || users[0].Initials || 'Current User' : 'Current User');
+    const { isDarkMode } = useTheme();
+    const accentColor = formAccentColors.bundle;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // STATE
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const [name, setName] = useState<string>(
+        users.length > 0 
+            ? users[0].FullName || users[0].Nickname || users[0].Initials || 'Current User' 
+            : 'Current User'
+    );
     const [matterRef, setMatterRef] = useState<string>('');
     const [bundleLink, setBundleLink] = useState<string>('');
     const [posted, setPosted] = useState<string[]>([]);
-    interface PostedRecipient { recipient: string; addressee: string; email: string; }
     const [postedRecipients, setPostedRecipients] = useState<PostedRecipient[]>([]);
-
-    // Theme detection: only dark if explicit class/attribute or stored theme is 'dark'. Defaults to light.
-    const computeIsDark = () => {
-        if (typeof document === 'undefined') return false;
-        if (document.documentElement.classList.contains('dark') || document.body.classList.contains('dark')) return true;
-        const attr = document.documentElement.getAttribute('data-theme') || document.body.getAttribute('data-theme');
-        if (attr === 'dark') return true;
-        try { if (localStorage.getItem('theme') === 'dark') return true; } catch { /* ignore */ }
-        return false; // do NOT auto-follow prefers-color-scheme to avoid mismatch with app light mode
-    };
-    const [isDarkMode, setIsDarkMode] = useState<boolean>(computeIsDark());
-    useEffect(() => {
-        const observer = new MutationObserver(() => setIsDarkMode(computeIsDark()));
-        if (typeof document !== 'undefined') {
-            observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class','data-theme'] });
-            observer.observe(document.body, { attributes: true, attributeFilter: ['class','data-theme'] });
-        }
-        return () => observer.disconnect();
-    }, []);
-    const branchCardStyle = (dark: boolean): React.CSSProperties => ({
-        background: dark ? colours.dark.cardBackground : colours.light.cardBackground,
-        border: `1px solid ${dark ? colours.dark.borderColor : colours.light.borderColor}`,
-        borderRadius: 12,
-        padding: '18px 20px',
-        boxShadow: dark ? '0 4px 10px rgba(0,0,0,0.35)' : '0 4px 10px rgba(0,0,0,0.06)',
-        marginBottom: 20,
-        position: 'relative',
-        transition: 'box-shadow 120ms ease, border-color 120ms ease'
-    });
-    const branchHeaderStyle: React.CSSProperties = {
-        fontSize: 14,
-        fontWeight: 600,
-        marginBottom: 14,
-        paddingBottom: 6,
-        borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
-        letterSpacing: '0.35px'
-    };
-    const fieldRowStyle: React.CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: 20 };
-    const subtleHelpText: React.CSSProperties = { color: '#6b7280', fontStyle: 'italic', fontSize: 12 };
     const [leftInOffice, setLeftInOffice] = useState<boolean>(false);
-    const [newDestination, setNewDestination] = useState<string>('');
     const [arrivalDate, setArrivalDate] = useState<Date | null>(null);
     const [officeDate, setOfficeDate] = useState<Date | null>(null);
     const [coverLetter, setCoverLetter] = useState<CoverLetter>({ link: '', copies: 1 });
@@ -361,9 +79,97 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
     const [submitting, setSubmitting] = useState<boolean>(false);
     const [submitStatus, setSubmitStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
     const [submitMessage, setSubmitMessage] = useState<string>('');
-    const [matterFilter, setMatterFilter] = useState<string>('');
 
-    // Optimized user options with memoization
+    // Matter search state
+    const [matterSearchTerm, setMatterSearchTerm] = useState(matterRef || '');
+    const [matterDropdownOpen, setMatterDropdownOpen] = useState(false);
+    const [selectedMatter, setSelectedMatter] = useState<any>(null);
+    const matterFieldRef = useRef<HTMLDivElement>(null);
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // STYLES
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const containerStyle = getFormContainerStyle(isDarkMode);
+    const scrollContainerStyle = getFormScrollContainerStyle(isDarkMode);
+    const cardStyle = getFormCardStyle(isDarkMode);
+    const headerStyle = getFormHeaderStyle(isDarkMode, accentColor);
+    const sectionStyle = getFormSectionStyle(isDarkMode);
+    const sectionHeaderStyle = getFormSectionHeaderStyle(isDarkMode);
+    const inputStyles = getInputStyles(isDarkMode);
+    const dropdownStyles = getDropdownStyles(isDarkMode);
+    const primaryButtonStyles = getFormPrimaryButtonStyles(isDarkMode, accentColor);
+    const defaultButtonStyles = getFormDefaultButtonStyles(isDarkMode);
+
+    const toggleButtonStyles = (checked: boolean): IButtonStyles => ({
+        root: {
+            height: 44,
+            padding: '0 20px',
+            borderRadius: 0,
+            border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
+            background: checked 
+                ? accentColor 
+                : isDarkMode ? 'rgba(30,41,59,0.5)' : '#ffffff',
+            color: checked ? '#ffffff' : isDarkMode ? '#e2e8f0' : '#374151',
+            fontWeight: 600,
+            fontSize: '14px',
+            transition: 'all 0.15s ease',
+        },
+        rootHovered: {
+            background: checked 
+                ? accentColor 
+                : isDarkMode ? 'rgba(51,65,85,0.5)' : '#f8fafc',
+            color: checked ? '#ffffff' : isDarkMode ? '#e2e8f0' : '#374151',
+        },
+        rootChecked: {
+            background: accentColor,
+            color: '#ffffff',
+        },
+    });
+
+    const branchCardStyle: React.CSSProperties = {
+        background: isDarkMode ? 'rgba(30, 41, 59, 0.3)' : '#f8fafc',
+        border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
+        borderLeft: `3px solid ${accentColor}`,
+        padding: '16px 20px',
+        marginTop: '16px',
+    };
+
+    const recipientRowStyle: React.CSSProperties = {
+        display: 'flex',
+        gap: 8,
+        flexWrap: 'wrap',
+        alignItems: 'flex-start',
+        background: isDarkMode ? 'rgba(30,41,59,0.5)' : '#ffffff',
+        padding: '12px',
+        border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
+        marginBottom: '8px',
+    };
+
+    const matterDropdownStyle: React.CSSProperties = {
+        position: 'absolute',
+        top: '100%',
+        left: 0,
+        right: 0,
+        zIndex: 1000,
+        background: isDarkMode ? '#1e293b' : '#ffffff',
+        border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
+        maxHeight: '300px',
+        overflowY: 'auto',
+        marginTop: '4px',
+    };
+
+    const matterOptionStyle: React.CSSProperties = {
+        padding: '12px',
+        cursor: 'pointer',
+        borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}`,
+        transition: 'background-color 0.15s ease',
+    };
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // MEMOS & CALLBACKS
+    // ─────────────────────────────────────────────────────────────────────────
+
     const userOptions: IDropdownOption[] = useMemo(() => {
         return users.map(u => {
             const fullName = (u as any)["Full Name"] || u.FullName || `${u.First || ''} ${u.Last || ''}`.trim();
@@ -372,24 +178,15 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
         });
     }, [users]);
 
-    // Custom Matter Reference Field State
-    const [matterSearchTerm, setMatterSearchTerm] = useState(matterRef || '');
-    const [matterDropdownOpen, setMatterDropdownOpen] = useState(false);
-    const [selectedMatter, setSelectedMatter] = useState<any>(null);
-    const matterFieldRef = useRef<HTMLDivElement>(null);
-
-    // Sync matterSearchTerm with matterRef when matterRef changes externally
     useEffect(() => {
         if (matterRef && matterRef !== matterSearchTerm) {
             setMatterSearchTerm(matterRef);
         }
     }, [matterRef, matterSearchTerm]);
 
-    // Filter matters based on search term
     const filteredMatters = useMemo(() => {
         if (!matters || matters.length === 0) return [];
-        
-        if (!matterSearchTerm.trim()) return matters.slice(0, 50); // Show first 50 if no search
+        if (!matterSearchTerm.trim()) return matters.slice(0, 50);
         
         const searchLower = matterSearchTerm.toLowerCase();
         return matters.filter((matter: any) => {
@@ -400,10 +197,9 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
             return displayNumber.toLowerCase().includes(searchLower) ||
                    clientName.toLowerCase().includes(searchLower) ||
                    description.toLowerCase().includes(searchLower);
-        }).slice(0, 20); // Limit to 20 results
+        }).slice(0, 20);
     }, [matters, matterSearchTerm]);
 
-    // Handle matter selection
     const handleMatterSelect = useCallback((matter: any) => {
         const displayNumber = matter["Display Number"] || matter.displayNumber || '';
         setSelectedMatter(matter);
@@ -412,19 +208,16 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
         setMatterDropdownOpen(false);
     }, []);
 
-    // Handle search input change
     const handleMatterSearchChange = useCallback((value: string) => {
         setMatterSearchTerm(value);
         setMatterRef(value);
         setMatterDropdownOpen(value.length > 0);
         
-        // Clear selection if user types something different
         if (selectedMatter && value !== (selectedMatter["Display Number"] || selectedMatter.displayNumber)) {
             setSelectedMatter(null);
         }
     }, [selectedMatter]);
 
-    // Close dropdown when clicking outside
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             if (matterFieldRef.current && !matterFieldRef.current.contains(event.target as Node)) {
@@ -439,7 +232,10 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [matterDropdownOpen]);
 
-    // Validation function
+    // ─────────────────────────────────────────────────────────────────────────
+    // VALIDATION & SUBMIT
+    // ─────────────────────────────────────────────────────────────────────────
+
     const isValid = () => {
         if (!name || !matterRef || !bundleLink) return false;
         if (posted.length === 0 && !leftInOffice) return false;
@@ -463,7 +259,6 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
         const currentUser = users[0];
 
         const getAsanaField = (user: any, key: string) => {
-            // Try camelCase, then snake_case, then uppercase
             return (
                 user[key] ||
                 user[key.replace('ID', '_ID')] ||
@@ -504,10 +299,7 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
             if (response.ok) {
                 setSubmitStatus('success');
                 setSubmitMessage('Bundle task created successfully!');
-                // Wait a moment to show success message before going back
-                setTimeout(() => {
-                    onBack();
-                }, 1500);
+                setTimeout(() => onBack(), 1500);
             } else {
                 const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
                 setSubmitStatus('error');
@@ -522,492 +314,496 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
         }
     };
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // RENDER
+    // ─────────────────────────────────────────────────────────────────────────
+
     return (
-        <div style={premiumContainerStyle}>
-            <div style={premiumCardStyle}>
-                {/* Premium Header */}
-                <div style={premiumHeaderStyle}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                        <Icon iconName="Package" style={{ fontSize: '1.25rem', color: '#6b7280' }} />
-                        <div>
-                            <Text variant="large" style={{ color: '#6b7280', fontWeight: '700', margin: 0, lineHeight: '1.2' }}>
-                                Bundle Submission
-                            </Text>
-                            <Text variant="small" style={{ color: '#6b7280', margin: 0, lineHeight: '1.4' }}>
-                                Submit documents for professional processing
-                            </Text>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Premium Content */}
-                <div style={premiumContentStyle}>
-                    {/* Basic Information Section */}
-                    <div style={premiumSectionStyle}>
-                        <div style={premiumBannerStyle}>
-                            <Icon iconName="Contact" style={{ fontSize: '1rem' }} />
-                            Request Details
-                        </div>
-                        <Stack tokens={{ childrenGap: 20 }}>
-                            {/* Custom Matter Reference Field */}
-                            <div ref={matterFieldRef} style={{ position: 'relative', width: '100%' }}>
-                                <div style={{
-                                    fontWeight: '600',
-                                    fontSize: '14px',
-                                    color: '#374151',
-                                    marginBottom: '6px',
-                                    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        <div style={containerStyle}>
+            <div style={scrollContainerStyle}>
+                <div style={cardStyle}>
+                    {/* Header */}
+                    <div style={headerStyle}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <Icon 
+                                iconName="Package" 
+                                style={{ fontSize: '20px', color: accentColor }} 
+                            />
+                            <div>
+                                <Text style={{ 
+                                    fontSize: '18px', 
+                                    fontWeight: 700, 
+                                    color: isDarkMode ? '#f1f5f9' : '#1e293b',
+                                    display: 'block',
+                                    marginBottom: '2px'
                                 }}>
-                                    Matter reference *
-                                </div>
-                                <div style={{
-                                    position: 'relative',
-                                    borderRadius: '8px',
-                                    border: '1px solid rgba(229, 231, 235, 0.4)',
-                                    background: 'transparent',
-                                    transition: 'all 0.2s ease',
+                                    Bundle Submission
+                                </Text>
+                                <Text style={{ 
+                                    fontSize: '13px', 
+                                    color: isDarkMode ? '#94a3b8' : '#64748b' 
                                 }}>
-                                    <input
-                                        type="text"
-                                        value={matterSearchTerm}
-                                        onChange={(e) => handleMatterSearchChange(e.target.value)}
-                                        onFocus={() => setMatterDropdownOpen(true)}
-                                        placeholder="Search by matter number or client name..."
-                                        disabled={submitting}
-                                        style={{
-                                            width: '100%',
-                                            height: '48px',
-                                            border: 'none',
-                                            outline: 'none',
-                                            background: 'transparent',
-                                            fontSize: '16px',
-                                            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-                                            padding: '0 48px 0 12px',
-                                            color: submitting ? '#9ca3af' : '#374151',
-                                            cursor: submitting ? 'not-allowed' : 'text',
-                                        }}
-                                        required
-                                    />
-                                    <div style={{
-                                        position: 'absolute',
-                                        right: '12px',
-                                        top: '50%',
-                                        transform: 'translateY(-50%)',
-                                        pointerEvents: 'none',
-                                    }}>
-                                        <Icon iconName="ChevronDown" style={{ fontSize: '16px', color: '#6b7280' }} />
-                                    </div>
-                                </div>
-                                
-                                {/* Custom Dropdown */}
-                                {matterDropdownOpen && filteredMatters.length > 0 && (
-                                    <div style={{
-                                        background: 'rgba(255, 255, 255, 0.98)',
-                                        backdropFilter: 'blur(12px)',
-                                        border: '1px solid rgba(229, 231, 235, 0.6)',
-                                        borderRadius: '8px',
-                                        maxHeight: '300px',
-                                        overflowY: 'auto',
-                                        boxShadow: '0 12px 32px rgba(0, 0, 0, 0.18)',
-                                        marginTop: '4px',
-                                    }}>
-                                        {filteredMatters.map((matter: any, index: number) => {
-                                            const displayNumber = matter["Display Number"] || matter.displayNumber || '';
-                                            const clientName = matter["Client Name"] || matter.clientName || '';
-                                            const description = matter["Description"] || matter.description || '';
-                                            
-                                            return (
-                                                <div
-                                                    key={displayNumber + index}
-                                                    onClick={() => handleMatterSelect(matter)}
-                                                    style={{
-                                                        padding: '12px',
-                                                        cursor: 'pointer',
-                                                        borderBottom: index < filteredMatters.length - 1 ? '1px solid rgba(229, 231, 235, 0.2)' : 'none',
-                                                        transition: 'background-color 0.15s ease',
-                                                    }}
-                                                    onMouseEnter={(e) => {
-                                                        e.currentTarget.style.backgroundColor = 'rgba(54, 144, 206, 0.1)';
-                                                    }}
-                                                    onMouseLeave={(e) => {
-                                                        e.currentTarget.style.backgroundColor = 'transparent';
-                                                    }}
-                                                >
-                                                    <div style={{
-                                                        fontWeight: '600',
-                                                        fontSize: '14px',
-                                                        color: '#374151',
-                                                        marginBottom: '2px',
-                                                    }}>
-                                                        {displayNumber}
-                                                    </div>
-                                                    <div style={{
-                                                        fontSize: '13px',
-                                                        color: '#6b7280',
-                                                        marginBottom: '2px',
-                                                    }}>
-                                                        {clientName}
-                                                    </div>
-                                                    {description && (
-                                                        <div style={{
-                                                            fontSize: '12px',
-                                                            color: '#9ca3af',
-                                                        }}>
-                                                            {description.length > 60 ? description.substring(0, 60) + '...' : description}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                )}
+                                    Submit documents for professional processing
+                                </Text>
                             </div>
-                            <TextField
-                                label="NetDocs link (bundle)"
-                                value={bundleLink}
-                                onChange={(_, v) => setBundleLink(v || '')}
-                                required
-                                disabled={submitting}
-                                styles={premiumInputStyle}
-                                placeholder="Enter bundle reference or link"
-                            />
-                        </Stack>
+                        </div>
                     </div>
 
-                    {/* Delivery Method Section */}
-                    <div style={premiumSectionStyle}>
-                        <div style={premiumBannerStyle}>
-                            <Icon iconName="DeliveryTruck" style={{ fontSize: '1rem' }} />
-                            Delivery Method
-                        </div>
-                        
-                        {/* Main Delivery Toggles */}
-                        <Stack horizontal tokens={{ childrenGap: 12 }} style={{ marginBottom: '20px' }}>
-                            <DefaultButton
-                                text="Posted"
-                                checked={posted.length > 0}
-                                onClick={() => {
-                                    if (posted.length > 0) {
-                                        setPosted([]);
-                                        setPostedRecipients([]);
-                                    } else {
-                                        setPostedRecipients([{ recipient: '', addressee: '', email: '' }]);
-                                        setPosted(['']);
-                                    }
-                                }}
-                                disabled={submitting}
-                                iconProps={{ iconName: 'Send' }}
-                                styles={posted.length > 0 ? { ...toggleStyles, rootChecked: toggleStyles.rootChecked } : toggleStyles}
-                            />
-                            <DefaultButton
-                                text="Left in office"
-                                checked={leftInOffice}
-                                onClick={() => setLeftInOffice(!leftInOffice)}
-                                disabled={submitting}
-                                iconProps={{ iconName: 'Home' }}
-                                styles={leftInOffice ? { ...toggleStyles, rootChecked: toggleStyles.rootChecked } : toggleStyles}
-                            />
-                        </Stack>
-
-                        {/* Posted branch */}
-                        {posted.length > 0 && (
-                            <div style={branchCardStyle(isDarkMode)}>
-                                <div style={branchHeaderStyle}>Posted</div>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-                                    <div>
-                                        <Label style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px', opacity: 0.85 }}>Recipients</Label>
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                                            {postedRecipients.map((rec, idx) => (
-                                                <div key={idx} style={{
-                                                    display: 'flex',
-                                                    gap: 8,
-                                                    flexWrap: 'wrap',
-                                                    alignItems: 'flex-start',
-                                                    background: isDarkMode ? colours.dark.inputBackground : colours.light.inputBackground,
-                                                    padding: '10px 12px',
-                                                    borderRadius: 10,
-                                                    border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.light.borderColor}`
-                                                }}>
-                                                    <TextField
-                                                        placeholder="Recipient"
-                                                        value={rec.recipient}
-                                                        onChange={(_, v) => {
-                                                            const next = [...postedRecipients];
-                                                            next[idx] = { ...next[idx], recipient: v || '' };
-                                                            setPostedRecipients(next);
-                                                            setPosted(next.map(x => `${x.recipient}${x.addressee? ' ('+x.addressee+')': ''}${x.email? ' <'+x.email+'>': ''}`.trim()).filter(x => x));
-                                                        }}
-                                                        styles={{ root: { minWidth: 140, flex: 1 } }}
-                                                        disabled={submitting}
-                                                    />
-                                                    <TextField
-                                                        placeholder="Addressee"
-                                                        value={rec.addressee}
-                                                        onChange={(_, v) => {
-                                                            const next = [...postedRecipients];
-                                                            next[idx] = { ...next[idx], addressee: v || '' };
-                                                            setPostedRecipients(next);
-                                                            setPosted(next.map(x => `${x.recipient}${x.addressee? ' ('+x.addressee+')': ''}${x.email? ' <'+x.email+'>': ''}`.trim()).filter(x => x));
-                                                        }}
-                                                        styles={{ root: { minWidth: 140, flex: 1 } }}
-                                                        disabled={submitting}
-                                                    />
-                                                    <TextField
-                                                        placeholder="Email"
-                                                        value={rec.email}
-                                                        onChange={(_, v) => {
-                                                            const next = [...postedRecipients];
-                                                            next[idx] = { ...next[idx], email: v || '' };
-                                                            setPostedRecipients(next);
-                                                            setPosted(next.map(x => `${x.recipient}${x.addressee? ' ('+x.addressee+')': ''}${x.email? ' <'+x.email+'>': ''}`.trim()).filter(x => x));
-                                                        }}
-                                                        styles={{ root: { minWidth: 180, flex: 1 } }}
-                                                        disabled={submitting}
-                                                    />
-                                                    <DefaultButton
-                                                        text="Remove"
-                                                        onClick={() => {
-                                                            const next = postedRecipients.filter((_, i) => i !== idx);
-                                                            setPostedRecipients(next);
-                                                            const formatted = next.map(x => `${x.recipient}${x.addressee? ' ('+x.addressee+')': ''}${x.email? ' <'+x.email+'>': ''}`.trim()).filter(x => x);
-                                                            setPosted(formatted);
-                                                            if (next.length === 0) setPosted([]);
-                                                        }}
-                                                        styles={{
-                                                            root: {
-                                                                fontSize: 11,
-                                                                height: 30,
-                                                                background: isDarkMode ? colours.dark.inputBackground : colours.light.inputBackground,
-                                                                border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.light.borderColor}`,
-                                                                color: isDarkMode ? colours.dark.text : colours.light.text,
-                                                                borderRadius: 6,
-                                                                padding: '0 10px'
-                                                            },
-                                                            rootHovered: {
-                                                                background: isDarkMode ? colours.dark.cardHover : colours.light.cardHover
-                                                            }
-                                                        }}
-                                                        disabled={submitting}
-                                                    />
-                                                </div>
-                                            ))}
-                                            <DefaultButton
-                                                text="Add recipient"
-                                                onClick={() => setPostedRecipients([...postedRecipients, { recipient: '', addressee: '', email: '' }])}
-                                                styles={{
-                                                    root: {
-                                                        fontSize: 12,
-                                                        height: 34,
-                                                        alignSelf: 'flex-start',
-                                                        background: isDarkMode ? colours.dark.buttonBackground : colours.light.buttonBackground,
-                                                        color: isDarkMode ? colours.dark.buttonText : colours.light.buttonText,
-                                                        borderRadius: 8,
-                                                        border: 'none',
-                                                        padding: '0 16px',
-                                                        boxShadow: '0 2px 4px rgba(0,0,0,0.15)',
-                                                        transform: 'translateY(0)',
-                                                        transition: 'transform 120ms ease, box-shadow 120ms ease'
-                                                    },
-                                                    rootHovered: {
-                                                        background: isDarkMode ? colours.dark.hoverBackground : colours.light.hoverBackground,
-                                                        transform: 'translateY(-1px)',
-                                                        boxShadow: '0 3px 6px rgba(0,0,0,0.25)'
-                                                    }
-                                                }}
+                    {/* Content */}
+                    <div style={{ padding: '24px' }}>
+                        <Stack tokens={{ childrenGap: 24 }}>
+                            {/* Request Details Section */}
+                            <div style={sectionStyle}>
+                                <Text style={sectionHeaderStyle}>
+                                    <Icon iconName="Contact" style={{ marginRight: '8px', color: accentColor }} />
+                                    Request Details
+                                </Text>
+                                
+                                <Stack tokens={{ childrenGap: 16 }}>
+                                    {/* Matter Reference Field */}
+                                    <div ref={matterFieldRef} style={{ position: 'relative' }}>
+                                        <Label style={{
+                                            fontWeight: 600,
+                                            fontSize: '13px',
+                                            color: isDarkMode ? '#e2e8f0' : '#374151',
+                                            marginBottom: '6px',
+                                        }}>
+                                            Matter reference *
+                                        </Label>
+                                        <div style={{ position: 'relative' }}>
+                                            <input
+                                                type="text"
+                                                value={matterSearchTerm}
+                                                onChange={(e) => handleMatterSearchChange(e.target.value)}
+                                                onFocus={() => setMatterDropdownOpen(true)}
+                                                placeholder="Search by matter number or client name..."
                                                 disabled={submitting}
+                                                style={{
+                                                    width: '100%',
+                                                    height: '40px',
+                                                    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
+                                                    outline: 'none',
+                                                    background: isDarkMode ? 'rgba(30,41,59,0.5)' : '#ffffff',
+                                                    fontSize: '14px',
+                                                    padding: '0 40px 0 12px',
+                                                    color: isDarkMode ? '#e2e8f0' : '#374151',
+                                                    cursor: submitting ? 'not-allowed' : 'text',
+                                                    boxSizing: 'border-box',
+                                                }}
+                                                required
+                                            />
+                                            <Icon 
+                                                iconName="ChevronDown" 
+                                                style={{
+                                                    position: 'absolute',
+                                                    right: '12px',
+                                                    top: '50%',
+                                                    transform: 'translateY(-50%)',
+                                                    fontSize: '14px',
+                                                    color: isDarkMode ? '#94a3b8' : '#6b7280',
+                                                    pointerEvents: 'none',
+                                                }} 
                                             />
                                         </div>
+                                        
+                                        {/* Matter Dropdown */}
+                                        {matterDropdownOpen && filteredMatters.length > 0 && (
+                                            <div style={matterDropdownStyle}>
+                                                {filteredMatters.map((matter: any, index: number) => {
+                                                    const displayNumber = matter["Display Number"] || matter.displayNumber || '';
+                                                    const clientName = matter["Client Name"] || matter.clientName || '';
+                                                    const description = matter["Description"] || matter.description || '';
+                                                    
+                                                    return (
+                                                        <div
+                                                            key={displayNumber + index}
+                                                            onClick={() => handleMatterSelect(matter)}
+                                                            style={matterOptionStyle}
+                                                            onMouseEnter={(e) => {
+                                                                e.currentTarget.style.backgroundColor = isDarkMode 
+                                                                    ? 'rgba(255,255,255,0.05)' 
+                                                                    : 'rgba(0,0,0,0.03)';
+                                                            }}
+                                                            onMouseLeave={(e) => {
+                                                                e.currentTarget.style.backgroundColor = 'transparent';
+                                                            }}
+                                                        >
+                                                            <div style={{
+                                                                fontWeight: 600,
+                                                                fontSize: '14px',
+                                                                color: isDarkMode ? '#e2e8f0' : '#374151',
+                                                                marginBottom: '2px',
+                                                            }}>
+                                                                {displayNumber}
+                                                            </div>
+                                                            <div style={{
+                                                                fontSize: '13px',
+                                                                color: isDarkMode ? '#94a3b8' : '#6b7280',
+                                                            }}>
+                                                                {clientName}
+                                                            </div>
+                                                            {description && (
+                                                                <div style={{
+                                                                    fontSize: '12px',
+                                                                    color: isDarkMode ? '#64748b' : '#9ca3af',
+                                                                }}>
+                                                                    {description.length > 60 ? description.substring(0, 60) + '...' : description}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
                                     </div>
-                                    <div style={fieldRowStyle}>
-                                        <div style={{ minWidth: 200, flex: 1 }}>
-                                            <DatePicker 
-                                                label="Arrival date" 
-                                                value={arrivalDate || undefined} 
-                                                onSelectDate={(date) => setArrivalDate(date ?? null)} 
-                                                styles={premiumDatePickerStyle}
+
+                                    <TextField
+                                        label="NetDocs link (bundle)"
+                                        value={bundleLink}
+                                        onChange={(_, v) => setBundleLink(v || '')}
+                                        required
+                                        disabled={submitting}
+                                        styles={inputStyles}
+                                        placeholder="Enter bundle reference or link"
+                                    />
+                                </Stack>
+                            </div>
+
+                            {/* Delivery Method Section */}
+                            <div style={sectionStyle}>
+                                <Text style={sectionHeaderStyle}>
+                                    <Icon iconName="DeliveryTruck" style={{ marginRight: '8px', color: accentColor }} />
+                                    Delivery Method
+                                </Text>
+                                
+                                {/* Toggle Buttons */}
+                                <Stack horizontal tokens={{ childrenGap: 12 }} style={{ marginBottom: '16px' }}>
+                                    <DefaultButton
+                                        text="Posted"
+                                        checked={posted.length > 0}
+                                        onClick={() => {
+                                            if (posted.length > 0) {
+                                                setPosted([]);
+                                                setPostedRecipients([]);
+                                            } else {
+                                                setPostedRecipients([{ recipient: '', addressee: '', email: '' }]);
+                                                setPosted(['']);
+                                            }
+                                        }}
+                                        disabled={submitting}
+                                        iconProps={{ iconName: 'Send' }}
+                                        styles={toggleButtonStyles(posted.length > 0)}
+                                    />
+                                    <DefaultButton
+                                        text="Left in office"
+                                        checked={leftInOffice}
+                                        onClick={() => setLeftInOffice(!leftInOffice)}
+                                        disabled={submitting}
+                                        iconProps={{ iconName: 'Home' }}
+                                        styles={toggleButtonStyles(leftInOffice)}
+                                    />
+                                </Stack>
+
+                                {/* Posted Branch */}
+                                {posted.length > 0 && (
+                                    <div style={branchCardStyle}>
+                                        <Text style={{ 
+                                            fontSize: '14px', 
+                                            fontWeight: 600, 
+                                            color: isDarkMode ? '#e2e8f0' : '#374151',
+                                            marginBottom: '16px',
+                                            display: 'block'
+                                        }}>
+                                            Posted Details
+                                        </Text>
+                                        
+                                        {/* Recipients */}
+                                        <Label style={{
+                                            fontSize: '12px',
+                                            fontWeight: 600,
+                                            textTransform: 'uppercase',
+                                            letterSpacing: '0.5px',
+                                            color: isDarkMode ? '#94a3b8' : '#6b7280',
+                                            marginBottom: '8px',
+                                        }}>
+                                            Recipients
+                                        </Label>
+                                        
+                                        {postedRecipients.map((rec, idx) => (
+                                            <div key={idx} style={recipientRowStyle}>
+                                                <TextField
+                                                    placeholder="Recipient"
+                                                    value={rec.recipient}
+                                                    onChange={(_, v) => {
+                                                        const next = [...postedRecipients];
+                                                        next[idx] = { ...next[idx], recipient: v || '' };
+                                                        setPostedRecipients(next);
+                                                        setPosted(next.map(x => 
+                                                            `${x.recipient}${x.addressee ? ' (' + x.addressee + ')' : ''}${x.email ? ' <' + x.email + '>' : ''}`.trim()
+                                                        ).filter(x => x));
+                                                    }}
+                                                    styles={{ ...inputStyles, root: { minWidth: 140, flex: 1 } }}
+                                                    disabled={submitting}
+                                                />
+                                                <TextField
+                                                    placeholder="Addressee"
+                                                    value={rec.addressee}
+                                                    onChange={(_, v) => {
+                                                        const next = [...postedRecipients];
+                                                        next[idx] = { ...next[idx], addressee: v || '' };
+                                                        setPostedRecipients(next);
+                                                        setPosted(next.map(x => 
+                                                            `${x.recipient}${x.addressee ? ' (' + x.addressee + ')' : ''}${x.email ? ' <' + x.email + '>' : ''}`.trim()
+                                                        ).filter(x => x));
+                                                    }}
+                                                    styles={{ ...inputStyles, root: { minWidth: 140, flex: 1 } }}
+                                                    disabled={submitting}
+                                                />
+                                                <TextField
+                                                    placeholder="Email"
+                                                    value={rec.email}
+                                                    onChange={(_, v) => {
+                                                        const next = [...postedRecipients];
+                                                        next[idx] = { ...next[idx], email: v || '' };
+                                                        setPostedRecipients(next);
+                                                        setPosted(next.map(x => 
+                                                            `${x.recipient}${x.addressee ? ' (' + x.addressee + ')' : ''}${x.email ? ' <' + x.email + '>' : ''}`.trim()
+                                                        ).filter(x => x));
+                                                    }}
+                                                    styles={{ ...inputStyles, root: { minWidth: 180, flex: 1 } }}
+                                                    disabled={submitting}
+                                                />
+                                                <DefaultButton
+                                                    text="Remove"
+                                                    onClick={() => {
+                                                        const next = postedRecipients.filter((_, i) => i !== idx);
+                                                        setPostedRecipients(next);
+                                                        const formatted = next.map(x => 
+                                                            `${x.recipient}${x.addressee ? ' (' + x.addressee + ')' : ''}${x.email ? ' <' + x.email + '>' : ''}`.trim()
+                                                        ).filter(x => x);
+                                                        setPosted(formatted);
+                                                        if (next.length === 0) setPosted([]);
+                                                    }}
+                                                    styles={defaultButtonStyles}
+                                                    disabled={submitting}
+                                                />
+                                            </div>
+                                        ))}
+                                        
+                                        <DefaultButton
+                                            text="Add recipient"
+                                            onClick={() => setPostedRecipients([...postedRecipients, { recipient: '', addressee: '', email: '' }])}
+                                            styles={{
+                                                ...defaultButtonStyles,
+                                                root: {
+                                                    ...defaultButtonStyles.root as object,
+                                                    marginTop: '8px',
+                                                }
+                                            }}
+                                            iconProps={{ iconName: 'Add' }}
+                                            disabled={submitting}
+                                        />
+
+                                        {/* Date and Cover Letter */}
+                                        <Stack horizontal tokens={{ childrenGap: 16 }} style={{ marginTop: '16px' }} wrap>
+                                            <DatePicker
+                                                label="Arrival date"
+                                                value={arrivalDate || undefined}
+                                                onSelectDate={(date) => setArrivalDate(date ?? null)}
+                                                styles={{
+                                                    root: { minWidth: 180, flex: 1 },
+                                                    textField: inputStyles,
+                                                }}
                                             />
-                                        </div>
-                                        <div style={{ flex: 2, minWidth: 240 }}>
                                             <TextField
                                                 label="Covering letter link"
                                                 value={coverLetter.link}
-                                                onChange={(_, v) => setCoverLetter((c) => ({ ...c, link: v || '' }))}
-                                                styles={premiumInputStyle}
+                                                onChange={(_, v) => setCoverLetter(c => ({ ...c, link: v || '' }))}
+                                                styles={{ ...inputStyles, root: { minWidth: 240, flex: 2 } }}
                                                 placeholder="Link"
                                             />
-                                        </div>
-                                        <div style={{ width: 140 }}>
                                             <TextField
                                                 label="Copies"
                                                 type="number"
                                                 value={coverLetter.copies.toString()}
-                                                onChange={(_, v) => setCoverLetter((c) => ({ ...c, copies: Number(v) || 1 }))}
-                                                styles={premiumInputStyle}
+                                                onChange={(_, v) => setCoverLetter(c => ({ ...c, copies: Number(v) || 1 }))}
+                                                styles={{ ...inputStyles, root: { width: 100 } }}
                                             />
-                                        </div>
+                                        </Stack>
+                                        <Text style={{ 
+                                            fontSize: '12px', 
+                                            color: isDarkMode ? '#64748b' : '#9ca3af',
+                                            fontStyle: 'italic',
+                                            marginTop: '8px',
+                                            display: 'block'
+                                        }}>
+                                            Copies to the address on the covering letter
+                                        </Text>
                                     </div>
-                                    <Text variant="small" style={subtleHelpText}>Copies to the address on the covering letter</Text>
+                                )}
+
+                                {/* Left in Office Branch */}
+                                {leftInOffice && (
+                                    <div style={branchCardStyle}>
+                                        <Text style={{ 
+                                            fontSize: '14px', 
+                                            fontWeight: 600, 
+                                            color: isDarkMode ? '#e2e8f0' : '#374151',
+                                            marginBottom: '16px',
+                                            display: 'block'
+                                        }}>
+                                            Office Collection Details
+                                        </Text>
+                                        
+                                        <Stack horizontal tokens={{ childrenGap: 16 }} wrap>
+                                            <DatePicker
+                                                label="Office-ready date"
+                                                value={officeDate || undefined}
+                                                onSelectDate={(date) => setOfficeDate(date ?? null)}
+                                                styles={{
+                                                    root: { minWidth: 180, flex: 1 },
+                                                    textField: inputStyles,
+                                                }}
+                                            />
+                                            <TextField
+                                                label="Copies in office"
+                                                type="number"
+                                                value={copiesInOffice.toString()}
+                                                onChange={(_, v) => setCopiesInOffice(Number(v) || 1)}
+                                                styles={{ ...inputStyles, root: { width: 140 } }}
+                                            />
+                                        </Stack>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Additional Notes Section */}
+                            <div style={sectionStyle}>
+                                <Text style={sectionHeaderStyle}>
+                                    <Icon iconName="EditNote" style={{ marginRight: '8px', color: accentColor }} />
+                                    Additional Notes
+                                </Text>
+                                <TextField
+                                    label="Other notes"
+                                    multiline
+                                    rows={4}
+                                    value={notes}
+                                    onChange={(_, v) => setNotes(v || '')}
+                                    styles={inputStyles}
+                                    placeholder="Enter any additional notes or special instructions..."
+                                />
+                            </div>
+
+                            {/* Info Box */}
+                            <div style={{
+                                background: isDarkMode ? 'rgba(16, 185, 129, 0.1)' : 'rgba(16, 185, 129, 0.05)',
+                                border: `1px solid ${isDarkMode ? 'rgba(16, 185, 129, 0.3)' : 'rgba(16, 185, 129, 0.2)'}`,
+                                borderLeft: '3px solid #10b981',
+                                padding: '16px',
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                                    <Icon iconName="Info" style={{ fontSize: '16px', color: '#10b981' }} />
+                                    <Text style={{ 
+                                        fontSize: '14px', 
+                                        fontWeight: 600, 
+                                        color: isDarkMode ? '#e2e8f0' : '#374151' 
+                                    }}>
+                                        Automatic Notifications
+                                    </Text>
+                                </div>
+                                <div style={{ paddingLeft: '26px' }}>
+                                    <Text style={{ 
+                                        fontSize: '13px', 
+                                        color: isDarkMode ? '#94a3b8' : '#6b7280',
+                                        display: 'block',
+                                        marginBottom: '4px'
+                                    }}>
+                                        • Asana task created in Bundle project
+                                    </Text>
+                                    <Text style={{ fontSize: '13px', color: isDarkMode ? '#94a3b8' : '#6b7280' }}>
+                                        • Email sent to <span style={{ fontWeight: 600, color: '#10b981' }}>operations@helix-law.com</span>
+                                    </Text>
                                 </div>
                             </div>
-                        )}
 
-                        {/* Left in office branch */}
-                        {leftInOffice && (
-                            <div style={branchCardStyle(isDarkMode)}>
-                                <div style={branchHeaderStyle}>Left in office</div>
-                                <div style={fieldRowStyle}>
-                                    <div style={{ minWidth: 200, flex: 1 }}>
-                                        <DatePicker 
-                                            label="Office-ready date" 
-                                            value={officeDate || undefined} 
-                                            onSelectDate={(date) => setOfficeDate(date ?? null)} 
-                                            styles={premiumDatePickerStyle}
+                            {/* Status Feedback */}
+                            {submitStatus !== 'idle' && (
+                                <div style={{
+                                    padding: '16px',
+                                    borderLeft: `3px solid ${
+                                        submitStatus === 'success' ? '#22c55e' :
+                                        submitStatus === 'error' ? '#ef4444' : '#3b82f6'
+                                    }`,
+                                    background: isDarkMode 
+                                        ? `rgba(${submitStatus === 'success' ? '34, 197, 94' : submitStatus === 'error' ? '239, 68, 68' : '59, 130, 246'}, 0.1)`
+                                        : `rgba(${submitStatus === 'success' ? '34, 197, 94' : submitStatus === 'error' ? '239, 68, 68' : '59, 130, 246'}, 0.05)`,
+                                }}>
+                                    <div style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '10px',
+                                        color: submitStatus === 'success' ? '#22c55e' :
+                                               submitStatus === 'error' ? '#ef4444' : '#3b82f6',
+                                    }}>
+                                        <Icon 
+                                            iconName={
+                                                submitStatus === 'success' ? 'CheckMark' :
+                                                submitStatus === 'error' ? 'ErrorBadge' : 'More'
+                                            } 
+                                            style={{ fontSize: '18px' }} 
                                         />
-                                    </div>
-                                    <div style={{ width: 160 }}>
-                                        <TextField
-                                            label="Copies in office"
-                                            type="number"
-                                            value={copiesInOffice.toString()}
-                                            onChange={(_, v) => setCopiesInOffice(Number(v) || 1)}
-                                            styles={premiumInputStyle}
-                                        />
+                                        <Text style={{ fontWeight: 600, fontSize: '14px' }}>
+                                            {submitMessage}
+                                        </Text>
                                     </div>
                                 </div>
-                            </div>
-                        )}
-                    </div>
+                            )}
 
-                    {/* Removed separate posted/office detail sections - consolidated above */}
-
-                    {/* Additional Notes Section */}
-                    <div style={premiumSectionStyle}>
-                        <div style={premiumBannerStyle}>
-                            <Icon iconName="EditNote" style={{ fontSize: '1rem' }} />
-                            Additional Notes
-                        </div>
-                        <TextField 
-                            label="Other notes" 
-                            multiline 
-                            rows={4} 
-                            value={notes} 
-                            onChange={(_, v) => setNotes(v || '')} 
-                            styles={premiumInputStyle}
-                            placeholder="Enter any additional notes or special instructions..."
-                        />
-                    </div>
-
-                    {/* Notification Information Section */}
-                    <div style={{
-                        ...premiumSectionStyle,
-                        background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.05) 0%, rgba(5, 150, 105, 0.05) 100%)',
-                        border: '1px solid rgba(16, 185, 129, 0.2)',
-                        padding: '16px'
-                    }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-                            <Icon iconName="Info" style={{ 
-                                fontSize: '1rem', 
-                                color: '#059669',
-                            }} />
-                            <Text style={{ fontSize: '14px', color: '#374151', fontWeight: '600' }}>
-                                Automatic Notifications
-                            </Text>
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', paddingLeft: '28px' }}>
-                            <Text style={{ fontSize: '13px', color: '#6b7280' }}>
-                                • Asana task created in Bundle project
-                            </Text>
-                            <Text style={{ fontSize: '13px', color: '#6b7280' }}>
-                                • Email sent to <span style={{ fontWeight: '600', color: '#059669' }}>operations@helix-law.com</span>
-                            </Text>
-                        </div>
-                    </div>
-
-                    {/* Status Feedback Section */}
-                    {submitStatus !== 'idle' && (
-                        <div style={{
-                            ...premiumSectionStyle,
-                            background: submitStatus === 'success' ? 'rgba(34, 197, 94, 0.1)' : 
-                                       submitStatus === 'error' ? 'rgba(239, 68, 68, 0.1)' : 
-                                       'rgba(59, 130, 246, 0.1)',
-                            border: `1px solid ${submitStatus === 'success' ? 'rgba(34, 197, 94, 0.3)' : 
-                                                submitStatus === 'error' ? 'rgba(239, 68, 68, 0.3)' : 
-                                                'rgba(59, 130, 246, 0.3)'}`,
-                        }}>
+                            {/* Action Buttons */}
                             <div style={{
                                 display: 'flex',
+                                justifyContent: 'space-between',
                                 alignItems: 'center',
-                                gap: '0.75rem',
-                                color: submitStatus === 'success' ? '#16a34a' : 
-                                       submitStatus === 'error' ? '#dc2626' : 
-                                       '#2563eb',
+                                paddingTop: '16px',
+                                borderTop: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
                             }}>
-                                {submitStatus === 'submitting' && (
-                                    <Icon iconName="More" style={{ fontSize: '1.25rem', animation: 'spin 1s linear infinite' }} />
-                                )}
-                                {submitStatus === 'success' && (
-                                    <Icon iconName="CheckMark" style={{ fontSize: '1.25rem' }} />
-                                )}
-                                {submitStatus === 'error' && (
-                                    <Icon iconName="ErrorBadge" style={{ fontSize: '1.25rem' }} />
-                                )}
-                                <Text variant="medium" style={{ fontWeight: '600' }}>
-                                    {submitMessage}
-                                </Text>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <Icon iconName="Contact" style={{ fontSize: '14px', color: isDarkMode ? '#94a3b8' : '#6b7280' }} />
+                                    <Text style={{ 
+                                        fontSize: '13px', 
+                                        fontWeight: 600, 
+                                        color: isDarkMode ? '#e2e8f0' : '#374151' 
+                                    }}>
+                                        {(() => {
+                                            if (users && users.length > 0) {
+                                                const currentUser = users[0];
+                                                const fullName = (currentUser as any)["Full Name"] || currentUser.FullName || `${currentUser.First || ''} ${currentUser.Last || ''}`.trim();
+                                                return fullName.split(' ')[0];
+                                            }
+                                            const currentUser = userOptions.find(u => u.key === name);
+                                            const userName = currentUser?.text || name || 'User';
+                                            return userName.split(' ')[0];
+                                        })()}
+                                    </Text>
+                                </div>
+                                <Stack horizontal tokens={{ childrenGap: 12 }}>
+                                    <DefaultButton
+                                        text="Cancel"
+                                        onClick={onBack}
+                                        styles={defaultButtonStyles}
+                                        iconProps={{ iconName: 'Cancel' }}
+                                    />
+                                    <PrimaryButton
+                                        text={submitting ? 'Creating Task...' : submitStatus === 'success' ? 'Task Created!' : 'Submit Bundle'}
+                                        onClick={handleSubmit}
+                                        disabled={!isValid() || submitting || submitStatus === 'success'}
+                                        styles={primaryButtonStyles}
+                                        iconProps={{
+                                            iconName: submitting ? 'More' : submitStatus === 'success' ? 'CheckMark' : 'Send'
+                                        }}
+                                    />
+                                </Stack>
                             </div>
-                        </div>
-                    )}
-
-                    {/* Action Buttons Bar */}
-                    <div style={{ 
-                        background: 'linear-gradient(135deg, rgba(248, 250, 252, 0.8) 0%, rgba(241, 245, 249, 0.8) 100%)',
-                        border: '1px solid rgba(229, 231, 235, 0.6)',
-                        borderTop: '2px solid rgba(54, 144, 206, 0.1)',
-                        borderRadius: '0 0 12px 12px',
-                        padding: '1.25rem',
-                        marginTop: '1.25rem',
-                        marginLeft: '-1.5rem',
-                        marginRight: '-1.5rem',
-                        marginBottom: '-1.5rem',
-                    }}>
-                        <Stack horizontal horizontalAlign="space-between" verticalAlign="center">
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                <Icon iconName="Contact" style={{ fontSize: '1rem', color: '#6b7280' }} />
-                                <Text variant="small" style={{ color: '#374151', fontWeight: '600' }}>
-                                    {(() => {
-                                        // Try to get user name from users array first
-                                        if (users && users.length > 0) {
-                                            const currentUser = users[0];
-                                            const fullName = (currentUser as any)["Full Name"] || currentUser.FullName || `${currentUser.First || ''} ${currentUser.Last || ''}`.trim();
-                                            return fullName.split(' ')[0];
-                                        }
-                                        
-                                        // Fallback to userOptions lookup
-                                        const currentUser = userOptions.find(u => u.key === name);
-                                        const userName = currentUser?.text || name || 'User';
-                                        return userName.split(' ')[0];
-                                    })()}
-                                </Text>
-                            </div>
-                            <Stack horizontal tokens={{ childrenGap: 12 }}>
-                                <DefaultButton
-                                    text="Cancel"
-                                    onClick={onBack}
-                                    styles={premiumSecondaryButtonStyle}
-                                    iconProps={{ iconName: 'Cancel' }}
-                                />
-                                <PrimaryButton
-                                    text={submitting ? 'Creating Task...' : submitStatus === 'success' ? 'Task Created!' : 'Submit Bundle'}
-                                    onClick={handleSubmit}
-                                    disabled={!isValid() || submitting || submitStatus === 'success'}
-                                    styles={premiumButtonStyle}
-                                    iconProps={
-                                        submitting ? { iconName: 'More', style: { animation: 'spin 1s linear infinite' } } :
-                                        submitStatus === 'success' ? { iconName: 'CheckMark' } :
-                                        { iconName: 'Send' }
-                                    }
-                                />
-                            </Stack>
                         </Stack>
                     </div>
                 </div>

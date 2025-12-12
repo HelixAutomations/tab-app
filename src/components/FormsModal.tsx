@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from "react";
-import { IconButton, Text, SearchBox, Stack, Modal, ActionButton } from "@fluentui/react";
+import React, { useState, useMemo, useCallback } from "react";
+import { IconButton, Text, Modal, Icon } from "@fluentui/react";
 import { useTheme } from "../app/functionality/ThemeContext";
 import { colours } from "../app/styles/colours";
 import { formSections } from "../tabs/forms/formsData";
 import { FormItem, UserData, NormalizedMatter, TeamData } from "../app/functionality/types";
 import FormEmbed from "./FormEmbed";
-import './PremiumModal.css';
 
 interface FormsModalProps {
     userData: UserData[] | null;
@@ -15,111 +14,174 @@ interface FormsModalProps {
     onDismiss: () => void;
 }
 
-// Enhanced icon set for better visual variety
-const enhancedIcons: { [key: string]: string } = {
-    'Phone': 'CellPhone',
-    'BulletedList': 'TaskManager',
-    'Calendar': 'CalendarDay',
-    'Contact': 'ContactCard',
-    'FileCode': 'FileTemplate',
-    'EmailMessage': 'MailAlert',
-    'Document': 'DocumentSet',
-    'Settings': 'ConfigurationSolid',
-    'Money': 'PaymentCard',
-    'Calculator': 'CalculatorAddition',
-    'Chart': 'BarChartVertical',
-    'Report': 'ReportDocument',
-    'Clock': 'DateTime',
-    'Flag': 'FlagFilled',
-    'Tag': 'TagSolid',
-    'Lock': 'LockSolid',
-    'Key': 'PasswordField',
-    'Globe': 'WorldClock',
-    'Cloud': 'CloudAdd',
-    'Database': 'DatabaseSync'
+// Section config with muted accent colors
+const sectionConfig: Record<string, { label: string; color: string; locked?: boolean }> = {
+    General_Processes: { label: 'General', color: '#3690CE' },      // Brand blue
+    Operations: { label: 'Operations', color: '#16a34a' },          // Muted green
+    Financial: { label: 'Financial', color: '#7c3aed' },            // Muted purple
+    Tech_Support: { label: 'Tech Support', color: '#ea580c', locked: true },  // Locked
+    Recommendations: { label: 'Recommendations', color: '#0891b2', locked: true },  // Locked - forms
+    Browse_Directories: { label: 'Directories', color: '#64748b', locked: true },   // Locked - browse only
 };
 
-const getFormIcon = (originalIcon: string): string => {
-    return enhancedIcons[originalIcon] || originalIcon;
-};
+// Forms to exclude
+const excludedForms = ['CollabSpace Requests'];
 
-const FormItemComponent: React.FC<{
-    item: FormItem;
-    index: number;
-    onFormSelect: (item: FormItem) => void;
+// Form card item - clean style matching ImmediateActionChip
+const FormCard: React.FC<{
+    form: FormItem;
+    accentColor: string;
     isDarkMode: boolean;
-}> = ({ item, index, onFormSelect, isDarkMode }) => (
-    <div
-        onClick={() => onFormSelect(item)}
-        className="premiumModalItem"
-        style={{
-            padding: '16px 20px',
-            borderRadius: '12px',
-            cursor: 'pointer',
-            backgroundColor: isDarkMode ? 'rgba(17, 24, 39, 0.72)' : '#ffffff',
-            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(0,0,0,0.06)'}`,
-            transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-            animation: `modalItemFadeIn 0.4s ease ${index * 0.05}s both`,
-            marginBottom: '8px',
-        }}
-    >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+    isLocked?: boolean;
+    onOpen: () => void;
+    onCopyLink?: () => void;
+    onOpenExternal?: () => void;
+}> = ({ form, accentColor, isDarkMode, isLocked, onOpen, onCopyLink, onOpenExternal }) => {
+    const [isHovered, setIsHovered] = useState(false);
+    const hasExternalLink = !!form.url;
+
+    // Colors matching ImmediateActionChip
+    const bg = isDarkMode ? 'rgba(30, 41, 59, 0.7)' : '#ffffff';
+    const bgHover = isDarkMode ? 'rgba(30, 41, 59, 0.85)' : '#f8fafc';
+    const border = isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(0, 0, 0, 0.06)';
+    const borderHover = isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(0, 0, 0, 0.12)';
+    const text = isDarkMode ? '#f1f5f9' : '#1e293b';
+    const textMuted = isDarkMode ? '#94a3b8' : '#64748b';
+
+    // Locked styling - greyed out
+    const lockedBg = isDarkMode ? 'rgba(30, 41, 59, 0.3)' : 'rgba(0, 0, 0, 0.02)';
+    const lockedBorder = isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)';
+    const lockedText = isDarkMode ? '#64748b' : '#94a3b8';
+    const lockedAccent = isDarkMode ? '#475569' : '#cbd5e1';
+
+    return (
+        <div
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+            style={{
+                display: 'flex',
+                alignItems: 'stretch',
+                background: isLocked ? lockedBg : (isHovered ? bgHover : bg),
+                border: `1px solid ${isLocked ? lockedBorder : (isHovered ? borderHover : border)}`,
+                borderLeft: `3px solid ${isLocked ? lockedAccent : accentColor}`,
+                boxShadow: isLocked 
+                    ? (isHovered ? (isDarkMode ? '0 2px 8px rgba(0,0,0,0.2)' : '0 2px 8px rgba(0,0,0,0.06)') : 'none')
+                    : (isHovered 
+                        ? (isDarkMode ? '0 4px 12px rgba(0,0,0,0.3)' : '0 4px 12px rgba(0,0,0,0.08)')
+                        : (isDarkMode ? '0 1px 3px rgba(0,0,0,0.2)' : '0 1px 3px rgba(0,0,0,0.04)')),
+                transition: 'all 0.15s ease',
+                cursor: 'pointer',
+                opacity: isLocked ? 0.6 : 1,
+                minWidth: '280px',
+                maxWidth: '360px',
+                flex: '1 1 280px',
+            }}
+            onClick={onOpen}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => e.key === 'Enter' && onOpen()}
+        >
+            {/* Icon */}
             <div style={{
-                width: '40px',
-                height: '40px',
-                borderRadius: '10px',
-                backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.8)' : '#f8f9fa',
+                width: 48,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: '18px',
-                color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : '#6a6a6a',
+                flexShrink: 0,
+                color: isLocked ? lockedAccent : accentColor,
             }}>
-                <IconButton
-                    iconProps={{ iconName: getFormIcon(item.icon) }}
-                    styles={{
-                        root: { width: 24, height: 24 },
-                        icon: { fontSize: 16, color: 'inherit' }
-                    }}
-                />
+                <Icon iconName={isLocked ? 'Lock' : (form.icon || 'Document')} style={{ fontSize: 18 }} />
             </div>
-            <div style={{ flex: 1 }}>
-                <Text
-                    variant="medium"
-                    style={{
-                        fontWeight: 600,
-                        color: isDarkMode ? '#ffffff' : '#000000',
-                        marginBottom: '4px',
-                        display: 'block',
-                    }}
-                >
-                    {item.title}
-                </Text>
-                {item.description && (
-                    <Text
-                        variant="small"
-                        style={{
-                            color: isDarkMode ? '#cccccc' : '#666666',
-                            lineHeight: '1.4',
-                        }}
-                    >
-                        {item.description}
-                    </Text>
+
+            {/* Content */}
+            <div style={{ 
+                flex: 1, 
+                padding: '12px 12px 12px 0',
+                minWidth: 0,
+            }}>
+                <div style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: isLocked ? lockedText : text,
+                    marginBottom: form.requires ? 3 : 0,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                }}>
+                    {form.title}
+                </div>
+                {form.requires && (
+                    <div style={{
+                        fontSize: 11,
+                        color: isLocked ? lockedText : textMuted,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                    }}>
+                        <span style={{ opacity: 0.7 }}>→</span>
+                        <span style={{ 
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                        }}>
+                            {form.requires}
+                        </span>
+                    </div>
                 )}
             </div>
-            <IconButton
-                iconProps={{ iconName: 'ChevronRight' }}
-                styles={{
-                    root: { 
-                        width: 32, 
-                        height: 32,
-                        color: isDarkMode ? '#666666' : '#999999',
-                    }
-                }}
-            />
+
+            {/* Actions for external links */}
+            {hasExternalLink && isHovered && !isLocked && (
+                <div 
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        paddingRight: 8,
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <IconButton
+                        iconProps={{ iconName: 'Copy' }}
+                        title="Copy link"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onCopyLink?.();
+                        }}
+                        styles={{
+                            root: {
+                                width: 28,
+                                height: 28,
+                                color: textMuted,
+                            },
+                            rootHovered: {
+                                background: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+                            },
+                        }}
+                    />
+                    <IconButton
+                        iconProps={{ iconName: 'OpenInNewWindow' }}
+                        title="Open in new tab"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenExternal?.();
+                        }}
+                        styles={{
+                            root: {
+                                width: 28,
+                                height: 28,
+                                color: textMuted,
+                            },
+                            rootHovered: {
+                                background: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+                            },
+                        }}
+                    />
+                </div>
+            )}
         </div>
-    </div>
-);
+    );
+};
 
 const FormsModal: React.FC<FormsModalProps> = ({
     userData,
@@ -129,62 +191,83 @@ const FormsModal: React.FC<FormsModalProps> = ({
     onDismiss,
 }) => {
     const { isDarkMode } = useTheme();
-    const [searchQuery, setSearchQuery] = useState('');
     const [selectedForm, setSelectedForm] = useState<FormItem | null>(null);
-    const [favorites, setFavorites] = useState<string[]>([]);
-    const [recentForms, setRecentForms] = useState<string[]>([]);
+    const [copiedLink, setCopiedLink] = useState<string | null>(null);
 
-    // Load favorites and recent forms from localStorage
-    useEffect(() => {
-        const savedFavorites = localStorage.getItem('forms-favorites');
-        const savedRecent = localStorage.getItem('forms-recent');
-        
-        if (savedFavorites) {
-            setFavorites(JSON.parse(savedFavorites));
-        }
-        if (savedRecent) {
-            setRecentForms(JSON.parse(savedRecent));
-        }
+    // Get sections with filtered forms
+    const sections = useMemo(() => {
+        return Object.entries(formSections)
+            .map(([key, forms]) => ({
+                key,
+                label: sectionConfig[key]?.label || key,
+                color: sectionConfig[key]?.color || '#3690CE',
+                locked: sectionConfig[key]?.locked || false,
+                forms: forms.filter(f => !excludedForms.includes(f.title)),
+            }))
+            .filter(section => section.forms.length > 0);
     }, []);
 
-    // Save to localStorage when favorites or recent changes
-    useEffect(() => {
-        localStorage.setItem('forms-favorites', JSON.stringify(favorites));
-    }, [favorites]);
-
-    useEffect(() => {
-        localStorage.setItem('forms-recent', JSON.stringify(recentForms));
-    }, [recentForms]);
-
-    const handleFormSelect = (item: FormItem) => {
-        setSelectedForm(item);
-        
-        // Add to recent forms
-        const newRecent = [item.title, ...recentForms.filter(f => f !== item.title)].slice(0, 5);
-        setRecentForms(newRecent);
+    const handleFormSelect = (form: FormItem) => {
+        setSelectedForm(form);
     };
 
-    const handleFormClose = () => {
+    const handleCopyLink = useCallback((url: string) => {
+        navigator.clipboard.writeText(url);
+        setCopiedLink(url);
+        setTimeout(() => setCopiedLink(null), 2000);
+    }, []);
+
+    const handleOpenExternal = useCallback((url: string) => {
+        window.open(url, '_blank', 'noopener,noreferrer');
+    }, []);
+
+    const handleBack = () => {
         setSelectedForm(null);
     };
 
-    const filteredSections = React.useMemo(() => {
-        if (!searchQuery) return formSections;
-        
-        const filtered: typeof formSections = {} as any;
-        Object.entries(formSections).forEach(([sectionKey, forms]) => {
-            const matchingForms = forms.filter(form =>
-                form.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                form.description?.toLowerCase().includes(searchQuery.toLowerCase())
-            );
-            if (matchingForms.length > 0) {
-                filtered[sectionKey as keyof typeof formSections] = matchingForms;
-            }
-        });
-        return filtered;
-    }, [searchQuery]);
+    // Get current user
+    const currentUser = useMemo(() => {
+        if (!userData || userData.length === 0) return undefined;
+        return userData[0];
+    }, [userData]);
 
+    // Selected form view (full screen)
     if (selectedForm) {
+        // Custom component forms
+        if (selectedForm.component) {
+            const FormComponent = selectedForm.component;
+            return (
+                <Modal
+                    isOpen={isOpen}
+                    onDismiss={onDismiss}
+                    isBlocking={false}
+                    styles={{
+                        main: {
+                            width: '100vw',
+                            height: '100vh',
+                            maxWidth: 'none',
+                            maxHeight: 'none',
+                            margin: 0,
+                            borderRadius: 0,
+                            background: isDarkMode ? '#0f172a' : '#fafafa',
+                        },
+                        scrollableContent: {
+                            height: '100vh',
+                            overflow: 'hidden',
+                        }
+                    }}
+                >
+                    <FormComponent
+                        userData={userData || undefined}
+                        currentUser={currentUser}
+                        matters={matters}
+                        onBack={handleBack}
+                    />
+                </Modal>
+            );
+        }
+
+        // Embedded/external forms
         return (
             <Modal
                 isOpen={isOpen}
@@ -198,12 +281,8 @@ const FormsModal: React.FC<FormsModalProps> = ({
                         maxHeight: 'none',
                         margin: 0,
                         borderRadius: 0,
-                        // Use reporting-style dark background to avoid pure-black feel
-                        background: isDarkMode
-                            ? 'linear-gradient(135deg, #0f172a 0%, #1e293b 30%, #334155 65%, #475569 100%)'
-                            : '#ffffff',
+                        background: isDarkMode ? '#0f172a' : '#fafafa',
                     },
-                    // Keep the modal container fixed-height but avoid trapping scroll here
                     scrollableContent: {
                         height: '100vh',
                         overflow: 'hidden',
@@ -212,65 +291,61 @@ const FormsModal: React.FC<FormsModalProps> = ({
                     }
                 }}
             >
-                <div style={{
-                    height: '100vh',
-                    display: 'flex',
-                    flexDirection: 'column',
-                }}>
+                <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+                    {/* Simple back header */}
                     <div style={{
-                        padding: '20px 32px',
-                        borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
+                        padding: '16px 32px',
+                        borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`,
                         display: 'flex',
                         alignItems: 'center',
-                        justifyContent: 'space-between',
-                        background: isDarkMode ? colours.dark.sectionBackground : '#fafbfc',
+                        gap: '20px',
+                        background: isDarkMode ? '#1e293b' : '#fff',
+                        flexShrink: 0,
                     }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                            <ActionButton
-                                iconProps={{ iconName: 'Back' }}
-                                onClick={handleFormClose}
-                                styles={{
-                                    root: {
-                                        minWidth: 40,
-                                        height: 40,
-                                        borderRadius: '10px',
-                                        backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.8)' : '#f0f2f5',
-                                    }
-                                }}
-                            />
-                            <Text variant="xLarge" style={{
-                                fontWeight: 600,
-                                color: isDarkMode ? '#ffffff' : '#000000',
-                            }}>
-                                {selectedForm.title}
-                            </Text>
-                        </div>
-                        <ActionButton
+                        <button
+                            onClick={handleBack}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                padding: '10px 18px',
+                                borderRadius: '10px',
+                                border: 'none',
+                                background: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+                                color: isDarkMode ? '#fff' : '#333',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                                fontWeight: 500,
+                                transition: 'all 0.15s ease',
+                            }}
+                        >
+                            <Icon iconName="ChevronLeft" style={{ fontSize: 14 }} />
+                            Back
+                        </button>
+                        <Text style={{ 
+                            fontSize: '20px', 
+                            fontWeight: 600, 
+                            color: isDarkMode ? '#fff' : '#1a1a1a' 
+                        }}>
+                            {selectedForm.title}
+                        </Text>
+                        <div style={{ flex: 1 }} />
+                        <IconButton
                             iconProps={{ iconName: 'Cancel' }}
                             onClick={onDismiss}
                             styles={{
                                 root: {
-                                    minWidth: 40,
+                                    width: 40,
                                     height: 40,
                                     borderRadius: '10px',
-                                    backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.8)' : '#f0f2f5',
-                                }
+                                    background: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)',
+                                },
                             }}
                         />
                     </div>
-                    <div style={{ 
-                        flex: 1,
-                        // Single scroll owner: avoid nested scroll traps in modal
-                        overflowY: 'auto',
-                        padding: '0 64px 32px 64px',
-                        minHeight: 0,
-                    }}>
-                        <div style={{
-                            maxWidth: '1400px',
-                            margin: '0 auto',
-                            width: '100%',
-                            height: '100%',
-                        }}>
+                    {/* Form content */}
+                    <div style={{ flex: 1, overflow: 'auto', padding: '32px 48px' }}>
+                        <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
                             <FormEmbed 
                                 link={selectedForm}
                                 userData={userData}
@@ -284,12 +359,13 @@ const FormsModal: React.FC<FormsModalProps> = ({
         );
     }
 
+    // Main grid view - Apple/Microsoft style
     return (
         <Modal
             isOpen={isOpen}
             onDismiss={onDismiss}
             isBlocking={false}
-                styles={{
+            styles={{
                 main: {
                     width: '100vw',
                     height: '100vh',
@@ -297,131 +373,123 @@ const FormsModal: React.FC<FormsModalProps> = ({
                     maxHeight: 'none',
                     margin: 0,
                     borderRadius: 0,
-                    background: isDarkMode
-                        ? 'linear-gradient(135deg, #0f172a 0%, #1e293b 30%, #334155 65%, #475569 100%)'
-                        : '#ffffff',
+                    background: isDarkMode ? '#0f172a' : '#fafafa',
                 },
                 scrollableContent: {
                     height: '100vh',
                 }
             }}
         >
-            <div style={{
-                height: '100vh',
-                display: 'flex',
+            <div style={{ 
+                height: '100vh', 
+                display: 'flex', 
                 flexDirection: 'column',
-                animation: 'modalSlideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
+                fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
             }}>
-                {/* Header */}
+                {/* Clean header */}
                 <div style={{
-                    padding: '32px 64px',
-                    borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(0,0,0,0.06)'}`,
-                    background: isDarkMode ? 'rgba(15, 23, 42, 0.88)' : '#fafbfc',
+                    padding: '32px 48px 24px',
+                    borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
+                    background: isDarkMode ? '#1e293b' : '#fff',
+                    flexShrink: 0,
                 }}>
-                    <div style={{
-                        maxWidth: '1400px',
-                        margin: '0 auto',
-                        width: '100%',
-                    }}>
-                        <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            marginBottom: '24px',
-                        }}>
-                            <Text
-                                variant="xxLarge"
-                                style={{
-                                    fontWeight: 700,
-                                    color: isDarkMode ? '#ffffff' : '#000000',
-                                    letterSpacing: '-0.02em',
-                                }}
-                            >
-                                Forms & Processes
+                    <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <Text style={{
+                                fontSize: '28px',
+                                fontWeight: 600,
+                                color: isDarkMode ? '#fff' : '#1a1a1a',
+                                display: 'block',
+                            }}>
+                                Forms &amp; Processes
                             </Text>
-                            <ActionButton
+                            <IconButton
                                 iconProps={{ iconName: 'Cancel' }}
                                 onClick={onDismiss}
                                 styles={{
                                     root: {
-                                        minWidth: 48,
-                                        height: 48,
-                                        borderRadius: '12px',
-                                        backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.8)' : '#f0f2f5',
-                                    }
+                                        width: 40,
+                                        height: 40,
+                                        borderRadius: '10px',
+                                        background: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)',
+                                    },
                                 }}
                             />
                         </div>
-                        
-                        <SearchBox
-                            placeholder="Search forms and processes..."
-                            value={searchQuery}
-                            onChange={(_, newValue) => setSearchQuery(newValue || '')}
-                            styles={{
-                                root: {
-                                    maxWidth: '500px',
-                                    borderRadius: '16px',
-                                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(0,0,0,0.06)'}`,
-                                    backgroundColor: isDarkMode ? 'rgba(17, 24, 39, 0.72)' : '#ffffff',
-                                    boxShadow: isDarkMode ? '0 2px 10px rgba(0, 0, 0, 0.22)' : '0 2px 8px rgba(0,0,0,0.08)',
-                                },
-                                field: {
-                                    backgroundColor: 'transparent',
-                                    color: isDarkMode ? '#ffffff' : '#000000',
-                                    fontSize: '16px',
-                                    padding: '16px 20px',
-                                },
-                            }}
-                        />
                     </div>
                 </div>
 
-                {/* Content */}
-                <div style={{
-                    flex: 1,
-                    overflow: 'auto',
-                    padding: '32px 64px',
-                }}>
-                    <div style={{
-                        maxWidth: '1400px',
-                        margin: '0 auto',
-                        width: '100%',
-                    }}>
-                        {/* Form Sections */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '48px' }}>
-                            {Object.entries(filteredSections).map(([sectionKey, forms]) => (
-                                <div key={sectionKey}>
-                                    <Text
-                                        variant="xLarge"
-                                        style={{
-                                            fontWeight: 600,
-                                            color: isDarkMode ? '#ffffff' : '#000000',
-                                            marginBottom: '24px',
-                                            display: 'block',
-                                        }}
-                                    >
-                                        {sectionKey.replace('_', ' ')}
-                                    </Text>
-                                    <div style={{
-                                        display: 'grid',
-                                        gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))',
-                                        gap: '20px',
-                                        maxWidth: '100%',
-                                    }}>
-                                        {forms.map((form, index) => (
-                                            <FormItemComponent
-                                                key={form.title}
-                                                item={form}
-                                                index={index}
-                                                onFormSelect={handleFormSelect}
-                                                isDarkMode={isDarkMode}
-                                            />
-                                        ))}
-                                    </div>
+                {/* Forms by section */}
+                <div style={{ flex: 1, overflow: 'auto', padding: '24px 48px 48px' }}>
+                    <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
+                        {sections.map((section) => (
+                            <div key={section.key} style={{ marginBottom: '28px' }}>
+                                <div style={{
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    color: isDarkMode ? '#94a3b8' : '#64748b',
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.05em',
+                                    marginBottom: '10px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 8,
+                                    opacity: section.locked ? 0.6 : 1,
+                                }}>
+                                    <span style={{
+                                        width: 3,
+                                        height: 12,
+                                        background: section.locked ? (isDarkMode ? '#475569' : '#cbd5e1') : section.color,
+                                        borderRadius: 1,
+                                    }} />
+                                    {section.label}
+                                    {section.locked && (
+                                        <Icon iconName="Lock" style={{ fontSize: 10, marginLeft: 2 }} />
+                                    )}
                                 </div>
-                            ))}
-                        </div>
+                                <div style={{
+                                    display: 'flex',
+                                    flexWrap: 'wrap',
+                                    gap: '10px',
+                                }}>
+                                    {section.forms.map((form) => (
+                                        <FormCard
+                                            key={form.title}
+                                            form={form}
+                                            accentColor={section.color}
+                                            isDarkMode={isDarkMode}
+                                            isLocked={section.locked}
+                                            onOpen={() => handleFormSelect(form)}
+                                            onCopyLink={form.url ? () => handleCopyLink(form.url!) : undefined}
+                                            onOpenExternal={form.url ? () => handleOpenExternal(form.url!) : undefined}
+                                        />
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
                     </div>
+
+                    {/* Copy confirmation toast */}
+                    {copiedLink && (
+                        <div style={{
+                            position: 'fixed',
+                            bottom: 24,
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            background: isDarkMode ? '#1e293b' : '#1e293b',
+                            color: '#fff',
+                            padding: '10px 20px',
+                            fontSize: 13,
+                            fontWeight: 500,
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                        }}>
+                            <Icon iconName="CheckMark" style={{ color: '#4ade80' }} />
+                            Link copied
+                        </div>
+                    )}
                 </div>
             </div>
         </Modal>

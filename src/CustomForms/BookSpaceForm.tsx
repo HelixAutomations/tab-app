@@ -419,10 +419,11 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
                   position: 'absolute',
                   width: '100%',
                   zIndex: 1,
-                  backgroundColor: isDarkMode ? colours.dark.cardBackground : '#fff',
-                  padding: '10px',
-                  borderRadius: '8px',
-                  boxShadow: isDarkMode ? '0 4px 12px rgba(0,0,0,0.4)' : '0 4px 12px rgba(0,0,0,0.15)',
+                  backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#ffffff',
+                  padding: '12px',
+                  borderRadius: 0,
+                  borderLeft: '3px solid #22c55e',
+                  boxShadow: isDarkMode ? '0 4px 12px rgba(0,0,0,0.25)' : '0 4px 12px rgba(0,0,0,0.08)',
                 },
               }}
             >
@@ -462,11 +463,12 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
             <Stack
               styles={{
                 root: {
-                  backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.grey,
-                  borderRadius: '8px',
-                  padding: '16px',
-                  boxShadow: isDarkMode ? '0 2px 8px rgba(0,0,0,0.3)' : '0 2px 8px rgba(0,0,0,0.1)',
-                  border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                  backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.3)' : '#ffffff',
+                  borderRadius: 0,
+                  padding: '1rem',
+                  boxShadow: isDarkMode ? '0 2px 8px rgba(0,0,0,0.15)' : '0 2px 8px rgba(0,0,0,0.03)',
+                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                  borderLeft: `3px solid ${isDarkMode ? colours.accent : colours.highlight}`,
                 },
               }}
             >
@@ -508,11 +510,12 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
           <Stack
             styles={{
               root: {
-                backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.grey,
-                borderRadius: '8px',
-                padding: '16px',
-                boxShadow: isDarkMode ? '0 2px 8px rgba(0,0,0,0.3)' : '0 2px 8px rgba(0,0,0,0.1)',
-                border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.3)' : '#ffffff',
+                borderRadius: 0,
+                padding: '1rem',
+                boxShadow: isDarkMode ? '0 2px 8px rgba(0,0,0,0.15)' : '0 2px 8px rgba(0,0,0,0.03)',
+                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                borderLeft: `3px solid ${isDarkMode ? colours.accent : colours.highlight}`,
               },
             }}
           >

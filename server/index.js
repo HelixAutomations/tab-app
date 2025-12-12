@@ -83,6 +83,9 @@ const pitchTrackingRouter = require('./routes/pitchTracking');
 const enquiryEnrichmentRouter = require('./routes/enquiryEnrichment');
 const claimEnquiryRouter = require('./routes/claimEnquiry');
 const rateChangesRouter = require('./routes/rate-changes');
+const expertsRouter = require('./routes/experts');
+const counselRouter = require('./routes/counsel');
+const techTicketsRouter = require('./routes/techTickets');
 const { userContextMiddleware } = require('./middleware/userContext');
 
 const app = express();
@@ -206,6 +209,13 @@ app.use('/api/enquiry-enrichment', enquiryEnrichmentRouter);
 
 // Rate change notification tracking (for Jan 2026 hourly rate increase)
 app.use('/api/rate-changes', rateChangesRouter);
+
+// Expert and Counsel directories
+app.use('/api/experts', expertsRouter);
+app.use('/api/counsel', counselRouter);
+
+// Tech tickets (Asana integration for ideas and problem reports)
+app.use('/api/tech-tickets', techTicketsRouter);
 
 // IMPORTANT: Attendance routes must come BEFORE proxy routes to avoid conflicts
 app.use('/api/attendance', attendanceRouter);

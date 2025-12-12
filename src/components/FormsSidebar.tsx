@@ -395,6 +395,9 @@ const FormsSidebar: React.FC<FormsSidebarProps> = ({
             General_Processes: [],
             Operations: [],
             Financial: [],
+            Tech_Support: [],
+            Recommendations: [],
+            Browse_Directories: [],
         };
         
         Object.entries(formSections).forEach(([section, forms]) => {

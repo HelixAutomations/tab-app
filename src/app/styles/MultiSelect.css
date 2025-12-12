@@ -176,22 +176,28 @@
 }
 
 /* Dark mode support for question banner */
-[data-theme="dark"] .question-banner {
-    background: linear-gradient(135deg, rgba(15, 23, 42, 0.8) 0%, rgba(30, 41, 59, 0.6) 100%);
-    color: #f3f4f6;
-    border-left: 3px solid #3b82f6;
+[data-theme="dark"] .question-banner,
+body.theme-dark .question-banner,
+.theme-dark .question-banner {
+    background: linear-gradient(135deg, rgba(30, 41, 59, 0.5) 0%, rgba(30, 41, 59, 0.3) 100%);
+    color: #f1f5f9;
+    border-left: 3px solid #3690ce;
 }
 
 /* Dark mode support for select dropdowns */
-[data-theme="dark"] select {
-    background-color: rgba(15, 23, 42, 0.8);
-    color: #f3f4f6;
-    border-color: rgba(125, 211, 252, 0.24);
+[data-theme="dark"] select,
+body.theme-dark select,
+.theme-dark select {
+    background-color: rgba(15, 23, 42, 0.5);
+    color: #f1f5f9;
+    border-color: rgba(148, 163, 184, 0.2);
 }
 
-[data-theme="dark"] select option {
-    background-color: #0f172a;
-    color: #f3f4f6;
+[data-theme="dark"] select option,
+body.theme-dark select option,
+.theme-dark select option {
+    background-color: #1e293b;
+    color: #f1f5f9;
 }
 
 .opponent-section {

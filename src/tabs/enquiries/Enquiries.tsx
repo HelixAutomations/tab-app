@@ -956,10 +956,17 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   // Calculate counts for Mine/All scope badges
   const scopeCounts = useMemo(() => {
-    const mineCount = allEnquiries.length;
-    const allCount = teamWideEnquiries.length > 0 ? teamWideEnquiries.length : mineCount;
+    // Mine count = enquiries claimed by the current user (where Point_of_Contact matches user email)
+    const userEmail = userData?.[0]?.Email?.toLowerCase() || '';
+    const mineCount = userEmail 
+      ? allEnquiries.filter(e => {
+          const poc = ((e as any).Point_of_Contact || (e as any).poc || '').toLowerCase().trim();
+          return poc === userEmail;
+        }).length
+      : 0;
+    const allCount = teamWideEnquiries.length > 0 ? teamWideEnquiries.length : allEnquiries.length;
     return { mineCount, allCount };
-  }, [allEnquiries.length, teamWideEnquiries.length]);
+  }, [allEnquiries, teamWideEnquiries.length, userData]);
 
   // Map for claimer quick lookup
   const claimerMap = useMemo(() => {
@@ -3427,7 +3434,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             onChange: (k) => handleSetActiveState(k === 'Unclaimed' ? 'Claimable' : k),
             options: ['Claimed','Unclaimed'].map(k => ({ 
               key: k, 
-              label: k === 'Unclaimed' ? `Unclaimed (${todaysUnclaimedCount})` : k,
+              label: k,
               icon: k === 'Claimed' ? (
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
                   <path d="M3 8.5L6.5 12L13 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />

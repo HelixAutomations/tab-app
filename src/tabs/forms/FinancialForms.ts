@@ -7,6 +7,7 @@ export const financialForms: FormItem[] = [
     title: 'Transfer Request',
     url: 'https://form.asana.com/?k=ujtixxpHA7C-flR-UZyF0Q&d=1203336123398249',
     icon: 'Switch',
+    requires: 'Matter ref, amount, transfer type',
     description: 'Submit a transfer request form.',
     tags: ['Financial'],
     fields: [
@@ -47,6 +48,7 @@ export const financialForms: FormItem[] = [
     title: 'Payment Requests',
     url: 'https://form.asana.com/?k=9CRRWY1ZvsPGJcA35aAM5w&d=1203336123398249',
     icon: 'Money',
+    requires: 'Matter ref, payee bank details, amount',
     description: 'Submit a payment request form.',
     tags: ['Financial'],
     fields: [
@@ -182,6 +184,7 @@ export const financialForms: FormItem[] = [
     title: 'General Query',
     url: 'https://form.asana.com/?k=CYnw28rLCHDrNboUrgmdaQ&d=1203336123398249',
     icon: 'Help',
+    requires: 'Query details',
     description: 'Submit a general query form.',
     tags: ['Financial'],
     fields: [
@@ -211,6 +214,7 @@ export const financialForms: FormItem[] = [
     title: 'Supplier Payment/Helix Expense',
     url: 'https://form.asana.com/?k=N3UONR0R0PXYlSqQjcCv9w&d=1203336123398249',
     icon: 'AccountActivity',
+    requires: 'Supplier name, bank details, invoice',
     description: 'Submit a nominal supplier payment or Helix expense form.',
     tags: ['Financial'],
     fields: [
@@ -306,6 +310,7 @@ export const financialForms: FormItem[] = [
     title: 'Write off/ Credit Note Request or Void invoice',
     url: 'https://form.asana.com/?k=Ry8nWaXaZf9t9nyDWShwsQ&d=1203336123398249',
     icon: 'Warning',
+    requires: 'Matter ref, invoice number, reason',
     description:
       'Submit a request for writing off, issuing a credit note, or voiding an invoice.',
     tags: ['Financial'],

@@ -130,3 +130,43 @@ body {
 [data-theme="dark"] .ms-Toggle-text {
   color: #f3f4f6 !important;
 }
+
+/* Dark mode Fluent UI Label and TextField overrides */
+[data-theme="dark"] .ms-Label,
+body.theme-dark .ms-Label,
+.theme-dark .ms-Label {
+  color: #e2e8f0 !important;
+}
+
+[data-theme="dark"] .ms-TextField-field,
+body.theme-dark .ms-TextField-field,
+.theme-dark .ms-TextField-field {
+  color: #f1f5f9 !important;
+  background-color: rgba(15, 23, 42, 0.5) !important;
+}
+
+[data-theme="dark"] .ms-TextField-fieldGroup,
+body.theme-dark .ms-TextField-fieldGroup,
+.theme-dark .ms-TextField-fieldGroup {
+  border-color: rgba(148, 163, 184, 0.2) !important;
+  background-color: rgba(15, 23, 42, 0.5) !important;
+}
+
+[data-theme="dark"] .ms-Dropdown-title,
+body.theme-dark .ms-Dropdown-title,
+.theme-dark .ms-Dropdown-title {
+  color: #f1f5f9 !important;
+  background-color: transparent !important;
+}
+
+[data-theme="dark"] .ms-Dropdown,
+body.theme-dark .ms-Dropdown,
+.theme-dark .ms-Dropdown {
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+[data-theme="dark"] .ms-Dropdown-caretDown,
+body.theme-dark .ms-Dropdown-caretDown,
+.theme-dark .ms-Dropdown-caretDown {
+  color: #94a3b8 !important;
+}

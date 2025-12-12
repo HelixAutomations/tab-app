@@ -28,7 +28,7 @@ import { NormalizedMatter, FormItem, UserData } from '../../app/functionality/ty
 // Icons initialized in index.tsx - no need to re-initialize
 
 // Define types for sections and links
-export type SectionName = 'Favorites' | 'Financial' | 'General_Processes' | 'Operations';
+export type SectionName = 'Favorites' | 'Financial' | 'General_Processes' | 'Operations' | 'Tech_Support' | 'Recommendations' | 'Browse_Directories';
 
 // (Removed local FormItem declaration because it's imported above)
 
@@ -156,6 +156,9 @@ const Forms: React.FC<FormsProps> = ({ userData, matters }) => {
       General_Processes: formSections.General_Processes,
       Operations: formSections.Operations,
       Financial: formSections.Financial,
+      Tech_Support: formSections.Tech_Support,
+      Recommendations: formSections.Recommendations,
+      Browse_Directories: formSections.Browse_Directories,
     };
   }, []);
 
@@ -225,7 +228,7 @@ const Forms: React.FC<FormsProps> = ({ userData, matters }) => {
     };
 
     // Prepare Favorites section separately
-    const allSectionsExceptFavorites = ['Financial', 'General_Processes', 'Operations'] as SectionName[];
+    const allSectionsExceptFavorites = ['Financial', 'General_Processes', 'Operations', 'Tech_Support', 'Recommendations', 'Browse_Directories'] as SectionName[];
     const favoriteLinks = allSectionsExceptFavorites.reduce<FormItem[]>((acc, section) => {
       return acc.concat(formHubSections[section].filter(link => favorites.some(fav => fav.title === link.title)));
     }, []);
@@ -239,6 +242,9 @@ const Forms: React.FC<FormsProps> = ({ userData, matters }) => {
       Financial: sortLinks(filterLinks(formHubSections.Financial)),
       General_Processes: sortLinks(filterLinks(formHubSections.General_Processes)),
       Operations: sortLinks(filterLinks(formHubSections.Operations)),
+      Tech_Support: sortLinks(filterLinks(formHubSections.Tech_Support)),
+      Recommendations: sortLinks(filterLinks(formHubSections.Recommendations)),
+      Browse_Directories: sortLinks(filterLinks(formHubSections.Browse_Directories)),
     };
   }, [favorites, formHubSections, searchQuery]);
 

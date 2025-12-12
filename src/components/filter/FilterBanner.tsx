@@ -183,14 +183,16 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
     }
   });
 
+  // Dynamic width based on search state - collapsed search takes minimal space
+  const isSearchCollapsed = collapsibleSearch && !searchOpen && !search?.value;
+  
   const searchContainerStyle = mergeStyles({
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'flex-end',
-    marginLeft: 'auto',
     flex: '0 0 auto',
-    minWidth: 240,
-    width: 240,
+    minWidth: isSearchCollapsed ? 'auto' : 240,
+    width: isSearchCollapsed ? 'auto' : 240,
     transition: 'none',
     selectors: {
       '@media (max-width: 700px)': {

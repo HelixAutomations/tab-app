@@ -1,6 +1,6 @@
 import React from 'react';
 
-export type SectionName = 'Favorites' | 'General_Processes' | 'Operations' | 'Financial';
+export type SectionName = 'Favorites' | 'General_Processes' | 'Operations' | 'Financial' | 'Tech_Support' | 'Recommendations' | 'Browse_Directories';
 // invisible change 2
 
 export interface Tab {
@@ -15,6 +15,7 @@ export interface FormItem {
   icon: string;
   tags?: string[];
   description?: string;
+  requires?: string; // Subtle hint about what info user needs
   embedScript?: {
     key: string;
     formId: string;

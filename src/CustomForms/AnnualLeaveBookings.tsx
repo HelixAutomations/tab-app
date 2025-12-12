@@ -52,20 +52,20 @@ const compactBookingCardStyle = (isDarkMode: boolean, status: string) => {
       : colours.green;
   
   return mergeStyles({
-    background: isDarkMode ? colours.dark.cardBackground : '#FFFFFF',
-    border: isDarkMode ? `1px solid ${colours.dark.border}` : '1px solid #E5E7EB',
-    borderLeft: `4px solid ${borderColor}`,
-    borderRadius: '8px',
+    background: isDarkMode ? 'rgba(30, 41, 59, 0.3)' : '#ffffff',
+    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+    borderLeft: `3px solid ${borderColor}`,
+    borderRadius: 0,
     padding: '12px 16px',
     marginBottom: '12px',
     boxShadow: isDarkMode 
-      ? '0 2px 6px rgba(0, 0, 0, 0.3)' 
-      : '0 2px 6px rgba(0, 0, 0, 0.06)',
+      ? '0 2px 6px rgba(0, 0, 0, 0.15)' 
+      : '0 2px 6px rgba(0, 0, 0, 0.03)',
     transition: 'all 0.2s ease',
     ':hover': {
       boxShadow: isDarkMode 
-        ? '0 3px 10px rgba(0, 0, 0, 0.4)' 
-        : '0 3px 10px rgba(0, 0, 0, 0.1)',
+        ? '0 3px 10px rgba(0, 0, 0, 0.2)' 
+        : '0 3px 10px rgba(0, 0, 0, 0.06)',
     },
   });
 };

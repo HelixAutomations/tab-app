@@ -1,8 +1,6 @@
 ﻿import React, { useState, useEffect, useCallback } from 'react';
-import { IconButton, Text, SearchBox, Modal, ActionButton, MessageBar, MessageBarType } from '@fluentui/react';
+import { IconButton, Text, Modal, Icon } from '@fluentui/react';
 import { useTheme } from '../app/functionality/ThemeContext';
-import { colours } from '../app/styles/colours';
-import './PremiumModal.css';
 
 // Import Custom SVG Icons (original provider logos)
 import asanaIcon from '../assets/asana.svg';
@@ -22,111 +20,191 @@ interface ResourcesModalProps {
     onDismiss: () => void;
 }
 
-// Enhanced colorless icons for resources
-const resourceIcons = [
-    'FileTemplate',
-    'DocumentSet', 
-    'ReportDocument',
-    'DatabaseSync',
-    'CloudAdd',
-    'ContactCard',
-    'TaskManager',
-    'CalculatorAddition',
-    'BarChartVertical',
-    'ConfigurationSolid',
-    'WorldClock',
-    'TagSolid',
-    'LockSolid',
-    'PasswordField',
-    'PaymentCard',
-    'CalendarDay',
-    'DateTime',
-    'FlagFilled',
-    'CellPhone',
-    'MailAlert'
-];
-
-const ResourceItemComponent: React.FC<{
+interface Resource {
     title: string;
+    url: string;
+    icon: string;
     description?: string;
-    index: number;
-    onClick: () => void;
+}
+
+// SVG icon imports for checking
+const svgIcons = [asanaIcon, nuclinoIcon, clioIcon, netdocumentsIcon, activecampaignIcon, bundledocsIcon, leapsomeIcon, harveyIcon, lexisnexisIcon, thompsonReutersIcon, landRegistryIcon];
+
+// Section config with accent colors
+const sectionConfig: Record<string, { label: string; color: string }> = {
+    'Core Business Tools': { label: 'Core Tools', color: '#3690CE' },
+    'Legal & Research': { label: 'Legal & Research', color: '#16a34a' },
+    'Document & Case Management': { label: 'Documents', color: '#7c3aed' },
+    'Analytics & Development': { label: 'Analytics & Dev', color: '#ea580c' },
+    'Collaboration & HR': { label: 'Collaboration', color: '#0891b2' },
+};
+
+// Resource card component - matching FormCard style
+const ResourceCard: React.FC<{
+    resource: Resource;
+    accentColor: string;
     isDarkMode: boolean;
-}> = ({ title, description, index, onClick, isDarkMode }) => {
-    // Use different icons based on index for variety
-    const iconName = resourceIcons[index % resourceIcons.length];
-    
+    isFavorite: boolean;
+    onOpen: () => void;
+    onCopyLink: () => void;
+    onToggleFavorite: () => void;
+}> = ({ resource, accentColor, isDarkMode, isFavorite, onOpen, onCopyLink, onToggleFavorite }) => {
+    const [isHovered, setIsHovered] = useState(false);
+
+    // Colors matching ImmediateActionChip
+    const bg = isDarkMode ? 'rgba(30, 41, 59, 0.7)' : '#ffffff';
+    const bgHover = isDarkMode ? 'rgba(30, 41, 59, 0.85)' : '#f8fafc';
+    const border = isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(0, 0, 0, 0.06)';
+    const borderHover = isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(0, 0, 0, 0.12)';
+    const text = isDarkMode ? '#f1f5f9' : '#1e293b';
+    const textMuted = isDarkMode ? '#94a3b8' : '#64748b';
+
+    const isSvgIcon = svgIcons.includes(resource.icon);
+
     return (
         <div
-            onClick={onClick}
-            className="premiumModalItem"
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
             style={{
-                padding: '20px 24px',
-                borderRadius: '16px',
+                display: 'flex',
+                alignItems: 'stretch',
+                background: isHovered ? bgHover : bg,
+                border: `1px solid ${isHovered ? borderHover : border}`,
+                borderLeft: `3px solid ${accentColor}`,
+                boxShadow: isHovered 
+                    ? (isDarkMode ? '0 4px 12px rgba(0,0,0,0.3)' : '0 4px 12px rgba(0,0,0,0.08)')
+                    : (isDarkMode ? '0 1px 3px rgba(0,0,0,0.2)' : '0 1px 3px rgba(0,0,0,0.04)'),
+                transition: 'all 0.15s ease',
                 cursor: 'pointer',
-                backgroundColor: isDarkMode ? 'rgba(17, 24, 39, 0.72)' : '#ffffff',
-                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(0,0,0,0.06)'}`,
-                transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-                animation: `modalItemFadeIn 0.4s ease ${index * 0.03}s both`,
-                marginBottom: '12px',
-                boxShadow: isDarkMode ? '0 2px 10px rgba(0, 0, 0, 0.22)' : '0 2px 8px rgba(0,0,0,0.04)',
+                minWidth: '280px',
+                maxWidth: '360px',
+                flex: '1 1 280px',
             }}
+            onClick={onOpen}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => e.key === 'Enter' && onOpen()}
         >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+            {/* Icon */}
+            <div style={{
+                width: 48,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+            }}>
+                {isSvgIcon ? (
+                    <img 
+                        src={resource.icon} 
+                        alt="" 
+                        style={{ 
+                            width: 22, 
+                            height: 22,
+                            filter: isDarkMode ? 'brightness(0) invert(1) opacity(0.85)' : 'none',
+                        }} 
+                    />
+                ) : (
+                    <Icon iconName={resource.icon} style={{ fontSize: 18, color: accentColor }} />
+                )}
+            </div>
+
+            {/* Content */}
+            <div style={{ 
+                flex: 1, 
+                padding: '12px 12px 12px 0',
+                minWidth: 0,
+            }}>
                 <div style={{
-                    width: '48px',
-                    height: '48px',
-                    borderRadius: '12px',
-                    backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.8)' : '#f8f9fa',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '20px',
-                    color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : '#6a6a6a',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: text,
+                    marginBottom: resource.description ? 3 : 0,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
                 }}>
+                    {resource.title}
+                </div>
+                {resource.description && (
+                    <div style={{
+                        fontSize: 11,
+                        color: textMuted,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                    }}>
+                        {resource.description}
+                    </div>
+                )}
+            </div>
+
+            {/* Actions */}
+            {isHovered && (
+                <div 
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 2,
+                        paddingRight: 8,
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                >
                     <IconButton
-                        iconProps={{ iconName }}
+                        iconProps={{ iconName: isFavorite ? 'FavoriteStarFill' : 'FavoriteStar' }}
+                        title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onToggleFavorite();
+                        }}
                         styles={{
-                            root: { width: 28, height: 28 },
-                            icon: { fontSize: 18, color: 'inherit' }
+                            root: {
+                                width: 28,
+                                height: 28,
+                                color: isFavorite ? '#f59e0b' : textMuted,
+                            },
+                            rootHovered: {
+                                background: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+                            },
+                        }}
+                    />
+                    <IconButton
+                        iconProps={{ iconName: 'Copy' }}
+                        title="Copy link"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onCopyLink();
+                        }}
+                        styles={{
+                            root: {
+                                width: 28,
+                                height: 28,
+                                color: textMuted,
+                            },
+                            rootHovered: {
+                                background: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+                            },
+                        }}
+                    />
+                    <IconButton
+                        iconProps={{ iconName: 'OpenInNewWindow' }}
+                        title="Open in new tab"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onOpen();
+                        }}
+                        styles={{
+                            root: {
+                                width: 28,
+                                height: 28,
+                                color: textMuted,
+                            },
+                            rootHovered: {
+                                background: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+                            },
                         }}
                     />
                 </div>
-                <div style={{ flex: 1 }}>
-                    <Text
-                        variant="mediumPlus"
-                        style={{
-                            fontWeight: 600,
-                            color: isDarkMode ? '#ffffff' : '#000000',
-                            marginBottom: description ? '6px' : '0',
-                            display: 'block',
-                        }}
-                    >
-                        {title}
-                    </Text>
-                    {description && (
-                        <Text
-                            variant="small"
-                            style={{
-                                color: isDarkMode ? '#cccccc' : '#666666',
-                                lineHeight: '1.5',
-                            }}
-                        >
-                            {description}
-                        </Text>
-                    )}
-                </div>
-                <IconButton
-                    iconProps={{ iconName: 'ChevronRight' }}
-                    styles={{
-                        root: { 
-                            width: 36, 
-                            height: 36,
-                            color: isDarkMode ? '#666666' : '#999999',
-                        }
-                    }}
-                />
-            </div>
+            )}
         </div>
     );
 };
@@ -136,138 +214,92 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
     onDismiss,
 }) => {
     const { isDarkMode } = useTheme();
-    const [searchQuery, setSearchQuery] = useState('');
     const [favorites, setFavorites] = useState<Resource[]>([]);
-    const [recentResources, setRecentResources] = useState<string[]>([]);
-    const [copySuccess, setCopySuccess] = useState<string | null>(null);
+    const [copiedLink, setCopiedLink] = useState<string | null>(null);
+
     // Load favorites from localStorage
     useEffect(() => {
         const savedFavorites = localStorage.getItem('resourcesFavorites');
-        const savedRecent = localStorage.getItem('resources-recent');
-        
         if (savedFavorites) {
             setFavorites(JSON.parse(savedFavorites));
         }
-        if (savedRecent) {
-            setRecentResources(JSON.parse(savedRecent));
-        }
     }, []);
 
-    // Define resource type interface
-    interface Resource {
-        title: string;
-        url: string;
-        icon: string;
-    }
-
-    interface ResourceSection {
-        title: string;
-        resources: Resource[];
-    }
-
-    // Resources data structure - organized by logical groups
-    const resourceSections = [
-        {
-            title: 'Favorites',
-            resources: favorites // Now populated from actual favorites
-        },
+    // Resources data - organized by category
+    const resourceSections: { title: string; resources: Resource[] }[] = [
         {
             title: 'Core Business Tools',
             resources: [
-                { title: 'Asana', url: 'https://app.asana.com/', icon: asanaIcon },
-                { title: 'Nuclino', url: 'https://www.nuclino.com/', icon: nuclinoIcon },
-                { title: 'Clio', url: 'https://eu.app.clio.com/nc/#/', icon: clioIcon },
-                { title: 'NetDocuments', url: 'https://eu.netdocuments.com/neWeb2/home', icon: netdocumentsIcon },
-                { title: 'ActiveCampaign', url: 'https://helix-law54533.activehosted.com/', icon: activecampaignIcon }
+                { title: 'Asana', url: 'https://app.asana.com/', icon: asanaIcon, description: 'Project management' },
+                { title: 'Nuclino', url: 'https://www.nuclino.com/', icon: nuclinoIcon, description: 'Knowledge base' },
+                { title: 'Clio', url: 'https://eu.app.clio.com/nc/#/', icon: clioIcon, description: 'Practice management' },
+                { title: 'NetDocuments', url: 'https://eu.netdocuments.com/neWeb2/home', icon: netdocumentsIcon, description: 'Document management' },
+                { title: 'ActiveCampaign', url: 'https://helix-law54533.activehosted.com/', icon: activecampaignIcon, description: 'Marketing automation' }
             ]
         },
         {
             title: 'Legal & Research',
             resources: [
-                { title: 'LexisNexis', url: 'https://www.lexisnexis.com/en-us/gateway.page', icon: lexisnexisIcon },
-                { title: 'Thompson Reuters', url: 'https://www.thomsonreuters.com/en.html', icon: thompsonReutersIcon },
-                { title: 'Land Registry', url: 'https://www.gov.uk/government/organisations/land-registry', icon: landRegistryIcon },
-                { title: 'Companies House', url: 'https://www.gov.uk/government/organisations/companies-house', icon: 'BuildingRetail' }
+                { title: 'LexisNexis', url: 'https://www.lexisnexis.com/en-us/gateway.page', icon: lexisnexisIcon, description: 'Legal research' },
+                { title: 'Thomson Reuters', url: 'https://www.thomsonreuters.com/en.html', icon: thompsonReutersIcon, description: 'Legal research' },
+                { title: 'Land Registry', url: 'https://www.gov.uk/government/organisations/land-registry', icon: landRegistryIcon, description: 'Property searches' },
+                { title: 'Companies House', url: 'https://www.gov.uk/government/organisations/companies-house', icon: 'CityNext2', description: 'Company searches' }
             ]
         },
         {
             title: 'Document & Case Management', 
             resources: [
-                { title: 'BundleDocs', url: 'https://www.bundledocs.com/', icon: bundledocsIcon },
-                { title: 'CC-Filing', url: 'https://efile.cefile-app.com/login?referer=%2F', icon: thompsonReutersIcon },
-                { title: 'Harvey', url: 'https://www.harvey.ai/', icon: harveyIcon }
+                { title: 'BundleDocs', url: 'https://www.bundledocs.com/', icon: bundledocsIcon, description: 'Court bundles' },
+                { title: 'CC-Filing', url: 'https://efile.cefile-app.com/login?referer=%2F', icon: thompsonReutersIcon, description: 'E-filing' },
+                { title: 'Harvey', url: 'https://www.harvey.ai/', icon: harveyIcon, description: 'AI legal assistant' }
             ]
         },
         {
             title: 'Analytics & Development',
             resources: [
-                { title: 'Power BI', url: 'https://app.powerbi.com/home', icon: 'BarChartVertical' },
-                { title: 'Azure', url: 'https://portal.azure.com/#home', icon: 'Cloud' },
-                { title: 'Power Automate', url: 'https://make.powerautomate.com/', icon: 'Flow' },
-                { title: 'GitHub', url: 'https://github.com/', icon: 'GitLogo' },
-                { title: 'Postman', url: 'https://identity.getpostman.com/', icon: 'APIManagement' }
+                { title: 'Power BI', url: 'https://app.powerbi.com/home', icon: 'BarChartVertical', description: 'Business analytics' },
+                { title: 'Azure', url: 'https://portal.azure.com/#home', icon: 'Cloud', description: 'Cloud platform' },
+                { title: 'Power Automate', url: 'https://make.powerautomate.com/', icon: 'Flow', description: 'Workflow automation' },
+                { title: 'GitHub', url: 'https://github.com/', icon: 'GitGraph', description: 'Code repository' },
+                { title: 'Postman', url: 'https://identity.getpostman.com/', icon: 'WebAppBuilderFragment', description: 'API testing' }
             ]
         },
         {
             title: 'Collaboration & HR',
             resources: [
-                { title: 'Leapsome', url: 'https://www.leapsome.com/app/#/dashboard?init=true', icon: leapsomeIcon },
-                { title: 'Miro', url: 'https://miro.com/login/', icon: 'Whiteboard' },
-                { title: 'Psychometric Testing', url: 'https://links.helix-law.co.uk/assessment', icon: 'TestBeaker' },
-                { title: 'Cognito', url: 'https://www.cognitoforms.com/helix1', icon: 'FormLibrary' }
+                { title: 'Leapsome', url: 'https://www.leapsome.com/app/#/dashboard?init=true', icon: leapsomeIcon, description: 'Performance management' },
+                { title: 'Miro', url: 'https://miro.com/login/', icon: 'Whiteboard', description: 'Collaborative whiteboard' },
+                { title: 'Psychometric Testing', url: 'https://links.helix-law.co.uk/assessment', icon: 'TestBeaker', description: 'Assessments' },
+                { title: 'Cognito Forms', url: 'https://www.cognitoforms.com/helix1', icon: 'FormLibrary', description: 'Form builder' }
             ]
         }
     ];
 
-    const filteredSections = resourceSections.map(section => ({
-        ...section,
-        resources: section.resources.filter((resource: Resource) =>
-            resource.title.toLowerCase().includes(searchQuery.toLowerCase())
-        )
-    })).filter(section => section.resources.length > 0 || section.title === 'Favorites');
+    const handleCopyLink = useCallback((url: string) => {
+        navigator.clipboard.writeText(url);
+        setCopiedLink(url);
+        setTimeout(() => setCopiedLink(null), 2000);
+    }, []);
 
-    const handleResourceClick = (url: string) => {
+    const handleOpenResource = useCallback((url: string) => {
         window.open(url, '_blank', 'noopener,noreferrer');
-        
-        // Add to recent resources
-        const resourceTitle = url; // Could be improved to store actual title
-        const newRecent = [resourceTitle, ...recentResources.filter(r => r !== resourceTitle)].slice(0, 5);
-        setRecentResources(newRecent);
-        localStorage.setItem('resources-recent', JSON.stringify(newRecent));
-    };
+    }, []);
 
-    // Handle Copy to Clipboard
-    const copyToClipboard = useCallback(
-        (url: string, title: string) => {
-            navigator.clipboard
-                .writeText(url)
-                .then(() => {
-                    setCopySuccess(`Copied '${title}' link to clipboard!`);
-                    setTimeout(() => setCopySuccess(null), 3000);
-                })
-                .catch((err) => {
-                    console.error('Failed to copy: ', err);
-                });
-        },
-        []
-    );
-
-    // Handle Toggle Favorite
     const toggleFavorite = useCallback((resource: Resource) => {
         setFavorites((prev) => {
-            const isFavorite = prev.some((fav: Resource) => fav.title === resource.title);
-            let updatedFavorites: Resource[];
-
-            if (isFavorite) {
-                updatedFavorites = prev.filter((fav: Resource) => fav.title !== resource.title);
-            } else {
-                updatedFavorites = [...prev, resource];
-            }
-
-            localStorage.setItem('resourcesFavorites', JSON.stringify(updatedFavorites));
-            return updatedFavorites;
+            const isFavorite = prev.some((fav) => fav.title === resource.title);
+            const updated = isFavorite 
+                ? prev.filter((fav) => fav.title !== resource.title)
+                : [...prev, resource];
+            localStorage.setItem('resourcesFavorites', JSON.stringify(updated));
+            return updated;
         });
     }, []);
+
+    // Build sections with favorites at top if any exist
+    const sectionsToRender = favorites.length > 0 
+        ? [{ title: 'Favorites', resources: favorites }, ...resourceSections]
+        : resourceSections;
 
     return (
         <Modal
@@ -282,268 +314,129 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                     maxHeight: 'none',
                     margin: 0,
                     borderRadius: 0,
-                    background: isDarkMode
-                        ? 'linear-gradient(135deg, #0f172a 0%, #1e293b 30%, #334155 65%, #475569 100%)'
-                        : '#ffffff',
+                    background: isDarkMode ? '#0f172a' : '#fafafa',
                 },
                 scrollableContent: {
                     height: '100vh',
                 }
             }}
         >
-            <div style={{
-                height: '100vh',
-                display: 'flex',
+            <div style={{ 
+                height: '100vh', 
+                display: 'flex', 
                 flexDirection: 'column',
-                animation: 'modalSlideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
+                fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
             }}>
-                {/* Header */}
+                {/* Clean header */}
                 <div style={{
-                    padding: '32px 64px',
-                    borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(0,0,0,0.06)'}`,
-                    background: isDarkMode ? 'rgba(15, 23, 42, 0.88)' : '#fafbfc',
+                    padding: '32px 48px 24px',
+                    borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
+                    background: isDarkMode ? '#1e293b' : '#fff',
+                    flexShrink: 0,
                 }}>
-                    <div style={{
-                        maxWidth: '1400px',
-                        margin: '0 auto',
-                        width: '100%',
-                    }}>
-                        <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            marginBottom: '24px',
-                        }}>
-                            <Text
-                                variant="xxLarge"
-                                style={{
-                                    fontWeight: 700,
-                                    color: isDarkMode ? '#ffffff' : '#000000',
-                                    letterSpacing: '-0.02em',
-                                }}
-                            >
-                                Resources & Tools
+                    <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <Text style={{
+                                fontSize: '28px',
+                                fontWeight: 600,
+                                color: isDarkMode ? '#fff' : '#1a1a1a',
+                                display: 'block',
+                            }}>
+                                Resources
                             </Text>
-                            <ActionButton
+                            <IconButton
                                 iconProps={{ iconName: 'Cancel' }}
                                 onClick={onDismiss}
                                 styles={{
                                     root: {
-                                        minWidth: 48,
-                                        height: 48,
-                                        borderRadius: '12px',
-                                        backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.8)' : '#f0f2f5',
-                                    }
+                                        width: 40,
+                                        height: 40,
+                                        borderRadius: '10px',
+                                        background: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)',
+                                    },
                                 }}
                             />
                         </div>
-                        
-                        <SearchBox
-                            placeholder="Search resources and tools..."
-                            value={searchQuery}
-                            onChange={(_, newValue) => setSearchQuery(newValue || '')}
-                            styles={{
-                                root: {
-                                    maxWidth: '500px',
-                                    borderRadius: '16px',
-                                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(0,0,0,0.06)'}`,
-                                    backgroundColor: isDarkMode ? 'rgba(17, 24, 39, 0.72)' : '#ffffff',
-                                    boxShadow: isDarkMode ? '0 2px 10px rgba(0, 0, 0, 0.22)' : '0 2px 8px rgba(0,0,0,0.08)',
-                                },
-                                field: {
-                                    backgroundColor: 'transparent',
-                                    color: isDarkMode ? '#ffffff' : '#000000',
-                                    fontSize: '16px',
-                                    padding: '16px 20px',
-                                },
-                            }}
-                        />
                     </div>
                 </div>
 
-                {/* Main Content */}
-                <div style={{ 
-                    flex: 1, 
-                    overflow: 'auto',
-                    padding: '32px 64px',
-                }}>
-                    <div style={{
-                        maxWidth: '1400px',
-                        margin: '0 auto',
-                        width: '100%',
-                    }}>
-                        {filteredSections.map((section, sectionIndex) => (
-                            <div key={section.title} style={{ marginBottom: '48px' }}>
-                                <div style={{ marginBottom: '24px' }}>
-                                    <Text
-                                        variant="xLarge"
-                                        style={{
-                                            fontWeight: 600,
-                                            color: isDarkMode ? '#ffffff' : '#000000',
-                                            display: 'block',
-                                        }}
-                                    >
-                                        {section.title}
-                                    </Text>
-                                </div>
-                                
-                                {section.resources.length > 0 ? (
+                {/* Resources by section */}
+                <div style={{ flex: 1, overflow: 'auto', padding: '24px 48px 48px' }}>
+                    <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
+                        {sectionsToRender.map((section) => {
+                            const config = sectionConfig[section.title] || { label: section.title, color: '#3690CE' };
+                            const isFavoritesSection = section.title === 'Favorites';
+                            
+                            return (
+                                <div key={section.title} style={{ marginBottom: '28px' }}>
                                     <div style={{
-                                        display: 'grid',
-                                        gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))',
-                                        gap: '20px',
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                        color: isDarkMode ? '#94a3b8' : '#64748b',
+                                        textTransform: 'uppercase',
+                                        letterSpacing: '0.05em',
+                                        marginBottom: '10px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 8,
                                     }}>
-                                        {section.resources.map((resource: Resource, index: number) => (
-                                            <div
+                                        <span style={{
+                                            width: 3,
+                                            height: 12,
+                                            background: isFavoritesSection ? '#f59e0b' : config.color,
+                                            borderRadius: 1,
+                                        }} />
+                                        {isFavoritesSection ? 'Favorites' : config.label}
+                                        {isFavoritesSection && (
+                                            <Icon iconName="FavoriteStarFill" style={{ fontSize: 10, color: '#f59e0b' }} />
+                                        )}
+                                    </div>
+                                    <div style={{
+                                        display: 'flex',
+                                        flexWrap: 'wrap',
+                                        gap: '10px',
+                                    }}>
+                                        {section.resources.map((resource) => (
+                                            <ResourceCard
                                                 key={resource.title}
-                                                className="premiumModalItem"
-                                                style={{
-                                                    padding: '20px 24px',
-                                                    borderRadius: '16px',
-                                                    cursor: 'default',
-                                                    backgroundColor: isDarkMode ? 'rgba(17, 24, 39, 0.72)' : '#ffffff',
-                                                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(0,0,0,0.06)'}`,
-                                                    transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-                                                    animation: `modalItemFadeIn 0.4s ease ${(sectionIndex * 2 + index) * 0.03}s both`,
-                                                    boxShadow: isDarkMode ? '0 2px 10px rgba(0, 0, 0, 0.22)' : '0 2px 8px rgba(0,0,0,0.04)',
-                                                }}
-                                            >
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                                                    <div style={{
-                                                        width: '48px',
-                                                        height: '48px',
-                                                        borderRadius: '12px',
-                                                        backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.8)' : '#f8f9fa',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        fontSize: '20px',
-                                                        color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : '#6a6a6a',
-                                                    }}>
-                                                        {[asanaIcon, nuclinoIcon, clioIcon, netdocumentsIcon, activecampaignIcon, bundledocsIcon, leapsomeIcon, harveyIcon, lexisnexisIcon, thompsonReutersIcon, landRegistryIcon].includes(resource.icon) ? (
-                                                            <img 
-                                                                src={resource.icon} 
-                                                                alt={resource.title}
-                                                                style={{ width: 28, height: 28 }}
-                                                            />
-                                                        ) : (
-                                                            <IconButton
-                                                                iconProps={{ iconName: resource.icon as string }}
-                                                                styles={{
-                                                                    root: { width: 28, height: 28 },
-                                                                    icon: { fontSize: 18, color: 'inherit' }
-                                                                }}
-                                                            />
-                                                        )}
-                                                    </div>
-                                                    <div style={{ flex: 1 }}>
-                                                        <Text
-                                                            variant="mediumPlus"
-                                                            style={{
-                                                                fontWeight: 600,
-                                                                color: isDarkMode ? '#ffffff' : '#000000',
-                                                                display: 'block',
-                                                            }}
-                                                        >
-                                                            {resource.title}
-                                                        </Text>
-                                                    </div>
-                                                    <div style={{ display: 'flex', gap: '8px' }}>
-                                                        <IconButton
-                                                            iconProps={{ 
-                                                                iconName: favorites.some((fav: Resource) => fav.title === resource.title) ? 'FavoriteStarFill' : 'FavoriteStar' 
-                                                            }}
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                toggleFavorite(resource);
-                                                            }}
-                                                            styles={{
-                                                                root: { 
-                                                                    width: 36, 
-                                                                    height: 36,
-                                                                    color: favorites.some((fav: Resource) => fav.title === resource.title) 
-                                                                        ? '#FFD700' 
-                                                                        : isDarkMode ? '#666666' : '#999999',
-                                                                }
-                                                            }}
-                                                        />
-                                                        <IconButton
-                                                            iconProps={{ iconName: 'Copy' }}
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                copyToClipboard(resource.url, resource.title);
-                                                            }}
-                                                            styles={{
-                                                                root: { 
-                                                                    width: 36, 
-                                                                    height: 36,
-                                                                    color: isDarkMode ? '#666666' : '#999999',
-                                                                }
-                                                            }}
-                                                        />
-                                                        <IconButton
-                                                            iconProps={{ iconName: 'OpenInNewWindow' }}
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                handleResourceClick(resource.url);
-                                                            }}
-                                                            styles={{
-                                                                root: { 
-                                                                    width: 36, 
-                                                                    height: 36,
-                                                                    color: isDarkMode ? '#666666' : '#999999',
-                                                                }
-                                                            }}
-                                                        />
-                                                    </div>
-                                                </div>
-                                            </div>
+                                                resource={resource}
+                                                accentColor={isFavoritesSection ? '#f59e0b' : config.color}
+                                                isDarkMode={isDarkMode}
+                                                isFavorite={favorites.some(f => f.title === resource.title)}
+                                                onOpen={() => handleOpenResource(resource.url)}
+                                                onCopyLink={() => handleCopyLink(resource.url)}
+                                                onToggleFavorite={() => toggleFavorite(resource)}
+                                            />
                                         ))}
                                     </div>
-                                ) : (
-                                    section.title === 'Favorites' && (
-                                        <Text
-                                            variant="medium"
-                                            style={{
-                                                color: isDarkMode ? '#888888' : '#666666',
-                                                fontStyle: 'italic',
-                                                textAlign: 'center',
-                                                padding: '32px',
-                                            }}
-                                        >
-                                            No favorite resources yet. Star resources to add them here.
-                                        </Text>
-                                    )
-                                )}
-                            </div>
-                        ))}
+                                </div>
+                            );
+                        })}
                     </div>
+
+                    {/* Copy confirmation toast */}
+                    {copiedLink && (
+                        <div style={{
+                            position: 'fixed',
+                            bottom: 24,
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            background: isDarkMode ? '#1e293b' : '#1e293b',
+                            color: '#fff',
+                            padding: '10px 20px',
+                            fontSize: 13,
+                            fontWeight: 500,
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                        }}>
+                            <Icon iconName="CheckMark" style={{ color: '#4ade80' }} />
+                            Link copied
+                        </div>
+                    )}
                 </div>
             </div>
-
-            {/* Copy Confirmation Message */}
-            {copySuccess && (
-                <MessageBar
-                    messageBarType={MessageBarType.success}
-                    isMultiline={false}
-                    onDismiss={() => setCopySuccess(null)}
-                    dismissButtonAriaLabel="Close"
-                    styles={{
-                        root: {
-                            position: 'fixed',
-                            bottom: 20,
-                            right: 20,
-                            maxWidth: '300px',
-                            zIndex: 1000,
-                            borderRadius: '8px',
-                            backgroundColor: '#4caf50',
-                            color: 'white',
-                        },
-                    }}
-                >
-                    {copySuccess}
-                </MessageBar>
-            )}
         </Modal>
     );
 };

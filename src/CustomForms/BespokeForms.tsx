@@ -22,15 +22,16 @@ import { NormalizedMatter } from '../app/functionality/types';
 import { useTheme } from '../app/functionality/ThemeContext';
 import '../app/styles/MultiSelect.css';
 
-export const INPUT_HEIGHT = 40;
+export const INPUT_HEIGHT = 44;
 
 export const formContainerStyle = mergeStyles({
   marginTop: '10px',
-  padding: '20px',
-  backgroundColor: colours.light.sectionBackground,
-  borderRadius: componentTokens.stepHeader.base.borderRadius,
-  border: `1px solid ${componentTokens.stepContent.borderColor}`,
-  boxShadow: componentTokens.stepContent.boxShadow,
+  padding: '1.5rem',
+  backgroundColor: '#ffffff',
+  borderRadius: 0,
+  border: '1px solid rgba(0, 0, 0, 0.06)',
+  borderLeft: `3px solid ${colours.highlight}`,
+  boxShadow: '0 4px 16px rgba(0, 0, 0, 0.04)',
   display: 'flex',
   flexDirection: 'column',
   gap: '12px',
@@ -38,20 +39,22 @@ export const formContainerStyle = mergeStyles({
 
 export const inputFieldStyle = mergeStyles({
   height: `${INPUT_HEIGHT}px`,
-  padding: '5px',
-  border: `1px solid ${colours.highlight}`,
+  padding: '0 12px',
+  border: '1px solid rgba(0, 0, 0, 0.1)',
   borderRadius: 0,
-  backgroundColor: colours.light.sectionBackground,
+  backgroundColor: '#ffffff',
   boxSizing: 'border-box',
+  fontSize: '14px',
   selectors: {
     ':hover': {
-      borderColor: colours.highlight,
+      borderColor: 'rgba(0, 0, 0, 0.15)',
     },
     ':focus': {
       borderColor: colours.highlight,
+      outline: 'none',
     },
     input: {
-      padding: '0 5px',
+      padding: '0 12px',
     },
   },
 });
@@ -59,16 +62,17 @@ export const inputFieldStyle = mergeStyles({
 export const dropdownStyle = mergeStyles({
   width: '100%',
   height: `${INPUT_HEIGHT}px`,
-  border: `1px solid ${colours.highlight}`,
+  border: '1px solid rgba(0, 0, 0, 0.1)',
   borderRadius: 0,
-  backgroundColor: '#fff',
+  backgroundColor: '#ffffff',
   display: 'flex',
   alignItems: 'center',
-  padding: '0 5px',
+  padding: '0 12px',
   boxSizing: 'border-box',
+  fontSize: '14px',
   selectors: {
     ':hover': {
-      borderColor: colours.highlight,
+      borderColor: 'rgba(0, 0, 0, 0.15)',
     },
     ':focus-within': {
       borderColor: colours.highlight,
@@ -77,7 +81,7 @@ export const dropdownStyle = mergeStyles({
       backgroundColor: 'transparent',
       border: 'none',
       boxShadow: 'none',
-      padding: '0 5px',
+      padding: '0 12px',
       height: '100%',
       lineHeight: `${INPUT_HEIGHT}px`,
     },
@@ -111,14 +115,15 @@ export const prefixStyle = (isDarkMode: boolean) => mergeStyles({
   justifyContent: 'center',
   width: '50px',
   height: '100%',
-  backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : colours.light.sectionBackground,
-  border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : colours.highlight}`,
+  backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#f8fafc',
+  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
   borderRight: 'none',
-  borderTopLeftRadius: '8px',
-  borderBottomLeftRadius: '8px',
-  fontWeight: 'bold',
-  padding: '0 5px',
-  color: isDarkMode ? colours.dark.text : colours.light.text,
+  borderTopLeftRadius: 0,
+  borderBottomLeftRadius: 0,
+  fontWeight: 600,
+  padding: '0 8px',
+  color: isDarkMode ? '#f1f5f9' : '#374151',
+  fontSize: '14px',
 });
 
 export const amountInputStyle = (hasPrefix: boolean, isDarkMode: boolean) =>
@@ -126,59 +131,60 @@ export const amountInputStyle = (hasPrefix: boolean, isDarkMode: boolean) =>
     flexGrow: 1,
     width: '100%',
     height: '100%',
-    border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : colours.highlight}`,
+    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
     borderRadius: 0,
-    padding: '5px',
-    backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : colours.light.sectionBackground,
-    color: isDarkMode ? colours.dark.text : colours.light.text,
+    padding: '0 12px',
+    backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#ffffff',
+    color: isDarkMode ? '#f1f5f9' : '#1e293b',
     boxSizing: 'border-box',
     appearance: 'textfield',
+    fontSize: '14px',
     selectors: {
       ':hover': {
-        borderColor: colours.highlight,
+        borderColor: isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(0, 0, 0, 0.15)',
       },
       ':focus': {
         borderColor: colours.highlight,
+        outline: 'none',
       },
       '::-webkit-inner-spin-button, ::-webkit-outer-spin-button': {
         appearance: 'none',
         margin: 0,
       },
       input: {
-        padding: '0 5px',
+        padding: '0 12px',
       },
     },
   });
 
 export const toggleStyle = (isDarkMode: boolean) => mergeStyles({
   height: `${INPUT_HEIGHT}px`,
-  backgroundColor: isDarkMode ? colours.dark.inputBackground : componentTokens.toggleButton.base.backgroundColor,
-  color: isDarkMode ? colours.dark.text : componentTokens.toggleButton.base.color,
-  border: isDarkMode 
-    ? `1px solid ${colours.dark.border}` 
-    : componentTokens.toggleButton.base.border,
-  borderRadius: componentTokens.toggleButton.base.borderRadius,
-  padding: componentTokens.toggleButton.base.padding,
+  backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#ffffff',
+  color: isDarkMode ? '#f1f5f9' : '#1e293b',
+  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+  borderRadius: 0,
+  padding: '0 12px',
   selectors: {
     ':hover': {
-      backgroundColor: isDarkMode 
-        ? colours.dark.cardHover 
-        : componentTokens.toggleButton.hover.backgroundColor,
+      backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#f8fafc',
     },
   },
 });
   
   // One-off info-box styles for CHAPS guide & >£50k message
   export const infoBoxStyle = mergeStyles({
-    backgroundColor: colours.light.sectionBackground,
-    borderLeft: `4px solid ${colours.light.cta}`,
-    padding: '10px 15px',
-    margin: '5px 0 15px',
-    borderRadius: '2px',
+    backgroundColor: 'rgba(54, 144, 206, 0.06)',
+    borderLeft: `3px solid ${colours.cta}`,
+    padding: '12px 16px',
+    margin: '8px 0 16px',
+    borderRadius: 0,
+    fontSize: '13px',
+    lineHeight: 1.5,
   });
   export const infoLinkStyle = mergeStyles({
-    color: colours.light.cta,
+    color: colours.cta,
     textDecoration: 'underline',
+    fontWeight: 500,
   });
 
 export interface FormField {
@@ -456,15 +462,14 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
       <div 
         style={{
           marginTop: '10px',
-          padding: '20px',
-          background: isDarkMode ? 'rgba(17, 24, 39, 0.72)' : 'rgba(255, 255, 255, 0.78)',
-          borderRadius: '12px',
-          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(15, 23, 42, 0.08)'}`,
+          padding: '1.5rem',
+          background: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#ffffff',
+          borderRadius: 0,
+          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(0, 0, 0, 0.06)'}`,
+          borderLeft: `3px solid ${colours.highlight}`,
           boxShadow: isDarkMode
-            ? '0 10px 28px rgba(0, 0, 0, 0.35)'
-            : '0 10px 28px rgba(2, 6, 23, 0.10)',
-          backdropFilter: 'blur(10px)',
-          WebkitBackdropFilter: 'blur(10px)',
+            ? '0 4px 16px rgba(0, 0, 0, 0.25)'
+            : '0 4px 16px rgba(0, 0, 0, 0.04)',
           display: 'flex',
           flexDirection: 'column',
           gap: '12px',
@@ -514,10 +519,10 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                         position: 'relative',
                         width: '100%',
                         height: `${INPUT_HEIGHT}px`,
-                        border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : colours.highlight}`,
-                        background: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : '#fff',
+                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+                        background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#ffffff',
                         overflow: 'hidden',
-                        borderRadius: '8px',
+                        borderRadius: 0,
                       }}
                     >
                       <select
@@ -643,12 +648,12 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                       style={{
                         width: '100%',
                         minHeight: '80px',
-                        border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : colours.highlight}`,
-                        borderRadius: '8px',
+                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+                        borderRadius: 0,
                         padding: '10px 12px',
                         boxSizing: 'border-box',
-                        backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : '#ffffff',
-                        color: isDarkMode ? colours.dark.text : colours.light.text,
+                        backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#ffffff',
+                        color: isDarkMode ? '#f1f5f9' : '#1e293b',
                         fontSize: '14px',
                       }}
                     />
@@ -685,12 +690,12 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                       style={{
                         width: '100%',
                         height: `${INPUT_HEIGHT}px`,
-                        border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : colours.highlight}`,
-                        borderRadius: '8px',
+                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+                        borderRadius: 0,
                         padding: '0 12px',
                         boxSizing: 'border-box',
-                        backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : '#ffffff',
-                        color: isDarkMode ? colours.dark.text : colours.light.text,
+                        backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#ffffff',
+                        color: isDarkMode ? '#f1f5f9' : '#1e293b',
                         fontSize: '14px',
                       }}
                     />
@@ -730,14 +735,14 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                           style={{
                             width: '100%',
                             height: '100%',
-                            border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : colours.highlight}`,
-                            borderTopRightRadius: '8px',
-                            borderBottomRightRadius: '8px',
+                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+                            borderTopRightRadius: 0,
+                            borderBottomRightRadius: 0,
                             borderLeft: 'none',
                             padding: '0 12px',
                             boxSizing: 'border-box',
-                            backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : '#ffffff',
-                            color: isDarkMode ? colours.dark.text : colours.light.text,
+                            backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#ffffff',
+                            color: isDarkMode ? '#f1f5f9' : '#1e293b',
                             fontSize: '14px',
                           }}
                         />
@@ -755,12 +760,12 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                         style={{
                           width: '100%',
                           height: `${INPUT_HEIGHT}px`,
-                          border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : colours.highlight}`,
-                          borderRadius: '8px',
+                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+                          borderRadius: 0,
                           padding: '0 12px',
                           boxSizing: 'border-box',
-                          backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : '#ffffff',
-                          color: isDarkMode ? colours.dark.text : colours.light.text,
+                          backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#ffffff',
+                          color: isDarkMode ? '#f1f5f9' : '#1e293b',
                           fontSize: '14px',
                         }}
                       />
@@ -849,17 +854,17 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                         marginTop: 8,
                         padding: '16px',
                         minHeight: 90,
-                        border: `2px dashed ${isDragging ? colours.blue : (isDarkMode ? 'rgba(125, 211, 252, 0.24)' : colours.highlight)}`,
-                        borderRadius: 12,
+                        border: `2px dashed ${isDragging ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)')}`,
+                        borderRadius: 0,
                         background: isDarkMode 
-                          ? 'linear-gradient(135deg, rgba(15, 23, 42, 0.8) 0%, rgba(30, 41, 59, 0.6) 100%)'
-                          : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
+                          ? 'rgba(15, 23, 42, 0.5)'
+                          : '#ffffff',
                         cursor: 'pointer',
                         transition: 'all 0.2s ease',
                         boxShadow: isDragging 
-                          ? (isDarkMode ? '0 8px 20px rgba(59, 130, 246, 0.3)' : '0 8px 20px rgba(59, 130, 246, 0.15)')
-                          : (isDarkMode ? '0 4px 10px rgba(0, 0, 0, 0.3)' : '0 4px 10px rgba(0, 0, 0, 0.05)'),
-                        color: isDarkMode ? colours.dark.text : '#6b7280',
+                          ? (isDarkMode ? '0 4px 12px rgba(54, 144, 206, 0.2)' : '0 4px 12px rgba(54, 144, 206, 0.15)')
+                          : 'none',
+                        color: isDarkMode ? '#94a3b8' : '#6b7280',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -867,7 +872,7 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                         fontSize: 13,
                         fontWeight: 500,
                         userSelect: 'none',
-                        transform: isDragging ? 'scale(1.02)' : 'scale(1)',
+                        transform: isDragging ? 'scale(1.01)' : 'scale(1)',
                       }}
                     >
                       Drag & drop a file here, or click to select
