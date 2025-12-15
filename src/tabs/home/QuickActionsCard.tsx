@@ -93,18 +93,10 @@ const iconMap: Record<string, { outline: IconComponent; filled: IconComponent }>
 export const getQuickActionIcon = (iconName: string): React.ComponentType<any> | null => {
   const mapping = iconMap[iconName];
   if (!mapping) {
-    console.log(`❌ No mapping found for icon: ${iconName}`);
     return null;
   }
   
   const IconComponent = mapping.filled;
-  
-  console.log(`🔍 Processing icon "${iconName}":`, {
-    type: typeof IconComponent,
-    isFunction: typeof IconComponent === 'function',
-    hasDefault: IconComponent && typeof IconComponent === 'object' && (IconComponent as any).default,
-    iconComponent: IconComponent
-  });
   
   // React Icons are functions, but might be wrapped differently in different environments
   if (typeof IconComponent === 'function') {
@@ -114,12 +106,10 @@ export const getQuickActionIcon = (iconName: string): React.ComponentType<any> |
   // Try to get the default export if it's an object
   if (IconComponent && typeof IconComponent === 'object' && (IconComponent as any).default) {
     const defaultIcon = (IconComponent as any).default;
-    console.log(`🔧 Using default export for "${iconName}":`, typeof defaultIcon);
     return defaultIcon;
   }
   
   // If still not a function, return null
-  console.log(`❌ Could not resolve icon component for "${iconName}"`);
   return null;
 };
 

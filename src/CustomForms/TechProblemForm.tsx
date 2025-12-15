@@ -173,7 +173,7 @@ const TechProblemFormContent: React.FC<TechProblemFormProps> = ({
             <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
               <Icon iconName="Warning" style={{ color: accentColor, flexShrink: 0 }} />
               <Text style={getInfoBoxTextStyle(isDarkMode)}>
-                Report bugs, errors, or technical issues. This creates an Asana task assigned to Luke, Chris, and Kanchel for immediate attention.
+                Report bugs, errors, or technical issues.
               </Text>
             </Stack>
           </div>
@@ -185,15 +185,28 @@ const TechProblemFormContent: React.FC<TechProblemFormProps> = ({
               Problem Details
             </div>
 
-            <Stack tokens={{ childrenGap: 16 }}>
-              <TextField
-                label="Title"
-                value={formData.title}
-                onChange={(_, val) => handleFieldChange('title', val || '')}
-                required
-                placeholder="Brief description of the problem"
-                styles={getInputStyles(isDarkMode)}
-              />
+            <Stack tokens={{ childrenGap: 16 }} style={{ paddingBottom: '4px' }}>
+              <Stack horizontal tokens={{ childrenGap: 16 }} verticalAlign="end">
+                <Stack.Item grow styles={{ root: { flex: 2 } }}>
+                  <TextField
+                    label="Title"
+                    value={formData.title}
+                    onChange={(_, val) => handleFieldChange('title', val || '')}
+                    required
+                    placeholder="Brief description of the problem"
+                    styles={getInputStyles(isDarkMode)}
+                  />
+                </Stack.Item>
+                <Stack.Item styles={{ root: { width: '320px', minWidth: '280px' } }}>
+                  <Dropdown
+                    label="Urgency"
+                    options={urgencyOptions}
+                    selectedKey={formData.urgency}
+                    onChange={(_, opt) => handleFieldChange('urgency', opt?.key as string || 'medium')}
+                    styles={getDropdownStyles(isDarkMode)}
+                  />
+                </Stack.Item>
+              </Stack>
 
               <TextField
                 label="Description"
@@ -224,14 +237,6 @@ const TechProblemFormContent: React.FC<TechProblemFormProps> = ({
                 rows={2}
                 placeholder="What should have happened instead?"
                 styles={getInputStyles(isDarkMode)}
-              />
-
-              <Dropdown
-                label="Urgency"
-                options={urgencyOptions}
-                selectedKey={formData.urgency}
-                onChange={(_, opt) => handleFieldChange('urgency', opt?.key as string || 'medium')}
-                styles={getDropdownStyles(isDarkMode)}
               />
             </Stack>
           </div>

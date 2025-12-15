@@ -167,7 +167,6 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
       return;
     }
     
-    console.log(`Manual sync triggered for: ${syncType}`);
     showToast(`${syncType} sync coming soon`, 'info', { duration: 2000 });
   };
 
@@ -206,7 +205,6 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
       }
 
       const result = await response.json();
-      console.log('Email search results:', result);
 
       // Transform search results into timeline items
       const emailItems: TimelineItem[] = result.emails.map((email: any) => ({
@@ -546,13 +544,11 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         const pitchesRes = await fetch(`/api/pitches/${enquiry.ID}`);
         if (pitchesRes.ok) {
           const pitchesData = await pitchesRes.json();
-          console.log('🔍 Pitches API response:', pitchesData);
           const pitches = pitchesData.pitches || [];
           
           // For each pitch, try to fetch corresponding instruction data
           for (let index = 0; index < pitches.length; index++) {
             const pitch = pitches[index];
-            console.log(`🔍 Pitch ${index} - ScenarioId: "${pitch.ScenarioId}"`);
             
             const pitchId = `pitch-${index}`;
             timelineItems.push({
@@ -573,25 +569,17 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             // Try to fetch instruction data for this pitch
             if (pitch.ProspectId) {
               try {
-                console.log(`🔍 Fetching instruction data for ProspectId: ${pitch.ProspectId}`);
                 const instructionRes = await fetch(`/api/instruction-data/${pitch.ProspectId}`);
-                console.log(`📡 Instruction API response status: ${instructionRes.status}`);
                 if (instructionRes.ok) {
                   const instructionData = await instructionRes.json();
-                  console.log(`📋 Instruction data received:`, instructionData);
                   if (instructionData) {
                     const status = calculateInstructionStatus(instructionData);
-                    console.log(`✅ Calculated status for ${pitchId}:`, status);
                     statusMap[pitchId] = status;
                   }
-                } else {
-                  console.log(`❌ Instruction API failed with status: ${instructionRes.status}`);
                 }
               } catch (error) {
                 console.error(`Failed to fetch instruction data for prospect ${pitch.ProspectId}:`, error);
               }
-            } else {
-              console.log(`⚠️ No ProspectId found for pitch ${index}`);
             }
           }
         }
@@ -615,8 +603,6 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             feeEarnerEmail = `${pointOfContact.toLowerCase().replace(/\s+/g, '.')}@helix-law.com`;
           }
 
-          console.log(`📧 Auto-fetching emails: ${feeEarnerEmail} ↔ ${prospectEmail}`);
-          
           const response = await fetch('/api/searchInbox', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -629,7 +615,6 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
           if (response.ok) {
             const result = await response.json();
-            console.log(`📧 Found ${result.emails.length} emails automatically`);
 
             const emailItems: TimelineItem[] = result.emails.map((email: any) => ({
               id: `email-${email.id}`,
@@ -651,8 +636,6 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           } else {
             console.error('Failed to auto-fetch emails:', response.status);
           }
-        } else {
-          console.log('⚠️ Missing Point_of_Contact or Email for auto-fetch');
         }
         setLoadingStates(prev => ({ ...prev, emails: false }));
         setCompletedSources(prev => ({ ...prev, emails: true }));
@@ -667,8 +650,6 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         const phoneNumber = enquiry.Phone_Number || '';
         
         if (phoneNumber) {
-          console.log(`📞 Auto-fetching CallRail calls for: ${phoneNumber}`);
-          
           const response = await fetch('/api/callrailCalls', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -680,7 +661,6 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
           if (response.ok) {
             const result = await response.json();
-            console.log(`📞 Found ${result.calls.length} calls from CallRail`);
 
             const callItems: TimelineItem[] = result.calls.map((call: any) => {
               const durationSeconds = Number(call.duration || 0);
@@ -776,8 +756,6 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           } else {
             console.error('Failed to auto-fetch CallRail calls:', response.status);
           }
-        } else {
-          console.log('⚠️ Missing Phone_Number for CallRail lookup');
         }
         setLoadingStates(prev => ({ ...prev, calls: false }));
       } catch (error) {
@@ -878,9 +856,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
   // Render instruction status indicators for pitches
   const renderInstructionStatus = (itemId: string) => {
-    console.log(`🎯 Rendering status for ${itemId}, available statuses:`, Object.keys(instructionStatuses));
     const status = instructionStatuses[itemId];
-    console.log(`📊 Status for ${itemId}:`, status);
     
     // Use test data for now, replace with actual status when API is ready
     const testStatus = {
@@ -1944,7 +1920,6 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                             </>
                           )}
                           {(() => {
-                            console.log('🎯 Rendering item:', item.id, 'metadata:', item.metadata, 'scenarioId:', item.metadata?.scenarioId);
                             return item.metadata?.scenarioId ? (
                               <>
                                 <span>•</span>

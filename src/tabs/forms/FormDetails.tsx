@@ -8,19 +8,16 @@ import {
   DefaultButton,
   MessageBar,
   MessageBarType,
+  TooltipHost,
 } from '@fluentui/react';
 import { colours } from '../../app/styles/colours';
 import { FormItem, UserData, NormalizedMatter } from '../../app/functionality/types';
 import { mergeStyles } from '@fluentui/react';
 import loaderIcon from '../../assets/grey helix mark.png';
 import BespokeForm from '../../CustomForms/BespokeForms';
-import {
-  sharedPrimaryButtonStyles,
-  sharedDefaultButtonStyles,
-// invisible change
-} from '../../app/styles/ButtonStyles';
 import BespokePanel from '../../app/functionality/BespokePanel';
 import { getProxyBaseUrl } from "../../utils/getProxyBaseUrl";
+import { getFormModeToggleStyles, getFormPrimaryButtonStyles, getFormDefaultButtonStyles } from '../../CustomForms/shared/formStyles';
 
 interface FormDetailsProps {
   link: FormItem;
@@ -170,12 +167,6 @@ const FormDetails: React.FC<FormDetailsProps> = ({
         initials: userData?.[0]?.Initials || 'N/A',
       };
       
-      // Debug logging for file uploads
-      console.log('Form submission payload:', payload);
-      if (values['Disbursement Upload']) {
-        console.log('Disbursement Upload data:', values['Disbursement Upload']);
-      }
-      
       const endpointUrl = `${getProxyBaseUrl()}/${process.env.REACT_APP_POST_FINANCIAL_TASK_PATH}?code=${process.env.REACT_APP_POST_FINANCIAL_TASK_CODE}`;
 
       try {
@@ -187,11 +178,10 @@ const FormDetails: React.FC<FormDetailsProps> = ({
 
         if (!response.ok) {
           const errText = await response.text();
-          console.error('Error posting financial task:', errText);
+          console.error('[FormDetails] Error posting financial task:', errText);
           setSubmissionSuccess(null);
         } else {
           const result = await response.json();
-          console.log('Financial task created successfully:', result);
           setIsSubmitted(true);
           setSubmissionSuccess('Financial form submitted successfully!');
 
@@ -254,24 +244,44 @@ const FormDetails: React.FC<FormDetailsProps> = ({
 
   <div style={{ flexGrow: 1, padding: '20px', minHeight: 0 }}>
           {link.embedScript ? (
-            <div ref={formContainerRef} style={{ flexGrow: 1, minHeight: 0 }}>
-              {!isCognitoLoaded && (
-                <div style={loaderStyle}>
-                  <img
-                    src={loaderIcon}
-                    alt="Loading..."
-                    style={{ width: '100px', height: 'auto' }}
-                  />
-                </div>
-              )}
-            </div>
+            <>
+              {/* Form Mode Toggle - Cognito/Bespoke */}
+              <div style={getFormModeToggleStyles(isDarkMode).container}>
+                <button 
+                  style={getFormModeToggleStyles(isDarkMode).option(true, false)}
+                  aria-pressed="true"
+                >
+                  Cognito
+                </button>
+                <TooltipHost content="Bespoke version coming soon">
+                  <button 
+                    style={getFormModeToggleStyles(isDarkMode).option(false, true)}
+                    disabled
+                    aria-pressed="false"
+                  >
+                    Bespoke
+                  </button>
+                </TooltipHost>
+              </div>
+              <div ref={formContainerRef} style={{ flexGrow: 1, minHeight: 0 }}>
+                {!isCognitoLoaded && (
+                  <div style={loaderStyle}>
+                    <img
+                      src={loaderIcon}
+                      alt="Loading..."
+                      style={{ width: '100px', height: 'auto' }}
+                    />
+                  </div>
+                )}
+              </div>
+            </>
           ) : link.fields ? (
             <div style={{ flexGrow: 1 }}>
               <BespokeForm
                 key={formKey}
                 fields={link.fields.map((field) => ({ ...field, name: field.label }))}
                 onSubmit={handleFinancialSubmit}
-                onCancel={() => console.log('Form cancelled')}
+                onCancel={() => { /* Form cancelled - no action needed */ }}
                 isSubmitting={isSubmitting}
                 matters={matters} // Pass matters down so the form can render a Matter Reference dropdown
               />
@@ -339,13 +349,13 @@ const FormDetails: React.FC<FormDetailsProps> = ({
                   <PrimaryButton
                     text="Copy"
                     onClick={copyToClipboard}
-                    styles={sharedPrimaryButtonStyles}
+                    styles={getFormPrimaryButtonStyles(isDarkMode)}
                     ariaLabel="Copy URL to clipboard"
                   />
                   <PrimaryButton
                     text="Go To"
                     onClick={goToLink}
-                    styles={sharedPrimaryButtonStyles}
+                    styles={getFormPrimaryButtonStyles(isDarkMode)}
                     ariaLabel="Go to URL"
                   />
                 </>
@@ -354,7 +364,7 @@ const FormDetails: React.FC<FormDetailsProps> = ({
             <DefaultButton
               text="Close"
               onClick={onClose}
-              styles={sharedDefaultButtonStyles}
+              styles={getFormDefaultButtonStyles(isDarkMode)}
               ariaLabel="Close Details"
             />
           </div>

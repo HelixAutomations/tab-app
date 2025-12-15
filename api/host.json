@@ -2,12 +2,19 @@
   "version": "2.0",
   "logging": {
     "logLevel": {
-      "default": "Trace"
+      "default": "Warning",
+      "Host.Results": "Error",
+      "Function": "Warning",
+      "Host.Aggregator": "Warning"
     },
     "applicationInsights": {
       "samplingSettings": {
         "isEnabled": true,
         "excludedTypes": "Request"
+      },
+      "enableLiveMetrics": false,
+      "httpAutoCollectionOptions": {
+        "enableHttpTriggerExtendedInfoCollection": false
       }
     }
   },

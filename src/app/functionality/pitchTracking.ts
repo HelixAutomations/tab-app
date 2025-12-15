@@ -34,11 +34,11 @@ export async function fetchPitchTracking(enquiryEmails: string[]): Promise<Pitch
     }
     
     const data: PitchData[] = await response.json();
-    console.log(`📊 Pitch tracking: Retrieved ${data.length} deal(s) for ${enquiryEmails.length} email(s)`);
+    // Pitch tracking data retrieved
     
     return data;
   } catch (error) {
-    console.error('❌ Error fetching pitch tracking data:', error);
+    console.error('[PitchTracking] Error fetching data:', error);
     return [];
   }
 }

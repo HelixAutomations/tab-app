@@ -352,8 +352,8 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
     try { return sessionStorage.getItem('tmv2_animated') !== 'true'; } catch { return true; }
   });
   
-  // Freeze stagger styles after first animation to prevent re-renders from twitching cards
-  const [frozenStaggerStyles] = React.useState<Map<number, React.CSSProperties>>(() => new Map());
+  // Track when the stagger animation is fully complete
+  const [animationComplete, setAnimationComplete] = React.useState(!enableAnimationThisMount);
   
   React.useEffect(() => {
     if (enableAnimationThisMount) {
@@ -367,38 +367,43 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
     setMounted(true);
   }, [enableAnimationThisMount]);
 
+  // Mark animation as complete after all cards have finished animating
+  React.useEffect(() => {
+    if (enableAnimationThisMount && mounted && !animationComplete) {
+      // Wait for the longest animation to complete (last card: 300ms + 4 * 80ms = 620ms, add buffer)
+      const completeTimer = setTimeout(() => {
+        setAnimationComplete(true);
+      }, 800);
+      return () => clearTimeout(completeTimer);
+    }
+  }, [enableAnimationThisMount, mounted, animationComplete]);
+
   const staggerStyle = (index: number): React.CSSProperties => {
-    // If we've already computed this card's style, return the frozen version
-    if (frozenStaggerStyles.has(index)) {
-      return frozenStaggerStyles.get(index)!;
+    // Once animation is complete, always return static styles (no transitions)
+    if (animationComplete) {
+      return {
+        opacity: 1,
+        transform: 'translateY(0)',
+        transition: 'none',
+      };
     }
     
-    // Compute style once, freeze it
-    const style: React.CSSProperties = enableAnimationThisMount 
-      ? {
-          opacity: mounted ? 1 : 0,
-          transform: mounted ? 'translateY(0)' : 'translateY(6px)',
-          transition: 'opacity 300ms ease, transform 300ms ease',
-          transitionDelay: `${index * 80}ms`,
-        }
-      : {
-          opacity: 1,
-          transform: 'translateY(0)',
-          transition: 'none',
-        };
-    
-    // After the animation completes, update to a transition-free style to prevent twitching
-    if (enableAnimationThisMount && mounted) {
-      setTimeout(() => {
-        frozenStaggerStyles.set(index, {
-          opacity: 1,
-          transform: 'translateY(0)',
-          transition: 'none',
-        });
-      }, 300 + index * 80);
+    // During animation phase
+    if (enableAnimationThisMount) {
+      return {
+        opacity: mounted ? 1 : 0,
+        transform: mounted ? 'translateY(0)' : 'translateY(6px)',
+        transition: 'opacity 300ms ease, transform 300ms ease',
+        transitionDelay: `${index * 80}ms`,
+      };
     }
     
-    return style;
+    // No animation needed
+    return {
+      opacity: 1,
+      transform: 'translateY(0)',
+      transition: 'none',
+    };
   };
   
 

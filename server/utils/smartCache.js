@@ -143,15 +143,12 @@ async function schedulePeriodicCacheWarming() {
       const redisClient = await getRedisClient();
       if (!redisClient) return;
       
-      console.log('🔥 Starting scheduled cache warming...');
-      
       for (const datasetName of WARMING_DATASETS) {
         const teamKey = generateCacheKey('stream', `${datasetName}:team`);
         const ttl = await redisClient.ttl(teamKey);
         
         // Refresh if TTL is less than 5 minutes
         if (ttl > 0 && ttl < 300) {
-          console.log(`♨️  Warming ${datasetName} (TTL: ${ttl}s)`);
           // Trigger background refresh via cache preheater
           const base = getSelfBaseUrl();
           fetch(`${base}/api/cache-preheater/preheat`, {

@@ -7,6 +7,9 @@ const express = require('express');
 const router = express.Router();
 const { withRequest } = require('../utils/db');
 const { cacheWrapper, generateCacheKey } = require('../utils/redisClient');
+const { loggers } = require('../utils/logger');
+
+const log = loggers.db.child('FutureBookings');
 
 /**
  * GET /api/future-bookings
@@ -14,12 +17,10 @@ const { cacheWrapper, generateCacheKey } = require('../utils/redisClient');
  */
 router.get('/', async (req, res) => {
   try {
-    console.log('[FutureBookings] Fetching future bookings');
-
     // Get base connection string and modify for helix-project-data database
     const baseConnectionString = process.env.SQL_CONNECTION_STRING;
     if (!baseConnectionString) {
-      console.error('[FutureBookings] SQL_CONNECTION_STRING not configured');
+      log.error('SQL_CONNECTION_STRING not configured');
       return res.status(500).json({ error: 'Database configuration missing' });
     }
 
@@ -36,8 +37,6 @@ router.get('/', async (req, res) => {
     const bookingsData = await cacheWrapper(
       cacheKey,
       async () => {
-        console.log('🔍 Fetching fresh future bookings from database');
-
         // Query boardroom bookings
         const boardroomResult = await withRequest(
           projectDataConnectionString,
@@ -85,11 +84,9 @@ router.get('/', async (req, res) => {
       900 // 15 minutes TTL - bookings can change during the day but not frequently
     );
 
-    console.log(`[FutureBookings] Retrieved ${bookingsData.boardroomBookings.length} boardroom and ${bookingsData.soundproofBookings.length} soundproof bookings`);
     res.json(bookingsData);
   } catch (error) {
-    console.error('[FutureBookings] Error retrieving future bookings:', error);
-    // Don't leak error details to browser
+    log.fail('bookings:fetch', error, {});
     res.status(500).json({ 
       error: 'Error retrieving future bookings'
     });

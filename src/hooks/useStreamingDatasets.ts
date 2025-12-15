@@ -134,12 +134,12 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
     let freshCount = 0;
     let freshElapsed = 0;
 
-    console.log(`🚀 Starting reporting stream for: ${effectiveDatasets.join(', ')}${effectiveBypass ? ' (bypass cache)' : ''}`);
+    // Streaming started - progress tracked via datasetStates
 
     eventSource.onopen = () => {
       setIsConnected(true);
       setIsComplete(false);
-      console.log('📡 Connected to streaming endpoint');
+      // Connected to streaming endpoint
       
       // Set a timeout to mark stuck datasets as error after 10 minutes
       timeoutRef.current = setTimeout(() => {
@@ -203,9 +203,8 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
                   freshElapsed += elapsed;
                 }
               }
-              const cacheLabel = update.cached ? '📦 (cached)' : '🔄 (fresh)';
               const elapsedMs = started ? Date.now() - started : 0;
-              console.log(`✅ ${update.dataset} ready ${cacheLabel} in ${elapsedMs}ms (${update.count || 0} rows)`);
+              // Dataset ready - tracked via state
               setDatasetStates(prev => ({
                 ...prev,
                 [update.dataset!]: {

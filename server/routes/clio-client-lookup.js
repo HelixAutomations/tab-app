@@ -1,7 +1,9 @@
 const express = require('express');
 const { getSecret } = require('../utils/getSecret');
+const { loggers } = require('../utils/logger');
 
 const router = express.Router();
+const log = loggers.clio;
 
 /**
  * Search for Clio clients by email address
@@ -15,7 +17,7 @@ router.get('/search', async (req, res) => {
     }
 
     const typesToSearch = emailTypes.split(',').map(t => t.trim());
-    console.log(`Searching for client with email: ${email}, initials: ${initials}, emailTypes: ${typesToSearch}`);
+    log.debug(`Searching for client with email: ${email}, initials: ${initials}, emailTypes: ${typesToSearch}`);
 
     try {
         // Fetch Clio credentials
@@ -33,7 +35,7 @@ router.get('/search', async (req, res) => {
         
         if (!tokenResp.ok) {
             const text = await tokenResp.text();
-            console.error('Clio token refresh failed', text);
+            log.error('Clio token refresh failed', text);
             return res.status(500).json({ error: 'Token refresh failed' });
         }
 
@@ -53,8 +55,8 @@ router.get('/search', async (req, res) => {
         for (const query of searchQueries) {
             const searchUrl = `https://eu.app.clio.com/api/v4/contacts.json?fields=id,name,first_name,last_name,primary_email_address,primary_phone_number,type,email_addresses&query=${encodeURIComponent(query)}&limit=20`;
             
-            console.log(`Searching Clio with query: ${query}`);
-            console.log(`Search URL: ${searchUrl}`);
+            log.debug(`Searching Clio with query: ${query}`);
+            log.debug(`Search URL: ${searchUrl}`);
             
             const searchResp = await fetch(searchUrl, {
                 headers: {
@@ -65,21 +67,21 @@ router.get('/search', async (req, res) => {
 
             if (searchResp.ok) {
                 const searchData = await searchResp.json();
-                console.log(`Search results for "${query}":`, JSON.stringify(searchData, null, 2));
+                log.debug(`Search results for "${query}":`, JSON.stringify(searchData, null, 2));
                 
                 if (searchData.data && searchData.data.length > 0) {
                     allClients.push(...searchData.data);
                     break; // Found results, no need to try other queries
                 }
             } else {
-                console.error(`Search failed for query "${query}":`, await searchResp.text());
+                log.error(`Search failed for query "${query}":`, await searchResp.text());
             }
         }
         
         // Filter and deduplicate results based on selected email types
-        console.log(`Filtering ${allClients.length} clients. Email types to search: ${typesToSearch.join(', ')}`);
-        console.log(`Search email: "${email}"`);
-        console.log(`All clients found:`, allClients.map(c => ({
+        log.debug(`Filtering ${allClients.length} clients. Email types to search: ${typesToSearch.join(', ')}`);
+        log.debug(`Search email: "${email}"`);
+        log.debug(`All clients found:`, allClients.map(c => ({
             id: c.id,
             name: c.name,
             primary_email: c.primary_email_address,
@@ -90,19 +92,19 @@ router.get('/search', async (req, res) => {
             // Remove duplicates by ID first
             const isDuplicate = arr.findIndex(c => c.id === client.id) !== index;
             if (isDuplicate) {
-                console.log(`Skipping duplicate client ID: ${client.id}`);
+                log.debug(`Skipping duplicate client ID: ${client.id}`);
                 return false;
             }
             
             const searchEmail = email.toLowerCase();
-            console.log(`Checking client ${client.name} (ID: ${client.id}) for email match...`);
+            log.debug(`Checking client ${client.name} (ID: ${client.id}) for email match...`);
             
             // Check primary email if selected
             if (typesToSearch.includes('primary')) {
                 const primaryEmail = client.primary_email_address?.toLowerCase();
-                console.log(`  Primary email check: "${primaryEmail}" === "${searchEmail}" ?`);
+                log.debug(`  Primary email check: "${primaryEmail}" === "${searchEmail}" ?`);
                 if (primaryEmail && primaryEmail === searchEmail) {
-                    console.log(`✅ Found exact match by primary email: ${client.name} - ${primaryEmail}`);
+                    log.debug(`✅ Found exact match by primary email: ${client.name} - ${primaryEmail}`);
                     return true;
                 }
             }
@@ -118,11 +120,11 @@ router.get('/search', async (req, res) => {
                     if (addr === searchEmail) {
                         // Check if this email type is requested
                         if (typesToSearch.includes('home') && emailType === 'home') {
-                            console.log(`✅ Found exact match by home email: ${client.name} - ${addr}`);
+                            log.debug(`✅ Found exact match by home email: ${client.name} - ${addr}`);
                             return true;
                         }
                         if (typesToSearch.includes('other') && (emailType === 'work' || emailType === 'business' || emailType === 'other')) {
-                            console.log(`✅ Found exact match by other email (${emailType}): ${client.name} - ${addr}`);
+                            log.debug(`✅ Found exact match by other email (${emailType}): ${client.name} - ${addr}`);
                             return true;
                         }
                     }
@@ -131,11 +133,11 @@ router.get('/search', async (req, res) => {
                 if (hasMatchingEmail) return true;
             }
             
-            console.log(`❌ No match found for client ${client.name}`);
+            log.debug(`❌ No match found for client ${client.name}`);
             return false;
         });
 
-        console.log(`Found ${uniqueClients.length} unique matching clients:`, uniqueClients);
+        log.debug(`Found ${uniqueClients.length} unique matching clients:`, uniqueClients);
 
         // Format the response
         const clients = uniqueClients
@@ -158,7 +160,7 @@ router.get('/search', async (req, res) => {
         });
 
     } catch (err) {
-        console.error('Clio client lookup error', err);
+        log.error('Clio client lookup error', err);
         res.status(500).json({ 
             error: 'Failed to search Clio clients', 
             details: err.message 
@@ -189,7 +191,7 @@ router.get('/client/:clientId', async (req, res) => {
         const tokenResp = await fetch(tokenUrl, { method: 'POST' });
         
         if (!tokenResp.ok) {
-            console.error('Clio token refresh failed');
+            log.error('Clio token refresh failed');
             return res.status(500).json({ error: 'Token refresh failed' });
         }
 
@@ -210,7 +212,7 @@ router.get('/client/:clientId', async (req, res) => {
             if (clientResp.status === 404) {
                 return res.status(404).json({ error: 'Client not found in Clio' });
             }
-            console.error('Clio client fetch failed');
+            log.error('Clio client fetch failed');
             return res.status(500).json({ error: 'Failed to fetch client from Clio' });
         }
 
@@ -233,7 +235,7 @@ router.get('/client/:clientId', async (req, res) => {
         });
 
     } catch (err) {
-        console.error('Clio client fetch error', err);
+        log.error('Clio client fetch error', err);
         res.status(500).json({ 
             error: 'Failed to fetch client from Clio', 
             details: err.message 
@@ -253,7 +255,7 @@ router.get('/client/:clientId/custom-fields', async (req, res) => {
         return res.status(400).json({ error: 'Missing clientId or initials parameter' });
     }
 
-    console.log(`Fetching custom fields for client ID: ${clientId}, initials: ${initials}`);
+    log.debug(`Fetching custom fields for client ID: ${clientId}, initials: ${initials}`);
 
     try {
         // Fetch Clio credentials
@@ -262,7 +264,7 @@ router.get('/client/:clientId/custom-fields', async (req, res) => {
         const refreshToken = await getSecret(`${initials.toLowerCase()}-clio-v1-refreshtoken`);
 
         if (!clioClientId || !clientSecret || !refreshToken) {
-            console.error('Clio credentials not found for user');
+            log.error('Clio credentials not found for user');
             return res.status(500).json({ error: 'Clio credentials not found for user' });
         }
 
@@ -272,7 +274,7 @@ router.get('/client/:clientId/custom-fields', async (req, res) => {
         
         if (!tokenResp.ok) {
             const tokenError = await tokenResp.text();
-            console.error('Clio token refresh failed', tokenError);
+            log.error('Clio token refresh failed', tokenError);
             return res.status(500).json({ error: 'Token refresh failed' });
         }
 
@@ -282,7 +284,7 @@ router.get('/client/:clientId/custom-fields', async (req, res) => {
         // Get client with custom field values from Clio
         const clientUrl = `https://eu.app.clio.com/api/v4/contacts/${clientId}?fields=custom_field_values{id,field_name,value}`;
         
-        console.log(`Fetching custom fields from: ${clientUrl}`);
+        log.debug(`Fetching custom fields from: ${clientUrl}`);
         
         const clientResp = await fetch(clientUrl, {
             headers: {
@@ -293,16 +295,16 @@ router.get('/client/:clientId/custom-fields', async (req, res) => {
 
         if (!clientResp.ok) {
             if (clientResp.status === 404) {
-                console.error('Client not found in Clio');
+                log.error('Client not found in Clio');
                 return res.status(404).json({ error: 'Client not found in Clio' });
             }
             const clientError = await clientResp.text();
-            console.error('Clio custom fields fetch failed', clientError);
+            log.error('Clio custom fields fetch failed', clientError);
             return res.status(500).json({ error: 'Failed to fetch custom fields from Clio' });
         }
 
         const clientData = await clientResp.json();
-        console.log(`Custom fields data:`, JSON.stringify(clientData, null, 2));
+        log.debug(`Custom fields data:`, JSON.stringify(clientData, null, 2));
         
         const customFieldValues = clientData.data?.custom_field_values || [];
 
@@ -312,7 +314,7 @@ router.get('/client/:clientId/custom-fields', async (req, res) => {
         });
 
     } catch (err) {
-        console.error('Clio custom fields fetch error', err);
+        log.error('Clio custom fields fetch error', err);
         res.status(500).json({ 
             error: 'Failed to fetch custom fields from Clio', 
             details: err.message 
@@ -381,7 +383,7 @@ router.get('/search-raw', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Error in raw search:', error);
+        log.error('Error in raw search:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
@@ -419,7 +421,7 @@ router.get('/debug/:clientId', async (req, res) => {
         
         if (!tokenResp.ok) {
             const text = await tokenResp.text();
-            console.error('Clio token refresh failed', text);
+            log.error('Clio token refresh failed', text);
             return res.status(500).json({ error: 'Token refresh failed' });
         }
 
@@ -437,7 +439,7 @@ router.get('/debug/:clientId', async (req, res) => {
 
         for (let i = 0; i < endpoints.length; i++) {
             const endpoint = endpoints[i];
-            console.log(`Testing endpoint ${i + 1}: ${endpoint}`);
+            log.debug(`Testing endpoint ${i + 1}: ${endpoint}`);
             
             const clientResp = await fetch(endpoint, {
                 headers: {
@@ -468,7 +470,7 @@ router.get('/debug/:clientId', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Error in debug endpoint:', error);
+        log.error('Error in debug endpoint:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
@@ -506,7 +508,7 @@ router.get('/test/:clientId', async (req, res) => {
         
         if (!tokenResp.ok) {
             const text = await tokenResp.text();
-            console.error('Clio token refresh failed', text);
+            log.error('Clio token refresh failed', text);
             return res.status(500).json({ error: 'Token refresh failed' });
         }
 
@@ -516,7 +518,7 @@ router.get('/test/:clientId', async (req, res) => {
         // Fetch specific client with all fields
         const clientUrl = `https://eu.app.clio.com/api/v4/contacts/${clientId}.json`;
         
-        console.log(`Fetching client details from: ${clientUrl}`);
+        log.debug(`Fetching client details from: ${clientUrl}`);
         
         const clientResp = await fetch(clientUrl, {
             headers: {
@@ -527,12 +529,12 @@ router.get('/test/:clientId', async (req, res) => {
 
         if (!clientResp.ok) {
             const errorText = await clientResp.text();
-            console.error('Clio client fetch failed', errorText);
+            log.error('Clio client fetch failed', errorText);
             return res.status(500).json({ error: 'Client fetch failed' });
         }
 
         const clientData = await clientResp.json();
-        console.log('Full client data:', JSON.stringify(clientData, null, 2));
+        log.debug('Full client data:', JSON.stringify(clientData, null, 2));
 
         res.json({
             success: true,
@@ -540,7 +542,7 @@ router.get('/test/:clientId', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Error in test client fetch:', error);
+        log.error('Error in test client fetch:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });

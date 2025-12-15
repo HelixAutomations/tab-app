@@ -1,13 +1,16 @@
 const express = require('express');
 const { withRequest, sql } = require('../utils/db');
 const { cacheUnified, generateCacheKey, CACHE_CONFIG, deleteCachePattern } = require('../utils/redisClient');
+const { loggers } = require('../utils/logger');
 const router = express.Router();
+
+const log = loggers.enquiries;
 
 // Route: GET /api/enquiries-unified
 // Direct database connections to fetch enquiries from BOTH database sources
 router.get('/', async (req, res) => {
   try {
-    console.log('📊 Unified enquiries route called');
+    log.debug('Unified enquiries route called');
 
     // Parse query parameters for filtering and pagination
     const limit = Math.min(parseInt(req.query.limit, 10) || 1000, 2500); // Default 1000, max 2500
@@ -19,7 +22,7 @@ router.get('/', async (req, res) => {
     const dateTo = req.query.dateTo || '';
     const bypassCache = String(req.query.bypassCache || 'false').toLowerCase() === 'true';
     
-    console.log('🔍 bypassCache parameter:', bypassCache, '(raw:', req.query.bypassCache, ')');
+    log.debug('bypassCache parameter:', bypassCache);
 
     // Build cache params (not a prebuilt key) for consistent unified cache keys
     const cacheParams = [
@@ -46,7 +49,7 @@ router.get('/', async (req, res) => {
     res.json({ ...result, cached: false });
 
   } catch (error) {
-    console.error('❌ Error in enquiries-unified route:', error);
+    log.error('Error in enquiries-unified route:', error?.message);
     // Return a tolerant 200 with warnings to avoid blocking the UI
     res.status(200).json({
       enquiries: [],
@@ -62,14 +65,14 @@ router.get('/', async (req, res) => {
  * Perform the actual unified enquiries query (extracted for caching)
  */
 async function performUnifiedEnquiriesQuery(queryParams) {
-  console.log('🔍 Performing fresh unified enquiries query');
-  console.log('📊 Query params:', queryParams);
+  log.debug('Performing fresh unified enquiries query');
+  log.debug('Query params:', queryParams);
 
   const fetchAll = String(queryParams.fetchAll || 'false').toLowerCase() === 'true';
   // When fetchAll=true, allow much higher limits for "All" mode
   const maxLimit = fetchAll ? 50000 : 2500;
   const limit = Math.min(parseInt(queryParams.limit, 10) || 1000, maxLimit);
-  console.log(`📊 Limit settings: fetchAll=${fetchAll}, maxLimit=${maxLimit}, finalLimit=${limit}`);
+  log.debug(`Limit settings: fetchAll=${fetchAll}, maxLimit=${maxLimit}, finalLimit=${limit}`);
   
   const email = (queryParams.email || '').trim().toLowerCase();
   const initials = (queryParams.initials || '').trim().toLowerCase();
@@ -82,7 +85,7 @@ async function performUnifiedEnquiriesQuery(queryParams) {
   const instructionsConnectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING; // instructions DB
 
   if (!mainConnectionString || !instructionsConnectionString) {
-    console.error('❌ Required connection strings not found in environment');
+    log.error('Required connection strings not found in environment');
     throw new Error('Database configuration missing');
   }
 
@@ -162,9 +165,9 @@ async function performUnifiedEnquiriesQuery(queryParams) {
       `);
     });
     mainEnquiries = Array.isArray(result.recordset) ? result.recordset : [];
-    console.log(`📊 Main DB returned: ${mainEnquiries.length} enquiries`);
+    log.debug(`Main DB returned: ${mainEnquiries.length} enquiries`);
   } catch (err) {
-    console.error('❌ Main DB enquiries query failed:', err?.message || err);
+    log.error('Main DB enquiries query failed:', err?.message || err);
     warnings.push({ source: 'main', message: err?.message || String(err) });
     mainEnquiries = [];
   }
@@ -235,9 +238,9 @@ async function performUnifiedEnquiriesQuery(queryParams) {
       `);
     });
     instructionsEnquiries = Array.isArray(result.recordset) ? result.recordset : [];
-    console.log(`📊 Instructions DB returned: ${instructionsEnquiries.length} enquiries`);
+    log.debug(`Instructions DB returned: ${instructionsEnquiries.length} enquiries`);
   } catch (err) {
-    console.error('❌ Instructions DB enquiries query failed:', err?.message || err);
+    log.error('Instructions DB enquiries query failed:', err?.message || err);
     warnings.push({ source: 'instructions', message: err?.message || String(err) });
     instructionsEnquiries = [];
   }
@@ -384,7 +387,7 @@ async function performUnifiedEnquiriesQuery(queryParams) {
 
   const payloadSize = JSON.stringify(responsePayload).length;
   const payloadMB = (payloadSize / 1024 / 1024).toFixed(2);
-  console.log(`📦 Response: ${uniqueEnquiries.length} enquiries, ${payloadMB}MB payload`);
+  log.info(`Response: ${uniqueEnquiries.length} enquiries, ${payloadMB}MB payload`);
 
   return responsePayload;
 }
@@ -396,7 +399,7 @@ async function performUnifiedEnquiriesQuery(queryParams) {
 router.post('/update', async (req, res) => {
   const { ID, ...updates } = req.body;
 
-  console.log('📝 Update request received:', { ID, IDType: typeof ID, updates });
+  log.debug('Update request received:', { ID, IDType: typeof ID, updates });
 
   if (!ID) return res.status(400).json({ error: 'Enquiry ID is required' });
   if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'No updates provided' });
@@ -409,7 +412,7 @@ router.post('/update', async (req, res) => {
     const instructionsConnectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
     
     if (!mainConnectionString || !instructionsConnectionString) {
-      console.error('❌ Database connection strings not found in environment');
+      log.error('Database connection strings not found in environment');
       return res.status(500).json({ error: 'Database configuration missing' });
     }
 
@@ -528,9 +531,9 @@ router.post('/update', async (req, res) => {
       const deletedData = await deleteCachePattern(`${CACHE_CONFIG.PREFIXES.UNIFIED}:data:*`);
       // Backward compatibility: also clear any older keys using 'enquiries' type
       const deletedEnquiries = await deleteCachePattern(`${CACHE_CONFIG.PREFIXES.UNIFIED}:enquiries:*`);
-      console.log(`🗑️  Invalidated cache after update (data:${deletedData}, enquiries:${deletedEnquiries})`);
+      log.debug(`Invalidated cache after update (data:${deletedData}, enquiries:${deletedEnquiries})`);
     } catch (cacheError) {
-      console.warn('⚠️  Failed to invalidate cache after update:', cacheError);
+      log.warn('Failed to invalidate cache after update:', cacheError?.message);
       // Don't fail the request if cache invalidation fails
     }
 
@@ -542,7 +545,7 @@ router.post('/update', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Error updating enquiry:', error);
+    log.error('Error updating enquiry:', error?.message);
     res.status(500).json({ error: 'Failed to update enquiry', details: error?.message || 'Unknown error' });
   }
 });
@@ -551,12 +554,12 @@ router.post('/update', async (req, res) => {
 // Create a new enquiry in the instructions database
 router.post('/create', async (req, res) => {
   try {
-    console.log('📝 Create enquiry request received');
+    log.debug('Create enquiry request received');
 
     const instructionsConnectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
     
     if (!instructionsConnectionString) {
-      console.error('❌ Instructions database connection string not found');
+      log.error('❌ Instructions database connection string not found');
       return res.status(500).json({ error: 'Database configuration missing' });
     }
 
@@ -566,7 +569,7 @@ router.post('/create', async (req, res) => {
       : rawBody;
 
     if (!payload || typeof payload !== 'object') {
-      console.error('❌ Invalid payload structure for create enquiry');
+      log.error('❌ Invalid payload structure for create enquiry');
       return res.status(400).json({ error: 'Invalid request payload' });
     }
 
@@ -698,7 +701,7 @@ router.post('/create', async (req, res) => {
 
     const newId = result.recordset[0]?.id;
 
-    console.log(`✅ Enquiry created successfully with ID: ${newId}`);
+    log.info(`✅ Enquiry created successfully with ID: ${newId}`);
 
     // Invalidate cache after successful insert
     try {
@@ -706,9 +709,9 @@ router.post('/create', async (req, res) => {
       const deletedData = await deleteCachePattern(`${CACHE_CONFIG.PREFIXES.UNIFIED}:data:*`);
       // Backward compatibility: also clear any older keys using 'enquiries' type
       const deletedEnquiries = await deleteCachePattern(`${CACHE_CONFIG.PREFIXES.UNIFIED}:enquiries:*`);
-      console.log(`🗑️  Invalidated cache after create (data:${deletedData}, enquiries:${deletedEnquiries})`);
+      log.info(`🗑️  Invalidated cache after create (data:${deletedData}, enquiries:${deletedEnquiries})`);
     } catch (cacheError) {
-      console.warn('⚠️  Failed to invalidate cache after create:', cacheError);
+      log.warn('⚠️  Failed to invalidate cache after create:', cacheError);
     }
 
     res.status(201).json({
@@ -718,7 +721,7 @@ router.post('/create', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Error creating enquiry:', error);
+    log.error('❌ Error creating enquiry:', error);
     res.status(500).json({ 
       error: 'Failed to create enquiry', 
       details: error?.message || 'Unknown error' 
@@ -732,7 +735,7 @@ router.delete('/:id', async (req, res) => {
   try {
     const enquiryId = req.params.id;
     
-    console.log('🗑️  Delete request for enquiry ID:', enquiryId);
+    log.info('🗑️  Delete request for enquiry ID:', enquiryId);
 
     if (!enquiryId) {
       return res.status(400).json({ error: 'Enquiry ID is required' });
@@ -779,10 +782,10 @@ router.delete('/:id', async (req, res) => {
       
       results.teamsActivityDeleted = teamsActivityDeleted;
       if (teamsActivityDeleted > 0) {
-        console.log(`🗑️  Deleted ${teamsActivityDeleted} Teams activities for enquiry ${enquiryId}`);
+        log.info(`🗑️  Deleted ${teamsActivityDeleted} Teams activities for enquiry ${enquiryId}`);
       }
     } catch (teamsError) {
-      console.warn('⚠️  Failed to clean up Teams activities:', teamsError.message);
+      log.warn('⚠️  Failed to clean up Teams activities:', teamsError.message);
     }
 
     // Try to delete from v1 database (main/helix-core-data system)
@@ -813,12 +816,12 @@ router.delete('/:id', async (req, res) => {
               email: record.Email || '',
               poc: record.Point_of_Contact || ''
             };
-            console.log(`✅ Deleted v1 record: ${results.deletedRecord.name} (${results.deletedRecord.email})`);
+            log.info(`✅ Deleted v1 record: ${results.deletedRecord.name} (${results.deletedRecord.email})`);
           }
         }
       });
     } catch (v1Error) {
-      console.warn(`⚠️  Could not delete from v1 database:`, v1Error.message);
+      log.warn(`⚠️  Could not delete from v1 database:`, v1Error.message);
     }
 
     // Try to delete from v2 database (instructions system)
@@ -857,12 +860,12 @@ router.delete('/:id', async (req, res) => {
                 poc: record.poc || ''
               };
             }
-            console.log(`✅ Deleted v2 record: ${results.deletedRecord.name} (${results.deletedRecord.email})`);
+            log.info(`✅ Deleted v2 record: ${results.deletedRecord.name} (${results.deletedRecord.email})`);
           }
         }
       });
     } catch (v2Error) {
-      console.warn(`⚠️  Could not delete from v2 database:`, v2Error.message);
+      log.warn(`⚠️  Could not delete from v2 database:`, v2Error.message);
     }
 
     // Check if anything was actually deleted
@@ -876,9 +879,9 @@ router.delete('/:id', async (req, res) => {
     // Clear cache after deletion
     try {
       await deleteCachePattern(`${CACHE_CONFIG.PREFIXES.UNIFIED}:*`);
-      console.log('🗑️  Cache cleared after deletion');
+      log.info('🗑️  Cache cleared after deletion');
     } catch (cacheError) {
-      console.warn('⚠️  Failed to clear cache after deletion:', cacheError);
+      log.warn('⚠️  Failed to clear cache after deletion:', cacheError);
     }
 
     const message = `Successfully deleted enquiry ${enquiryId}` + 
@@ -887,7 +890,7 @@ router.delete('/:id', async (req, res) => {
                    (results.v2Deleted ? ' from v2' : '') +
                    (results.teamsActivityDeleted > 0 ? ` (+ ${results.teamsActivityDeleted} Teams activities)` : '');
 
-    console.log('✅', message);
+    log.info('✅', message);
     res.json({
       success: true,
       message,
@@ -895,7 +898,7 @@ router.delete('/:id', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Error during deletion:', error);
+    log.error('❌ Error during deletion:', error);
     res.status(500).json({ 
       error: 'Deletion failed', 
       details: error?.message || 'Unknown error' 
@@ -914,7 +917,7 @@ router.delete('/cleanup', async (req, res) => {
       removeTeamsActivity = false 
     } = req.body;
 
-    console.log('🧹 Cleanup request received:', { testPattern, specificIds, dryRun, removeTeamsActivity });
+    log.info('🧹 Cleanup request received:', { testPattern, specificIds, dryRun, removeTeamsActivity });
 
     if (!testPattern && specificIds.length === 0) {
       return res.status(400).json({
@@ -1112,9 +1115,9 @@ router.delete('/cleanup', async (req, res) => {
     if (!dryRun && (results.v1Deleted > 0 || results.v2Deleted > 0)) {
       try {
         await deleteCachePattern(`${CACHE_CONFIG.PREFIXES.UNIFIED}:*`);
-        console.log('🗑️  Cache cleared after cleanup');
+        log.info('🗑️  Cache cleared after cleanup');
       } catch (cacheError) {
-        console.warn('⚠️  Failed to clear cache after cleanup:', cacheError);
+        log.warn('⚠️  Failed to clear cache after cleanup:', cacheError);
       }
     }
 
@@ -1122,7 +1125,7 @@ router.delete('/cleanup', async (req, res) => {
       ? `Dry run: Would delete ${results.v1Deleted} v1 + ${results.v2Deleted} v2 records${removeTeamsActivity ? ` + ${results.teamsActivityDeleted} Teams activities` : ''}` 
       : `Successfully deleted ${results.v1Deleted} v1 + ${results.v2Deleted} v2 records${removeTeamsActivity ? ` + ${results.teamsActivityDeleted} Teams activities` : ''}`;
 
-    console.log('✅', message);
+    log.info('✅', message);
     res.json({
       success: true,
       message,
@@ -1130,7 +1133,7 @@ router.delete('/cleanup', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Error during cleanup:', error);
+    log.error('❌ Error during cleanup:', error);
     res.status(500).json({ 
       error: 'Cleanup failed', 
       details: error?.message || 'Unknown error' 
@@ -1139,3 +1142,4 @@ router.delete('/cleanup', async (req, res) => {
 });
 
 module.exports = router;
+

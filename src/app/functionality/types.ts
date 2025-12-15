@@ -32,6 +32,7 @@ export interface FormItem {
     helpText?: string;
     placeholder?: string;
     showIf?: { field: string; equals: any };
+    group?: string;
   }>;
   component?: React.ComponentType<any>;
 }

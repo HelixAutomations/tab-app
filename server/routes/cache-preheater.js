@@ -2,8 +2,10 @@ const express = require('express');
 const { getRedisClient, generateCacheKey } = require('../utils/redisClient');
 const { fetchDatasetByName } = require('./reporting-stream');
 const { calculateOptimalTTL, getCacheAnalytics } = require('../utils/smartCache');
+const { loggers } = require('../utils/logger');
 
 const router = express.Router();
+const log = loggers.cache.child('Preheater');
 
 /**
  * Preheats cache for commonly accessed datasets
@@ -19,8 +21,6 @@ router.post('/preheat', async (req, res) => {
     const { datasets = ['enquiries', 'allMatters', 'wip', 'teamData'], entraId } = req.body;
     const results = [];
 
-    console.log('🔥 Starting cache preheat for datasets:', datasets);
-
     for (const datasetName of datasets) {
       try {
         const cacheKey = generateCacheKey('stream', `${datasetName}:${entraId || 'team'}`);
@@ -28,13 +28,11 @@ router.post('/preheat', async (req, res) => {
         // Check if already cached and fresh
         const existing = await redisClient.get(cacheKey);
         if (existing) {
-          console.log(`⚡ Dataset ${datasetName} already cached, skipping`);
           results.push({ dataset: datasetName, status: 'already_cached' });
           continue;
         }
 
         // Fetch and cache
-        console.log(`🚀 Preheating ${datasetName}...`);
         const connectionString = process.env.SQL_CONNECTION_STRING;
         const data = await fetchDatasetByName(datasetName, { connectionString, entraId });
         
@@ -49,17 +47,17 @@ router.post('/preheat', async (req, res) => {
           count: Array.isArray(data) ? data.length : 1,
           ttl 
         });
-        console.log(`✅ Preheated ${datasetName}: ${Array.isArray(data) ? data.length : 1} records (TTL: ${ttl}s)`);
         
       } catch (error) {
-        console.error(`❌ Failed to preheat ${datasetName}:`, error);
+        log.fail('cache:preheat', error, { datasetName, entraId });
         results.push({ dataset: datasetName, status: 'failed', error: error.message });
       }
     }
 
+    log.op('cache:preheat', { datasets: results.filter(r => r.status === 'preheated').length, skipped: results.filter(r => r.status === 'already_cached').length });
     res.json({ success: true, results });
   } catch (error) {
-    console.error('Cache preheat error:', error);
+    log.fail('cache:preheat', error, {});
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -88,7 +86,7 @@ router.post('/warm', async (req, res) => {
 
     res.json({ success: true, expiring_soon: warnings });
   } catch (error) {
-    console.error('Cache warming check error:', error);
+    log.fail('cache:warm', error, {});
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -105,7 +103,7 @@ router.get('/analytics', async (req, res) => {
     
     res.json({ success: true, analytics });
   } catch (error) {
-    console.error('Cache analytics error:', error);
+    log.fail('cache:analytics', error, {});
     res.status(500).json({ success: false, error: error.message });
   }
 });

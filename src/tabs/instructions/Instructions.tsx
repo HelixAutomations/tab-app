@@ -1014,7 +1014,6 @@ const Instructions: React.FC<InstructionsProps> = ({
 
   // Handle status updates from matter operations
   const handleStatusUpdate = () => {
-    console.log('Status update triggered - refreshing instruction data');
     // Force a refresh of instruction data if needed
     setInstructionData(prev => [...prev]); // Trigger re-render
   };
@@ -1036,7 +1035,6 @@ const Instructions: React.FC<InstructionsProps> = ({
       });
 
       if (response.ok) {
-        console.log(`Payment ${paymentId} ${archive ? 'archived' : 'deleted'} successfully`);
         
         if (archive) {
           // For archive: keep payment visible with strike-through permanently
@@ -3490,12 +3488,6 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
     const altPepResult = (inst.pepAndSanctionsCheckResult || inst.PEPAndSanctionsCheckResult || inst.pep_and_sanctions_check_result)?.toLowerCase();
     
     const poidPassed = inst.EIDOverallResult?.toLowerCase() === 'passed' || inst.EIDOverallResult?.toLowerCase() === 'complete' || inst.EIDOverallResult?.toLowerCase() === 'verified';
-    console.log('Status check for', inst.InstructionRef, ':', {
-      EIDOverallResult: inst.EIDOverallResult,
-      stage: inst.stage,
-      poidPassed,
-      stageComplete: inst.stage === 'proof-of-id-complete'
-    });
     const stageComplete = inst.stage === 'proof-of-id-complete';
     const proofOfIdComplete = inst.ProofOfIdComplete || inst.proof_of_id_complete;
     
@@ -3557,13 +3549,10 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
     // Priority 2: Check Tiller API overall result if available
     else if (tillerOverallResult === 'review') {
       verifyIdStatus = 'review';
-      console.log(`✅ Status determined from Tiller API: review`);
     } else if (tillerOverallResult === 'passed') {
       verifyIdStatus = 'complete';
-      console.log(`✅ Status determined from Tiller API: complete`);
     } else if (tillerOverallResult === 'failed' || tillerOverallResult === 'rejected' || tillerOverallResult === 'fail') {
       verifyIdStatus = 'review'; // Failed results should open review modal
-      console.log(`✅ Status determined from Tiller API: review (failed status: ${tillerOverallResult})`);
     } 
     // Priority 3: Check legacy database EID result fields
     else if (eidResult === 'review' || altEidResult === 'review') {
@@ -3581,7 +3570,6 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
       // If stage shows proof-of-id-complete but no clear result, treat as received/pending
       if (eidStatus === 'pending' || eidResult === 'pending') {
         verifyIdStatus = 'received'; // User provided ID; awaiting verification
-        console.log(`✅ Status determined from pending state: received`);
       } else {
         verifyIdStatus = 'received'; // Stage complete but unclear result -> received
         debugLog(`✅ Status determined from stage complete fallback: received`);
@@ -6207,7 +6195,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                     </button>
 
                     <button
-                      onClick={() => console.log('Document sync')}
+                      onClick={() => { /* TODO: Implement document sync */ }}
                       onMouseEnter={(e) => {
                         if (selectedOverviewItem?.instruction?.MatterRef) {
                           e.currentTarget.style.transform = 'translateY(-1px)';
@@ -7803,14 +7791,12 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                               justifyContent: 'center'
                             }} 
                             onClick={(e) => {
-                              console.log('🎯 Modal overlay clicked');
                               if (e.target === e.currentTarget) {
                                 setEditingField(null);
                               }
                             }}
                           >
                             {(() => {
-                              console.log('🎨 Modal inner content rendering with:', editingField);
                               return (
                                 <div style={{
                                   background: isDarkMode ? '#1e293b' : '#ffffff',
@@ -8677,7 +8663,6 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
         }}
         onApprove={handleVerificationApproval}
         onRequestDocuments={async (instructionRef: string) => {
-          console.log('Documents requested for:', instructionRef);
           // The email sending is handled within the modal
         }}
         onOverride={async (instructionRef: string) => {

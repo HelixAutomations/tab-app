@@ -28,8 +28,6 @@ router.get('/', async (req, res) => {
     const balancesData = await cacheWrapper(
       cacheKey,
       async () => {
-        console.log('🔍 Fetching fresh outstanding balances from Clio API');
-        
         // Get Clio access token (cached or refreshed)
         const accessToken = await getClioAccessToken();
 
@@ -70,7 +68,7 @@ router.get('/', async (req, res) => {
     
     res.json(balancesData);
   } catch (error) {
-    console.error('[OutstandingBalances] Error retrieving outstanding client balances:', error);
+    console.error('[OutstandingBalances] Error retrieving outstanding client balances:', error.message || error);
     // Don't leak error details to browser
     res.status(500).json({ 
       error: 'Error retrieving outstanding client balances'
@@ -92,7 +90,7 @@ async function getClioAccessToken() {
 
   // Key Vault configuration
   const kvUri = 'https://helix-keys.vault.azure.net/';
-  const credential = new DefaultAzureCredential();
+  const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
   const secretClient = new SecretClient(kvUri, credential);
 
   // Fetch OAuth credentials from Key Vault

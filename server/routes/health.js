@@ -34,8 +34,6 @@ router.get('/circuit-breakers', (req, res) => {
 router.post('/circuit-breakers/reset', (req, res) => {
   try {
     resetAllCircuitBreakers();
-    console.log('🔄 All circuit breakers reset manually');
-    
     res.json({
       success: true,
       message: 'All circuit breakers have been reset',

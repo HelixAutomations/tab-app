@@ -41,7 +41,7 @@ function getBlobServiceClient() {
         return blobServiceClient;
     }
     // Fall back to DefaultAzureCredential (managed identity or dev login)
-    const credential = new DefaultAzureCredential();
+    const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
     blobServiceClient = new BlobServiceClient(
         `https://${storageAccountName}.blob.core.windows.net`,
         credential
@@ -110,13 +110,10 @@ router.get('/:instructionRef', async (req, res) => {
         if (!instructionRef || instructionRef.trim() === '') {
             return res.status(400).json({ error: 'Invalid instruction reference' });
         }
-        
-        console.log(`📄 Fetching documents for instruction: ${instructionRef}`);
-        
+
         const connectionString = getInstructionsConnectionString();
 
         const documents = await withRequest(connectionString, async (request) => {
-            console.log(`🔍 Executing SQL query for instructionRef: ${instructionRef}`);
             const { recordset } = await request
                 .input('instructionRef', sql.NVarChar, instructionRef)
                 .query(`
@@ -126,13 +123,11 @@ router.get('/:instructionRef', async (req, res) => {
                     WHERE InstructionRef = @instructionRef
                     ORDER BY UploadedAt DESC
                 `);
-            console.log(`📊 Found ${recordset?.length || 0} documents for ${instructionRef}`);
             return Array.isArray(recordset) ? recordset : [];
         });
 
         // If no documents found, return empty array with 200 status instead of error
         if (!documents || documents.length === 0) {
-            console.log(`📭 No documents found for ${instructionRef}`);
             return res.json([]);
         }
 
@@ -167,11 +162,10 @@ router.get('/:instructionRef', async (req, res) => {
             });
         }
 
-        console.log(`✅ Returning ${docsOut.length} documents for ${instructionRef}`);
         res.json(docsOut);
         
     } catch (error) {
-        console.error(`❌ Error fetching documents for ${req.params.instructionRef}:`, error);
+        console.error(`[Documents] Error fetching documents for ${req.params.instructionRef}:`, error);
         
         // Return 404 for common "not found" type errors instead of 500
         if (error.message && (

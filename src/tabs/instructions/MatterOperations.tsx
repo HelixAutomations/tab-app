@@ -793,7 +793,7 @@ const MatterOperations: React.FC<MatterOperationsProps> = ({
                   <button
                     className={buttonStyle('secondary')}
                     onClick={() => {
-                      console.log('Opening matter timeline');
+                      // TODO: Implement timeline view
                     }}
                   >
                     <FontIcon iconName="Timeline" style={{ fontSize: '12px' }} />
@@ -802,7 +802,7 @@ const MatterOperations: React.FC<MatterOperationsProps> = ({
                   <button
                     className={buttonStyle('secondary')}
                     onClick={() => {
-                      console.log('Opening matter documents');
+                      // TODO: Implement documents view
                     }}
                   >
                     <FontIcon iconName="Documentation" style={{ fontSize: '12px' }} />

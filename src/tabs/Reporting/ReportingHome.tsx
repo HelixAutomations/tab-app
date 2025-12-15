@@ -28,6 +28,7 @@ import { debugLog, debugWarn } from '../../utils/debug';
 import { getNormalizedEnquirySource } from '../../utils/enquirySource';
 import HomePreview from './HomePreview';
 import EnquiriesReport, { MarketingMetrics } from './EnquiriesReport';
+import LogMonitor from './LogMonitor';
 import { useStreamingDatasets } from '../../hooks/useStreamingDatasets';
 import { fetchWithRetry, fetchJSON } from '../../utils/fetchUtils';
 import markWhite from '../../assets/markwhite.svg';
@@ -581,7 +582,7 @@ interface AvailableReport {
   key: string;
   name: string;
   status: string;
-  action?: 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters';
+  action?: 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters' | 'logMonitor';
   requiredDatasets: DatasetKey[];
   description?: string;
   disabled?: boolean;
@@ -637,6 +638,14 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
     status: 'Live today',
     action: 'ppcReport',
     requiredDatasets: ['googleAds', 'enquiries', 'allMatters', 'recoveredFees'],
+  },
+  {
+    key: 'logMonitor',
+    name: 'Log Monitor',
+    status: 'Developer tool',
+    action: 'logMonitor',
+    requiredDatasets: [],
+    description: 'Real-time application logs',
   },
 ];
 
@@ -1458,7 +1467,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   const { isDarkMode } = useTheme();
   const { setContent } = useNavigatorActions();
   const [currentTime, setCurrentTime] = useState(() => new Date());
-  const [activeView, setActiveView] = useState<'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters'>('overview');
+  const [activeView, setActiveView] = useState<'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters' | 'logMonitor'>('overview');
   const [mattersWipRangeKey, setMattersWipRangeKey] = useState<MattersWipRangeKey>('12m');
   const [pendingMattersRangeKey, setPendingMattersRangeKey] = useState<MattersWipRangeKey>(mattersWipRangeKey);
   const [enquiriesRangeKey, setEnquiriesRangeKey] = useState<ReportRangeKey>('12m');
@@ -2265,7 +2274,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
 
           sessionStorage.setItem(STREAM_SNAPSHOT_KEY, JSON.stringify(snapshotToPersist));
           latestStreamSnapshotRef.current = snapshotToPersist;
-          console.log('Persisted incomplete streaming session for resume');
+          debugLog('Persisted incomplete streaming session for resume');
         } else {
           // Only clear if we're not mid-refresh
           if (!isActivelyRefreshing) {
@@ -2619,7 +2628,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   const performStreamingRefresh = useCallback(async (forceRefresh: boolean, options?: RefreshOptions) => {
     // Prevent triggering if already actively loading
     if (isFetching && (isStreamingConnected || refreshStartedAt !== null)) {
-      console.log('Refresh already in progress, skipping');
+      debugLog('Refresh already in progress, skipping');
       return;
     }
 
@@ -2667,8 +2676,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     });
 
     try {
-      console.log('🌊 Starting streaming with datasets:', streamingTargets);
-      console.log('🌊 EntraID for streaming:', propUserData?.[0]?.EntraID);
+      debugLog('🌊 Starting streaming with datasets:', streamingTargets);
+      debugLog('🌊 EntraID for streaming:', propUserData?.[0]?.EntraID);
       startStreamingWithMemo({
         datasets: streamingTargets,
         ...(forceRefresh ? { bypassCache: true } : {}),
@@ -2804,7 +2813,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     
     // Check global cooldown first
     if (timeSinceGlobalRefresh < GLOBAL_REFRESH_COOLDOWN) {
-      console.log(`Global refresh cooldown active: ${Math.round(timeSinceGlobalRefresh / 1000)}s since last global refresh`);
+      debugLog(`Global refresh cooldown active: ${Math.round(timeSinceGlobalRefresh / 1000)}s since last global refresh`);
       showToast({
         message: `Please wait ${Math.round((GLOBAL_REFRESH_COOLDOWN - timeSinceGlobalRefresh) / 1000)}s before refreshing again`,
         type: 'info'
@@ -2814,7 +2823,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     
     // Prevent multiple refresh requests within the minimum interval
     if (timeSinceLastRefresh < minRefreshInterval) {
-      console.log(`Refresh throttled: only ${Math.round(timeSinceLastRefresh / 1000)}s since last refresh (min: 30s)`);
+      debugLog(`Refresh throttled: only ${Math.round(timeSinceLastRefresh / 1000)}s since last refresh (min: 30s)`);
       showToast({
         message: `Please wait ${Math.round((minRefreshInterval - timeSinceLastRefresh) / 1000)}s before refreshing again`,
         type: 'info'
@@ -2861,7 +2870,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     const lastUpdate = datasetStatus.annualLeave?.updatedAt;
     const fifteenMinutesAgo = Date.now() - (15 * 60 * 1000); // Extended to 15 minutes
     if (lastUpdate && lastUpdate > fifteenMinutesAgo) {
-      console.log('Annual leave data is recent, skipping refresh');
+      debugLog('Annual leave data is recent, skipping refresh');
       showToast({
         message: 'Annual leave already up to date',
         type: 'info',
@@ -2937,7 +2946,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     const lastUpdate = datasetStatus.metaMetrics?.updatedAt;
     const fifteenMinutesAgo = Date.now() - (15 * 60 * 1000); // Extended to 15 minutes
     if (lastUpdate && lastUpdate > fifteenMinutesAgo) {
-      console.log('Meta metrics data is recent, skipping refresh');
+      debugLog('Meta metrics data is recent, skipping refresh');
       showToast({
         message: 'Meta metrics already fresh',
         type: 'info',
@@ -3422,7 +3431,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
         return prev; // no change
       }
       // eslint-disable-next-line no-console
-      console.log('🔗 Merged current-week activities into WIP (streaming):', {
+      debugLog('🔗 Merged current-week activities into WIP (streaming):', {
         base: baseWip.length,
         added: merged.length - baseWip.length,
         total: merged.length,
@@ -3580,12 +3589,12 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
 
     if (!needsFreshData) {
       const cacheAgeSeconds = cacheState.lastCacheTime ? Math.round((now - cacheState.lastCacheTime) / 1000) : 0;
-      console.log(`✅ Using cached data (${cacheAgeSeconds}s old, <30min) - instant load`);
+      debugLog(`✅ Using cached data (${cacheAgeSeconds}s old, <30min) - instant load`);
       return;
     }
 
     if (preheatInFlightRef.current) {
-      console.log('🔄 Cache preheat already running, skipping duplicate preheat request');
+      debugLog('🔄 Cache preheat already running, skipping duplicate preheat request');
       return;
     }
 
@@ -3593,13 +3602,13 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     if (lastPreheatTs && (now - lastPreheatTs) < CACHE_PREHEAT_INTERVAL) {
       const elapsedSeconds = Math.round((now - lastPreheatTs) / 1000);
       const remainingSeconds = Math.max(0, Math.round((CACHE_PREHEAT_INTERVAL - (now - lastPreheatTs)) / 1000));
-      console.log(`⏳ Cache preheated ${elapsedSeconds}s ago, skipping background load (retry in ${remainingSeconds}s)`);
+      debugLog(`⏳ Cache preheated ${elapsedSeconds}s ago, skipping background load (retry in ${remainingSeconds}s)`);
       return;
     }
 
     const commonDatasets = ['teamData', 'userData', 'enquiries', 'allMatters'];
     const cacheAgeSeconds = cacheState.lastCacheTime ? Math.round((now - cacheState.lastCacheTime) / 1000) : null;
-    console.log(`🔄 Cache refresh needed: ${!hasFetchedOnce ? 'first load' : `cache age: ${cacheAgeSeconds}s (>30min)`}`);
+    debugLog(`🔄 Cache refresh needed: ${!hasFetchedOnce ? 'first load' : `cache age: ${cacheAgeSeconds}s (>30min)`}`);
     debugLog('ReportingHome: Preloading common reporting datasets on tab access:', commonDatasets);
 
     preheatInFlightRef.current = true;
@@ -3758,7 +3767,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     
     // In test mode, skip data refresh entirely
     if (testMode) {
-      console.log('Test mode active: skipping dashboard data refresh');
+      debugLog('Test mode active: skipping dashboard data refresh');
       return;
     }
     
@@ -3772,10 +3781,10 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                        cacheState.lastCacheTime < thirtyMinutesAgo;
     
     if (needsFresh && !isFetching && !isStreamingConnected) {
-      console.log('Dashboard needs fresh data (>30min old), triggering refresh');
+      debugLog('Dashboard needs fresh data (>30min old), triggering refresh');
       void refreshDatasetsWithStreaming(); // Use streaming version
     } else {
-      console.log('Dashboard using cached data (fresh enough)');
+      debugLog('Dashboard using cached data (fresh enough)');
     }
   }, [hasFetchedOnce, isFetching, isStreamingConnected, refreshDatasetsWithStreaming, testMode]);
 
@@ -3783,7 +3792,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   const navigateToReport = useCallback((view: typeof activeView) => {
     setActiveView(view);
     if (testMode) {
-      console.log(`Test mode active: navigating to ${view} without data refresh`);
+      debugLog(`Test mode active: navigating to ${view} without data refresh`);
     }
   }, [testMode]);
 
@@ -5684,6 +5693,17 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               lastRefreshTimestamp={googleAdsLastRefreshTimestamp ?? undefined}
             />
           </div>
+        </div>
+      </>
+    );
+  }
+
+  if (activeView === 'logMonitor') {
+    return (
+      <>
+        {toastElement}
+        <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
+          <LogMonitor onBack={handleBackToOverview} />
         </div>
       </>
     );

@@ -197,7 +197,7 @@ const DocDataCollection: React.FC<DocDataCollectionProps> = ({
 
             <PrimaryButton
               text="Save Data"
-              onClick={() => console.log('Data saved:', wizardData)}
+              onClick={() => { /* TODO: Implement data save */ }}
               styles={{ root: { marginTop: 12 } }}
             />
           </div>

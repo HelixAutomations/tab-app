@@ -4,10 +4,8 @@ import { Stack, DefaultButton, Text } from '@fluentui/react';
 import { mergeStyles } from '@fluentui/react';
 import { colours } from '../app/styles/colours';
 import { componentTokens } from '../app/styles/componentTokens';
-import {
-    sharedPrimaryButtonStyles,
-    sharedDefaultButtonStyles,
-} from '../app/styles/ButtonStyles';
+import { getFormPrimaryButtonStyles, getFormDefaultButtonStyles } from './shared/formStyles';
+import { useTheme } from '../app/functionality/ThemeContext';
 
 export interface SnippetEdit {
     id: number;
@@ -66,6 +64,7 @@ const SnippetEditsApproval: React.FC<SnippetEditsApprovalProps> = ({
     onReject,
     onClose,
 }) => {
+    const { isDarkMode } = useTheme();
     const [blockMap, setBlockMap] = useState<Record<number, string>>({});
 
     useEffect(() => {
@@ -135,19 +134,19 @@ const SnippetEditsApproval: React.FC<SnippetEditsApprovalProps> = ({
                             <DefaultButton
                                 text="Approve"
                                 onClick={() => onApprove(edit.id)}
-                                styles={sharedPrimaryButtonStyles}
+                                styles={getFormPrimaryButtonStyles(isDarkMode)}
                             />
                             <DefaultButton
                                 text="Reject"
                                 onClick={() => onReject(edit.id)}
-                                styles={sharedDefaultButtonStyles}
+                                styles={getFormDefaultButtonStyles(isDarkMode)}
                             />
                         </Stack>
                     </Stack>
                 );
             })}
             {edits.length === 0 && <Text>No pending edits.</Text>}
-            <DefaultButton text="Close" onClick={onClose} styles={sharedDefaultButtonStyles} />
+            <DefaultButton text="Close" onClick={onClose} styles={getFormDefaultButtonStyles(isDarkMode)} />
         </Stack>
     );
 };

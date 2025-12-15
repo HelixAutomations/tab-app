@@ -1,8 +1,10 @@
 const express = require('express');
 const { getSecret } = require('../utils/getSecret');
 const { PRACTICE_AREAS } = require('../utils/clioConstants');
+const { loggers } = require('../utils/logger');
 
 const router = express.Router();
+const log = loggers.clio.child('Contacts');
 
 router.post('/', async (req, res) => {
     const { formData, initials } = req.body || {};
@@ -21,7 +23,7 @@ router.post('/', async (req, res) => {
         const tokenResp = await fetch(tokenUrl, { method: 'POST' });
         if (!tokenResp.ok) {
             const text = await tokenResp.text();
-            console.error('Clio token refresh failed', text);
+            log.error('Token refresh failed: %s', text);
             return res.status(500).json({ error: 'Token refresh failed' });
         }
         const { access_token } = await tokenResp.json();
@@ -47,7 +49,7 @@ router.post('/', async (req, res) => {
                 }, {});
             }
         } catch (err) {
-            console.warn('Failed to retrieve custom field list', err);
+            log.warn('Failed to retrieve custom field list');
         }
 
         const results = [];
@@ -261,7 +263,7 @@ router.post('/', async (req, res) => {
                         emptyFieldCount = countEmpty(data.data);
                     }
                 } catch (err) {
-                    console.warn('Failed to fetch existing contact details', err);
+                    log.warn('Failed to fetch existing contact details');
                 }
             }
             const { type: contactType, name, ...attributes } = contact;
@@ -289,17 +291,15 @@ router.post('/', async (req, res) => {
                     ...attributes
                 }
             };
-            console.log('Sending to Clio:', JSON.stringify(payload, null, 2));
 
             const resp = await fetch(url, { method, headers, body: JSON.stringify(payload) });
             if (!resp.ok) {
                 const text = await resp.text();
-                console.error('Clio contact create/update failed:', text);
+                log.fail('contact:sync', new Error(text), { contactType, method });
                 throw new Error('Create/update failed');
             }
             const respJson = await resp.json();
             respJson.emptyFieldCount = emptyFieldCount;
-            console.log('Received from Clio:', JSON.stringify(respJson, null, 2));
             return respJson;
         }
 
@@ -318,7 +318,6 @@ router.post('/', async (req, res) => {
         for (const c of clients) {
             const hasName = !!(c.first_name || c.last_name || c.first || c.last);
             if (!hasName) {
-                console.warn(`Skipping client ${c.poid_id} — no name provided`);
                 continue;
             }
 
@@ -336,9 +335,10 @@ router.post('/', async (req, res) => {
         }
 
         // Only return contact upsert results. Matter creation happens in /api/clio-matters step.
+        log.op('contacts:synced', { count: results.length, type });
         res.json({ ok: true, results });
     } catch (err) {
-        console.error('Clio contact error', err);
+        log.fail('contacts:sync', err, { initials });
         res.status(500).json({ error: 'Failed to sync contacts' });
     }
 });

@@ -29,14 +29,12 @@ router.post('/', async (req, res) => {
 
   // Validate required parameter
   if (!userObjectId || typeof userObjectId !== 'string') {
-    console.warn('⚠️ [userData] Missing or invalid userObjectId in request body');
+    console.warn('[userData] Missing or invalid userObjectId in request body');
     return res.status(400).json({ 
       error: 'Missing userObjectId in request body',
       details: 'userObjectId must be a non-empty string'
     });
   }
-
-  console.log(`🔍 [userData] Fetching user data for Entra ID: ${userObjectId}`);
 
   try {
     const startTime = Date.now();
@@ -76,7 +74,7 @@ router.post('/', async (req, res) => {
     const duration = Date.now() - startTime;
     
     if (rows.length === 0) {
-      console.warn(`⚠️ [userData] No user found for Entra ID: ${userObjectId} (${duration}ms)`);
+      console.warn(`[userData] No user found for Entra ID: ${userObjectId} (${duration}ms)`);
       // Return empty array instead of error - allows graceful degradation
       return res.json([]);
     }
@@ -111,12 +109,11 @@ router.post('/', async (req, res) => {
       };
     });
 
-    console.log(`✅ [userData] Found ${rows.length} user record(s) in ${duration}ms`);
     return res.json(normalized);
 
   } catch (error) {
     const duration = Date.now();
-    console.error(`❌ [userData] Database error after ${duration}ms:`, {
+    console.error(`[userData] Database error after ${duration}ms:`, {
       message: error.message,
       code: error.code,
       userObjectId: userObjectId.substring(0, 8) + '...' // Log partial ID for privacy

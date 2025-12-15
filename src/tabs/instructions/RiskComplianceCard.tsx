@@ -121,10 +121,9 @@ const handleCopyUrl = async (doc: any) => {
   
   try {
     await navigator.clipboard.writeText(url);
-    // You could add a toast notification here if needed
-    console.log('URL copied to clipboard');
+    // Successfully copied
   } catch (err) {
-    console.error('Failed to copy URL:', err);
+    console.error('[RiskComplianceCard] Failed to copy URL:', err);
     // Fallback for older browsers
     const textArea = document.createElement('textarea');
     textArea.value = url;

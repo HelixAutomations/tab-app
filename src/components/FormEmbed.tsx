@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 // invisible change 2
-import { MessageBar, MessageBarType } from '@fluentui/react';
+import { MessageBar, MessageBarType, TooltipHost } from '@fluentui/react';
 import { FormItem, UserData, NormalizedMatter, TeamData } from '../app/functionality/types';
 import BespokeForm from '../CustomForms/BespokeForms';
 import loaderIcon from '../assets/grey helix mark.png';
 import { getProxyBaseUrl } from "../utils/getProxyBaseUrl";
+import { useTheme } from '../app/functionality/ThemeContext';
+import { getFormModeToggleStyles } from '../CustomForms/shared/formStyles';
 
 interface FormEmbedProps {
     link: FormItem;
@@ -21,6 +23,7 @@ const loaderStyle = {
 };
 
 const FormEmbed: React.FC<FormEmbedProps> = ({ link, userData, teamData, matters }) => {
+    const { isDarkMode } = useTheme();
     const formContainerRef = useRef<HTMLDivElement>(null);
     const [isCognitoLoaded, setIsCognitoLoaded] = useState<boolean>(false);
     const [formKey, setFormKey] = useState<number>(() => Date.now());
@@ -138,13 +141,33 @@ const FormEmbed: React.FC<FormEmbedProps> = ({ link, userData, teamData, matters
                 </MessageBar>
             )}
             {link.embedScript ? (
-                <div ref={formContainerRef}>
-                    {!isCognitoLoaded && (
-                        <div style={loaderStyle}>
-                            <img src={loaderIcon} alt="Loading..." style={{ width: '100px', height: 'auto' }} />
-                        </div>
-                    )}
-                </div>
+                <>
+                    {/* Form Mode Toggle - Cognito/Bespoke */}
+                    <div style={getFormModeToggleStyles(isDarkMode).container}>
+                        <button 
+                            style={getFormModeToggleStyles(isDarkMode).option(true, false)}
+                            aria-pressed="true"
+                        >
+                            Cognito
+                        </button>
+                        <TooltipHost content="Bespoke version coming soon">
+                            <button 
+                                style={getFormModeToggleStyles(isDarkMode).option(false, true)}
+                                disabled
+                                aria-pressed="false"
+                            >
+                                Bespoke
+                            </button>
+                        </TooltipHost>
+                    </div>
+                    <div ref={formContainerRef}>
+                        {!isCognitoLoaded && (
+                            <div style={loaderStyle}>
+                                <img src={loaderIcon} alt="Loading..." style={{ width: '100px', height: 'auto' }} />
+                            </div>
+                        )}
+                    </div>
+                </>
             ) : link.fields ? (
                 <BespokeForm
                     key={formKey}

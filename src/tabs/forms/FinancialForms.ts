@@ -21,6 +21,7 @@ export const financialForms: FormItem[] = [
         label: 'Matter Reference',
         type: 'dropdown',
         required: true,
+        group: 'transfer-details',
       },
       {
         label: 'Amount',
@@ -29,6 +30,7 @@ export const financialForms: FormItem[] = [
         editable: true,
         required: true,
         prefix: '£',
+        group: 'transfer-details',
       },
       {
         label: 'Narrative',
@@ -62,12 +64,14 @@ export const financialForms: FormItem[] = [
         type: 'dropdown',
         options: ['Office', 'Client'],
         required: true,
+        group: 'payment-source',
       },
       {
         label: 'Amount',
         type: 'number',
         prefix: '£',
         required: true,
+        group: 'payment-source',
       },
       {
         label: 'Is the amount you are sending over £50,000?',
@@ -81,16 +85,19 @@ export const financialForms: FormItem[] = [
         label: 'Payee Name',
         type: 'text',
         required: true,
+        group: 'payee-info',
       },
       {
         label: 'Payee Bank Account Number',
         type: 'text',
         required: true,
+        group: 'bank-details',
       },
       {
         label: 'Payee Sort Code',
         type: 'text',
         required: true,
+        group: 'bank-details',
       },
       {
         label: 'Payment Reference',
@@ -98,6 +105,7 @@ export const financialForms: FormItem[] = [
         required: true,
         helpText:
           'Please note this cannot be longer than 18 characters due to Barclays limit.',
+        group: 'payee-info',
       },
       {
         label: 'Narrative',
@@ -109,7 +117,7 @@ export const financialForms: FormItem[] = [
         label: 'Have bank details been verified?',
         type: 'toggle',
         required: true,
-        defaultValue: false,
+        defaultValue: true,
       },
       {
         label: 'Please provide method of verification',
@@ -236,6 +244,7 @@ export const financialForms: FormItem[] = [
         editable: true,
         required: false,
         prefix: '£',
+        group: 'amounts',
       },
       {
         label: 'Amount',
@@ -244,6 +253,7 @@ export const financialForms: FormItem[] = [
         editable: true,
         required: true,
         prefix: '£',
+        group: 'amounts',
       },
       {
         label: 'Payment Type',
@@ -266,11 +276,13 @@ export const financialForms: FormItem[] = [
         label: 'Payee Bank Account Number',
         type: 'text',
         required: true,
+        group: 'bank-details-supplier',
       },
       {
         label: 'Payee Sort Code',
         type: 'text',
         required: true,
+        group: 'bank-details-supplier',
       },
       {
         label: 'Payment Reference',

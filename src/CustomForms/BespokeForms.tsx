@@ -4,20 +4,18 @@
 import React from 'react';
 import {
   Stack,
-  Toggle,
   PrimaryButton,
   DefaultButton,
   ComboBox,
   IComboBox,
   IComboBoxOption,
+  Dropdown,
+  IDropdownOption,
 } from '@fluentui/react';
 import { mergeStyles } from '@fluentui/react';
 import { colours } from '../app/styles/colours';
 import { componentTokens } from '../app/styles/componentTokens';
-import {
-  sharedPrimaryButtonStyles,
-  sharedDefaultButtonStyles,
-} from '../app/styles/ButtonStyles';
+import { getFormPrimaryButtonStyles, getFormDefaultButtonStyles, getDropdownStyles } from './shared/formStyles';
 import { NormalizedMatter } from '../app/functionality/types';
 import { useTheme } from '../app/functionality/ThemeContext';
 import '../app/styles/MultiSelect.css';
@@ -30,11 +28,12 @@ export const formContainerStyle = mergeStyles({
   backgroundColor: '#ffffff',
   borderRadius: 0,
   border: '1px solid rgba(0, 0, 0, 0.06)',
-  borderLeft: `3px solid ${colours.highlight}`,
   boxShadow: '0 4px 16px rgba(0, 0, 0, 0.04)',
   display: 'flex',
   flexDirection: 'column',
   gap: '12px',
+  maxWidth: '900px',
+  margin: '0 auto',
 });
 
 export const inputFieldStyle = mergeStyles({
@@ -174,7 +173,7 @@ export const toggleStyle = (isDarkMode: boolean) => mergeStyles({
   // One-off info-box styles for CHAPS guide & >£50k message
   export const infoBoxStyle = mergeStyles({
     backgroundColor: 'rgba(54, 144, 206, 0.06)',
-    borderLeft: `3px solid ${colours.cta}`,
+    borderLeft: `3px solid ${colours.highlight}`,
     padding: '12px 16px',
     margin: '8px 0 16px',
     borderRadius: 0,
@@ -182,7 +181,7 @@ export const toggleStyle = (isDarkMode: boolean) => mergeStyles({
     lineHeight: 1.5,
   });
   export const infoLinkStyle = mergeStyles({
-    color: colours.cta,
+    color: colours.highlight,
     textDecoration: 'underline',
     fontWeight: 500,
   });
@@ -250,8 +249,30 @@ const MatterReferenceDropdown: React.FC<MatterReferenceDropdownProps> = ({
   value,
   isDarkMode,
 }) => {
+  const [isOpen, setIsOpen] = React.useState(false);
+  const [searchTerm, setSearchTerm] = React.useState(value || '');
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
+  // Update search term when value changes externally
+  React.useEffect(() => {
+    setSearchTerm(value || '');
+  }, [value]);
+
+  // Close dropdown when clicking outside
+  React.useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen]);
+
   // Create clean options from matters data
-  const options = React.useMemo<IComboBoxOption[]>(() => {
+  const options = React.useMemo(() => {
     if (!matters || matters.length === 0) {
       return [];
     }
@@ -261,121 +282,145 @@ const MatterReferenceDropdown: React.FC<MatterReferenceDropdownProps> = ({
       .sort((a, b) => {
         const dateA = new Date(a.openDate || '').getTime();
         const dateB = new Date(b.openDate || '').getTime();
-        return dateB - dateA; // Most recent first
+        return dateB - dateA;
       })
-      .slice(0, 1000) // Limit to 1000 most recent matters for performance
+      .slice(0, 1000)
       .map((m) => {
         const displayNum = m.displayNumber || m.matterId || '';
+        const clientName = m.clientName || '';
         const desc = m.description || '';
-        const feeEarner = m.responsibleSolicitor || '';
         
-        let text = displayNum;
-        if (feeEarner) {
-          text += ` • ${feeEarner}`;
-        }
-        if (desc) {
-          text += ` | ${desc}`;
-        }
+        // Build searchable text for filtering
+        let searchText = displayNum;
+        if (clientName) searchText += ` ${clientName}`;
+        if (desc) searchText += ` ${desc}`;
         
         return {
           key: displayNum,
-          text: text,
+          displayNumber: displayNum,
+          clientName: clientName,
+          description: desc,
+          searchText: searchText.toLowerCase(),
         };
       });
   }, [matters]);
 
+  // Filter options based on search term
+  const filteredOptions = React.useMemo(() => {
+    if (!searchTerm) return options.slice(0, 50);
+    const lowerSearch = searchTerm.toLowerCase();
+    return options
+      .filter(opt => opt.searchText.includes(lowerSearch))
+      .slice(0, 50);
+  }, [options, searchTerm]);
+
+  const handleSelect = (option: { key: string; displayNumber: string }) => {
+    setSearchTerm(option.key);
+    handleInputChange(field.name, option.key);
+    setIsOpen(false);
+  };
+
   return (
-    <div>
+    <div ref={containerRef} style={{ position: 'relative' }}>
       <div className="question-banner">{field.label}</div>
-      <style>
-        {`
-          input[list]::-webkit-calendar-picker-indicator {
-            display: none !important;
-          }
-          
-          /* Style the datalist dropdown */
-          datalist {
-            background-color: ${isDarkMode ? '#1f2937' : '#ffffff'} !important;
-            border: 1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.5)' : 'rgba(209, 213, 219, 0.8)'} !important;
-            border-radius: 8px !important;
-            box-shadow: ${isDarkMode ? '0 10px 25px rgba(0, 0, 0, 0.4)' : '0 10px 25px rgba(0, 0, 0, 0.1)'} !important;
-            max-height: 300px !important;
-            overflow-y: auto !important;
-          }
-          
-          /* Style the datalist options */
-          option {
-            padding: 12px 16px !important;
-            font-size: 14px !important;
-            line-height: 1.5 !important;
-            color: ${isDarkMode ? '#f3f4f6' : '#374151'} !important;
-            background-color: ${isDarkMode ? '#1f2937' : '#ffffff'} !important;
-            border-bottom: 1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.2)' : 'rgba(229, 231, 235, 0.6)'} !important;
-            cursor: pointer !important;
-            transition: all 0.15s ease !important;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-          }
-          
-          option:hover {
-            background-color: ${isDarkMode ? '#374151' : '#f8fafc'} !important;
-            color: ${isDarkMode ? '#ffffff' : '#111827'} !important;
-          }
-          
-          option:last-child {
-            border-bottom: none !important;
-          }
-          
-          /* Better spacing and layout for the content */
-          #matter-options-datalist option {
-            white-space: normal !important;
-            word-wrap: break-word !important;
-            overflow-wrap: break-word !important;
-            max-width: 500px !important;
-            display: block !important;
-            position: relative !important;
-          }
-          
-          /* Enhanced visual hierarchy */
-          option::before {
-            content: '📋' !important;
-            margin-right: 8px !important;
-            opacity: 0.6 !important;
-          }
-        `}
-      </style>
       <input
         type="text"
-        placeholder="Select or enter Matter Reference"
+        placeholder="Search by matter number or client name..."
         required={field.required}
-        value={value || ''}
-        onChange={(e) => handleInputChange(field.name, e.target.value)}
+        value={searchTerm}
+        onChange={(e) => {
+          setSearchTerm(e.target.value);
+          handleInputChange(field.name, e.target.value);
+          setIsOpen(true);
+        }}
+        onFocus={() => setIsOpen(true)}
         disabled={isSubmitting}
-        list="matter-options-datalist"
         style={{
           width: '100%',
           height: `${INPUT_HEIGHT}px`,
           lineHeight: `${INPUT_HEIGHT}px`,
           padding: '0 32px 0 12px',
-          border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : colours.highlight}`,
-          borderRadius: '8px',
+          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+          borderRadius: 0,
           fontSize: '14px',
-          backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : '#ffffff',
-          color: isDarkMode ? colours.dark.text : colours.light.text,
+          backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#ffffff',
+          color: isDarkMode ? '#f1f5f9' : '#1e293b',
           boxSizing: 'border-box',
-          appearance: 'none',
-          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='${isDarkMode ? '%23f3f4f6' : '%23061733'}' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='${isDarkMode ? '%2394a3b8' : '%2364748b'}' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
           backgroundRepeat: 'no-repeat',
           backgroundPosition: 'right 12px center',
-          backgroundSize: '18px',
-          cursor: 'pointer',
+          backgroundSize: '16px',
         }}
       />
-      <datalist id="matter-options-datalist">
-        {options.map((opt) => (
-          <option key={opt.key} value={opt.text}>
-          </option>
-        ))}
-      </datalist>
+      {isOpen && filteredOptions.length > 0 && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            right: 0,
+            zIndex: 1000,
+            background: isDarkMode ? '#1e293b' : '#ffffff',
+            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+            borderTop: 'none',
+            boxShadow: isDarkMode
+              ? '0 8px 24px rgba(0, 0, 0, 0.4)'
+              : '0 8px 24px rgba(0, 0, 0, 0.12)',
+            maxHeight: '280px',
+            overflowY: 'auto',
+          }}
+        >
+          {filteredOptions.map((opt) => (
+            <div
+              key={opt.key}
+              onClick={() => handleSelect(opt)}
+              style={{
+                padding: '10px 12px',
+                cursor: 'pointer',
+                borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                transition: 'background-color 0.1s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = isDarkMode
+                  ? 'rgba(148, 163, 184, 0.15)'
+                  : 'rgba(0, 0, 0, 0.04)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }}
+            >
+              {/* Reference number - prominent */}
+              <div style={{
+                fontWeight: 600,
+                fontSize: '14px',
+                color: isDarkMode ? '#e2e8f0' : '#374151',
+                marginBottom: '2px',
+              }}>
+                {opt.displayNumber}
+              </div>
+              {/* Client name - secondary */}
+              {opt.clientName && (
+                <div style={{
+                  fontSize: '13px',
+                  color: isDarkMode ? '#94a3b8' : '#6b7280',
+                }}>
+                  {opt.clientName}
+                </div>
+              )}
+              {/* Description - subtle */}
+              {opt.description && (
+                <div style={{
+                  fontSize: '12px',
+                  color: isDarkMode ? '#64748b' : '#9ca3af',
+                  marginTop: '2px',
+                }}>
+                  {opt.description.length > 60 ? opt.description.substring(0, 60) + '...' : opt.description}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
@@ -466,17 +511,59 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
           background: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#ffffff',
           borderRadius: 0,
           border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(0, 0, 0, 0.06)'}`,
-          borderLeft: `3px solid ${colours.highlight}`,
           boxShadow: isDarkMode
             ? '0 4px 16px rgba(0, 0, 0, 0.25)'
             : '0 4px 16px rgba(0, 0, 0, 0.04)',
           display: 'flex',
           flexDirection: 'column',
           gap: '12px',
+          maxWidth: '900px',
+          margin: '0 auto',
         }}
       >
         <Stack tokens={{ childrenGap: 12 }}>
-          {fields.map((field, index) => {
+          {(() => {
+            // Group fields by their 'group' property for side-by-side rendering
+            const groupedFields: { group: string | undefined; fields: { field: FormField; index: number }[] }[] = [];
+            let currentGroup: { group: string | undefined; fields: { field: FormField; index: number }[] } | null = null;
+            
+            fields.forEach((field, index) => {
+              if (field.group) {
+                if (currentGroup && currentGroup.group === field.group) {
+                  currentGroup.fields.push({ field, index });
+                } else {
+                  if (currentGroup) groupedFields.push(currentGroup);
+                  currentGroup = { group: field.group, fields: [{ field, index }] };
+                }
+              } else {
+                if (currentGroup) {
+                  groupedFields.push(currentGroup);
+                  currentGroup = null;
+                }
+                groupedFields.push({ group: undefined, fields: [{ field, index }] });
+              }
+            });
+            if (currentGroup) groupedFields.push(currentGroup);
+
+            return groupedFields.map((groupItem, groupIndex) => {
+              // Render grouped fields side-by-side
+              if (groupItem.group && groupItem.fields.length > 1) {
+                return (
+                  <Stack key={`group-${groupIndex}`} horizontal tokens={{ childrenGap: 16 }} verticalAlign="end">
+                    {groupItem.fields.map(({ field, index }) => (
+                      <div key={index} style={{ flex: 1 }}>
+                        {renderField(field, index)}
+                      </div>
+                    ))}
+                  </Stack>
+                );
+              }
+              // Render single field
+              const { field, index } = groupItem.fields[0];
+              return renderField(field, index);
+            });
+
+            function renderField(field: FormField, index: number) {
             if (
               field.label === 'Matter Reference' ||
               field.label === 'Matter Reference (if applicable)' ||
@@ -511,73 +598,25 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
 
             switch (field.type) {
               case 'dropdown':
+                const dropdownOptions: IDropdownOption[] = (field.options || []).map((opt) => ({
+                  key: opt,
+                  text: opt,
+                }));
                 return (
                   <div key={index}>
                     {questionBanner}
-                    <div
-                      style={{
-                        position: 'relative',
-                        width: '100%',
-                        height: `${INPUT_HEIGHT}px`,
-                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
-                        background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#ffffff',
-                        overflow: 'hidden',
-                        borderRadius: 0,
+                    <Dropdown
+                      placeholder={`Select ${field.label}`}
+                      selectedKey={formValues[field.name] || undefined}
+                      options={dropdownOptions}
+                      onChange={(_, option) => {
+                        if (option) {
+                          handleInputChange(field.name, option.key as string);
+                        }
                       }}
-                    >
-                      <select
-                        value={formValues[field.name] || ''}
-                        onChange={(e) => handleInputChange(field.name, e.target.value)}
-                        required={field.required}
-                        disabled={isSubmitting}
-                        style={{
-                          width: '100%',
-                          height: '100%',
-                          border: 'none',
-                          background: 'transparent',
-                          padding: '0 40px 0 16px',
-                          fontSize: '14px',
-                          appearance: 'none',
-                          cursor: 'pointer',
-                          outline: 'none',
-                          color: isDarkMode ? colours.dark.text : colours.light.text,
-                        }}
-                      >
-                        <option value="" disabled>
-                          Select {field.label}
-                        </option>
-                        {(field.options || []).map((opt) => (
-                          <option key={opt} value={opt}>
-                            {opt}
-                          </option>
-                        ))}
-                      </select>
-                      <div
-                        style={{
-                          position: 'absolute',
-                          right: '12px',
-                          top: '50%',
-                          transform: 'translateY(-50%)',
-                          pointerEvents: 'none',
-                          color: colours.highlight,
-                        }}
-                      >
-                        <svg
-                          width="16"
-                          height="16"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                        >
-                          <path
-                            d="M6 9l6 6 6-6"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                      </div>
-                    </div>
+                      disabled={isSubmitting}
+                      styles={getDropdownStyles(isDarkMode)}
+                    />
                     {field.name === 'Payment Type' &&
                       formValues['Payment Type'] === 'CHAPS (same day over £1m)' && (
                         <div className={infoBoxStyle}>
@@ -596,37 +635,81 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                 );
 
               case 'toggle':
+                const isChecked = Boolean(formValues[field.name] ?? field.defaultValue);
                 return (
                   <div key={index}>
-                    {questionBanner}
-                    <Toggle
-                      checked={Boolean(formValues[field.name] ?? field.defaultValue)}
-                      onText={field.onText}
-                      offText={field.offText}
-                      onChange={(_, checked) => handleInputChange(field.name, !!checked)}
-                      disabled={isSubmitting}
-                      styles={{
-                        root: toggleStyle(isDarkMode),
-                        container: {
-                          selectors: {
-                            '.ms-Toggle-background': {
-                              backgroundColor: isDarkMode ? colours.dark.border : '#d1d5db',
-                              border: `1px solid ${isDarkMode ? colours.dark.border : '#d1d5db'}`,
-                            },
-                            '.ms-Toggle-background.is-checked': {
-                              backgroundColor: `${colours.highlight} !important`,
-                              borderColor: `${colours.highlight} !important`,
-                            },
-                            '.ms-Toggle-thumb': {
-                              backgroundColor: isDarkMode ? colours.dark.text : '#ffffff',
-                            },
-                          },
-                        },
-                        label: {
-                          color: isDarkMode ? colours.dark.text : colours.light.text,
-                        },
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '10px 12px',
+                        background: isChecked 
+                          ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
+                          : (isDarkMode ? 'rgba(30, 41, 59, 0.6)' : 'rgba(0, 0, 0, 0.02)'),
+                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(0, 0, 0, 0.1)'}`,
+                        cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                        transition: '0.15s',
+                        opacity: isSubmitting ? 0.6 : 1,
                       }}
-                    />
+                      onClick={() => !isSubmitting && handleInputChange(field.name, !isChecked)}
+                    >
+                      <div>
+                        <div style={{ 
+                          fontSize: '12px', 
+                          fontWeight: 500, 
+                          color: isChecked 
+                            ? (isDarkMode ? colours.highlight : colours.highlight)
+                            : (isDarkMode ? '#e2e8f0' : '#374151'),
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                        }}>
+                          {field.label}{field.required ? ' *' : ''}
+                          {isChecked && (
+                            <span style={{
+                              fontSize: '9px',
+                              background: colours.highlight,
+                              color: '#ffffff',
+                              padding: '1px 5px',
+                              fontWeight: 700,
+                            }}>YES</span>
+                          )}
+                        </div>
+                        {field.helpText && (
+                          <div style={{ 
+                            fontSize: '10px', 
+                            color: isDarkMode ? '#94a3b8' : '#6b7280', 
+                            marginTop: '2px' 
+                          }}>
+                            {field.helpText}
+                          </div>
+                        )}
+                      </div>
+                      <div
+                        style={{
+                          width: '36px',
+                          height: '18px',
+                          background: isChecked ? colours.highlight : (isDarkMode ? '#475569' : '#d1d5db'),
+                          position: 'relative',
+                          transition: '0.2s',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: '14px',
+                            height: '14px',
+                            background: '#ffffff',
+                            position: 'absolute',
+                            top: '2px',
+                            left: isChecked ? '20px' : '2px',
+                            transition: '0.2s',
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                          }}
+                        />
+                      </div>
+                    </div>
                     {field.name === 'Is the amount you are sending over £50,000?' &&
                       formValues[field.name] === true && (
                         <div className={infoBoxStyle}>
@@ -799,7 +882,7 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                         const fileInput = document.getElementById(fileInputId) as HTMLInputElement | null;
                         fileInput?.click();
                       }}
-                      styles={sharedPrimaryButtonStyles}
+                      styles={getFormPrimaryButtonStyles(isDarkMode)}
                       disabled={isSubmitting}
                     />
                     <input
@@ -916,7 +999,8 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
               default:
                 return null;
             }
-          })}
+          }
+          })()}
           {children}
           {!hideButtons && (
             <Stack horizontal tokens={{ childrenGap: 10 }}>
@@ -925,7 +1009,7 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                 text={isSubmitting ? 'Submitted' : 'Submit'}
                 iconProps={conflict ? { iconName: 'Lock' } : undefined}
                 styles={
-                  conflict ? sharedDefaultButtonStyles : sharedPrimaryButtonStyles
+                  conflict ? getFormDefaultButtonStyles(isDarkMode) : getFormPrimaryButtonStyles(isDarkMode)
                 }
                 disabled={isSubmitting || conflict}
               />
@@ -933,14 +1017,7 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                 type="button"
                 text="Clear"
                 onClick={handleClear}
-                styles={sharedDefaultButtonStyles}
-                disabled={isSubmitting}
-              />
-              <DefaultButton
-                type="button"
-                text="Cancel"
-                onClick={onCancel}
-                styles={sharedDefaultButtonStyles}
+                styles={getFormDefaultButtonStyles(isDarkMode)}
                 disabled={isSubmitting}
               />
             </Stack>

@@ -118,7 +118,6 @@ async function userContextMiddleware(req, res, next) {
   const entraId = req.query.entraId || req.body?.entraId;
   const email = req.query.email || req.body?.email;
   const initials = req.query.initials || req.body?.initials;
-  const fullName = req.query.fullName || req.body?.fullName;
 
   // Try to get user details
   let user = null;
@@ -134,38 +133,16 @@ async function userContextMiddleware(req, res, next) {
   // Generate request ID for tracking
   req.requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-  // Log session initiation with user context
-  const userDisplay = user 
-    ? `${user.fullName} (${user.initials}) <${user.email}>`
-    : email 
-      ? `${email}${initials ? ` [${initials}]` : ''} (unauthenticated)`
-      : fullName
-        ? `${fullName} (unauthenticated)`
-        : 'Anonymous';
-
-  console.log(`
-┌─────────────────────────────────────────────────────────────
-│ 🔐 REQUEST [${req.requestId}]
-│ User: ${userDisplay}
-│ Action: ${req.method} ${req.path}
-│ IP: ${req.ip || req.connection.remoteAddress}
-│ User-Agent: ${req.headers['user-agent']?.substring(0, 60)}...
-${entraId ? `│ Entra ID: ${entraId}` : ''}
-${user?.clioId ? `│ Clio ID: ${user.clioId}` : ''}
-${user?.role ? `│ Role: ${user.role}` : ''}
-└─────────────────────────────────────────────────────────────`);
-
-  // Log response when finished
+  // Log response when finished - only errors and slow requests
   const originalSend = res.send;
   res.send = function(data) {
     const duration = Date.now() - startTime;
-    const statusSymbol = res.statusCode < 300 ? '✅' : res.statusCode < 400 ? '⚠️' : '❌';
     
-    console.log(`${statusSymbol} RESPONSE [${req.requestId}] ${res.statusCode} | ${duration}ms | User: ${user?.initials || email || 'Anonymous'}`);
-    
-    // Log slow requests
-    if (duration > 3000) {
-      console.warn(`⏱️  SLOW REQUEST [${req.requestId}] took ${duration}ms for ${req.method} ${req.path}`);
+    // Only log errors (4xx/5xx) or slow requests (>3s)
+    if (res.statusCode >= 400) {
+      console.error(`[${req.requestId}] ${res.statusCode} ${req.method} ${req.path} | ${duration}ms | ${user?.initials || 'Anon'}`);
+    } else if (duration > 3000) {
+      console.warn(`[${req.requestId}] SLOW ${req.method} ${req.path} | ${duration}ms`);
     }
 
     return originalSend.call(this, data);

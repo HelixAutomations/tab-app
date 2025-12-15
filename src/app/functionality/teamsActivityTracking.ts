@@ -67,7 +67,7 @@ export async function fetchTeamsActivityTracking(enquiryIds: Array<number | stri
     return fetchBatch(enquiryIds);
   }
 
-  console.log(`📦 Batching ${enquiryIds.length} enquiry IDs into ${Math.ceil(enquiryIds.length / BATCH_SIZE)} requests`);
+  // Batching large request into multiple calls
   
   const batches: Array<Array<number | string>> = [];
   for (let i = 0; i < enquiryIds.length; i += BATCH_SIZE) {

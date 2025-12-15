@@ -304,18 +304,20 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                             <div style={toggleKnob(!!featureToggles.rateChangeTracker)} />
                                         </div>
                                     </div>
-                                    <div
-                                        style={toggleRow}
-                                        onClick={() => onFeatureToggle('annualLeaveTestCards', !featureToggles.annualLeaveTestCards)}
-                                    >
-                                        <div>
-                                            <div style={{ fontSize: 12, fontWeight: 500, color: text }}>Annual Leave Test Cards</div>
-                                            <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Show test approval/booking cards (localhost)</div>
+                                    {isLocalDev && (
+                                        <div
+                                            style={toggleRow}
+                                            onClick={() => onFeatureToggle('annualLeaveTestCards', !featureToggles.annualLeaveTestCards)}
+                                        >
+                                            <div>
+                                                <div style={{ fontSize: 12, fontWeight: 500, color: text }}>Annual Leave Test Cards</div>
+                                                <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Show test approval/booking cards (localhost)</div>
+                                            </div>
+                                            <div style={toggleSwitch(!!featureToggles.annualLeaveTestCards)}>
+                                                <div style={toggleKnob(!!featureToggles.annualLeaveTestCards)} />
+                                            </div>
                                         </div>
-                                        <div style={toggleSwitch(!!featureToggles.annualLeaveTestCards)}>
-                                            <div style={toggleKnob(!!featureToggles.annualLeaveTestCards)} />
-                                        </div>
-                                    </div>
+                                    )}
                                     {isLocalDev && (
                                         <div
                                             style={{ ...toggleRow, borderTop: 'none', background: featureToggles.viewAsProd ? (isDarkMode ? 'rgba(234,179,8,0.12)' : 'rgba(234,179,8,0.08)') : bgSubtle }}

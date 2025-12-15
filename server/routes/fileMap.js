@@ -90,14 +90,14 @@ async function buildFileMap(roots, depth) {
   for (const r of roots) {
   // processing root
     if (!ALLOWED_ROOTS.includes(r)) {
-      console.warn(`🗂️ [buildFileMap] REJECTED root ${r}`);
+      console.warn(`[buildFileMap] REJECTED root ${r}`);
       continue;
     }
     const absRoot = path.join(repoRoot, r);
   // absolute path log removed
     const st = await safeStat(absRoot);
     if (!st || !st.isDirectory()) {
-      console.warn(`🗂️ [buildFileMap] Root not a dir: ${absRoot}`);
+      console.warn(`[buildFileMap] Root not a dir: ${absRoot}`);
       continue;
     }
   // scanning directory

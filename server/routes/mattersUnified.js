@@ -63,7 +63,7 @@ router.get('/', async (req, res) => {
       
       return res.json({ ...result, source: 'redis' });
     } catch (redisError) {
-      console.warn('⚠️ Redis cache unavailable, using in-memory fallback:', redisError.message);
+      console.warn('[mattersUnified] Redis cache unavailable, using in-memory fallback:', redisError.message);
     }
   }
 
@@ -75,8 +75,6 @@ router.get('/', async (req, res) => {
  * Extracted database query logic for caching
  */
 async function performMattersUnifiedQuery(queryParams) {
-  console.log('🔍 Performing fresh matters unified query');
-  
   const fullName = queryParams.fullName ? String(queryParams.fullName) : '';
   const norm = normalizeName(fullName);
 

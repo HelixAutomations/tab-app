@@ -19,7 +19,6 @@ import {
     getGroupColor,
     partnerOptions as defaultPartners,
 } from './config';
-import localTeamDataJson from '../../../localData/team-sql-data.json';
 import localUserData from '../../../localData/localUserData.json';
 
 import ClientInfoStep from './ClientInfoStep';
@@ -345,7 +344,6 @@ const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
     // Note: additional effect to guarantee date on step change is defined after currentStep declaration
-    const localTeamData = useMemo(() => localTeamDataJson, []);
     // Developer Tools container removed as requested
     // Restore debug inspector core state (was previously earlier in file)
     const [debugInspectorOpen, setDebugInspectorOpen] = useState(false);
@@ -458,10 +456,9 @@ const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
     };
 
     const activeTeam = useMemo(() => {
-        const dataset = (teamData ?? localTeamData) as unknown;
-        if (!Array.isArray(dataset)) return [] as any[];
-        return dataset.filter((t: any) => String(t?.status ?? t?.Status ?? '').toLowerCase() === 'active');
-    }, [teamData, localTeamData]);
+        if (!teamData) return [] as any[];
+        return teamData.filter((t: any) => String(t?.status ?? t?.Status ?? '').toLowerCase() === 'active');
+    }, [teamData]);
 
     const partnerOptionsList = useMemo(() => {
         const partnersFirst = activeTeam
@@ -1045,19 +1042,19 @@ const handleClearAll = () => {
 
     // Determine requesting user nickname based on environment
     const requestingUserNickname =
-        process.env.NODE_ENV === 'production'
-            ? getTeamNickname(userInitials, teamData || localTeamDataJson)
+        process.env.NODE_ENV === 'production' && teamData
+            ? getTeamNickname(userInitials, teamData)
             : getLocalUserNickname(userInitials);
 
     // Determine requesting user Clio ID based on environment
-    const requestingUserClioId = getClioId(userInitials, teamData || localTeamDataJson);
+    const requestingUserClioId = teamData ? getClioId(userInitials, teamData) : '';
 
     // Environment/admin flags for gated backend details
     const isLocalDev = process.env.NODE_ENV !== 'production';
     const isAdminUser = useMemo(() => {
+        if (!teamData) return false;
         try {
-            const dataset = (teamData || localTeamDataJson) as any[];
-            const me = dataset.find(t => (t.Initials || '').toLowerCase() === userInitials.toLowerCase());
+            const me = teamData.find(t => (t.Initials || '').toLowerCase() === userInitials.toLowerCase());
             const roleText = (me?.Role || '').toLowerCase();
             return roleText.includes('admin') || roleText.includes('owner') || roleText.includes('manager');
         } catch {
@@ -1112,31 +1109,6 @@ const handleClearAll = () => {
         if (referrerName && referrerName.trim() !== '') filledFields++; // Optional field
         
         const completion = totalFields > 0 ? (filledFields / totalFields) * 100 : 0;
-        
-        // Debug logging only once when completion changes significantly - using session storage to avoid spam
-        try {
-            const debugKey = `matterCompletion_${Math.floor(completion / 20) * 20}`; // Log every 20% change
-            if (filledFields > 0 && !sessionStorage.getItem(debugKey)) {
-                sessionStorage.setItem(debugKey, 'true');
-                
-                console.log('Matter step filled fields:', filledFields, 'out of', totalFields, 'completion:', completion + '%');
-                console.log('Debug values:', {
-                    selectedDate: selectedDate !== null,
-                    supervisingPartner: supervisingPartner || 'EMPTY',
-                    originatingSolicitor: originatingSolicitor || 'EMPTY',
-                    areaOfWork: areaOfWork || 'EMPTY',
-                    practiceArea: practiceArea || 'EMPTY',
-                    description: description || 'EMPTY',
-                    folderStructure: folderStructure || 'EMPTY',
-                    source: source || 'EMPTY',
-                    noConflict,
-                    referrerName: referrerName || 'EMPTY',
-                    defaultTeamMember: defaultTeamMember || 'EMPTY'
-                });
-            }
-        } catch {
-            // Ignore storage errors
-        }
         
         return completion;
     };
@@ -1267,23 +1239,6 @@ const handleClearAll = () => {
             
             // For instruction mode with client selection, we need at least one POID selected
             const hasClientSelection = selectedPoidIds.length > 0;
-            
-            // Debug logging for production troubleshooting - limit to avoid spam
-            try {
-                const debugKey = `client-instruction-${!!hasClientSelection}`;
-                if (!sessionStorage.getItem(debugKey)) {
-                    sessionStorage.setItem(debugKey, 'true');
-                    console.log('Matter Opening Debug (Instruction Mode):', {
-                        instructionRef,
-                        hideClientSections,
-                        selectedPoidIds: selectedPoidIds.length,
-                        hasClientSelection,
-                        result: hasClientSelection
-                    });
-                }
-            } catch {
-                // Ignore storage errors
-            }
             
             return hasClientSelection;
         }
@@ -1461,8 +1416,8 @@ const handleClearAll = () => {
                 supervising_partner: supervisingPartner,
                 originating_solicitor: originatingSolicitor,
                 requesting_user: requestingUserNickname,
-                fee_earner_initials: getInitialsFromName(teamMember, teamData || localTeamDataJson),
-                originating_solicitor_initials: getInitialsFromName(originatingSolicitor, teamData || localTeamDataJson)
+                fee_earner_initials: teamData ? getInitialsFromName(teamMember, teamData) : '',
+                originating_solicitor_initials: teamData ? getInitialsFromName(originatingSolicitor, teamData) : ''
             },
             client_information: selectedClients,
             source_details: {
@@ -1801,12 +1756,11 @@ const handleClearAll = () => {
     // Fallback function to fetch userData if not provided via props
     const fetchUserDataFallback = async (entraId: string): Promise<UserData[] | null> => {
         if (!entraId) {
-            console.warn('⚠️ [fetchUserDataFallback] No Entra ID provided');
+            console.warn('[FlatMatterOpening] No Entra ID provided for fallback user fetch');
             return null;
         }
         
         setUserDataLoading(true);
-        console.log(`🔄 [fetchUserDataFallback] Fetching user data for Entra ID: ${entraId}`);
         
         try {
             const response = await fetch('/api/user-data', {
@@ -1816,16 +1770,15 @@ const handleClearAll = () => {
             });
             
             if (!response.ok) {
-                console.error('❌ [fetchUserDataFallback] Failed to fetch user data:', response.status);
+                console.error('[FlatMatterOpening] Failed to fetch user data:', response.status);
                 return null;
             }
             
             const data = await response.json();
-            console.log('✅ [fetchUserDataFallback] User data fetched successfully:', data);
             setFallbackUserData(data);
             return data;
         } catch (error) {
-            console.error('❌ [fetchUserDataFallback] Error fetching user data:', error);
+            console.error('[FlatMatterOpening] Error fetching user data:', error);
             return null;
         } finally {
             setUserDataLoading(false);
@@ -1850,13 +1803,11 @@ const handleClearAll = () => {
                     (t.Initials || t.initials || '').toLowerCase() === userInitials.toLowerCase()
                 );
                 entraId = teamMember?.['Entra ID'] || (teamMember as any)?.EntraID || null;
-                console.log('🔍 [simulateProcessing] Found Entra ID from teamData:', { userInitials, entraId: entraId ? entraId.substring(0, 8) + '...' : null });
             }
             
             if (entraId) {
                 const fallbackData = await fetchUserDataFallback(entraId);
                 if (fallbackData && fallbackData.length > 0) {
-                    console.log('✅ [simulateProcessing] Fallback userData loaded successfully');
                     workingUserData = fallbackData;
                 } else {
                     const errorMsg = 'User profile data could not be loaded. Please refresh the page and try again.';
@@ -1886,18 +1837,9 @@ const handleClearAll = () => {
             setProcessingLogs([`❌ Pre-validation: ${errorMsg}`]);
             setProcessingSteps(prev => prev.map((s, idx) => idx === 0 ? { ...s, status: 'error', message: errorMsg } : s));
             setDebugInspectorOpen(true);
-            console.error('❌ [simulateProcessing] Asana credentials validation failed:', { user });
+            console.error('[FlatMatterOpening] Asana credentials validation failed:', { user });
             return { url: '' };
         }
-
-        console.log('✅ [simulateProcessing] Pre-validation passed:', {
-            userInitials,
-            hasUserData: !!workingUserData,
-            userDataLength: workingUserData?.length,
-            hasAsanaSecret: !!(user.ASANASecret || user.ASANA_Secret),
-            hasAsanaClientID: !!(user.ASANAClient_ID || user.ASANAClientID),
-            userDataSource: workingUserData === userData ? 'prop' : 'fallback'
-        });
 
         setIsProcessing(true);
         setProcessingOpen(true);
@@ -1988,10 +1930,9 @@ const handleClearAll = () => {
         try {
             const parsed = JSON.parse(debugManualJson);
             // This would trigger the same processing pipeline with manual data
-            console.log('Manual JSON processing would use:', parsed);
             alert('Manual JSON processing is for development use only.');
         } catch (error) {
-            console.error('Manual JSON processing failed:', error);
+            console.error('[FlatMatterOpening] Manual JSON processing failed:', error);
         }
     };
 

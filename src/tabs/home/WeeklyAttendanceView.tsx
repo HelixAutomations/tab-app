@@ -354,8 +354,6 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
     // OPTIMISTIC UPDATE: Move the chip immediately before API call
     setOptimisticAttendance((prev) => ({ ...prev, [initials]: attendanceDays }));
     
-    console.log(`📤 Drag-drop save for ${initials}:`, { weekStart, attendanceDays, newStatus });
-    
     setIsSaving(true);
     
     try {
@@ -371,7 +369,6 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
       } catch {
         result = null;
       }
-      console.log(`📥 Drag-drop response for ${initials}:`, result);
       
       if (!response.ok || (result && result.success === false)) {
         throw new Error(result?.error || `Failed to update attendance for ${name}`);
@@ -527,8 +524,6 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
         // Convert pattern to comma-separated string
         const attendanceDays = newPattern.join(',');
         
-        console.log(`📤 Saving attendance for ${initials}:`, { weekStart, attendanceDays, changes: dayChanges });
-        
         const response = await fetch('/api/attendance/updateAttendance', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -541,7 +536,6 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
         } catch {
           result = null;
         }
-        console.log(`📥 Response for ${initials}:`, result);
         
         if (!response.ok || (result && result.success === false)) {
           throw new Error(result?.error || `Failed to save attendance for ${initials}`);
@@ -1241,7 +1235,6 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
     // For 'today' view, return only TODAY's specific status, not a weekly average
     if (selectedWeek === 'today') {
       const todayStatus = getTodayAttendance(member) as StatusFilterKey;
-      console.log(`🔍 getStatusForActiveFilters TODAY for ${member.Initials}:`, todayStatus);
       return todayStatus || 'wfh';
     }
     
@@ -1660,28 +1653,15 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
             /* Today/Monday view: Status-grouped cards for single day */
             <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
               {(() => {
-                console.log('🔍 TODAY VIEW - filteredData count:', filteredData.length);
-                console.log('🔍 TODAY VIEW - filteredData members:', filteredData.map(m => ({
-                  initials: m.Initials,
-                  first: m.First,
-                  attendanceDays: m.attendanceDays,
-                  status: m.status
-                })));
-                
                 // Group people by status for today
                 const statusGroups = filteredData.reduce((groups, member) => {
                   const representativeStatus = getStatusForActiveFilters(member);
-                  console.log(`🔍 Grouping ${member.Initials}: ${representativeStatus}`);
                   if (!groups[representativeStatus]) {
                     groups[representativeStatus] = [];
                   }
                   groups[representativeStatus].push(member);
                   return groups;
                 }, {} as Record<string, typeof filteredData>);
-                
-                console.log('🔍 TODAY VIEW - statusGroups:', Object.fromEntries(
-                  Object.entries(statusGroups).map(([k, v]) => [k, (v as any[]).map(m => m.Initials)])
-                ));
 
                 // Define status order and labels - Office first, then WFH, then away statuses
                 const statusOrder = ['office', 'wfh', 'away', 'off-sick', 'out-of-office'];

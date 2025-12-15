@@ -113,7 +113,9 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
         maxWidth: 280,
         background: hovered ? bgHover : bg,
         color: text,
-        border: `1px solid ${hovered ? borderHover : border}`,
+        borderTop: `1px solid ${hovered ? borderHover : border}`,
+        borderRight: `1px solid ${hovered ? borderHover : border}`,
+        borderBottom: `1px solid ${hovered ? borderHover : border}`,
         borderLeft: `3px solid ${categoryColor}`,
         boxShadow: hovered 
           ? (isDark ? '0 4px 12px rgba(0,0,0,0.3)' : '0 4px 12px rgba(0,0,0,0.08)')

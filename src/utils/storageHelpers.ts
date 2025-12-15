@@ -102,9 +102,7 @@ export function cleanupOldCache(): void {
         }
       });
       
-      if (keysToRemove.length > 0) {
-        console.log(`🧹 Cleaned up ${keysToRemove.length} old cache entries`);
-      }
+      // Cleanup is silent - no need to log routine cache management
     }
   } catch (error) {
     console.error('Error during cache cleanup:', error);
@@ -161,10 +159,7 @@ export function setCachedData(key: string, data: unknown): boolean {
     const maxPayloadSize = 1 * 1024 * 1024; // 1MB
     
     if (payloadSize > maxPayloadSize) {
-      // Only log in development - production should silently fallback to in-memory cache
-      if (process.env.NODE_ENV === 'development') {
-        console.warn(`⚠️ Skipping localStorage for "${key}" - using in-memory cache (${(payloadSize / 1024 / 1024).toFixed(2)}MB)`);
-      }
+      // Silently fallback to in-memory cache - no need to log
       return false;
     }
     
@@ -175,7 +170,7 @@ export function setCachedData(key: string, data: unknown): boolean {
     return true;
   } catch (error) {
     // Likely quota exceeded
-    console.warn(`⚠️ Failed to cache data for key "${key}":`, error);
+    // Cache failure is handled silently - retry with cleanup
     
     // Try emergency cleanup and retry ONCE
     try {
@@ -189,7 +184,7 @@ export function setCachedData(key: string, data: unknown): boolean {
       localStorage.setItem(key, payload);
       return true;
     } catch {
-      console.error('❌ Storage quota exceeded even after cleanup - skipping cache for this key');
+      // Storage quota exceeded - silently skip cache for this key
       return false;
     }
   }
@@ -225,7 +220,7 @@ export function clearAllCache(): void {
       }
     });
     
-    console.log(`🧹 Cleared ${keysToRemove.length} cache entries`);
+    // Cache cleared silently
   } catch (error) {
     console.error('Error clearing cache:', error);
   }

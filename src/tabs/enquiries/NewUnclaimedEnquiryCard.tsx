@@ -222,13 +222,12 @@ const NewUnclaimedEnquiryCard: React.FC<Props> = ({ enquiry, onSelect, onAreaCha
     try {
       const result = await claimEnquiry(enquiry.ID, userEmail, dataSource);
       if (result.success) {
-        console.log('✅ Enquiry claimed successfully', { dataSource, operations: result.operations });
         // Background refresh to sync with server (non-blocking)
         if (onClaimSuccess) {
           Promise.resolve(onClaimSuccess()).catch(err => console.warn('Background refresh failed:', err));
         }
       } else {
-        console.error('❌ Failed to claim enquiry:', result.error);
+        console.error('[NewUnclaimedEnquiryCard] Failed to claim enquiry:', result.error);
         // Revert optimistic update
         setJustClaimed(false);
         if (onClaimSuccess) {
@@ -236,7 +235,7 @@ const NewUnclaimedEnquiryCard: React.FC<Props> = ({ enquiry, onSelect, onAreaCha
         }
       }
     } catch (err) {
-      console.error('❌ Error claiming enquiry:', err);
+      console.error('[NewUnclaimedEnquiryCard] Error claiming enquiry:', err);
       // Revert optimistic update
       setJustClaimed(false);
       if (onClaimSuccess) {

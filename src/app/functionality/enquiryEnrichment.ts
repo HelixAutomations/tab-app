@@ -55,8 +55,6 @@ export async function fetchEnquiryEnrichment(
   enquiryEmails: string[]
 ): Promise<EnquiryEnrichmentResponse> {
   try {
-    console.log(`🚀 Starting enrichment fetch: ${enquiryIds.length} IDs, ${enquiryEmails.length} emails`);
-    
     const params = new URLSearchParams();
     
     if (enquiryIds.length > 0) {
@@ -68,30 +66,24 @@ export async function fetchEnquiryEnrichment(
     }
 
     if (params.toString() === '') {
-      console.log('⚠️ No parameters for enrichment, returning empty');
       return { enquiryData: [], pitchByEmail: {} };
     }
 
     const url = `/api/enquiry-enrichment?${params.toString()}`;
-    console.log(`🌐 Enrichment API URL: ${url}`);
 
     const response = await fetch(url);
     
-    console.log(`📡 Enrichment response: ${response.status} ${response.statusText}`);
-    
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`❌ Enrichment API error: ${response.status} - ${errorText}`);
+      console.error(`[Enrichment] API error: ${response.status} - ${errorText}`);
       throw new Error(`HTTP ${response.status}: ${errorText}`);
     }
     
     const data: EnquiryEnrichmentResponse = await response.json();
     
-    console.log(`🔗 Enrichment: Retrieved data for ${data.enquiryData.length} enquiries, ${Object.keys(data.pitchByEmail).length} emails with pitches`);
-    
     return data;
   } catch (error) {
-    console.error('❌ Error fetching enrichment data:', error);
+    console.error('[Enrichment] Error fetching data:', error);
     // Return empty data instead of throwing to prevent infinite loading
     return { enquiryData: [], pitchByEmail: {} };
   }

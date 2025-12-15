@@ -187,15 +187,10 @@ const PersonalAttendanceConfirm = forwardRef<
     const userInitials = (userData?.[0]?.Initials || '').toString().toUpperCase() || 
                         (userData?.displayName?.match(/\b\w/g)?.join('') || '').toUpperCase() || 
                         (userData?.mail?.substring(0, 2) || '').toUpperCase();
-    console.log('🔍 userInitials:', userInitials);
-    console.log('🔍 userData:', userData);
 
     const combinedLeaveRecords = useMemo(() => [...annualLeaveRecords, ...futureLeaveRecords], [annualLeaveRecords, futureLeaveRecords]);
 
     const initialState: Record<string, Record<string, string>> = useMemo(() => {
-        console.log('🔍 Calculating initial state...');
-        console.log('🔍 attendanceRecords:', attendanceRecords);
-        console.log('🔍 userInitials in useMemo:', userInitials);
         const state: Record<string, Record<string, string>> = {
             [currentWeekStart]: {},
             [nextWeekStart]: {},
@@ -208,11 +203,9 @@ const PersonalAttendanceConfirm = forwardRef<
             Fri: 'Friday',
         };
         const filteredRecords = attendanceRecords.filter((r) => r.Initials === userInitials);
-        console.log('🔍 Filtered attendance records:', filteredRecords);
         filteredRecords.forEach((rec) => {
             if (!rec.Attendance_Days) return;
 
-            console.log('🔍 Processing record:', rec);
             const normalized = rec.Attendance_Days.toString().trim().toLowerCase();
             const isSingleStatus = ['office','wfh','away','off-sick','out-of-office'].includes(normalized);
 
@@ -221,19 +214,16 @@ const PersonalAttendanceConfirm = forwardRef<
                 weekDays.forEach((day) => {
                     state[rec.Week_Start][day] = normalized;
                 });
-                console.log('🔍 Applied single status for', rec.Week_Start, ':', normalized);
                 return;
             }
 
             // Parse the attendance string - format: "Mon:office,Tue:home,Wed:out-of-office" or legacy "Mon,Tue"
             const dayStatuses = rec.Attendance_Days.split(',').map(d => d.trim());
-            console.log('🔍 Day statuses from record:', dayStatuses);
             dayStatuses.forEach(dayStatus => {
                 const [dayAbbr, status] = dayStatus.includes(':') ? dayStatus.split(':') : [dayStatus, 'office'];
                 const dayName = dayMap[dayAbbr] || dayAbbr;
                 if (weekDays.includes(dayName)) {
                     state[rec.Week_Start][dayName] = (status || 'wfh').toLowerCase();
-                    console.log('🔍 Set state for', rec.Week_Start, dayName, 'to', status);
                 }
             });
         });
@@ -243,17 +233,14 @@ const PersonalAttendanceConfirm = forwardRef<
             weekDays.forEach(day => {
                 if (!state[weekStart][day]) {
                     state[weekStart][day] = 'wfh'; // Default to WFH if no data
-                    console.log('🔍 Set default state for', weekStart, day, 'to wfh');
                 }
             });
         });
         
-        console.log('🔍 Initial state calculated:', state);
         return state;
     }, [attendanceRecords, userInitials, currentWeekStart, nextWeekStart]);
 
     const [localAttendance, setLocalAttendance] = useState<Record<string, Record<string, string>>>(initialState);
-    console.log('🔍 LocalAttendance state:', localAttendance);
     const [saving, setSaving] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
     const [saveSuccess, setSaveSuccess] = useState(false);
@@ -321,15 +308,11 @@ const PersonalAttendanceConfirm = forwardRef<
     };
     
     const toggleDay = (weekStart: string, day: string) => {
-        console.log('🔍 toggleDay called with weekStart:', weekStart, 'day:', day);
         setLocalAttendance((prev) => {
-            console.log('🔍 Previous localAttendance:', prev);
             const currentStatus = prev[weekStart]?.[day] || 'wfh';
-            console.log('🔍 Current status:', currentStatus);
             const currentIndex = statuses.indexOf(currentStatus);
             const nextIndex = (currentIndex + 1) % statuses.length;
             const nextStatus = statuses[nextIndex];
-            console.log('🔍 Next status:', nextStatus);
             
             const newState = {
                 ...prev,
@@ -338,20 +321,17 @@ const PersonalAttendanceConfirm = forwardRef<
                     [day]: nextStatus
                 }
             };
-            console.log('🔍 New localAttendance state:', newState);
             return newState;
         });
     };
 
     const handleSave = async () => {
-        console.log('🔍 Save button clicked');
         setSaving(true);
         setSaveError(null);
         setSaveSuccess(false);
         try {
             for (const weekStart of [currentWeekStart, nextWeekStart]) {
                 const dayStatuses = localAttendance[weekStart] || {};
-                console.log('🔍 Day statuses for', weekStart, ':', dayStatuses);
                 const dayStrings = Object.entries(dayStatuses).map(([dayName, status]) => {
                     const dayMap: Record<string, string> = {
                         Monday: 'Mon',
@@ -364,17 +344,15 @@ const PersonalAttendanceConfirm = forwardRef<
                     return `${dayAbbr}:${status}`;
                 });
                 const days = dayStrings.join(',');
-                console.log('🔍 Calling onSave with weekStart:', weekStart, 'days:', days);
                 await onSave(weekStart, days);
             }
-            console.log('🔍 Save completed successfully');
             setSaveSuccess(true);
             // Show brief success feedback before closing
             setTimeout(() => {
                 onClose();
             }, 700);
         } catch (error) {
-            console.error('❌ Error saving attendance:', error);
+            console.error('[PersonalAttendanceConfirm] Error saving attendance:', error);
             const message = error instanceof Error ? error.message : 'Failed to save attendance';
             setSaveError(message);
         } finally {

@@ -10,7 +10,7 @@ import { addDays, eachDayOfInterval, format } from 'date-fns';
 import 'react-date-range/dist/styles.css';
 import 'react-date-range/dist/theme/default.css';
 import '../app/styles/CustomDateRange.css';
-import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles, sharedDecisionButtonStyles } from '../app/styles/ButtonStyles';
+import { getFormDefaultButtonStyles, getFormDecisionButtonStyles, getFormAccentOutlineButtonStyles, getChoiceGroupStyles } from './shared/formStyles';
 import HelixAvatar from '../assets/helix avatar.png';
 import GreyHelixMark from '../assets/grey helix mark.png'; // Not currently used
 import '../app/styles/personas.css';
@@ -34,31 +34,6 @@ interface DateRangeSelection {
 }
 
 const initialFormFields: FormField[] = [];
-
-const accentOutlineButtonStyles = (isDarkMode: boolean) => ({
-  root: {
-    width: '150px',
-    backgroundColor: 'transparent',
-    color: isDarkMode ? colours.accent : colours.highlight,
-    borderColor: isDarkMode ? colours.accent : colours.highlight,
-    borderWidth: '1.5px',
-    fontWeight: '600' as const,
-  },
-  rootHovered: {
-    backgroundColor: isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.08)',
-    borderColor: isDarkMode ? colours.accent : colours.highlight,
-  },
-  rootPressed: {
-    backgroundColor: isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.12)',
-    borderColor: isDarkMode ? colours.accent : colours.highlight,
-  },
-});
-
-const buttonStylesFixedWidthSecondary = {
-  root: { ...(sharedDefaultButtonStyles.root as object), width: '150px' },
-  rootHovered: { ...(sharedDefaultButtonStyles.rootHovered as object) },
-  rootPressed: { ...(sharedDefaultButtonStyles.rootPressed as object) },
-};
 
 const infoBoxStyle = (isDarkMode: boolean): React.CSSProperties => ({
   backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#ffffff',
@@ -557,17 +532,24 @@ function AnnualLeaveForm({
             border-color: transparent transparent transparent ${colours.dark.text} !important;
           }
           
-          /* ChoiceGroup (radio buttons) dark mode */
+          /* ChoiceGroup (radio buttons) dark mode + brand colors */
           .ms-ChoiceField-labelWrapper {
             color: ${colours.dark.text} !important;
           }
           .ms-ChoiceFieldLabel {
             color: ${colours.dark.text} !important;
+            font-weight: 500 !important;
           }
           .ms-ChoiceField-field:before {
-            border-color: ${colours.dark.border} !important;
+            border-color: #64748b !important;
+            border-width: 2px !important;
+            background: ${colours.dark.inputBackground} !important;
           }
-          .ms-ChoiceField-field:after {
+          .ms-ChoiceField-field.is-checked:before {
+            border-color: ${colours.highlight} !important;
+          }
+          .ms-ChoiceField-field.is-checked:after {
+            background-color: ${colours.highlight} !important;
             border-color: ${colours.highlight} !important;
           }
           .ms-ChoiceField:hover .ms-ChoiceField-field:before {
@@ -614,7 +596,7 @@ function AnnualLeaveForm({
                         key={option.key}
                         text={option.text}
                         onClick={() => setSelectedLeaveType(option.key)}
-                        styles={isSelected ? sharedDecisionButtonStyles : sharedDefaultButtonStyles}
+                        styles={isSelected ? getFormDecisionButtonStyles(isDarkMode) : getFormDefaultButtonStyles(isDarkMode)}
                       />
                     );
                   })}
@@ -925,8 +907,8 @@ function AnnualLeaveForm({
                       onClick={() => handleRemoveDateRange(index)}
                       iconProps={{ iconName: 'Cancel' }}
                       styles={{
-                        ...buttonStylesFixedWidthSecondary,
-                        root: { ...buttonStylesFixedWidthSecondary.root, width: '120px', marginTop: '12px' }
+                        ...getFormDefaultButtonStyles(isDarkMode),
+                        root: { ...getFormDefaultButtonStyles(isDarkMode).root, width: '120px', marginTop: '12px' }
                       }}
                     />
                   </Stack>
@@ -1026,6 +1008,7 @@ function AnnualLeaveForm({
                     ]}
                     onChange={(ev, option) => setHearingConfirmation(option?.key || null)}
                     styles={{
+                      ...getChoiceGroupStyles(isDarkMode),
                       flexContainer: {
                         display: 'flex',
                         gap: '12px',
@@ -1070,12 +1053,15 @@ function AnnualLeaveForm({
                   text="Clear All"
                   onClick={handleClear}
                   iconProps={{ iconName: 'Clear' }}
-                  styles={buttonStylesFixedWidthSecondary}
+                  styles={{
+                    ...getFormDefaultButtonStyles(isDarkMode),
+                    root: { ...getFormDefaultButtonStyles(isDarkMode).root, width: '150px' }
+                  }}
                 />
                 <DefaultButton
                   text={isSubmitting ? 'Submitting...' : 'Submit Request'}
                   className="custom-submit-button"
-                  styles={accentOutlineButtonStyles(isDarkMode)}
+                  styles={getFormAccentOutlineButtonStyles(isDarkMode, '150px')}
                   onClick={handleSubmit}
                   disabled={isSubmitting || totalDays === 0}
                   iconProps={{ iconName: 'Send' }}

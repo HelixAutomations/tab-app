@@ -31,7 +31,6 @@ class CircuitBreaker {
       }
       // Time to test - move to HALF_OPEN
       this.state = 'HALF_OPEN';
-      console.log(`🔧 Circuit breaker [${this.name}] moving to HALF_OPEN state`);
     }
 
     const startTime = Date.now();
@@ -56,7 +55,6 @@ class CircuitBreaker {
     
     if (this.state === 'HALF_OPEN') {
       this.state = 'CLOSED';
-      console.log(`✅ Circuit breaker [${this.name}] closed after successful test`);
     }
   }
 
@@ -64,12 +62,10 @@ class CircuitBreaker {
     this.failures++;
     this.lastFailureTime = Date.now();
     
-    console.warn(`⚠️  Circuit breaker [${this.name}] failure ${this.failures}/${this.failureThreshold}: ${error.message}`);
-    
     if (this.failures >= this.failureThreshold) {
       this.state = 'OPEN';
       this.nextAttempt = Date.now() + this.timeout;
-      console.error(`❌ Circuit breaker [${this.name}] opened due to ${this.failures} failures`);
+      console.error(`[CircuitBreaker] ${this.name} opened due to ${this.failures} failures`);
     }
   }
 
@@ -93,7 +89,6 @@ class CircuitBreaker {
     this.failures = 0;
     this.lastFailureTime = null;
     this.nextAttempt = null;
-    console.log(`🔄 Circuit breaker [${this.name}] manually reset`);
   }
 }
 

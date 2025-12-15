@@ -172,8 +172,6 @@ export function useRateChangeData(
         onUpdate: MatterUpdateCallback,
         sentDate?: string
     ) => {
-        console.log('[markSentStreaming] Starting stream request');
-        
         const response = await fetch(`/api/rate-changes/${year}/mark-sent-stream`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -188,8 +186,6 @@ export function useRateChangeData(
                 sent_date: sentDate || new Date().toISOString().split('T')[0],
             }),
         });
-
-        console.log('[markSentStreaming] Response status:', response.status, 'body?', !!response.body);
 
         if (!response.ok) {
             const errorText = await response.text();
@@ -224,7 +220,6 @@ export function useRateChangeData(
         while (true) {
             const { done, value } = await reader.read();
             if (done) {
-                console.log('[markSentStreaming] Stream ended');
                 break;
             }
 
@@ -236,7 +231,6 @@ export function useRateChangeData(
                 if (line.startsWith('data: ')) {
                     try {
                         const event: MatterUpdateEvent = JSON.parse(line.slice(6));
-                        console.log('[markSentStreaming] Event:', event.type);
                         onUpdate(event);
 
                         // On complete, update local state ONLY if all Clio updates succeeded
@@ -273,8 +267,6 @@ export function useRateChangeData(
         clientData: Partial<RateChangeClient>,
         onUpdate: MatterUpdateCallback
     ) => {
-        console.log('[markNAStreaming] Starting stream request');
-        
         const response = await fetch(`/api/rate-changes/${year}/mark-na-stream`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -290,8 +282,6 @@ export function useRateChangeData(
                 marked_by: userFullName,
             }),
         });
-
-        console.log('[markNAStreaming] Response status:', response.status, 'body?', !!response.body);
 
         if (!response.ok) {
             const errorText = await response.text();
@@ -326,7 +316,6 @@ export function useRateChangeData(
         while (true) {
             const { done, value } = await reader.read();
             if (done) {
-                console.log('[markNAStreaming] Stream ended');
                 break;
             }
 
@@ -338,7 +327,6 @@ export function useRateChangeData(
                 if (line.startsWith('data: ')) {
                     try {
                         const event: MatterUpdateEvent = JSON.parse(line.slice(6));
-                        console.log('[markNAStreaming] Event:', event.type);
                         onUpdate(event);
 
                         // On complete, update local state ONLY if all Clio updates succeeded

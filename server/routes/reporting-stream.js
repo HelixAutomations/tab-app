@@ -1,7 +1,9 @@
 const express = require('express');
 const { getRedisClient, cacheWrapper, generateCacheKey } = require('../utils/redisClient');
+const { loggers } = require('../utils/logger');
 
 const router = express.Router();
+const log = loggers.stream;
 
 // Import dataset fetchers from the main reporting route
 const { withRequest } = require('../utils/db');
@@ -82,7 +84,7 @@ router.get('/stream-datasets', async (req, res) => {
   req.on('close', () => {
     isClientConnected = false;
     clearInterval(heartbeat);
-    console.log('🔌 Client disconnected from streaming');
+    log.debug('🔌 Client disconnected from streaming');
     try { res.end(); } catch { /* ignore */ }
   });
 
@@ -133,7 +135,7 @@ router.get('/stream-datasets', async (req, res) => {
     datasets: datasetsParam.map(name => ({ name, status: 'loading' }))
   });
 
-  console.log(`🌊 Starting stream for datasets: [${datasetsParam.join(', ')}] with entraId: ${entraId}`);
+  log.debug(`🌊 Starting stream for datasets: [${datasetsParam.join(', ')}] with entraId: ${entraId}`);
 
   // Process each dataset individually with Redis caching
   const processDataset = async (datasetName) => {
@@ -141,11 +143,11 @@ router.get('/stream-datasets', async (req, res) => {
     try {
       // Check if client is still connected before processing
       if (!isClientConnected) {
-        console.log(`🔌 Client disconnected, skipping dataset: ${datasetName}`);
+        log.debug(`🔌 Client disconnected, skipping dataset: ${datasetName}`);
         return;
       }
       
-      console.log(`🔍 Processing dataset: ${datasetName}`);
+      log.debug(`🔍 Processing dataset: ${datasetName}`);
       
       // Send processing status to client
       writeSse({
@@ -175,20 +177,20 @@ router.get('/stream-datasets', async (req, res) => {
                 const cacheAge = cachePayload.timestamp ? Date.now() - cachePayload.timestamp : 0;
                 fromCache = true;
                 const cacheTime = Date.now() - startTime;
-                console.log(`📋 Dataset ${datasetName} cache hit (Redis) in ${cacheTime}ms - data age: ${Math.round(cacheAge / 1000)}s`);
+                log.debug(`📋 Dataset ${datasetName} cache hit (Redis) in ${cacheTime}ms - data age: ${Math.round(cacheAge / 1000)}s`);
               } catch (parseError) {
-                console.warn(`Failed to parse cache payload for ${datasetName}:`, parseError.message);
+                log.warn(`Failed to parse cache payload for ${datasetName}:`, parseError.message);
                 result = null;
               }
               
               // DO NOT extend TTL on cache hit - this causes data to become permanently stale
               // Instead, let the cache expire naturally at its original TTL
               // This ensures fresh data is fetched at regular intervals
-              console.log(`� Using cached ${datasetName} at original TTL (no extension to prevent staleness)`);
+              log.debug(`� Using cached ${datasetName} at original TTL (no extension to prevent staleness)`);
             }
           }
         } catch (redisError) {
-          console.warn(`Redis cache read failed for ${datasetName}:`, redisError.message);
+          log.warn(`Redis cache read failed for ${datasetName}:`, redisError.message);
         }
       }
 
@@ -196,7 +198,7 @@ router.get('/stream-datasets', async (req, res) => {
       if (!result) {
         // If client disconnected, still need to send error status to avoid UI hanging
         if (!isClientConnected) {
-          console.warn(`⚠️ Client disconnected before fetching ${datasetName}, sending error to UI`);
+          log.warn(`⚠️ Client disconnected before fetching ${datasetName}, sending error to UI`);
           writeSse({
             type: 'dataset-error',
             dataset: datasetName,
@@ -219,7 +221,7 @@ router.get('/stream-datasets', async (req, res) => {
           timeoutMs = 600000; // 10 minutes for other heavy datasets
         }
         
-        console.log(`🚀 Fetching ${datasetName} from source (timeout: ${timeoutMs}ms, heavy: ${isHeavyDataset}, collected/poid: ${isCollectedTimeOrPoid}) - cache miss`);
+        log.debug(`🚀 Fetching ${datasetName} from source (timeout: ${timeoutMs}ms, heavy: ${isHeavyDataset}, collected/poid: ${isCollectedTimeOrPoid}) - cache miss`);
         
         try {
           // For heavy datasets, DON'T abort on client disconnect - continue fetching and cache the result
@@ -242,16 +244,16 @@ router.get('/stream-datasets', async (req, res) => {
               })
             );
           } else {
-            console.log(`🔒 Heavy dataset ${datasetName} will complete even if client disconnects (for caching)`);
+            log.debug(`🔒 Heavy dataset ${datasetName} will complete even if client disconnects (for caching)`);
           }
           
           result = await Promise.race(racePromises);
           
           const fetchTime = Date.now() - fetchStartTime;
-          console.log(`✅ Dataset ${datasetName} fetched in ${fetchTime}ms, result type:`, typeof result, 'array length:', Array.isArray(result) ? result.length : 'not array');
+          log.debug(`✅ Dataset ${datasetName} fetched in ${fetchTime}ms, result type:`, typeof result, 'array length:', Array.isArray(result) ? result.length : 'not array');
         } catch (fetchError) {
           const fetchTime = Date.now() - fetchStartTime;
-          console.error(`❌ Dataset ${datasetName} fetch failed after ${fetchTime}ms:`, fetchError.message);
+          log.error(`❌ Dataset ${datasetName} fetch failed after ${fetchTime}ms:`, fetchError.message);
           throw fetchError;
         }
         
@@ -275,10 +277,10 @@ router.get('/stream-datasets', async (req, res) => {
             };
             
             await redisClient.setEx(cacheKey, ttl, JSON.stringify(cachePayload));
-            console.log(`� Dataset ${datasetName} cached (TTL: ${ttl}s, expires at ${new Date(Date.now() + ttl * 1000).toISOString()})`);
+            log.debug(`� Dataset ${datasetName} cached (TTL: ${ttl}s, expires at ${new Date(Date.now() + ttl * 1000).toISOString()})`);
           }
         } catch (redisError) {
-          console.warn(`Redis cache write failed for ${datasetName}:`, redisError.message);
+          log.warn(`Redis cache write failed for ${datasetName}:`, redisError.message);
         }
       }
 
@@ -294,12 +296,12 @@ router.get('/stream-datasets', async (req, res) => {
         processingTimeMs: totalTime
       });
 
-      console.log(`✅ Dataset ${datasetName} sent to client (total time: ${totalTime}ms)`);
+      log.debug(`✅ Dataset ${datasetName} sent to client (total time: ${totalTime}ms)`);
 
     } catch (error) {
       const totalTime = Date.now() - startTime;
-      console.error(`❌ Dataset ${datasetName} failed after ${totalTime}ms:`, error.message);
-      console.error('Full error:', error);
+      log.error(`❌ Dataset ${datasetName} failed after ${totalTime}ms:`, error.message);
+      log.error('Full error:', error);
       
       // Send error status to client
       writeSse({
@@ -317,7 +319,7 @@ router.get('/stream-datasets', async (req, res) => {
     const lightDatasets = datasetsParam.filter(d => !['wip', 'recoveredFees', 'poidData'].includes(d));
     const heavyDatasets = datasetsParam.filter(d => ['wip', 'recoveredFees', 'poidData'].includes(d));
 
-    console.log(`🚀 Processing light datasets: [${lightDatasets.join(', ')}]`);
+    log.debug(`🚀 Processing light datasets: [${lightDatasets.join(', ')}]`);
     
     // Process light datasets concurrently
     await Promise.all(lightDatasets.map(processDataset));
@@ -327,7 +329,7 @@ router.get('/stream-datasets', async (req, res) => {
       return; // 'close' handler already ended response
     }
 
-    console.log(`🔥 Processing heavy datasets: [${heavyDatasets.join(', ')}]`);
+    log.debug(`🔥 Processing heavy datasets: [${heavyDatasets.join(', ')}]`);
     
     // Process heavy datasets sequentially to avoid overwhelming the system
     for (const dataset of heavyDatasets) {
@@ -337,11 +339,11 @@ router.get('/stream-datasets', async (req, res) => {
     }
 
     // Send completion signal
-    console.log(`✅ All datasets completed, sending completion signal`);
+    log.debug(`✅ All datasets completed, sending completion signal`);
     writeSse({ type: 'complete' });
     if (!res.writableEnded) res.end();
   } catch (globalError) {
-    console.error('❌ Global streaming error:', globalError);
+    log.error('❌ Global streaming error:', globalError);
     writeSse({ 
       type: 'error', 
       error: 'Stream processing failed: ' + globalError.message 
@@ -463,12 +465,12 @@ async function fetchAllMatters({ connectionString, range }) {
           WHERE TRY_CONVERT(date, COALESCE(${coalesceClause}))
             BETWEEN @dateFrom AND @dateTo
         `;
-        console.log(`🔍 Matters Query (scoped via ${coalesceClause}): ${fromDate} → ${toDate}`);
+        log.debug(`🔍 Matters Query (scoped via ${coalesceClause}): ${fromDate} → ${toDate}`);
       } else {
-        console.warn('⚠️ Matters range requested but no recognized date columns found; returning full dataset');
+        log.warn('⚠️ Matters range requested but no recognized date columns found; returning full dataset');
       }
     } else {
-      console.log('🔍 Matters Query: no range supplied, returning full dataset');
+      log.debug('🔍 Matters Query: no range supplied, returning full dataset');
     }
 
     const result = await request.query(query);
@@ -482,7 +484,7 @@ async function fetchWip({ connectionString, range }) {
     : getLast24MonthsExcludingCurrentWeek();
   const { from, to } = resolvedRange;
   const rangeLabel = range ? 'custom' : 'default';
-  console.log(`🔍 WIP Query (${rangeLabel}, paged): ${formatDateOnly(from)} → ${formatDateOnly(to)}`);
+  log.debug(`🔍 WIP Query (${rangeLabel}, paged): ${formatDateOnly(from)} → ${formatDateOnly(to)}`);
 
   // Page by calendar month to avoid any implicit row caps
   const windows = enumerateMonthlyWindows(from, to);
@@ -516,7 +518,7 @@ async function fetchWip({ connectionString, range }) {
 
   // Sort newest first to match previous behaviour
   all.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)) || (Number(b.id || 0) - Number(a.id || 0)));
-  console.log(`✅ WIP Query: Combined ${all.length} records across ${windows.length} windows`);
+  log.debug(`✅ WIP Query: Combined ${all.length} records across ${windows.length} windows`);
   return all;
 }
 
@@ -526,14 +528,14 @@ async function fetchRecoveredFees({ connectionString, range }) {
     : getLast24MonthsRange();
   const { from, to } = resolvedRange;
   const rangeLabel = range ? 'custom' : 'default';
-  console.log(`🔍 Recovered Fees Query (${rangeLabel}, optimized paged): ${formatDateOnly(from)} → ${formatDateOnly(to)}`);
+  log.debug(`🔍 Recovered Fees Query (${rangeLabel}, optimized paged): ${formatDateOnly(from)} → ${formatDateOnly(to)}`);
 
   // Optimize by using 3-month windows instead of monthly for better performance
   const windows = enumerateQuarterlyWindows(from, to);
   const all = [];
   let totalRows = 0;
 
-  console.log(`📊 Processing ${windows.length} quarterly windows for collected time data`);
+  log.debug(`📊 Processing ${windows.length} quarterly windows for collected time data`);
 
   for (const win of windows) {
     const pageStart = Date.now();
@@ -566,12 +568,12 @@ async function fetchRecoveredFees({ connectionString, range }) {
     });
     const pageTime = Date.now() - pageStart;
     totalRows += page.length;
-    console.log(`📊 Collected time window ${windows.indexOf(win) + 1}/${windows.length}: ${page.length} records in ${pageTime}ms (total: ${totalRows})`);
+    log.debug(`📊 Collected time window ${windows.indexOf(win) + 1}/${windows.length}: ${page.length} records in ${pageTime}ms (total: ${totalRows})`);
     all.push(...page);
   }
 
   // Limit sorting to improve performance - data is already ordered by query
-  console.log(`✅ Recovered Fees Query: Combined ${all.length} records across ${windows.length} quarterly windows`);
+  log.debug(`✅ Recovered Fees Query: Combined ${all.length} records across ${windows.length} quarterly windows`);
   return all;
 }
 
@@ -582,7 +584,7 @@ async function fetchRecoveredFeesSummary({ connectionString, entraId, clioId }) 
 
 async function fetchPoidData({ connectionString }) {
   const { from, to } = getLast24MonthsRange();
-  console.log(`🔍 POID Query (optimized): Fetching data from ${formatDateOnly(from)} to ${formatDateOnly(to)}`);
+  log.debug(`🔍 POID Query (optimized): Fetching data from ${formatDateOnly(from)} to ${formatDateOnly(to)}`);
   
   const queryStart = Date.now();
   
@@ -610,7 +612,7 @@ async function fetchPoidData({ connectionString }) {
     
     const queryTime = Date.now() - queryStart;
     const recordCount = result.recordset?.length || 0;
-    console.log(`✅ POID Query: Retrieved ${recordCount} ID submission records in ${queryTime}ms (avg: ${recordCount > 0 ? Math.round(queryTime/recordCount) : 0}ms/record)`);
+    log.debug(`✅ POID Query: Retrieved ${recordCount} ID submission records in ${queryTime}ms (avg: ${recordCount > 0 ? Math.round(queryTime/recordCount) : 0}ms/record)`);
     
     return Array.isArray(result.recordset) ? result.recordset : [];
   });
@@ -624,7 +626,7 @@ async function fetchWipClioCurrentWeek({ connectionString, entraId }) {
       return await fetchWipClioCurrentWeekDirect({ connectionString, entraId: null });
     }
   } catch (e) {
-    console.warn('Direct Clio current-week fetch failed in streaming route:', e.message);
+    log.warn('Direct Clio current-week fetch failed in streaming route:', e.message);
   }
   // Safe empty struct on failure
   return { current_week: { daily_data: {}, activities: [] }, last_week: { daily_data: {}, activities: [] } };
@@ -1002,7 +1004,7 @@ async function fetchMetaMetrics(daysBack = 30) {
           
           // Handle connection errors during response
           res.on('error', (error) => {
-            console.error(`Meta metrics response error (attempt ${attempt}/${maxRetries}):`, error);
+            log.error(`Meta metrics response error (attempt ${attempt}/${maxRetries}):`, error);
             reject(error);
           });
           
@@ -1013,21 +1015,21 @@ async function fetchMetaMetrics(daysBack = 30) {
           res.on('end', () => {
             try {
               if (res.statusCode !== 200) {
-                console.warn(`Meta metrics HTTP error ${res.statusCode} (attempt ${attempt}/${maxRetries})`);
+                log.warn(`Meta metrics HTTP error ${res.statusCode} (attempt ${attempt}/${maxRetries})`);
                 reject(new Error(`HTTP ${res.statusCode}: ${data.slice(0, 200)}`));
                 return;
               }
               
               const response = JSON.parse(data);
               if (response.success && response.data) {
-                console.log(`✅ Meta metrics fetched successfully (attempt ${attempt})`);
+                log.debug(`✅ Meta metrics fetched successfully (attempt ${attempt})`);
                 resolve(response.data);
               } else {
-                console.warn(`Meta metrics invalid response (attempt ${attempt}/${maxRetries}):`, response);
+                log.warn(`Meta metrics invalid response (attempt ${attempt}/${maxRetries}):`, response);
                 reject(new Error('Invalid response structure'));
               }
             } catch (error) {
-              console.error(`Meta metrics JSON parse error (attempt ${attempt}/${maxRetries}):`, error);
+              log.error(`Meta metrics JSON parse error (attempt ${attempt}/${maxRetries}):`, error);
               reject(error);
             }
           });
@@ -1035,15 +1037,15 @@ async function fetchMetaMetrics(daysBack = 30) {
 
         // Enhanced error handling for connection issues
         req.on('error', (error) => {
-          console.error(`Meta metrics request error (attempt ${attempt}/${maxRetries}):`, error.message);
+          log.error(`Meta metrics request error (attempt ${attempt}/${maxRetries}):`, error.message);
           if (error.code === 'ECONNRESET' || error.code === 'ECONNREFUSED') {
-            console.error('📡 Connection issue - the marketing-metrics endpoint may be unavailable');
+            log.error('📡 Connection issue - the marketing-metrics endpoint may be unavailable');
           }
           reject(error);
         });
 
         req.on('timeout', () => {
-          console.error(`Meta metrics request timeout (attempt ${attempt}/${maxRetries})`);
+          log.error(`Meta metrics request timeout (attempt ${attempt}/${maxRetries})`);
           req.destroy();
           reject(new Error('Request timeout'));
         });
@@ -1056,10 +1058,10 @@ async function fetchMetaMetrics(daysBack = 30) {
       return result; // Success - return data
       
     } catch (error) {
-      console.error(`Meta metrics attempt ${attempt}/${maxRetries} failed:`, error.message);
+      log.error(`Meta metrics attempt ${attempt}/${maxRetries} failed:`, error.message);
       
       if (attempt === maxRetries) {
-        console.error('❌ All Meta metrics retry attempts failed - returning empty data');
+        log.error('❌ All Meta metrics retry attempts failed - returning empty data');
         return []; // Final fallback
       }
       
@@ -1075,13 +1077,13 @@ async function fetchMetaMetrics(daysBack = 30) {
 async function fetchDeals({ connectionString, range }) {
   const resolvedRange = range ?? getLast24MonthsRange();
   const { from, to } = resolvedRange;
-  console.log(`🔍 Deals Query: Fetching data from ${formatDateOnly(from)} to ${formatDateOnly(to)}`);
+  log.debug(`🔍 Deals Query: Fetching data from ${formatDateOnly(from)} to ${formatDateOnly(to)}`);
   
   try {
     // Use the instructions database connection string (deals are in the same database)
     const instructionsConnStr = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
     if (!instructionsConnStr) {
-      console.log(`⚠️  Instructions database connection string not found - returning empty dataset`);
+      log.debug(`⚠️  Instructions database connection string not found - returning empty dataset`);
       return [];
     }
     
@@ -1102,7 +1104,7 @@ async function fetchDeals({ connectionString, range }) {
           ORDER BY PitchedDate DESC, DealId DESC
         `);
         
-        console.log(`✅ Deals Query: Retrieved ${result.recordset?.length || 0} records`);
+        log.debug(`✅ Deals Query: Retrieved ${result.recordset?.length || 0} records`);
         return Array.isArray(result.recordset) ? result.recordset : [];
       }),
       new Promise((_, reject) => 
@@ -1110,7 +1112,7 @@ async function fetchDeals({ connectionString, range }) {
       )
     ]);
   } catch (error) {
-    console.error('❌ Deals fetch error:', error);
+    log.error('❌ Deals fetch error:', error);
     return [];
   }
 }
@@ -1119,13 +1121,13 @@ async function fetchDeals({ connectionString, range }) {
 async function fetchInstructions({ connectionString, range }) {
   const resolvedRange = range ?? getLast24MonthsRange();
   const { from, to } = resolvedRange;
-  console.log(`🔍 Instructions Query: Fetching data from ${formatDateOnly(from)} to ${formatDateOnly(to)}`);
+  log.debug(`🔍 Instructions Query: Fetching data from ${formatDateOnly(from)} to ${formatDateOnly(to)}`);
   
   try {
     // Use the instructions database connection string
     const instructionsConnStr = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
     if (!instructionsConnStr) {
-      console.log(`⚠️  Instructions database connection string not found - returning empty dataset`);
+      log.debug(`⚠️  Instructions database connection string not found - returning empty dataset`);
       return [];
     }
     
@@ -1145,7 +1147,7 @@ async function fetchInstructions({ connectionString, range }) {
           ORDER BY SubmissionDate DESC, InstructionRef DESC
         `);
         
-        console.log(`✅ Instructions Query: Retrieved ${result.recordset?.length || 0} records`);
+        log.debug(`✅ Instructions Query: Retrieved ${result.recordset?.length || 0} records`);
         return Array.isArray(result.recordset) ? result.recordset : [];
       }),
       new Promise((_, reject) => 
@@ -1153,7 +1155,7 @@ async function fetchInstructions({ connectionString, range }) {
       )
     ]);
   } catch (error) {
-    console.error('❌ Instructions fetch error:', error);
+    log.error('❌ Instructions fetch error:', error);
     return [];
   }
 }

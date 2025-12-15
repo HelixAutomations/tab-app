@@ -86,7 +86,7 @@ This app uses [On-Behalf-Of flow](https://learn.microsoft.com/en-us/azure/active
    LZ_CLIO_V1_CLIENTSECRET=secret
    LZ_CLIO_V1_REFRESHTOKEN=refresh
    ```
-7. To refresh the local attendance dataset with dummy values derived from `data/team-sql-data.json`, run `npm run generate:attendance`.
+7. To refresh the local attendance dataset with dummy values, ensure the API server is running then run `npm run generate:attendance`.
 8. To refresh risk, compliance and ID verification data for the dashboard, run `npm run generate:risk` and `npm run generate:tiller`.
 9. To regenerate the POID records derived from instructions, run `npm run generate:idverifications`.
 10. To create sample snippet edit requests for local testing, run `npm run generate:snippets`.

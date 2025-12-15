@@ -787,12 +787,6 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
                                     </Text>
                                 </div>
                                 <Stack horizontal tokens={{ childrenGap: 12 }}>
-                                    <DefaultButton
-                                        text="Cancel"
-                                        onClick={onBack}
-                                        styles={defaultButtonStyles}
-                                        iconProps={{ iconName: 'Cancel' }}
-                                    />
                                     <PrimaryButton
                                         text={submitting ? 'Creating Task...' : submitStatus === 'success' ? 'Task Created!' : 'Submit Bundle'}
                                         onClick={handleSubmit}

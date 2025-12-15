@@ -93,27 +93,18 @@ const PasscodeGuard: React.FC<PasscodeGuardProps> = ({ children, title, onBack }
   return (
     <div style={containerStyle}>
       <div style={cardStyle}>
-        <Stack tokens={{ childrenGap: 20 }}>
-          <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 12 }}>
-            <Icon iconName="Lock" style={{ fontSize: 28, color: colours.cta }} />
-            <Stack>
-              <Text variant="xLarge" style={headerStyle}>
-                Protected Feature
+        <Stack tokens={{ childrenGap: 16 }}>
+          <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 10 }}>
+            <Icon iconName="Lock" style={{ fontSize: 20, color: isDarkMode ? '#94a3b8' : '#64748b' }} />
+            {title && (
+              <Text style={subtitleStyle}>
+                {title}
               </Text>
-              {title && (
-                <Text style={subtitleStyle}>
-                  {title}
-                </Text>
-              )}
-            </Stack>
+            )}
           </Stack>
 
-          <Text style={descriptionStyle}>
-            This feature is currently in development. Enter the passcode to access.
-          </Text>
-
           <TextField
-            label="Passcode"
+            placeholder="Passcode"
             type="password"
             value={passcode}
             onChange={(_, val) => {
@@ -135,7 +126,7 @@ const PasscodeGuard: React.FC<PasscodeGuardProps> = ({ children, title, onBack }
               />
             )}
             <PrimaryButton
-              text="Access"
+              text="Go"
               onClick={handleVerify}
               disabled={!passcode}
               styles={getFormPrimaryButtonStyles(isDarkMode)}

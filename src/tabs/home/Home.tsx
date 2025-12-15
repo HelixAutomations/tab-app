@@ -145,7 +145,6 @@ export function getLiveLocalEnquiries(currentUserEmail?: string) {
 // Lazy-loaded form components
 const Tasking = lazy(() => import('../../CustomForms/Tasking'));
 const TelephoneAttendance = lazy(() => import('../../CustomForms/TelephoneAttendance'));
-const CreateTimeEntryForm = lazy(() => import('../../CustomForms/CreateTimeEntryForm'));
 const AnnualLeaveForm = lazy(() => import('../../CustomForms/AnnualLeaveForm'));
 // NEW: Import placeholders for approvals & bookings
 const AnnualLeaveApprovals = lazy(() => import('../../CustomForms/AnnualLeaveApprovals'));
@@ -1662,14 +1661,6 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
           const attendanceResult = await attendanceResponse.json();
           
           if (attendanceResult.success) {
-            // DEBUG: Log raw API response
-            console.log('🔍 RAW API RESPONSE:', {
-              attendanceCount: attendanceResult.attendance?.length,
-              teamCount: attendanceResult.team?.length,
-              sampleAttendance: attendanceResult.attendance?.[0],
-              sampleTeam: attendanceResult.team?.[0]
-            });
-            
             // API returns:
             // - attendance: [{ First, Initials, Status, Week_Start, ... }] (new format)
             // - team: [{ First, Initials, Nickname, Status }]
@@ -1696,8 +1687,6 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
                 isOnLeave: member.IsOnLeave === 1 || member.IsOnLeave === true
               });
             });
-            
-            console.log('🔍 TRANSFORMED ATTENDANCE:', transformedAttendance);
             
             const transformedData = {
               attendance: transformedAttendance,
@@ -1963,72 +1952,16 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
     setIsLoadingAllMatters(false);
   }, [userData?.[0]?.FullName, useLocalData]);
 
-  // NEW: useEffect for fetching POID6Years data
+  // POID6Years: Stream handles this; only use cache for instant display
   useEffect(() => {
     if (cachedPOID6Years) {
       setPoid6Years(cachedPOID6Years);
       setIsLoadingPOID6Years(false);
-      // Call the callback to pass data back to App
-      if (onPOID6YearsFetched) {
-        onPOID6YearsFetched(cachedPOID6Years);
-      }
-    } else {
-      const fetchPOID6Years = async () => {
-        try {
-          setIsLoadingPOID6Years(true);
-          const response = await fetch(
-            '/api/poid/6years',
-            { method: 'GET' }
-          );
-          if (!response.ok) {
-            throw new Error(`Failed to fetch POID6Years: ${response.status}`);
-          }
-          const data = await response.json();
-          cachedPOID6Years = data;
-          setPoid6Years(data);
-          // Here we call the callback to pass the data back to App
-          if (onPOID6YearsFetched) {
-            onPOID6YearsFetched(data);
-          }
-        } catch (error: any) {
-          console.error('Error fetching POID6Years:', error);
-          setPoid6YearsError(error.message || 'Unknown error occurred.');
-        } finally {
-          setIsLoadingPOID6Years(false);
-        }
-      };
-      fetchPOID6Years();
+      onPOID6YearsFetched?.(cachedPOID6Years);
     }
   }, []);  
 
-  useEffect(() => {
-    async function fetchSpaceBookings() {
-      try {
-        const response = await fetch(
-          '/api/future-bookings'
-        );
-        if (!response.ok) {
-          throw new Error(`Error fetching space bookings: ${response.status}`);
-        }
-        const data = await response.json();
-        // Separate bookings by space type
-        const boardroomBookings = data.boardroomBookings || [];
-        const soundproofBookings = data.soundproofBookings || [];
-        // Update the futureBookings state
-        setFutureBookings({ boardroomBookings, soundproofBookings });
-        // Optionally, call your callbacks too
-        if (typeof onBoardroomBookingsFetched === "function") {
-          onBoardroomBookingsFetched(boardroomBookings);
-        }
-        if (typeof onSoundproofBookingsFetched === "function") {
-          onSoundproofBookingsFetched(soundproofBookings);
-        }
-      } catch (error) {
-        console.error("Error fetching space bookings:", error);
-      }
-    }
-    fetchSpaceBookings();
-  }, []);
+  // Future bookings: Stream handles this now (removed duplicate fetch)
 
   // Stream Home metrics progressively; update state as each arrives
   useHomeMetricsStream({
@@ -2066,112 +1999,34 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
     },
   });
 
+  // Transactions: Only fetch if using local data (stream handles live data)
   useEffect(() => {
-    async function fetchTransactions() {
-      if (useLocalData) {
-        const data: Transaction[] = (localTransactions as any) as Transaction[];
-        cachedTransactions = data;
-        setTransactions(data);
-        if (onTransactionsFetched) {
-          onTransactionsFetched(data);
-        }
-        return;
-      }
-      // Use cached data if available
-      if (cachedTransactions) {
-        setTransactions(cachedTransactions); // Update local state
-        if (onTransactionsFetched) {
-          onTransactionsFetched(cachedTransactions);
-        }
-        return;
-      }
-      try {
-        // Migrated to Express server route for connection pooling (cold start fix)
-        const response = await fetch('/api/transactions');
-        if (!response.ok) {
-          throw new Error(`Failed to fetch transactions: ${response.status}`);
-        }
-        const data = await response.json();
-        // Cache the data for future use
-        cachedTransactions = data;
-        setTransactions(data); // Update local state with fetched transactions
-        if (onTransactionsFetched) {
-          onTransactionsFetched(data);
-        }
-      } catch (error) {
-        console.error("Error fetching transactions:", error);
-      }
+    if (useLocalData) {
+      const data: Transaction[] = (localTransactions as any) as Transaction[];
+      cachedTransactions = data;
+      setTransactions(data);
+      onTransactionsFetched?.(data);
     }
-    fetchTransactions();
-  }, []); // Runs only once on component mount  
+  }, [useLocalData]);
   
 
+  // Outstanding Balances: Only load from localStorage/local data (stream handles live fetch)
   useEffect(() => {
-    // 1. Try loading from localStorage
+    // Load from localStorage for instant display while stream fetches fresh
     const storedData = safeGetItem('outstandingBalancesData');
     if (storedData) {
       const parsedData = JSON.parse(storedData);
-      if (onOutstandingBalancesFetched) {
-        onOutstandingBalancesFetched(parsedData);
-      }
+      onOutstandingBalancesFetched?.(parsedData);
       setOutstandingBalancesData(parsedData);
     }
 
     if (useLocalData) {
       const data = localOutstandingBalances as any;
       cachedOutstandingBalances = data;
-      if (onOutstandingBalancesFetched) {
-        onOutstandingBalancesFetched(data);
-      }
+      onOutstandingBalancesFetched?.(data);
       setOutstandingBalancesData(data);
-      return;
     }
-
-    async function fetchOutstandingBalances() {
-      try {
-        const response = await fetch('/api/outstanding-balances', {
-          method: "GET",
-          headers: { "Content-Type": "application/json" },
-        });
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error("Error fetching outstanding client balances:", errorText);
-          return null;
-        }
-        return await response.json();
-      } catch (err) {
-        console.error("Error fetching outstanding client balances:", err);
-        return null;
-      }
-    }
-  
-    async function loadOutstandingBalances() {
-      // Optional: Use in-memory cache if available
-      if (cachedOutstandingBalances) {
-        if (onOutstandingBalancesFetched) {
-          onOutstandingBalancesFetched(cachedOutstandingBalances);
-        }
-        setOutstandingBalancesData(cachedOutstandingBalances);
-        // Note: We do NOT return here so that we still fetch fresh data.
-      }
-    
-      try {
-        const data = await fetchOutstandingBalances();
-        if (data) {
-          cachedOutstandingBalances = data; // Cache in-memory for subsequent calls
-          safeSetItem('outstandingBalancesData', JSON.stringify(data));
-          if (onOutstandingBalancesFetched) {
-            onOutstandingBalancesFetched(data);
-          }
-          setOutstandingBalancesData(data);
-        }
-      } catch (error) {
-        console.error("Error in loadOutstandingBalances:", error);
-      }
-    }
-    
-    loadOutstandingBalances();
-  }, []);  
+  }, [useLocalData]);  
 
   const columns = useMemo(() => createColumnsFunction(isDarkMode), [isDarkMode]);
 
@@ -2200,11 +2055,6 @@ const transformedAttendanceRecords = useMemo(() => {
   if (!cachedAttendance && !attendanceRecords.length) return [];
   const rawRecords = cachedAttendance?.attendance || attendanceRecords;
   
-  console.log('🔍 transformedAttendanceRecords input:', {
-    rawRecordsCount: rawRecords?.length,
-    sampleRecord: rawRecords?.[0]
-  });
-  
   // Records should already be in the correct format from the fetch handler
   // Just pass them through, ensuring required fields are present
   const result = rawRecords
@@ -2231,11 +2081,6 @@ const transformedAttendanceRecords = useMemo(() => {
         isOnLeave: record.isOnLeave || false
       };
     });
-  
-  console.log('🔍 transformedAttendanceRecords output:', {
-    resultCount: result?.length,
-    sampleResult: result?.[0]
-  });
   
   return result;
 }, [attendanceRecords, transformedTeamData]);

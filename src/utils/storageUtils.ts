@@ -121,7 +121,7 @@ export const safeSetItem = (key: string, value: string): boolean => {
     return true;
   } catch (error) {
     if (error instanceof DOMException && error.name === 'QuotaExceededError') {
-      console.warn('🚨 localStorage quota exceeded, attempting cleanup...');
+      console.warn('[Storage] localStorage quota exceeded, attempting cleanup');
       
       // Try cleanup and retry
       cleanupLocalStorage();
@@ -134,11 +134,11 @@ export const safeSetItem = (key: string, value: string): boolean => {
         }
         return true;
       } catch (retryError) {
-        console.error(`❌ Failed to store ${key} even after cleanup:`, retryError);
+        console.error(`[Storage] Failed to store ${key} even after cleanup:`, retryError);
         return false;
       }
     } else {
-      console.error(`❌ Failed to store ${key}:`, error);
+      console.error(`[Storage] Failed to store ${key}:`, error);
       return false;
     }
   }
@@ -181,8 +181,9 @@ export const hasStorageSpace = (estimatedSize: number): boolean => {
  * Log current storage usage (for debugging)
  */
 export const logStorageUsage = (): void => {
+  if (process.env.REACT_APP_DEBUG_VERBOSE !== 'true') return;
   const quota = getStorageQuota();
-  console.log('📊 localStorage Usage:', {
+  console.log('[Storage] localStorage Usage:', {
     usedMB: (quota.used / (1024 * 1024)).toFixed(2),
     totalMB: (quota.total / (1024 * 1024)).toFixed(2),
     percentUsed: quota.percentUsed.toFixed(1) + '%',

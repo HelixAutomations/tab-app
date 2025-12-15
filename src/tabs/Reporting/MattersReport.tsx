@@ -1499,7 +1499,6 @@ const MattersReport: React.FC<MattersReportProps> = ({
         
         const gclids = Array.from(gclidMap.keys());
         if (gclids.length === 0) {
-            console.log('[GoogleAds] No GCLIDs found in inspection results');
             return;
         }
         
@@ -1567,7 +1566,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                 });
             }
             
-            console.log(`[GoogleAds] Enriched ${allResults.size} GCLIDs with Google Ads data`);
+            // Google Ads enrichment complete
         } catch (err) {
             console.error('[GoogleAds] Error enriching with Google Ads data:', err);
         } finally {

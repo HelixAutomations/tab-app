@@ -6,7 +6,7 @@ const router = express.Router();
 const { append, redact } = require('../utils/opLog');
 
 // Set up Key Vault client for retrieving secrets
-const credential = new DefaultAzureCredential();
+const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
 const vaultUrl = process.env.KEY_VAULT_URL || 'https://helix-keys.vault.azure.net/';
 const client = new SecretClient(vaultUrl, credential);
 

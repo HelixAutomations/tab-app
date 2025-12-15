@@ -78,7 +78,6 @@ export const getFormContentStyle = (isDarkMode: boolean): React.CSSProperties =>
 export const getFormSectionStyle = (isDarkMode: boolean, accentColor?: string): React.CSSProperties => ({
   background: isDarkMode ? 'rgba(30, 41, 59, 0.3)' : '#ffffff',
   border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
-  borderLeft: accentColor ? `3px solid ${accentColor}` : undefined,
   borderRadius: 0,
   padding: '1.25rem',
   marginBottom: '1.25rem',
@@ -164,42 +163,58 @@ export const getDropdownStyles = (isDarkMode: boolean) => ({
     borderRadius: 0,
     border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
     background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#ffffff',
+    height: '44px',
     minHeight: '44px',
   },
   title: {
     background: 'transparent',
     color: isDarkMode ? '#f1f5f9' : '#1e293b',
     fontSize: '14px',
-    lineHeight: '44px',
+    lineHeight: '42px',
+    height: '42px',
     borderRadius: 0,
+    border: 'none',
   },
   caretDownWrapper: {
     color: isDarkMode ? '#94a3b8' : '#64748b',
+    lineHeight: '42px',
+    height: '42px',
   },
   label: {
     fontWeight: 600 as const,
     fontSize: '13px',
     color: isDarkMode ? '#e2e8f0' : '#374151',
     marginBottom: '6px',
+    padding: 0,
   },
   callout: {
     borderRadius: 0,
     border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+    background: isDarkMode ? '#1e293b' : '#ffffff',
     boxShadow: isDarkMode 
       ? '0 8px 24px rgba(0, 0, 0, 0.4)' 
       : '0 8px 24px rgba(0, 0, 0, 0.12)',
+  },
+  dropdownItems: {
+    background: isDarkMode ? '#1e293b' : '#ffffff',
   },
   dropdownItem: {
     background: isDarkMode ? '#1e293b' : '#ffffff',
     color: isDarkMode ? '#f1f5f9' : '#1e293b',
     fontSize: '14px',
+    minHeight: '36px',
   },
   dropdownItemSelected: {
     background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.1)',
     color: isDarkMode ? '#f1f5f9' : '#1e293b',
   },
+  dropdownItemSelectedAndDisabled: {
+    background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.05)',
+    color: isDarkMode ? '#94a3b8' : '#9ca3af',
+  },
   dropdownItemHovered: {
     background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(0, 0, 0, 0.04)',
+    color: isDarkMode ? '#f1f5f9' : '#1e293b',
   },
 });
 
@@ -209,8 +224,8 @@ export const getDropdownStyles = (isDarkMode: boolean) => ({
 
 export const getFormPrimaryButtonStyles = (isDarkMode: boolean, accentColor?: string) => ({
   root: {
-    backgroundColor: accentColor || colours.cta,
-    borderColor: accentColor || colours.cta,
+    backgroundColor: accentColor || colours.highlight,
+    borderColor: accentColor || colours.highlight,
     borderRadius: 0,
     minHeight: '40px',
     padding: '0 24px',
@@ -218,18 +233,18 @@ export const getFormPrimaryButtonStyles = (isDarkMode: boolean, accentColor?: st
   rootHovered: {
     backgroundColor: accentColor 
       ? adjustColor(accentColor, -10) 
-      : colours.highlight,
+      : adjustColor(colours.highlight, -10),
     borderColor: accentColor 
       ? adjustColor(accentColor, -10) 
-      : colours.highlight,
+      : adjustColor(colours.highlight, -10),
   },
   rootPressed: {
     backgroundColor: accentColor 
       ? adjustColor(accentColor, -20) 
-      : colours.highlight,
+      : adjustColor(colours.highlight, -20),
     borderColor: accentColor 
       ? adjustColor(accentColor, -20) 
-      : colours.highlight,
+      : adjustColor(colours.highlight, -20),
   },
   rootDisabled: {
     backgroundColor: isDarkMode ? '#334155' : '#e2e8f0',
@@ -262,6 +277,177 @@ export const getFormDefaultButtonStyles = (isDarkMode: boolean) => ({
   },
 });
 
+// Decision/Selection button style - used when a button represents a selected option
+export const getFormDecisionButtonStyles = (isDarkMode: boolean) => ({
+  root: {
+    padding: '0 16px',
+    borderRadius: 0,
+    backgroundColor: colours.highlight,
+    border: 'none',
+    minHeight: '40px',
+    fontWeight: 600 as const,
+    color: '#ffffff',
+    transition: 'background 0.2s ease, box-shadow 0.2s ease',
+  },
+  rootHovered: {
+    backgroundColor: adjustColor(colours.highlight, -10),
+    boxShadow: '0 2px 8px rgba(54, 144, 206, 0.3)',
+  },
+  rootPressed: {
+    backgroundColor: adjustColor(colours.highlight, -15),
+    boxShadow: '0 2px 8px rgba(54, 144, 206, 0.4)',
+  },
+  rootDisabled: {
+    backgroundColor: isDarkMode ? '#334155' : '#e2e8f0',
+    color: isDarkMode ? '#64748b' : '#94a3b8',
+  },
+  label: {
+    color: '#ffffff',
+  },
+});
+
+// Large selection/choice button style - used for initial choices like space type selection
+export const getFormSelectionButtonStyles = (isDarkMode: boolean) => ({
+  root: {
+    padding: '16px 28px',
+    borderRadius: 0,
+    backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.6)' : colours.grey,
+    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.08)'}`,
+    height: '70px',
+    minWidth: '220px',
+    fontWeight: 600 as const,
+    fontSize: '18px',
+    color: isDarkMode ? '#e2e8f0' : colours.greyText,
+    transition: 'background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease',
+    boxShadow: isDarkMode ? '0 2px 8px rgba(0,0,0,0.2)' : '0 2px 6px rgba(0,0,0,0.1)',
+  },
+  rootHovered: {
+    backgroundColor: colours.highlight,
+    color: '#ffffff',
+    borderColor: colours.highlight,
+    boxShadow: '0 6px 16px rgba(54, 144, 206, 0.25)',
+    transform: 'translateY(-2px)',
+  },
+  rootPressed: {
+    backgroundColor: adjustColor(colours.highlight, -10),
+    color: '#ffffff',
+    borderColor: adjustColor(colours.highlight, -10),
+    boxShadow: '0 2px 8px rgba(54, 144, 206, 0.3)',
+    transform: 'translateY(0)',
+  },
+  icon: {
+    marginRight: '12px',
+    fontSize: '22px',
+  },
+  flexContainer: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});
+
+// Approve/Reject action button styles
+export const getFormApproveButtonStyles = (isDarkMode: boolean) => ({
+  root: {
+    backgroundColor: isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)',
+    borderColor: '#22c55e',
+    color: '#22c55e',
+    borderRadius: 0,
+    minHeight: '36px',
+    padding: '0 16px',
+    fontWeight: 600 as const,
+  },
+  rootHovered: {
+    backgroundColor: '#22c55e',
+    borderColor: '#22c55e',
+    color: '#ffffff',
+  },
+  rootPressed: {
+    backgroundColor: '#16a34a',
+    borderColor: '#16a34a',
+    color: '#ffffff',
+  },
+  rootDisabled: {
+    backgroundColor: isDarkMode ? '#334155' : '#e2e8f0',
+    borderColor: isDarkMode ? '#334155' : '#e2e8f0',
+    color: isDarkMode ? '#64748b' : '#94a3b8',
+  },
+});
+
+export const getFormRejectButtonStyles = (isDarkMode: boolean) => ({
+  root: {
+    backgroundColor: isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)',
+    borderColor: '#ef4444',
+    color: '#ef4444',
+    borderRadius: 0,
+    minHeight: '36px',
+    padding: '0 16px',
+    fontWeight: 600 as const,
+  },
+  rootHovered: {
+    backgroundColor: '#ef4444',
+    borderColor: '#ef4444',
+    color: '#ffffff',
+  },
+  rootPressed: {
+    backgroundColor: '#dc2626',
+    borderColor: '#dc2626',
+    color: '#ffffff',
+  },
+  rootDisabled: {
+    backgroundColor: isDarkMode ? '#334155' : '#e2e8f0',
+    borderColor: isDarkMode ? '#334155' : '#e2e8f0',
+    color: isDarkMode ? '#64748b' : '#94a3b8',
+  },
+});
+
+// ============================================================================
+// CHOICE GROUP / RADIO BUTTON STYLES
+// ============================================================================
+
+export const getChoiceGroupStyles = (isDarkMode: boolean) => ({
+  flexContainer: { 
+    display: 'flex', 
+    gap: '20px' 
+  },
+  label: { 
+    fontWeight: 600 as const, 
+    fontSize: '13px', 
+    color: isDarkMode ? '#e2e8f0' : '#374151', 
+    marginBottom: '8px' 
+  },
+  root: {
+    selectors: {
+      '.ms-ChoiceField': {
+        marginTop: 0,
+      },
+      '.ms-ChoiceField-field': {
+        color: isDarkMode ? '#e2e8f0' : '#374151',
+        fontWeight: 500 as const,
+      },
+      '.ms-ChoiceField-field::before': {
+        borderColor: isDarkMode ? '#64748b' : '#9ca3af',
+        borderWidth: '2px',
+        background: isDarkMode ? '#1e293b' : '#ffffff',
+      },
+      '.ms-ChoiceField-field:hover::before': {
+        borderColor: colours.highlight,
+      },
+      '.ms-ChoiceField-field.is-checked::before': {
+        borderColor: colours.highlight,
+      },
+      '.ms-ChoiceField-field.is-checked::after': {
+        backgroundColor: colours.highlight,
+        borderColor: colours.highlight,
+      },
+      '.ms-ChoiceFieldLabel': {
+        color: isDarkMode ? '#e2e8f0' : '#374151',
+        fontWeight: 500 as const,
+      },
+    },
+  },
+});
+
 // ============================================================================
 // MESSAGE BAR STYLES
 // ============================================================================
@@ -272,18 +458,53 @@ export const getMessageBarStyle = (isDarkMode: boolean): React.CSSProperties => 
 });
 
 // ============================================================================
-// ACCENT COLORS FOR DIFFERENT FORM TYPES
+// ACCENT OUTLINE BUTTON STYLES (for accent-colored bordered buttons)
 // ============================================================================
 
+export const getFormAccentOutlineButtonStyles = (isDarkMode: boolean, width?: string) => ({
+  root: {
+    width: width || 'auto',
+    backgroundColor: 'transparent',
+    color: isDarkMode ? colours.accent : colours.highlight,
+    borderColor: isDarkMode ? colours.accent : colours.highlight,
+    borderWidth: '1.5px',
+    borderRadius: 0,
+    fontWeight: 600 as const,
+    minHeight: '40px',
+    padding: '0 20px',
+  },
+  rootHovered: {
+    backgroundColor: isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.08)',
+    borderColor: isDarkMode ? colours.accent : colours.highlight,
+    color: isDarkMode ? colours.accent : colours.highlight,
+  },
+  rootPressed: {
+    backgroundColor: isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.12)',
+    borderColor: isDarkMode ? colours.accent : colours.highlight,
+    color: isDarkMode ? colours.accent : colours.highlight,
+  },
+  rootDisabled: {
+    backgroundColor: 'transparent',
+    borderColor: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+    color: isDarkMode ? '#475569' : '#cbd5e1',
+  },
+});
+
+// ============================================================================
+// ACCENT COLORS FOR FORMS - Consistent house styling
+// ============================================================================
+
+// All forms use consistent brand blue for house styling
+// The form category color is only used for the grouping indicator in FormsModal header
 export const formAccentColors = {
-  techIdea: colours.cta,           // Blue - Ideas
-  techProblem: '#dc3545',          // Red - Problems
-  expert: colours.highlight,       // Green - Experts
-  counsel: '#7c3aed',              // Purple - Counsel
-  bundle: '#ea580c',               // Orange - Bundles
-  attendance: '#0891b2',           // Teal - Attendance
-  leave: '#16a34a',                // Green - Leave
-  notableCase: '#8b5cf6',          // Violet - Notable cases
+  techIdea: colours.highlight,           // Brand blue #3690CE
+  techProblem: colours.highlight,        // Brand blue
+  expert: colours.highlight,             // Brand blue
+  counsel: colours.highlight,            // Brand blue
+  bundle: colours.highlight,             // Brand blue
+  attendance: colours.highlight,         // Brand blue
+  leave: colours.highlight,              // Brand blue
+  notableCase: colours.highlight,        // Brand blue
 };
 
 // ============================================================================
@@ -304,3 +525,41 @@ function adjustColor(hex: string, percent: number): string {
   const B = Math.min(255, Math.max(0, (num & 0x0000FF) + amt));
   return `#${(0x1000000 + R * 0x10000 + G * 0x100 + B).toString(16).slice(1)}`;
 }
+
+// ============================================================================
+// FORM MODE TOGGLE STYLES (Cognito/Bespoke Switcher)
+// ============================================================================
+
+export const getFormModeToggleStyles = (isDarkMode: boolean) => ({
+  container: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '4px',
+    background: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : 'rgba(0, 0, 0, 0.04)',
+    borderRadius: '6px',
+    marginBottom: '16px',
+    width: 'fit-content',
+  } as React.CSSProperties,
+  option: (isActive: boolean, isDisabled: boolean) => ({
+    padding: '6px 14px',
+    borderRadius: '4px',
+    fontSize: '12px',
+    fontWeight: 500,
+    cursor: isDisabled ? 'not-allowed' : 'pointer',
+    transition: 'all 0.15s ease',
+    background: isActive 
+      ? colours.cta
+      : 'transparent',
+    color: isActive 
+      ? '#ffffff' 
+      : (isDisabled 
+        ? (isDarkMode ? '#475569' : '#94a3b8')
+        : (isDarkMode ? '#94a3b8' : '#64748b')),
+    border: 'none',
+    opacity: isDisabled ? 0.6 : 1,
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+  } as React.CSSProperties),
+});

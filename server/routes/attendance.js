@@ -43,12 +43,12 @@ async function acquireAnnualLeaveRefreshLock(today) {
         try {
           await redisClient.del(lockKey);
         } catch (releaseError) {
-          console.warn('Failed to release annual leave refresh lock:', releaseError.message);
+          // Lock release failed, not critical
         }
       }
     };
   } catch (lockError) {
-    console.warn('Annual leave refresh lock acquisition failed; continuing without lock:', lockError.message);
+    // Lock acquisition failed, continue without lock
     return { acquired: true, release: async () => {} };
   }
 }
@@ -63,7 +63,6 @@ async function getAnnualLeaveDataWithForceControl(today, forceRefreshRequested) 
     if (!lockContext?.acquired) {
       effectiveForceRefresh = false;
       skippedReason = lockContext?.skipReason || 'refresh-already-running';
-      console.log('⚠️  Annual leave force refresh skipped:', skippedReason);
     }
   }
 
@@ -90,17 +89,14 @@ async function getGeneralAnnualLeaveData(today, { forceRefresh = false } = {}) {
   if (forceRefresh) {
     try {
       await deleteCache(cacheKey);
-      console.log('🧹 Cleared annual leave general cache before refresh');
     } catch (cacheError) {
-      console.warn('Failed to clear annual leave cache prior to force refresh:', cacheError.message);
+      // Cache clear failed, continue anyway
     }
   }
 
   return cacheWrapper(
     cacheKey,
     async () => {
-      console.log('🔍 Fetching fresh general annual leave data');
-
       const password = await getSqlPassword();
       if (!password) {
         throw new Error('Could not retrieve database credentials');
@@ -243,11 +239,8 @@ async function checkAnnualLeave() {
     return await cacheWrapper(
       cacheKey,
       async () => {
-        console.log('🔍 Fetching fresh annual leave data');
-        
         const password = await getSqlPassword();
         if (!password) {
-          console.warn('Could not retrieve SQL password for annual leave check');
           return new Set();
         }
 
@@ -294,8 +287,6 @@ const getAttendanceHandler = async (req, res) => {
     const cachedData = await cacheWrapper(
       cacheKey,
       async () => {
-        console.log('🔍 Fetching fresh attendance data from database');
-        
         const password = await getSqlPassword();
         if (!password) {
           throw new Error('Could not retrieve database credentials');
@@ -527,14 +518,13 @@ router.post('/updateAttendance', async (req, res) => {
 
     // Clear attendance cache after successful update
     try {
-      console.log('🗑️  Clearing attendance cache after update');
       await deleteCachePattern('attendance:*');
     } catch (cacheError) {
-      console.warn('Failed to clear attendance cache:', cacheError.message);
+      // Cache clear failed, not critical
     }
 
   } catch (error) {
-    console.error('Error updating attendance:', error);
+    console.error('Error updating attendance:', error.message || error);
     res.status(500).json({
       success: false,
       error: error.message
@@ -569,20 +559,19 @@ async function getSqlPassword() {
         if (redisClient) {
           const cachedPwd = await redisClient.get(redisCacheKey);
           if (cachedPwd) {
-            console.log('🔑 SQL password cache hit (Redis)');
             cachedSqlPassword = cachedPwd;
             sqlPasswordExpiry = Date.now() + 60 * 60 * 1000; // 1h TTL
             return cachedSqlPassword;
           }
         }
       } catch (redisError) {
-        console.warn('Redis cache miss for SQL password, fetching from Key Vault');
+        // Redis unavailable, fetch from Key Vault
       }
 
       // Fetch from Key Vault
-      console.log('🔑 Fetching SQL password from Key Vault');
       const kvUri = "https://helix-keys.vault.azure.net/";
-      const secretClient = new SecretClient(kvUri, new DefaultAzureCredential());
+      const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
+      const secretClient = new SecretClient(kvUri, credential);
       const secret = await secretClient.getSecret("sql-databaseserver-password");
       cachedSqlPassword = secret.value;
       sqlPasswordExpiry = Date.now() + 60 * 60 * 1000; // 1 hour cache
@@ -592,10 +581,9 @@ async function getSqlPassword() {
         const redisClient = await getRedisClient();
         if (redisClient) {
           await redisClient.setEx(redisCacheKey, 3600, cachedSqlPassword); // 1h TTL
-          console.log('💾 Cached SQL password in Redis');
         }
       } catch (redisError) {
-        console.warn('Failed to cache SQL password in Redis:', redisError.message);
+        // Redis cache write failed, continue
       }
 
       return cachedSqlPassword;
@@ -615,7 +603,8 @@ async function getSqlPassword() {
 async function getClioSecrets() {
   try {
     const kvUri = "https://helix-keys.vault.azure.net/";
-    const secretClient = new SecretClient(kvUri, new DefaultAzureCredential());
+    const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
+    const secretClient = new SecretClient(kvUri, credential);
     
     const [clientIdSecret, clientSecretObj, refreshTokenSecret] = await Promise.all([
       secretClient.getSecret("clio-calendars-clientid"),
@@ -886,14 +875,13 @@ router.post('/annual-leave', async (req, res) => {
 
     // Clear annual leave cache after successful creation
     try {
-      console.log('🗑️  Clearing annual leave cache after creation');
       await deleteCachePattern('attendance:annual-leave*');
     } catch (cacheError) {
-      console.warn('Failed to clear annual leave cache:', cacheError.message);
+      // Cache clear failed, not critical
     }
 
   } catch (error) {
-    console.error('Error inserting annual leave:', error);
+    console.error('Error inserting annual leave:', error.message || error);
     res.status(500).json({
       success: false,
       error: 'Failed to insert annual leave request'
@@ -905,18 +893,8 @@ router.post('/annual-leave', async (req, res) => {
 router.post('/updateAnnualLeave', async (req, res) => {
   try {
     const { id, newStatus, rejection_notes } = req.body;
-    
-    console.log('🔄 Annual Leave Update Request:', {
-      id,
-      newStatus,
-      rejection_notes,
-      idType: typeof id,
-      parsedId: parseInt(id, 10),
-      isValidId: !isNaN(parseInt(id, 10))
-    });
 
     if (!id || !newStatus) {
-      console.error('❌ Missing required fields:', { id, newStatus });
       return res.status(400).json({
         success: false,
         error: "Missing 'id' or 'newStatus' in request body."
@@ -953,7 +931,6 @@ router.post('/updateAnnualLeave', async (req, res) => {
     const projectDataConnStr = `Server=tcp:helix-database-server.database.windows.net,1433;Initial Catalog=helix-project-data;Persist Security Info=False;User ID=helix-database-server;Password=${password};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;`;
 
     // Update the record
-    console.log('🔄 Executing SQL update for request_id:', parsedId);
     const updateResult = await attendanceQuery(projectDataConnStr, (req, sql) =>
       req.input('id', sql.Int, parsedId)
         .input('newStatus', sql.VarChar(50), newStatus)
@@ -969,14 +946,8 @@ router.post('/updateAnnualLeave', async (req, res) => {
            WHERE [request_id] = @id;
         `)
     );
-    
-    console.log('📊 SQL Update Result:', {
-      rowsAffected: updateResult.rowsAffected,
-      recordset: updateResult.recordset
-    });
 
     if (updateResult.rowsAffected[0] === 0) {
-      console.error('❌ No rows affected - record not found:', { parsedId, newStatus });
       return res.status(404).json({
         success: false,
         error: `No record found with ID ${id}, or the status transition is invalid.`
@@ -1039,14 +1010,13 @@ router.post('/updateAnnualLeave', async (req, res) => {
 
     // Clear annual leave cache after successful update
     try {
-      console.log('🗑️  Clearing annual leave cache after status update');
       await deleteCachePattern('attendance:annual-leave*');
     } catch (cacheError) {
-      console.warn('Failed to clear annual leave cache:', cacheError.message);
+      // Cache clear failed, not critical
     }
 
   } catch (error) {
-    console.error('Error updating annual leave:', error);
+    console.error('Error updating annual leave:', error.message || error);
     res.status(500).json({
       success: false,
       error: 'Failed to update annual leave status'

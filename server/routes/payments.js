@@ -48,8 +48,6 @@ router.delete('/delete', async (req, res) => {
             return res.status(400).json({ error: 'Payment ID is required' });
         }
 
-        console.log(`${archive ? '📦 Archiving' : '🗑️ Deleting'} payment: ${paymentId}`);
-
         // Get database configuration
         const config = await getDbConfig();
         
@@ -73,7 +71,6 @@ router.delete('/delete', async (req, res) => {
                 return res.status(404).json({ error: 'Payment not found' });
             }
 
-            console.log(`✅ Payment ${paymentId} archived successfully`);
             res.json({
                 success: true,
                 message: 'Payment archived successfully',
@@ -94,7 +91,6 @@ router.delete('/delete', async (req, res) => {
                 return res.status(404).json({ error: 'Payment not found' });
             }
 
-            console.log(`✅ Payment ${paymentId} deleted successfully`);
             res.json({
                 success: true,
                 message: 'Payment deleted successfully',

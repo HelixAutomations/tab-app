@@ -24,8 +24,6 @@ router.get('/', async (req, res) => {
     const transactions = await cacheWrapper(
       cacheKey,
       async () => {
-        console.log('🔍 Fetching fresh transactions from database');
-        
         const result = await withRequest(connectionString, async (request) => {
           const query = `
             SELECT *
@@ -43,7 +41,7 @@ router.get('/', async (req, res) => {
     // Return the transactions
     res.json(transactions);
   } catch (error) {
-    console.error('[Transactions Route] Error fetching transactions:', error);
+    console.error('[Transactions Route] Error fetching transactions:', error.message || error);
     // Don't leak error details to browser
     res.status(500).json({ 
       error: 'Failed to fetch transactions'

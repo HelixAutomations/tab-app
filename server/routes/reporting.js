@@ -143,32 +143,22 @@ router.get('/management-datasets', async (req, res) => {
 
   // Join: Merge current-week (prefer Clio; fallback to DB if Clio unavailable) into payload for frontend consumption
   try {
-    console.log('🔍 Starting current-week merge process...');
-    
     // Extract activities array from the object structure returned by fetchWipClioCurrentWeek
     let clioActivities = responsePayload.wipClioCurrentWeek?.current_week?.activities 
       || (Array.isArray(responsePayload.wipClioCurrentWeek) ? responsePayload.wipClioCurrentWeek : null);
-    
-    console.log('📊 Clio activities found:', clioActivities ? clioActivities.length : 0);
     
     // Prefer lightweight last-week dataset when present; fallback to full wip if explicitly requested
     const dbWipActivities = Array.isArray(responsePayload.wipDbLastWeek)
       ? responsePayload.wipDbLastWeek
       : (Array.isArray(responsePayload.wip) ? responsePayload.wip : null);
 
-    console.log('📊 DB WIP activities found:', dbWipActivities ? dbWipActivities.length : 0);
-
     // If Clio data is missing or empty, populate current week from DB as a fallback
     if (!clioActivities || clioActivities.length === 0) {
-      console.log('⚠️ No Clio activities, trying DB fallback for current week...');
       // Prefer a direct DB query for the current week window
       try {
         const dbCurrentWeek = await fetchWipDbCurrentWeek({ connectionString });
         if (Array.isArray(dbCurrentWeek) && dbCurrentWeek.length > 0) {
           clioActivities = dbCurrentWeek;
-          console.log('✅ DB fallback successful, activities:', dbCurrentWeek.length);
-        } else {
-          console.log('❌ DB fallback returned no activities');
         }
       } catch (fallbackErr) {
         console.warn('DB fallback for current-week WIP failed:', fallbackErr.message);
@@ -176,10 +166,8 @@ router.get('/management-datasets', async (req, res) => {
     }
 
     if (clioActivities || dbWipActivities) {
-      console.log('🔄 Computing weekly aggregations...');
       // Compute current and last week bounds
       const { start: currentStart, end: currentEnd } = getCurrentWeekBounds();
-      console.log('📅 Current week bounds:', formatDateOnly(currentStart), 'to', formatDateOnly(currentEnd));
       
       const lastWeekStart = new Date(currentStart);
       lastWeekStart.setDate(currentStart.getDate() - 7);
@@ -196,12 +184,8 @@ router.get('/management-datasets', async (req, res) => {
         ? aggregateDailyData(dbWipActivities, lastWeekStart, lastWeekEnd)
         : {};
 
-      console.log('📈 Current week daily data days:', Object.keys(currentWeekDaily).length);
-      console.log('📈 Last week daily data days:', Object.keys(lastWeekDaily).length);
-
       // If Clio data was missing and we used DB fallback, also shape wipClioCurrentWeek to satisfy UI merge
       if ((!responsePayload.wipClioCurrentWeek || !responsePayload.wipClioCurrentWeek.current_week?.activities?.length) && clioActivities && clioActivities.length > 0) {
-        console.log('🔧 Shaping wipClioCurrentWeek from DB fallback');
         responsePayload.wipClioCurrentWeek = {
           current_week: { activities: clioActivities, daily_data: currentWeekDaily },
           last_week: { activities: [], daily_data: {} },
@@ -212,10 +196,6 @@ router.get('/management-datasets', async (req, res) => {
         current_week: { daily_data: currentWeekDaily, activities: clioActivities || [] },
         last_week: { daily_data: lastWeekDaily, activities: dbWipActivities || [] },
       };
-      
-      console.log('✅ wipCurrentAndLastWeek created with current week activities:', (clioActivities || []).length);
-    } else {
-      console.log('❌ No activities found for current or last week');
     }
   } catch (e) {
     console.error('Failed to merge current-week WIP from Clio', e);
@@ -509,7 +489,7 @@ async function fetchWipDbCurrentWeek({ connectionString }) {
 }
 
 // --- Direct Clio API Integration (replaced Azure Function call) ---
-const credential = new DefaultAzureCredential();
+const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
 const vaultUrl = process.env.KEY_VAULT_URL || 'https://helix-keys.vault.azure.net/';
 const kvClient = new SecretClient(vaultUrl, credential);
 
@@ -522,7 +502,6 @@ async function getClioCredentialsCached() {
     try {
       const cached = await redisClient.get(generateCacheKey('rpt', cacheKey));
       if (cached) {
-        console.log('📋 Clio credentials cache hit (Redis)');
         return JSON.parse(cached);
       }
     } catch (redisError) {
@@ -533,11 +512,9 @@ async function getClioCredentialsCached() {
   // Fallback to existing in-memory cache
   const cached = cache.get(cacheKey);
   if (cached && cached.expires > Date.now()) {
-    console.log('📋 Clio credentials cache hit (memory)');
     return cached.data;
   }
   
-  console.log('🔄 Fetching fresh Clio credentials from Key Vault');
   const [refreshTokenSecret, clientSecret, clientIdSecret] = await Promise.all([
     kvClient.getSecret('clio-pbi-refreshtoken'),
     kvClient.getSecret('clio-pbi-secret'),
@@ -557,7 +534,6 @@ async function getClioCredentialsCached() {
   if (redisClient) {
     try {
       await redisClient.setEx(generateCacheKey('rpt', cacheKey), 3600, JSON.stringify(credentials)); // 1h TTL
-      console.log('💾 Cached Clio credentials in Redis (1h TTL)');
     } catch (redisError) {
       console.warn('Redis set failed for Clio credentials:', redisError.message);
     }
@@ -575,7 +551,6 @@ async function getClioAccessToken() {
     try {
       const cached = await redisClient.get(generateCacheKey('rpt', cacheKey));
       if (cached) {
-        console.log('🔑 Clio access token cache hit (Redis)');
         return cached; // Redis stores the token directly as string
       }
     } catch (redisError) {
@@ -586,11 +561,9 @@ async function getClioAccessToken() {
   // Fallback to existing in-memory cache
   const cached = cache.get(cacheKey);
   if (cached && cached.expires > Date.now()) {
-    console.log('🔑 Clio access token cache hit (memory)');
     return cached.data;
   }
   
-  console.log('🔄 Refreshing Clio access token');
   const { clientId, clientSecret, refreshToken } = await getClioCredentialsCached();
   
   const params = new URLSearchParams({
@@ -653,13 +626,11 @@ async function getClioAccessToken() {
   if (redisClient) {
     try {
       await redisClient.setEx(generateCacheKey('rpt', cacheKey), cacheTtl, accessToken);
-      console.log(`💾 Cached Clio access token in Redis (${cacheTtl}s TTL)`);
     } catch (redisError) {
       console.warn('Redis set failed for Clio access token:', redisError.message);
     }
   }
   
-  console.log(`✅ Successfully refreshed Clio access token (expires in ${expiresInSeconds}s)`);
   return accessToken;
 }
 
@@ -1163,7 +1134,6 @@ async function fetchDeals({ connectionString }) {
     // Use the instructions database connection string
     const instructionsConnStr = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
     if (!instructionsConnStr) {
-      console.log(`⚠️  Instructions database connection string not found - returning empty dataset`);
       return [];
     }
 
@@ -1176,11 +1146,10 @@ async function fetchDeals({ connectionString }) {
         ORDER BY PitchedDate DESC, DealId DESC
       `);
       
-      console.log(`✅ Deals Query: Retrieved ${result.recordset?.length || 0} records`);
       return Array.isArray(result.recordset) ? result.recordset : [];
     });
   } catch (error) {
-    console.error('❌ Deals fetch error:', error);
+    console.error('[Reporting] Deals fetch error:', error);
     return [];
   }
 }
@@ -1191,7 +1160,6 @@ async function fetchInstructions({ connectionString }) {
     // Use the instructions database connection string
     const instructionsConnStr = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
     if (!instructionsConnStr) {
-      console.log(`⚠️  Instructions database connection string not found - returning empty dataset`);
       return [];
     }
 
@@ -1203,11 +1171,10 @@ async function fetchInstructions({ connectionString }) {
         ORDER BY SubmissionDate DESC, InstructionRef DESC
       `);
       
-      console.log(`✅ Instructions Query: Retrieved ${result.recordset?.length || 0} records`);
       return Array.isArray(result.recordset) ? result.recordset : [];
     });
   } catch (error) {
-    console.error('❌ Instructions fetch error:', error);
+    console.error('[Reporting] Instructions fetch error:', error);
     return [];
   }
 }

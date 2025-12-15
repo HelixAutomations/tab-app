@@ -102,7 +102,6 @@ export function useClaimEnquiry() {
 
         try {
             const result = await claimEnquiry(enquiryId, userEmail, dataSource);
-            console.log('Enquiry claimed successfully:', result);
             return result;
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : 'Failed to claim enquiry';

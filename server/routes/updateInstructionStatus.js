@@ -41,10 +41,7 @@ async function getDbConfig() {
 router.post('/', async (req, res) => {
   const { instructionRef, stage, internalStatus, overrideReason, userInitials } = req.body;
   
-  console.log(`🎯 UPDATE INSTRUCTION STATUS - Ref: ${instructionRef}, Stage: ${stage}, InternalStatus: ${internalStatus}`);
-  
   if (!instructionRef || (!stage && !internalStatus)) {
-    console.log('❌ Bad request - missing required fields');
     return res.status(400).json({ 
       success: false,
       error: 'Missing instructionRef or status fields in request body' 
@@ -52,9 +49,7 @@ router.post('/', async (req, res) => {
   }
 
   try {
-    console.log('🔗 Getting database configuration...');
     const config = await getDbConfig();
-    console.log('🔗 Connecting to database...');
     const pool = await sql.connect(config);
     
     // Build dynamic update query based on provided fields
@@ -91,8 +86,6 @@ router.post('/', async (req, res) => {
       WHERE InstructionRef = @instructionRef
     `;
     
-    console.log(`Updating instruction ${instructionRef}...`);
-    
     const result = await request.query(updateQuery);
     
     if (result.rowsAffected[0] === 0) {
@@ -102,11 +95,8 @@ router.post('/', async (req, res) => {
       });
     }
     
-    console.log(`✅ Instruction ${instructionRef} updated successfully`);
-    
     // If the stage is "matter opened", close the corresponding deal
     if (stage === "matter opened") {
-      console.log('📊 Matter opened - closing corresponding deal...');
       try {
         const dealResponse = await fetch(`http://localhost:${process.env.PORT || 8080}/api/deals/close-by-instruction`, {
           method: 'POST',
@@ -116,13 +106,11 @@ router.post('/', async (req, res) => {
           body: JSON.stringify({ instructionRef })
         });
         
-        if (dealResponse.ok) {
-          console.log('✅ Deal closed successfully');
-        } else {
-          console.warn('⚠️ Failed to close deal, but instruction was updated');
+        if (!dealResponse.ok) {
+          console.warn('[updateInstructionStatus] Failed to close deal, but instruction was updated');
         }
       } catch (dealError) {
-        console.error('❌ Error closing deal:', dealError);
+        console.error('[updateInstructionStatus] Error closing deal:', dealError);
         // Don't fail the whole request if deal update fails
       }
     }

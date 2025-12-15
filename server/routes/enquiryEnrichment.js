@@ -1,15 +1,14 @@
 const express = require('express');
 const { withRequest } = require('../utils/db');
+const { loggers } = require('../utils/logger');
 
 const router = express.Router();
+const log = loggers.enquiries.child('Enrichment');
 
 // Unified enrichment endpoint - combines Teams and pitch data for enquiries
 router.get('/', async (req, res) => {
-  console.log('🚀 Enrichment API called with query:', req.query);
-  
   const connectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING || process.env.SQL_CONNECTION_STRING;
   if (!connectionString) {
-    console.error('❌ No SQL connection string configured');
     return res.status(500).json({ error: 'Instructions SQL connection string not configured' });
   }
 
@@ -17,15 +16,12 @@ router.get('/', async (req, res) => {
     const { enquiryIds, enquiryEmails } = req.query;
     
     if (!enquiryIds && !enquiryEmails) {
-      console.log('⚠️ No parameters provided');
       return res.status(400).json({ error: 'Either enquiryIds or enquiryEmails parameter required' });
     }
 
     // Parse parameters
     const ids = enquiryIds ? enquiryIds.split(',').map(id => id.trim()).filter(Boolean) : [];
     const emails = enquiryEmails ? enquiryEmails.split(',').map(email => email.trim().toLowerCase()).filter(Boolean) : [];
-
-    console.log(`🔍 Processing enrichment: ${ids.length} IDs, ${emails.length} emails`);
 
     const enrichmentData = await withRequest(connectionString, async (request) => {
       const sql = require('mssql');
@@ -78,9 +74,9 @@ router.get('/', async (req, res) => {
               if (!results[enquiryId]) results[enquiryId] = {};
               results[enquiryId].teamsData = {
                 ...row,
-                Phone: row.Phone || '', // Ensure Phone is never null/undefined
-                ClaimedBy: row.ClaimedBy || '', // Ensure ClaimedBy is never null/undefined
-                ClaimedAt: row.ClaimedAt || '', // Ensure ClaimedAt is never null/undefined
+                Phone: row.Phone || '',
+                ClaimedBy: row.ClaimedBy || '',
+                ClaimedAt: row.ClaimedAt || '',
                 teamsLink: generateTeamsDeepLink(
                   row.ChannelId, 
                   row.ActivityId, 
@@ -151,35 +147,29 @@ router.get('/', async (req, res) => {
               status: row.Status,
               areaOfWork: row.AreaOfWork,
               pitchedBy: row.PitchedBy,
-              pitchedDate: combinedPitchedDate, // Use combined datetime
+              pitchedDate: combinedPitchedDate,
               pitchedTime: row.PitchedTime,
               closeDate: row.CloseDate,
               closeTime: row.CloseTime,
               pitchContent: row.PitchContent,
-              scenarioId: row.ScenarioId, // Include the scenario ID from PitchContent
+              scenarioId: row.ScenarioId,
               scenarioDisplay: getScenarioDisplayName(row.AreaOfWork, row.ServiceDescription)
             };
             pitchByEmail.set(email, pitchEntry);
-            if (row.ScenarioId) {
-              console.log(`✅ Pitch found for ${email}: ScenarioId=${row.ScenarioId}, PitchedDate=${combinedPitchedDate}`);
-            }
           }
         });
 
-        // Add pitch data to results (need enquiry email mapping from frontend)
         return { results, pitchByEmail: Object.fromEntries(pitchByEmail) };
       }
 
       return { results, pitchByEmail: {} };
     }, 2);
 
-    // Transform to array format for easier consumption
+    // Transform to array format
     const enrichmentArray = Object.entries(enrichmentData.results).map(([enquiryId, data]) => ({
       enquiryId,
       ...data
     }));
-
-    console.log(`🔗 Enrichment: ${enrichmentArray.length} enquiries with Teams data, ${Object.keys(enrichmentData.pitchByEmail).length} emails with pitch data`);
 
     res.json({
       enquiryData: enrichmentArray,
@@ -187,7 +177,7 @@ router.get('/', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Error fetching enrichment data:', error);
+    log.fail('enquiry:enrich', error, { idCount: req.query.enquiryIds?.split(',').length });
     res.status(500).json({ 
       error: 'Failed to fetch enrichment data',
       detail: error.message 

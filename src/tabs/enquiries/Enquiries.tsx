@@ -279,31 +279,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     return (saved === 'card' || saved === 'table') ? saved : 'table';
   });
   
-  // Track if we should show the "new default" prompt (only once per session)
-  // TEMP: Force show for demo - remove the sessionStorage check
-  const [showViewModePrompt, setShowViewModePrompt] = useState(true);
-  
-  // Auto-dismiss timer for the view mode prompt (10 seconds)
-  const [promptTimeLeft, setPromptTimeLeft] = useState(10);
-  
-  // Auto-dismiss the prompt after 10 seconds
-  useEffect(() => {
-    if (!showViewModePrompt) return;
-    
-    const interval = setInterval(() => {
-      setPromptTimeLeft(prev => {
-        if (prev <= 1) {
-          setShowViewModePrompt(false);
-          sessionStorage.setItem('enquiries-view-mode-prompt-seen', 'true');
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    
-    return () => clearInterval(interval);
-  }, [showViewModePrompt]);
-
   // Persist view mode changes to sessionStorage
   useEffect(() => {
     sessionStorage.setItem('enquiries-view-mode', viewMode);
@@ -379,10 +354,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   });
   const allDataUrl = `/api/enquiries-unified?${allDataParams.toString()}`;
   
-  console.log('📅 TEAM-WIDE FETCH DATE RANGE:');
-  console.log(`From: ${dateFrom} (12 months ago)`);
-  console.log(`To: ${dateTo} (today)`);
-  console.log(`URL: ${allDataUrl}`);
+  // Date range: 12 months ago to today
       
       debugLog('🌐 Fetching ALL enquiries (unified) from:', allDataUrl);
       
@@ -409,21 +381,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         dataKeys: Object.keys(data),
         sampleData: JSON.stringify(data).substring(0, 200)
       });
-      
-      // Debug: Check specifically for ID 28609 in the raw response
-      if (data.enquiries && Array.isArray(data.enquiries)) {
-        const id28609Records = data.enquiries.filter((r: any) => String(r.ID || r.id).trim() === '28609');
-        console.log(`🔍 RAW API RESPONSE: Found ${id28609Records.length} records for ID 28609`);
-        if (id28609Records.length > 0) {
-          console.log('🔍 ID 28609 records from API:', id28609Records.map((r: any) => ({
-            ID: r.ID || r.id,
-            name: `${r.First_Name || r.first || ''} ${r.Last_Name || r.last || ''}`,
-            email: r.Email || r.email,
-            date: r.Touchpoint_Date || r.datetime,
-            source: r.source || 'unknown'
-          })));
-        }
-      }
       
       let rawEnquiries: any[] = [];
       if (Array.isArray(data)) {
@@ -724,24 +681,19 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             );
             
             if (result.success) {
-              console.log('✅ Enquiry claimed successfully from table view', { 
-                enquiryId: options.enquiryId, 
-                dataSource: options.dataSource,
-                operations: result.operations 
-              });
               // Background refresh to sync with server (non-blocking)
               if (onRefreshEnquiries) {
                 onRefreshEnquiries().catch(err => console.warn('Background refresh failed:', err));
               }
             } else {
-              console.error('❌ Failed to claim enquiry:', result.error);
+              console.error('[Enquiries] Failed to claim enquiry:', result.error);
               // Revert optimistic update by refreshing
               if (onRefreshEnquiries) {
                 await onRefreshEnquiries();
               }
             }
           } catch (err) {
-            console.error('❌ Error claiming enquiry:', err);
+            console.error('[Enquiries] Error claiming enquiry:', err);
             // Revert optimistic update by refreshing
             if (onRefreshEnquiries) {
               await onRefreshEnquiries();
@@ -1196,10 +1148,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const prevUserDataRef = useRef<typeof userData>();
   useEffect(() => {
     if (prevUserDataRef.current !== userData) {
-      if (process.env.REACT_APP_DEBUG_VERBOSE === 'true') {
-        // eslint-disable-next-line no-console
-        console.log('🎯 Enquiries: userData changed, resetting manual flag to allow UserBubble override');
-      }
       setUserManuallyChangedAreas(false);
       prevUserDataRef.current = userData;
     }
@@ -1688,13 +1636,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         if (!name) {
           // No name available - use ID + day + AOW to force uniqueness
           const key = `noid:${uniqueId}|${aow}|${day}`;
-          console.log(`[FUZZY] No name, team email. Key: ${key}`, { id: uniqueId, aow, day, email });
           return key;
         }
         
         // Name is present - use name + ID + day to ensure complete uniqueness
         const key = `${name}|${uniqueId}|${day}`;
-        console.log(`[FUZZY] Team email with name. Key: ${key}`, { name, id: uniqueId, day, email });
         return key;
       }
 
@@ -1777,16 +1723,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         const historyKey = `${String(e.ID || (e as any).id || 'shared')}|${createdAt(e).getTime()}|${uniqueSuffix}`;
         map.set(historyKey, e);
         continue;
-      }
-      
-      // Debug logging for prospects@
-      const email = normEmail((e as any).Email || (e as any).email);
-      if (email.includes('prospects@')) {
-        console.log(`[DEDUPE] Processing: ${(e as any).First_Name} ${(e as any).Last_Name} (ID: ${(e as any).ID || (e as any).id})`, {
-          baseKey,
-          hasExisting: !!existing,
-          existingName: existing ? `${(existing as any).First_Name} ${(existing as any).Last_Name}` : 'none'
-        });
       }
       
       if (!existing) {
@@ -2329,8 +2265,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // Delete enquiry function
   const handleDeleteEnquiry = useCallback(async (enquiryId: string, enquiryName: string) => {
     try {
-      console.log('🗑️ Deleting enquiry:', enquiryId, enquiryName);
-      
       const response = await fetch(`/api/enquiries-unified/${enquiryId}`, {
         method: 'DELETE',
         headers: {
@@ -2344,7 +2278,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       }
 
       const result = await response.json();
-      console.log('✅ Delete result:', result);
 
       // Remove from local state immediately for responsive UI
       setAllEnquiries(prevEnquiries => prevEnquiries.filter(e => e.ID !== enquiryId));
@@ -2357,11 +2290,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       setToastType('success');
       setToastVisible(true);
       setTimeout(() => setToastVisible(false), 3000);
-
-      console.log('✅ Enquiry deleted successfully:', enquiryId);
       
     } catch (error) {
-      console.error('❌ Failed to delete enquiry:', error);
+      console.error('[Enquiries] Failed to delete enquiry:', error);
       // Show error toast
       setToastMessage(`Failed to delete enquiry`);
       setToastDetails(error instanceof Error ? error.message : 'Unknown error');
@@ -2599,33 +2530,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       return new Map<string, (Enquiry & { __sourceType: 'new' | 'legacy' })[]>();
     }
 
-    // Debug: Analyze both datasets for ID 28609
-    const allEnquiries28609 = allEnquiries.filter(r => String(r.ID ?? (r as any).id).trim() === '28609');
-    const teamWide28609 = teamWideEnquiries.filter(r => String(r.ID ?? (r as any).id).trim() === '28609');
-    
-    console.log('📊 DATASET ANALYSIS FOR ID 28609:');
-    console.log(`allEnquiries total: ${allEnquiries.length}, ID 28609 count: ${allEnquiries28609.length}`);
-    console.log(`teamWideEnquiries total: ${teamWideEnquiries.length}, ID 28609 count: ${teamWide28609.length}`);
-    console.log(`Using dataset: ${dataset === teamWideEnquiries ? 'teamWideEnquiries' : 'allEnquiries'} (${dataset.length} records)`);
-    
-    if (allEnquiries28609.length > 0) {
-      console.log('📝 ID 28609 records in allEnquiries:', allEnquiries28609.map(r => ({
-        name: `${r.First_Name || ''} ${r.Last_Name || ''}`,
-        email: r.Email || (r as any).email,
-        date: r.Touchpoint_Date || (r as any).datetime,
-        source: r.__sourceType
-      })));
-    }
-    
-    if (teamWide28609.length > 0) {
-      console.log('🌐 ID 28609 records in teamWideEnquiries:', teamWide28609.map(r => ({
-        name: `${r.First_Name || ''} ${r.Last_Name || ''}`,
-        email: r.Email || (r as any).email,
-        date: r.Touchpoint_Date || (r as any).datetime,
-        source: r.__sourceType
-      })));
-    }
-
     const map = new Map<string, (Enquiry & { __sourceType: 'new' | 'legacy' })[]>();
     dataset.forEach((record) => {
       const rawId = record.ID ?? (record as any).id;
@@ -2645,48 +2549,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     return map;
   }, [teamWideEnquiries, allEnquiries, isLoadingAllData, fetchAllEnquiries]);
 
-  // Debug: Log what we actually have for ID 28609
-  useEffect(() => {
-    if (sharedProspectHistoryMap.size > 0) {
-      const id28609Records = sharedProspectHistoryMap.get('28609') || [];
-      const id23849Records = sharedProspectHistoryMap.get('23849') || [];
-      const id26069Records = sharedProspectHistoryMap.get('26069') || [];
-      
-      console.log('🔍 DETAILED ID ANALYSIS:');
-      console.log(`ID 28609: ${id28609Records.length} records total:`, id28609Records.map(r => ({
-        name: `${r.First_Name || ''} ${r.Last_Name || ''}`,
-        email: r.Email || (r as any).email,
-        date: r.Touchpoint_Date || (r as any).datetime,
-        poc: r.Point_of_Contact || (r as any).poc,
-        source: r.__sourceType
-      })));
-      
-      console.log(`ID 23849: ${id23849Records.length} records total:`, id23849Records.map(r => ({
-        name: `${r.First_Name || ''} ${r.Last_Name || ''}`,
-        email: r.Email || (r as any).email,
-        date: r.Touchpoint_Date || (r as any).datetime,
-        source: r.__sourceType
-      })));
-      
-      console.log(`ID 26069: ${id26069Records.length} records total:`, id26069Records.map(r => ({
-        name: `${r.First_Name || ''} ${r.Last_Name || ''}`,
-        email: r.Email || (r as any).email,
-        date: r.Touchpoint_Date || (r as any).datetime,
-        source: r.__sourceType
-      })));
-      
-      // Also check the source datasets
-      console.log('📊 DATASET ANALYSIS:');
-      console.log(`teamWideEnquiries: ${teamWideEnquiries.length} total records`);
-      console.log(`allEnquiries: ${allEnquiries.length} total records`);
-      console.log(`Dataset being used: ${teamWideEnquiries.length > 0 ? 'teamWide' : 'allEnquiries'}`);
-      
-      const datasetUsed = teamWideEnquiries.length > 0 ? teamWideEnquiries : allEnquiries;
-      const all28609 = datasetUsed.filter(r => String(r.ID || (r as any).id) === '28609');
-      console.log(`Total 28609 records in dataset: ${all28609.length}`);
-    }
-  }, [sharedProspectHistoryMap, teamWideEnquiries, allEnquiries]);
-
   const filteredEnquiriesWithSharedHistory = useMemo(() => {
     if (!filteredEnquiries.length || sharedProspectHistoryMap.size === 0) {
       return filteredEnquiries;
@@ -2697,17 +2559,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     const seen = new Set(filteredEnquiries.map(getRecordKey));
     const augmented = [...filteredEnquiries];
     let mutated = false;
-
-    // Debug: Log current state
-    const sharedIds = filteredEnquiries.filter(r => shouldAlwaysShowProspectHistory(r)).map(r => r.ID);
-    if (sharedIds.length > 0) {
-      console.log('🔍 SHARED HISTORY DEBUG:', {
-        sharedIdsInFilter: sharedIds,
-        historyMapSize: sharedProspectHistoryMap.size,
-        historyMapKeys: Array.from(sharedProspectHistoryMap.keys()),
-        filteredCount: filteredEnquiries.length
-      });
-    }
 
     filteredEnquiries.forEach((record) => {
       if (!shouldAlwaysShowProspectHistory(record) || !record.ID) {
@@ -2721,13 +2572,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
       const history = sharedProspectHistoryMap.get(id);
       if (!history || history.length === 0) {
-        console.log(`⚠️ No history found for shared ID ${id}`);
         return;
       }
 
-      console.log(`📚 Found ${history.length} history records for shared ID ${id}`);
-      
-      let added = 0;
       history.forEach((candidate) => {
         const key = getRecordKey(candidate);
         if (seen.has(key)) {
@@ -2736,10 +2583,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         augmented.push(candidate);
         seen.add(key);
         mutated = true;
-        added++;
       });
-      
-      console.log(`✅ Added ${added} new history records for ID ${id}`);
     });
 
     return mutated ? augmented : filteredEnquiries;
@@ -2833,23 +2677,15 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // Progressive enrichment for displayed items only (more efficient)
   useEffect(() => {
     const fetchProgressiveEnrichment = async () => {
-      console.log(`🔍 Checking enrichment for ${displayedItems.length} displayed items`);
-      console.log(`📊 Current enrichment map size: ${enrichmentMap.size}`);
-      console.log(`🔍 View context: showUnclaimedBoard=${showUnclaimedBoard}, showGroupedView=${showGroupedView}, viewMode=${viewMode}`);
-      
       // Get currently displayed enquiries that need enrichment
       const displayedEnquiries = displayedItems.filter((item): item is (Enquiry & { __sourceType: 'new' | 'legacy' }) => {
         if (!('ID' in item) || !item.ID) return false;
         const hasEnrichment = enrichmentMap.has(item.ID);
         const isBeingFetched = enrichmentRequestsRef.current.has(item.ID);
-        console.log(`📋 Item ${item.ID}: has enrichment = ${hasEnrichment}, being fetched = ${isBeingFetched}`);
         return !hasEnrichment && !isBeingFetched;
       });
 
-      console.log(`🎯 Items needing enrichment: ${displayedEnquiries.length}`);
-      
       if (displayedEnquiries.length === 0) {
-        console.log('✅ All displayed items already enriched or being processed');
         return; // All displayed items already enriched
       }
       
@@ -2874,8 +2710,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         .map(enquiry => enquiry.Email)
         .filter(Boolean)
         .filter(email => email.toLowerCase() !== 'team@helix-law.com');
-
-      console.log(`🔍 Progressive enrichment: ${displayedEnquiries.length} new items (${v2EnquiryIds.length} v2, ${enquiryEmails.length} emails)`);
 
       if (v2EnquiryIds.length > 0 || enquiryEmails.length > 0) {
         try {
@@ -2914,24 +2748,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
               const key = String(enquiry.ID);
               if (enquiry.ID && !newMap.has(key)) {
                 newMap.set(key, { enquiryId: key }); // Empty record
-                console.log(`📝 Created empty enrichment record for ${key}`);
               }
             });
-
-            console.log(`📦 Enrichment map now has ${newMap.size} entries:`, 
-              Array.from(newMap.entries()).map(([id, data]) => ({
-                id, 
-                hasTeams: !!data.teamsData, 
-                hasPitch: !!data.pitchData
-              }))
-            );
             
             return newMap;
           });
-          
-          const teamsCount = enrichmentResponse.enquiryData.filter((d: EnquiryEnrichmentData) => d.teamsData).length;
-          const pitchCount = Object.keys(enrichmentResponse.pitchByEmail).length;
-          console.log(`🔗 Progressive enrichment loaded: ${teamsCount} Teams links, ${pitchCount} pitch badges`);
           
           // Clear tracking for successfully processed items
           displayedEnquiries.forEach(enquiry => {
@@ -2940,7 +2761,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             }
           });
         } catch (error) {
-          console.error('⚠️ Progressive enrichment failed:', error);
+          console.error('[Enquiries] Progressive enrichment failed:', error);
           
           // Create empty enrichment records to stop spinners and clear tracking
           setEnrichmentMap(prevMap => {
@@ -2978,7 +2799,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   // Clear enrichment request tracking when view context changes significantly
   useEffect(() => {
-    console.log('🔄 View context changed, clearing enrichment request tracking');
     enrichmentRequestsRef.current.clear();
   }, [showUnclaimedBoard, showGroupedView, viewMode, selectedArea, dateRange?.oldest, dateRange?.newest, searchTerm]);
 
@@ -3683,159 +3503,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                 </span>
               </button>
             </div>
-              
-              {/* Table view prompt - drops out from toggle */}
-              {showViewModePrompt && viewMode === 'table' && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: 'calc(100% + 8px)',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    zIndex: 100,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                    padding: '8px 12px',
-                    background: isDarkMode ? 'rgba(30, 41, 59, 0.98)' : 'rgba(255, 255, 255, 0.98)',
-                    border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.25)'}`,
-                    borderRadius: 8,
-                    boxShadow: isDarkMode 
-                      ? '0 4px 20px rgba(0,0,0,0.4), 0 0 0 1px rgba(54, 144, 206, 0.2)'
-                      : '0 4px 20px rgba(0,0,0,0.15), 0 0 0 1px rgba(54, 144, 206, 0.1)',
-                    fontFamily: 'Raleway, sans-serif',
-                    whiteSpace: 'nowrap',
-                    animation: 'promptDropOut 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards',
-                    opacity: 0,
-                  }}
-                >
-                  <style>{`
-                    @keyframes promptDropOut {
-                      0% {
-                        opacity: 0;
-                        transform: translateX(-50%) translateY(-10px) scale(0.9);
-                      }
-                      100% {
-                        opacity: 1;
-                        transform: translateX(-50%) translateY(0) scale(1);
-                      }
-                    }
-                  `}</style>
-                  {/* Arrow pointing up to toggle */}
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: -6,
-                      left: '50%',
-                      width: 12,
-                      height: 12,
-                      background: isDarkMode ? 'rgba(30, 41, 59, 0.98)' : 'rgba(255, 255, 255, 0.98)',
-                      border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.25)'}`,
-                      borderRight: 'none',
-                      borderBottom: 'none',
-                      borderRadius: '2px 0 0 0',
-                      transform: 'translateX(-50%) rotate(45deg)',
-                    }}
-                  />
-                  <Icon 
-                    iconName="Info" 
-                    style={{ 
-                      fontSize: 14, 
-                      color: colours.highlight,
-                      flexShrink: 0,
-                    }} 
-                  />
-                  <span style={{ 
-                    fontSize: 11, 
-                    color: isDarkMode ? colours.dark.text : colours.light.text,
-                    lineHeight: 1.3,
-                  }}>
-                    Table view is now the default. Switch back anytime.
-                  </span>
-                  {/* Subtle timer indicator */}
-                  <div
-                    style={{
-                      position: 'relative',
-                      width: 18,
-                      height: 18,
-                      flexShrink: 0,
-                    }}
-                  >
-                    <svg
-                      width="18"
-                      height="18"
-                      viewBox="0 0 18 18"
-                      style={{ transform: 'rotate(-90deg)' }}
-                    >
-                      <circle
-                        cx="9"
-                        cy="9"
-                        r="7"
-                        fill="none"
-                        stroke={isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}
-                        strokeWidth="2"
-                      />
-                      <circle
-                        cx="9"
-                        cy="9"
-                        r="7"
-                        fill="none"
-                        stroke={colours.highlight}
-                        strokeWidth="2"
-                        strokeDasharray={`${(promptTimeLeft / 10) * 44} 44`}
-                        strokeLinecap="round"
-                        style={{ transition: 'stroke-dasharray 1s linear' }}
-                      />
-                    </svg>
-                    <span
-                      style={{
-                        position: 'absolute',
-                        top: '50%',
-                        left: '50%',
-                        transform: 'translate(-50%, -50%)',
-                        fontSize: 8,
-                        fontWeight: 600,
-                        color: isDarkMode ? colours.dark.subText : colours.light.subText,
-                      }}
-                    >
-                      {promptTimeLeft}
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowViewModePrompt(false);
-                      sessionStorage.setItem('enquiries-view-mode-prompt-seen', 'true');
-                    }}
-                    title="Dismiss"
-                    aria-label="Dismiss"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      width: 18,
-                      height: 18,
-                      padding: 0,
-                      border: 'none',
-                      borderRadius: '50%',
-                      background: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)',
-                      color: isDarkMode ? colours.dark.subText : colours.light.subText,
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease',
-                      flexShrink: 0,
-                      marginLeft: 2,
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)';
-                    }}
-                  >
-                    <Icon iconName="ChromeClose" style={{ fontSize: 8 }} />
-                  </button>
-                </div>
-              )}
             </div>
           )}
           refresh={{
@@ -6899,9 +6566,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           if (onRefreshEnquiries) {
             try {
               await onRefreshEnquiries();
-              console.log('✅ Enquiries refreshed successfully after contact creation');
             } catch (err) {
-              console.error('❌ Failed to refresh enquiries:', err);
+              console.error('[Enquiries] Failed to refresh after contact creation:', err);
             }
           }
           

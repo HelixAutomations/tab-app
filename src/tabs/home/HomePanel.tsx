@@ -327,7 +327,7 @@ const HomePanel: React.FC<HomePanelProps> = ({
                 <BespokeForm
                   fields={bespokeFormFields}
                   onSubmit={(values) => {
-                    console.log('Submitted Form:', values);
+                    // Form submitted - handled by BespokeForm onSubmit
                     onClose();
                   }}
                   onCancel={onClose}

@@ -36,7 +36,7 @@ router.get('/', async (req, res) => {
     
     if (!response.ok) {
       const errorText = await response.text();
-      console.warn(`❌ Function call failed: ${response.status} ${response.statusText}`, errorText);
+      console.warn(`[Enquiries] Function call failed: ${response.status} ${response.statusText}`, errorText);
       // Return empty data instead of failing - don't block app
       return res.status(200).json({ enquiries: [], count: 0, error: 'Data temporarily unavailable' });
     }
@@ -45,7 +45,7 @@ router.get('/', async (req, res) => {
   // Enquiries data fetched
     res.json(data);
   } catch (err) {
-    console.warn('❌ Error calling fetchEnquiriesData (non-blocking):', err.message);
+    console.warn('[Enquiries] Error calling fetchEnquiriesData:', err.message);
     console.error('Full error:', err);
     // Return empty data instead of 500 error - don't block app
     res.status(200).json({ enquiries: [], count: 0, error: 'Data temporarily unavailable' });

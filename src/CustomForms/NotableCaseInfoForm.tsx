@@ -711,14 +711,6 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
                   </Text>
                 </div>
                 <Stack horizontal tokens={{ childrenGap: 12 }}>
-                  {onBack && (
-                    <DefaultButton
-                      text="Cancel"
-                      onClick={onBack}
-                      styles={defaultButtonStyles}
-                      iconProps={{ iconName: 'Cancel' }}
-                    />
-                  )}
                   <DefaultButton
                     text="Reset"
                     onClick={handleReset}

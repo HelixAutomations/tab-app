@@ -1415,16 +1415,6 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
     return { earliest, latest };
   }, [enquiries]);
 
-  // Debug: Check what data we're receiving
-  React.useEffect(() => {
-    console.log('[EnquiriesReport] Received enquiries:', {
-      isNull: enquiries === null,
-      isArray: Array.isArray(enquiries),
-      length: Array.isArray(enquiries) ? enquiries.length : 0,
-      sample: Array.isArray(enquiries) && enquiries.length > 0 ? enquiries[0] : null
-    });
-  }, [enquiries]);
-
   const filteredEntries = useMemo(() => {
     return enrichedEnquiries.filter(({ enquiry, member }) => {
       if (range) {
@@ -2309,14 +2299,12 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
   const handleReassignClick = useCallback((enquiryId: string, event: React.MouseEvent) => {
     event.stopPropagation();
     event.preventDefault();
-    console.log('Reassignment clicked for enquiry:', enquiryId);
     const rect = event.currentTarget.getBoundingClientRect();
     const dropdownData = {
       enquiryId,
       x: rect.left,
       y: rect.bottom + 5
     };
-    console.log('Setting dropdown data:', dropdownData);
     setReassignmentDropdown(dropdownData);
   }, []);
 

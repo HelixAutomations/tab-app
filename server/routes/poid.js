@@ -38,8 +38,6 @@ router.get('/6years', async (req, res) => {
     const poidData = await cacheWrapper(
       cacheKey,
       async () => {
-        console.log('🔍 Fetching fresh POID data from database');
-        
         const result = await withRequest(
           connectionString,
           async (request) => {
@@ -62,7 +60,7 @@ router.get('/6years', async (req, res) => {
     console.log(`[POID][${req.requestId}] Retrieved ${poidData.length} POID entries for user ${req.user?.initials || 'Unknown'}`);
     res.json(poidData);
   } catch (error) {
-    console.error(`[POID][${req.requestId}] Error for user ${req.user?.initials || 'Unknown'}:`, error);
+    console.error(`[POID][${req.requestId}] Error for user ${req.user?.initials || 'Unknown'}:`, error.message || error);
     // Don't leak error details to browser
     res.status(500).json({ 
       error: 'Error retrieving POID entries'

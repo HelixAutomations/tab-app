@@ -1,7 +1,5 @@
 const sql = require('mssql');
 
-console.log('🔧 UPDATE DEAL ROUTE MODULE LOADED');
-
 // Database connection configuration
 let dbConfig = null;
 
@@ -39,10 +37,7 @@ module.exports = async (req, res) => {
   const { dealId, ServiceDescription, Amount } = req.body;
   const requestId = Math.random().toString(36).substring(2, 10);
   
-  console.log(`[${requestId}] 🎯 DEAL UPDATE ENDPOINT - Deal ID: ${dealId}`, { ServiceDescription, Amount });
-  
   if (!dealId || (!ServiceDescription && Amount === undefined)) {
-    console.log(`[${requestId}] ❌ Bad request - missing required fields`);
     return res.status(400).json({ error: 'Deal ID and at least one field to update are required', requestId });
   }
 
@@ -64,17 +59,11 @@ module.exports = async (req, res) => {
     }
     
     const updateQuery = `UPDATE Deals SET ${updates.join(', ')} WHERE DealId = @dealId`;
-    
-    console.log(`[${requestId}] Executing update query:`, updateQuery);
-    
     const result = await request.query(updateQuery);
     
     if (result.rowsAffected[0] === 0) {
-      console.log(`[${requestId}] ❌ Deal not found: ${dealId}`);
       return res.status(404).json({ error: 'Deal not found', requestId });
     }
-    
-    console.log(`[${requestId}] ✅ Deal ${dealId} updated successfully`);
 
     res.json({
       success: true,
@@ -84,7 +73,7 @@ module.exports = async (req, res) => {
     });
     
   } catch (error) {
-    console.error(`[${requestId}] ❌ Error updating deal:`, error);
+    console.error(`[updateDeal] Error updating deal ${dealId}:`, error.message);
     res.status(500).json({ error: 'Failed to update deal', details: error.message, requestId });
   }
 };

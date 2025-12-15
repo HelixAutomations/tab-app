@@ -1,4 +1,7 @@
-const redis = require('redis');
+﻿const redis = require('redis');
+const { loggers } = require('./logger');
+
+const log = loggers.redis;
 
 // Redis client singleton with connection promise to prevent race conditions
 let redisClient = null;
@@ -8,6 +11,9 @@ let connectionPromise = null;
 let lastAuthContext = { method: null, username: undefined, tenantId: undefined, oid: undefined, appid: undefined, sub: undefined, upn: undefined };
 // In-flight de-duplication map: cacheKey -> Promise
 const inflightCache = new Map();
+// Rate-limit auth error logging (log once per minute max)
+let lastAuthErrorLog = 0;
+const AUTH_ERROR_LOG_INTERVAL_MS = 60 * 1000;
 
 // Token management for Entra ID auth
 let cachedCredential = null;
@@ -50,9 +56,9 @@ async function getEntraToken() {
         try {
           cachedCredential = new AzureCliCredential({ tenantId: requestedTenant });
           const tprev = String(requestedTenant).slice(0, 8);
-          console.log(`🎯 Using Azure CLI credential for tenant ${tprev}…`);
+          log.debug(`🎯 Using Azure CLI credential for tenant ${tprev}…`);
         } catch (e) {
-          console.warn('⚠️  AzureCliCredential init failed, falling back to DefaultAzureCredential');
+          log.warn('⚠️  AzureCliCredential init failed, falling back to DefaultAzureCredential');
           cachedCredential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
         }
       } else {
@@ -62,7 +68,7 @@ async function getEntraToken() {
 
     const tokenResponse = await cachedCredential.getToken('https://redis.azure.com/.default');
     if (!tokenResponse?.token) {
-      console.warn('⚠️  Entra ID token not acquired; Redis cache will be disabled');
+      log.warn('⚠️  Entra ID token not acquired; Redis cache will be disabled');
       return null;
     }
 
@@ -92,7 +98,7 @@ async function getEntraToken() {
 
     return { token: tokenResponse.token, username: derivedUsername, claims };
   } catch (tokenError) {
-    console.warn('⚠️  Could not acquire Entra ID token for Redis:', tokenError?.message || tokenError);
+    log.warn('⚠️  Could not acquire Entra ID token for Redis:', tokenError?.message || tokenError);
     // Reset credential on error to allow fresh attempt
     cachedCredential = null;
     return null;
@@ -118,7 +124,7 @@ async function initRedisClient() {
 
   // If connection is in progress, wait for it
   if (connectionPromise) {
-    console.log('🔄 Redis initialization in progress, waiting...');
+    log.debug('🔄 Redis initialization in progress, waiting...');
     return connectionPromise;
   }
 
@@ -167,12 +173,12 @@ async function performRedisConnection() {
       },
       retryStrategy: (retries) => {
         if (retries > 10) {
-          console.error('❌ Redis connection failed after 10 retries');
+          log.error('Redis connection failed after 10 retries');
           return null;
         }
         // Exponential backoff with jitter
         const delay = Math.min(retries * 1000 + Math.random() * 1000, 10000);
-        console.log(`🔄 Redis retry ${retries}/10 in ${Math.round(delay)}ms`);
+        log.debug(`🔄 Redis retry ${retries}/10 in ${Math.round(delay)}ms`);
         return delay;
       },
       lazyConnect: true, // Connect only when needed
@@ -183,14 +189,14 @@ async function performRedisConnection() {
 
     // Configure authentication automatically
     if (redisPassword) {
-      console.log('🔑 Using access key authentication for Redis');
+      log.debug('🔑 Using access key authentication for Redis');
       redisConfig.password = redisPassword;
       if (redisUser !== 'default') {
         redisConfig.username = redisUser;
       }
       lastAuthContext.username = redisConfig.username || 'default';
     } else {
-      console.log('🔐 No access key set; attempting Microsoft Entra ID authentication for Redis');
+      log.debug('🔐 No access key set; attempting Microsoft Entra ID authentication for Redis');
       try {
         const { DefaultAzureCredential, AzureCliCredential } = require('@azure/identity');
 
@@ -201,9 +207,9 @@ async function performRedisConnection() {
           try {
             credential = new AzureCliCredential({ tenantId: requestedTenant });
             const tprev = String(requestedTenant).slice(0, 8);
-            console.log(`🎯 Using Azure CLI credential for tenant ${tprev}…`);
+            log.debug(`🎯 Using Azure CLI credential for tenant ${tprev}…`);
           } catch (e) {
-            console.warn('⚠️  AzureCliCredential init failed, falling back to DefaultAzureCredential');
+            log.warn('⚠️  AzureCliCredential init failed, falling back to DefaultAzureCredential');
             credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
           }
         } else {
@@ -212,7 +218,7 @@ async function performRedisConnection() {
 
         const tokenResponse = await credential.getToken('https://redis.azure.com/.default');
         if (!tokenResponse?.token) {
-          console.warn('⚠️  Entra ID token not acquired; Redis cache will be disabled');
+          log.warn('⚠️  Entra ID token not acquired; Redis cache will be disabled');
           return null;
         }
 
@@ -254,10 +260,10 @@ async function performRedisConnection() {
         const unamePreview = typeof derivedUsername === 'string' ? derivedUsername.slice(0, 8) : 'unknown';
         const tidPreview = typeof lastAuthContext.tenantId === 'string' ? lastAuthContext.tenantId.slice(0, 8) : 'unknown';
         const unameSource = process.env.REDIS_USER ? 'REDIS_USER' : (claims.oid ? 'oid' : (claims.appid ? 'appid' : (claims.sub ? 'sub' : 'default')));
-        console.log(`✅ Entra ID token acquired (tid=${tidPreview}); using username from ${unameSource}: ${unamePreview}…`);
+        log.debug(`✅ Entra ID token acquired (tid=${tidPreview}); using username from ${unameSource}: ${unamePreview}…`);
       } catch (tokenError) {
-        console.warn('⚠️  Could not acquire Entra ID token for Redis. Redis cache will be disabled.');
-        console.warn(`   Details: ${tokenError?.message || tokenError}`);
+        log.warn('⚠️  Could not acquire Entra ID token for Redis. Redis cache will be disabled.');
+        log.warn(`   Details: ${tokenError?.message || tokenError}`);
         return null;
       }
     }
@@ -265,52 +271,60 @@ async function performRedisConnection() {
     redisClient = redis.createClient(redisConfig);
 
     redisClient.on('error', (err) => {
-      console.error('❌ Redis error:', err);
       const msg = String(err?.message || '');
-      if (msg.includes('WRONGPASS') || msg.includes('NOAUTH')) {
-        const who = lastAuthContext || {};
-        const uname = who.username ? String(who.username) : 'unknown';
-        const unamePreview = uname.slice(0, 8);
-        const tidPreview = who.tenantId ? String(who.tenantId).slice(0, 8) : 'unknown';
-        console.error(`🔐 Auth hint: Redis rejected credentials (method=${who.method}). Username=${unamePreview}… tenant=${tidPreview}.`);
-        if (uname && uname !== 'unknown') {
-          console.error(`   • Full username attempted: ${uname}`);
+      const isAuthError = msg.includes('WRONGPASS') || msg.includes('NOAUTH');
+      
+      // Rate-limit verbose auth error logging to avoid console spam
+      if (isAuthError) {
+        const now = Date.now();
+        if (now - lastAuthErrorLog < AUTH_ERROR_LOG_INTERVAL_MS) {
+          // Silently ignore repeat auth errors within the interval
+          isConnected = false;
+          redisClient = null;
+          cachedCredential = null;
+          lastTokenExpiry = 0;
+          return;
         }
-        console.error('   • Ensure Microsoft Entra authentication is enabled and you added this principal under Authentication with Data Access role.');
-        console.error('   • Username must be the Object ID (oid) of that user/service principal in the cache’s tenant.');
-        console.error('   • Locally, set REDIS_USER to that Object ID to override; optionally set REDIS_TENANT_ID to pin the tenant used for tokens.');
-      }
-      isConnected = false;
-      // Clear client on auth errors to force re-initialization
-      if (msg.includes('WRONGPASS') || msg.includes('NOAUTH')) {
+        lastAuthErrorLog = now;
+        
+        const who = lastAuthContext || {};
+        const unamePreview = who.username ? String(who.username).slice(0, 8) : 'unknown';
+        log.warn(`Redis auth failed (token likely expired). Will retry with fresh token. Username=${unamePreview}...`);
+        isConnected = false;
+        // Clear client and cached credential to force re-initialization with fresh token
         redisClient = null;
+        cachedCredential = null;
+        lastTokenExpiry = 0;
+      } else {
+        log.error('Redis error:', err);
+        isConnected = false;
       }
     });
 
     redisClient.on('connect', () => {
-      console.log('🔗 Redis connecting...');
+      log.debug('🔗 Redis connecting...');
     });
 
     redisClient.on('ready', () => {
       const authMethod = useEntraAuth ? 'Entra ID' : 'Access Key';
-      console.log(`✅ Redis connected and ready (${authMethod} auth)`);
+      log.debug(`✅ Redis connected and ready (${authMethod} auth)`);
       isConnected = true;
     });
 
     redisClient.on('end', () => {
-      console.log('🔌 Redis connection ended');
+      log.debug('🔌 Redis connection ended');
       isConnected = false;
     });
 
     redisClient.on('reconnecting', () => {
-      console.log('🔄 Redis reconnecting...');
+      log.debug('🔄 Redis reconnecting...');
     });
 
     await redisClient.connect();
     return redisClient;
 
   } catch (error) {
-    console.error('❌ Failed to initialize Redis client:', error);
+    log.error('Failed to initialize Redis client:', error);
     redisClient = null;
     isConnected = false;
     return null;
@@ -356,14 +370,14 @@ async function getCache(key) {
     const client = await initRedisClient();
     if (!client || !isConnected) {
       const maskedKey = maskCacheKeyForLogging(key);
-      console.log(`⚠️  Redis client unavailable for key: ${maskedKey}`);
+      log.debug(`⚠️  Redis client unavailable for key: ${maskedKey}`);
       return null;
     }
 
     const data = await client.get(key);
     if (!data) {
       const maskedKey = maskCacheKeyForLogging(key);
-      console.log(`🚫 Cache MISS: ${maskedKey} (key not found)`);
+      log.debug(`🚫 Cache MISS: ${maskedKey} (key not found)`);
       return null;
     }
 
@@ -372,7 +386,7 @@ async function getCache(key) {
 
   } catch (error) {
     const maskedKey = maskCacheKeyForLogging(key);
-    console.error(`❌ Cache GET error for key ${maskedKey}:`, error);
+    log.error(`Cache GET error for key ${maskedKey}:`, error);
     return null;
   }
 }
@@ -397,12 +411,12 @@ async function setCache(key, data, ttl = CACHE_CONFIG.TTL.UNIFIED) {
 
     await client.setEx(key, ttl, serialized);
     const maskedKey = maskCacheKeyForLogging(key);
-    console.log(`💾 Cache SET: ${maskedKey} (TTL: ${ttl}s)`);
+    log.debug(`💾 Cache SET: ${maskedKey} (TTL: ${ttl}s)`);
     return true;
 
   } catch (error) {
     const maskedKey = maskCacheKeyForLogging(key);
-    console.error(`❌ Cache SET error for key ${maskedKey}:`, error);
+    log.error(`Cache SET error for key ${maskedKey}:`, error);
     return false;
   }
 }
@@ -419,11 +433,11 @@ async function deleteCache(keys) {
 
     const keyArray = Array.isArray(keys) ? keys : [keys];
     const deleted = await client.del(keyArray);
-    console.log(`🗑️  Cache DELETE: ${deleted} keys removed`);
+    log.debug(`🗑️  Cache DELETE: ${deleted} keys removed`);
     return deleted;
 
   } catch (error) {
-    console.error('❌ Cache DELETE error:', error);
+    log.error('Cache DELETE error:', error);
     return 0;
   }
 }
@@ -442,11 +456,11 @@ async function deleteCachePattern(pattern) {
     if (keys.length === 0) return 0;
 
     const deleted = await client.del(keys);
-    console.log(`🗑️  Cache PATTERN DELETE: ${deleted} keys removed (${pattern})`);
+    log.debug(`🗑️  Cache PATTERN DELETE: ${deleted} keys removed (${pattern})`);
     return deleted;
 
   } catch (error) {
-    console.error(`❌ Cache PATTERN DELETE error for ${pattern}:`, error);
+    log.error(`❌ Cache PATTERN DELETE error for ${pattern}:`, error);
     return 0;
   }
 }
@@ -477,26 +491,26 @@ async function cacheWrapper(cacheKey, queryFunction, ttl = CACHE_CONFIG.TTL.UNIF
   try {
     // Try cache first
     const maskedKey = maskCacheKeyForLogging(cacheKey);
-    console.log(`🔍 Checking cache for key: ${maskedKey}`);
+    log.debug(`🔍 Checking cache for key: ${maskedKey}`);
     const cached = await getCache(cacheKey);
     if (cached && Object.prototype.hasOwnProperty.call(cached, 'data')) {
-      console.log(`📦 Cache HIT: ${maskedKey}`);
+      log.debug(`📦 Cache HIT: ${maskedKey}`);
       return cached.data; // preserve original shape
     }
 
     // Cache miss - de-dupe concurrent fetches for this key
-    console.log(`🌐 Cache MISS: ${maskedKey}`);
+    log.debug(`🌐 Cache MISS: ${maskedKey}`);
     if (inflightCache.has(cacheKey)) {
-      console.log(`🔁 Awaiting in-flight fetch for key: ${maskedKey}`);
+      log.debug(`🔁 Awaiting in-flight fetch for key: ${maskedKey}`);
       return await inflightCache.get(cacheKey);
     }
     const inFlight = (async () => {
       try {
-        console.log(`🚀 Executing query for key: ${maskedKey}`);
+        log.debug(`🚀 Executing query for key: ${maskedKey}`);
         const freshData = await queryFunction();
         const cacheSuccess = await setCache(cacheKey, freshData, ttl);
         if (!cacheSuccess) {
-          console.warn(`⚠️  Failed to cache result for key: ${maskedKey}`);
+          log.warn(`⚠️  Failed to cache result for key: ${maskedKey}`);
         }
         return freshData;
       } finally {
@@ -507,9 +521,9 @@ async function cacheWrapper(cacheKey, queryFunction, ttl = CACHE_CONFIG.TTL.UNIF
     return await inFlight;
   } catch (error) {
     const maskedKey = maskCacheKeyForLogging(cacheKey);
-    console.error(`❌ Cache wrapper error for key ${maskedKey}:`, error);
+    log.error(`Cache wrapper error for key ${maskedKey}:`, error);
     // Fall back to executing query without cache
-    console.log(`🔄 Falling back to direct query execution`);
+    log.debug(`🔄 Falling back to direct query execution`);
     const freshData = await queryFunction();
     return freshData;
   }
@@ -521,7 +535,7 @@ async function cacheWrapper(cacheKey, queryFunction, ttl = CACHE_CONFIG.TTL.UNIF
 async function closeRedisClient() {
   if (redisClient && isConnected) {
     await redisClient.quit();
-    console.log('👋 Redis connection closed');
+    log.debug('👋 Redis connection closed');
   }
 }
 
@@ -539,7 +553,7 @@ async function getRedisClient() {
     const client = await initRedisClient();
     return client && isConnected ? client : null;
   } catch (error) {
-    console.warn('⚠️  Redis client unavailable:', error.message);
+    log.warn('⚠️  Redis client unavailable:', error.message);
     return null;
   }
 }

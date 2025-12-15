@@ -35,6 +35,7 @@ import {
   getFormPrimaryButtonStyles,
   getFormDefaultButtonStyles,
   getMessageBarStyle,
+  getChoiceGroupStyles,
   formAccentColors,
 } from './shared/formStyles';
 
@@ -208,16 +209,8 @@ const CounselRecommendationFormContent: React.FC<CounselRecommendationFormProps>
     setSubmitMessage(null);
   }, [defaultSource]);
 
-  // ChoiceGroup styles for dark mode
-  const choiceGroupStyles = {
-    flexContainer: { display: 'flex', gap: '20px' },
-    label: { 
-      fontWeight: '600', 
-      fontSize: '13px', 
-      color: isDarkMode ? '#e2e8f0' : '#374151', 
-      marginBottom: '8px' 
-    },
-  };
+  // Get shared ChoiceGroup styles for dark mode + brand colors
+  const choiceGroupStyles = getChoiceGroupStyles(isDarkMode);
 
   return (
     <div style={getFormScrollContainerStyle(isDarkMode)}>

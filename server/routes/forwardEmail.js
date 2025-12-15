@@ -6,7 +6,7 @@ const { SecretClient } = require('@azure/keyvault-secrets');
 const router = express.Router();
 
 // Key Vault setup for Graph credentials
-const credential = new DefaultAzureCredential();
+const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
 const vaultUrl = process.env.KEY_VAULT_URL || 'https://helix-keys.vault.azure.net/';
 const secretClient = new SecretClient(vaultUrl, credential);
 

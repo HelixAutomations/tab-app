@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 // invisible change
-import { Stack, Text, Spinner, SpinnerSize, Icon, DefaultButton, IButtonStyles } from '@fluentui/react';
+import { Stack, Text, Spinner, SpinnerSize, Icon, DefaultButton } from '@fluentui/react';
 import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
 import { colours } from '../app/styles/colours';
 import { useTheme } from '../app/functionality/ThemeContext';
@@ -10,47 +10,9 @@ import {
   SoundproofPodBooking,
   FutureBookingsResponse
 } from '../app/functionality/types';
+import { getFormSelectionButtonStyles, getFormDefaultButtonStyles } from './shared/formStyles';
 
-// Refined selection styles with pronounced states and larger size
-const selectionStyles: IButtonStyles = {
-  root: {
-    padding: '16px 28px',
-    borderRadius: '10px',
-    backgroundColor: colours.grey,
-    border: 'none',
-    height: '70px',
-    minWidth: '220px',
-    fontWeight: '600',
-    fontSize: '18px',
-    color: colours.greyText,
-    transition: 'background 0.3s ease, color 0.3s ease, box-shadow 0.3s ease, transform 0.2s ease',
-    boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  rootHovered: {
-    backgroundColor: colours.highlight,
-    color: '#ffffff',
-    boxShadow: '0 8px 20px rgba(0,0,0,0.2)',
-    transform: 'translateY(-3px)',
-  },
-  rootPressed: {
-    backgroundColor: `${colours.highlight}cc`,
-    color: '#ffffff',
-    boxShadow: '0 4px 10px rgba(0,0,0,0.25)',
-    transform: 'translateY(2px)',
-  },
-  icon: {
-    marginRight: '12px',
-    fontSize: '22px',
-  },
-  flexContainer: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-};
+
 
 export interface BookSpaceData {
   fee_earner: string;
@@ -393,13 +355,13 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
         <Stack horizontal tokens={{ childrenGap: 24 }} horizontalAlign="center">
           <DefaultButton
             onClick={() => handleSpaceSelection('Boardroom')}
-            styles={selectionStyles}
+            styles={getFormSelectionButtonStyles(isDarkMode)}
             iconProps={{ iconName: 'OfficeChat' }}
             text="Boardroom"
           />
           <DefaultButton
             onClick={() => handleSpaceSelection('Soundproof Pod')}
-            styles={selectionStyles}
+            styles={getFormSelectionButtonStyles(isDarkMode)}
             iconProps={{ iconName: 'Phone' }}
             text="Soundproof Pod"
           />
@@ -571,18 +533,7 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
               <DefaultButton
                 text="Load More"
                 onClick={handleLoadMore}
-                styles={{ 
-                  root: { 
-                    marginTop: '16px', 
-                    alignSelf: 'center',
-                    backgroundColor: isDarkMode ? colours.dark.cardBackground : undefined,
-                    borderColor: isDarkMode ? colours.dark.border : undefined,
-                    color: isDarkMode ? colours.dark.text : undefined,
-                  },
-                  rootHovered: {
-                    backgroundColor: isDarkMode ? colours.dark.cardHover : undefined,
-                  }
-                }}
+                styles={getFormDefaultButtonStyles(isDarkMode)}
               />
             </Stack>
           </Stack>

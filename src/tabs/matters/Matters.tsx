@@ -204,7 +204,6 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
   // Set up navigation content with filter bar
   useEffect(() => {
     if (!selected) {
-      console.log('🔄 Setting new FilterBanner content for Matters');
       setContent(
         <FilterBanner
           seamless

@@ -9,6 +9,7 @@ import { isInTeams } from "./app/functionality/isInTeams";
 import { Matter, UserData, Enquiry, TeamData, NormalizedMatter } from "./app/functionality/types";
 import { mergeMattersFromSources } from "./utils/matterNormalization";
 import { getCachedData, setCachedData, cleanupOldCache } from "./utils/storageHelpers";
+import { debugLog } from "./utils/debug";
 
 import "./utils/callLogger";
 import { getProxyBaseUrl } from "./utils/getProxyBaseUrl";
@@ -215,7 +216,7 @@ async function fetchEnquiries(
     const memCached = getMemoryCachedData<Enquiry[]>(cacheKey);
     if (memCached) {
       if (process.env.NODE_ENV === 'development') {
-        console.log('📦 Using cached enquiries from memory:', memCached.length);
+        debugLog('📦 Using cached enquiries from memory:', memCached.length);
       }
       return memCached;
     }
@@ -431,11 +432,11 @@ async function fetchEnquiries(
       // If localStorage failed (too large), use in-memory cache instead
       setMemoryCachedData(cacheKey, filteredEnquiries);
       if (process.env.NODE_ENV === 'development') {
-        console.log('✅ Cached', filteredEnquiries.length, 'enquiries in memory');
+        debugLog('✅ Cached', filteredEnquiries.length, 'enquiries in memory');
       }
     }
   } else if (process.env.NODE_ENV === 'development') {
-    console.log('🚫 Caching disabled - using fresh data:', filteredEnquiries.length, 'enquiries');
+    debugLog('🚫 Caching disabled - using fresh data:', filteredEnquiries.length, 'enquiries');
   }
   
   return filteredEnquiries;
@@ -648,10 +649,6 @@ async function fetchVNetMatters(fullName?: string): Promise<any[]> {
       
       // Cache in memory instead of localStorage (too large for localStorage)
       setMemoryCachedData(cacheKey, normalizedMatters);
-      if (process.env.NODE_ENV === 'development') {
-        // eslint-disable-next-line no-console
-        console.info(`Cached ${normalizedMatters.length} matters in memory`);
-      }
       
       return normalizedMatters;
     } catch (err) {
@@ -670,10 +667,6 @@ async function fetchVNetMatters(fullName?: string): Promise<any[]> {
         
         // Cache in memory instead of localStorage
         setMemoryCachedData(cacheKey, normalizedMatters);
-        if (process.env.NODE_ENV === 'development') {
-          // eslint-disable-next-line no-console
-          console.info(`Cached ${normalizedMatters.length} matters in memory (fallback)`);
-        }
         
         return normalizedMatters;
       } catch {
@@ -687,7 +680,7 @@ async function fetchTeamData(): Promise<TeamData[] | null> {
   const cached = getCachedData<TeamData[]>(cacheKey);
   if (cached) {
     if (process.env.NODE_ENV === 'development') {
-      console.log('📦 Using cached team data:', cached.length, 'members');
+      debugLog('📦 Using cached team data:', cached.length, 'members');
     }
     return cached;
   }
@@ -827,8 +820,8 @@ const AppWithContext: React.FC = () => {
 
   // Update user data when local areas change
   const updateLocalUserData = (areas: string[]) => {
-    console.log('📥 updateLocalUserData called with:', areas);
-    console.log('📝 Current userData before update:', userData?.[0]?.AOW);
+    debugLog('📥 updateLocalUserData called with:', areas);
+    debugLog('📝 Current userData before update:', userData?.[0]?.AOW);
     setLocalSelectedAreas(areas);
     // Allow area override for all users, not just localhost
     if (userData && userData[0]) {
@@ -836,7 +829,7 @@ const AppWithContext: React.FC = () => {
         ...userData[0],
         AOW: areas.join(', ')
       }];
-      console.log('✅ Setting new userData with AOW:', updatedUserData[0].AOW);
+      debugLog('✅ Setting new userData with AOW:', updatedUserData[0].AOW);
       setUserData(updatedUserData as UserData[]);
     }
   };
@@ -924,13 +917,16 @@ const AppWithContext: React.FC = () => {
     setLoading(true);
 
     try {
-      // Initialize user data from team data with selected areas
-      const { default: teamUserData } = await import('./localData/team-sql-data.json');
+      // Fetch team data from API to get user details
+      const teamUserData = await fetchTeamData();
+      if (!teamUserData || teamUserData.length === 0) {
+        throw new Error('Failed to fetch team data from API');
+      }
 
       // Find the selected user's data by initials (case insensitive)
-      const selectedUserData = (teamUserData as any[]).find((user: any) =>
+      const selectedUserData = teamUserData.find((user: any) =>
         String(user.Initials || '').toLowerCase() === String(userKey || '').toLowerCase()
-      ) || (teamUserData as any[]).find((user: any) => user.status === 'active') || (teamUserData as any[])[0];
+      ) || teamUserData.find((user: any) => user.status === 'active') || teamUserData[0];
 
       setTeamsContext({
         user: {
@@ -1000,19 +996,10 @@ const AppWithContext: React.FC = () => {
         setMatters(fallbackMatters);
       }
 
-      // Prefer live team data via server route even in local dev; fallback to local JSON
-      try {
-        const liveTeam = await fetchTeamData();
-        if (liveTeam && Array.isArray(liveTeam) && liveTeam.length > 0) {
-          setTeamData(liveTeam);
-        } else {
-          const { default: localTeamData } = await import('./localData/team-sql-data.json');
-          setTeamData(localTeamData as TeamData[]);
-        }
-      } catch {
-        const { default: localTeamData } = await import('./localData/team-sql-data.json');
-        setTeamData(localTeamData as TeamData[]);
-      }
+      // Team data already fetched at start of handleUserSelected
+      // Set it for downstream use
+      const liveTeam = await fetchTeamData();
+      setTeamData(liveTeam);
 
       setLoading(false);
     } catch (error) {
@@ -1182,19 +1169,9 @@ const AppWithContext: React.FC = () => {
               setMatters(fallbackMatters);
             }
 
-            // Team data (prefer live; fallback to local JSON)
-            try {
-              const liveTeam = await fetchTeamData();
-              if (liveTeam && Array.isArray(liveTeam) && liveTeam.length > 0) {
-                setTeamData(liveTeam);
-              } else {
-                const { default: localTeamData } = await import('./localData/team-sql-data.json');
-                setTeamData(localTeamData as TeamData[]);
-              }
-            } catch {
-              const { default: localTeamData } = await import('./localData/team-sql-data.json');
-              setTeamData(localTeamData as TeamData[]);
-            }
+            // Team data from API (no local fallback)
+            const liveTeam = await fetchTeamData();
+            setTeamData(liveTeam);
 
             setLoading(false);
           } catch (e) {

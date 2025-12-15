@@ -54,9 +54,9 @@ interface FormData {
 }
 
 const priorityOptions: IDropdownOption[] = [
-  { key: 'low', text: 'Low - Nice to have' },
-  { key: 'medium', text: 'Medium - Would improve workflow' },
-  { key: 'high', text: 'High - Significant time savings' },
+  { key: 'low', text: 'Low' },
+  { key: 'medium', text: 'Medium' },
+  { key: 'high', text: 'High' },
 ];
 
 const accentColor = formAccentColors.techIdea;
@@ -171,7 +171,7 @@ const TechIdeaFormContent: React.FC<TechIdeaFormProps> = ({
             <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
               <Icon iconName="Info" style={{ color: accentColor, flexShrink: 0 }} />
               <Text style={getInfoBoxTextStyle(isDarkMode)}>
-                Submit your ideas for new features, automations, or improvements. Each submission creates an Asana task for the tech team to review.
+                Creates an Asana task for tech review.
               </Text>
             </Stack>
           </div>
@@ -183,15 +183,28 @@ const TechIdeaFormContent: React.FC<TechIdeaFormProps> = ({
               Idea Details
             </div>
 
-            <Stack tokens={{ childrenGap: 16 }}>
-              <TextField
-                label="Title"
-                value={formData.title}
-                onChange={(_, val) => handleFieldChange('title', val || '')}
-                required
-                placeholder="Brief, descriptive title for your idea"
-                styles={getInputStyles(isDarkMode)}
-              />
+            <Stack tokens={{ childrenGap: 16 }} style={{ paddingBottom: '4px' }}>
+              <Stack horizontal tokens={{ childrenGap: 16 }} verticalAlign="end">
+                <Stack.Item grow styles={{ root: { flex: 2 } }}>
+                  <TextField
+                    label="Title"
+                    value={formData.title}
+                    onChange={(_, val) => handleFieldChange('title', val || '')}
+                    required
+                    placeholder=""
+                    styles={getInputStyles(isDarkMode)}
+                  />
+                </Stack.Item>
+                <Stack.Item styles={{ root: { width: '240px', minWidth: '200px' } }}>
+                  <Dropdown
+                    label="Priority"
+                    options={priorityOptions}
+                    selectedKey={formData.priority}
+                    onChange={(_, opt) => handleFieldChange('priority', opt?.key as string || 'medium')}
+                    styles={getDropdownStyles(isDarkMode)}
+                  />
+                </Stack.Item>
+              </Stack>
 
               <TextField
                 label="Description"
@@ -200,26 +213,18 @@ const TechIdeaFormContent: React.FC<TechIdeaFormProps> = ({
                 required
                 multiline
                 rows={5}
-                placeholder="Describe your idea in detail. What should it do? How would it work?"
+                placeholder=""
                 styles={getInputStyles(isDarkMode)}
               />
 
               <TextField
-                label="Business Value"
+                label="Notes"
                 value={formData.business_value}
                 onChange={(_, val) => handleFieldChange('business_value', val || '')}
                 multiline
                 rows={3}
-                placeholder="How would this benefit the firm? Time saved, errors prevented, etc."
+                placeholder="Optional"
                 styles={getInputStyles(isDarkMode)}
-              />
-
-              <Dropdown
-                label="Priority"
-                options={priorityOptions}
-                selectedKey={formData.priority}
-                onChange={(_, opt) => handleFieldChange('priority', opt?.key as string || 'medium')}
-                styles={getDropdownStyles(isDarkMode)}
               />
             </Stack>
           </div>

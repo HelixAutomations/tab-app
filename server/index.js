@@ -28,6 +28,21 @@ const morgan = require('morgan');
 let compression;
 try { compression = require('compression'); } catch { /* optional */ }
 const { init: initOpLog, append: opAppend, sessionId: opSessionId } = require('./utils/opLog');
+const { getRedisClient } = require('./utils/redisClient');
+const { getPool } = require('./utils/db');
+
+// Warm up connections in background (non-blocking)
+async function warmupConnections() {
+    // Warm up Redis
+    getRedisClient().catch(() => { /* ignore - will retry on first use */ });
+    
+    // Warm up SQL connection pool with main database
+    const connStr = process.env.SQL_CONNECTION_STRING;
+    if (connStr) {
+        getPool(connStr).catch(() => { /* ignore - will retry on first use */ });
+    }
+}
+warmupConnections();
 const keysRouter = require('./routes/keys');
 const refreshRouter = require('./routes/refresh');
 const matterRequestsRouter = require('./routes/matterRequests');
@@ -86,6 +101,7 @@ const rateChangesRouter = require('./routes/rate-changes');
 const expertsRouter = require('./routes/experts');
 const counselRouter = require('./routes/counsel');
 const techTicketsRouter = require('./routes/techTickets');
+const logsStreamRouter = require('./routes/logs-stream');
 const { userContextMiddleware } = require('./middleware/userContext');
 
 const app = express();
@@ -93,7 +109,7 @@ const app = express();
 if (compression) {
     app.use((req, res, next) => {
         // Skip compression for Server-Sent Events to avoid buffering
-        if (req.path.startsWith('/api/reporting-stream') || req.path.startsWith('/api/home-metrics')) {
+        if (req.path.startsWith('/api/reporting-stream') || req.path.startsWith('/api/home-metrics') || req.path.startsWith('/api/logs/stream')) {
             res.setHeader('Cache-Control', 'no-cache, no-transform');
             return next();
         }
@@ -206,6 +222,7 @@ app.use('/api/cache', clearCacheRouter);
 app.use('/api/teams-activity-tracking', teamsActivityTrackingRouter);
 app.use('/api/pitch-tracking', pitchTrackingRouter);
 app.use('/api/enquiry-enrichment', enquiryEnrichmentRouter);
+app.use('/api/logs', logsStreamRouter);
 
 // Rate change notification tracking (for Jan 2026 hourly rate increase)
 app.use('/api/rate-changes', rateChangesRouter);

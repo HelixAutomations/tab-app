@@ -2952,7 +2952,6 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
     try {
       // Check if deal creation is already in progress
       if (dealCreationInProgress) {
-        console.log('⏸️ Deal creation already in progress, skipping duplicate call');
         return null;
       }
 
@@ -3007,7 +3006,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
 
       if (!resolvedProspectId) {
         if (options?.background) {
-          console.log('⏳ Skipping background deal insert: no valid numeric prospect id yet', rawCandidates);
+          // No valid numeric prospect id yet
           return null;
         }
         // Foreground: allow one short retry window in case acid arrives milliseconds later.
@@ -3025,7 +3024,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
           ].map(v => (v === undefined || v === null ? '' : String(v).trim()));
           retryId = lateCandidates.find(v => /^\d+$/.test(v) && v !== '' && v !== '0' && v !== '00000');
           if (retryId) {
-            console.log('✅ Prospect id appeared after brief wait', { retryId, lateCandidates });
+            // Prospect id appeared after brief wait
           }
         }
         if (!retryId) {
@@ -3037,7 +3036,6 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
           return null;
         }
         // Use the newly found id
-        console.log('🆔 Using late-resolved prospect id', retryId);
         return await insertDealIfNeeded(options); // restart with id now present
       }
 
@@ -3075,7 +3073,6 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
           })),
         }),
       };
-      console.log('🆔 Deal ID resolution', { rawCandidates, resolvedProspectId, sendingPayload: payload });
 
       // Update progress
       if (!options?.background) {
@@ -3093,12 +3090,6 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
         body: JSON.stringify(payload),
       });
 
-      console.log('🔌 Deal creation response:', { 
-        ok: response.ok, 
-        status: response.status, 
-        statusText: response.statusText 
-      });
-
       if (!options?.background) {
         showToast('Finalising deal…', 'info', {
           loading: true,
@@ -3110,13 +3101,10 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
 
       if (response.ok) {
         const data = await response.json();
-        console.log('📦 Deal creation data:', data);
         if (data?.passcode) {
           const norm = normalizePasscode(data.passcode, enquiry?.ID);
-          console.log('🎫 Deal passcode confirmed:', data.passcode, '->', norm);
           // Validate server passcode matches our pre-generated one, or use the one we sent
           if (norm && norm !== dealPasscode) {
-            console.log('⚠️ Server returned different passcode, updating to:', norm);
             setDealPasscode(norm);
           }
           
@@ -3182,7 +3170,6 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
   // DISABLED: This was creating unwanted placeholder deals. Real deals are created when users send/draft emails.
   useEffect(() => {
     // Background deal creation disabled to prevent duplicate placeholder deals
-    console.log('🔍 Background deal creation disabled - real deals created on send/draft');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enquiry?.ID]);
 

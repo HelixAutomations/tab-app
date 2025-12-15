@@ -61,6 +61,11 @@ function maskSensitiveFields(obj, depth = 0) {
     return maskSensitiveText(obj);
   }
   
+  // Handle Error objects specially (their properties aren't enumerable)
+  if (obj instanceof Error) {
+    return maskSensitiveText(obj.message || String(obj));
+  }
+  
   if (Array.isArray(obj)) {
     return obj.map(item => maskSensitiveFields(item, depth + 1));
   }

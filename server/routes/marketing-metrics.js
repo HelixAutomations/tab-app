@@ -20,7 +20,7 @@ async function getSecretFromAnySource(secretName) {
   try {
     const vaultUrl = process.env.KEY_VAULT_URL || 'https://helix-keys.vault.azure.net/';
     if (vaultUrl) {
-      const credential = new DefaultAzureCredential();
+      const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
       const kvClient = new SecretClient(vaultUrl, credential);
       const sec = await kvClient.getSecret(secretName);
       if (sec?.value) return sec.value;
@@ -52,7 +52,7 @@ async function getFacebookSystemUserToken() {
     return process.env.FACEBOOK_SYSTEM_USER_TOKEN.trim();
   }
   // Fallback to Key Vault via Managed Identity
-  const credential = new DefaultAzureCredential();
+  const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
   const vaultUrl = process.env.KEY_VAULT_URL || 'https://helix-keys.vault.azure.net/';
   const client = new SecretClient(vaultUrl, credential);
   const secretName = process.env.FACEBOOK_SYSTEM_USER_TOKEN_SECRET || 'facebook-system-user-token';
@@ -305,14 +305,12 @@ router.get('/', async (req, res) => {
     );
 
     clearTimeout(requestTimeout);
-    const processingTime = Date.now() - startTime;
-    console.log(`✅ Marketing metrics completed in ${processingTime}ms`);
     res.json(result);
 
   } catch (error) {
     clearTimeout(requestTimeout);
     const processingTime = Date.now() - startTime;
-    console.error(`❌ Marketing metrics error after ${processingTime}ms:`, error.message);
+    console.error(`[Marketing Metrics] Error after ${processingTime}ms:`, error.message);
     
     // Prevent double response if timeout already fired
     if (res.headersSent) {
@@ -932,7 +930,7 @@ async function getGa4AuthAndClient() {
     serviceAccount = JSON.parse(raw);
   } else {
     const kvUrl = process.env.KEY_VAULT_URL || 'https://helix-keys.vault.azure.net/';
-    const credential = new DefaultAzureCredential();
+    const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
     const client = new SecretClient(kvUrl, credential);
     const secretName = process.env.GA4_SERVICE_ACCOUNT_SECRET || 'ga4-service-account-json';
     const saSecret = await client.getSecret(secretName);

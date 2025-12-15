@@ -1,6 +1,7 @@
 const sql = require('mssql');
+const { loggers } = require('../utils/logger');
 
-console.log('🔧 DEAL CAPTURE ROUTE MODULE LOADED');
+const log = loggers.payments.child('DealCapture');
 
 // Database connection configuration
 let dbConfig = null;
@@ -39,17 +40,10 @@ function formatDate(date) {
   return date.toISOString().slice(0, 10);
 }
 
-function formatTime(date) {
-  return date.toISOString().slice(11, 19); // "HH:MM:SS"
-}
-
 module.exports = async (req, res) => {
   const requestId = Math.random().toString(36).substring(2, 10);
   
-  console.log(`[${requestId}] 🎯 DEAL CAPTURE ENDPOINT - New deal/pitch submission`);
-  
   const {
-    // Frontend payload fields (match Azure Function exactly)
     serviceDescription,
     initialScopeDescription,
     amount,
@@ -62,7 +56,6 @@ module.exports = async (req, res) => {
     clients = [],
     passcode: providedPasscode,
     instructionRef: providedInstructionRef,
-    // Pitch content fields
     emailSubject,
     emailBody,
     emailBodyHtml,
@@ -70,36 +63,27 @@ module.exports = async (req, res) => {
     notes
   } = req.body;
 
-  // Accept either field name for service description (match Azure Function)
   const finalServiceDescription = serviceDescription || initialScopeDescription;
 
-  // Validate required fields (match Azure Function validation)
+  // Validate required fields
   if (!finalServiceDescription || amount == null || !areaOfWork || !pitchedBy) {
-    console.log(`[${requestId}] ❌ Bad request - missing required fields`);
     return res.status(400).json({ error: 'Missing required fields', requestId });
   }
 
-  // Use provided passcode or generate one (match Azure Function)
   const passcode = providedPasscode || Math.floor(10000 + Math.random() * 90000).toString();
   
-  // Generate instructionRef if not provided (match insertDeal logic)
   let instructionRef = providedInstructionRef;
   if (!instructionRef && prospectId) {
-    const pad = (v, width = 5) => String(v).padStart(width, '0');
     const passcodeStr = String(passcode).padStart(5, '0');
     const prospectIdStr = String(prospectId).padStart(5, '0');
     instructionRef = `HLX-${prospectIdStr}-${passcodeStr}`;
   }
-  
-  console.log(`[${requestId}] 📝 Passcode: ${passcode}, instructionRef: ${instructionRef}`);
 
   try {
     const config = await getDbConfig();
     const pool = await sql.connect(config);
-    
-    console.log(`[${requestId}] ✅ Database connected successfully`);
 
-    // Check for recent duplicate deals (match Azure Function logic exactly)
+    // Check for recent duplicate deals
     const duplicateCheck = await pool.request()
       .input('ProspectId', sql.Int, prospectId || null)
       .input('ServiceDescription', sql.NVarChar(255), finalServiceDescription)
@@ -118,9 +102,7 @@ module.exports = async (req, res) => {
     if (duplicateCheck.recordset.length > 0) {
       const existingDeal = duplicateCheck.recordset[0];
       dealId = existingDeal.DealId;
-      console.log(`[${requestId}] 🔄 Returning existing deal to prevent duplicate:`, { dealId, passcode: existingDeal.Passcode });
       
-      // Return existing deal without creating duplicate
       const baseInstructions = process.env.DEAL_INSTRUCTIONS_URL || 'https://instruct.helix-law.com/pitch';
       const instructionsUrl = `${baseInstructions.replace(/\/$/, '')}/${encodeURIComponent(existingDeal.Passcode)}`;
       
@@ -136,11 +118,9 @@ module.exports = async (req, res) => {
       });
     }
 
-    // No duplicate found - insert new deal (match Azure Function exactly)
-    console.log(`[${requestId}] ➕ Creating new deal...`);
-    
+    // Insert new deal
     const now = new Date();
-    const pitchValidUntil = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000); // 14 days
+    const pitchValidUntil = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
 
     const dealResult = await pool.request()
       .input('InstructionRef', sql.NVarChar(50), instructionRef)
@@ -166,29 +146,19 @@ module.exports = async (req, res) => {
       `);
 
     dealId = dealResult.recordset[0].DealId;
-    console.log(`[${requestId}] ✅ Deal created successfully (ID: ${dealId})`);
 
-    // Insert joint clients if multi-client (match Azure Function exactly)
+    // Insert joint clients if multi-client
     if (isMultiClient && Array.isArray(clients)) {
-      console.log(`[${requestId}] 👥 Processing ${clients.length} joint clients...`);
-      
       for (const c of clients) {
         await pool.request()
           .input('DealId', sql.Int, dealId)
-          // Support both `email` and `clientEmail` field names (match Azure Function)
           .input('ClientEmail', sql.NVarChar(255), c.clientEmail || c.email || '')
           .query('INSERT INTO DealJointClients (DealId, ClientEmail) VALUES (@DealId, @ClientEmail)');
       }
-      console.log(`[${requestId}] ✅ Joint clients saved successfully`);
     }
 
-    // Always insert pitch content to preserve email body/subject (match Azure Function exactly)
-    console.log(`[${requestId}] 📧 Saving pitch content...`);
-    
-    // Extract scenarioId from payload (optional, may be undefined)
+    // Save pitch content
     const scenarioId = req.body.scenarioId || null;
-    
-    // Convert empty strings to null for proper database storage (match Azure Function)
     const cleanEmailSubject = (emailSubject && emailSubject.trim()) ? emailSubject : null;
     const cleanEmailBody = (emailBody && emailBody.trim()) ? emailBody : null;
     const cleanEmailBodyHtml = (emailBodyHtml && emailBodyHtml.trim()) ? emailBodyHtml : null;
@@ -211,12 +181,10 @@ module.exports = async (req, res) => {
         INSERT INTO PitchContent (DealId, InstructionRef, ProspectId, Amount, ServiceDescription, EmailSubject, EmailBody, EmailBodyHtml, Reminders, CreatedBy, Notes, ScenarioId)
         VALUES (@DealId, @InstructionRef, @ProspectId, @Amount, @ServiceDescription, @EmailSubject, @EmailBody, @EmailBodyHtml, @Reminders, @CreatedBy, @Notes, @ScenarioId)
       `);
-    
-    console.log(`[${requestId}] ✅ Pitch content saved successfully`);
 
-    console.log(`[${requestId}] 🎉 Deal capture complete - DealID: ${dealId}, Passcode: ${passcode}`);
+    // Log key operation for App Insights recovery
+    log.op('deal:captured', { dealId, instructionRef, prospectId, amount, areaOfWork });
 
-    // Build instructions URL
     const baseInstructions = process.env.DEAL_INSTRUCTIONS_URL || 'https://instruct.helix-law.com/pitch';
     const instructionsUrl = `${baseInstructions.replace(/\/$/, '')}/${encodeURIComponent(passcode)}`;
     
@@ -232,7 +200,7 @@ module.exports = async (req, res) => {
     });
 
   } catch (error) {
-    console.error(`[${requestId}] ❌ Database error:`, error);
+    log.fail('deal:capture', error, { prospectId, amount, areaOfWork, requestId });
     res.status(500).json({ 
       error: 'Failed to capture deal', 
       details: error.message,

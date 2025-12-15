@@ -13,7 +13,7 @@ import { mergeStyles } from '@fluentui/react';
 import { format } from 'date-fns';
 import { colours } from '../app/styles/colours';
 import { formContainerStyle } from './BespokeForms';
-import { sharedDefaultButtonStyles } from '../app/styles/ButtonStyles';
+import { getFormDefaultButtonStyles } from './shared/formStyles';
 import HelixAvatar from '../assets/helix avatar.png';
 import { useTheme } from '../app/functionality/ThemeContext';
 
@@ -378,7 +378,7 @@ const AnnualLeaveBookings: React.FC<AnnualLeaveBookingsProps> = ({ bookings, onC
               <DefaultButton
                 text={isRejected ? 'Acknowledge' : '✓ Book Leave'}
                 onClick={localHandleAction}
-                styles={sharedDefaultButtonStyles}
+                styles={getFormDefaultButtonStyles(isDarkMode)}
                 style={{ 
                   flex: 1, 
                   minWidth: 0, 
@@ -395,7 +395,7 @@ const AnnualLeaveBookings: React.FC<AnnualLeaveBookingsProps> = ({ bookings, onC
                 <DefaultButton
                   text="✗ Discard"
                   onClick={localHandleDiscardAction}
-                  styles={sharedDefaultButtonStyles}
+                  styles={getFormDefaultButtonStyles(isDarkMode)}
                   style={{ 
                     flex: 1, 
                     minWidth: 0, 

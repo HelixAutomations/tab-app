@@ -52,8 +52,6 @@ router.post('/', async (req, res) => {
  * Perform the actual Clio contact search (extracted for caching)
  */
 async function performClioContactSearch(emails) {
-  console.log(`🔍 Performing fresh Clio search for ${emails.length} emails`);
-  
   // Key Vault URI and secret names
   const kvUri = "https://helix-keys.vault.azure.net/";
   const clioRefreshTokenSecretName = "clio-teamhubv1-refreshtoken";
@@ -65,7 +63,7 @@ async function performClioContactSearch(emails) {
   const clioApiBaseUrl = "https://eu.app.clio.com/api/v4";
 
   // Retrieve Clio OAuth credentials from Key Vault
-  const credential = new DefaultAzureCredential();
+  const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
   const secretClient = new SecretClient(kvUri, credential);
 
   const [refreshTokenSecret, clientSecret, clientIdSecret] = await Promise.all([
@@ -182,7 +180,6 @@ async function performClioContactSearch(emails) {
   }
 
   const foundContacts = Object.values(results).filter(contact => contact !== null);
-  console.log(`🎯 Clio search completed. Found ${foundContacts.length} contacts out of ${emails.length} emails searched.`);
 
   return {
     success: true,

@@ -129,8 +129,7 @@ export const clearMatterOpeningDraft = (): void => {
   draftKeys.forEach(key => {
     localStorage.removeItem(key);
   });
-  
-  console.log('Matter opening draft data cleared');
+  // Draft data cleared
 };
 
 /**
@@ -139,7 +138,7 @@ export const clearMatterOpeningDraft = (): void => {
 export const completeMatterOpening = (): void => {
   localStorage.setItem('matterOpeningDraft_completed', 'true');
   localStorage.removeItem('matterOpeningDraft_hasInput');
-  console.log('Matter opening marked as completed');
+  // Matter opening marked as completed
 };
 
 /**

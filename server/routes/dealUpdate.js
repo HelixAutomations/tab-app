@@ -1,7 +1,10 @@
 const express = require('express');
 const { getSecret } = require('../utils/getSecret');
 const sql = require('mssql');
+const { loggers } = require('../utils/logger');
+
 const router = express.Router();
+const log = loggers.payments.child('DealUpdate');
 
 // Database connection configuration
 let dbConfig = null;
@@ -41,16 +44,14 @@ async function getDbConfig() {
 // List deals endpoint for debugging
 router.get('/', async (req, res) => {
   try {
-    console.log('📋 Listing all deals...');
     const config = await getDbConfig();
     const pool = await sql.connect(config);
     
     const result = await pool.request().query('SELECT TOP 10 DealId, ServiceDescription, Amount FROM Deals ORDER BY DealId DESC');
     
-    console.log(`Found ${result.recordset.length} deals`);
     res.json({ deals: result.recordset });
   } catch (error) {
-    console.error('Error listing deals:', error);
+    log.fail('deals:list', error, {});
     res.status(500).json({ error: 'Failed to list deals' });
   }
 });
@@ -59,17 +60,12 @@ router.get('/', async (req, res) => {
 router.post('/close-by-instruction', async (req, res) => {
   const { instructionRef } = req.body;
   
-  console.log(`🎯 CLOSE DEAL ENDPOINT HIT - Instruction Ref: ${instructionRef}`);
-  
   if (!instructionRef) {
-    console.log('❌ Bad request - missing instructionRef');
     return res.status(400).json({ error: 'instructionRef is required' });
   }
 
   try {
-    console.log('🔗 Getting database configuration...');
     const config = await getDbConfig();
-    console.log('🔗 Connecting to database...');
     const pool = await sql.connect(config);
     
     const now = new Date();
@@ -81,8 +77,6 @@ router.post('/close-by-instruction', async (req, res) => {
       WHERE InstructionRef = @instructionRef
     `;
     
-    console.log(`Closing deal for instruction ${instructionRef}`);
-    
     const result = await pool.request()
       .input('status', sql.NVarChar, 'closed')
       .input('closeDate', sql.Date, now)
@@ -91,14 +85,13 @@ router.post('/close-by-instruction', async (req, res) => {
       .query(updateQuery);
     
     if (result.rowsAffected[0] === 0) {
-      console.log(`⚠️ No deal found for instruction ${instructionRef}`);
       return res.status(404).json({ 
         success: false, 
         message: 'No deal found for this instruction reference' 
       });
     }
     
-    console.log(`✅ Deal for instruction ${instructionRef} closed successfully`);
+    log.op('deal:closed', { instructionRef });
     
     res.json({
       success: true,
@@ -107,7 +100,7 @@ router.post('/close-by-instruction', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Error closing deal:', error);
+    log.fail('deal:close', error, { instructionRef });
     res.status(500).json({ error: 'Failed to close deal', details: error.message });
   }
 });
@@ -117,17 +110,12 @@ router.put('/:dealId', async (req, res) => {
   const dealId = parseInt(req.params.dealId);
   const { ServiceDescription, Amount } = req.body;
   
-  console.log(`🎯 DEAL UPDATE ENDPOINT HIT - Deal ID: ${dealId}, Updates:`, { ServiceDescription, Amount });
-  
   if (!dealId || (!ServiceDescription && Amount === undefined)) {
-    console.log(`❌ Bad request - Deal ID: ${dealId}, ServiceDescription: ${ServiceDescription}, Amount: ${Amount}`);
     return res.status(400).json({ error: 'Deal ID and at least one field to update are required' });
   }
 
   try {
-    console.log('🔗 Getting database configuration...');
     const config = await getDbConfig();
-    console.log('🔗 Connecting to database...');
     const pool = await sql.connect(config);
     
     // Build dynamic update query based on provided fields
@@ -151,9 +139,6 @@ router.put('/:dealId', async (req, res) => {
       WHERE DealId = @dealId
     `;
     
-    console.log(`Updating deal ${dealId} with query:`, updateQuery);
-    console.log('Parameters:', { dealId, ServiceDescription, Amount });
-    
     const result = await request.query(updateQuery);
     
     if (result.rowsAffected[0] === 0) {
@@ -171,7 +156,7 @@ router.put('/:dealId', async (req, res) => {
       .input('dealId', sql.Int, dealId)
       .query(updatedDealQuery);
     
-    console.log(`Deal ${dealId} updated successfully`);
+    log.op('deal:updated', { dealId, ServiceDescription, Amount });
     
     res.json({
       success: true,
@@ -179,7 +164,7 @@ router.put('/:dealId', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Error updating deal:', error);
+    log.fail('deal:update', error, { dealId });
     res.status(500).json({ error: 'Failed to update deal', details: error.message });
   }
 });

@@ -1,8 +1,10 @@
 const express = require('express');
 const { getRedisClient } = require('../utils/redisClient');
 const reporting = require('./reporting');
+const { loggers } = require('../utils/logger');
 
 const router = express.Router();
+const log = loggers.cache.child('Clear');
 
 // Clear Redis cache endpoint
 router.post('/clear-cache', async (req, res) => {
@@ -32,9 +34,6 @@ router.post('/clear-cache', async (req, res) => {
         const cleared = typeof reporting.clearReportingCache === 'function'
           ? reporting.clearReportingCache('all')
           : 0;
-        if (cleared > 0) {
-          console.log(`🧹 Cleared in-memory reporting cache entries: ${cleared}`);
-        }
       } catch {}
     }
     
@@ -70,24 +69,21 @@ router.post('/clear-cache', async (req, res) => {
         const cleared = typeof reporting.clearReportingCache === 'function'
           ? reporting.clearReportingCache('enquiries')
           : 0;
-        if (cleared > 0) {
-          console.log(`🧹 Cleared in-memory reporting cache (enquiries): ${cleared}`);
-        }
       } catch {}
     }
     
-    console.log(`🗑️ Cache cleared: ${clearedKeys.length} keys (scope: ${scope})`);
+    log.op('cache:clear', { scope, keysCleared: clearedKeys.length });
     
     return res.json({
       success: true,
       message: `Cache cleared successfully`,
       clearedKeys: clearedKeys.length,
       scope,
-      keys: clearedKeys.slice(0, 10) // Show first 10 keys for debugging
+      keys: clearedKeys.slice(0, 10)
     });
     
   } catch (error) {
-    console.error('❌ Cache clear failed:', error);
+    log.fail('cache:clear', error, { scope: req.body?.scope });
     return res.status(500).json({
       success: false,
       error: 'Cache clear failed',

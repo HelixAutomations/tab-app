@@ -186,7 +186,6 @@ const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) 
   const handleActionSubmit = (action: ResourceAction) => {
     const inputs = actionInputs;
     // Replace the alert with actual API calls using the input values
-    console.log(`Executing action: ${action.label}`, inputs);
     alert(`Executing action: ${action.label}\nInputs: ${JSON.stringify(inputs)}`);
     // Reset the form after submission
     setSelectedAction(null);
@@ -244,7 +243,6 @@ const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) 
                           required: true,
                         }))}
                         onSubmit={(values) => {
-                          console.log(`Action Submitted: ${action.label}`, values);
                           handleActionSubmit(action);
                         }}
                         onCancel={() => {

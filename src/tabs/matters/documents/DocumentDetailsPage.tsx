@@ -251,7 +251,7 @@ Fields: ${requiredFields.map(r => {
   `.trim();
 
   const handleRequestData = () => {
-    console.log('Requesting data from client with fields:', requiredFields.map(r => r.field));
+    // TODO: Implement data request from client
   };
 
   // ----------------- Page Styles -----------------
@@ -466,7 +466,7 @@ Fields: ${requiredFields.map(r => {
       </Stack>
 
       <Stack horizontal horizontalAlign="end" tokens={{ childrenGap: 15 }} styles={{ root: { marginTop: '40px' } }}>
-        <PrimaryButton text="Use This Template" onClick={() => console.log('Proceed with template generation...')} />
+        <PrimaryButton text="Use This Template" onClick={() => { /* TODO: Implement template generation */ }} />
       </Stack>
     </div>
   );

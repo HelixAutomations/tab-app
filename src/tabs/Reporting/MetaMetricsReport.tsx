@@ -612,13 +612,6 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
       return true;
     });
 
-    // Debug: Log Meta enquiries to see their structure (only once)
-    if (metaEnquiries.length > 0 && !(window as any).metaEnquiriesLogged) {
-      console.log('� Meta enquiries found:', metaEnquiries.length);
-      console.log('📋 Sample Meta enquiry fields:', Object.keys(metaEnquiries[0]));
-      (window as any).metaEnquiriesLogged = true;
-    }
-
     const totalEnquiries = metaEnquiries.length;
     
     // Calculate pitch and instruction conversion metrics

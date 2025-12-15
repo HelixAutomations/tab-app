@@ -1201,15 +1201,6 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
       return t >= startTime && t <= endTime;
     });
 
-    if (rangeKey === 'week') {
-      // eslint-disable-next-line no-console
-      console.log('[ManagementDashboard] Filtered WIP for This Week:', filtered.map(e => ({ date: e.date, created_at: e.created_at, hours: e.quantity_in_hours, value: e.total })));
-      if (filtered.length === 0 && wip.length > 0) {
-        const sample = wip.slice(0, 5).map(e => ({ rawDate: e.date, rawCreated: e.created_at }));
-        // eslint-disable-next-line no-console
-        console.log('[ManagementDashboard] WIP sample (first 5) with dates:', sample, 'Range:', { start: activeStart, end: activeEnd });
-      }
-    }
     return filtered;
   }, [wip, activeStart, activeEnd, rangeKey]);
 

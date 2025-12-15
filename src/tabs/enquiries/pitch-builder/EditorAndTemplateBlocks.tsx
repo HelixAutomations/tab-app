@@ -1256,23 +1256,13 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   const [selectedScenarioId, setSelectedScenarioId] = useState<string>('');
   const isBeforeCallCall = selectedScenarioId === 'before-call-call';
 
-  // Debug effect to track selectedScenarioId changes and notify parent
+  // Track selectedScenarioId changes and notify parent
   useEffect(() => {
-    console.log('🔍 selectedScenarioId changed:', selectedScenarioId);
     if (onScenarioChange) {
       onScenarioChange(selectedScenarioId);
     }
   }, [selectedScenarioId, onScenarioChange]);
 
-  // Debug effect to track if component is mounting properly
-  useEffect(() => {
-    console.log('🚀 EditorAndTemplateBlocks mounted, SCENARIOS available:', !!SCENARIOS, 'length:', SCENARIOS?.length);
-    
-    // Also verify scenarios content
-    if (SCENARIOS && SCENARIOS.length > 0) {
-      console.log('📄 First scenario:', SCENARIOS[0]);
-    }
-  }, []);
   const [isTemplatesCollapsed, setIsTemplatesCollapsed] = useState(false); // Start expanded for immediate selection
   const [showInlinePreview, setShowInlinePreview] = useState(false);
   const [isBodyEditorFocused, setIsBodyEditorFocused] = useState(false);
@@ -2288,7 +2278,6 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
               marginBottom: '16px'
             }}>
               {(() => {
-                console.log('📦 Rendering scenarios:', SCENARIOS?.length, 'scenarios available');
                 return SCENARIOS?.map((s, index) => (
                   <button
                     key={s.id}
@@ -2313,17 +2302,14 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     })()}`}
                     role="radio"
                     tabIndex={-1}
-                    onMouseDown={(e) => {
-                      console.log('🖱️ MouseDown on scenario:', s.id);
+                    onMouseDown={() => {
+                      // Scenario mousedown
                     }}
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      console.log('🎯 Scenario clicked:', s.id, 'Current selectedScenarioId:', selectedScenarioId);
-                      console.log('🖱️ Click event details:', e.target, e.currentTarget);
                       try {
                         setSelectedScenarioId(s.id);
-                        console.log('✅ setSelectedScenarioId called with:', s.id);
                         setIsTemplatesCollapsed(true);
 
                       const raw = stripDashDividers(s.body);
@@ -2365,9 +2351,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                         onAmountChange?.('0.99');
                       }
                       
-                      console.log('🔄 Scenario setup complete. selectedScenarioId should now be:', s.id);
                     } catch (error) {
-                      console.error('❌ Error in scenario selection:', error);
+                      console.error('[PitchBuilder] Error in scenario selection:', error);
                     }
                     }}
                     style={{
@@ -2646,10 +2631,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
           {/* Scenario hot-update handled via top-level useEffect */}
           
           {/* Only show the rest of the form after a template is selected */}
-          {(() => {
-            console.log('📋 Render check - selectedScenarioId:', selectedScenarioId, 'Type:', typeof selectedScenarioId, 'Truthy:', !!selectedScenarioId);
-            return selectedScenarioId;
-          })() && (
+          {selectedScenarioId && (
             <div style={{
               animation: 'cascadeIn 0.3s ease-out',
               opacity: 1,

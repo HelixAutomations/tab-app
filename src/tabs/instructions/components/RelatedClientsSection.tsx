@@ -83,14 +83,6 @@ const RelatedClientsSection: React.FC<RelatedClientsSectionProps> = ({
   const [showLookupModal, setShowLookupModal] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
 
-  // Debug: Track component lifecycle
-  useEffect(() => {
-    console.log('RelatedClientsSection mounted for instruction:', instructionRef);
-    return () => {
-      console.log('RelatedClientsSection unmounting for instruction:', instructionRef);
-    };
-  }, [instructionRef]);
-
   // Load related client details when relatedClientIds changes
   useEffect(() => {
     if (relatedClientIds && relatedClientIds.trim() !== '') {
@@ -101,36 +93,31 @@ const RelatedClientsSection: React.FC<RelatedClientsSectionProps> = ({
   }, [relatedClientIds, userInitials]);
 
   useEffect(() => {
-    console.log('RelatedClientsSection - mainClientId changed:', mainClientId);
     if (mainClientId && mainClientId.trim() !== '') {
       loadMainClient(mainClientId);
     } else {
-      console.log('RelatedClientsSection - no mainClientId, setting null');
       setMainClient(null);
     }
   }, [mainClientId, userInitials]);
 
   const fetchClientCustomFields = async (clientId: string): Promise<CustomFieldValue[]> => {
     try {
-      console.log('Fetching custom fields for client:', clientId);
       const response = await fetch(`/api/clio-client-lookup/client/${clientId}/custom-fields?initials=${userInitials}`);
       if (response.ok) {
         const data = await response.json();
-        console.log('Custom fields loaded for client', clientId, ':', data.custom_field_values);
         return data.custom_field_values || [];
       } else {
-        console.warn('Failed to load custom fields for client', clientId, '- response not ok:', response.status);
+        console.warn('[RelatedClientsSection] Failed to load custom fields for client', clientId, ':', response.status);
         return [];
       }
     } catch (error) {
-      console.error('Error loading custom fields for client', clientId, ':', error);
+      console.error('[RelatedClientsSection] Error loading custom fields for client', clientId, ':', error);
       return [];
     }
   };
 
   const loadMainClient = async (clientId: string) => {
     try {
-      console.log('Loading main client with ID:', clientId);
       setIsLoadingMainClient(true);
       setIsLoadingCustomFields(true);
       
@@ -138,7 +125,6 @@ const RelatedClientsSection: React.FC<RelatedClientsSectionProps> = ({
       const response = await fetch(`/api/clio-client-lookup/client/${clientId}?initials=${userInitials}`);
       if (response.ok) {
         const data = await response.json();
-        console.log('Main client loaded successfully:', data.client);
         
         // Set basic client data first
         setMainClient(data.client);

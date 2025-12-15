@@ -58,8 +58,8 @@ function getFeeEarnerEmail(pitchedBy: string): string | null {
     // Normalize the input (trim and handle case variations)
     const normalizedName = pitchedBy.trim();
     
-    // Team member lookup table based on current team-sql-data.json
-    // This should be kept in sync with the main team data
+    // Team member lookup table - this should be kept in sync with the dbo.team SQL table
+    // Consider fetching from /api/team-data in the future for dynamic lookup
     const teamLookup: { [key: string]: string } = {
       "Alex Cook": "ac@helix-law.com",
       "Anouszka Taverna": "at@helix-law.com", 

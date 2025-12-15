@@ -4,7 +4,7 @@ const { SecretClient } = require('@azure/keyvault-secrets');
 
 const keyVaultName = process.env.KEY_VAULT_NAME || 'helixlaw-instructions';
 const vaultUrl = `https://${keyVaultName}.vault.azure.net`;
-const credential = new DefaultAzureCredential();
+const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
 const secretClient = new SecretClient(vaultUrl, credential);
 
 let cachedClientId;
@@ -52,10 +52,10 @@ async function refreshToken() {
         return cachedToken;
     } catch (err) {
         if (err.response) {
-            console.error('❌ Token status:', err.response.status);
-            console.error('❌ Token error data:', JSON.stringify(err.response.data));
+            console.error('[Tiller] Token status:', err.response.status);
+            console.error('[Tiller] Token error data:', JSON.stringify(err.response.data));
         } else {
-            console.error('❌ Token request error:', err.message);
+            console.error('[Tiller] Token request error:', err.message);
         }
         throw err;
     }
@@ -88,16 +88,16 @@ async function submitVerification(instructionData) {
         return res.data;
     } catch (err) {
         if (err.response) {
-            console.error('❌ Tiller status:', err.response.status);
-            console.error('❌ Tiller error data:', JSON.stringify(err.response.data, null, 2));
+            console.error('[Tiller] Status:', err.response.status);
+            console.error('[Tiller] Error data:', JSON.stringify(err.response.data, null, 2));
             if (err.response.data?.ValidationErrors) {
-                console.error('❌ Validation Errors:', JSON.stringify(err.response.data.ValidationErrors, null, 2));
+                console.error('[Tiller] Validation Errors:', JSON.stringify(err.response.data.ValidationErrors, null, 2));
             }
         } else {
-            console.error('❌ Tiller request error:', err.message);
+            console.error('[Tiller] Request error:', err.message);
         }
         console.error(
-            '❌ Failed payload for',
+            '[Tiller] Failed payload for',
             instructionData.instructionRef || instructionData.InstructionRef
         );
         throw err;

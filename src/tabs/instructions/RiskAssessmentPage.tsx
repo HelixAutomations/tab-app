@@ -204,8 +204,6 @@ const RiskAssessmentPage: React.FC<RiskAssessmentPageProps> = ({ onBack, instruc
                 RiskAssessmentResult: riskResult,
             };
 
-            console.log('📋 Submitting risk assessment:', payload);
-
             const response = await fetch('/api/risk-assessments', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -217,7 +215,6 @@ const RiskAssessmentPage: React.FC<RiskAssessmentPageProps> = ({ onBack, instruc
             }
 
             const responseData = await response.text();
-            console.log('✅ Risk assessment submitted successfully:', responseData);
 
             // Notify parent of new risk assessment so it can refresh UI and update instruction card
             onSave?.(payload);

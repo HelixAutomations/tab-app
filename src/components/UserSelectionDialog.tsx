@@ -1,7 +1,7 @@
 // src/components/UserSelectionDialog.tsx
 // Dialog for users to confirm their identity when no Teams context is available
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Dialog,
   DialogType,
@@ -12,11 +12,13 @@ import {
   Stack,
   Text,
   Icon,
+  Spinner,
+  SpinnerSize,
   mergeStyles
 } from '@fluentui/react';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';
-import teamData from '../localData/team-sql-data.json';
+import { TeamData } from '../app/functionality/types';
 
 interface UserOption {
   key: string;
@@ -37,18 +39,49 @@ const UserSelectionDialog: React.FC<UserSelectionDialogProps> = ({
 }) => {
   const { isDarkMode } = useTheme();
   const [selectedUserKey, setSelectedUserKey] = useState<string>('');
+  const [teamData, setTeamData] = useState<TeamData[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Available users from team-sql-data.json - only show active users
-  const userOptions: UserOption[] = (teamData as any[])
-    .filter(user => user.status === 'active')
-    .map(user => ({
-      key: String(user.Initials || '').toLowerCase(),
-      text: `${user["Full Name"]} (${user.Initials})`,
-      email: user.Email,
-      initials: user.Initials,
-      areas: user.AOW
-    }))
-    .sort((a, b) => a.text.localeCompare(b.text));
+  // Fetch team data from API when dialog opens
+  useEffect(() => {
+    if (!isOpen || teamData) return;
+    
+    const fetchTeam = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const response = await fetch('/api/team-data');
+        if (!response.ok) {
+          throw new Error(`Failed to fetch team data: ${response.statusText}`);
+        }
+        const data: TeamData[] = await response.json();
+        setTeamData(data);
+      } catch (err) {
+        console.error('Failed to load team data:', err);
+        setError('Unable to load team members. Please check your connection and try again.');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchTeam();
+  }, [isOpen, teamData]);
+
+  // Available users from API - only show active users
+  const userOptions: UserOption[] = useMemo(() => {
+    if (!teamData) return [];
+    return teamData
+      .filter(user => user.status === 'active')
+      .map(user => ({
+        key: String(user.Initials || '').toLowerCase(),
+        text: `${user["Full Name"]} (${user.Initials})`,
+        email: user.Email || '',
+        initials: user.Initials || '',
+        areas: user.AOW || ''
+      }))
+      .sort((a, b) => a.text.localeCompare(b.text));
+  }, [teamData]);
 
   const dropdownOptions: IDropdownOption[] = userOptions.map(user => ({
     key: user.key,
@@ -110,23 +143,37 @@ const UserSelectionDialog: React.FC<UserSelectionDialogProps> = ({
           </Text>
         </Stack>
 
-        <Dropdown
-          placeholder="Select your identity..."
-          options={dropdownOptions}
-          selectedKey={selectedUserKey}
-          onChange={(_, option) => setSelectedUserKey((option?.key as string) || '')}
-          styles={{
-            dropdown: {
-              backgroundColor: isDarkMode ? colours.dark.hoverBackground : colours.light.cardBackground,
-              border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`
-            },
-            title: {
-              backgroundColor: isDarkMode ? colours.dark.hoverBackground : colours.light.cardBackground,
-              color: isDarkMode ? colours.dark.text : colours.light.text,
-              border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`
-            }
-          }}
-        />
+        {loading && (
+          <Stack horizontalAlign="center" tokens={{ childrenGap: 8 }}>
+            <Spinner size={SpinnerSize.medium} label="Loading team members..." />
+          </Stack>
+        )}
+
+        {error && (
+          <Text variant="small" styles={{ root: { color: colours.cta } }}>
+            {error}
+          </Text>
+        )}
+
+        {!loading && !error && (
+          <Dropdown
+            placeholder="Select your identity..."
+            options={dropdownOptions}
+            selectedKey={selectedUserKey}
+            onChange={(_, option) => setSelectedUserKey((option?.key as string) || '')}
+            styles={{
+              dropdown: {
+                backgroundColor: isDarkMode ? colours.dark.hoverBackground : colours.light.cardBackground,
+                border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`
+              },
+              title: {
+                backgroundColor: isDarkMode ? colours.dark.hoverBackground : colours.light.cardBackground,
+                color: isDarkMode ? colours.dark.text : colours.light.text,
+                border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`
+              }
+            }}
+          />
+        )}
 
         {selectedUser && (
           <div className={userInfoStyle}>
