@@ -17,6 +17,10 @@ interface Props {
   onClaimSuccess?: () => void;
   onOptimisticClaim?: (enquiryId: string, claimerEmail: string) => void;
   promotionStatus?: 'pitch' | 'instruction' | null;
+  /**
+   * Number of documents uploaded for this enquiry (if available)
+   */
+  documentCount?: number;
 }
 
 /**
@@ -121,11 +125,12 @@ const getAreaColour = (area?: string) => {
   return colours.greyText;
 };
 
-const NewUnclaimedEnquiryCard: React.FC<Props> = ({ enquiry, onSelect, onAreaChange, userEmail, onClaimSuccess, onOptimisticClaim, promotionStatus }) => {
+const NewUnclaimedEnquiryCard: React.FC<Props> = ({ enquiry, onSelect, onAreaChange, userEmail, onClaimSuccess, onOptimisticClaim, promotionStatus, documentCount = 0 }) => {
   const { isDarkMode } = useTheme();
   const [selected, setSelected] = useState(false);
   const [showActions, setShowActions] = useState(false);
-  const { claimEnquiry, isLoading, error } = useClaimEnquiry();
+  const { claimEnquiry, isLoading, error: _error } = useClaimEnquiry();
+  void _error; // Error handling via toast, kept for debugging
   const [justClaimed, setJustClaimed] = useState(false);
 
   const areaColor = getAreaColour(enquiry.Area_of_Work);
@@ -253,7 +258,7 @@ const NewUnclaimedEnquiryCard: React.FC<Props> = ({ enquiry, onSelect, onAreaCha
       role="article"
       tabIndex={0}
       aria-label="Unclaimed enquiry (new data)"
-      aria-pressed={selected}
+      aria-selected={selected}
     >
       {/* Left accent */}
       <span style={{
@@ -276,8 +281,31 @@ const NewUnclaimedEnquiryCard: React.FC<Props> = ({ enquiry, onSelect, onAreaCha
         right: 12,
         zIndex: 2,
         display: 'flex',
+        alignItems: 'center',
+        gap: 8,
         width: 'fit-content'
       }}>
+        {/* Document count badge - only show if documents exist */}
+        {documentCount > 0 && (
+          <div
+            title={`${documentCount} document${documentCount === 1 ? '' : 's'} attached`}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+              padding: '4px 8px',
+              borderRadius: 6,
+              background: isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(135, 243, 243, 0.15)',
+              border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(135, 243, 243, 0.35)'}`,
+              fontSize: 10,
+              fontWeight: 600,
+              color: isDarkMode ? colours.accent : '#0d7377',
+            }}
+          >
+            <Icon iconName="Documentation" styles={{ root: { fontSize: 11 } }} />
+            <span>{documentCount}</span>
+          </div>
+        )}
         <EnquiryBadge enquiry={enquiry} isClaimed={false} showPulse={true} onAreaChange={onAreaChange} />
       </div>
 

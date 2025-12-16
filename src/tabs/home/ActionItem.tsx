@@ -36,7 +36,7 @@ const ActionItem: React.FC<ActionItemProps> = ({ title, iconName, onClick, isDar
     ':hover': {
       transform: 'translateY(-5px)',
       boxShadow: isDarkMode
-        ? `0 4px 12px ${colours.dark.border}`
+        ? '0 4px 12px rgba(0, 0, 0, 0.3)'
         : `0 4px 12px ${colours.light.border}`,
     },
   });

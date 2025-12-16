@@ -67,6 +67,47 @@ import { debugLog, debugWarn } from '../../utils/debug';
 import { shouldAlwaysShowProspectHistory, isSharedProspectRecord } from './sharedProspects';
 import { checkIsLocalDev, isActuallyLocalhost } from '../../utils/useIsLocalDev';
 
+// Synthetic test enquiry for dev/admin preview - always available, not from database
+const DEV_PREVIEW_TEST_ENQUIRY: Enquiry & { __sourceType: 'new' | 'legacy' } = {
+  ID: 'DEV-PREVIEW-99999',
+  Date_Created: new Date().toISOString().split('T')[0],
+  Touchpoint_Date: new Date().toISOString().split('T')[0],
+  Email: 'test@example.com',
+  Area_of_Work: 'commercial (costs)',
+  Type_of_Work: 'Contract Disputes',
+  Method_of_Contact: 'Website Form',
+  Point_of_Contact: 'lz@helix-law.com',
+  Company: 'Test Company Ltd',
+  Website: 'https://example.com',
+  Title: 'Mr',
+  First_Name: 'Test',
+  Last_Name: 'Client',
+  DOB: '1990-01-01',
+  Phone_Number: '07000000000',
+  Secondary_Phone: '02000000000',
+  Tags: '',
+  Unit_Building_Name_or_Number: '123',
+  Mailing_Street: 'Test Street',
+  Mailing_Street_2: '',
+  Postal_Code: 'AB1 2CD',
+  City: 'Test City',
+  Mailing_County: 'Test County',
+  Country: 'United Kingdom',
+  Gift_Rank: 5,
+  Value: '£25,000 to £50,000',
+  Call_Taker: 'LZ',
+  Ultimate_Source: 'Google Ads',
+  Referral_URL: 'https://google.com',
+  Campaign: 'Test_Campaign',
+  Ad_Group: 'Test_AdGroup',
+  Search_Keyword: 'test keyword',
+  GCLID: 'test-gclid-123',
+  Initial_first_call_notes: 'Test enquiry notes for development preview.',
+  Do_not_Market: 'No',
+  Rating: 'Good',
+  __sourceType: 'new'
+};
+
 // CSS for shimmer animation
 const shimmerStyle = `
 @keyframes shimmer {
@@ -593,6 +634,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [toastMessage, setToastMessage] = useState<string>('');
   const [toastDetails, setToastDetails] = useState<string>('');
   const [toastType, setToastType] = useState<'success' | 'error' | 'info' | 'warning'>('success');
+  
+  // Document counts state - maps enquiry ID to document count
+  const [documentCounts, setDocumentCounts] = useState<Record<string, number>>({});
   
   useEffect(() => {
     const anyModalOpen = isRateModalOpen || showEditModal || isCreateContactModalOpen;
@@ -1945,6 +1989,80 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     }
   }, [displayEnquiries, handleSelectEnquiry]);
 
+  // Listen for test enquiry selection event (from UserBubble menu)
+  // Uses the synthetic DEV_PREVIEW_TEST_ENQUIRY - always available for dev/admin
+  useEffect(() => {
+    const handleSelectTestEnquiry = () => {
+      // Get the current user's email for Point_of_Contact
+      const currentUserEmail = userData && userData[0] && userData[0].Email 
+        ? userData[0].Email 
+        : 'lz@helix-law.com';
+      
+      // Create test enquiry with current user as Point_of_Contact
+      const testEnquiry = {
+        ...DEV_PREVIEW_TEST_ENQUIRY,
+        Point_of_Contact: currentUserEmail,
+      };
+      
+      // Inject test enquiry at top of list if not already present
+      setDisplayEnquiries(prev => {
+        const exists = prev.some(e => e.ID === DEV_PREVIEW_TEST_ENQUIRY.ID);
+        if (exists) return prev;
+        return [testEnquiry, ...prev];
+      });
+      
+      // Also inject synthetic enrichment data for the test record
+      const now = new Date();
+      const pitchedDate = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
+      setEnrichmentMap(prevMap => {
+        const newMap = new Map(prevMap);
+        newMap.set(DEV_PREVIEW_TEST_ENQUIRY.ID, {
+          enquiryId: DEV_PREVIEW_TEST_ENQUIRY.ID,
+          teamsData: {
+            Id: 99999,
+            ActivityId: 'test-activity-99999',
+            ChannelId: 'test-channel',
+            TeamId: 'test-team',
+            EnquiryId: DEV_PREVIEW_TEST_ENQUIRY.ID,
+            LeadName: 'Test Client',
+            Email: DEV_PREVIEW_TEST_ENQUIRY.Email || '',
+            Phone: DEV_PREVIEW_TEST_ENQUIRY.Phone_Number || '',
+            CardType: 'enquiry',
+            MessageTimestamp: now.toISOString(),
+            TeamsMessageId: 'test-msg-99999',
+            CreatedAtMs: now.getTime(),
+            Stage: 'Enquiry',
+            Status: 'Active',
+            ClaimedBy: currentUserEmail.split('@')[0].toUpperCase(),
+            ClaimedAt: new Date(now.getTime() - 4 * 24 * 60 * 60 * 1000).toISOString(),
+            CreatedAt: new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+            UpdatedAt: now.toISOString(),
+            teamsLink: '',
+          },
+          pitchData: {
+            dealId: 99999,
+            email: DEV_PREVIEW_TEST_ENQUIRY.Email || '',
+            serviceDescription: 'Contract Disputes',
+            amount: 1500,
+            status: 'Pitched',
+            areaOfWork: 'commercial',
+            pitchedBy: 'LZ',
+            pitchedDate: pitchedDate.toISOString().split('T')[0],
+            pitchedTime: pitchedDate.toTimeString().split(' ')[0],
+            scenarioId: 'before-call-call',
+            scenarioDisplay: 'Before call (call)',
+          }
+        });
+        return newMap;
+      });
+    };
+
+    window.addEventListener('selectTestEnquiry', handleSelectTestEnquiry);
+    return () => {
+      window.removeEventListener('selectTestEnquiry', handleSelectTestEnquiry);
+    };
+  }, []);
+
   // Auto-refresh functionality
   const handleManualRefresh = useCallback(async () => {
   debugLog('🔄 Manual refresh triggered');
@@ -2801,6 +2919,53 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   useEffect(() => {
     enrichmentRequestsRef.current.clear();
   }, [showUnclaimedBoard, showGroupedView, viewMode, selectedArea, dateRange?.oldest, dateRange?.newest, searchTerm]);
+
+  // Fetch document counts for displayed enquiries
+  // Note: This will be activated when the backend API is implemented
+  // The API should be at: /api/prospect-documents/counts (POST with enquiryIds array)
+  useEffect(() => {
+    const fetchDocumentCounts = async () => {
+      // Get currently displayed enquiries that need document counts
+      const enquiryIds = displayedItems
+        .filter((item): item is Enquiry => 'ID' in item && Boolean(item.ID))
+        .map(item => String(item.ID))
+        .filter(id => !(id in documentCounts));
+      
+      if (enquiryIds.length === 0) return;
+      
+      try {
+        // TODO: Enable when backend API is implemented
+        // const response = await fetch('/api/prospect-documents/counts', {
+        //   method: 'POST',
+        //   headers: { 'Content-Type': 'application/json' },
+        //   body: JSON.stringify({ enquiryIds })
+        // });
+        // 
+        // if (response.ok) {
+        //   const data = await response.json();
+        //   setDocumentCounts(prev => ({ ...prev, ...data.counts }));
+        // }
+        
+        // For now, initialize with zeros to prevent re-fetching
+        // BUT inject synthetic counts for the dev preview test record
+        setDocumentCounts(prev => {
+          const newCounts = { ...prev };
+          enquiryIds.forEach(id => {
+            if (!(id in newCounts)) {
+              // Inject document count for dev preview test record
+              newCounts[id] = id === 'DEV-PREVIEW-99999' ? 3 : 0;
+            }
+          });
+          return newCounts;
+        });
+      } catch (error) {
+        console.error('[Enquiries] Failed to fetch document counts:', error);
+      }
+    };
+    
+    const timeoutId = setTimeout(fetchDocumentCounts, 200);
+    return () => clearTimeout(timeoutId);
+  }, [displayedItems, documentCounts]);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -3793,6 +3958,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             userAOW={userAOW}
                             getPromotionStatus={getPromotionStatusSimple}
                             onFilterByPerson={handleFilterByPerson}
+                            documentCounts={documentCounts}
                           />
                         );
                       } else {
@@ -3811,6 +3977,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               onClaimSuccess={onRefreshEnquiries}
                               onOptimisticClaim={onOptimisticClaim}
                               promotionStatus={getPromotionStatusSimple(item)}
+                              documentCount={item.ID ? (documentCounts[String(item.ID)] || 0) : 0}
                             />
                           );
                         }
@@ -3832,6 +3999,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             enrichmentData={item.ID ? enrichmentMap.get(String(item.ID)) : null}
                             enrichmentMap={enrichmentMap}
                             enrichmentRequestsRef={enrichmentRequestsRef}
+                            documentCount={item.ID ? (documentCounts[String(item.ID)] || 0) : 0}
                           />
                         );
                       }

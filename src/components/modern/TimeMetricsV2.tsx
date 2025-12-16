@@ -460,10 +460,10 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
               width: '50px',
               height: '26px',
               borderRadius: '13px',
-              border: `1px solid ${isDarkMode ? '#374151' : '#CBD5E1'}`,
+              border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.3)' : '#CBD5E1'}`,
               background: showEnquiryMetrics 
                 ? colours.highlight
-                : (isDarkMode ? '#111827' : '#FFFFFF'),
+                : (isDarkMode ? 'rgba(7, 16, 32, 0.9)' : '#FFFFFF'),
               position: 'relative',
               cursor: 'pointer',
               transition: 'all 0.2s ease',
@@ -476,7 +476,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
               height: '22px',
               borderRadius: '50%',
               background: isDarkMode ? '#E5E7EB' : '#FFFFFF',
-              border: `1px solid ${isDarkMode ? '#4B5563' : '#E5E7EB'}`,
+              border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.4)' : '#E5E7EB'}`,
               position: 'absolute',
               top: '1px',
               left: showEnquiryMetrics ? '24px' : '2px',
@@ -518,11 +518,11 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
       {/* Unified Time Metrics Container with integrated header (match SectionCard visuals) */}
       <div style={{
         background: isDarkMode 
-          ? 'linear-gradient(135deg, #0B1224 0%, #0F1B33 100%)'
+          ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.94) 0%, rgba(11, 30, 55, 0.86) 100%)'
           : colours.light.cardBackground,
         borderRadius: '2px',
         border: isDarkMode 
-          ? `1px solid ${colours.dark.border}` 
+          ? '1px solid rgba(125, 211, 252, 0.24)' 
           : `1px solid ${colours.light.border}`,
         boxShadow: isDarkMode
           ? '0 2px 8px rgba(0,0,0,0.15), 0 1px 2px rgba(0,0,0,0.08)'
@@ -538,7 +538,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
           justifyContent: 'space-between',
           padding: '12px 16px',
           borderBottom: isDarkMode 
-            ? `1px solid ${colours.dark.border}` 
+            ? '1px solid rgba(125, 211, 252, 0.15)' 
             : `1px solid ${colours.light.border}`,
           marginBottom: '12px',
         }}>
@@ -634,10 +634,10 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                 width: '50px',
                 height: '26px',
                 borderRadius: '13px',
-                border: `1px solid ${isDarkMode ? '#374151' : '#CBD5E1'}`,
+                border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.3)' : '#CBD5E1'}`,
                 background: showEnquiryMetrics 
                   ? colours.highlight
-                  : (isDarkMode ? '#111827' : '#FFFFFF'),
+                  : (isDarkMode ? 'rgba(7, 16, 32, 0.9)' : '#FFFFFF'),
                 position: 'relative',
                 cursor: 'pointer',
                 transition: 'all 0.2s ease',
@@ -650,7 +650,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                 height: '22px',
                 borderRadius: '50%',
                 background: isDarkMode ? '#E5E7EB' : '#FFFFFF',
-                border: `1px solid ${isDarkMode ? '#4B5563' : '#E5E7EB'}`,
+                border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.4)' : '#E5E7EB'}`,
                 position: 'absolute',
                 top: '1px',
                 left: showEnquiryMetrics ? '24px' : '2px',
@@ -688,12 +688,12 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
               key={`${metric.title}-${refreshAnimationKey}`}
               style={{
                 background: isDarkMode 
-                  ? 'linear-gradient(135deg, rgba(31, 41, 55, 1) 0%, rgba(17, 24, 39, 1) 100%)'
+                  ? 'linear-gradient(135deg, rgba(11, 30, 55, 0.9) 0%, rgba(7, 16, 32, 0.85) 100%)'
                   : colours.light.cardBackground,
                 borderRadius: '2px',
                 padding: '20px',
                 border: isDarkMode 
-                  ? `1px solid ${colours.dark.border}`
+                  ? '1px solid rgba(125, 211, 252, 0.2)'
                   : `1px solid ${colours.light.border}`,
                 boxShadow: isDarkMode
                   ? '0 2px 4px rgba(0, 0, 0, 0.3)'
@@ -889,12 +889,12 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                   key={`${metric.title}-${refreshAnimationKey}`}
                   style={{
                     background: isDarkMode 
-                      ? 'linear-gradient(135deg, rgba(31, 41, 55, 1) 0%, rgba(17, 24, 39, 1) 100%)'
+                      ? 'linear-gradient(135deg, rgba(11, 30, 55, 0.9) 0%, rgba(7, 16, 32, 0.85) 100%)'
                       : colours.light.cardBackground,
                     borderRadius: '2px',
                     padding: '20px',
                     border: isDarkMode 
-                      ? `1px solid ${colours.dark.border}`
+                      ? '1px solid rgba(125, 211, 252, 0.2)'
                       : `1px solid ${colours.light.border}`,
                     boxShadow: isDarkMode
                       ? '0 2px 4px rgba(0, 0, 0, 0.3)'

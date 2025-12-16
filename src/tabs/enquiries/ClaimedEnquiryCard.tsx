@@ -37,6 +37,10 @@ interface Props {
   enrichmentData?: EnquiryEnrichmentData | null;
   enrichmentMap?: Map<string, EnquiryEnrichmentData>;
   enrichmentRequestsRef?: React.MutableRefObject<Set<string>>;
+  /**
+   * Number of documents uploaded for this enquiry (if available)
+   */
+  documentCount?: number;
 }
 
 /**
@@ -62,6 +66,7 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
   enrichmentData,
   enrichmentMap,
   enrichmentRequestsRef,
+  documentCount = 0,
 }) => {
   // Pitched button component with hover transition
   const PitchedButtonContent: React.FC<{ pitchCount: number; isDarkMode: boolean }> = ({ pitchCount, isDarkMode }) => {
@@ -787,6 +792,28 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
                 scenarioId={enrichmentData.pitchData.scenarioId}
                 size="medium"
               />
+            )}
+
+            {/* 4. Document count badge - only show if documents exist */}
+            {documentCount > 0 && (
+              <div
+                title={`${documentCount} document${documentCount === 1 ? '' : 's'} attached`}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  padding: '4px 8px',
+                  borderRadius: 6,
+                  background: isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(135, 243, 243, 0.15)',
+                  border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(135, 243, 243, 0.35)'}`,
+                  fontSize: 10,
+                  fontWeight: 600,
+                  color: isDarkMode ? colours.accent : '#0d7377',
+                }}
+              >
+                <Icon iconName="Documentation" styles={{ root: { fontSize: 11 } }} />
+                <span>{documentCount}</span>
+              </div>
             )}
           </div>
         );

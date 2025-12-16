@@ -30,16 +30,16 @@ const slideUpFade = keyframes({
 });
 
 const baseClass = (isDark: boolean, variant: string, animationDelay: number) => mergeStyles({
-  // Use a subtle dark gradient for default/elevated variants in dark mode; keep minimal flat
+  // Use a vibrant dark gradient for default/elevated variants in dark mode; keep minimal flat
   background: isDark
     ? (variant === 'minimal'
       ? colours.dark.sectionBackground
-      : 'linear-gradient(135deg, #0B1224 0%, #0F1B33 100%)')
+      : 'linear-gradient(135deg, rgba(7, 16, 32, 0.94) 0%, rgba(11, 30, 55, 0.86) 100%)')
     : undefined,
   backgroundColor: isDark ? undefined : colours.light.sectionBackground,
   padding: variant === 'minimal' ? '12px' : '16px',
   borderRadius: '2px',
-  border: `1px solid ${isDark ? colours.dark.border : colours.light.border}`,
+  border: `1px solid ${isDark ? 'rgba(125, 211, 252, 0.24)' : colours.light.border}`,
   boxShadow: variant === 'elevated' 
     ? isDark 
       ? '0 4px 16px rgba(0,0,0,0.2), 0 1px 4px rgba(0,0,0,0.1)' 

@@ -9,7 +9,6 @@ import SnippetEditPopover from './SnippetEditPopover';
 import { placeholderSuggestions } from '../../../app/customisation/InsertSuggestions';
 import { wrapInsertPlaceholders } from './emailUtils';
 import { SCENARIOS, SCENARIOS_VERSION } from './scenarios';
-import EmailSignature from '../EmailSignature';
 import { applyDynamicSubstitutions, convertDoubleBreaksToParagraphs } from './emailUtils';
 import FormattingToolbar from './FormattingToolbar';
 import { processEditorContentForEmail, KEYBOARD_SHORTCUTS, type FormattingCommand } from './emailFormattingUtils';
@@ -314,6 +313,18 @@ function useAutoInsertRateRole(
       if (ranges.length === 0) setExternalHighlights?.([]);
     }
   }, [body, userData, setBody, setExternalHighlights]);
+}
+
+function formatPoundsAmount(amountRaw: string | undefined | null): string | null {
+  const v = String(amountRaw || '').trim();
+  if (!v) return null;
+  const numeric = Number(v.replace(/[^0-9.]/g, ''));
+  if (!Number.isFinite(numeric)) return null;
+  const withDecimals = numeric.toLocaleString('en-GB', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return `£${withDecimals.replace(/\.00$/, '')}`;
 }
 
 interface InlineEditableAreaProps {
@@ -953,6 +964,7 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
                 // Changed → persist edited highlight
                 const span = document.createElement('span');
                 span.className = 'placeholder-edited';
+                if (original) span.setAttribute('data-original', original);
                 span.textContent = current;
                 el.replaceWith(span);
               }
@@ -987,6 +999,7 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
               } else {
                 const span = document.createElement('span');
                 span.className = 'placeholder-edited';
+                if (original) span.setAttribute('data-original', original);
                 span.textContent = current;
                 el.replaceWith(span);
               }
@@ -1291,6 +1304,14 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   // Rich text mode is always enabled for WYSIWYG experience
   const richTextMode = true;
 
+  // Update allPlaceholdersSatisfied state when body or subject changes
+  useEffect(() => {
+    const unresolvedBody = findPlaceholders(body || '');
+    const unresolvedSubject = findPlaceholders(subject || '');
+    const satisfied = unresolvedBody.length === 0 && unresolvedSubject.length === 0;
+    setAllPlaceholdersSatisfied(satisfied);
+  }, [body, subject]);
+
   // Update editable To when prop changes
   React.useEffect(() => {
     setEditableTo(to || '');
@@ -1320,23 +1341,10 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
     };
   }, [isBodyEditorFocused]);
 
-  // Track when all placeholders are satisfied for Preview button highlight
-  useEffect(() => {
-    setAllPlaceholdersSatisfied(areAllPlaceholdersSatisfied(body));
-  }, [body]);
-
   // Helper: reset editor to a fresh state
   const resetEditor = useCallback(() => {
     try {
       setSelectedScenarioId('');
-      setBody('');
-      setSubject('Your Enquiry - Helix Law');
-      setScopeDescription('');
-      setAmountValue('1500');
-      setAmountError(null);
-      setIsTemplatesCollapsed(false);
-      setShowInlinePreview(false);
-      setConfirmReady(false);
       setHasSentEmail(false);
       setBlockContents({});
       setRemovedBlocks({});
@@ -1553,6 +1561,139 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
       onScopeDescriptionChange?.(updatedScope);
     }
   }, [amountValue]);
+
+  // Auto-fill amount placeholders in the EMAIL BODY when amount is confirmed (Step 4)
+  const lastBodyAmountKeyRef = useRef<string>('');
+  useEffect(() => {
+    const formattedAmount = formatPoundsAmount(amountValue);
+    if (!formattedAmount) return;
+    // Prefer the current editor DOM (it may contain wrapped placeholders not yet synced to state)
+    const editorHtml = bodyEditorRef?.current?.innerHTML;
+    const sourceHtml = (editorHtml && editorHtml.trim() !== '' ? editorHtml : body) || '';
+    if (!sourceHtml) return;
+
+    const key = `${formattedAmount}|${sourceHtml}`;
+    if (lastBodyAmountKeyRef.current === key) return;
+    lastBodyAmountKeyRef.current = key;
+
+    let next = sourceHtml;
+    // Replace a raw token if present (rare but supported) – only the first occurrence.
+    next = next.replace(/\[(?:AMOUNT|Amount)\]/, formattedAmount);
+
+    if (typeof document !== 'undefined') {
+      const container = document.createElement('div');
+      container.innerHTML = next;
+
+      const isAmountToken = (s: string | null | undefined) => {
+        const t = String(s || '').trim();
+        return t === '[AMOUNT]' || t === '[Amount]';
+      };
+
+      // Only replace ONE placeholder: the one in the costs paragraph (+VAT).
+      const blocks = Array.from(container.querySelectorAll('p, li, div')) as HTMLElement[];
+      const targetBlock = blocks.find((b) => {
+        const t = (b.textContent || '').toLowerCase();
+        if (!t.includes('vat')) return false;
+        return (
+          t.includes('fee') ||
+          t.includes('cost') ||
+          t.includes('quote') ||
+          t.includes('budget') ||
+          t.includes('estimate') ||
+          t.includes('estimated') ||
+          t.includes('approx') ||
+          t.includes('approximately')
+        );
+      });
+
+      let replaced = false;
+
+      if (targetBlock) {
+        // First try: find a span placeholder
+        const candidates = Array.from(
+          targetBlock.querySelectorAll('span.insert-placeholder, span.placeholder-edited, span[data-original]')
+        ) as HTMLElement[];
+
+        const pick = candidates.find((el) => {
+          const original = el.getAttribute('data-original');
+          if (isAmountToken(original)) return true;
+
+          const txt = (el.textContent || '').trim();
+          if (isAmountToken(txt)) return true;
+
+          const isGenericInsert = /^\[\s*insert\s*\]$/i.test(txt);
+          const dataInsert = String(el.getAttribute('data-insert') || '').trim();
+          if (isGenericInsert && !dataInsert) return true;
+
+          const numericLike = /^£?\d[\d,]*(?:\.\d{1,2})?$/.test(txt);
+          if (numericLike) return true;
+
+          return false;
+        });
+
+        if (pick) {
+          const original = pick.getAttribute('data-original') || (pick.textContent || '').trim();
+
+          const span = document.createElement('span');
+          span.className = 'placeholder-edited';
+          if (original) span.setAttribute('data-original', original);
+          span.textContent = formattedAmount;
+          pick.replaceWith(span);
+          replaced = true;
+        }
+
+        // Second try: raw [INSERT] text in a text node (template not yet wrapped)
+        if (!replaced) {
+          const walker = document.createTreeWalker(targetBlock, NodeFilter.SHOW_TEXT);
+          let textNode: Text | null = null;
+          while ((textNode = walker.nextNode() as Text | null)) {
+            const val = textNode.nodeValue || '';
+            const match = val.match(/\[INSERT\]\s*\+?\s*VAT/i);
+            if (match) {
+              const idx = val.indexOf(match[0]);
+              const before = val.slice(0, idx);
+              const after = val.slice(idx + '[INSERT]'.length);
+
+              const span = document.createElement('span');
+              span.className = 'placeholder-edited';
+              span.setAttribute('data-original', '[INSERT]');
+              span.textContent = formattedAmount;
+
+              const frag = document.createDocumentFragment();
+              if (before) frag.appendChild(document.createTextNode(before));
+              frag.appendChild(span);
+              if (after) frag.appendChild(document.createTextNode(after));
+
+              textNode.parentNode?.replaceChild(frag, textNode);
+              replaced = true;
+              break;
+            }
+          }
+        }
+      }
+
+      // Fallback: If no structured HTML blocks found, try plain text replacement for [INSERT]+VAT
+      // This handles scenario bodies that are plain text before being converted to HTML
+      if (!replaced && !targetBlock) {
+        const plainText = container.textContent || '';
+        const hasAmountPlaceholder = /\[INSERT\]\s*\+?\s*VAT/i.test(plainText);
+        if (hasAmountPlaceholder) {
+          // Replace in the raw HTML string - target [INSERT] followed by +VAT
+          next = next.replace(/\[INSERT\](\s*\+?\s*VAT)/i, `<span class="placeholder-edited" data-original="[INSERT]">${formattedAmount}</span>$1`);
+        }
+      } else {
+        next = container.innerHTML;
+      }
+    }
+
+    if (next !== body) {
+      setBody(next);
+      // Keep DOM in sync if the editor is mounted
+      if (bodyEditorRef?.current) {
+        bodyEditorRef.current.innerHTML = next;
+      }
+    }
+  }, [amountValue, body, setBody, bodyEditorRef]);
 
   // Handle removing a block
   const handleRemoveBlock = (block: TemplateBlock) => {
@@ -2324,7 +2465,16 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                         : raw.startsWith('Hi ')
                           ? raw.replace(/^Hi\s+/, 'Hello ')
                           : `Hello ${greetingName},\n\n${raw}`;
-                      const projected = applyRateRolePlaceholders(composed);
+                      let projected = applyRateRolePlaceholders(composed);
+                      
+                      // If there's already a prefilled amount, replace [INSERT]+VAT in the scenario body
+                      const currentAmount = s.id === 'cfa' ? '0.99' : amountValue;
+                      if (currentAmount && parseFloat(currentAmount) > 0) {
+                        const formattedAmt = `£${parseFloat(currentAmount).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                        // Replace [INSERT] that appears before +VAT (the amount placeholder)
+                        projected = projected.replace(/\[INSERT\](\s*\+?\s*VAT)/gi, `<span class="placeholder-edited" data-original="[INSERT]">${formattedAmt}</span>$1`);
+                      }
+                      
                       lastScenarioBodyRef.current = projected;
                       setBody(projected);
                       const firstBlock = templateBlocks?.[0];
@@ -3387,10 +3537,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                                 {unresolvedBody.length} placeholder{unresolvedBody.length === 1 ? '' : 's'} to resolve: {unresolvedBody.join(', ')}
                               </div>
                             )}
-                            <EmailSignature
-                              bodyHtml={styledFinalHighlighted}
-                              userData={userDataLocal}
-                            />
+                            <div dangerouslySetInnerHTML={{ __html: styledFinalHighlighted }} />
                           </>
                         );
                       })()}

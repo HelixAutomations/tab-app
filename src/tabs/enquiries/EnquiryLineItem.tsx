@@ -168,6 +168,10 @@ interface EnquiryLineItemProps {
    * Teams activity tracking data for this enquiry (if available)
    */
   teamsActivityData?: TeamsActivityData | null;
+  /**
+   * Number of documents uploaded for this enquiry (if available)
+   */
+  documentCount?: number;
 }
 
 const formatCurrency = (value: string): string => {
@@ -214,6 +218,7 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
   isNewSource = false,
   promotionStatus = null,
   teamsActivityData = null,
+  documentCount = 0,
 }) => {
   const { isDarkMode } = useTheme();
 
@@ -1083,6 +1088,27 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
                   activityData={teamsActivityData}
                   size="small"
                 />
+              )}
+
+              {/* Document count badge */}
+              {documentCount > 0 && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(135, 243, 243, 0.2)',
+                    color: isDarkMode ? '#87F3F3' : '#061733',
+                  }}
+                  title={`${documentCount} document${documentCount > 1 ? 's' : ''} attached`}
+                >
+                  <Icon iconName="Documentation" style={{ fontSize: '12px' }} />
+                  {documentCount}
+                </div>
               )}
 
               {/* Rating button */}

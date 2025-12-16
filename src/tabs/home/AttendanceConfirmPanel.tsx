@@ -255,7 +255,7 @@ const AttendanceConfirmPanel = forwardRef<
             width: 32,
             height: 32,
             textAlign: 'center' as const,
-            border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+            border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : colours.light.border}`,
         };
 
         return (

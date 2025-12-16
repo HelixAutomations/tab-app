@@ -3,6 +3,8 @@ const express = require('express');
 const { DefaultAzureCredential } = require('@azure/identity');
 const { SecretClient } = require('@azure/keyvault-secrets');
 const { randomUUID } = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const opLog = require('../utils/opLog');
 
 const router = express.Router();
@@ -108,6 +110,99 @@ function maybeWrapSignature(html) {
   return hasSignature ? html : wrapSystemSignature(html);
 }
 
+function looksLikeHasSignature(html) {
+  if (!html) return false;
+  return /Helix Law Limited is a limited liability company/i.test(html)
+    || /DISCLAIMER: Please be aware of cyber-crime/i.test(html);
+}
+
+function findFirstExistingDir(dirCandidates) {
+  for (const dir of dirCandidates) {
+    if (!dir) continue;
+    try {
+      if (fs.existsSync(dir) && fs.statSync(dir).isDirectory()) return dir;
+    } catch {
+      // ignore
+    }
+  }
+  return null;
+}
+
+function getSignaturesRootDir() {
+  const envDir = String(process.env.SIGNATURES_DIR || '').trim();
+  const candidates = [
+    envDir || null,
+    // Relative to this file (robust to different process.cwd() values)
+    path.join(__dirname, '..', '..', 'assets', 'signatures'),
+    path.join(__dirname, '..', '..', 'src', 'assets', 'signatures'),
+    // Deployed webapp package (see build-and-deploy scripts)
+    path.join(process.cwd(), 'assets', 'signatures'),
+    // Local dev / repo
+    path.join(process.cwd(), 'src', 'assets', 'signatures'),
+  ];
+  return findFirstExistingDir(candidates);
+}
+
+function safeReadTextFile(filePath) {
+  try {
+    return fs.readFileSync(filePath, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+function pickSignatureFileFromDir(dirPath, fromEmail) {
+  let files = [];
+  try {
+    files = fs.readdirSync(dirPath);
+  } catch {
+    return null;
+  }
+  const htmlFiles = files
+    .filter((f) => /\.html?$/i.test(f) || /\.htm$/i.test(f))
+    .sort((a, b) => a.localeCompare(b));
+  if (!htmlFiles.length) return null;
+  const from = String(fromEmail || '').trim().toLowerCase();
+  if (from) {
+    const preferred = htmlFiles.find((f) => f.toLowerCase().includes(`(${from})`));
+    if (preferred) return preferred;
+  }
+  return htmlFiles[0];
+}
+
+function loadPersonalSignatureHtml({ signatureInitials, fromEmail }) {
+  const root = getSignaturesRootDir();
+  if (!root) return null;
+
+  const initials = String(signatureInitials || '').trim().toUpperCase();
+  const fromLocalPart = String(fromEmail || '').split('@')[0]?.trim().toUpperCase() || '';
+  const folderCandidates = [initials, fromLocalPart].filter(Boolean);
+  const tried = new Set();
+
+  for (const folderName of folderCandidates) {
+    if (tried.has(folderName)) continue;
+    tried.add(folderName);
+
+    const folderPath = path.join(root, folderName);
+    if (!fs.existsSync(folderPath)) continue;
+    const picked = pickSignatureFileFromDir(folderPath, fromEmail);
+    if (!picked) continue;
+    const html = safeReadTextFile(path.join(folderPath, picked));
+    if (html && html.trim()) return html;
+  }
+
+  return null;
+}
+
+function appendSignature(bodyHtml, signatureHtml) {
+  const body = String(bodyHtml || '').trim();
+  const sig = String(signatureHtml || '').trim();
+  if (!sig) return body;
+  if (!body) return sig;
+  // Single line break for visual separation between body and signature
+  return `${body}<br />${sig}`;
+}
+
 router.post('/sendEmail', async (req, res) => {
   try {
     const reqId = randomUUID();
@@ -116,19 +211,45 @@ router.post('/sendEmail', async (req, res) => {
     const debugQuery = String(req.query?.debug || '').toLowerCase();
     const debug = debugHeader === '1' || debugHeader === 'true' || debugQuery === '1' || debugQuery === 'true';
     const started = Date.now();
-  const body = req.body || {};
-  // Accept alternate field names for compatibility with older callers
-  const html = String(body.email_contents || body.html || body.body_html || '');
-  const to = String(body.user_email || body.to || '').trim();
+    const body = req.body || {};
+    const to = String(body.user_email || body.to || '').trim();
     const subject = String(body.subject || 'Your Enquiry from Helix');
     const fromEmail = String(body.from_email || 'automations@helix-law.com');
+
+    // Allow callers to explicitly skip signature
+    let skipSignature = body.skipSignature === true || body.skip_signature === true;
+
+    const usePersonalSignature = body.use_personal_signature === true || body.usePersonalSignature === true;
+    const signatureInitials = String(body.signature_initials || body.signatureInitials || '').trim();
+
+    // Accept alternate field names for compatibility with older callers
+    const rawBodyHtml = String(body.body_html || body.bodyHtml || body.email_body_html || body.emailBodyHtml || '');
+    const legacyHtml = String(body.email_contents || body.html || '');
+
+    let html = legacyHtml || rawBodyHtml;
+    if (usePersonalSignature) {
+      // Prefer explicit body-only HTML when using personal signatures
+      const baseBody = rawBodyHtml || legacyHtml;
+      if (looksLikeHasSignature(baseBody)) {
+        html = baseBody;
+      } else {
+        const sigHtml = loadPersonalSignatureHtml({ signatureInitials, fromEmail });
+        if (sigHtml && sigHtml.trim()) {
+          html = appendSignature(baseBody, sigHtml);
+          // Personal signatures already include the signature/disclaimer block.
+          // Do not wrap with the legacy system signature.
+          skipSignature = true;
+        } else {
+          html = baseBody;
+        }
+      }
+    }
+
     // Support both array/string and legacy bcc_email
     const ccList = normalizeEmails(body.cc_emails);
-  const bccList = normalizeEmails([body.bcc_emails, body.bcc_email].filter(Boolean));
+    const bccList = normalizeEmails([body.bcc_emails, body.bcc_email].filter(Boolean));
     const replyToList = normalizeEmails(body.reply_to || body.replyTo || body['reply-to']);
     const saveToSentItems = typeof body.saveToSentItems === 'boolean' ? body.saveToSentItems : false;
-    // Allow callers to explicitly skip signature
-    const skipSignature = body.skipSignature === true || body.skip_signature === true;
 
     // Always write an ops log entry for observability
     opLog.append({

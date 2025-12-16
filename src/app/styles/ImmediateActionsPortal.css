@@ -13,7 +13,8 @@ body.theme-dark .immediate-actions-portal,
 body[data-theme="dark"] .immediate-actions-portal,
 body.theme-contrast .immediate-actions-portal,
 body[data-theme="contrast"] .immediate-actions-portal {
-  background: #0f172a;
+  background: linear-gradient(135deg, rgba(7, 16, 32, 0.98) 0%, rgba(11, 30, 55, 0.94) 100%);
+  border-bottom: 1px solid rgba(125, 211, 252, 0.15);
   color: #f3f4f6;
 }
 

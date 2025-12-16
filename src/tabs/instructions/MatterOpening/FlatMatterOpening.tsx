@@ -1506,25 +1506,45 @@ const handleClearAll = () => {
                     ? (instructionRecords as any[]).find(r => r?.InstructionRef === instructionRef)
                     : null;
                 if (!inst) return null;
+                
+                // Get the lead client's ID verification (most recent one with IsLeadClient=true, or first one)
+                const idVerifications = inst.idVerifications || [];
+                const leadVerif = idVerifications.find((v: any) => v.IsLeadClient) || idVerifications[0] || null;
+                
+                // Get the first risk assessment (sorted by ComplianceDate DESC in DB)
+                const riskAssessments = inst.riskAssessments || [];
+                const latestRisk = riskAssessments[0] || null;
+                
+                // Get payment data from payments array (attached by server)
+                const payments = inst.payments || [];
+                const successfulPayment = payments.find((p: any) => p.payment_status === 'succeeded' || p.internal_status === 'completed') || payments[0] || null;
+                
                 return {
-                    // Payment status
-                    payment_result: inst.PaymentResult || null,
-                    payment_amount: inst.PaymentAmount || null,
-                    payment_timestamp: inst.PaymentTimestamp || null,
-                    // EID verification
-                    eid_overall_result: inst.EIDOverallResult || null,
-                    eid_check_id: inst.EIDCheckId || null,
-                    eid_status: inst.EIDStatus || null,
-                    pep_sanctions_result: inst.PEPAndSanctionsCheckResult || null,
-                    address_verification_result: inst.AddressVerificationResult || null,
-                    // Risk assessment
-                    risk_assessment: inst.RiskAssessment ? {
+                    // Payment status - check payments array, then InternalStatus, then fallback
+                    payment_result: successfulPayment?.payment_status === 'succeeded' ? 'Paid' 
+                        : (inst.InternalStatus === 'paid' ? 'Paid' : (inst.PaymentResult || null)),
+                    payment_amount: successfulPayment?.amount || inst.PaymentAmount || null,
+                    payment_timestamp: successfulPayment?.created_at || inst.PaymentTimestamp || null,
+                    // EID verification - pull from idVerifications array
+                    eid_overall_result: leadVerif?.EIDOverallResult || inst.EIDOverallResult || null,
+                    eid_check_id: leadVerif?.EIDCheckId || inst.EIDCheckId || null,
+                    eid_status: leadVerif?.EIDStatus || inst.EIDStatus || null,
+                    pep_sanctions_result: leadVerif?.PEPAndSanctionsCheckResult || inst.PEPAndSanctionsCheckResult || null,
+                    address_verification_result: leadVerif?.AddressVerificationResult || inst.AddressVerificationResult || null,
+                    // Risk assessment - pull from riskAssessments array
+                    risk_assessment: latestRisk ? {
+                        result: latestRisk.RiskAssessmentResult || null,
+                        score: latestRisk.RiskScore || null,
+                        assessor: latestRisk.RiskAssessor || null,
+                        compliance_date: latestRisk.ComplianceDate || null,
+                        transaction_risk_level: latestRisk.TransactionRiskLevel || null
+                    } : (inst.RiskAssessment ? {
                         result: inst.RiskAssessment.RiskAssessmentResult || null,
                         score: inst.RiskAssessment.RiskScore || null,
                         assessor: inst.RiskAssessment.RiskAssessor || null,
                         compliance_date: inst.RiskAssessment.ComplianceDate || null,
                         transaction_risk_level: inst.RiskAssessment.TransactionRiskLevel || null
-                    } : null,
+                    } : null),
                     // Documents - full array with details for email
                     document_count: Array.isArray(inst.documents) ? inst.documents.length : 0,
                     documents: Array.isArray(inst.documents) ? inst.documents.map((doc: any) => ({

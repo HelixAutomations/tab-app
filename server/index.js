@@ -102,6 +102,7 @@ const expertsRouter = require('./routes/experts');
 const counselRouter = require('./routes/counsel');
 const techTicketsRouter = require('./routes/techTickets');
 const logsStreamRouter = require('./routes/logs-stream');
+const telemetryRouter = require('./routes/telemetry');
 const { userContextMiddleware } = require('./middleware/userContext');
 
 const app = express();
@@ -233,6 +234,9 @@ app.use('/api/counsel', counselRouter);
 
 // Tech tickets (Asana integration for ideas and problem reports)
 app.use('/api/tech-tickets', techTicketsRouter);
+
+// Telemetry endpoint for pitch builder and client-side event tracking
+app.use('/api/telemetry', telemetryRouter);
 
 // IMPORTANT: Attendance routes must come BEFORE proxy routes to avoid conflicts
 app.use('/api/attendance', attendanceRouter);

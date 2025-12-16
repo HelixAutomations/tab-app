@@ -153,11 +153,11 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
       {/* Unified Enquiry Metrics Container */}
       <div style={{
         background: isDarkMode 
-          ? 'linear-gradient(135deg, #0B1224 0%, #0F1B33 100%)'
+          ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.94) 0%, rgba(11, 30, 55, 0.86) 100%)'
           : colours.light.cardBackground,
         borderRadius: '2px',
         border: isDarkMode 
-          ? `1px solid ${colours.dark.border}` 
+          ? '1px solid rgba(125, 211, 252, 0.24)' 
           : `1px solid ${colours.light.border}`,
         boxShadow: isDarkMode
           ? '0 4px 6px rgba(0, 0, 0, 0.3)'
@@ -173,7 +173,7 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
           justifyContent: 'space-between',
           padding: '12px 16px',
           borderBottom: isDarkMode 
-            ? `1px solid ${colours.dark.border}` 
+            ? '1px solid rgba(125, 211, 252, 0.15)' 
             : `1px solid ${colours.light.border}`,
           marginBottom: '12px',
         }}>
@@ -216,12 +216,12 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
                   key={`${metric.title}-${refreshAnimationKey || 0}`}
                   style={{
                     background: isDarkMode 
-                      ? 'linear-gradient(135deg, rgba(31, 41, 55, 1) 0%, rgba(17, 24, 39, 1) 100%)'
+                      ? 'linear-gradient(135deg, rgba(11, 30, 55, 0.9) 0%, rgba(7, 16, 32, 0.85) 100%)'
                       : colours.light.cardBackground,
                     borderRadius: '2px',
                     padding: '20px',
                     border: isDarkMode 
-                      ? `1px solid ${colours.dark.border}`
+                      ? '1px solid rgba(125, 211, 252, 0.2)'
                       : `1px solid ${colours.light.border}`,
                     boxShadow: isDarkMode
                       ? '0 2px 4px rgba(0, 0, 0, 0.3)'
@@ -361,12 +361,12 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
                     key={`${metric.title}-${refreshAnimationKey || 0}`}
                     style={{
                       background: isDarkMode 
-                        ? 'linear-gradient(135deg, rgba(31, 41, 55, 1) 0%, rgba(17, 24, 39, 1) 100%)'
+                        ? 'linear-gradient(135deg, rgba(11, 30, 55, 0.9) 0%, rgba(7, 16, 32, 0.85) 100%)'
                         : colours.light.cardBackground,
                       borderRadius: '2px',
                       padding: '20px',
                       border: isDarkMode 
-                        ? `1px solid ${colours.dark.border}`
+                        ? '1px solid rgba(125, 211, 252, 0.2)'
                         : `1px solid ${colours.light.border}`,
                       boxShadow: isDarkMode
                         ? '0 2px 4px rgba(0, 0, 0, 0.3)'

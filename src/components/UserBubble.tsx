@@ -20,6 +20,7 @@ interface UserBubbleProps {
     onRefreshMatters?: () => Promise<void> | void;
     onFeatureToggle?: (feature: string, enabled: boolean) => void;
     featureToggles?: Record<string, boolean>;
+    onShowTestEnquiry?: () => void;
 }
 
 const AVAILABLE_AREAS = ['Commercial', 'Construction', 'Property', 'Employment', 'Misc/Other'];
@@ -36,6 +37,7 @@ const UserBubble: React.FC<UserBubbleProps> = ({
     onRefreshMatters,
     onFeatureToggle,
     featureToggles = {},
+    onShowTestEnquiry,
 }) => {
     const [open, setOpen] = useState(false);
     const [showDataInspector, setShowDataInspector] = useState(false);
@@ -555,6 +557,19 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                         </svg>
                                         Refresh Data…
                                     </button>
+
+                                    {/* Show Test Enquiry - local dev and admins in production */}
+                                    {onShowTestEnquiry && (isLocalDev || isAdminUser(user)) && (
+                                        <button onClick={() => { onShowTestEnquiry(); closePopover(); }} style={{ ...actionBtn, background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(135, 243, 243, 0.2)', border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(135, 243, 243, 0.4)'}` }}>
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                                <polyline points="14 2 14 8 20 8"/>
+                                                <line x1="12" y1="18" x2="12" y2="12"/>
+                                                <line x1="9" y1="15" x2="15" y2="15"/>
+                                            </svg>
+                                            Show Test Enquiry
+                                        </button>
+                                    )}
 
                                     {originalAdminUser && onReturnToAdmin && (
                                         <button onClick={() => { onReturnToAdmin(); closePopover(); }} style={{ ...actionBtn, background: '#ef4444', color: '#fff', border: 'none' }}>

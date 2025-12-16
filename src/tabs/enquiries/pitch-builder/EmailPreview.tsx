@@ -29,14 +29,12 @@ import {
   markUnfilledPlaceholders,
   removeUnfilledPlaceholders,
   applyDynamicSubstitutions,
-  convertDoubleBreaksToParagraphs,
 } from './emailUtils';
-import { EMAIL_V2_CONFIG, processEmailContentV2 } from './emailFormattingV2';
+import { processEmailContentV2 } from './emailFormattingV2';
 import ExperimentalAssistant from './ExperimentalAssistant';
 import { isInTeams } from '../../../app/functionality/isInTeams';
 import { TemplateBlock } from '../../../app/customisation/ProductionTemplateBlocks';
 import ReactDOMServer from 'react-dom/server';
-import EmailSignature from '../EmailSignature';
 
 function escapeRegExp(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -130,12 +128,9 @@ const EmailPreview: React.FC<EmailPreviewProps> = ({
     passcode
   );
   const highlightedBody = markUnfilledPlaceholders(substituted, templateBlocks);
-  const useV2Preview = EMAIL_V2_CONFIG.enabled;
-  const processedBody = useV2Preview
-    ? processEmailContentV2(highlightedBody)
-    : convertDoubleBreaksToParagraphs(highlightedBody);
+  const processedBody = processEmailContentV2(highlightedBody);
   const previewHtml = ReactDOMServer.renderToStaticMarkup(
-  <EmailSignature bodyHtml={processedBody} userData={userData} experimentalLayout={useV2Preview} isDarkMode={isDarkMode} />
+    <div dangerouslySetInnerHTML={{ __html: processedBody }} />
   );
   const previewRef = React.useRef<HTMLDivElement>(null);
 
@@ -147,60 +142,32 @@ const EmailPreview: React.FC<EmailPreviewProps> = ({
     }
   }, [isPreviewOpen]);
 
-  const baseBodyStyles: React.CSSProperties = {
-    flex: 1,
-    overflowY: 'auto',
-    padding: '24px',
-    fontFamily: 'Raleway, sans-serif',
-    fontSize: '14px',
-    lineHeight: '1.4',
-    color: colours.light.text,
-    backgroundColor: colours.light.sectionBackground,
-    position: 'relative',
-    borderRadius: '4px',
-    margin: '0 16px 16px 16px',
-    border: `1px solid ${colours.light.border}`,
-    boxShadow: '0 1px 3px rgba(0,0,0,0.08)'
-  };
-
   const previewWrapperStyles: React.CSSProperties = {
     display: 'flex',
     flexDirection: 'column',
     flex: 1,
     margin: '0 16px 16px 16px',
-    ...(useV2Preview
-      ? {
-          backgroundColor: 'transparent',
-          border: 'none',
-          boxShadow: 'none'
-        }
-      : {})
+    backgroundColor: 'transparent',
+    border: 'none',
+    boxShadow: 'none'
   };
 
-  const previewBodyStyles: React.CSSProperties = useV2Preview
-    ? {
-        flex: 1,
-        overflowY: 'auto',
-        padding: 0,
-        fontFamily: 'Raleway, sans-serif',
-        fontSize: '14px',
-        lineHeight: '1.4',
-        color: 'inherit',
-        backgroundColor: 'transparent',
-        position: 'relative',
-        borderRadius: 0,
-        margin: 0,
-        border: 'none',
-        boxShadow: 'none',
-        width: '100%'
-      }
-    : {
-        ...baseBodyStyles,
-        margin: 0,
-        borderTopLeftRadius: 0,
-        borderTopRightRadius: 0,
-        borderTop: 'none'
-      };
+  const previewBodyStyles: React.CSSProperties = {
+    flex: 1,
+    overflowY: 'auto',
+    padding: 0,
+    fontFamily: 'Raleway, sans-serif',
+    fontSize: '14px',
+    lineHeight: '1.4',
+    color: 'inherit',
+    backgroundColor: 'transparent',
+    position: 'relative',
+    borderRadius: 0,
+    margin: 0,
+    border: 'none',
+    boxShadow: 'none',
+    width: '100%'
+  };
 
   const inTeams = isInTeams();
   const useLocalData =
@@ -405,40 +372,6 @@ const EmailPreview: React.FC<EmailPreviewProps> = ({
 
   {/* Email Body Preview */}
   <div style={previewWrapperStyles}>
-          {!useV2Preview && (
-            <div style={{
-              padding: '12px 16px',
-              backgroundColor: colours.light.previewBackground,
-              borderBottom: `1px solid ${colours.light.border}`,
-              borderTopLeftRadius: '4px',
-              borderTopRightRadius: '4px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px'
-            }}>
-              <span style={{
-                fontSize: '12px',
-                fontWeight: 600,
-                color: '#5f6368',
-                letterSpacing: '0.5px',
-                textTransform: 'uppercase'
-              }}>
-                Email Content
-              </span>
-              <div style={{
-                marginLeft: 'auto',
-                padding: '2px 8px',
-                backgroundColor: colours.highlightBlue,
-                borderRadius: '6px',
-                fontSize: '10px',
-                fontWeight: 500,
-                color: colours.blue
-              }}>
-                Preview
-              </div>
-            </div>
-          )}
-
           <div
             ref={previewRef}
             style={previewBodyStyles}

@@ -3,7 +3,7 @@ import { colours } from '../../../app/styles/colours';
 import { templateBlocks, TemplateBlock } from '../../../app/customisation/ProductionTemplateBlocks';
 import { finalizeHTMLForEmail, extractFormattingForEmail } from './emailFormattingUtils';
 
-const EMAIL_PARAGRAPH_STYLE = 'margin:0;line-height:1.4;font-family:Raleway,Arial,sans-serif;';
+const EMAIL_PARAGRAPH_STYLE = 'margin:0 0 10px 0;line-height:1.4;font-family:Raleway,Arial,sans-serif;font-size:10pt;';
 
 function escapeRegExp(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -38,8 +38,9 @@ export function convertDoubleBreaksToParagraphs(html: string): string {
     if (/^<ol\b/i.test(t) && /<\/ol>\s*$/i.test(t)) return t;
     return `<p style="${EMAIL_PARAGRAPH_STYLE}">${t}</p>`;
   });
-  // Join with <br> between paragraphs for structural breaks that email clients respect
-  return wrapped.join('<br>');
+  // Join paragraphs directly - paragraph bottom margin provides spacing
+  // Removed <br> join that was causing </p><br><p> double line breaks in Outlook
+  return wrapped.join('');
 }
 
 /**

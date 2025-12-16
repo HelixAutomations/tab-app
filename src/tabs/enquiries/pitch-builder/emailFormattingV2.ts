@@ -1,23 +1,11 @@
 import { colours } from '../../../app/styles/colours';
 
 const FONT_FAMILY = 'Raleway,Arial,sans-serif';
-const BASE_PARAGRAPH_STYLE = `margin:0;line-height:1.4;font-family:${FONT_FAMILY};`;
+const BASE_PARAGRAPH_STYLE = `margin:0 0 10px 0;line-height:1.4;font-family:${FONT_FAMILY};font-size:10pt;`;
 const LIST_MARGIN = '0 0 12px 20px';
-const LIST_ITEM_STYLE = `margin:0 0 4px 0;line-height:1.4;font-family:${FONT_FAMILY};`;
+const LIST_ITEM_STYLE = `margin:0 0 4px 0;line-height:1.4;font-family:${FONT_FAMILY};font-size:10pt;`;
 
-const emailV2Flag = process.env.REACT_APP_EMAIL_V2_ENABLED;
-const emailV2Enabled = emailV2Flag === 'true'
-  ? true
-  : emailV2Flag === 'false'
-    ? false
-    : process.env.NODE_ENV !== 'production';
-
-export const EMAIL_V2_CONFIG = {
-  enabled: emailV2Enabled,
-  fallbackToV1: true,
-  logOperations: process.env.REACT_APP_EMAIL_V2_LOGGING === 'true',
-  testMode: false
-};
+const LOG_OPERATIONS = process.env.REACT_APP_EMAIL_V2_LOGGING === 'true';
 
 const HEADING_STYLES: Record<'h1' | 'h2' | 'h3', string> = {
   h1: `font-size:24px;font-weight:700;margin:0;font-family:${FONT_FAMILY};line-height:1.3;`,
@@ -560,127 +548,56 @@ export function processEmailContentV2(html: string): string {
     return '';
   }
 
-  EMAIL_V2_CONFIG.logOperations && console.log('[EmailV2] Starting V2 processing');
+  LOG_OPERATIONS && console.log('[EmailV2] Starting processing');
 
   try {
     let processed = html;
 
     processed = normalizeHtmlStructure(processed);
-    EMAIL_V2_CONFIG.logOperations && console.log('[EmailV2] HTML structure normalised');
+    LOG_OPERATIONS && console.log('[EmailV2] HTML structure normalised');
 
     processed = convertContentDivsToParagraphs(processed);
-    EMAIL_V2_CONFIG.logOperations && console.log('[EmailV2] Content divs converted');
+    LOG_OPERATIONS && console.log('[EmailV2] Content divs converted');
 
     processed = preserveLineBreaksV2(processed);
-    EMAIL_V2_CONFIG.logOperations && console.log('[EmailV2] Line breaks preserved');
+    LOG_OPERATIONS && console.log('[EmailV2] Line breaks preserved');
 
     processed = protectNumbersFromOutlook(processed);
-    EMAIL_V2_CONFIG.logOperations && console.log('[EmailV2] Numbers protected');
+    LOG_OPERATIONS && console.log('[EmailV2] Numbers protected');
 
     processed = enhanceParagraphFormatting(processed);
-    EMAIL_V2_CONFIG.logOperations && console.log('[EmailV2] Paragraphs enhanced');
+    LOG_OPERATIONS && console.log('[EmailV2] Paragraphs enhanced');
 
     processed = splitParagraphsOnDoubleBreaks(processed);
-    EMAIL_V2_CONFIG.logOperations && console.log('[EmailV2] Paragraphs split');
+    LOG_OPERATIONS && console.log('[EmailV2] Paragraphs split');
 
     processed = tidyParagraphBreaks(processed);
-    EMAIL_V2_CONFIG.logOperations && console.log('[EmailV2] Paragraph breaks tidied');
+    LOG_OPERATIONS && console.log('[EmailV2] Paragraph breaks tidied');
 
     processed = tightenEdgeParagraphSpacing(processed);
-    EMAIL_V2_CONFIG.logOperations && console.log('[EmailV2] Edge paragraph spacing tightened');
+    LOG_OPERATIONS && console.log('[EmailV2] Edge paragraph spacing tightened');
 
     processed = enhanceHeadingFormatting(processed);
-    EMAIL_V2_CONFIG.logOperations && console.log('[EmailV2] Headings enhanced');
+    LOG_OPERATIONS && console.log('[EmailV2] Headings enhanced');
 
     processed = enhanceListFormattingV2(processed);
-    EMAIL_V2_CONFIG.logOperations && console.log('[EmailV2] Lists enhanced');
+    LOG_OPERATIONS && console.log('[EmailV2] Lists enhanced');
 
     processed = enhanceLinkFormatting(processed);
-    EMAIL_V2_CONFIG.logOperations && console.log('[EmailV2] Links enhanced');
+    LOG_OPERATIONS && console.log('[EmailV2] Links enhanced');
 
-    processed = addStructuralParagraphBreaks(processed);
-    EMAIL_V2_CONFIG.logOperations && console.log('[EmailV2] Structural paragraph breaks added');
+    // Removed addStructuralParagraphBreaks - paragraphs now have bottom margin for proper spacing
+    // This eliminates the </p><br><p> pattern that caused double line breaks in Outlook
 
     processed = wrapWithEmailContainer(processed);
-    EMAIL_V2_CONFIG.logOperations && console.log('[EmailV2] Container applied');
+    LOG_OPERATIONS && console.log('[EmailV2] Container applied');
 
     return processed;
   } catch (error) {
-    console.error('[EmailV2] Error in V2 processing:', error);
-
-    if (EMAIL_V2_CONFIG.fallbackToV1) {
-      EMAIL_V2_CONFIG.logOperations && console.log('[EmailV2] Falling back to V1');
-      return html;
-    }
-
-    throw error;
+    console.error('[EmailV2] Error in processing:', error);
+    // Return original content as fallback
+    return html;
   }
-}
-
-/**
- * Safe wrapper that chooses between V1 and V2 processing
- */
-export function processEmailWithFallback(html: string, v1Processor: (value: string) => string): string {
-  if (!EMAIL_V2_CONFIG.enabled) {
-    EMAIL_V2_CONFIG.logOperations && console.log('[EmailV2] V2 disabled, using V1');
-    return v1Processor(html);
-  }
-
-  try {
-    const v2Result = processEmailContentV2(html);
-
-    if (EMAIL_V2_CONFIG.testMode) {
-      const v1Result = v1Processor(html);
-      console.log('[EmailV2] Test mode - V1 length:', v1Result.length);
-      console.log('[EmailV2] Test mode - V2 length:', v2Result.length);
-      return v1Result;
-    }
-
-    return v2Result;
-  } catch (error) {
-    console.error('[EmailV2] V2 processing failed:', error);
-
-    if (EMAIL_V2_CONFIG.fallbackToV1) {
-      EMAIL_V2_CONFIG.logOperations && console.log('[EmailV2] Falling back to V1');
-      return v1Processor(html);
-    }
-
-    throw error;
-  }
-}
-
-/**
- * Environment variable configuration helper
- */
-export function getEmailV2Config() {
-  return {
-    ...EMAIL_V2_CONFIG,
-    environment: process.env.NODE_ENV,
-    timestamp: new Date().toISOString()
-  };
-}
-
-/**
- * Testing helper to compare V1 vs V2 output
- */
-export function compareFormattingSystems(
-  html: string,
-  v1Processor: (value: string) => string
-): { v1: string; v2: string; differences: string[] } {
-  const v1Result = v1Processor(html);
-  const v2Result = processEmailContentV2(html);
-
-  const differences: string[] = [];
-
-  if (v1Result.length !== v2Result.length) {
-    differences.push(`Length difference: V1=${v1Result.length}, V2=${v2Result.length}`);
-  }
-
-  return {
-    v1: v1Result,
-    v2: v2Result,
-    differences
-  };
 }
 
 export default processEmailContentV2;

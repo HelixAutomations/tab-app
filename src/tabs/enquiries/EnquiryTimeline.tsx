@@ -19,7 +19,7 @@ if (!document.head.querySelector('style[data-spinner]')) {
   document.head.appendChild(spinnerStyle);
 }
 
-type CommunicationType = 'pitch' | 'email' | 'call' | 'instruction' | 'note';
+type CommunicationType = 'pitch' | 'email' | 'call' | 'instruction' | 'note' | 'document';
 
 interface TimelineItem {
   id: string;
@@ -41,8 +41,281 @@ interface TimelineItem {
     messageId?: string; // Graph message ID for true forwarding
     feeEarnerEmail?: string; // Owner mailbox for forwarding
     internetMessageId?: string; // Internet Message ID to resolve Graph id and mailbox
+    // Document-specific fields
+    documentType?: string;        // 'engagement_letter', 'id_document', etc.
+    filename?: string;            // Original filename
+    fileSize?: number;            // In bytes
+    contentType?: string;         // MIME type
+    blobUrl?: string;             // Azure blob URL for download
+    stageUploaded?: 'enquiry' | 'pitch' | 'instruction';
+    documentId?: number;          // Database ID for preview URL fetch
   };
 }
+
+// Document Preview Modal Component
+interface DocumentPreviewModalProps {
+  document: TimelineItem;
+  onClose: () => void;
+  isDarkMode: boolean;
+}
+
+const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({ document, onClose, isDarkMode }) => {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  const contentType = document.metadata?.contentType || '';
+  const isPdf = contentType.includes('pdf');
+  const isImage = contentType.startsWith('image/');
+  const filename = document.metadata?.filename || 'Document';
+  const fileSize = document.metadata?.fileSize || 0;
+  
+  useEffect(() => {
+    const fetchPreviewUrl = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const docId = document.metadata?.documentId;
+        
+        if (!docId) {
+          setError('Document ID not available');
+          setLoading(false);
+          return;
+        }
+        
+        // Handle test/synthetic documents (IDs 99900-99999)
+        if (typeof docId === 'number' && docId >= 99900 && docId <= 99999) {
+          setError('Preview not available for test documents');
+          setLoading(false);
+          return;
+        }
+        
+        // Check if there's a direct blobUrl available
+        if (document.metadata?.blobUrl) {
+          setPreviewUrl(document.metadata.blobUrl);
+          setLoading(false);
+          return;
+        }
+        
+        const res = await fetch(`/api/prospect-documents/preview-url?id=${docId}`);
+        if (res.ok) {
+          const data = await res.json();
+          setPreviewUrl(data.url);
+        } else {
+          setError('Preview not available');
+        }
+      } catch (err) {
+        setError('Failed to load preview');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchPreviewUrl();
+  }, [document.metadata?.documentId, document.metadata?.blobUrl]);
+  
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 B';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+  
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: 'rgba(0, 0, 0, 0.7)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 9999,
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+          borderRadius: '12px',
+          width: '90%',
+          maxWidth: '900px',
+          maxHeight: '90vh',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '16px 20px',
+            borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <FaFileAlt style={{ color: colours.accent, fontSize: '18px' }} />
+            <div>
+              <div style={{
+                fontWeight: 600,
+                color: isDarkMode ? colours.dark.text : colours.light.text,
+                fontSize: '14px',
+              }}>
+                {filename}
+              </div>
+              <div style={{
+                fontSize: '11px',
+                color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.6)',
+                marginTop: '2px',
+              }}>
+                {document.metadata?.documentType?.replace(/_/g, ' ')} • {formatFileSize(fileSize)}
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            {previewUrl && (
+              <a
+                href={previewUrl}
+                download={filename}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '8px 16px',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  background: colours.highlight,
+                  color: '#ffffff',
+                  textDecoration: 'none',
+                }}
+              >
+                Download
+              </a>
+            )}
+            <button
+              onClick={onClose}
+              style={{
+                padding: '8px 16px',
+                borderRadius: '6px',
+                fontSize: '12px',
+                fontWeight: 500,
+                background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.15)',
+                color: isDarkMode ? colours.dark.text : colours.light.text,
+                border: 'none',
+                cursor: 'pointer',
+              }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+        
+        {/* Preview Content */}
+        <div style={{
+          flex: 1,
+          overflow: 'auto',
+          padding: '20px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '400px',
+          background: isDarkMode ? 'rgba(0,0,0,0.2)' : 'rgba(0,0,0,0.03)',
+        }}>
+          {loading ? (
+            <div style={{ textAlign: 'center' }}>
+              <div style={{
+                width: '32px',
+                height: '32px',
+                border: `3px solid ${colours.highlight}`,
+                borderTopColor: 'transparent',
+                borderRadius: '50%',
+                animation: 'spin 1s linear infinite',
+                margin: '0 auto 12px',
+              }} />
+              <div style={{ color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.6)', fontSize: '13px' }}>
+                Loading preview...
+              </div>
+            </div>
+          ) : error ? (
+            <div style={{ textAlign: 'center', color: colours.cta }}>
+              <FaInfoCircle style={{ fontSize: '24px', marginBottom: '8px' }} />
+              <div>{error}</div>
+            </div>
+          ) : isPdf && previewUrl ? (
+            <iframe
+              src={previewUrl}
+              style={{
+                width: '100%',
+                height: '100%',
+                minHeight: '500px',
+                border: 'none',
+                borderRadius: '8px',
+              }}
+              title={filename}
+            />
+          ) : isImage && previewUrl ? (
+            <img
+              src={previewUrl}
+              alt={filename}
+              style={{
+                maxWidth: '100%',
+                maxHeight: '60vh',
+                objectFit: 'contain',
+                borderRadius: '8px',
+              }}
+            />
+          ) : (
+            <div style={{ textAlign: 'center' }}>
+              <FaFileAlt style={{ fontSize: '48px', color: colours.accent, marginBottom: '16px' }} />
+              <div style={{
+                color: isDarkMode ? colours.dark.text : colours.light.text,
+                fontSize: '14px',
+                marginBottom: '8px',
+              }}>
+                Preview not available for this file type
+              </div>
+              <div style={{
+                color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.6)',
+                fontSize: '12px',
+              }}>
+                {contentType || 'Unknown type'}
+              </div>
+              {previewUrl && (
+                <a
+                  href={previewUrl}
+                  download={filename}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '10px 20px',
+                    borderRadius: '6px',
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    background: colours.highlight,
+                    color: '#ffffff',
+                    textDecoration: 'none',
+                    marginTop: '16px',
+                  }}
+                >
+                  Download to view
+                </a>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 interface InstructionStatus {
   verifyIdStatus: 'pending' | 'received' | 'review' | 'complete';
@@ -68,11 +341,13 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     pitches: true,
     emails: true,
     calls: true,
+    documents: true,
   });
   const [completedSources, setCompletedSources] = useState({
     pitches: false,
     emails: false,
   });
+  const [previewDocument, setPreviewDocument] = useState<TimelineItem | null>(null);
   const [instructionStatuses, setInstructionStatuses] = useState<{[pitchId: string]: InstructionStatus}>({});
   const [toast, setToast] = useState<{
     message: string;
@@ -539,6 +814,146 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
       const timelineItems: TimelineItem[] = [];
       const statusMap: {[pitchId: string]: InstructionStatus} = {};
 
+      // ─── SYNTHETIC DATA FOR DEV PREVIEW TEST RECORD ──────────────────────────
+      // Inject comprehensive test data to preview all timeline features
+      // This block returns early to skip all API fetches for the test record
+      if (enquiry.ID === 'DEV-PREVIEW-99999') {
+        const now = new Date();
+        
+        // Synthetic pitch with instruction status
+        const testPitchId = 'pitch-dev-0';
+        timelineItems.push({
+          id: testPitchId,
+          type: 'pitch',
+          date: new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+          subject: 'Test Pitch Email Subject',
+          content: 'Dear Test Client,\n\nThis is a test pitch email for development preview.\n\nKind regards,\nLukasz Zemanek',
+          createdBy: 'Lukasz Zemanek',
+          metadata: {
+            amount: 1500,
+            status: 'sent',
+            scenarioId: 'before-call-call'
+          }
+        });
+        statusMap[testPitchId] = {
+          verifyIdStatus: 'received',
+          riskStatus: 'pending',
+          matterStatus: 'pending',
+          cclStatus: 'pending',
+          paymentStatus: 'pending'
+        };
+
+        // Synthetic emails
+        timelineItems.push({
+          id: 'email-dev-1',
+          type: 'email',
+          date: new Date(now.getTime() - 4 * 24 * 60 * 60 * 1000).toISOString(),
+          subject: 'Re: Test Enquiry - Helix Law',
+          content: 'Test inbound email content.',
+          createdBy: 'Test Client',
+          metadata: {
+            direction: 'inbound',
+            messageId: 'dev-msg-1',
+            feeEarnerEmail: 'lz@helix-law.com',
+          }
+        });
+        timelineItems.push({
+          id: 'email-dev-2',
+          type: 'email',
+          date: new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+          subject: 'Test Enquiry - Helix Law',
+          content: 'Test outbound email content.',
+          createdBy: 'Lukasz Zemanek',
+          metadata: {
+            direction: 'outbound',
+            messageId: 'dev-msg-2',
+            feeEarnerEmail: 'lz@helix-law.com',
+          }
+        });
+
+        // Synthetic call
+        timelineItems.push({
+          id: 'call-dev-1',
+          type: 'call',
+          date: new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+          subject: 'Inbound Call',
+          content: 'Test call notes for development preview.',
+          createdBy: 'Test Client',
+          metadata: {
+            duration: 1125, // 18:45 in seconds
+            direction: 'inbound',
+            recordingUrl: undefined,
+          }
+        });
+
+        // Synthetic documents
+        timelineItems.push({
+          id: 'document-dev-doc-1',
+          type: 'document',
+          date: new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000).toISOString(),
+          subject: 'Test_Document_1.pdf',
+          content: 'Test document description',
+          createdBy: 'Test Client',
+          metadata: {
+            documentType: 'Contract',
+            filename: 'Test_Document_1.pdf',
+            fileSize: 245678,
+            contentType: 'application/pdf',
+            blobUrl: undefined,
+            stageUploaded: 'enquiry',
+            documentId: 99901,
+          }
+        });
+        timelineItems.push({
+          id: 'document-dev-doc-2',
+          type: 'document',
+          date: new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+          subject: 'Test_Document_2.pdf',
+          content: 'Another test document',
+          createdBy: 'Test Client',
+          metadata: {
+            documentType: 'Correspondence',
+            filename: 'Test_Document_2.pdf',
+            fileSize: 128456,
+            contentType: 'application/pdf',
+            blobUrl: undefined,
+            stageUploaded: 'enquiry',
+            documentId: 99902,
+          }
+        });
+        timelineItems.push({
+          id: 'document-dev-doc-3',
+          type: 'document',
+          date: new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000).toISOString(),
+          subject: 'Test_ID_Document.jpg',
+          content: 'Test ID verification document',
+          createdBy: 'Test Client',
+          metadata: {
+            documentType: 'ID Verification',
+            filename: 'Test_ID_Document.jpg',
+            fileSize: 1567890,
+            contentType: 'image/jpeg',
+            blobUrl: undefined,
+            stageUploaded: 'instruction',
+            documentId: 99903,
+          }
+        });
+
+        // Sort and finalize synthetic data
+        timelineItems.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        
+        setTimeline(timelineItems);
+        setInstructionStatuses(statusMap);
+        setLoadingStates({ pitches: false, emails: false, calls: false, documents: false });
+        setCompletedSources({ pitches: true, emails: true });
+        if (timelineItems.length > 0) {
+          setSelectedItem(timelineItems[0]);
+        }
+        setLoading(false);
+        return; // Skip all API fetches for test record
+      }
+      // ─── END SYNTHETIC DATA ──────────────────────────────────────────────────
+
       // Fetch pitches
       try {
         const pitchesRes = await fetch(`/api/pitches/${enquiry.ID}`);
@@ -763,6 +1178,39 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         setLoadingStates(prev => ({ ...prev, calls: false }));
       }
 
+      // Fetch prospect documents
+      try {
+        const docsRes = await fetch(`/api/prospect-documents?enquiry_id=${enquiry.ID}`);
+        if (docsRes.ok) {
+          const docsData = await docsRes.json();
+          const documents = Array.isArray(docsData) ? docsData : [];
+        
+          const docItems: TimelineItem[] = documents.map((doc: any) => ({
+            id: `document-${doc.id}`,
+            type: 'document' as CommunicationType,
+            date: doc.uploaded_at,
+            subject: doc.original_filename || 'Document',
+            content: doc.notes || undefined,
+            createdBy: doc.uploaded_by || 'Unknown',
+            metadata: {
+              documentType: doc.document_type,
+              filename: doc.original_filename,
+              fileSize: doc.file_size,
+              contentType: doc.content_type,
+              blobUrl: doc.blob_url,
+              stageUploaded: doc.stage_uploaded,
+              documentId: doc.id,
+            }
+          }));
+        
+          timelineItems.push(...docItems);
+        }
+        setLoadingStates(prev => ({ ...prev, documents: false }));
+      } catch (error) {
+        console.error('Failed to fetch documents:', error);
+        setLoadingStates(prev => ({ ...prev, documents: false }));
+      }
+
       // Sort timeline by date (newest first)
       timelineItems.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
@@ -799,6 +1247,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         return <FaPhone />;
       case 'instruction':
         return <FaFileAlt />;
+      case 'document':
+        return <FaFileAlt />;
       case 'note':
         return <FaCircle />;
       default:
@@ -816,6 +1266,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         return colours.highlight; // Blue - matches activity icon
       case 'instruction':
         return '#10b981'; // Emerald - matches activity icon
+      case 'document':
+        return colours.accent; // Helix teal - on brand
       case 'note':
         return '#6B7280';
       default:
@@ -833,6 +1285,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         return 'Call';
       case 'instruction':
         return 'Instruction';
+      case 'document':
+        return 'Document';
       case 'note':
         return 'Note';
       default:
@@ -1129,569 +1583,238 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
       flexDirection: 'column',
       minHeight: '100vh',
       fontFamily: 'Raleway, sans-serif',
-      padding: 0,
-      gap: '16px',
+      padding: '0 16px',
+      gap: '12px',
     }}>
-      {/* Client Info Header */}
+      {/* Compact Header Bar */}
       <div style={{
         background: isDarkMode 
           ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.94) 0%, rgba(11, 30, 55, 0.86) 100%)'
-          : 'linear-gradient(135deg, rgba(248, 250, 252, 0.98) 0%, rgba(241, 245, 249, 0.95) 100%)',
+          : 'linear-gradient(135deg, #f8fafc 0%, #ffffff 100%)',
+        borderRadius: '2px',
         border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : 'rgba(148, 163, 184, 0.2)'}`,
-        borderRadius: '8px',
-        padding: '16px',
-        backdropFilter: 'blur(6px)',
+        padding: '12px 16px',
+        marginTop: '12px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: '12px',
       }}>
-            <div style={{
+        {/* Left: Client Info */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1, minWidth: '300px' }}>
+          <div style={{
+            width: '36px',
+            height: '36px',
+            borderRadius: '2px',
+            background: isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.1)',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'space-between',
-            marginBottom: '12px',
+            justifyContent: 'center',
+            color: isDarkMode ? 'rgb(135, 243, 243)' : colours.highlight,
           }}>
+            <FaUser size={16} />
+          </div>
+          <div>
             <div style={{
-              color: isDarkMode ? 'rgb(125, 211, 252)' : colours.highlight,
+              fontSize: '16px',
+              fontWeight: 700,
+              color: isDarkMode ? 'rgb(249, 250, 251)' : colours.light.text,
+              lineHeight: 1.2,
+            }}>
+              {enquiry.First_Name && enquiry.Last_Name 
+                ? `${enquiry.First_Name} ${enquiry.Last_Name}`
+                : enquiry.First_Name || enquiry.Last_Name || 'Unknown'}
+            </div>
+            <div style={{
               fontSize: '12px',
-              fontWeight: 600,
+              color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.6)',
+              marginTop: '2px',
+            }}>
+              {enquiry.ID} • {enquiry.Point_of_Contact || '—'}
+            </div>
+          </div>
+        </div>
+
+        {/* Center: Contact Info */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          {enquiry.Email && (
+            <button
+              onClick={() => navigator.clipboard.writeText(enquiry.Email || '')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                background: 'transparent',
+                border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.25)' : 'rgba(148, 163, 184, 0.3)'}`,
+                borderRadius: '2px',
+                padding: '6px 10px',
+                cursor: 'pointer',
+                color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.7)',
+                fontSize: '12px',
+                transition: 'all 0.15s',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = isDarkMode ? 'rgb(135, 243, 243)' : colours.highlight;
+                e.currentTarget.style.color = isDarkMode ? 'rgb(135, 243, 243)' : colours.highlight;
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(125, 211, 252, 0.25)' : 'rgba(148, 163, 184, 0.3)';
+                e.currentTarget.style.color = isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.7)';
+              }}
+              title="Copy email"
+            >
+              <FaEnvelope size={11} />
+              <span style={{ maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {enquiry.Email}
+              </span>
+            </button>
+          )}
+          {enquiry.Phone_Number && (
+            <button
+              onClick={() => navigator.clipboard.writeText(enquiry.Phone_Number || '')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                background: 'transparent',
+                border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.25)' : 'rgba(148, 163, 184, 0.3)'}`,
+                borderRadius: '2px',
+                padding: '6px 10px',
+                cursor: 'pointer',
+                color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.7)',
+                fontSize: '12px',
+                transition: 'all 0.15s',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = isDarkMode ? 'rgb(135, 243, 243)' : colours.highlight;
+                e.currentTarget.style.color = isDarkMode ? 'rgb(135, 243, 243)' : colours.highlight;
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(125, 211, 252, 0.25)' : 'rgba(148, 163, 184, 0.3)';
+                e.currentTarget.style.color = isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.7)';
+              }}
+              title="Copy phone"
+            >
+              <FaPhone size={11} />
+              <span>{enquiry.Phone_Number}</span>
+            </button>
+          )}
+        </div>
+
+        {/* Right: Data Source Counts */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button 
+            onClick={() => handleManualSync('pitches')}
+            disabled={loadingStates.pitches}
+            style={{
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
-            }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="12" cy="8" r="4" stroke="currentColor" strokeWidth="2"></circle>
-                <rect x="4" y="15" width="16" height="6" rx="3" stroke="currentColor" strokeWidth="2"></rect>
-              </svg>
-              Prospect Details
-            </div>
-          </div>
+              background: isDarkMode ? 'rgba(34, 197, 94, 0.1)' : 'rgba(34, 197, 94, 0.08)',
+              border: `1px solid ${isDarkMode ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.2)'}`,
+              borderRadius: '2px',
+              padding: '6px 10px',
+              cursor: loadingStates.pitches ? 'default' : 'pointer',
+              color: '#22c55e',
+              fontSize: '12px',
+              fontWeight: 600,
+              transition: 'all 0.15s',
+            }}
+            title={loadingStates.pitches ? "Loading..." : "Refresh pitches"}
+          >
+            {loadingStates.pitches ? (
+              <div style={{ width: '12px', height: '12px', border: '2px solid rgba(34, 197, 94, 0.2)', borderTop: '2px solid #22c55e', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+            ) : (
+              <FaCheckCircle size={11} />
+            )}
+            <span>{timeline.filter(item => item.type === 'pitch').length}</span>
+          </button>
+
+          <button 
+            onClick={() => handleManualSync('emails')}
+            disabled={loadingStates.emails}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.08)',
+              border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`,
+              borderRadius: '2px',
+              padding: '6px 10px',
+              cursor: loadingStates.emails ? 'default' : 'pointer',
+              color: colours.highlight,
+              fontSize: '12px',
+              fontWeight: 600,
+              transition: 'all 0.15s',
+            }}
+            title={loadingStates.emails ? "Searching..." : "Refresh emails"}
+          >
+            {loadingStates.emails ? (
+              <div style={{ width: '12px', height: '12px', border: '2px solid rgba(54, 144, 206, 0.2)', borderTop: `2px solid ${colours.highlight}`, borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+            ) : (
+              <FaEnvelope size={11} />
+            )}
+            <span>{timeline.filter(item => item.type === 'email').length}</span>
+          </button>
+
+          <button 
+            onClick={() => handleManualSync('calls')}
+            disabled={loadingStates.calls}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              background: isDarkMode ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.08)',
+              border: `1px solid ${isDarkMode ? 'rgba(245, 158, 11, 0.3)' : 'rgba(245, 158, 11, 0.2)'}`,
+              borderRadius: '2px',
+              padding: '6px 10px',
+              cursor: loadingStates.calls ? 'default' : 'pointer',
+              color: '#f59e0b',
+              fontSize: '12px',
+              fontWeight: 600,
+              transition: 'all 0.15s',
+            }}
+            title={loadingStates.calls ? "Fetching..." : "Refresh calls"}
+          >
+            {loadingStates.calls ? (
+              <div style={{ width: '12px', height: '12px', border: '2px solid rgba(245, 158, 11, 0.2)', borderTop: '2px solid #f59e0b', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+            ) : (
+              <FaPhone size={11} />
+            )}
+            <span>{timeline.filter(item => item.type === 'call').length}</span>
+          </button>
 
           <div style={{
-            height: '1px',
-            background: isDarkMode 
-              ? 'linear-gradient(90deg, rgba(125, 211, 252, 0.3) 0%, rgba(125, 211, 252, 0.05) 100%)'
-              : 'linear-gradient(90deg, rgba(54, 144, 206, 0.3) 0%, rgba(54, 144, 206, 0.05) 100%)',
-            margin: '0 0 12px',
-            borderRadius: '1px',
-          }} />
-
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-            gap: '10px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            background: isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(135, 243, 243, 0.08)',
+            border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(135, 243, 243, 0.2)'}`,
+            borderRadius: '2px',
+            padding: '6px 10px',
+            color: isDarkMode ? 'rgb(135, 243, 243)' : colours.darkBlue,
+            fontSize: '12px',
+            fontWeight: 600,
           }}>
-            {/* Client Name Card */}
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '4px',
-              padding: '10px 12px',
-              borderRadius: '8px',
-              background: isDarkMode ? 'rgba(7, 16, 32, 0.6)' : 'rgba(255, 255, 255, 0.7)',
-              border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
-              transition: 'all 0.2s ease',
-              boxShadow: isDarkMode ? 'rgba(2, 6, 17, 0.15) 0px 2px 4px' : 'rgba(15, 23, 42, 0.05) 0px 2px 4px',
-            }}>
-              <div style={{
-                color: isDarkMode ? 'rgb(148, 163, 184)' : 'rgba(15, 23, 42, 0.6)',
-                fontSize: '10px',
-                fontWeight: 600,
-                textTransform: 'uppercase',
-                letterSpacing: '0.6px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-              }}>
-                <div style={{
-                  width: '2px',
-                  height: '2px',
-                  borderRadius: '50%',
-                  background: isDarkMode ? 'rgb(125, 211, 252)' : colours.highlight,
-                }} />
-                Client Name
-              </div>
-              <span style={{
-                color: isDarkMode ? 'rgb(248, 250, 252)' : colours.light.text,
-                fontSize: '13px',
-                fontWeight: 600,
-                lineHeight: '1.3',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-              }}>
-                {enquiry.First_Name && enquiry.Last_Name 
-                  ? `${enquiry.First_Name} ${enquiry.Last_Name}`
-                  : enquiry.First_Name || enquiry.Last_Name || 'Unknown Client'}
-                {/* Copy icon */}
-                <span
-                  title="Copy client name"
-                  onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(`${enquiry.First_Name || ''} ${enquiry.Last_Name || ''}`.trim() || ''); }}
-                  style={{ opacity: 0.4, transition: '0.2s', color: isDarkMode ? 'rgb(125, 211, 252)' : colours.highlight, cursor: 'pointer', transform: 'scale(1)' }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLSpanElement).style.opacity = '0.7'; }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLSpanElement).style.opacity = '0.4'; }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="2"></rect>
-                    <rect x="2" y="2" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="2"></rect>
-                  </svg>
-                </span>
-              </span>
-            </div>
-
-            {/* Enquiry ID Card */}
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '4px',
-              padding: '10px 12px',
-              borderRadius: '8px',
-              background: isDarkMode ? 'rgba(7, 16, 32, 0.6)' : 'rgba(255, 255, 255, 0.7)',
-              border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
-              transition: 'all 0.2s ease',
-              boxShadow: isDarkMode ? 'rgba(2, 6, 17, 0.15) 0px 2px 4px' : 'rgba(15, 23, 42, 0.05) 0px 2px 4px',
-            }}>
-              <div style={{
-                color: isDarkMode ? 'rgb(148, 163, 184)' : 'rgba(15, 23, 42, 0.6)',
-                fontSize: '10px',
-                fontWeight: 600,
-                textTransform: 'uppercase',
-                letterSpacing: '0.6px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-              }}>
-                <div style={{
-                  width: '2px',
-                  height: '2px',
-                  borderRadius: '50%',
-                  background: isDarkMode ? 'rgb(125, 211, 252)' : colours.highlight,
-                }} />
-                Enquiry ID
-              </div>
-              <span style={{
-                color: isDarkMode ? 'rgb(248, 250, 252)' : colours.light.text,
-                fontSize: '13px',
-                fontWeight: 600,
-                lineHeight: '1.3',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-              }}>
-                {enquiry.ID}
-                {/* Copy icon */}
-                <span
-                  title="Copy Enquiry ID"
-                  onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(String(enquiry.ID ?? '')); }}
-                  style={{ opacity: 0.4, transition: '0.2s', color: isDarkMode ? 'rgb(125, 211, 252)' : colours.highlight, cursor: 'pointer', transform: 'scale(1)' }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLSpanElement).style.opacity = '0.7'; }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLSpanElement).style.opacity = '0.4'; }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="2"></rect>
-                    <rect x="2" y="2" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="2"></rect>
-                  </svg>
-                </span>
-              </span>
-            </div>
+            <FaFileAlt size={11} />
+            <span>{timeline.filter(item => item.type === 'document').length}</span>
           </div>
-
-          {/* Contact Information & Stats */}
-          <div style={{ 
-            marginTop: '12px',
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: '12px',
-            justifyContent: 'space-between',
-            alignItems: 'flex-start',
-          }}>
-            {/* Contact Info */}
-            <div style={{ flex: '1 1 auto', minWidth: '250px' }}>
-              <div style={{
-                color: isDarkMode ? 'rgb(148, 163, 184)' : 'rgba(15, 23, 42, 0.6)',
-                fontSize: '10px',
-                fontWeight: 500,
-                textTransform: 'uppercase',
-                letterSpacing: '0.4px',
-                marginBottom: '6px',
-              }}>
-                Contact Information
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                {enquiry.Email && (
-                  <span style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '6px 10px',
-                    borderRadius: '8px',
-                    background: isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(54, 144, 206, 0.08)',
-                    border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.2)' : 'rgba(54, 144, 206, 0.2)'}`,
-                    fontSize: '12px',
-                    fontWeight: 500,
-                    color: isDarkMode ? 'rgb(241, 245, 249)' : colours.light.text,
-                    transition: 'all 0.2s ease',
-                  }}>
-                    <div style={{ color: isDarkMode ? 'rgb(125, 211, 252)' : colours.highlight }}>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M4 6h16v12H4z" stroke="currentColor" strokeWidth="2"></path>
-                        <path d="M4 6l8 6 8-6" stroke="currentColor" strokeWidth="2"></path>
-                      </svg>
-                    </div>
-                    <span style={{ maxWidth: '260px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {enquiry.Email}
-                    </span>
-                  </span>
-                )}
-                {enquiry.Phone_Number && (
-                  <span style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '6px 10px',
-                    borderRadius: '8px',
-                    background: isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(54, 144, 206, 0.08)',
-                    border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.2)' : 'rgba(54, 144, 206, 0.2)'}`,
-                    fontSize: '12px',
-                    fontWeight: 500,
-                    color: isDarkMode ? 'rgb(241, 245, 249)' : colours.light.text,
-                    transition: 'all 0.2s ease',
-                  }}>
-                    <div style={{ color: isDarkMode ? 'rgb(125, 211, 252)' : colours.highlight }}>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.86 19.86 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.86 19.86 0 0 1 2.1 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.66 12.66 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.66 12.66 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" stroke="currentColor" strokeWidth="2"></path>
-                      </svg>
-                    </div>
-                    <span style={{ maxWidth: '260px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {enquiry.Phone_Number}
-                    </span>
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* Quick Actions - Concept */}
-            <div style={{ 
-              flex: '0 0 auto',
-              padding: '16px',
-              background: isDarkMode ? 'rgba(148, 163, 184, 0.03)' : 'rgba(148, 163, 184, 0.05)',
-              border: `2px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.25)'}`,
-              borderRadius: '8px',
-              opacity: 0.6,
-            }}>
-              <div style={{ 
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '12px',
-              }}>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                }}>
-                  <div style={{
-                    fontSize: '12px',
-                    fontWeight: 700,
-                    color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.5)',
-                  }}>
-                    Quick Actions
-                  </div>
-                  <span style={{
-                    fontSize: '8px',
-                    fontWeight: 600,
-                    padding: '2px 6px',
-                    background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)',
-                    borderRadius: '4px',
-                    color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.5)',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.5px',
-                  }}>
-                    Concept
-                  </span>
-                </div>
-                <div style={{ 
-                  display: 'flex', 
-                  gap: '6px',
-                  flexWrap: 'wrap',
-                }}>
-                  <button style={{
-                    padding: '8px 12px',
-                    background: isDarkMode ? 'rgba(148, 163, 184, 0.05)' : 'rgba(148, 163, 184, 0.08)',
-                    border: `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
-                    borderRadius: '6px',
-                    color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.5)',
-                    cursor: 'not-allowed',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px',
-                    fontSize: '12px',
-                    fontWeight: 500,
-                  }}
-                  title="Log a call">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ stroke: 'currentColor', strokeWidth: '2', strokeLinecap: 'round', strokeLinejoin: 'round' }}>
-                      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.86 19.86 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.86 19.86 0 0 1 2.1 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.66 12.66 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.66 12.66 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
-                    </svg>
-                    <span style={{ display: 'none' }}>Log Call</span>
-                  </button>
-                  <button style={{
-                    padding: '8px 12px',
-                    background: isDarkMode ? 'rgba(148, 163, 184, 0.05)' : 'rgba(148, 163, 184, 0.08)',
-                    border: `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
-                    borderRadius: '6px',
-                    color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.5)',
-                    cursor: 'not-allowed',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px',
-                    fontSize: '12px',
-                    fontWeight: 500,
-                  }}
-                  title="Send follow-up">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ stroke: 'currentColor', strokeWidth: '2', strokeLinecap: 'round', strokeLinejoin: 'round' }}>
-                      <rect x="2" y="4" width="20" height="16" rx="2"/>
-                      <path d="M7 10l5 4 5-4"/>
-                    </svg>
-                    <span style={{ display: 'none' }}>Send Follow-up</span>
-                  </button>
-                  <button style={{
-                    padding: '8px 12px',
-                    background: isDarkMode ? 'rgba(148, 163, 184, 0.05)' : 'rgba(148, 163, 184, 0.08)',
-                    border: `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
-                    borderRadius: '6px',
-                    color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.5)',
-                    cursor: 'not-allowed',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px',
-                    fontSize: '12px',
-                    fontWeight: 500,
-                  }}
-                  title="Record instruction">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ stroke: 'currentColor', strokeWidth: '2', strokeLinecap: 'round', strokeLinejoin: 'round' }}>
-                      <rect x="3" y="3" width="18" height="18" rx="2"/>
-                      <line x1="9" y1="9" x2="9" y2="15"/>
-                      <line x1="15" y1="9" x2="15" y2="15"/>
-                    </svg>
-                    <span style={{ display: 'none' }}>Record Instruction</span>
-                  </button>
-                  <button style={{
-                    padding: '8px 12px',
-                    background: isDarkMode ? 'rgba(148, 163, 184, 0.05)' : 'rgba(148, 163, 184, 0.08)',
-                    border: `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
-                    borderRadius: '6px',
-                    color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.5)',
-                    cursor: 'not-allowed',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px',
-                    fontSize: '12px',
-                    fontWeight: 500,
-                  }}
-                  title="Add note">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ stroke: 'currentColor', strokeWidth: '2', strokeLinecap: 'round', strokeLinejoin: 'round' }}>
-                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                    </svg>
-                    <span style={{ display: 'none' }}>Add Note</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-      </div>
-
-      {/* Data Loading Status - Header Bar */}
-      <div style={{
-        background: isDarkMode
-          ? 'linear-gradient(135deg, rgb(30, 41, 59) 0%, rgb(51, 65, 85) 100%)'
-          : 'linear-gradient(135deg, rgb(203, 213, 225) 0%, rgb(226, 232, 240) 100%)',
-        padding: '20px 32px',
-        borderRadius: '8px',
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        gap: '24px',
-        flexWrap: 'nowrap',
-      }}>
-        <button 
-          onClick={() => handleManualSync('pitches')}
-          disabled={loadingStates.pitches}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
-            background: loadingStates.pitches 
-              ? (isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)')
-              : 'transparent',
-            border: 'none',
-            cursor: loadingStates.pitches ? 'default' : 'pointer',
-            padding: '8px 12px',
-            borderRadius: '6px',
-            transition: 'all 0.2s ease',
-            opacity: loadingStates.pitches ? 0.7 : 1,
-          }}
-          onMouseEnter={(e) => {
-            if (!loadingStates.pitches) {
-              e.currentTarget.style.background = isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)';
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (!loadingStates.pitches) {
-              e.currentTarget.style.background = 'transparent';
-            }
-          }}
-          title={loadingStates.pitches ? "Loading pitches..." : "Pitches loaded successfully"}
-        >
-          {loadingStates.pitches ? (
-            <div style={{
-              width: '20px',
-              height: '20px',
-              border: `2px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.3)'}`,
-              borderTop: `2px solid ${colours.highlight}`,
-              borderRadius: '50%',
-              animation: 'spin 1s linear infinite',
-            }} />
-          ) : (
-            <svg stroke="currentColor" fill="currentColor" strokeWidth="0" viewBox="0 0 512 512" height="20px" width="20px" xmlns="http://www.w3.org/2000/svg" style={{
-              color: colours.highlight,
-            }}>
-              <path d="M504 256c0 136.967-111.033 248-248 248S8 392.967 8 256 119.033 8 256 8s248 111.033 248 248zM227.314 387.314l184-184c6.248-6.248 6.248-16.379 0-22.627l-22.627-22.627c-6.248-6.249-16.379-6.249-22.628 0L216 308.118l-70.059-70.059c-6.248-6.248-16.379-6.248-22.628 0l-22.627 22.627c-6.248 6.248-6.248 16.379 0 22.627l104 104c6.249 6.249 16.379 6.249 22.628.001z"></path>
-            </svg>
-          )}
-          <span style={{
-            color: loadingStates.pitches
-              ? (isDarkMode ? colours.highlight : colours.highlight)
-              : (isDarkMode ? 'rgb(255, 255, 255)' : 'rgba(15, 23, 42, 0.9)'),
-            fontSize: '15px',
-            fontWeight: loadingStates.pitches ? 600 : 500,
-            whiteSpace: 'nowrap',
-          }}>
-            Pitches {!loadingStates.pitches && `(${timeline.filter(item => item.type === 'pitch').length})`}
-          </span>
-        </button>
-
-        <button 
-          onClick={() => handleManualSync('emails')}
-          disabled={loadingStates.emails}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
-            background: loadingStates.emails 
-              ? (isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)')
-              : 'transparent',
-            border: 'none',
-            cursor: loadingStates.emails ? 'default' : 'pointer',
-            padding: '8px 12px',
-            borderRadius: '6px',
-            transition: 'all 0.2s ease',
-            opacity: loadingStates.emails ? 0.7 : 1,
-          }}
-          onMouseEnter={(e) => {
-            if (!loadingStates.emails) {
-              e.currentTarget.style.background = isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)';
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (!loadingStates.emails) {
-              e.currentTarget.style.background = 'transparent';
-            }
-          }}
-          title={loadingStates.emails ? "Searching inbox..." : "Click to search fee earner's inbox for emails"}
-        >
-          {loadingStates.emails ? (
-            <div style={{
-              width: '20px',
-              height: '20px',
-              border: `2px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.3)'}`,
-              borderTop: `2px solid ${colours.highlight}`,
-              borderRadius: '50%',
-              animation: 'spin 1s linear infinite',
-            }} />
-          ) : (
-            <svg stroke="currentColor" fill="currentColor" strokeWidth="0" viewBox="0 0 512 512" height="20px" width="20px" xmlns="http://www.w3.org/2000/svg" style={{
-              color: colours.highlight,
-            }}>
-              <path d="M504 256c0 136.967-111.033 248-248 248S8 392.967 8 256 119.033 8 256 8s248 111.033 248 248zM227.314 387.314l184-184c6.248-6.248 6.248-16.379 0-22.627l-22.627-22.627c-6.248-6.249-16.379-6.249-22.628 0L216 308.118l-70.059-70.059c-6.248-6.248-16.379-6.248-22.628 0l-22.627 22.627c-6.248 6.248-6.248 16.379 0 22.627l104 104c6.249 6.249 16.379 6.249 22.628.001z"></path>
-            </svg>
-          )}
-          <span style={{
-            color: loadingStates.emails
-              ? (isDarkMode ? colours.highlight : colours.highlight)
-              : (isDarkMode ? 'rgb(255, 255, 255)' : 'rgba(15, 23, 42, 0.9)'),
-            fontSize: '15px',
-            fontWeight: loadingStates.emails ? 600 : 500,
-            whiteSpace: 'nowrap',
-          }}>
-            {loadingStates.emails ? 'Searching...' : `Emails (${timeline.filter(item => item.type === 'email').length})`}
-          </span>
-        </button>
-
-        <button 
-          onClick={() => handleManualSync('calls')}
-          disabled={loadingStates.calls}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
-            background: loadingStates.calls 
-              ? (isDarkMode ? 'rgba(245, 158, 11, 0.15)' : 'rgba(245, 158, 11, 0.1)')
-              : 'transparent',
-            border: 'none',
-            cursor: loadingStates.calls ? 'default' : 'pointer',
-            padding: '8px 12px',
-            borderRadius: '6px',
-            transition: 'all 0.2s ease',
-            opacity: loadingStates.calls ? 0.7 : 1,
-          }}
-          onMouseEnter={(e) => {
-            if (!loadingStates.calls) {
-              e.currentTarget.style.background = isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)';
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (!loadingStates.calls) {
-              e.currentTarget.style.background = 'transparent';
-            }
-          }}
-          title={loadingStates.calls ? "Fetching calls..." : "Click to search CallRail for calls"}
-        >
-          {loadingStates.calls ? (
-            <div style={{
-              width: '20px',
-              height: '20px',
-              border: `2px solid ${isDarkMode ? 'rgba(245, 158, 11, 0.2)' : 'rgba(245, 158, 11, 0.3)'}`,
-              borderTop: `2px solid #f59e0b`,
-              borderRadius: '50%',
-              animation: 'spin 1s linear infinite',
-            }} />
-          ) : (
-            <svg stroke="currentColor" fill="currentColor" strokeWidth="0" viewBox="0 0 512 512" height="20px" width="20px" xmlns="http://www.w3.org/2000/svg" style={{
-              color: timeline.filter(item => item.type === 'call').length > 0 ? colours.highlight : '#f59e0b',
-            }}>
-              <path d="M504 256c0 136.967-111.033 248-248 248S8 392.967 8 256 119.033 8 256 8s248 111.033 248 248zM227.314 387.314l184-184c6.248-6.248 6.248-16.379 0-22.627l-22.627-22.627c-6.248-6.249-16.379-6.249-22.628 0L216 308.118l-70.059-70.059c-6.248-6.248-16.379-6.248-22.628 0l-22.627 22.627c-6.248 6.248-6.248 16.379 0 22.627l104 104c6.249 6.249 16.379 6.249 22.628.001z"></path>
-            </svg>
-          )}
-          <span style={{
-            color: timeline.filter(item => item.type === 'call').length > 0
-              ? colours.highlight
-              : (isDarkMode ? 'rgb(255, 255, 255)' : 'rgba(15, 23, 42, 0.9)'),
-            fontSize: '15px',
-            fontWeight: timeline.filter(item => item.type === 'call').length > 0 ? 600 : 500,
-            whiteSpace: 'nowrap',
-          }}>
-            Calls {!loadingStates.calls && `(${timeline.filter(item => item.type === 'call').length})`}
-          </span>
-        </button>
+        </div>
       </div>
 
       {/* Client Journey Timeline */}
       <div style={{
-        background: isDarkMode ? colours.dark.cardBackground : '#ffffff',
-        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
-        borderRadius: '8px',
+        background: isDarkMode 
+          ? 'linear-gradient(135deg, rgba(11, 30, 55, 0.86) 0%, rgba(7, 16, 32, 0.94) 100%)'
+          : 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
+        border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : 'rgba(148, 163, 184, 0.2)'}`,
+        borderRadius: '2px',
         padding: '20px',
+        marginTop: '8px',
+        boxShadow: isDarkMode 
+          ? 'rgba(0, 0, 0, 0.15) 0px 2px 8px, rgba(0, 0, 0, 0.08) 0px 1px 2px'
+          : 'rgba(0, 0, 0, 0.05) 0px 2px 8px',
       }}>
         {/* Timeline Header with Activity Stats */}
         <div style={{
@@ -1715,7 +1838,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           {/* Communication Stats */}
           <div style={{ 
             display: 'flex', 
-            gap: '12px',
+            gap: '8px',
             alignItems: 'center',
           }}>
             <div style={{
@@ -1725,7 +1848,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               textTransform: 'uppercase',
               letterSpacing: '0.4px',
             }}>
-              Activity
+              Filter
             </div>
             {['call', 'pitch', 'email', 'instruction'].map((type) => {
               const count = timeline.filter(item => item.type === type).length;
@@ -1733,8 +1856,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               let statusColor: string = '';
               
               if (type === 'call') {
-                // Calls use highlight blue in activity bar
-                statusColor = colours.highlight;
+                statusColor = '#f59e0b'; // Amber for calls
               } else if (type === 'pitch') {
                 statusColor = '#22c55e'; // Green
               } else if (type === 'email') {
@@ -1751,23 +1873,27 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: '6px',
-                    padding: '8px 12px',
-                    background: 'transparent',
-                    border: `1px solid ${count === 0 ? 'rgba(148, 163, 184, 0.15)' : statusColor}`,
-                    borderRadius: '6px',
-                    color: count === 0 ? 'rgba(226, 232, 240, 0.5)' : statusColor,
+                    padding: '6px 10px',
+                    background: isActive 
+                      ? (isDarkMode ? `${statusColor}20` : `${statusColor}15`)
+                      : 'transparent',
+                    border: `1px solid ${count === 0 ? 'rgba(125, 211, 252, 0.15)' : (isActive ? statusColor : 'rgba(125, 211, 252, 0.25)')}`,
+                    borderRadius: '2px',
+                    color: count === 0 ? 'rgba(226, 232, 240, 0.4)' : (isActive ? statusColor : (isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.6)')),
                     cursor: count === 0 ? 'default' : 'pointer',
                     transition: 'all 0.2s ease',
                   }}
                   onMouseEnter={(e) => {
-                    if (count > 0) {
-                      e.currentTarget.style.background = isDarkMode 
-                        ? 'rgba(148, 163, 184, 0.08)' 
-                        : 'rgba(148, 163, 184, 0.05)';
+                    if (count > 0 && !isActive) {
+                      e.currentTarget.style.borderColor = statusColor;
+                      e.currentTarget.style.color = statusColor;
                     }
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'transparent';
+                    if (!isActive) {
+                      e.currentTarget.style.borderColor = count === 0 ? 'rgba(125, 211, 252, 0.15)' : 'rgba(125, 211, 252, 0.25)';
+                      e.currentTarget.style.color = count === 0 ? 'rgba(226, 232, 240, 0.4)' : (isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.6)');
+                    }
                   }}
                 >
                   <span style={{ 
@@ -1801,7 +1927,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               top: '8px',
               bottom: '8px',
               width: '2px',
-              background: isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)',
+              background: isDarkMode ? 'rgba(125, 211, 252, 0.2)' : 'rgba(148, 163, 184, 0.15)',
             }} />
 
             {/* Timeline items */}
@@ -1843,19 +1969,35 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                         : item.type === 'email' && item.metadata?.direction === 'outbound'
                           ? isDarkMode ? 'rgba(54, 144, 206, 0.05)' : 'rgba(54, 144, 206, 0.03)'
                           : 'transparent',
-                    border: isExpanded 
+                    borderTop: isExpanded 
                       ? `1px solid ${colours.highlight}` 
                       : item.type === 'email' && item.metadata?.direction === 'inbound'
                         ? isDarkMode ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid rgba(34, 197, 94, 0.2)'
                         : item.type === 'email' && item.metadata?.direction === 'outbound'
                           ? isDarkMode ? '1px solid rgba(54, 144, 206, 0.3)' : '1px solid rgba(54, 144, 206, 0.2)'
                           : '1px solid transparent',
-                    borderLeft: item.type === 'email' && item.metadata?.direction === 'inbound'
-                      ? isDarkMode ? '3px solid rgba(34, 197, 94, 0.6)' : '3px solid rgba(34, 197, 94, 0.5)'
-                      : item.type === 'email' && item.metadata?.direction === 'outbound'
-                        ? isDarkMode ? '3px solid rgba(54, 144, 206, 0.6)' : '3px solid rgba(54, 144, 206, 0.5)'
-                        : undefined,
-                    borderRadius: '6px',
+                    borderRight: isExpanded 
+                      ? `1px solid ${colours.highlight}` 
+                      : item.type === 'email' && item.metadata?.direction === 'inbound'
+                        ? isDarkMode ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid rgba(34, 197, 94, 0.2)'
+                        : item.type === 'email' && item.metadata?.direction === 'outbound'
+                          ? isDarkMode ? '1px solid rgba(54, 144, 206, 0.3)' : '1px solid rgba(54, 144, 206, 0.2)'
+                          : '1px solid transparent',
+                    borderBottom: isExpanded 
+                      ? `1px solid ${colours.highlight}` 
+                      : item.type === 'email' && item.metadata?.direction === 'inbound'
+                        ? isDarkMode ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid rgba(34, 197, 94, 0.2)'
+                        : item.type === 'email' && item.metadata?.direction === 'outbound'
+                          ? isDarkMode ? '1px solid rgba(54, 144, 206, 0.3)' : '1px solid rgba(54, 144, 206, 0.2)'
+                          : '1px solid transparent',
+                    borderLeft: isExpanded
+                      ? `1px solid ${colours.highlight}`
+                      : item.type === 'email' && item.metadata?.direction === 'inbound'
+                        ? isDarkMode ? '3px solid rgba(34, 197, 94, 0.6)' : '3px solid rgba(34, 197, 94, 0.5)'
+                        : item.type === 'email' && item.metadata?.direction === 'outbound'
+                          ? isDarkMode ? '3px solid rgba(54, 144, 206, 0.6)' : '3px solid rgba(54, 144, 206, 0.5)'
+                          : '1px solid transparent',
+                    borderRadius: '2px',
                     padding: '8px',
                     marginLeft: '-8px',
                     transition: 'all 0.2s ease',
@@ -1889,7 +2031,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                             <span style={{
                               fontSize: '9px',
                               padding: '2px 6px',
-                              borderRadius: '3px',
+                              borderRadius: '2px',
                               fontWeight: 600,
                               background: item.metadata.direction === 'inbound'
                                 ? isDarkMode ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.15)'
@@ -1926,9 +2068,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                 <span style={{
                                   fontSize: '9px',
                                   padding: '2px 6px',
-                                  borderRadius: '3px',
-                                  background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.1)',
-                                  color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.5)',
+                                  borderRadius: '2px',
+                                  background: isDarkMode ? 'rgba(125, 211, 252, 0.1)' : 'rgba(148, 163, 184, 0.1)',
+                                  border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.2)' : 'rgba(148, 163, 184, 0.2)'}`,
+                                  color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.6)',
                                   fontWeight: 500,
                                 }}>
                                   {getScenarioName(item.metadata.scenarioId)}
@@ -2005,7 +2148,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                 fontSize: '11px',
                                 fontWeight: 600,
                                 border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
-                                borderRadius: '6px',
+                                borderRadius: '2px',
                                 background: isDarkMode ? 'rgba(7, 16, 32, 0.6)' : 'rgba(255, 255, 255, 0.8)',
                                 color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.7)',
                                 cursor: 'pointer',
@@ -2023,6 +2166,83 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                               }}
                             >
                               Forward to myself →
+                            </button>
+                          </div>
+                        )}
+                        
+                        {/* Document-specific content */}
+                        {item.type === 'document' && item.metadata && (
+                          <div style={{ marginTop: '12px' }}>
+                            <div style={{
+                              display: 'flex',
+                              flexWrap: 'wrap',
+                              gap: '12px',
+                              fontSize: '11px',
+                              color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.6)',
+                              marginBottom: '12px',
+                            }}>
+                              {item.metadata.documentType && (
+                                <span style={{
+                                  padding: '3px 10px',
+                                  borderRadius: '4px',
+                                  background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(135, 243, 243, 0.2)',
+                                  color: isDarkMode ? colours.accent : colours.darkBlue,
+                                  fontWeight: 500,
+                                }}>
+                                  {item.metadata.documentType.replace(/_/g, ' ')}
+                                </span>
+                              )}
+                              {item.metadata.fileSize && (
+                                <span style={{
+                                  padding: '3px 10px',
+                                  borderRadius: '4px',
+                                  background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
+                                }}>
+                                  {item.metadata.fileSize < 1024 
+                                    ? `${item.metadata.fileSize} B`
+                                    : item.metadata.fileSize < 1024 * 1024
+                                      ? `${(item.metadata.fileSize / 1024).toFixed(1)} KB`
+                                      : `${(item.metadata.fileSize / (1024 * 1024)).toFixed(1)} MB`
+                                  }
+                                </span>
+                              )}
+                              {item.metadata.stageUploaded && (
+                                <span style={{
+                                  padding: '3px 10px',
+                                  borderRadius: '4px',
+                                  background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
+                                }}>
+                                  Uploaded at: {item.metadata.stageUploaded}
+                                </span>
+                              )}
+                            </div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setPreviewDocument(item);
+                              }}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                padding: '8px 16px',
+                                borderRadius: '2px',
+                                fontSize: '12px',
+                                fontWeight: 600,
+                                background: colours.highlight,
+                                color: '#ffffff',
+                                border: 'none',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s',
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.background = colours.light.hoverBackground;
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.background = colours.highlight;
+                              }}
+                            >
+                              <FaFileAlt /> Preview
                             </button>
                           </div>
                         )}
@@ -3436,6 +3656,15 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             </div>
           </div>
         </div>
+      )}
+
+      {/* Document Preview Modal */}
+      {previewDocument && previewDocument.metadata && (
+        <DocumentPreviewModal
+          document={previewDocument}
+          onClose={() => setPreviewDocument(null)}
+          isDarkMode={isDarkMode}
+        />
       )}
 
       {/* Toast Notifications */}

@@ -261,7 +261,7 @@ const HomePanel: React.FC<HomePanelProps> = ({
                           fieldGroup: {
                             flex: 1,
                             borderRadius: 0,
-                            border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                            border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : colours.light.border}`,
                             backgroundColor: isDarkMode
                               ? colours.dark.inputBackground
                               : colours.light.inputBackground,
@@ -289,7 +289,7 @@ const HomePanel: React.FC<HomePanelProps> = ({
                               fieldGroup: {
                                 borderRadius: 0,
                                 border: `1px solid ${
-                                  isDarkMode ? colours.dark.border : colours.light.border
+                                  isDarkMode ? 'rgba(125, 211, 252, 0.24)' : colours.light.border
                                 }`,
                                 backgroundColor: isDarkMode
                                   ? colours.dark.inputBackground
@@ -310,7 +310,7 @@ const HomePanel: React.FC<HomePanelProps> = ({
                               fieldGroup: {
                                 borderRadius: 0,
                                 border: `1px solid ${
-                                  isDarkMode ? colours.dark.border : colours.light.border
+                                  isDarkMode ? 'rgba(125, 211, 252, 0.24)' : colours.light.border
                                 }`,
                                 backgroundColor: isDarkMode
                                   ? colours.dark.inputBackground

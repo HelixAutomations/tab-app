@@ -304,7 +304,7 @@ const EnhancedAttendance = forwardRef<EnhancedAttendanceRef, EnhancedAttendanceP
   const weekSelectorStyle = (isDark: boolean) => mergeStyles({
     display: 'flex',
     gap: '0px',
-    border: `1px solid ${isDark ? colours.dark.border : colours.light.border}`,
+    border: `1px solid ${isDark ? 'rgba(125, 211, 252, 0.24)' : colours.light.border}`,
     borderRadius: '4px',
     overflow: 'hidden',
   });
@@ -318,7 +318,7 @@ const EnhancedAttendance = forwardRef<EnhancedAttendanceRef, EnhancedAttendanceP
     background: selected ? colours.blue : (isDark ? colours.dark.cardBackground : colours.light.cardBackground),
     color: selected ? '#fff' : (isDark ? colours.dark.text : colours.light.text),
     border: 'none',
-    borderRight: selected ? 'none' : `1px solid ${isDark ? colours.dark.border : colours.light.border}`,
+    borderRight: selected ? 'none' : `1px solid ${isDark ? 'rgba(125, 211, 252, 0.24)' : colours.light.border}`,
 
     '&:last-child': {
       borderRight: 'none',
@@ -340,7 +340,7 @@ const EnhancedAttendance = forwardRef<EnhancedAttendanceRef, EnhancedAttendanceP
     flexDirection: 'column',
     alignItems: 'center',
     padding: '12px 8px',
-    border: `2px solid ${selected ? colours.blue : (isDark ? colours.dark.border : colours.light.border)}`,
+    border: `2px solid ${selected ? colours.blue : (isDark ? 'rgba(125, 211, 252, 0.24)' : colours.light.border)}`,
     borderRadius: '8px',
     cursor: isWeekend ? 'not-allowed' : 'pointer',
     background: selected 

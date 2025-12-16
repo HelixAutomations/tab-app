@@ -519,7 +519,7 @@ const Attendance: React.FC<AttendanceProps & RefAttributes<{ focusTable: () => v
     tableLayout: 'fixed',
     borderCollapse: 'separate',
     borderSpacing: '0px',
-    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+    border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : colours.light.border}`,
     borderRadius: '2px',
     overflow: 'visible',
   });
@@ -558,7 +558,7 @@ const Attendance: React.FC<AttendanceProps & RefAttributes<{ focusTable: () => v
     });
 
   const cellStyle = mergeStyles({
-    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+    border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : colours.light.border}`,
     padding: '8px',
     textAlign: 'center',
     width: '100px',
@@ -784,7 +784,7 @@ const Attendance: React.FC<AttendanceProps & RefAttributes<{ focusTable: () => v
                       <th
                         key={person.initials}
                         style={{
-                          border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                          border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : colours.light.border}`,
                           padding: '8px',
                           textAlign: 'center',
                           backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
@@ -812,7 +812,7 @@ const Attendance: React.FC<AttendanceProps & RefAttributes<{ focusTable: () => v
                       >
                         <td
                           style={{
-                            border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                            border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : colours.light.border}`,
                             padding: '8px',
                             fontWeight: 'bold',
                             backgroundColor: colours.reporting.tableHeaderBackground,
@@ -881,7 +881,7 @@ const Attendance: React.FC<AttendanceProps & RefAttributes<{ focusTable: () => v
                         <th
                           key={person.initials}
                           style={{
-                            border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                            border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : colours.light.border}`,
                             padding: '8px',
                             textAlign: 'center',
                             backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
@@ -909,7 +909,7 @@ const Attendance: React.FC<AttendanceProps & RefAttributes<{ focusTable: () => v
                         >
                           <td
                             style={{
-                              border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                              border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : colours.light.border}`,
                               padding: '8px',
                               fontWeight: 'bold',
                               backgroundColor: colours.reporting.tableHeaderBackground,

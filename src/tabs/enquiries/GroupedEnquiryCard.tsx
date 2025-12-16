@@ -38,9 +38,13 @@ interface GroupedEnquiryCardProps {
   userAOW?: string[]; // List of user's areas of work (lowercase)
   getPromotionStatus?: (enquiry: Enquiry) => 'pitch' | 'instruction' | null;
   onFilterByPerson?: (initials: string) => void;
+  /**
+   * Map of enquiry ID to document count for each enquiry in the group
+   */
+  documentCounts?: Record<string, number>;
 }
 
-const formatCurrency = (value: string): string => {
+const _formatCurrency = (value: string): string => {
   const regex = /(?:£)?(\d{1,3}(?:,\d{3})*)(?: to £?(\d{1,3}(?:,\d{3})*))?/;
   const matches = value.match(regex);
   if (!matches) return value;
@@ -55,6 +59,7 @@ const formatCurrency = (value: string): string => {
     )
     .join(' to ');
 };
+void _formatCurrency; // Reserved for future use
 
 const getAreaColor = (area: string): string => {
   switch (area?.toLowerCase()) {
@@ -73,11 +78,12 @@ const getAreaColor = (area: string): string => {
 
 // (Removed unused Fluent UI icon button styles)
 
-const GroupedEnquiryCard: React.FC<GroupedEnquiryCardProps> = ({ groupedEnquiry, onSelect, onRate, onRatingChange, onPitch, teamData, isLast, userAOW, getPromotionStatus, onFilterByPerson }) => {
+const GroupedEnquiryCard: React.FC<GroupedEnquiryCardProps> = ({ groupedEnquiry, onSelect, onRate, onRatingChange, onPitch, teamData, isLast, userAOW, getPromotionStatus, onFilterByPerson, documentCounts = {} }) => {
   const { isDarkMode } = useTheme();
   const [isExpanded, setIsExpanded] = useState(false);
   const [teamsActivityMap, setTeamsActivityMap] = useState<Map<string, TeamsActivityData>>(new Map());
-  const { clientName, clientEmail, enquiries, latestDate, areas } = groupedEnquiry;
+  const { clientName, clientEmail, enquiries, latestDate, areas: _areas } = groupedEnquiry;
+  void _areas; // Reserved for future use
   const enquiryCount = enquiries.length;
   const latestEnquiry = enquiries[0];
 
@@ -120,7 +126,7 @@ const GroupedEnquiryCard: React.FC<GroupedEnquiryCardProps> = ({ groupedEnquiry,
     }
   };
 
-  const calculateTotalValue = (): string => {
+  const _calculateTotalValue = (): string => {
     const values = enquiries
       .map(e => e.Value)
       .filter(v => v && v !== 'Not specified')
@@ -134,6 +140,7 @@ const GroupedEnquiryCard: React.FC<GroupedEnquiryCardProps> = ({ groupedEnquiry,
     const total = values.reduce((sum, val) => sum + val, 0);
     return `£${total.toLocaleString()}`;
   };
+  void _calculateTotalValue; // Reserved for future use
 
   const svgMark = encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 57.56 100" preserveAspectRatio="xMidYMid meet"><g fill="currentColor" opacity="0.22"><path d="M57.56,13.1c0,7.27-7.6,10.19-11.59,11.64-4,1.46-29.98,11.15-34.78,13.1C6.4,39.77,0,41.23,0,48.5v-13.1C0,28.13,6.4,26.68,11.19,24.74c4.8-1.94,30.78-11.64,34.78-13.1,4-1.45,11.59-4.37,11.59-11.64v13.09h0Z"/><path d="M57.56,38.84c0,7.27-7.6,10.19-11.59,11.64s-29.98,11.16-34.78,13.1c-4.8,1.94-11.19,3.4-11.19,10.67v-13.1c0-7.27,6.4-8.73,11.19-10.67,4.8-1.94,30.78-11.64,34.78-13.1,4-1.46,11.59-4.37,11.59-11.64v13.09h0Z"/><path d="M57.56,64.59c0,7.27-7.6,10.19-11.59,11.64-4,1.46-29.98,11.15-34.78,13.1-4.8,1.94-11.19,3.39-11.19,10.67v-13.1c0-7.27,6.4-8.73,11.19-10.67,4.8-1.94,30.78-11.64,34.78-13.1,4-1.45,11.59-4.37,11.59-11.64v13.1h0Z"/></g></svg>');
   // Show the decorative background mark only when expanded (or for single-enquiry cards)
@@ -231,23 +238,26 @@ const GroupedEnquiryCard: React.FC<GroupedEnquiryCardProps> = ({ groupedEnquiry,
       : `0 1px 2px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.5)`,
   });
 
-  const metaStyle = mergeStyles({
+  const _metaStyle = mergeStyles({
     fontSize: 13,
     color: isDarkMode ? colours.dark.text : colours.light.text,
     fontWeight: 600,
   });
+  void _metaStyle; // Reserved for future use
 
-  const valueStyle = mergeStyles({
+  const _valueStyle = mergeStyles({
     fontSize: 13,
     color: colours.highlight,
     fontWeight: 700,
   });
+  void _valueStyle; // Reserved for future use
 
-  const dateStyle = mergeStyles({
+  const _dateStyle = mergeStyles({
     fontSize: 12,
     color: isDarkMode ? colours.dark.subText : colours.light.subText,
     fontWeight: 500,
   });
+  void _dateStyle; // Reserved for future use
 
   const latestDateTextStyle = mergeStyles({
     fontSize: 12,
@@ -378,14 +388,15 @@ const GroupedEnquiryCard: React.FC<GroupedEnquiryCardProps> = ({ groupedEnquiry,
     marginTop: 12,
   });
 
-  const areaTagsStyle = mergeStyles({
+  const _areaTagsStyle = mergeStyles({
     display: 'flex',
     gap: 4,
     flexWrap: 'wrap',
     marginTop: 4,
   });
+  void _areaTagsStyle; // Reserved for future use
 
-  const areaTagStyle = (area: string) => mergeStyles({
+  const _areaTagStyle = (area: string) => mergeStyles({
     display: 'inline-block',
     backgroundColor: `${getAreaColor(area)}15`,
     color: getAreaColor(area),
@@ -397,6 +408,7 @@ const GroupedEnquiryCard: React.FC<GroupedEnquiryCardProps> = ({ groupedEnquiry,
     letterSpacing: '0.3px',
     border: `1px solid ${getAreaColor(area)}30`
   });
+  void _areaTagStyle; // Reserved for future use
 
   const toggleExpanded = (e: React.MouseEvent<any>) => {
     e.stopPropagation();
@@ -505,6 +517,7 @@ const GroupedEnquiryCard: React.FC<GroupedEnquiryCardProps> = ({ groupedEnquiry,
                   promotionStatus={getPromotionStatus ? getPromotionStatus(enquiry) : null}
                   onFilterByPerson={onFilterByPerson}
                   teamsActivityData={teamsActivityMap.get(enquiry.ID || '')}
+                  documentCount={documentCounts[enquiry.ID] || 0}
                 />
               </div>
             ))}

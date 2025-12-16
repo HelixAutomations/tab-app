@@ -401,6 +401,16 @@ const App: React.FC<AppProps> = ({
     };
   }, []);
 
+  // Handler to show test enquiry (for local dev and admins)
+  const handleShowTestEnquiry = useCallback(() => {
+    // Navigate to enquiries tab first
+    setActiveTab('enquiries');
+    // Dispatch event to select the test enquiry
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('selectTestEnquiry'));
+    }, 100);
+  }, []);
+
   // Determine the current user's initials
   const userInitials = userData?.[0]?.Initials?.toUpperCase() || '';
 
@@ -796,6 +806,7 @@ const App: React.FC<AppProps> = ({
             onRefreshMatters={onRefreshMatters}
             onFeatureToggle={handleFeatureToggle}
             featureToggles={featureToggles}
+            onShowTestEnquiry={handleShowTestEnquiry}
           />
           {/* Navigator wrapper ensures correct layering and clickability */}
           <div className="app-navigator">

@@ -80,6 +80,7 @@ const rateChangesRouter = require('./routes/rate-changes');
 const expertsRouter = require('./routes/experts');
 const counselRouter = require('./routes/counsel');
 const techTicketsRouter = require('./routes/techTickets');
+const telemetryRouter = require('./routes/telemetry');
 // const { router: cclRouter, CCL_DIR } = require('./routes/ccl');
 
 // Initialize ops log (loads recent entries and ensures log dir)
@@ -186,6 +187,9 @@ app.use('/api/counsel', counselRouter);
 
 // Tech tickets (Asana integration for ideas and problem reports)
 app.use('/api/tech-tickets', techTicketsRouter);
+
+// Telemetry endpoint for pitch builder and client-side event tracking
+app.use('/api/telemetry', telemetryRouter);
 
 // IMPORTANT: Attendance routes must come BEFORE proxy routes to avoid conflicts
 app.use('/api/attendance', attendanceRouter);

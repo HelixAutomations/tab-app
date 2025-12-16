@@ -48,7 +48,6 @@ import {
   sharedOptionsDropdownStyles,
 } from '../../app/styles/FilterStyles';
 import { PitchDebugPanel, useLocalFetchLogger } from './pitch-builder';
-import EmailSignature from './EmailSignature';
 import EditorAndTemplateBlocks from './pitch-builder/EditorAndTemplateBlocks';
 import VerificationSummary from './pitch-builder/VerificationSummary';
 import OperationStatusToast from './pitch-builder/OperationStatusToast';
@@ -56,7 +55,6 @@ import { addDays } from 'date-fns';
 import PlaceholderEditorPopover from './pitch-builder/PlaceholderEditorPopover';
 import SnippetEditPopover from './pitch-builder/SnippetEditPopover';
 
-import ReactDOMServer from 'react-dom/server';
 import { placeholderSuggestions } from '../../app/customisation/InsertSuggestions';
 import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
 import { isInTeams } from '../../app/functionality/isInTeams';
@@ -72,6 +70,7 @@ import {
 import { inputFieldStyle } from '../../CustomForms/BespokeForms';
 import { ADDITIONAL_CLIENT_PLACEHOLDER_ID } from '../../constants/deals';
 import EmailProcessor from './pitch-builder/EmailProcessor';
+import { pitchTelemetry } from './pitch-builder/pitchTelemetry';
 
 // PROOF_OF_ID_URL constant removed - now constructed dynamically with passcode in applyDynamicSubstitutions
 
@@ -3267,6 +3266,19 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
     const emailTo = overrideTo || to;
     const emailCc = overrideCc !== undefined ? overrideCc : cc;
     
+    const feeEarnerInitials = String((effectiveUserData?.[0] as any)?.Initials || userInitials || '').trim().toUpperCase();
+    
+    // Track email send started
+    pitchTelemetry.trackEvent('pitch.email_processed', {
+      hasAttachments: attachments.length > 0,
+      hasFollowUp: !!followUp,
+      contentLength: body?.length || 0,
+      scenario: selectedScenarioId || undefined
+    }, {
+      enquiryId: enquiry.ID,
+      feeEarner: feeEarnerInitials
+    });
+    
     if (!validateForm()) {
       return;
     }
@@ -3345,20 +3357,20 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
     // Apply final sanitization pass
     finalHtml = sanitizeFinalHtml(finalHtml, canonicalInstructionsHref);
 
-    // Step 3: Email composition with signature
+    // Step 3: Email composition (server will append personal signature)
     setEmailMessage('Generating final email…');
     if (!suppressToast) {
       showToast('Generating final email...', 'info', {
         loading: true,
-        details: 'Creating formatted email with signature',
+        details: 'Creating formatted email',
         progress: 70,
         duration: 0
       });
     }
 
-    const fullEmailHtml = ReactDOMServer.renderToStaticMarkup(
-      <EmailSignature bodyHtml={finalHtml} userData={effectiveUserData} />
-    );
+    const signatureInitials = String((effectiveUserData?.[0] as any)?.Initials || userInitials || '')
+      .trim()
+      .toUpperCase();
 
     // Use fee earner's email as sender, fallback to automations
   // senderEmail defined above for consistency with insertDeal payload
@@ -3367,7 +3379,9 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
   const bccList = buildBccList(senderEmail);
     
     const requestBody = {
-      email_contents: fullEmailHtml,
+      body_html: finalHtml,
+      use_personal_signature: true,
+      signature_initials: signatureInitials,
       user_email: emailTo, // Client's email as recipient
       subject: subject, // Use 'subject' not 'subject_line' for decoupled function
       from_email: senderEmail, // Send from fee earner's email
@@ -3432,6 +3446,18 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
         });
       }
 
+      // Track successful email send
+      pitchTelemetry.trackEmailSent(
+        enquiry.ID,
+        feeEarnerInitials,
+        emailTo,
+        true,
+        {
+          subject,
+          hasAttachments: attachments.length > 0
+        }
+      );
+
       setEmailStatus('sent');
       setEmailMessage('Sent');
 
@@ -3443,6 +3469,18 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
     } catch (error: any) {
       const errorMsg = error?.message || 'Failed to send email';
       console.error('Email send error:', error);
+      
+      // Track failed email send
+      pitchTelemetry.trackEmailSent(
+        enquiry.ID,
+        feeEarnerInitials,
+        emailTo,
+        false,
+        {
+          subject,
+          error: errorMsg
+        }
+      );
       
       setErrorMessage(`Failed to send email: ${errorMsg}`);
       setIsErrorVisible(true);
@@ -3472,14 +3510,27 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
   }
 
   /**
-   * handleDraftEmail: keep HTML, remove placeholders & highlights, convert <br><br> to <p>, then pass to EmailSignature.
+   * handleDraftEmail: keep HTML, remove placeholders & highlights, convert <br><br> to <p>.
    */
   async function handleDraftEmail() {
+    const feeEarnerInitials = String((effectiveUserData?.[0] as any)?.Initials || userInitials || '').trim().toUpperCase();
+    
     if (!body || !enquiry.Point_of_Contact) {
       setErrorMessage('Email contents and user email are required.');
       setIsErrorVisible(true);
       return;
     }
+    
+    // Track draft started
+    pitchTelemetry.trackEvent('pitch.email_drafted', {
+      contentLength: body?.length || 0,
+      scenario: selectedScenarioId || undefined,
+      hasAmount: !!amount
+    }, {
+      enquiryId: enquiry.ID,
+      feeEarner: feeEarnerInitials
+    });
+    
     setEmailStatus('processing');
     setEmailMessage('Preparing draft…');
     if (bodyEditorRef.current) {
@@ -3553,24 +3604,26 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
     // Apply final sanitization pass (same as sendEmail)
     finalHtml = sanitizeFinalHtml(finalHtml, canonicalInstructionsHref);
 
-    // Step 3: Email composition
+    // Step 3: Email composition (server will append personal signature)
     setEmailMessage('Generating email draft…');
     showToast('Preparing draft…', 'info', {
       loading: true,
-      details: 'Formatting content and signature',
+      details: 'Formatting content',
       progress: 70,
       duration: 0
     });
 
-    const fullEmailHtml = ReactDOMServer.renderToStaticMarkup(
-      <EmailSignature bodyHtml={finalHtml} userData={effectiveUserData} />
-    );
+    const signatureInitials = String((effectiveUserData?.[0] as any)?.Initials || userInitials || '')
+      .trim()
+      .toUpperCase();
 
     // Draft: send to the user themselves; BCC only safety addresses (no CC)
     const bccList = buildBccList(); // LZ/CB only
 
     const requestBody = {
-      email_contents: fullEmailHtml,
+      body_html: finalHtml,
+      use_personal_signature: true,
+      signature_initials: signatureInitials,
       user_email: userEmailAddress, // Draft to self
       subject: subject, // Use 'subject' for consistency with sendEmail function
       to,

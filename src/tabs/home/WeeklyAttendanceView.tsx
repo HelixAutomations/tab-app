@@ -665,9 +665,18 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
     return null;
   }, [annualLeaveRecords, futureLeaveRecords]);
 
+  // Helper to normalize date strings for comparison (extract YYYY-MM-DD)
+  const normalizeDate = (dateStr: string): string => {
+    if (!dateStr) return '';
+    return dateStr.substring(0, 10);
+  };
+
   // Helper function to get daily attendance pattern for a specific week
   const getDailyAttendance = useCallback((member: any, weekOffset: 0 | 1 = 0): ('wfh' | 'office' | 'away' | 'off-sick' | 'out-of-office')[] => {
     const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    
+    // Get the week start date for this offset
+    const targetWeekStart = getWeekStartDate(weekOffset);
     
     // Check if on leave for this specific week (from leave arrays)
     const leaveStatusForWeek = getLeaveStatusForWeek(member.Initials, weekOffset);
@@ -687,30 +696,21 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
       return ['away', 'away', 'away', 'away', 'away'];
     }
     
-    // For next week (weekOffset = 1), we might have different data structure
-    const attendanceKey = weekOffset === 0 ? 'attendanceDays' : 'nextWeekAttendanceDays';
-    let attendanceDays: string = member[attendanceKey]
-      || member.attendanceDays
-      || member.Attendance_Days
-      || member.Status
-      || '';
+    // Find the attendance record for this specific week by matching both Initials AND Week_Start
+    const weekRecord = attendanceRecords.find(
+      r => r.Initials === member.Initials && normalizeDate(r.Week_Start) === targetWeekStart
+    );
+    
+    let attendanceDays: string = weekRecord?.Attendance_Days || weekRecord?.Status || '';
     
     // Debug: Check what data we actually have
-  debugLog(`DEBUG: getDailyAttendance for ${member.Initials || member.First}:`, {
+    debugLog(`DEBUG: getDailyAttendance for ${member.Initials || member.First}:`, {
       weekOffset,
-      attendanceKey,
+      targetWeekStart,
+      foundRecord: !!weekRecord,
       attendanceDays,
-      memberStatus: member.Status,
-      memberKeys: Object.keys(member)
+      allRecordsForInitials: attendanceRecords.filter(r => r.Initials === member.Initials).map(r => ({ Week_Start: r.Week_Start, Attendance_Days: r.Attendance_Days }))
     });
-    
-    // If still empty, try to find a matching attendance record by initials
-    if (!attendanceDays || attendanceDays.toString().trim() === '') {
-      const rec = attendanceRecords.find(r => r.Initials === member.Initials);
-      if (rec) {
-        attendanceDays = rec.Attendance_Days || rec.Status || '';
-      }
-    }
 
     // Normalize string
     const normalized = (attendanceDays || '').toString().trim();
@@ -780,6 +780,10 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
 
   // Process team data
   const processedTeamData = useMemo(() => {
+    // Get week start dates for current and next week
+    const currentWeekStart = getWeekStartDate(0);
+    const nextWeekStart = getWeekStartDate(1);
+    
     return teamData.map(member => {
       // Match by email if available, fallback to initials
       const memberEmail = getMemberEmail(member);
@@ -787,32 +791,36 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
       const isCurrentUser = userEmail
         ? memberEmail === userEmail || initialsMatch
         : initialsMatch;
-                          
-      const attendanceRecord = attendanceRecords.find(
-        (rec) => rec.Initials === member.Initials
+      
+      // Find attendance records for current week AND next week by matching both Initials AND Week_Start
+      const currentWeekRecord = attendanceRecords.find(
+        (rec) => rec.Initials === member.Initials && normalizeDate(rec.Week_Start) === currentWeekStart
+      );
+      const nextWeekRecord = attendanceRecords.find(
+        (rec) => rec.Initials === member.Initials && normalizeDate(rec.Week_Start) === nextWeekStart
       );
 
-      // Prefer Attendance_Days; fall back to backend Status or team member Status
+      // For current week: prefer optimistic, then record, then fallback
       const attendanceDays = optimisticAttendance[member.Initials]
-        || attendanceRecord?.Attendance_Days 
-        || attendanceRecord?.Status 
+        || currentWeekRecord?.Attendance_Days 
+        || currentWeekRecord?.Status 
         || (member as any).Status 
         || '';
       
-  debugLog('processedTeamData debug - ONE TIME ONLY:', {
-        memberInitials: member.Initials,
-        attendanceRecord,
-        attendanceDays,
-        attendanceRecordsCount: attendanceRecords.length,
-        allAttendanceInitials: attendanceRecords.map(r => r.Initials),
-        foundMatch: !!attendanceRecord
-      });
+      // For next week
+      const nextWeekAttendanceDays = nextWeekRecord?.Attendance_Days 
+        || nextWeekRecord?.Status 
+        || '';
       
-      // Only log once by checking if this is the first member
-      if (member.Initials === teamData[0]?.Initials) {
-  debugLog('FULL ATTENDANCE RECORDS:', attendanceRecords);
-  debugLog('FULL TEAM DATA:', teamData);
-      }
+  debugLog('processedTeamData debug:', {
+        memberInitials: member.Initials,
+        currentWeekStart,
+        nextWeekStart,
+        currentWeekRecord: currentWeekRecord ? { Week_Start: currentWeekRecord.Week_Start, Attendance_Days: currentWeekRecord.Attendance_Days } : null,
+        nextWeekRecord: nextWeekRecord ? { Week_Start: nextWeekRecord.Week_Start, Attendance_Days: nextWeekRecord.Attendance_Days } : null,
+        attendanceDays,
+        nextWeekAttendanceDays
+      });
       
       const leaveStatusCurrentWeek = getLeaveStatusForWeek(member.Initials, 0);
       const leaveStatusNextWeek = getLeaveStatusForWeek(member.Initials, 1);
@@ -833,7 +841,8 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
         ...member,
         status,
         attendanceDays,
-        isConfirmed: attendanceRecord?.Confirmed_At !== null,
+        nextWeekAttendanceDays,
+        isConfirmed: currentWeekRecord?.Confirmed_At !== null,
         isUser: isCurrentUser,
         isOnLeaveCurrentWeek: Boolean(leaveStatusCurrentWeek),
         isOnLeaveNextWeek: Boolean(leaveStatusNextWeek),
@@ -841,7 +850,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
         nextWeekLeaveStatus: leaveStatusNextWeek,
       };
     });
-  }, [teamData, attendanceRecords, userData, annualLeaveRecords, futureLeaveRecords, userInitials, userEmail, optimisticAttendance, getDailyAttendance, getLeaveStatusForWeek]);
+  }, [teamData, attendanceRecords, userData, annualLeaveRecords, futureLeaveRecords, userInitials, userEmail, optimisticAttendance, getWeekStartDate, getLeaveStatusForWeek]);
 
   // Styles
   const containerStyle = (isDark: boolean) => mergeStyles({
@@ -862,7 +871,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
       : (isDark ? colours.dark.cardBackground : colours.light.cardBackground),
     border: isUser 
       ? `3px solid ${isDark ? colours.blue : colours.missedBlue}` 
-      : `1px solid ${isDark ? colours.dark.border : colours.light.border}`,
+      : `1px solid ${isDark ? 'rgba(125, 211, 252, 0.24)' : colours.light.border}`,
     borderRadius: '2px',
     transition: 'all 0.2s ease',
     minHeight: '70px',
@@ -945,7 +954,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
         ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.35) 0%, rgba(27, 91, 136, 0.26) 100%)'
         : 'linear-gradient(135deg, rgba(54, 144, 206, 0.20) 0%, rgba(118, 184, 228, 0.16) 100%)')
       : 'transparent',
-    border: `1px solid ${isActive ? colours.highlight : (isDarkMode ? colours.dark.border : colours.light.border)}`,
+    border: `1px solid ${isActive ? colours.highlight : (isDarkMode ? 'rgba(125, 211, 252, 0.24)' : colours.light.border)}`,
     color: isActive ? (isDarkMode ? '#E9F5FF' : colours.highlight) : (isDarkMode ? colours.dark.text : colours.light.text),
     borderRadius: '2px',
     lineHeight: 1.2,

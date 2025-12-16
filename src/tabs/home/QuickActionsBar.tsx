@@ -31,9 +31,9 @@ const quickLinksStyle = (isDarkMode: boolean, highlighted: boolean, seamless: bo
         // Transparent background - sits inside Navigator
         background: 'transparent',
 
-        // Subtle separators to align with immediate actions hierarchy
-        borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(148, 163, 184, 0.28)'}`,
-        borderBottom: `1px solid ${isDarkMode ? 'rgba(55, 65, 81, 0.38)' : 'rgba(209, 213, 219, 0.65)'}`,
+        // Subtle separators with cyan tint in dark mode
+        borderTop: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.15)' : 'rgba(148, 163, 184, 0.28)'}`,
+        borderBottom: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.12)' : 'rgba(209, 213, 219, 0.65)'}`,
         
         // No backdrop filter
         backdropFilter: 'none',

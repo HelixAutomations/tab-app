@@ -52,6 +52,7 @@ import { dashboardTokens, cardTokens, cardStyles } from '../instructions/compone
 import { componentTokens } from '../../app/styles/componentTokens';
 import ThemedSpinner from '../../components/ThemedSpinner';
 import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
+import OperationStatusToast from '../enquiries/pitch-builder/OperationStatusToast';
 
 import FormCard from '../forms/FormCard';
 import ResourceCard from '../resources/ResourceCard';
@@ -466,7 +467,7 @@ const sectionContainerStyle = (isDarkMode: boolean) =>
     padding: '16px',
     borderRadius: 0,
     boxShadow: isDarkMode
-      ? `0 4px 12px ${colours.dark.border}`
+      ? '0 4px 12px rgba(0, 0, 0, 0.3)'
       : `0 4px 12px ${colours.light.border}`,
     position: 'relative',
     width: '100%',
@@ -998,6 +999,22 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
 
   // Rate change notification modal state
   const [showRateChangeModal, setShowRateChangeModal] = useState<boolean>(false);
+
+  // Toast notification state for attendance saves and other actions
+  const [toastVisible, setToastVisible] = useState<boolean>(false);
+  const [toastMessage, setToastMessage] = useState<string>('');
+  const [toastType, setToastType] = useState<'success' | 'error' | 'info' | 'warning'>('success');
+  const [toastDetails, setToastDetails] = useState<string | undefined>(undefined);
+
+  // Helper to show toast notifications
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' | 'warning', details?: string) => {
+    setToastMessage(message);
+    setToastType(type);
+    setToastDetails(details);
+    setToastVisible(true);
+    // Auto-hide after delay
+    setTimeout(() => setToastVisible(false), type === 'error' ? 5000 : 3000);
+  }, []);
 
   // List of unclaimed enquiries for quick access panel
   const unclaimedEnquiries = useMemo(
@@ -2052,12 +2069,14 @@ const isThursdayAfterMidday = now.getDay() === 4 && now.getHours() >= 12;
   const nextKey = getNextWeekKey();
 
 const transformedAttendanceRecords = useMemo(() => {
-  if (!cachedAttendance && !attendanceRecords.length) return [];
-  const rawRecords = cachedAttendance?.attendance || attendanceRecords;
+  console.log('[transformedAttendanceRecords] Recomputing. attendanceRecords count:', attendanceRecords.length);
+  // Use attendanceRecords directly - it's the source of truth for React state
+  // The cache is only for preventing re-fetches, not for rendering
+  if (!attendanceRecords.length) return [];
   
   // Records should already be in the correct format from the fetch handler
   // Just pass them through, ensuring required fields are present
-  const result = rawRecords
+  const result = attendanceRecords
     .map((record: any) => {
       // If record already has the correct structure, pass through
       if (record.Initials && record.Attendance_Days !== undefined) {
@@ -2082,61 +2101,77 @@ const transformedAttendanceRecords = useMemo(() => {
       };
     });
   
+  console.log('[transformedAttendanceRecords] Result count:', result.length);
   return result;
 }, [attendanceRecords, transformedTeamData]);
 
 const handleAttendanceUpdated = (updatedRecords: AttendanceRecord[]) => {
-  debugLog('handleAttendanceUpdated records:', updatedRecords.length);
+  console.log('[handleAttendanceUpdated] Called with records:', updatedRecords.length, updatedRecords.map(r => ({ Initials: r.Initials, Week_Start: r.Week_Start, Attendance_Days: r.Attendance_Days })));
+  if (updatedRecords.length === 0) {
+    console.log('[handleAttendanceUpdated] No records to update');
+    return;
+  }
+  
+  // Helper to normalize date strings for comparison (extract YYYY-MM-DD)
+  const normalizeDate = (dateStr: string): string => {
+    if (!dateStr) return '';
+    // Handle both '2025-12-15' and '2025-12-15T00:00:00.000Z' formats
+    return dateStr.substring(0, 10);
+  };
+  
   setAttendanceRecords((prevRecords) => {
+    console.log('[handleAttendanceUpdated] prevRecords count:', prevRecords.length);
     const newRecords = [...prevRecords];
-    let isChanged = false; // Track if the state actually changes
+    let isChanged = false;
 
     updatedRecords.forEach((updated) => {
-      const weekKey = generateWeekKey(new Date(updated.Week_Start));
+      const updatedWeekStart = normalizeDate(updated.Week_Start);
+      
+      // Find by Initials and Week_Start (normalized) - the actual record structure
       const index = newRecords.findIndex(
-        (rec: any) => rec.name === updated.First_Name && rec.weeks && rec.weeks[weekKey]
+        (rec: any) => rec.Initials === updated.Initials && normalizeDate(rec.Week_Start) === updatedWeekStart
       );
+      
+      console.log('[handleAttendanceUpdated] Looking for:', { Initials: updated.Initials, Week_Start: updatedWeekStart }, 'Found at index:', index);
+      
       if (index !== -1) {
         // Update existing record
         const currentRecord = newRecords[index];
-        const updatedWeek = { attendance: updated.Attendance_Days, confirmed: !!updated.Confirmed_At };
-        if (JSON.stringify(currentRecord.weeks[weekKey]) !== JSON.stringify(updatedWeek)) {
-          newRecords[index].weeks[weekKey] = updatedWeek;
-          isChanged = true;
-        }
-      } else {
-        // Add new record or update with new week
-        const existingPersonIndex = newRecords.findIndex(
-          (rec: any) => rec.name === updated.First_Name
-        );
-        if (existingPersonIndex !== -1) {
-          newRecords[existingPersonIndex].weeks = {
-            ...newRecords[existingPersonIndex].weeks,
-            [weekKey]: { attendance: updated.Attendance_Days, confirmed: !!updated.Confirmed_At },
+        console.log('[handleAttendanceUpdated] Current record Attendance_Days:', currentRecord.Attendance_Days);
+        console.log('[handleAttendanceUpdated] Updated record Attendance_Days:', updated.Attendance_Days);
+        if (currentRecord.Attendance_Days !== updated.Attendance_Days || 
+            currentRecord.Confirmed_At !== updated.Confirmed_At) {
+          newRecords[index] = {
+            ...currentRecord,
+            ...updated,
+            // Preserve the original date format from the existing record
+            Week_Start: currentRecord.Week_Start,
           };
           isChanged = true;
+          console.log('[handleAttendanceUpdated] Updated existing record:', updated.Initials, updatedWeekStart, '-> New Attendance_Days:', updated.Attendance_Days);
         } else {
-          newRecords.push({
-            name: updated.First_Name,
-            weeks: {
-              [weekKey]: { attendance: updated.Attendance_Days, confirmed: !!updated.Confirmed_At },
-            },
-          });
-          isChanged = true;
+          console.log('[handleAttendanceUpdated] Record unchanged - same values');
         }
+      } else {
+        // Add new record - normalize the Week_Start to date-only format
+        newRecords.push({
+          ...updated,
+          Week_Start: updatedWeekStart,
+        });
+        isChanged = true;
+        console.log('[handleAttendanceUpdated] Added new record:', updated.Initials, updatedWeekStart);
       }
     });
 
-    // If no changes, do not trigger setState again
     if (!isChanged) {
       debugLog('No attendance changes; state unchanged');
       return prevRecords;
     }
 
-    // Update cache only if records changed
+    // Update cache
     cachedAttendance = {
       attendance: newRecords,
-      team: cachedAttendance?.team || attendanceTeam, // Preserve team data
+      team: cachedAttendance?.team || attendanceTeam,
     };
 
     debugLog('Attendance state updated; size:', newRecords.length);
@@ -2145,6 +2180,7 @@ const handleAttendanceUpdated = (updatedRecords: AttendanceRecord[]) => {
 };
 
 // Wrapper used by top-level AttendanceConfirmPanel to save attendance for the current user.
+// Note: Toast notification is triggered by the caller (PersonalAttendanceConfirm) after all saves complete
   const saveAttendance = async (weekStart: string, attendanceDays: string): Promise<void> => {
   debugLog('saveAttendance', weekStart, attendanceDays);
   // Force endpoint testing - set to false to test real endpoint
@@ -2208,6 +2244,7 @@ const handleAttendanceUpdated = (updatedRecords: AttendanceRecord[]) => {
       Confirmed_At: rec.Confirmed_At || new Date().toISOString(),
     };
     handleAttendanceUpdated([mapped]);
+    // Note: Toast is shown by PersonalAttendanceConfirm after all weeks are saved
   } catch (err) {
     console.error('Error saving attendance (home):', err);
     // Optional local fallback for testing
@@ -2229,6 +2266,8 @@ const handleAttendanceUpdated = (updatedRecords: AttendanceRecord[]) => {
       handleAttendanceUpdated([newRecord]);
       return; // treat as success in UI
     }
+    // Show error toast immediately on failure
+    showToast('Failed to save attendance', 'error', err instanceof Error ? err.message : 'Please try again');
     // Bubble error so caller can show inline feedback
     throw (err instanceof Error ? err : new Error('Failed to save attendance'));
   }
@@ -2328,9 +2367,8 @@ const officeAttendanceButtonText = currentUserConfirmed
   // (metricsName is an alias used for time/fees metrics demos and can skew ownership).
   let userResponsibleName = (userData?.[0]?.FullName || userData?.[0]?.["Full Name"] || '').trim() || metricsName;
   
-  // Override for localhost/Luke to use Alex Cook's data
-  const userInitialsForBalance = userData?.[0]?.Initials || '';
-  if (window.location.hostname === 'localhost' || userInitialsForBalance === 'LZ') {
+  // Override for localhost only (dev testing)
+  if (window.location.hostname === 'localhost') {
     userResponsibleName = 'Alex Cook';
   }
   
@@ -2350,7 +2388,7 @@ const officeAttendanceButtonText = currentUserConfirmed
   const myOutstandingBalances = useMemo(() => {
     if (!outstandingBalancesData?.data || userMatterIDs.length === 0) return [];
     return outstandingBalancesData.data.filter((bal: any) =>
-      bal.associated_matter_ids.some((id: number) => userMatterIDs.includes(Number(id)))
+      bal.associated_matter_ids.some((id: number | string) => userMatterIDs.includes(Number(id)))
     );
   }, [outstandingBalancesData, userMatterIDs]);
 
@@ -3138,6 +3176,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
             futureLeaveRecords={futureLeaveRecords}
             userData={userData}
             onSave={saveAttendance}
+            onShowToast={showToast}
             onClose={() => {
               setBespokePanelContent(null);
               setIsBespokePanelOpen(false);
@@ -3156,6 +3195,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
             futureLeaveRecords={futureLeaveRecords}
             userData={userData}
             onSave={saveAttendance}
+            onShowToast={showToast}
             onClose={() => {
               setBespokePanelContent(null);
               setIsBespokePanelOpen(false);
@@ -3892,6 +3932,15 @@ const conversionRate = enquiriesMonthToDate
         onUndoStreaming={undoRateChangeStreaming}
         currentUserName={currentUserName}
         userData={userData?.[0] || null}
+        isDarkMode={isDarkMode}
+      />
+
+      {/* Toast notifications for attendance and other actions */}
+      <OperationStatusToast
+        visible={toastVisible}
+        message={toastMessage}
+        type={toastType}
+        details={toastDetails}
         isDarkMode={isDarkMode}
       />
 

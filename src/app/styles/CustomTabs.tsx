@@ -44,6 +44,7 @@ interface CustomTabsProps {
   onRefreshMatters?: () => Promise<void> | void;
   onFeatureToggle?: (feature: string, enabled: boolean) => void;
   featureToggles?: Record<string, boolean>;
+  onShowTestEnquiry?: () => void;
 }
 
 const customPivotStyles = (isDarkMode: boolean): Partial<IPivotStyles> => ({
@@ -93,6 +94,7 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
   onRefreshMatters,
   onFeatureToggle,
   featureToggles = {},
+  onShowTestEnquiry,
 }) => {
   const { isDarkMode } = useTheme();
   const pivotWrapRef = React.useRef<HTMLDivElement | null>(null);
@@ -319,6 +321,7 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
           onRefreshMatters={onRefreshMatters}
           onFeatureToggle={onFeatureToggle}
           featureToggles={featureToggles}
+          onShowTestEnquiry={onShowTestEnquiry}
         />
       )}
     </div>

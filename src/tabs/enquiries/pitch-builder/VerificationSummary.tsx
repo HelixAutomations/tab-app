@@ -127,12 +127,18 @@ export const VerificationSummary: React.FC<VerificationSummaryProps> = ({
 
   // Map Enquiry fields for the Enquiry Details panel
   const areaOfWork = enquiry?.Area_of_Work || '—';
-  // Try to format a numeric value; otherwise show the raw string
+  // Try to format a numeric value; if it's a range string (e.g. "£25,000 to £50,000") show as-is
   const valueDisplay = (() => {
     const raw = enquiry?.Value;
     if (!raw) return '—';
-    const num = Number(String(raw).replace(/[^0-9.]/g, ''));
-    if (!Number.isFinite(num) || Number.isNaN(num)) return String(raw);
+    const str = String(raw).trim();
+    // If it contains "to" or multiple £ signs, it's a range - display as-is
+    if (str.toLowerCase().includes(' to ') || (str.match(/£/g) || []).length > 1) {
+      return str;
+    }
+    // Single numeric value - try to format
+    const num = Number(str.replace(/[^0-9.]/g, ''));
+    if (!Number.isFinite(num) || Number.isNaN(num)) return str;
     return `£${num.toLocaleString('en-GB')}`;
   })();
   const notesDisplay = (enquiry?.Initial_first_call_notes || '').trim();
@@ -164,12 +170,9 @@ export const VerificationSummary: React.FC<VerificationSummaryProps> = ({
       style={{
         background: isDarkMode 
           ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.94) 0%, rgba(11, 30, 55, 0.86) 100%)'
-          : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-        border: 'none',
-        borderBottom: isDarkMode 
-          ? '1px solid rgba(125, 211, 252, 0.24)'
-          : '1px solid rgba(148, 163, 184, 0.22)',
-        borderRadius: '0',
+          : 'linear-gradient(135deg, #f8fafc 0%, #ffffff 100%)',
+        border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : 'rgba(148, 163, 184, 0.2)'}`,
+        borderRadius: '2px',
         padding: '12px 16px',
         backdropFilter: 'blur(6px)',
         marginBottom: '0'
@@ -198,15 +201,15 @@ export const VerificationSummary: React.FC<VerificationSummaryProps> = ({
             style={{
               fontSize: 11,
               padding: '4px 8px',
-              borderRadius: 8,
-              border: `1px solid ${modernBorder}`,
-              background: isDarkMode ? 'rgba(7,16,32,0.5)' : '#ffffff',
+              borderRadius: 2,
+              border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.25)' : 'rgba(148, 163, 184, 0.3)'}`,
+              background: isDarkMode ? 'rgba(7,16,32,0.6)' : '#ffffff',
               color: modernSubtle,
               cursor: 'pointer',
               display: 'inline-flex',
               alignItems: 'center',
               gap: 6,
-              boxShadow: isDarkMode ? '0 1px 2px rgba(2,6,17,0.15)' : '0 1px 2px rgba(13,47,96,0.06)'
+              boxShadow: 'none'
             }}
           >
             {showPrefill ? 'Enquiry Details' : 'Prefill Data'}
@@ -267,11 +270,11 @@ export const VerificationSummary: React.FC<VerificationSummaryProps> = ({
                   display: 'inline-flex', 
                   alignItems: 'center', 
                   gap: '6px',
-                  padding: '6px 10px', 
-                  borderRadius: '8px', 
-                  background: isDarkMode ? 'rgba(255,255,255,0.08)' : '#f1f5f9',
+                  padding: '4px 8px', 
+                  borderRadius: '2px', 
+                  background: isDarkMode ? 'rgba(125, 211, 252, 0.1)' : '#f1f5f9',
                   border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.2)' : '#e2e8f0'}`, 
-                  fontSize: '12px',
+                  fontSize: '11px',
                   fontWeight: '500',
                   color: isDarkMode ? '#F1F5F9' : '#1E293B'
                 }} title={fullName || '—'}>
@@ -281,11 +284,11 @@ export const VerificationSummary: React.FC<VerificationSummaryProps> = ({
                   display: 'inline-flex', 
                   alignItems: 'center', 
                   gap: '6px',
-                  padding: '6px 10px', 
-                  borderRadius: '8px', 
-                  background: isDarkMode ? 'rgba(255,255,255,0.08)' : '#f1f5f9',
+                  padding: '4px 8px', 
+                  borderRadius: '2px', 
+                  background: isDarkMode ? 'rgba(125, 211, 252, 0.1)' : '#f1f5f9',
                   border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.2)' : '#e2e8f0'}`, 
-                  fontSize: '12px',
+                  fontSize: '11px',
                   fontWeight: '500',
                   color: isDarkMode ? '#F1F5F9' : '#1E293B'
                 }} title={initials || '—'}>
@@ -295,11 +298,11 @@ export const VerificationSummary: React.FC<VerificationSummaryProps> = ({
                   display: 'inline-flex', 
                   alignItems: 'center', 
                   gap: '6px',
-                  padding: '6px 10px', 
-                  borderRadius: '8px', 
-                  background: isDarkMode ? 'rgba(255,255,255,0.08)' : '#f1f5f9',
+                  padding: '4px 8px', 
+                  borderRadius: '2px', 
+                  background: isDarkMode ? 'rgba(125, 211, 252, 0.1)' : '#f1f5f9',
                   border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.2)' : '#e2e8f0'}`, 
-                  fontSize: '12px',
+                  fontSize: '11px',
                   fontWeight: '500',
                   color: isDarkMode ? '#F1F5F9' : '#1E293B'
                 }} title={role || '—'}>
@@ -309,11 +312,11 @@ export const VerificationSummary: React.FC<VerificationSummaryProps> = ({
                   display: 'inline-flex', 
                   alignItems: 'center', 
                   gap: '6px',
-                  padding: '6px 10px', 
-                  borderRadius: '8px', 
-                  background: isDarkMode ? 'rgba(255,255,255,0.08)' : '#f1f5f9',
+                  padding: '4px 8px', 
+                  borderRadius: '2px', 
+                  background: isDarkMode ? 'rgba(125, 211, 252, 0.1)' : '#f1f5f9',
                   border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.2)' : '#e2e8f0'}`, 
-                  fontSize: '12px',
+                  fontSize: '11px',
                   fontWeight: '500',
                   color: isDarkMode ? '#F1F5F9' : '#1E293B'
                 }} title={rateFmt}>
@@ -343,11 +346,11 @@ export const VerificationSummary: React.FC<VerificationSummaryProps> = ({
                     display: 'inline-flex', 
                     alignItems: 'center', 
                     gap: '6px',
-                    padding: '6px 10px', 
-                    borderRadius: '8px', 
-                    background: isDarkMode ? 'rgba(255,255,255,0.08)' : '#f1f5f9',
+                    padding: '4px 8px', 
+                    borderRadius: '2px', 
+                    background: isDarkMode ? 'rgba(125, 211, 252, 0.1)' : '#f1f5f9',
                     border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.2)' : '#e2e8f0'}`, 
-                    fontSize: '12px',
+                    fontSize: '11px',
                     fontWeight: '500',
                     color: isDarkMode ? '#F1F5F9' : '#1E293B'
                   }}>
@@ -357,11 +360,11 @@ export const VerificationSummary: React.FC<VerificationSummaryProps> = ({
                     display: 'inline-flex', 
                     alignItems: 'center', 
                     gap: '6px',
-                    padding: '6px 10px', 
-                    borderRadius: '8px', 
-                    background: isDarkMode ? 'rgba(255,255,255,0.08)' : '#f1f5f9',
+                    padding: '4px 8px', 
+                    borderRadius: '2px', 
+                    background: isDarkMode ? 'rgba(125, 211, 252, 0.1)' : '#f1f5f9',
                     border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.2)' : '#e2e8f0'}`, 
-                    fontSize: '12px',
+                    fontSize: '11px',
                     fontWeight: '500',
                     color: isDarkMode ? '#F1F5F9' : '#1E293B'
                   }}>
@@ -401,11 +404,11 @@ export const VerificationSummary: React.FC<VerificationSummaryProps> = ({
           <div style={{ gridColumn: '1 / -1' }}>
             <div style={{
               marginTop: 8,
-              padding: '10px 12px',
-              borderRadius: 8,
+              padding: '8px 10px',
+              borderRadius: 2,
               background: isDarkMode ? 'rgba(7, 16, 32, 0.6)' : 'rgba(248, 250, 252, 0.8)',
               border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
-              boxShadow: isDarkMode ? '0 2px 4px rgba(2, 6, 17, 0.15)' : '0 1px 3px rgba(13, 47, 96, 0.04)'
+              boxShadow: 'none'
             }}>
               <div style={{
                 color: modernSubtle,
@@ -433,9 +436,9 @@ export const VerificationSummary: React.FC<VerificationSummaryProps> = ({
                   style={{
                     fontSize: 11,
                     padding: '3px 8px',
-                    borderRadius: 6,
-                    border: `1px solid ${modernBorder}`,
-                    background: isDarkMode ? 'rgba(7,16,32,0.5)' : '#ffffff',
+                    borderRadius: 2,
+                    border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.25)' : 'rgba(148, 163, 184, 0.3)'}`,
+                    background: isDarkMode ? 'rgba(7,16,32,0.6)' : '#ffffff',
                     color: notesCopied ? '#10B981' : modernSubtle,
                     cursor: 'pointer',
                     display: 'inline-flex',
@@ -476,7 +479,7 @@ export const VerificationSummary: React.FC<VerificationSummaryProps> = ({
                     bottom: 0,
                     height: 48,
                     background: isDarkMode
-                      ? 'linear-gradient(to bottom, rgba(7,16,32,0) 0%, rgba(7,16,32,0.85) 80%)'
+                      ? 'linear-gradient(to bottom, rgba(7,16,32,0) 0%, rgba(7,16,32,0.95) 80%)'
                       : 'linear-gradient(to bottom, rgba(248,250,252,0) 0%, rgba(248,250,252,0.95) 80%)'
                   }} />
                 )}
@@ -487,11 +490,11 @@ export const VerificationSummary: React.FC<VerificationSummaryProps> = ({
                     type="button"
                     onClick={() => setNotesExpanded(v => !v)}
                     style={{
-                      fontSize: 12,
-                      padding: '4px 10px',
-                      borderRadius: 8,
-                      border: `1px solid ${modernBorder}`,
-                      background: isDarkMode ? 'rgba(7,16,32,0.5)' : '#ffffff',
+                      fontSize: 11,
+                      padding: '3px 8px',
+                      borderRadius: 2,
+                      border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.25)' : 'rgba(148, 163, 184, 0.3)'}`,
+                      background: isDarkMode ? 'rgba(7,16,32,0.6)' : '#ffffff',
                       color: modernSubtle,
                       cursor: 'pointer',
                       display: 'inline-flex',
@@ -534,10 +537,10 @@ const ContactChip: React.FC<{
   };
   
   const bg = isDarkMode 
-    ? (isHovered ? 'rgba(125, 211, 252, 0.15)' : 'rgba(255,255,255,0.08)') 
+    ? (isHovered ? 'rgba(125, 211, 252, 0.15)' : 'rgba(125, 211, 252, 0.1)') 
     : (isHovered ? 'rgba(54, 144, 206, 0.1)' : '#f1f5f9');
   const border = isDarkMode 
-    ? (isHovered ? 'rgba(125, 211, 252, 0.4)' : 'rgba(125, 211, 252, 0.2)') 
+    ? (isHovered ? 'rgba(125, 211, 252, 0.35)' : 'rgba(125, 211, 252, 0.2)') 
     : (isHovered ? 'rgba(54, 144, 206, 0.3)' : '#e2e8f0');
     
   const icon = kind === 'mail' ? (
@@ -557,19 +560,17 @@ const ContactChip: React.FC<{
         display: 'inline-flex', 
         alignItems: 'center', 
         gap: '6px',
-        padding: '6px 10px', 
-        borderRadius: '8px', 
+        padding: '4px 8px', 
+        borderRadius: '2px', 
         background: bg,
         border: `1px solid ${border}`, 
-        fontSize: '12px',
+        fontSize: '11px',
         fontWeight: '500',
         color: isDarkMode ? '#F1F5F9' : '#1E293B',
         cursor: 'pointer',
-        transition: 'all 0.2s ease',
-        transform: isHovered ? 'translateY(-1px)' : 'translateY(0)',
-        boxShadow: isHovered 
-          ? (isDarkMode ? '0 2px 6px rgba(2, 6, 17, 0.3)' : '0 2px 6px rgba(13, 47, 96, 0.08)')
-          : 'none'
+        transition: 'all 0.15s ease',
+        transform: 'translateY(0)',
+        boxShadow: 'none'
       }}
       title={label}
       onClick={copy}
@@ -634,20 +635,18 @@ const KV: React.FC<{
         display: 'flex',
         flexDirection: 'column',
         gap: '4px',
-        padding: '10px 12px',
-        borderRadius: '8px',
+        padding: '8px 10px',
+        borderRadius: '2px',
         background: isHovered 
           ? (isDarkMode ? 'rgba(125, 211, 252, 0.12)' : 'rgba(54, 144, 206, 0.08)')
           : (isDarkMode ? 'rgba(7, 16, 32, 0.6)' : 'rgba(248, 250, 252, 0.8)'),
         border: `1px solid ${isDarkMode 
           ? (isHovered ? 'rgba(125, 211, 252, 0.3)' : 'rgba(125, 211, 252, 0.15)') 
           : (isHovered ? 'rgba(54, 144, 206, 0.25)' : 'rgba(148, 163, 184, 0.2)')}`,
-        transition: 'all 0.2s ease',
+        transition: 'all 0.15s ease',
         cursor: copyable && value !== '—' ? 'pointer' : 'default',
-        transform: isHovered ? 'translateY(-1px)' : 'translateY(0)',
-        boxShadow: isHovered 
-          ? (isDarkMode ? '0 4px 10px rgba(2, 6, 17, 0.3)' : '0 2px 8px rgba(13, 47, 96, 0.08)')
-          : (isDarkMode ? '0 2px 4px rgba(2, 6, 17, 0.15)' : '0 1px 3px rgba(13, 47, 96, 0.04)')
+        transform: 'translateY(0)',
+        boxShadow: 'none'
       }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}

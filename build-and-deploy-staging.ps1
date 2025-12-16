@@ -54,6 +54,14 @@ $schemaDir = Join-Path $deployDir 'src\app\functionality'
 New-Item -ItemType Directory -Path $schemaDir -Force | Out-Null
 Copy-Item -Path "src\app\functionality\cclSchema.js" -Destination $schemaDir -Force
 
+# Include per-user email signatures for Pitch Builder (server-side injection)
+$sigSrc = Join-Path $PSScriptRoot 'src\assets\signatures'
+if (Test-Path $sigSrc) {
+    $sigDest = Join-Path $deployDir 'assets\signatures'
+    New-Item -ItemType Directory -Path $sigDest -Force | Out-Null
+    Copy-Item -Path "$sigSrc\*" -Destination $sigDest -Recurse -Force
+}
+
 Write-Host "Zipping files for staging deploy"
 Compress-Archive -Path (Join-Path $deployDir '*') -DestinationPath $zipPath -Force
 

@@ -1,39 +1,34 @@
 /**
- * Email Processing Factory - Safe Integration Point
+ * Email Processing - V2 System
  * 
- * This module provides a safe way to switch between V1 (production) and V2 (enhanced)
- * email processing systems without affecting existing functionality.
+ * Simplified email processor using V2 formatting.
+ * V1 has been removed - this is now the only system.
  */
 
-import {
-  processEmailContentV2,
-  processEmailWithFallback,
-  EMAIL_V2_CONFIG,
-  compareFormattingSystems
-} from './emailFormattingV2';
+import { processEmailContentV2 } from './emailFormattingV2';
 
-// Import V1 functions (existing production system)
 import { 
-  processEditorContentForEmail as processV1,
-  convertDoubleBreaksToParagraphs,
   removeHighlightSpans,
   applyDynamicSubstitutions,
   removeUnfilledPlaceholders
 } from './emailUtils';
 
+import { pitchTelemetry } from './pitchTelemetry';
+
+const LOG_OPERATIONS = process.env.REACT_APP_EMAIL_V2_LOGGING === 'true';
+
 /**
- * Main email processing factory
- * This is the single entry point for all email processing
+ * Main email processing class
  */
 export class EmailProcessor {
   private static logOperation(message: string, data?: any) {
-    if (EMAIL_V2_CONFIG.logOperations) {
+    if (LOG_OPERATIONS) {
       console.log(`[EmailProcessor] ${message}`, data || '');
     }
   }
 
   /**
-   * Process email content using the configured system (V1 or V2)
+   * Process email content using V2 formatting
    */
   static processEmailContent(
     content: string,
@@ -41,48 +36,64 @@ export class EmailProcessor {
       editorElement?: HTMLElement | null;
       fallbackHtml?: string;
       preserveHighlights?: boolean;
-      forceV2?: boolean; // Allow explicit V2 usage for development testing
+      enquiryId?: string | number;
+      feeEarner?: string;
     } = {}
   ): string {
+    const startTime = performance.now();
+    
     this.logOperation('Starting email processing', {
-      useV2: EMAIL_V2_CONFIG.enabled || options.forceV2,
       contentLength: content.length,
-      hasEditor: !!options.editorElement,
-      forceV2: options.forceV2
+      hasEditor: !!options.editorElement
+    });
+
+    pitchTelemetry.trackEvent('email.formatting_started', {
+      contentLength: content.length,
+      hasEditor: !!options.editorElement
+    }, {
+      enquiryId: options.enquiryId,
+      feeEarner: options.feeEarner
     });
 
     const baseContent = !options.preserveHighlights
       ? removeHighlightSpans(content)
       : content;
 
-    // V1 processor function (existing production logic)
-    const processWithV1 = (html: string): string => {
-      this.logOperation('Using V1 processing');
-      return convertDoubleBreaksToParagraphs(html);
-    };
-
-    // Check if we should force V2 for development testing
-    if (options.forceV2) {
-      this.logOperation('Force V2 processing for development testing');
-      try {
-        const processed = processEmailContentV2(baseContent);
-        this.logOperation('Force V2 processing completed successfully');
-        return processed;
-      } catch (error) {
-        console.error('[EmailProcessor] Force V2 failed, falling back to V1:', error);
-        return processWithV1(baseContent);
-      }
+    try {
+      const processed = processEmailContentV2(baseContent);
+      const duration = Math.round(performance.now() - startTime);
+      
+      this.logOperation('Email processing completed', { resultLength: processed.length });
+      
+      pitchTelemetry.trackEmailProcessing(
+        options.enquiryId || 'unknown',
+        options.feeEarner || 'unknown',
+        true,
+        {
+          contentLength: content.length,
+          processingTimeMs: duration
+        }
+      );
+      
+      return processed;
+    } catch (error) {
+      const duration = Math.round(performance.now() - startTime);
+      console.error('[EmailProcessor] Processing failed:', error);
+      
+      pitchTelemetry.trackEmailProcessing(
+        options.enquiryId || 'unknown',
+        options.feeEarner || 'unknown',
+        false,
+        {
+          contentLength: content.length,
+          processingTimeMs: duration,
+          error: error instanceof Error ? error.message : String(error)
+        }
+      );
+      
+      // Return cleaned content as fallback
+      return baseContent;
     }
-
-    // Use the safe wrapper that handles V1/V2 switching and fallback
-    const result = processEmailWithFallback(baseContent, processWithV1);
-
-    this.logOperation('Email processing completed', {
-      resultLength: result.length,
-      system: EMAIL_V2_CONFIG.enabled ? 'V2' : 'V1'
-    });
-
-    return result;
   }
 
   /**
@@ -90,8 +101,7 @@ export class EmailProcessor {
    */
   static processEditorContent(
     editorElement: HTMLElement | null,
-    fallbackHtml?: string,
-    forceV2?: boolean
+    fallbackHtml?: string
   ): string {
     if (!editorElement && !fallbackHtml) {
       return '';
@@ -102,13 +112,12 @@ export class EmailProcessor {
     return this.processEmailContent(content, {
       editorElement,
       fallbackHtml,
-      preserveHighlights: false,
-      forceV2
+      preserveHighlights: false
     });
   }
 
   /**
-   * Apply dynamic substitutions (used by both V1 and V2)
+   * Apply dynamic substitutions
    */
   static applySubstitutions(
     html: string,
@@ -131,8 +140,8 @@ export class EmailProcessor {
   }
 
   /**
-   * Complete email processing pipeline with enhanced reliability
-   * This processes content and applies all substitutions with fallback mechanisms
+   * Complete email processing pipeline
+   * Processes content and applies all substitutions
    */
   static processCompleteEmail(
     content: string,
@@ -143,10 +152,24 @@ export class EmailProcessor {
       amount?: number | string;
       passcode?: string;
       instructionsLink?: string;
-      forceV2?: boolean; // Allow explicit V2 usage for development testing
+      enquiryId?: string | number;
+      feeEarner?: string;
     }
   ): string {
     this.logOperation('Starting complete email processing pipeline');
+    
+    const enquiryId = context.enquiryId || context.enquiry?.ID || 'unknown';
+    const feeEarner = context.feeEarner || context.userData?.[0]?.Initials || 'unknown';
+
+    pitchTelemetry.trackEvent('pitch.email_processed', {
+      contentLength: content?.length || 0,
+      hasUserData: !!context.userData,
+      hasEnquiry: !!context.enquiry,
+      hasAmount: !!context.amount
+    }, {
+      enquiryId,
+      feeEarner
+    });
 
     // Input validation
     if (!content || typeof content !== 'string') {
@@ -155,10 +178,11 @@ export class EmailProcessor {
     }
 
     try {
-      // Step 1: Process the content (V1 or V2) with error handling
+      // Step 1: Process the content with V2 formatting
       let processed = this.processEmailContent(content, {
         editorElement: context.editorElement,
-        forceV2: context.forceV2
+        enquiryId,
+        feeEarner
       });
 
       // Validate processed content
@@ -167,7 +191,7 @@ export class EmailProcessor {
         processed = content;
       }
 
-      // Step 2: Apply dynamic substitutions (same for both V1 and V2) with error handling
+      // Step 2: Apply dynamic substitutions
       if (context.userData || context.enquiry) {
         try {
           processed = this.applySubstitutions(
@@ -178,9 +202,16 @@ export class EmailProcessor {
             context.passcode,
             context.instructionsLink
           );
+          
+          pitchTelemetry.trackEvent('email.substitution_applied', {
+            hasUserData: !!context.userData,
+            hasEnquiry: !!context.enquiry
+          }, {
+            enquiryId,
+            feeEarner
+          });
         } catch (error) {
           console.error('[EmailProcessor] Substitution failed:', error);
-          // Continue with unsubstituted content rather than failing
         }
       }
 
@@ -189,7 +220,6 @@ export class EmailProcessor {
         processed = removeUnfilledPlaceholders(processed);
       } catch (error) {
         console.error('[EmailProcessor] Placeholder removal failed:', error);
-        // Continue without placeholder removal
       }
 
       // Final validation
@@ -202,83 +232,23 @@ export class EmailProcessor {
       return processed;
     } catch (error) {
       console.error('[EmailProcessor] Critical error in processing pipeline:', error);
-      // Return sanitized original content as absolute fallback
       return content || 'Email content processing failed. Please try again.';
     }
-  }
-
-  /**
-   * Testing and comparison utilities
-   */
-  static compareSystemOutputs(content: string): {
-    v1: string;
-    v2: string;
-    differences: string[];
-    recommendation: string;
-  } {
-    const v1Processor = (html: string) => {
-      let processed = removeHighlightSpans(html);
-      processed = convertDoubleBreaksToParagraphs(processed);
-      return processed;
-    };
-
-    const comparison = compareFormattingSystems(content, v1Processor);
-    
-    // Analyze differences and provide recommendation
-    const recommendation = comparison.differences.length === 0 
-      ? 'Both systems produce identical output'
-      : comparison.differences.length < 3
-        ? 'Minor differences - V2 safe to use'
-        : 'Significant differences - review before using V2';
-
-    return {
-      ...comparison,
-      recommendation
-    };
-  }
-
-  /**
-   * Get current configuration and status
-   */
-  static getStatus() {
-    return {
-      currentSystem: EMAIL_V2_CONFIG.enabled ? 'V2 (Enhanced)' : 'V1 (Production)',
-      config: EMAIL_V2_CONFIG,
-      environment: process.env.NODE_ENV,
-      timestamp: new Date().toISOString()
-    };
-  }
-
-  /**
-   * Emergency fallback to V1 only
-   * Can be called if V2 system encounters issues
-   */
-  static forceV1Mode() {
-    console.warn('[EmailProcessor] Forcing V1 mode due to emergency fallback');
-    
-    // Override the config (this only affects current session)
-    (EMAIL_V2_CONFIG as any).enabled = false;
-    (EMAIL_V2_CONFIG as any).fallbackToV1 = true;
-    
-    this.logOperation('Forced fallback to V1 mode activated');
   }
 }
 
 /**
  * Convenience function for backward compatibility
- * This maintains the same interface as the original processEditorContentForEmail
  */
 export function processEditorContentForEmail(
   editorElement: HTMLElement | null,
-  fallbackHtml?: string,
-  forceV2?: boolean
+  fallbackHtml?: string
 ): string {
-  return EmailProcessor.processEditorContent(editorElement, fallbackHtml, forceV2);
+  return EmailProcessor.processEditorContent(editorElement, fallbackHtml);
 }
 
 /**
  * Enhanced replacement for existing email processing calls
- * This can be used as a drop-in replacement for existing calls
  */
 export function enhancedProcessEmailContent(
   content: string,
@@ -288,7 +258,6 @@ export function enhancedProcessEmailContent(
     amount?: number | string;
     passcode?: string;
     editorElement?: HTMLElement | null;
-    forceV2?: boolean;
   } = {}
 ): string {
   return EmailProcessor.processCompleteEmail(content, context);

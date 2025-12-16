@@ -20,13 +20,13 @@ export const colours = {
 
   dark: {
     background: '#020617',
-    sectionBackground: '#0f172a', // Better contrast than #2d2d2d
+    sectionBackground: '#071020', // Deeper dark blue without purple tint
     text: '#f3f4f6',
     subText: '#3690CE',
     border: '#374151',
-    footerBackground: '#1f2937',
-    cardBackground: '#1f2937',
-    cardHover: '#374151',
+    footerBackground: '#0b1e37',
+    cardBackground: '#0b1e37',
+    cardHover: '#142d4a',
     iconColor: '#f3f4f6',
     inputBackground: '#374151',
     previewBackground: '#374151',

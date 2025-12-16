@@ -35,7 +35,7 @@ const cardStyle = (isDarkMode: boolean) =>
     padding: '12px 16px 12px 20px',
     borderLeft: `4px solid ${colours.highlight}`,
     borderRadius: 0,
-    boxShadow: isDarkMode ? `0 2px 6px ${colours.dark.border}` : `0 2px 6px ${colours.light.border}`,
+    boxShadow: isDarkMode ? '0 2px 6px rgba(0, 0, 0, 0.3)' : `0 2px 6px ${colours.light.border}`,
     transition: 'background-color 0.2s, box-shadow 0.2s, transform 0.2s, border 0.2s',
     display: 'flex',
     flexDirection: 'column',
@@ -49,7 +49,7 @@ const cardStyle = (isDarkMode: boolean) =>
     cursor: 'pointer',
     ':hover': {
       transform: 'translateY(-3px)',
-      boxShadow: isDarkMode ? `0 4px 8px ${colours.dark.border}` : `0 4px 8px ${colours.light.border}`,
+      boxShadow: isDarkMode ? '0 4px 8px rgba(0, 0, 0, 0.4)' : `0 4px 8px ${colours.light.border}`,
     },
     position: 'relative',
   });
