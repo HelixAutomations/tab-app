@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Enquiry } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
+import SectionCard from '../home/SectionCard';
 import { useTheme } from '../../app/functionality/ThemeContext';
-import { FaEnvelope, FaPhone, FaFileAlt, FaCheckCircle, FaCircle, FaArrowRight, FaUser, FaCalendar, FaInfoCircle } from 'react-icons/fa';
+import { FaEnvelope, FaPhone, FaFileAlt, FaCheckCircle, FaCircle, FaArrowRight, FaUser, FaCalendar, FaInfoCircle, FaChevronDown, FaChevronUp } from 'react-icons/fa';
 import { parseISO, format, differenceInDays } from 'date-fns';
 import OperationStatusToast from './pitch-builder/OperationStatusToast';
 
@@ -17,6 +18,106 @@ spinnerStyle.textContent = `
 if (!document.head.querySelector('style[data-spinner]')) {
   spinnerStyle.setAttribute('data-spinner', 'true');
   document.head.appendChild(spinnerStyle);
+}
+
+// Email HTML: prevent embedded styles/scripts from breaking the UI, and keep rendering consistent.
+const emailHtmlStyle = document.createElement('style');
+emailHtmlStyle.textContent = `
+  .helix-email-html {
+    font-family: inherit;
+    font-size: inherit;
+    line-height: inherit;
+    max-width: 100%;
+  }
+  .helix-email-html, .helix-email-html * {
+    box-sizing: border-box;
+    max-width: 100% !important;
+  }
+  .helix-email-html * {
+    background: transparent !important;
+    font-family: inherit !important;
+    color: inherit !important;
+  }
+  .helix-email-html img {
+    max-width: 100% !important;
+    height: auto !important;
+  }
+  .helix-email-html table {
+    width: 100% !important;
+    max-width: 100% !important;
+    border-collapse: collapse;
+  }
+  .helix-email-html pre {
+    white-space: pre-wrap !important;
+  }
+  .helix-email-html a {
+    color: var(--helix-highlight, #3690ce) !important;
+    text-decoration: underline;
+  }
+  .helix-email-html p { margin: 0 0 10px 0; }
+  .helix-email-html ul, .helix-email-html ol { margin: 0 0 10px 18px; padding: 0; }
+  .helix-email-html blockquote {
+    margin: 0 0 10px 0;
+    padding-left: 12px;
+    border-left: 3px solid rgba(54, 144, 206, 0.35);
+  }
+`;
+if (!document.head.querySelector('style[data-email-html]')) {
+  emailHtmlStyle.setAttribute('data-email-html', 'true');
+  document.head.appendChild(emailHtmlStyle);
+}
+
+function sanitizeEmailHtml(html: string): string {
+  if (!html) return '';
+
+  try {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+
+    // Remove anything that can leak styles/scripts into the host page.
+    doc.querySelectorAll('script, style, link, meta, base, iframe, object, embed').forEach((n) => n.remove());
+
+    // Drop embedded-content images (common in signatures) which render as broken placeholders in the UI.
+    doc.body.querySelectorAll('img[src]').forEach((img) => {
+      const src = img.getAttribute('src') || '';
+      if (src.trim().toLowerCase().startsWith('cid:')) img.remove();
+    });
+
+    const allowedAttributes = new Set(['href', 'src', 'alt', 'title', 'colspan', 'rowspan']);
+    doc.body.querySelectorAll('*').forEach((el) => {
+      // Drop common styling/layout attributes from email HTML.
+      el.removeAttribute('style');
+      el.removeAttribute('class');
+      el.removeAttribute('id');
+      el.removeAttribute('bgcolor');
+      el.removeAttribute('color');
+
+      // Remove inline event handlers and unknown attributes.
+      Array.from(el.attributes).forEach((attr) => {
+        const name = attr.name.toLowerCase();
+        if (name.startsWith('on')) {
+          el.removeAttribute(attr.name);
+          return;
+        }
+        if (!allowedAttributes.has(name)) {
+          el.removeAttribute(attr.name);
+        }
+      });
+    });
+
+    // Ensure external links are safe when clicked.
+    doc.body.querySelectorAll('a[href]').forEach((a) => {
+      a.setAttribute('target', '_blank');
+      a.setAttribute('rel', 'noopener noreferrer');
+    });
+
+    return doc.body.innerHTML || '';
+  } catch {
+    // Fallback: remove obvious unsafe blocks.
+    return String(html)
+      .replace(/<\s*script[^>]*>[\s\S]*?<\s*\/\s*script\s*>/gi, '')
+      .replace(/<\s*style[^>]*>[\s\S]*?<\s*\/\s*style\s*>/gi, '')
+      .replace(/<\s*(link|meta|base|iframe|object|embed)\b[^>]*>/gi, '');
+  }
 }
 
 type CommunicationType = 'pitch' | 'email' | 'call' | 'instruction' | 'note' | 'document';
@@ -61,6 +162,7 @@ interface DocumentPreviewModalProps {
 
 const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({ document, onClose, isDarkMode }) => {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
@@ -75,32 +177,51 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({ document, o
       try {
         setLoading(true);
         setError(null);
-        const docId = document.metadata?.documentId;
-        
-        if (!docId) {
-          setError('Document ID not available');
+        const blobUrl = document.metadata?.blobUrl;
+
+        // If we already have a same-origin URL (e.g. demo docs), use it directly.
+        if (typeof blobUrl === 'string' && blobUrl.startsWith('/')) {
+          setPreviewUrl(blobUrl);
+          setDownloadUrl(blobUrl);
           setLoading(false);
           return;
         }
-        
+
+        const docId = document.metadata?.documentId;
+
+        if (!docId) {
+          setError('Preview not available');
+          setLoading(false);
+          return;
+        }
+
         // Handle test/synthetic documents (IDs 99900-99999)
         if (typeof docId === 'number' && docId >= 99900 && docId <= 99999) {
           setError('Preview not available for test documents');
           setLoading(false);
           return;
         }
-        
-        // Check if there's a direct blobUrl available
-        if (document.metadata?.blobUrl) {
-          setPreviewUrl(document.metadata.blobUrl);
+
+        // Prefer proxying a provided blob URL (if it is an Azure blob URL).
+        if (typeof blobUrl === 'string' && blobUrl.startsWith('http')) {
+          const base = `/api/prospect-documents/proxy?url=${encodeURIComponent(blobUrl)}&filename=${encodeURIComponent(filename)}`;
+          setPreviewUrl(base);
+          setDownloadUrl(`${base}&download=true`);
           setLoading(false);
           return;
         }
         
-        const res = await fetch(`/api/prospect-documents/preview-url?id=${docId}`);
+        const pitchBackendUrl = process.env.REACT_APP_PITCH_BACKEND_URL || 'https://instruct.helix-law.com';
+        const res = await fetch(`${pitchBackendUrl}/api/prospect-documents/preview-url?id=${docId}`);
         if (res.ok) {
           const data = await res.json();
-          setPreviewUrl(data.url);
+          if (data?.url && typeof data.url === 'string') {
+            const base = `/api/prospect-documents/proxy?url=${encodeURIComponent(data.url)}&filename=${encodeURIComponent(filename)}`;
+            setPreviewUrl(base);
+            setDownloadUrl(`${base}&download=true`);
+          } else {
+            setError('Preview not available');
+          }
         } else {
           setError('Preview not available');
         }
@@ -163,27 +284,30 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({ document, o
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <FaFileAlt style={{ color: colours.accent, fontSize: '18px' }} />
             <div>
-              <div style={{
-                fontWeight: 600,
-                color: isDarkMode ? colours.dark.text : colours.light.text,
-                fontSize: '14px',
-              }}>
+              <div
+                style={{
+                  fontWeight: 600,
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                  fontSize: '14px',
+                }}
+              >
                 {filename}
               </div>
-              <div style={{
-                fontSize: '11px',
-                color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.6)',
-                marginTop: '2px',
-              }}>
+              <div
+                style={{
+                  fontSize: '11px',
+                  color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.6)',
+                  marginTop: '2px',
+                }}
+              >
                 {document.metadata?.documentType?.replace(/_/g, ' ')} • {formatFileSize(fileSize)}
               </div>
             </div>
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
-            {previewUrl && (
+            {downloadUrl && (
               <a
-                href={previewUrl}
-                download={filename}
+                href={downloadUrl}
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -288,10 +412,9 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({ document, o
               }}>
                 {contentType || 'Unknown type'}
               </div>
-              {previewUrl && (
+              {downloadUrl && (
                 <a
-                  href={previewUrl}
-                  download={filename}
+                  href={downloadUrl}
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -330,13 +453,15 @@ interface EnquiryTimelineProps {
   showDataLoadingStatus?: boolean;
   userInitials?: string;
   userEmail?: string;
+  featureToggles?: Record<string, boolean>;
 }
 
-const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoadingStatus = true, userInitials, userEmail }) => {
+const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoadingStatus = true, userInitials, userEmail, featureToggles }) => {
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [selectedItem, setSelectedItem] = useState<TimelineItem | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeFilter, setActiveFilter] = useState<CommunicationType | null>(null);
+  const [activeFilters, setActiveFilters] = useState<CommunicationType[]>([]);
+  const [expandedQuickAccessEmailIds, setExpandedQuickAccessEmailIds] = useState<Set<string>>(() => new Set());
   const [loadingStates, setLoadingStates] = useState({
     pitches: true,
     emails: true,
@@ -369,21 +494,35 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     availableNumbers: string[];
     maxResults: number;
   } | null>(null);
-  const [requestType, setRequestType] = useState<'support' | 'feedback'>('support');
   const [showForwardDialog, setShowForwardDialog] = useState(false);
   const [forwardEmail, setForwardEmail] = useState<TimelineItem | null>(null);
   const [forwardCc, setForwardCc] = useState('');
   const { isDarkMode } = useTheme();
 
-  // Simple passcode gate for Timeline access
-  const [timelineUnlocked, setTimelineUnlocked] = useState<boolean>(() => {
+  const viewAsProdFromStorage = (() => {
     try {
-      return typeof sessionStorage !== 'undefined' && sessionStorage.getItem('timelineUnlocked') === '1';
+      const saved = localStorage.getItem('featureToggles');
+      const parsed = saved ? JSON.parse(saved) : {};
+      return parsed?.viewAsProd === true;
     } catch {
       return false;
     }
-  });
-  const [passcode, setPasscode] = useState('');
+  })();
+
+  const isProductionPreview = featureToggles?.viewAsProd === true || viewAsProdFromStorage;
+  const isProductionBuild = process.env.NODE_ENV === 'production';
+  const showResourcesConcept = process.env.NODE_ENV === 'development' && !isProductionPreview;
+  const requestDocsEnabled = !isProductionBuild && !isProductionPreview;
+
+  // Timeline access - unlocked for all users
+  const [timelineUnlocked] = useState<boolean>(true);
+
+  // Doc request state
+  const [docRequestLoading, setDocRequestLoading] = useState(false);
+  const [docRequestResult, setDocRequestResult] = useState<{
+    passcode: string;
+    urlPath: string;
+  } | null>(null);
 
   // Toast helper
   const showToast = (
@@ -394,6 +533,55 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     setToast({ message, type, ...options });
     if (!options?.loading && options?.duration !== 0) {
       setTimeout(() => setToast(null), options?.duration || 4000);
+    }
+  };
+
+  // Request Documents - creates a DOC_REQUEST deal and generates a shareable link
+  const handleRequestDocuments = async () => {
+    if (!requestDocsEnabled) {
+      showToast('Request Docs is not available in production yet', 'info');
+      return;
+    }
+    if (!userEmail) {
+      showToast('User email not available', 'error');
+      return;
+    }
+
+    setDocRequestLoading(true);
+    showToast('Creating document request link...', 'info', { loading: true, duration: 0 });
+
+    try {
+      const pitchBackendUrl = process.env.REACT_APP_PITCH_BACKEND_URL || 'https://instruct.helix-law.com';
+      
+      const response = await fetch(`${pitchBackendUrl}/api/doc-request-deals/ensure`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enquiry_id: enquiry.ID,
+          requested_by: userEmail,
+          service_description: enquiry.Area_of_Work || 'Document Request',
+          area_of_work: enquiry.Area_of_Work || 'Onboarding',
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ error: 'Request failed' }));
+        throw new Error(err.error || 'Failed to create document request');
+      }
+
+      const data = await response.json();
+      setDocRequestResult({ passcode: data.passcode, urlPath: data.urlPath });
+
+      // Copy link to clipboard
+      const fullUrl = `${pitchBackendUrl}${data.urlPath}`;
+      await navigator.clipboard.writeText(fullUrl);
+
+      showToast(`Link copied! Passcode: ${data.passcode}`, 'success', { duration: 6000 });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to create document request';
+      showToast(message, 'error');
+    } finally {
+      setDocRequestLoading(false);
     }
   };
 
@@ -487,7 +675,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         type: 'email' as CommunicationType,
         date: email.receivedDateTime,
         subject: email.subject,
-        content: email.bodyPreview,
+        contentHtml: email.bodyHtml || undefined,
+        content: (email.bodyText || email.bodyPreview) || '',
         createdBy: email.fromName || email.from,
         metadata: {
           direction: email.from.toLowerCase() === prospectEmail.toLowerCase() ? 'inbound' : 'outbound',
@@ -848,7 +1037,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           id: 'email-dev-1',
           type: 'email',
           date: new Date(now.getTime() - 4 * 24 * 60 * 60 * 1000).toISOString(),
-          subject: 'Re: Test Enquiry - Helix Law',
+          subject: 'Re: Demo Enquiry - Helix Law',
           content: 'Test inbound email content.',
           createdBy: 'Test Client',
           metadata: {
@@ -861,7 +1050,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           id: 'email-dev-2',
           type: 'email',
           date: new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-          subject: 'Test Enquiry - Helix Law',
+          subject: 'Demo Enquiry - Helix Law',
           content: 'Test outbound email content.',
           createdBy: 'Lukasz Zemanek',
           metadata: {
@@ -886,56 +1075,53 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           }
         });
 
-        // Synthetic documents
+        // Synthetic documents (previewable via local demo-documents endpoint)
         timelineItems.push({
           id: 'document-dev-doc-1',
           type: 'document',
           date: new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000).toISOString(),
-          subject: 'Test_Document_1.pdf',
-          content: 'Test document description',
+          subject: 'Demo_Document_1.pdf',
+          content: 'Demo document (previewable)',
           createdBy: 'Test Client',
           metadata: {
             documentType: 'Contract',
-            filename: 'Test_Document_1.pdf',
+            filename: 'Demo_Document_1.pdf',
             fileSize: 245678,
             contentType: 'application/pdf',
-            blobUrl: undefined,
+            blobUrl: '/api/demo-documents/Demo_Document_1.pdf',
             stageUploaded: 'enquiry',
-            documentId: 99901,
           }
         });
         timelineItems.push({
           id: 'document-dev-doc-2',
           type: 'document',
           date: new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-          subject: 'Test_Document_2.pdf',
-          content: 'Another test document',
+          subject: 'Demo_Document_2.pdf',
+          content: 'Second demo document (previewable)',
           createdBy: 'Test Client',
           metadata: {
             documentType: 'Correspondence',
-            filename: 'Test_Document_2.pdf',
+            filename: 'Demo_Document_2.pdf',
             fileSize: 128456,
             contentType: 'application/pdf',
-            blobUrl: undefined,
+            blobUrl: '/api/demo-documents/Demo_Document_2.pdf',
             stageUploaded: 'enquiry',
-            documentId: 99902,
           }
         });
         timelineItems.push({
           id: 'document-dev-doc-3',
           type: 'document',
           date: new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000).toISOString(),
-          subject: 'Test_ID_Document.jpg',
-          content: 'Test ID verification document',
+          subject: 'Demo_ID_Document.jpg',
+          content: 'Demo ID document (previewable)',
           createdBy: 'Test Client',
           metadata: {
             documentType: 'ID Verification',
-            filename: 'Test_ID_Document.jpg',
+            filename: 'Demo_ID_Document.jpg',
             fileSize: 1567890,
             contentType: 'image/jpeg',
-            blobUrl: undefined,
+            blobUrl: '/api/demo-documents/Demo_ID_Document.jpg',
             stageUploaded: 'instruction',
-            documentId: 99903,
           }
         });
 
@@ -1036,7 +1222,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               type: 'email' as CommunicationType,
               date: email.receivedDateTime,
               subject: email.subject,
-              content: email.bodyPreview,
+              contentHtml: email.bodyHtml || undefined,
+              content: (email.bodyText || email.bodyPreview) || '',
               createdBy: email.fromName || email.from,
               metadata: {
                 direction: email.from.toLowerCase() === prospectEmail.toLowerCase() ? 'inbound' : 'outbound',
@@ -1178,9 +1365,18 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         setLoadingStates(prev => ({ ...prev, calls: false }));
       }
 
-      // Fetch prospect documents
+      // Fetch prospect documents from pitch backend (skip in local dev if backend unavailable)
       try {
-        const docsRes = await fetch(`/api/prospect-documents?enquiry_id=${enquiry.ID}`);
+        const pitchBackendUrl = process.env.REACT_APP_PITCH_BACKEND_URL || 'https://instruct.helix-law.com';
+        // Use AbortController with timeout to avoid long waits if backend is unreachable
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        
+        const docsRes = await fetch(`${pitchBackendUrl}/api/prospect-documents?enquiry_id=${enquiry.ID}`, {
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        
         if (docsRes.ok) {
           const docsData = await docsRes.json();
           const documents = Array.isArray(docsData) ? docsData : [];
@@ -1207,7 +1403,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         }
         setLoadingStates(prev => ({ ...prev, documents: false }));
       } catch (error) {
-        console.error('Failed to fetch documents:', error);
+        // Silently handle - pitch backend may be unavailable in local dev
+        if (process.env.NODE_ENV === 'development') {
+          console.debug('Prospect documents unavailable (pitch backend not reachable)');
+        }
         setLoadingStates(prev => ({ ...prev, documents: false }));
       }
 
@@ -1225,17 +1424,6 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
     fetchTimeline();
   }, [enquiry.ID, timelineUnlocked]);
-
-  const handleUnlock = () => {
-    if (passcode.trim() === '2011') {
-      try { sessionStorage.setItem('timelineUnlocked', '1'); } catch {/* ignore */}
-      setTimelineUnlocked(true);
-      setPasscode('');
-      showToast('Timeline unlocked', 'success');
-    } else {
-      showToast('Incorrect passcode', 'error');
-    }
-  };
 
   const getTypeIcon = (type: CommunicationType) => {
     switch (type) {
@@ -1292,6 +1480,72 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
       default:
         return 'Activity';
     }
+  };
+
+  const quickAccessTypes: CommunicationType[] = ['document', 'email', 'call', 'pitch', 'instruction'];
+  const getQuickAccessCount = (type: CommunicationType) => timeline.filter((item) => item.type === type).length;
+  const quickAccessItems = activeFilters.length > 0
+    ? timeline.filter((item) => activeFilters.includes(item.type))
+    : [];
+  const selectedQuickAccessTypes = quickAccessTypes.filter((t) => activeFilters.includes(t));
+
+  const quickAccessEmailIds = quickAccessItems.filter((item) => item.type === 'email').map((item) => item.id);
+  const areAnyQuickAccessEmailsExpanded = quickAccessEmailIds.some((id) => expandedQuickAccessEmailIds.has(id));
+  const areAllQuickAccessEmailsExpanded = quickAccessEmailIds.length > 0 && quickAccessEmailIds.every((id) => expandedQuickAccessEmailIds.has(id));
+
+  useEffect(() => {
+    // Quick Access is derived from filters; default to collapsed when the view changes.
+    setExpandedQuickAccessEmailIds(new Set());
+  }, [activeFilters]);
+
+  const toggleActiveFilter = (type: CommunicationType) => {
+    setActiveFilters((prev) => {
+      if (prev.includes(type)) return prev.filter((t) => t !== type);
+      return [...prev, type];
+    });
+  };
+
+  const getDocumentFilename = (item: TimelineItem): string => {
+    return (
+      item.metadata?.filename ||
+      item.subject ||
+      'Document'
+    );
+  };
+
+  const getDocumentDownloadHref = (item: TimelineItem): string | null => {
+    const blobUrl = item.metadata?.blobUrl;
+    if (!blobUrl || typeof blobUrl !== 'string') return null;
+
+    const filename = getDocumentFilename(item);
+    // Same-origin demo/local URLs can be used directly.
+    if (blobUrl.startsWith('/')) return blobUrl;
+
+    // For Azure blob URLs (often SAS), route via our proxy to force attachment.
+    if (blobUrl.startsWith('http')) {
+      return `/api/prospect-documents/proxy?url=${encodeURIComponent(blobUrl)}&filename=${encodeURIComponent(filename)}&download=true`;
+    }
+
+    return null;
+  };
+
+  const formatDocDate = (dateStr: string): string => {
+    try {
+      return format(parseISO(dateStr), 'dd MMM yyyy');
+    } catch {
+      return dateStr;
+    }
+  };
+
+  const openTimelineItem = (item: TimelineItem) => {
+    setSelectedItem(item);
+    // Best-effort scroll to the matching timeline entry.
+    requestAnimationFrame(() => {
+      const el = window.document.getElementById(`timeline-item-${item.id}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    });
   };
 
   const getScenarioName = (scenarioId?: string) => {
@@ -1512,68 +1766,6 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     return differenceInDays(new Date(), parseISO(sorted[0].date));
   };
 
-  if (!timelineUnlocked) {
-    return (
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: '50vh',
-        fontFamily: 'Raleway, sans-serif',
-      }}>
-        <div style={{
-          width: '100%',
-          maxWidth: 360,
-          borderRadius: 12,
-          padding: 16,
-          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
-          background: isDarkMode ? 'rgba(7,16,32,0.8)' : 'rgba(255,255,255,0.9)',
-          boxShadow: isDarkMode ? 'rgba(2, 6, 23, 0.3) 0 6px 24px' : 'rgba(15, 23, 42, 0.08) 0 6px 24px',
-        }}>
-          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, color: isDarkMode ? '#E2E8F0' : '#0F172A' }}>
-            Enter passcode to view Timeline
-          </div>
-          <div style={{ fontSize: 11, color: isDarkMode ? 'rgba(226,232,240,0.7)' : 'rgba(15,23,42,0.7)', marginBottom: 10 }}>
-            This section is protected. Please enter the passcode to continue.
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input
-              type="password"
-              placeholder="Passcode"
-              value={passcode}
-              onChange={(e) => setPasscode(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleUnlock(); }}
-              style={{
-                flex: 1,
-                padding: '8px 10px',
-                borderRadius: 8,
-                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.35)'}`,
-                background: isDarkMode ? 'rgba(2,6,23,0.6)' : 'rgba(255,255,255,0.95)',
-                color: isDarkMode ? '#E2E8F0' : '#0F172A',
-                fontSize: 12,
-              }}
-            />
-            <button
-              onClick={handleUnlock}
-              style={{
-                padding: '8px 12px',
-                borderRadius: 8,
-                border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.35)' : 'rgba(54, 144, 206, 0.5)'}`,
-                background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)',
-                color: isDarkMode ? '#7DD3FC' : '#3690CE',
-                fontSize: 12,
-                fontWeight: 700,
-                cursor: 'pointer',
-              }}
-            >
-              Unlock
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   // Do not block the page behind a global loader; render the container and let
   // dataset-level spinners indicate progress as data arrives.
 
@@ -1636,186 +1828,557 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           </div>
         </div>
 
-        {/* Center: Contact Info */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          {enquiry.Email && (
-            <button
-              onClick={() => navigator.clipboard.writeText(enquiry.Email || '')}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                background: 'transparent',
-                border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.25)' : 'rgba(148, 163, 184, 0.3)'}`,
-                borderRadius: '2px',
-                padding: '6px 10px',
-                cursor: 'pointer',
-                color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.7)',
-                fontSize: '12px',
-                transition: 'all 0.15s',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = isDarkMode ? 'rgb(135, 243, 243)' : colours.highlight;
-                e.currentTarget.style.color = isDarkMode ? 'rgb(135, 243, 243)' : colours.highlight;
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(125, 211, 252, 0.25)' : 'rgba(148, 163, 184, 0.3)';
-                e.currentTarget.style.color = isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.7)';
-              }}
-              title="Copy email"
-            >
-              <FaEnvelope size={11} />
-              <span style={{ maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {enquiry.Email}
-              </span>
-            </button>
-          )}
-          {enquiry.Phone_Number && (
-            <button
-              onClick={() => navigator.clipboard.writeText(enquiry.Phone_Number || '')}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                background: 'transparent',
-                border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.25)' : 'rgba(148, 163, 184, 0.3)'}`,
-                borderRadius: '2px',
-                padding: '6px 10px',
-                cursor: 'pointer',
-                color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.7)',
-                fontSize: '12px',
-                transition: 'all 0.15s',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = isDarkMode ? 'rgb(135, 243, 243)' : colours.highlight;
-                e.currentTarget.style.color = isDarkMode ? 'rgb(135, 243, 243)' : colours.highlight;
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(125, 211, 252, 0.25)' : 'rgba(148, 163, 184, 0.3)';
-                e.currentTarget.style.color = isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.7)';
-              }}
-              title="Copy phone"
-            >
-              <FaPhone size={11} />
-              <span>{enquiry.Phone_Number}</span>
-            </button>
-          )}
-        </div>
-
-        {/* Right: Data Source Counts */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <button 
-            onClick={() => handleManualSync('pitches')}
-            disabled={loadingStates.pitches}
+        {/* Actions */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <button
+            onClick={() => {
+              if (!enquiry.Email) {
+                showToast('Email not available', 'error');
+                return;
+              }
+              try {
+                window.open(`mailto:${enquiry.Email}`, '_blank');
+              } catch {
+                // ignore
+              }
+            }}
+            disabled={!enquiry.Email}
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
-              background: isDarkMode ? 'rgba(34, 197, 94, 0.1)' : 'rgba(34, 197, 94, 0.08)',
-              border: `1px solid ${isDarkMode ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.2)'}`,
+              background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(135, 243, 243, 0.1)',
+              border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(135, 243, 243, 0.3)'}`,
               borderRadius: '2px',
-              padding: '6px 10px',
-              cursor: loadingStates.pitches ? 'default' : 'pointer',
-              color: '#22c55e',
+              padding: '6px 12px',
+              cursor: enquiry.Email ? 'pointer' : 'default',
+              color: isDarkMode ? colours.accent : colours.darkBlue,
               fontSize: '12px',
               fontWeight: 600,
               transition: 'all 0.15s',
+              opacity: enquiry.Email ? 1 : 0.5,
             }}
-            title={loadingStates.pitches ? "Loading..." : "Refresh pitches"}
           >
-            {loadingStates.pitches ? (
-              <div style={{ width: '12px', height: '12px', border: '2px solid rgba(34, 197, 94, 0.2)', borderTop: '2px solid #22c55e', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-            ) : (
-              <FaCheckCircle size={11} />
-            )}
-            <span>{timeline.filter(item => item.type === 'pitch').length}</span>
+            <FaEnvelope size={11} />
+            <span>Email</span>
           </button>
 
-          <button 
-            onClick={() => handleManualSync('emails')}
-            disabled={loadingStates.emails}
+          <button
+            onClick={() => {
+              if (!enquiry.Phone_Number) {
+                showToast('Phone number not available', 'error');
+                return;
+              }
+              try {
+                window.open(`tel:${enquiry.Phone_Number}`, '_blank');
+              } catch {
+                // ignore
+              }
+            }}
+            disabled={!enquiry.Phone_Number}
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
-              background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.08)',
-              border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`,
+              background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(135, 243, 243, 0.1)',
+              border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(135, 243, 243, 0.3)'}`,
               borderRadius: '2px',
-              padding: '6px 10px',
-              cursor: loadingStates.emails ? 'default' : 'pointer',
-              color: colours.highlight,
+              padding: '6px 12px',
+              cursor: enquiry.Phone_Number ? 'pointer' : 'default',
+              color: isDarkMode ? colours.accent : colours.darkBlue,
               fontSize: '12px',
               fontWeight: 600,
               transition: 'all 0.15s',
+              opacity: enquiry.Phone_Number ? 1 : 0.5,
             }}
-            title={loadingStates.emails ? "Searching..." : "Refresh emails"}
           >
-            {loadingStates.emails ? (
-              <div style={{ width: '12px', height: '12px', border: '2px solid rgba(54, 144, 206, 0.2)', borderTop: `2px solid ${colours.highlight}`, borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-            ) : (
-              <FaEnvelope size={11} />
-            )}
-            <span>{timeline.filter(item => item.type === 'email').length}</span>
+            <FaPhone size={11} />
+            <span>Call</span>
           </button>
 
-          <button 
-            onClick={() => handleManualSync('calls')}
-            disabled={loadingStates.calls}
+          <button
+            onClick={handleRequestDocuments}
+            disabled={docRequestLoading || !requestDocsEnabled}
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
-              background: isDarkMode ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.08)',
-              border: `1px solid ${isDarkMode ? 'rgba(245, 158, 11, 0.3)' : 'rgba(245, 158, 11, 0.2)'}`,
+              background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(135, 243, 243, 0.1)',
+              border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(135, 243, 243, 0.3)'}`,
               borderRadius: '2px',
-              padding: '6px 10px',
-              cursor: loadingStates.calls ? 'default' : 'pointer',
-              color: '#f59e0b',
+              padding: '6px 12px',
+              cursor: docRequestLoading || !requestDocsEnabled ? 'default' : 'pointer',
+              color: isDarkMode ? colours.accent : colours.darkBlue,
               fontSize: '12px',
               fontWeight: 600,
               transition: 'all 0.15s',
+              opacity: !requestDocsEnabled ? 0.45 : 1,
             }}
-            title={loadingStates.calls ? "Fetching..." : "Refresh calls"}
           >
-            {loadingStates.calls ? (
-              <div style={{ width: '12px', height: '12px', border: '2px solid rgba(245, 158, 11, 0.2)', borderTop: '2px solid #f59e0b', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+            {docRequestLoading ? (
+              <div style={{ width: '12px', height: '12px', border: '2px solid rgba(135, 243, 243, 0.2)', borderTop: `2px solid ${colours.accent}`, borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
             ) : (
-              <FaPhone size={11} />
+              <FaArrowRight size={11} />
             )}
-            <span>{timeline.filter(item => item.type === 'call').length}</span>
+            <span>{docRequestResult ? 'Link Copied' : 'Request Docs'}</span>
           </button>
 
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            background: isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(135, 243, 243, 0.08)',
-            border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(135, 243, 243, 0.2)'}`,
-            borderRadius: '2px',
-            padding: '6px 10px',
-            color: isDarkMode ? 'rgb(135, 243, 243)' : colours.darkBlue,
-            fontSize: '12px',
-            fontWeight: 600,
-          }}>
-            <FaFileAlt size={11} />
-            <span>{timeline.filter(item => item.type === 'document').length}</span>
-          </div>
+          <button
+            disabled
+            aria-disabled
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(135, 243, 243, 0.1)',
+              border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(135, 243, 243, 0.3)'}`,
+              borderRadius: '2px',
+              padding: '6px 12px',
+              cursor: 'default',
+              color: isDarkMode ? colours.accent : colours.darkBlue,
+              fontSize: '12px',
+              fontWeight: 600,
+              transition: 'all 0.15s',
+              opacity: 0.45,
+            }}
+          >
+            <span>Request structured data</span>
+          </button>
         </div>
       </div>
 
+      {/* Quick Access (only shows when a Journey Timeline chip is selected) */}
+      {activeFilters.length > 0 ? (
+      <SectionCard
+        variant="default"
+        styleOverrides={{
+          marginTop: '8px',
+          padding: '16px 20px',
+        }}
+      >
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '12px',
+        }}>
+          <div style={{
+            fontSize: '11px',
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            letterSpacing: '0.8px',
+            color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.6)',
+          }}>
+            Quick Access
+          </div>
+
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            {quickAccessEmailIds.length > 0 && (
+              <>
+                <button
+                  onClick={() => {
+                    setExpandedQuickAccessEmailIds(new Set(quickAccessEmailIds));
+                  }}
+                  disabled={areAllQuickAccessEmailsExpanded}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '6px 10px',
+                    background: 'transparent',
+                    border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.25)' : 'rgba(148, 163, 184, 0.3)'}`,
+                    borderRadius: '2px',
+                    color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.65)',
+                    cursor: areAllQuickAccessEmailsExpanded ? 'default' : 'pointer',
+                    opacity: areAllQuickAccessEmailsExpanded ? 0.5 : 1,
+                  }}
+                  title="Expand all emails"
+                >
+                  <FaChevronDown size={11} />
+                  <span style={{ fontSize: '12px', fontWeight: 600 }}>Expand all</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setExpandedQuickAccessEmailIds(new Set());
+                  }}
+                  disabled={!areAnyQuickAccessEmailsExpanded}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '6px 10px',
+                    background: 'transparent',
+                    border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.25)' : 'rgba(148, 163, 184, 0.3)'}`,
+                    borderRadius: '2px',
+                    color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.65)',
+                    cursor: !areAnyQuickAccessEmailsExpanded ? 'default' : 'pointer',
+                    opacity: !areAnyQuickAccessEmailsExpanded ? 0.5 : 1,
+                  }}
+                  title="Collapse all emails"
+                >
+                  <FaChevronUp size={11} />
+                  <span style={{ fontSize: '12px', fontWeight: 600 }}>Collapse all</span>
+                </button>
+              </>
+            )}
+            {selectedQuickAccessTypes.map((t) => {
+              const typeColor = getTypeColor(t);
+              return (
+                <button
+                  key={t}
+                  onClick={() => toggleActiveFilter(t)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '6px 10px',
+                    background: isDarkMode ? `${typeColor}20` : `${typeColor}15`,
+                    border: `1px solid ${typeColor}`,
+                    borderRadius: '2px',
+                    color: typeColor,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                  }}
+                  title={`Remove ${getTypeLabel(t)} filter`}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', color: typeColor }}>
+                    {getTypeIcon(t)}
+                  </span>
+                  <span style={{ fontSize: '12px', fontWeight: 600 }}>
+                    {getTypeLabel(t)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {quickAccessItems.length === 0 ? (
+          <div style={{
+            padding: '12px 0',
+            color: isDarkMode ? 'rgba(226, 232, 240, 0.5)' : 'rgba(15, 23, 42, 0.5)',
+            fontSize: '12px',
+          }}>
+            No items for the selected filters yet.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {quickAccessItems.map((item) => {
+              const isDocument = item.type === 'document';
+              const isEmail = item.type === 'email';
+              const isQuickAccessEmailExpanded = isEmail && expandedQuickAccessEmailIds.has(item.id);
+              const filename = isDocument ? getDocumentFilename(item) : item.subject;
+              const downloadHref = isDocument ? getDocumentDownloadHref(item) : null;
+              const safeEmailHtml = item.contentHtml ? sanitizeEmailHtml(item.contentHtml) : '';
+
+              const emailBodySurfaceStyle: React.CSSProperties = {
+                marginTop: '10px',
+                paddingTop: '10px',
+                borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.1)'}`,
+              };
+
+              const emailReaderStyle: React.CSSProperties = {
+                marginTop: '10px',
+                padding: '14px',
+                borderRadius: '2px',
+                border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.22)' : 'rgba(54, 144, 206, 0.18)'}`,
+                borderLeft: `3px solid ${colours.highlight}`,
+                // Intentional “email reader” surface: subtle gradient backdrop (no white block in dark mode).
+                background: isDarkMode
+                  ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.92) 0%, rgba(2, 6, 23, 0.78) 100%)'
+                  : 'linear-gradient(135deg, rgba(255, 255, 255, 0.96) 0%, rgba(248, 250, 252, 0.96) 100%)',
+                color: isDarkMode ? 'rgba(226, 232, 240, 0.92)' : colours.darkBlue,
+                fontSize: '12px',
+                lineHeight: '1.7',
+                maxHeight: '520px',
+                overflow: 'auto',
+                overflowWrap: 'anywhere',
+                wordBreak: 'break-word',
+                boxShadow: isDarkMode
+                  ? 'rgba(0, 0, 0, 0.18) 0px 2px 8px, rgba(0, 0, 0, 0.10) 0px 1px 2px'
+                  : 'rgba(6, 23, 51, 0.06) 0px 2px 8px, rgba(6, 23, 51, 0.04) 0px 1px 2px',
+              };
+
+              return (
+                isEmail ? (
+                  <div
+                    key={item.id}
+                    style={{
+                      padding: '10px 12px',
+                      borderRadius: '2px',
+                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.22)'}`,
+                      background: isDarkMode
+                        ? 'linear-gradient(180deg, rgba(2, 6, 23, 0.40) 0%, rgba(2, 6, 23, 0.22) 100%)'
+                        : 'linear-gradient(180deg, rgba(255, 255, 255, 0.75) 0%, rgba(248, 250, 252, 0.70) 100%)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
+                        <span style={{ color: getTypeColor(item.type), display: 'flex', alignItems: 'center', flex: '0 0 auto' }}>
+                          {getTypeIcon(item.type)}
+                        </span>
+                        <div
+                          style={{
+                            fontSize: '13px',
+                            fontWeight: 600,
+                            color: isDarkMode ? colours.dark.text : colours.light.text,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            minWidth: 0,
+                          }}
+                        >
+                          {filename}
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '8px', flex: '0 0 auto', alignItems: 'center' }}>
+                        <button
+                          onClick={() => {
+                            setExpandedQuickAccessEmailIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(item.id)) next.delete(item.id);
+                              else next.add(item.id);
+                              return next;
+                            });
+                          }}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: '34px',
+                            height: '34px',
+                            borderRadius: '2px',
+                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
+                            background: isDarkMode ? 'rgba(7, 16, 32, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+                            color: isDarkMode ? 'rgba(226, 232, 240, 0.75)' : 'rgba(15, 23, 42, 0.65)',
+                            cursor: 'pointer',
+                          }}
+                          title={isQuickAccessEmailExpanded ? 'Collapse email' : 'Expand email'}
+                        >
+                          {isQuickAccessEmailExpanded ? <FaChevronUp size={12} /> : <FaChevronDown size={12} />}
+                        </button>
+                        <button
+                          onClick={() => openTimelineItem(item)}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '8px 12px',
+                            borderRadius: '2px',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            background: colours.highlight,
+                            color: '#ffffff',
+                            border: 'none',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Open
+                        </button>
+                        {userEmail && (
+                          <button
+                            onClick={() => {
+                              setForwardEmail(item);
+                              setShowForwardDialog(true);
+                            }}
+                            style={{
+                              padding: '8px 12px',
+                              fontSize: '12px',
+                              fontWeight: 700,
+                              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
+                              borderRadius: '2px',
+                              background: isDarkMode ? 'rgba(7, 16, 32, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+                              color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.75)',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s',
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)';
+                              e.currentTarget.style.borderColor = colours.highlight;
+                              e.currentTarget.style.color = colours.highlight;
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = isDarkMode ? 'rgba(7, 16, 32, 0.6)' : 'rgba(255, 255, 255, 0.8)';
+                              e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)';
+                              e.currentTarget.style.color = isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.75)';
+                            }}
+                          >
+                            Forward to myself →
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div style={{
+                      marginTop: '4px',
+                      fontSize: '11px',
+                      color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.6)',
+                      display: 'flex',
+                      gap: '10px',
+                      flexWrap: 'wrap',
+                    }}>
+                      <span>{formatDocDate(item.date)}</span>
+                      {item.createdBy && <span>by {item.createdBy}</span>}
+                    </div>
+
+                    {isQuickAccessEmailExpanded && (item.contentHtml || item.content) && (
+                      <div style={emailBodySurfaceStyle}>
+                        <div style={emailReaderStyle}>
+                          {item.contentHtml ? (
+                            <div className="helix-email-html" dangerouslySetInnerHTML={{ __html: safeEmailHtml }} />
+                          ) : (
+                            <div style={{ whiteSpace: 'pre-wrap' }}>{item.content}</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div
+                    key={item.id}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: '12px',
+                      padding: '10px 12px',
+                      borderRadius: '2px',
+                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.22)'}`,
+                      background: isDarkMode ? 'rgba(2, 6, 23, 0.28)' : 'rgba(255, 255, 255, 0.7)',
+                    }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        minWidth: 0,
+                      }}>
+                        <span style={{ color: getTypeColor(item.type), display: 'flex', alignItems: 'center' }}>
+                          {getTypeIcon(item.type)}
+                        </span>
+                        <div style={{
+                          fontSize: '13px',
+                          fontWeight: 600,
+                          color: isDarkMode ? colours.dark.text : colours.light.text,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          maxWidth: '520px',
+                        }}>
+                          {filename}
+                        </div>
+                      </div>
+                      <div style={{
+                        marginTop: '4px',
+                        fontSize: '11px',
+                        color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.6)',
+                        display: 'flex',
+                        gap: '10px',
+                        flexWrap: 'wrap',
+                      }}>
+                        <span>{formatDocDate(item.date)}</span>
+                        {item.createdBy && <span>by {item.createdBy}</span>}
+                        {isDocument && item.metadata?.stageUploaded && <span>stage: {item.metadata.stageUploaded}</span>}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '8px', flex: '0 0 auto' }}>
+                      {isDocument ? (
+                        <>
+                          <button
+                            onClick={() => setPreviewDocument(item)}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '8px 12px',
+                              borderRadius: '2px',
+                              fontSize: '12px',
+                              fontWeight: 700,
+                              background: colours.highlight,
+                              color: '#ffffff',
+                              border: 'none',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <FaFileAlt /> Preview
+                          </button>
+                          {downloadHref ? (
+                            <a
+                              href={downloadHref}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                padding: '8px 12px',
+                                borderRadius: '2px',
+                                fontSize: '12px',
+                                fontWeight: 700,
+                                background: isDarkMode ? 'rgba(148, 163, 184, 0.14)' : 'rgba(148, 163, 184, 0.18)',
+                                color: isDarkMode ? colours.dark.text : colours.light.text,
+                                textDecoration: 'none',
+                              }}
+                            >
+                              Download
+                            </a>
+                          ) : (
+                            <button
+                              disabled
+                              style={{
+                                padding: '8px 12px',
+                                borderRadius: '2px',
+                                fontSize: '12px',
+                                fontWeight: 700,
+                                background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.10)',
+                                color: isDarkMode ? 'rgba(226, 232, 240, 0.35)' : 'rgba(15, 23, 42, 0.35)',
+                                border: 'none',
+                                cursor: 'not-allowed',
+                              }}
+                            >
+                              Download
+                            </button>
+                          )}
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => openTimelineItem(item)}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '8px 12px',
+                            borderRadius: '2px',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            background: colours.highlight,
+                            color: '#ffffff',
+                            border: 'none',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Open
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              );
+            })}
+          </div>
+        )}
+      </SectionCard>
+      ) : null}
+
       {/* Client Journey Timeline */}
-      <div style={{
-        background: isDarkMode 
-          ? 'linear-gradient(135deg, rgba(11, 30, 55, 0.86) 0%, rgba(7, 16, 32, 0.94) 100%)'
-          : 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
-        border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : 'rgba(148, 163, 184, 0.2)'}`,
-        borderRadius: '2px',
-        padding: '20px',
-        marginTop: '8px',
-        boxShadow: isDarkMode 
-          ? 'rgba(0, 0, 0, 0.15) 0px 2px 8px, rgba(0, 0, 0, 0.08) 0px 1px 2px'
-          : 'rgba(0, 0, 0, 0.05) 0px 2px 8px',
-      }}>
+      <SectionCard
+        variant="default"
+        styleOverrides={{
+          marginTop: '8px',
+          padding: '20px',
+        }}
+      >
         {/* Timeline Header with Activity Stats */}
         <div style={{
           display: 'flex',
@@ -1830,8 +2393,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             letterSpacing: '0.8px',
             color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.6)',
           }}>
-            Journey Timeline ({activeFilter 
-              ? timeline.filter(item => item.type === activeFilter).length
+            Journey Timeline ({activeFilters.length > 0
+              ? timeline.filter(item => activeFilters.includes(item.type)).length
               : timeline.length})
           </div>
 
@@ -1850,9 +2413,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             }}>
               Filter
             </div>
-            {['call', 'pitch', 'email', 'instruction'].map((type) => {
+            {['call', 'pitch', 'email', 'instruction', 'document'].map((type) => {
               const count = timeline.filter(item => item.type === type).length;
-              const isActive = activeFilter === type;
+              const isActive = activeFilters.includes(type as CommunicationType);
               let statusColor: string = '';
               
               if (type === 'call') {
@@ -1861,6 +2424,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 statusColor = '#22c55e'; // Green
               } else if (type === 'email') {
                 statusColor = colours.highlight; // Highlight blue
+              } else if (type === 'document') {
+                statusColor = colours.accent; // Helix teal
               } else {
                 statusColor = '#10b981'; // Emerald
               }
@@ -1868,16 +2433,18 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               return (
                 <button
                   key={type}
-                  onClick={() => setActiveFilter(isActive ? null : (type as CommunicationType))}
+                  onClick={() => {
+                    if (count > 0) toggleActiveFilter(type as CommunicationType);
+                  }}
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: '6px',
                     padding: '6px 10px',
-                    background: isActive 
+                    background: isActive
                       ? (isDarkMode ? `${statusColor}20` : `${statusColor}15`)
-                      : 'transparent',
-                    border: `1px solid ${count === 0 ? 'rgba(125, 211, 252, 0.15)' : (isActive ? statusColor : 'rgba(125, 211, 252, 0.25)')}`,
+                      : (count > 0 ? (isDarkMode ? `${statusColor}10` : `${statusColor}08`) : 'transparent'),
+                    border: `1px solid ${count === 0 ? 'rgba(125, 211, 252, 0.15)' : (isActive ? statusColor : (isDarkMode ? `${statusColor}55` : `${statusColor}40`))}`,
                     borderRadius: '2px',
                     color: count === 0 ? 'rgba(226, 232, 240, 0.4)' : (isActive ? statusColor : (isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.6)')),
                     cursor: count === 0 ? 'default' : 'pointer',
@@ -1891,7 +2458,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   }}
                   onMouseLeave={(e) => {
                     if (!isActive) {
-                      e.currentTarget.style.borderColor = count === 0 ? 'rgba(125, 211, 252, 0.15)' : 'rgba(125, 211, 252, 0.25)';
+                      e.currentTarget.style.borderColor = count === 0 ? 'rgba(125, 211, 252, 0.15)' : (isDarkMode ? `${statusColor}55` : `${statusColor}40`);
                       e.currentTarget.style.color = count === 0 ? 'rgba(226, 232, 240, 0.4)' : (isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.6)');
                     }
                   }}
@@ -1932,19 +2499,22 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
             {/* Timeline items */}
             {timeline
-              .filter(item => !activeFilter || item.type === activeFilter)
               .slice()
               .reverse()
               .map((item, index) => {
               const typeColor = getTypeColor(item.type);
               const isExpanded = selectedItem?.id === item.id;
+              const isDimmed = Boolean(activeFilters.length > 0 && !activeFilters.includes(item.type));
               
               return (
                 <div
                   key={item.id}
+                  id={`timeline-item-${item.id}`}
                   style={{
                     position: 'relative',
                     marginBottom: index < timeline.length - 1 ? '16px' : '0',
+                    opacity: isDimmed ? 0.3 : 1,
+                    transition: 'opacity 0.2s ease',
                   }}
                 >
                   {/* Dot */}
@@ -2122,7 +2692,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                         color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.9)',
                       }}>
                         {item.contentHtml ? (
-                          <div dangerouslySetInnerHTML={{ __html: item.contentHtml }} />
+                          <div className="helix-email-html" dangerouslySetInnerHTML={{ __html: sanitizeEmailHtml(item.contentHtml) }} />
                         ) : item.content ? (
                           <div style={{ whiteSpace: 'pre-wrap' }}>{item.content}</div>
                         ) : (
@@ -2266,30 +2836,29 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             No activity yet
           </div>
         )}
-      </div>
+      </SectionCard>
 
-      {/* Resources & Actions - Fee Earner Hub (Early Access) */}
-      {(process.env.NODE_ENV === 'development' || ['LZ', 'AC', 'CB'].includes(userInitials || '')) && (
+      {/* Resources & Actions */}
+      {showResourcesConcept && (
       <div style={{
         marginTop: '32px',
-        background: isDarkMode 
+        background: isDarkMode
           ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.94) 0%, rgba(11, 30, 55, 0.86) 100%)'
           : 'linear-gradient(135deg, rgba(248, 250, 252, 0.98) 0%, rgba(241, 245, 249, 0.95) 100%)',
         border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : 'rgba(148, 163, 184, 0.2)'}`,
         borderRadius: '12px',
-        padding: '24px',
+        padding: '20px',
         backdropFilter: 'blur(8px)',
       }}>
-        {/* Header */}
         <div style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          marginBottom: '20px',
+          marginBottom: '14px',
         }}>
           <div>
             <div style={{
-              color: isDarkMode ? 'rgb(125, 211, 252)' : colours.highlight,
+              color: colours.highlight,
               fontSize: '14px',
               fontWeight: 700,
               display: 'flex',
@@ -2297,27 +2866,30 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               gap: '8px',
               marginBottom: '4px',
             }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" stroke="currentColor" strokeWidth="2"/>
-                <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" stroke="currentColor" strokeWidth="2"/>
-                <circle cx="12" cy="8" r="1" fill="currentColor"/>
-                <circle cx="12" cy="12" r="1" fill="currentColor"/>
-                <circle cx="12" cy="16" r="1" fill="currentColor"/>
-              </svg>
               Resources & Actions
-              <span style={{
-                fontSize: '9px',
-                fontWeight: 600,
-                padding: '2px 6px',
-                background: isDarkMode ? 'rgba(125, 211, 252, 0.15)' : 'rgba(54, 144, 206, 0.15)',
-                border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.3)' : 'rgba(54, 144, 206, 0.3)'}`,
-                borderRadius: '4px',
-                color: isDarkMode ? 'rgb(125, 211, 252)' : colours.highlight,
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px',
-              }}>
-                AC CB LZ
+              <span
+                style={{
+                  fontSize: '10px',
+                  fontWeight: 700,
+                  letterSpacing: '0.2px',
+                  padding: '2px 6px',
+                  borderRadius: '999px',
+                  border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.25)'}`,
+                  background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
+                  color: isDarkMode ? 'rgba(147, 197, 253, 0.95)' : 'rgba(13, 47, 96, 0.85)',
+                }}
+              >
+                Concept
               </span>
+            </div>
+            <div style={{
+              color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(15, 23, 42, 0.5)',
+              fontSize: '11px',
+              fontWeight: 600,
+              letterSpacing: '0.4px',
+              marginBottom: '6px',
+            }}>
+              AC CB LZ
             </div>
             <div style={{
               color: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(15, 23, 42, 0.6)',
@@ -2329,432 +2901,132 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           </div>
         </div>
 
-        {/* Resource Categories Grid */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-          gap: '16px',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: '8px',
+          width: '100%',
         }}>
-          {/* Templates & Forms - Concept */}
-          <div style={{
-            padding: '16px',
-            background: isDarkMode ? 'rgba(148, 163, 184, 0.03)' : 'rgba(148, 163, 184, 0.05)',
-            border: `2px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.25)'}`,
-            borderRadius: '8px',
-            opacity: 0.6,
-          }}>
-            <div style={{
+          <button
+            onClick={() => {
+              if (!enquiry.Email) {
+                showToast('Email not available', 'error');
+                return;
+              }
+              try {
+                window.open(`mailto:${enquiry.Email}`, '_blank');
+              } catch {
+                // ignore
+              }
+            }}
+            disabled={!enquiry.Email}
+            style={{
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: '12px',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke={isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(148, 163, 184, 0.6)'} strokeWidth="2"/>
-                  <polyline points="14,2 14,8 20,8" stroke={isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(148, 163, 184, 0.6)'} strokeWidth="2"/>
-                </svg>
-                <span style={{
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.5)',
-                }}>
-                  Templates & Forms
-                </span>
-              </div>
-              <span style={{
-                fontSize: '8px',
-                fontWeight: 600,
-                padding: '2px 6px',
-                background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)',
-                borderRadius: '4px',
-                color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.5)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px',
-              }}>
-                Concept
-              </span>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {[
-                { name: 'Email Templates', desc: 'Pre-written templates for common scenarios' },
-                { name: 'Fee Calculator', desc: 'Quick estimates for enquiry quotes' },
-                { name: 'Document Builder', desc: 'Generate docs from enquiry data' },
-                { name: 'Time Entry Forms', desc: 'Log time against this enquiry' },
-                { name: 'Communication Log', desc: 'Track all interactions with prospect' },
-              ].map((item, index) => (
-                <div key={index} style={{
-                  padding: '8px',
-                  background: isDarkMode ? 'rgba(148, 163, 184, 0.05)' : 'rgba(148, 163, 184, 0.08)',
-                  borderRadius: '6px',
-                  border: `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
-                }}>
-                  <div style={{
-                    fontSize: '11px',
-                    fontWeight: 600,
-                    color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.5)',
-                    marginBottom: '2px',
-                  }}>
-                    {item.name}
-                  </div>
-                  <div style={{
-                    fontSize: '9px',
-                    color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(15, 23, 42, 0.45)',
-                    fontStyle: 'italic',
-                  }}>
-                    {item.desc}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Best Practices & Guidance - Concept */}
-          <div style={{
-            padding: '16px',
-            background: isDarkMode ? 'rgba(148, 163, 184, 0.03)' : 'rgba(148, 163, 184, 0.05)',
-            border: `2px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.25)'}`,
-            borderRadius: '8px',
-            opacity: 0.6,
-          }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: '12px',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <circle cx="12" cy="12" r="10" stroke={isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(148, 163, 184, 0.6)'} strokeWidth="2"/>
-                  <path d="M9 12l2 2 4-4" stroke={isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(148, 163, 184, 0.6)'} strokeWidth="2"/>
-                </svg>
-                <span style={{
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.5)',
-                }}>
-                  Best Practices & Guidance
-                </span>
-              </div>
-              <span style={{
-                fontSize: '8px',
-                fontWeight: 600,
-                padding: '2px 6px',
-                background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)',
-                borderRadius: '4px',
-                color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.5)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px',
-              }}>
-                Concept
-              </span>
-            </div>
-            <div style={{
-              fontSize: '10px',
-              color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(15, 23, 42, 0.45)',
-              fontStyle: 'italic',
-              marginBottom: '8px',
-            }}>
-              Ideas for guides: Enquiry process, fee setting, comms standards, compliance, doc formatting
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
-              {[
-                { name: 'Enquiry Process Guide', desc: 'Step-by-step workflow from first contact to instruction' },
-                { name: 'Fee Setting Standards', desc: 'Guidelines for quoting and pricing' },
-                { name: 'Communication Standards', desc: 'Templates and tone for client interactions' },
-                { name: 'Compliance Checklist', desc: 'Required checks and documentation' },
-                { name: 'Document Formatting', desc: 'House style for letters and emails' },
-              ].map((item, index) => (
-                <div key={index} style={{
-                  padding: '8px',
-                  background: isDarkMode ? 'rgba(148, 163, 184, 0.05)' : 'rgba(148, 163, 184, 0.08)',
-                  borderRadius: '6px',
-                  border: `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
-                }}>
-                  <div style={{
-                    fontSize: '11px',
-                    fontWeight: 600,
-                    color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.5)',
-                    marginBottom: '2px',
-                  }}>
-                    {item.name}
-                  </div>
-                  <div style={{
-                    fontSize: '9px',
-                    color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(15, 23, 42, 0.45)',
-                    fontStyle: 'italic',
-                  }}>
-                    {item.desc}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Support Request / Feedback Form */}
-        <div style={{
-          marginTop: '16px',
-          padding: '16px',
-          background: isDarkMode 
-            ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, rgba(16, 185, 129, 0.05) 100%)'
-            : 'linear-gradient(135deg, rgba(34, 197, 94, 0.08) 0%, rgba(16, 185, 129, 0.04) 100%)',
-          border: `1px solid ${isDarkMode ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.15)'}`,
-          borderRadius: '8px',
-        }}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            marginBottom: '12px',
-          }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <circle cx="12" cy="12" r="10" stroke={colours.green} strokeWidth="2"/>
-              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" stroke={colours.green} strokeWidth="2"/>
-              <line x1="12" y1="17" x2="12.01" y2="17" stroke={colours.green} strokeWidth="2"/>
-            </svg>
-            <span style={{
+              justifyContent: 'center',
+              gap: '6px',
+              background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(135, 243, 243, 0.1)',
+              border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(135, 243, 243, 0.3)'}`,
+              borderRadius: '2px',
+              padding: '8px 12px',
+              cursor: enquiry.Email ? 'pointer' : 'default',
+              color: isDarkMode ? colours.accent : colours.darkBlue,
               fontSize: '12px',
-              fontWeight: 700,
-              color: isDarkMode ? 'rgb(34, 197, 94)' : colours.green,
-            }}>
-              Get in Touch
-            </span>
-          </div>
-          
-          <div style={{
-            fontSize: '9px',
-            color: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(15, 23, 42, 0.6)',
-            marginBottom: '12px',
-          }}>
-            Need help or got an idea? Let us know
-          </div>
+              fontWeight: 600,
+              transition: 'all 0.15s',
+              opacity: enquiry.Email ? 1 : 0.5,
+            }}
+          >
+            <FaEnvelope size={11} />
+            <span>Email</span>
+          </button>
 
-          {/* Request Type Toggle */}
-          <div style={{
-            display: 'flex',
-            gap: '1px',
-            marginBottom: '12px',
-            borderRadius: '6px',
-            overflow: 'hidden',
-            background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
-            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)'}`,
-          }}>
-            <button 
-              style={{
-                flex: 1,
-                padding: '6px 12px',
-                background: requestType === 'support' 
-                  ? (isDarkMode ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.15)')
-                  : (isDarkMode ? 'rgba(7, 16, 32, 0.8)' : 'rgba(255, 255, 255, 0.9)'),
-                border: 'none',
-                color: requestType === 'support'
-                  ? (isDarkMode ? 'rgb(34, 197, 94)' : colours.green)
-                  : (isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.6)'),
-                fontSize: '10px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                transition: 'all 0.2s ease',
-              }}
-              onClick={() => setRequestType('support')}
-            >
-              Support Request
-            </button>
-            <button 
-              style={{
-                flex: 1,
-                padding: '6px 12px',
-                background: requestType === 'feedback'
-                  ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)')
-                  : (isDarkMode ? 'rgba(7, 16, 32, 0.8)' : 'rgba(255, 255, 255, 0.9)'),
-                border: 'none',
-                color: requestType === 'feedback'
-                  ? (isDarkMode ? 'rgb(125, 211, 252)' : colours.highlight)
-                  : (isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.6)'),
-                fontSize: '10px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                transition: 'all 0.2s ease',
-              }}
-              onClick={() => setRequestType('feedback')}
-            >
-              Idea or Feedback
-            </button>
-          </div>
+          <button
+            onClick={() => {
+              if (!enquiry.Phone_Number) {
+                showToast('Phone number not available', 'error');
+                return;
+              }
+              try {
+                window.open(`tel:${enquiry.Phone_Number}`, '_blank');
+              } catch {
+                // ignore
+              }
+            }}
+            disabled={!enquiry.Phone_Number}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(135, 243, 243, 0.1)',
+              border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(135, 243, 243, 0.3)'}`,
+              borderRadius: '2px',
+              padding: '8px 12px',
+              cursor: enquiry.Phone_Number ? 'pointer' : 'default',
+              color: isDarkMode ? colours.accent : colours.darkBlue,
+              fontSize: '12px',
+              fontWeight: 600,
+              transition: 'all 0.15s',
+              opacity: enquiry.Phone_Number ? 1 : 0.5,
+            }}
+          >
+            <FaPhone size={11} />
+            <span>Call</span>
+          </button>
 
-          {/* Form Fields */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {/* Category dropdown - different options based on type */}
-            <select
-              style={{
-                padding: '8px 12px',
-                background: isDarkMode ? 'rgba(7, 16, 32, 0.6)' : 'rgba(255, 255, 255, 0.9)',
-                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
-                borderRadius: '6px',
-                fontSize: '11px',
-                color: isDarkMode ? 'rgb(226, 232, 240)' : colours.light.text,
-                outline: 'none',
-                cursor: 'pointer',
-                transition: 'all 0.2s ease',
-              }}
-              onFocus={(e) => {
-                e.currentTarget.style.borderColor = requestType === 'support' ? colours.green : colours.highlight;
-                e.currentTarget.style.boxShadow = `0 0 0 2px ${requestType === 'support' ? colours.green : colours.highlight}20`;
-              }}
-              onBlur={(e) => {
-                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)';
-                e.currentTarget.style.boxShadow = 'none';
-              }}
-            >
-              {requestType === 'support' ? (
-                <>
-                  <option value="">What type of issue?</option>
-                  <option value="bug">Something's broken</option>
-                  <option value="data">Data not showing / wrong</option>
-                  <option value="access">Can't access something</option>
-                  <option value="feature">Feature not working</option>
-                  <option value="other">Other</option>
-                </>
-              ) : (
-                <>
-                  <option value="">What's this about?</option>
-                  <option value="new-feature">New feature idea</option>
-                  <option value="improvement">Improvement to existing</option>
-                  <option value="workflow">Better workflow</option>
-                  <option value="ui">UI/UX feedback</option>
-                  <option value="other">Other</option>
-                </>
-              )}
-            </select>
+          <button
+            onClick={handleRequestDocuments}
+            disabled={docRequestLoading || !requestDocsEnabled}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(135, 243, 243, 0.1)',
+              border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(135, 243, 243, 0.3)'}`,
+              borderRadius: '2px',
+              padding: '8px 12px',
+              cursor: docRequestLoading || !requestDocsEnabled ? 'default' : 'pointer',
+              color: isDarkMode ? colours.accent : colours.darkBlue,
+              fontSize: '12px',
+              fontWeight: 600,
+              transition: 'all 0.15s',
+              opacity: !requestDocsEnabled ? 0.45 : 1,
+            }}
+          >
+            {docRequestLoading ? (
+              <div style={{ width: '12px', height: '12px', border: '2px solid rgba(135, 243, 243, 0.2)', borderTop: `2px solid ${colours.accent}`, borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+            ) : (
+              <FaArrowRight size={11} />
+            )}
+            <span>{docRequestResult ? 'Link Copied' : 'Request Docs'}</span>
+          </button>
 
-            <input
-              type="text"
-              placeholder="Quick summary"
-              style={{
-                padding: '8px 12px',
-                background: isDarkMode ? 'rgba(7, 16, 32, 0.6)' : 'rgba(255, 255, 255, 0.9)',
-                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
-                borderRadius: '6px',
-                fontSize: '11px',
-                color: isDarkMode ? 'rgb(226, 232, 240)' : colours.light.text,
-                outline: 'none',
-                transition: 'all 0.2s ease',
-              }}
-              onFocus={(e) => {
-                const focusColor = requestType === 'support' ? colours.green : colours.highlight;
-                e.currentTarget.style.borderColor = focusColor;
-                e.currentTarget.style.boxShadow = `0 0 0 2px ${focusColor}20`;
-              }}
-              onBlur={(e) => {
-                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)';
-                e.currentTarget.style.boxShadow = 'none';
-              }}
-            />
-            
-            <textarea
-              placeholder={requestType === 'support' ? 'What happened and when?' : 'Tell us more about your idea...'}
-              rows={3}
-              style={{
-                padding: '8px 12px',
-                background: isDarkMode ? 'rgba(7, 16, 32, 0.6)' : 'rgba(255, 255, 255, 0.9)',
-                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
-                borderRadius: '6px',
-                fontSize: '11px',
-                color: isDarkMode ? 'rgb(226, 232, 240)' : colours.light.text,
-                outline: 'none',
-                resize: 'vertical',
-                fontFamily: 'inherit',
-                transition: 'all 0.2s ease',
-              }}
-              onFocus={(e) => {
-                const focusColor = requestType === 'support' ? colours.green : colours.highlight;
-                e.currentTarget.style.borderColor = focusColor;
-                e.currentTarget.style.boxShadow = `0 0 0 2px ${focusColor}20`;
-              }}
-              onBlur={(e) => {
-                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)';
-                e.currentTarget.style.boxShadow = 'none';
-              }}
-            />
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
-              <div style={{
-                fontSize: '8px',
-                color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(15, 23, 42, 0.5)',
-              }}>
-                → {requestType === 'support' ? 'Ops Team' : 'Dev Team'}
-              </div>
-              
-              <div style={{ display: 'flex', gap: '6px' }}>
-                <button style={{
-                  padding: '6px 12px',
-                  background: 'transparent',
-                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
-                  borderRadius: '6px',
-                  color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.6)',
-                  fontSize: '10px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  transition: 'all 0.2s ease',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(148, 163, 184, 0.4)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)';
-                }}
-                onClick={() => console.log('Cancel')}>
-                  Cancel
-                </button>
-                
-                <button style={{
-                  padding: '6px 16px',
-                  background: requestType === 'support'
-                    ? (isDarkMode ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.1)')
-                    : (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.1)'),
-                  border: requestType === 'support'
-                    ? `1px solid ${isDarkMode ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.2)'}`
-                    : `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`,
-                  borderRadius: '6px',
-                  color: requestType === 'support'
-                    ? (isDarkMode ? 'rgb(34, 197, 94)' : colours.green)
-                    : (isDarkMode ? 'rgb(125, 211, 252)' : colours.highlight),
-                  fontSize: '10px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  transition: 'all 0.2s ease',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                }}
-                onMouseEnter={(e) => {
-                  if (requestType === 'support') {
-                    e.currentTarget.style.background = isDarkMode ? 'rgba(34, 197, 94, 0.25)' : 'rgba(34, 197, 94, 0.15)';
-                  } else {
-                    e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.15)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (requestType === 'support') {
-                    e.currentTarget.style.background = isDarkMode ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.1)';
-                  } else {
-                    e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.1)';
-                  }
-                }}
-                onClick={() => {
-                  console.log(`Submit ${requestType} to Asana`);
-                  // TODO: Implement Asana task creation
-                }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <line x1="22" y1="2" x2="11" y2="13" stroke="currentColor" strokeWidth="2"/>
-                    <polygon points="22,2 15,22 11,13 2,9 22,2" stroke="currentColor" strokeWidth="2"/>
-                  </svg>
-                  Send
-                </button>
-              </div>
-            </div>
-          </div>
+          <button
+            disabled
+            aria-disabled
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(135, 243, 243, 0.1)',
+              border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(135, 243, 243, 0.3)'}`,
+              borderRadius: '2px',
+              padding: '8px 12px',
+              cursor: 'default',
+              color: isDarkMode ? colours.accent : colours.darkBlue,
+              fontSize: '12px',
+              fontWeight: 600,
+              transition: 'all 0.15s',
+              opacity: 0.45,
+            }}
+          >
+            <span>Request structured data</span>
+          </button>
         </div>
+
       </div>
       )}
 

@@ -67,20 +67,20 @@ import { debugLog, debugWarn } from '../../utils/debug';
 import { shouldAlwaysShowProspectHistory, isSharedProspectRecord } from './sharedProspects';
 import { checkIsLocalDev, isActuallyLocalhost } from '../../utils/useIsLocalDev';
 
-// Synthetic test enquiry for dev/admin preview - always available, not from database
+// Synthetic demo enquiry for demos/testing - always available, not from database
 const DEV_PREVIEW_TEST_ENQUIRY: Enquiry & { __sourceType: 'new' | 'legacy' } = {
   ID: 'DEV-PREVIEW-99999',
   Date_Created: new Date().toISOString().split('T')[0],
   Touchpoint_Date: new Date().toISOString().split('T')[0],
-  Email: 'test@example.com',
+  Email: 'demo@example.com',
   Area_of_Work: 'commercial (costs)',
   Type_of_Work: 'Contract Disputes',
   Method_of_Contact: 'Website Form',
   Point_of_Contact: 'lz@helix-law.com',
-  Company: 'Test Company Ltd',
+  Company: 'Demo Company Ltd',
   Website: 'https://example.com',
   Title: 'Mr',
-  First_Name: 'Test',
+  First_Name: 'Demo',
   Last_Name: 'Client',
   DOB: '1990-01-01',
   Phone_Number: '07000000000',
@@ -102,11 +102,13 @@ const DEV_PREVIEW_TEST_ENQUIRY: Enquiry & { __sourceType: 'new' | 'legacy' } = {
   Ad_Group: 'Test_AdGroup',
   Search_Keyword: 'test keyword',
   GCLID: 'test-gclid-123',
-  Initial_first_call_notes: 'Test enquiry notes for development preview.',
+  Initial_first_call_notes: 'Demo enquiry notes for demos/testing (stable record, not from database).',
   Do_not_Market: 'No',
   Rating: 'Good',
   __sourceType: 'new'
 };
+
+const DEMO_MODE_STORAGE_KEY = 'demoModeEnabled';
 
 // CSS for shimmer animation
 const shimmerStyle = `
@@ -634,6 +636,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [toastMessage, setToastMessage] = useState<string>('');
   const [toastDetails, setToastDetails] = useState<string>('');
   const [toastType, setToastType] = useState<'success' | 'error' | 'info' | 'warning'>('success');
+
+  const [demoModeEnabled, setDemoModeEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(DEMO_MODE_STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
   
   // Document counts state - maps enquiry ID to document count
   const [documentCounts, setDocumentCounts] = useState<Record<string, number>>({});
@@ -1989,79 +1999,115 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     }
   }, [displayEnquiries, handleSelectEnquiry]);
 
-  // Listen for test enquiry selection event (from UserBubble menu)
-  // Uses the synthetic DEV_PREVIEW_TEST_ENQUIRY - always available for dev/admin
+  const ensureDemoEnquiryPresent = useCallback(() => {
+    const currentUserEmail = userData && userData[0] && userData[0].Email
+      ? userData[0].Email
+      : 'lz@helix-law.com';
+
+    try {
+      localStorage.setItem(DEMO_MODE_STORAGE_KEY, 'true');
+    } catch {
+      // ignore storage errors
+    }
+    setDemoModeEnabled(true);
+
+    const demoEnquiry: Enquiry & { __sourceType: 'new' | 'legacy' } = {
+      ...DEV_PREVIEW_TEST_ENQUIRY,
+      Point_of_Contact: currentUserEmail,
+      Touchpoint_Date: new Date().toISOString().split('T')[0],
+    };
+
+    setDisplayEnquiries(prev => {
+      const existingIndex = prev.findIndex(e => e.ID === DEV_PREVIEW_TEST_ENQUIRY.ID);
+      if (existingIndex === -1) {
+        return [demoEnquiry, ...prev];
+      }
+      const existing = prev[existingIndex];
+      const needsUpdate = (existing.Point_of_Contact || '').toLowerCase() !== currentUserEmail.toLowerCase();
+      const isAlreadyFirst = existingIndex === 0;
+      if (!needsUpdate && isAlreadyFirst) {
+        return prev;
+      }
+      const next = [...prev];
+      next.splice(existingIndex, 1);
+      next.unshift(needsUpdate ? { ...existing, Point_of_Contact: currentUserEmail } : existing);
+      return next;
+    });
+
+    // Also inject synthetic enrichment data for the demo record
+    const now = new Date();
+    const pitchedDate = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
+    setEnrichmentMap(prevMap => {
+      if (prevMap.has(DEV_PREVIEW_TEST_ENQUIRY.ID)) {
+        return prevMap;
+      }
+      const newMap = new Map(prevMap);
+      newMap.set(DEV_PREVIEW_TEST_ENQUIRY.ID, {
+        enquiryId: DEV_PREVIEW_TEST_ENQUIRY.ID,
+        teamsData: {
+          Id: 99999,
+          ActivityId: 'demo-activity-99999',
+          ChannelId: 'demo-channel',
+          TeamId: 'demo-team',
+          EnquiryId: DEV_PREVIEW_TEST_ENQUIRY.ID,
+          LeadName: 'Demo Client',
+          Email: DEV_PREVIEW_TEST_ENQUIRY.Email || '',
+          Phone: DEV_PREVIEW_TEST_ENQUIRY.Phone_Number || '',
+          CardType: 'enquiry',
+          MessageTimestamp: now.toISOString(),
+          TeamsMessageId: 'demo-msg-99999',
+          CreatedAtMs: now.getTime(),
+          Stage: 'Enquiry',
+          Status: 'Active',
+          ClaimedBy: currentUserEmail.split('@')[0].toUpperCase(),
+          ClaimedAt: new Date(now.getTime() - 4 * 24 * 60 * 60 * 1000).toISOString(),
+          CreatedAt: new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+          UpdatedAt: now.toISOString(),
+          teamsLink: '',
+        },
+        pitchData: {
+          dealId: 99999,
+          email: DEV_PREVIEW_TEST_ENQUIRY.Email || '',
+          serviceDescription: 'Contract Disputes',
+          amount: 1500,
+          status: 'Pitched',
+          areaOfWork: 'commercial',
+          pitchedBy: 'LZ',
+          pitchedDate: pitchedDate.toISOString().split('T')[0],
+          pitchedTime: pitchedDate.toTimeString().split(' ')[0],
+          scenarioId: 'before-call-call',
+          scenarioDisplay: 'Before call (call)',
+        }
+      });
+      return newMap;
+    });
+  }, [userData]);
+
+  // Listen for demo mode event (from UserBubble menu)
   useEffect(() => {
     const handleSelectTestEnquiry = () => {
-      // Get the current user's email for Point_of_Contact
-      const currentUserEmail = userData && userData[0] && userData[0].Email 
-        ? userData[0].Email 
-        : 'lz@helix-law.com';
-      
-      // Create test enquiry with current user as Point_of_Contact
-      const testEnquiry = {
-        ...DEV_PREVIEW_TEST_ENQUIRY,
-        Point_of_Contact: currentUserEmail,
-      };
-      
-      // Inject test enquiry at top of list if not already present
-      setDisplayEnquiries(prev => {
-        const exists = prev.some(e => e.ID === DEV_PREVIEW_TEST_ENQUIRY.ID);
-        if (exists) return prev;
-        return [testEnquiry, ...prev];
-      });
-      
-      // Also inject synthetic enrichment data for the test record
-      const now = new Date();
-      const pitchedDate = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
-      setEnrichmentMap(prevMap => {
-        const newMap = new Map(prevMap);
-        newMap.set(DEV_PREVIEW_TEST_ENQUIRY.ID, {
-          enquiryId: DEV_PREVIEW_TEST_ENQUIRY.ID,
-          teamsData: {
-            Id: 99999,
-            ActivityId: 'test-activity-99999',
-            ChannelId: 'test-channel',
-            TeamId: 'test-team',
-            EnquiryId: DEV_PREVIEW_TEST_ENQUIRY.ID,
-            LeadName: 'Test Client',
-            Email: DEV_PREVIEW_TEST_ENQUIRY.Email || '',
-            Phone: DEV_PREVIEW_TEST_ENQUIRY.Phone_Number || '',
-            CardType: 'enquiry',
-            MessageTimestamp: now.toISOString(),
-            TeamsMessageId: 'test-msg-99999',
-            CreatedAtMs: now.getTime(),
-            Stage: 'Enquiry',
-            Status: 'Active',
-            ClaimedBy: currentUserEmail.split('@')[0].toUpperCase(),
-            ClaimedAt: new Date(now.getTime() - 4 * 24 * 60 * 60 * 1000).toISOString(),
-            CreatedAt: new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-            UpdatedAt: now.toISOString(),
-            teamsLink: '',
-          },
-          pitchData: {
-            dealId: 99999,
-            email: DEV_PREVIEW_TEST_ENQUIRY.Email || '',
-            serviceDescription: 'Contract Disputes',
-            amount: 1500,
-            status: 'Pitched',
-            areaOfWork: 'commercial',
-            pitchedBy: 'LZ',
-            pitchedDate: pitchedDate.toISOString().split('T')[0],
-            pitchedTime: pitchedDate.toTimeString().split(' ')[0],
-            scenarioId: 'before-call-call',
-            scenarioDisplay: 'Before call (call)',
-          }
-        });
-        return newMap;
-      });
+      ensureDemoEnquiryPresent();
+      setActiveState('Claimed');
+
+      setToastMessage('Demo Mode enabled');
+      setToastDetails('A stable demo enquiry has been added and pinned to the top of your Claimed list. Use it to demo Enquiries (cards/table), Pitch Builder and Timeline without relying on live test data.');
+      setToastType('info');
+      setToastVisible(true);
+      setTimeout(() => setToastVisible(false), 4500);
     };
 
     window.addEventListener('selectTestEnquiry', handleSelectTestEnquiry);
     return () => {
       window.removeEventListener('selectTestEnquiry', handleSelectTestEnquiry);
     };
-  }, []);
+  }, [ensureDemoEnquiryPresent]);
+
+  useEffect(() => {
+    if (!demoModeEnabled) {
+      return;
+    }
+    ensureDemoEnquiryPresent();
+  }, [demoModeEnabled, ensureDemoEnquiryPresent]);
 
   // Auto-refresh functionality
   const handleManualRefresh = useCallback(async () => {
@@ -2762,6 +2808,26 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   // Added for infinite scroll - support both grouped and regular view
   const displayedItems = useMemo(() => {
+    const pinDemoFirst = <T,>(items: T[]): T[] => {
+      if (!demoModeEnabled || activeState !== 'Claimed') {
+        return items;
+      }
+      const idx = items.findIndex((item) => {
+        if (!item || typeof item !== 'object') {
+          return false;
+        }
+        const maybeId = (item as any).ID;
+        return typeof maybeId === 'string' && maybeId === DEV_PREVIEW_TEST_ENQUIRY.ID;
+      });
+      if (idx <= 0) {
+        return items;
+      }
+      const next = [...items];
+      const [demo] = next.splice(idx, 1);
+      next.unshift(demo);
+      return next;
+    };
+
     // When Unclaimed board is active, override with unclaimed dataset (always table-oriented ordering)
     if (showUnclaimedBoard) {
       const sorted = sortEnquiries([...unclaimedEnquiries]);
@@ -2771,11 +2837,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     }
     if (showGroupedView) {
       const mixedItems = getMixedEnquiryDisplay([...filteredEnquiriesWithSharedHistory].reverse());
-      return mixedItems.slice(0, itemsToShow);
+      const pinned = pinDemoFirst(mixedItems);
+      return pinned.slice(0, itemsToShow);
     }
     // Apply sorting to filtered enquiries
     const sorted = sortEnquiries([...filteredEnquiries]);
-    return sorted.slice(0, itemsToShow);
+    const pinned = pinDemoFirst(sorted);
+    return pinned.slice(0, itemsToShow);
   }, [
     filteredEnquiries,
     filteredEnquiriesWithSharedHistory,
@@ -2786,6 +2854,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     sortEnquiries,
     sortColumn,
     sortDirection,
+    demoModeEnabled,
+    activeState,
   ]);
 
   const handleLoadMore = useCallback(() => {
@@ -3092,11 +3162,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             enquiry={enquiry} 
             userInitials={userData && userData[0] ? userData[0].Initials : undefined}
             userEmail={userData?.[0]?.Email}
+            featureToggles={featureToggles}
           />
         )}
       </>
     ),
-  [activeSubTab, userData, isLocalhost]
+  [activeSubTab, userData, isLocalhost, featureToggles]
   );
 
   const enquiriesCountPerMember = useMemo(() => {
@@ -3753,7 +3824,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             },
             options: [
               { key: 'Pitch', label: 'Pitch Builder' },
-              { key: 'Timeline', label: 'Timeline' }
+              { key: 'Timeline', label: 'Timeline', icon: <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', backgroundColor: '#22c55e', marginRight: 4 }} /> }
             ],
             ariaLabel: "Switch between enquiry detail tabs"
           }}

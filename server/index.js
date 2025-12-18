@@ -68,6 +68,8 @@ const instructionDetailsRouter = require('./routes/instruction-details');
 const instructionsRouter = require('./routes/instructions');
 const updateInstructionStatusRouter = require('./routes/updateInstructionStatus');
 const documentsRouter = require('./routes/documents');
+const demoDocumentsRouter = require('./routes/demo-documents');
+const prospectDocumentsRouter = require('./routes/prospect-documents');
 const enquiriesUnifiedRouter = require('./routes/enquiries-unified');
 const mattersUnifiedRouter = require('./routes/mattersUnified');
 const verifyIdRouter = require('./routes/verify-id');
@@ -98,6 +100,7 @@ const pitchTrackingRouter = require('./routes/pitchTracking');
 const enquiryEnrichmentRouter = require('./routes/enquiryEnrichment');
 const claimEnquiryRouter = require('./routes/claimEnquiry');
 const rateChangesRouter = require('./routes/rate-changes');
+const cclDateRouter = require('./routes/ccl-date');
 const expertsRouter = require('./routes/experts');
 const counselRouter = require('./routes/counsel');
 const techTicketsRouter = require('./routes/techTickets');
@@ -110,7 +113,7 @@ const app = express();
 if (compression) {
     app.use((req, res, next) => {
         // Skip compression for Server-Sent Events to avoid buffering
-        if (req.path.startsWith('/api/reporting-stream') || req.path.startsWith('/api/home-metrics') || req.path.startsWith('/api/logs/stream')) {
+        if (req.path.startsWith('/api/reporting-stream') || req.path.startsWith('/api/home-metrics') || req.path.startsWith('/api/logs/stream') || req.path.startsWith('/api/ccl-date')) {
             res.setHeader('Cache-Control', 'no-cache, no-transform');
             return next();
         }
@@ -208,6 +211,8 @@ app.use('/api/instruction-details', instructionDetailsRouter);
 app.use('/api/instructions', instructionsRouter);
 app.use('/api/update-instruction-status', updateInstructionStatusRouter);
 app.use('/api/documents', documentsRouter);
+app.use('/api/demo-documents', demoDocumentsRouter);
+app.use('/api/prospect-documents', prospectDocumentsRouter);
 app.use('/api/verify-id', verifyIdRouter);
 app.use('/api/test-db', testDbRouter);
 app.use('/api/team-lookup', teamLookupRouter);
@@ -227,6 +232,9 @@ app.use('/api/logs', logsStreamRouter);
 
 // Rate change notification tracking (for Jan 2026 hourly rate increase)
 app.use('/api/rate-changes', rateChangesRouter);
+
+// CCL Date operation (Clio + legacy SQL)
+app.use('/api/ccl-date', cclDateRouter);
 
 // Expert and Counsel directories
 app.use('/api/experts', expertsRouter);

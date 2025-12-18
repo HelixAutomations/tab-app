@@ -1,11 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   IconButton,
-  Toggle,
-  Dropdown,
-  type IDropdownOption,
-  SearchBox,
-  TooltipHost,
   Spinner,
   SpinnerSize,
   MessageBar,
@@ -13,7 +8,6 @@ import {
 } from '@fluentui/react';
 import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext';
-import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
 
 interface LogEntry {
   id: string;
@@ -27,67 +21,6 @@ interface LogMonitorProps {
   onBack: () => void;
 }
 
-/** Custom toggle matching house style */
-const SessionToggle: React.FC<{
-  isThisSession: boolean;
-  onToggle: (thisSession: boolean) => void;
-  isDarkMode: boolean;
-  bufferedCount: number;
-}> = ({ isThisSession, onToggle, isDarkMode, bufferedCount }) => {
-  return (
-    <div 
-      style={{ 
-        display: 'flex', 
-        alignItems: 'center', 
-        gap: '8px',
-        cursor: 'pointer',
-        userSelect: 'none',
-      }}
-      onClick={() => onToggle(!isThisSession)}
-    >
-      <span style={{ 
-        fontSize: '11px', 
-        color: !isThisSession ? colours.highlight : (isDarkMode ? 'rgba(243, 244, 246, 0.5)' : 'rgba(6, 23, 51, 0.5)'),
-        fontWeight: !isThisSession ? 600 : 400,
-        transition: 'all 0.2s ease',
-      }}>
-        All ({bufferedCount})
-      </span>
-      <div
-        style={{
-          width: '36px',
-          height: '18px',
-          background: isThisSession ? colours.highlight : (isDarkMode ? '#475569' : '#d1d5db'),
-          position: 'relative',
-          transition: 'background 0.2s ease',
-          flexShrink: 0,
-        }}
-      >
-        <div
-          style={{
-            width: '14px',
-            height: '14px',
-            background: '#ffffff',
-            position: 'absolute',
-            top: '2px',
-            left: isThisSession ? '20px' : '2px',
-            transition: 'left 0.2s ease',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-          }}
-        />
-      </div>
-      <span style={{ 
-        fontSize: '11px', 
-        color: isThisSession ? colours.highlight : (isDarkMode ? 'rgba(243, 244, 246, 0.5)' : 'rgba(6, 23, 51, 0.5)'),
-        fontWeight: isThisSession ? 600 : 400,
-        transition: 'all 0.2s ease',
-      }}>
-        Session
-      </span>
-    </div>
-  );
-};
-
 const LogMonitor: React.FC<LogMonitorProps> = ({ onBack }) => {
   const { isDarkMode } = useTheme();
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -95,24 +28,11 @@ const LogMonitor: React.FC<LogMonitorProps> = ({ onBack }) => {
   const [isConnecting, setIsConnecting] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
   const [isPaused, setIsPaused] = useState(false);
-  const [filterLevel, setFilterLevel] = useState<string>('all');
-  const [searchText, setSearchText] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [showThisSession, setShowThisSession] = useState(true);
-  const [sessionStart] = useState(() => new Date().toISOString());
   const [toast, setToast] = useState<string | null>(null);
   const logContainerRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const pausedLogsRef = useRef<LogEntry[]>([]);
-
-  const levelOptions: IDropdownOption[] = [
-    { key: 'all', text: 'All Levels' },
-    { key: 'debug', text: 'Debug' },
-    { key: 'log', text: 'Log' },
-    { key: 'info', text: 'Info' },
-    { key: 'warn', text: 'Warning' },
-    { key: 'error', text: 'Error' },
-  ];
 
   // Subtle level indicators - on brand with Helix colors
   const getLevelStyle = (level: string) => {
@@ -150,8 +70,9 @@ const LogMonitor: React.FC<LogMonitorProps> = ({ onBack }) => {
     setError(null);
 
     try {
-      const baseUrl = getProxyBaseUrl();
-      const eventSource = new EventSource(`${baseUrl}/api/logs/stream`);
+      // IMPORTANT: log stream is served by the same Express host, not the proxy.
+      // Using the proxy base URL breaks production.
+      const eventSource = new EventSource('/api/logs/stream');
       eventSourceRef.current = eventSource;
 
       eventSource.onopen = () => {
@@ -241,8 +162,7 @@ const LogMonitor: React.FC<LogMonitorProps> = ({ onBack }) => {
     pausedLogsRef.current = [];
     
     try {
-      const baseUrl = getProxyBaseUrl();
-      await fetch(`${baseUrl}/api/logs/clear`, { method: 'POST' });
+      await fetch('/api/logs/clear', { method: 'POST' });
     } catch {
       // Ignore - local clear is enough
     }
@@ -267,35 +187,7 @@ const LogMonitor: React.FC<LogMonitorProps> = ({ onBack }) => {
   // Auto-connect on mount
   useEffect(() => {
     connect();
-  }, []);
-
-  // Filter logs
-  const filteredLogs = useMemo(() => {
-    return logs.filter(log => {
-      // Session filter
-      if (showThisSession && log.timestamp < sessionStart) {
-        return false;
-      }
-      if (filterLevel !== 'all' && log.level !== filterLevel) {
-        return false;
-      }
-      if (searchText && !log.message.toLowerCase().includes(searchText.toLowerCase())) {
-        return false;
-      }
-      return true;
-    });
-  }, [logs, filterLevel, searchText, showThisSession, sessionStart]);
-
-  // Log counts by level
-  const logCounts = useMemo(() => {
-    const counts: Record<string, number> = { debug: 0, log: 0, info: 0, warn: 0, error: 0 };
-    logs.forEach(log => {
-      if (counts[log.level] !== undefined) {
-        counts[log.level]++;
-      }
-    });
-    return counts;
-  }, [logs]);
+  }, [connect]);
 
   const formatTimestamp = (timestamp: string) => {
     try {
@@ -373,85 +265,6 @@ const LogMonitor: React.FC<LogMonitorProps> = ({ onBack }) => {
             </span>
           )}
         </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <SessionToggle
-            isThisSession={showThisSession}
-            onToggle={(thisSession) => {
-              setShowThisSession(thisSession);
-              showToast(thisSession ? 'Showing session logs' : `Showing all ${logs.length} logs`);
-            }}
-            isDarkMode={isDarkMode}
-            bufferedCount={logs.length}
-          />
-        </div>
-      </div>
-
-      {/* Toolbar */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '8px 16px',
-        borderBottom: `1px solid ${borderColor}`,
-        backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
-        flexWrap: 'wrap',
-        gap: '8px',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-          <Dropdown
-            options={levelOptions}
-            selectedKey={filterLevel}
-            onChange={(_, option) => option && setFilterLevel(String(option.key))}
-            styles={{
-              root: { width: 120 },
-              dropdown: {
-                backgroundColor: isDarkMode ? colours.dark.inputBackground : colours.light.inputBackground,
-              },
-            }}
-          />
-          <SearchBox
-            placeholder="Filter..."
-            value={searchText}
-            onChange={(_, newValue) => setSearchText(newValue || '')}
-            styles={{ root: { width: 160 } }}
-          />
-          <span style={{ fontSize: '11px', color: mutedColor }}>
-            {logCounts.error > 0 && <span style={{ color: colours.cta, marginRight: '8px' }}>{logCounts.error} errors</span>}
-            {logCounts.warn > 0 && <span style={{ color: colours.orange, marginRight: '8px' }}>{logCounts.warn} warnings</span>}
-          </span>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <Toggle
-            label="Auto-scroll"
-            checked={autoScroll}
-            onChange={(_, checked) => setAutoScroll(!!checked)}
-            inlineLabel
-            styles={{
-              root: { marginBottom: 0 },
-              label: { fontSize: '11px', color: mutedColor },
-            }}
-          />
-          <TooltipHost content={isPaused ? 'Resume' : 'Pause'}>
-            <IconButton
-              iconProps={{ iconName: isPaused ? 'Play' : 'Pause' }}
-              onClick={togglePause}
-              styles={{
-                root: {
-                  color: isPaused ? colours.orange : mutedColor,
-                },
-              }}
-            />
-          </TooltipHost>
-          <TooltipHost content="Clear">
-            <IconButton
-              iconProps={{ iconName: 'Delete' }}
-              onClick={clearLogs}
-              styles={{ root: { color: mutedColor } }}
-            />
-          </TooltipHost>
-        </div>
       </div>
 
       {/* Toast notification */}
@@ -510,7 +323,7 @@ const LogMonitor: React.FC<LogMonitorProps> = ({ onBack }) => {
             <Spinner size={SpinnerSize.medium} />
             <div style={{ fontSize: '12px' }}>Connecting to log stream...</div>
           </div>
-        ) : filteredLogs.length === 0 ? (
+        ) : logs.length === 0 ? (
           <div style={{
             display: 'flex',
             flexDirection: 'column',
@@ -520,31 +333,14 @@ const LogMonitor: React.FC<LogMonitorProps> = ({ onBack }) => {
             color: mutedColor,
           }}>
             <div style={{ fontSize: '14px', marginBottom: '4px' }}>
-              {showThisSession ? 'No logs this session' : 'No logs'}
+              No logs yet
             </div>
             <div style={{ fontSize: '12px' }}>
-              {showThisSession 
-                ? 'Operations will appear here as they occur'
-                : logs.length === 0 
-                  ? 'Waiting for server activity...'
-                  : 'No logs match filter'}
+              Operations will appear here as they occur
             </div>
-            {showThisSession && logs.length > 0 && (
-              <div 
-                style={{ 
-                  fontSize: '11px', 
-                  marginTop: '8px',
-                  color: colours.highlight,
-                  cursor: 'pointer',
-                }}
-                onClick={() => setShowThisSession(false)}
-              >
-                Show {logs.length} previous logs
-              </div>
-            )}
           </div>
         ) : (
-          filteredLogs.map((log) => (
+          logs.map((log) => (
             <div
               key={log.id}
               style={{
@@ -612,10 +408,7 @@ const LogMonitor: React.FC<LogMonitorProps> = ({ onBack }) => {
         fontSize: '10px',
         color: mutedColor,
       }}>
-        <span>
-          {filteredLogs.length} / {logs.length} entries
-          {showThisSession && ` (session)`}
-        </span>
+        <span>{logs.length} entries</span>
         <span>
           {logs.length >= 1000 ? 'Buffer full' : isConnected ? 'Streaming' : ''}
         </span>

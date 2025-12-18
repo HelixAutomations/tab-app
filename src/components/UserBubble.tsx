@@ -558,7 +558,7 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                         Refresh Data…
                                     </button>
 
-                                    {/* Show Test Enquiry - local dev and admins in production */}
+                                    {/* Demo Mode - local dev and admins in production */}
                                     {onShowTestEnquiry && (isLocalDev || isAdminUser(user)) && (
                                         <button onClick={() => { onShowTestEnquiry(); closePopover(); }} style={{ ...actionBtn, background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(135, 243, 243, 0.2)', border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(135, 243, 243, 0.4)'}` }}>
                                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -567,7 +567,7 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                                 <line x1="12" y1="18" x2="12" y2="12"/>
                                                 <line x1="9" y1="15" x2="15" y2="15"/>
                                             </svg>
-                                            Show Test Enquiry
+                                            Enable Demo Mode
                                         </button>
                                     )}
 

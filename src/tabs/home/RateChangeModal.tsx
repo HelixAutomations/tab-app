@@ -136,11 +136,14 @@ const RateChangeModal: React.FC<RateChangeModalProps> = ({
     const [inputTerm, setInputTerm] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
     const [confirmClient, setConfirmClient] = useState<RateChangeClient | null>(null);
-    const [confirmAction, setConfirmAction] = useState<'sent' | 'na' | 'undo' | null>(null);
+    const [confirmAction, setConfirmAction] = useState<'sent' | 'na' | 'undo' | 'ccl-date' | null>(null);
     const [naReason, setNaReason] = useState<string>('');
     const [customReason, setCustomReason] = useState<string>('');
     const [naNotes, setNaNotes] = useState<string>('');
     const [sentDate, setSentDate] = useState<string>(() => new Date().toISOString().split('T')[0]); // Default to today
+    const [cclDate, setCclDate] = useState<string>(() => new Date().toISOString().split('T')[0]); // Default to today
+    const [cclMatterSelections, setCclMatterSelections] = useState<Record<string, boolean>>({});
+    const [cclMatterDates, setCclMatterDates] = useState<Record<string, string>>({});
     const [processingClients, setProcessingClients] = useState<Set<string>>(new Set());
     const [toasts, setToasts] = useState<Toast[]>([]);
     const [showTemplate, setShowTemplate] = useState<boolean>(false);
@@ -278,8 +281,9 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
 
     // Get unique years from open matters for filter dropdown
     const availableYears = useMemo(() => {
+        const sourceClients = filter === 'migrate' ? clients : currentClients;
         const years = new Set<number>();
-        currentClients.forEach(c => {
+        sourceClients.forEach(c => {
             c.open_matters.forEach(m => {
                 if (m.open_date) {
                     const year = new Date(m.open_date).getFullYear();
@@ -288,24 +292,16 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
             });
         });
         return Array.from(years).sort((a, b) => b - a); // Most recent first
-    }, [currentClients]);
+    }, [clients, currentClients, filter]);
 
     const filteredClients = useMemo(() => {
-        // For migrate tab, show all sent/N/A clients from all clients (not just mine/all view)
-        // These are clients who have already had their Clio field updated in the regular user view
-        if (filter === 'migrate') {
-            let result = clients.filter(c => c.status === 'sent' || c.status === 'not_applicable');
-            if (searchTerm) {
-                const term = searchTerm.toLowerCase();
-                result = result.filter(c => 
-                    c.client_name?.toLowerCase().includes(term) ||
-                    c.open_matters.some(m => m.display_number?.toLowerCase().includes(term))
-                );
-            }
-            return result;
-        }
-        
-        let result = currentClients.filter(c => c.status === filter);
+        // Base list depends on the selected tab
+        // - migrate: show all sent/N/A clients from all clients (not just mine/all view)
+        // - otherwise: filter by selected status and mine/all view
+        let result =
+            filter === 'migrate'
+                ? clients.filter(c => c.status === 'sent' || c.status === 'not_applicable')
+                : currentClients.filter(c => c.status === filter);
         
         // Filter by open date year
         if (openDateFilter !== 'all') {
@@ -370,6 +366,40 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
         setConfirmAction('na');
     }, []);
 
+    const handleSetCclDate = useCallback((client: RateChangeClient, e: React.MouseEvent) => {
+        e.stopPropagation();
+        const today = new Date().toISOString().split('T')[0];
+        setConfirmClient(client);
+        setConfirmAction('ccl-date');
+        setCclDate(today); // default value
+        const nextSelections: Record<string, boolean> = {};
+        const nextDates: Record<string, string> = {};
+        client.open_matters.forEach(m => {
+            // Default to none selected so we don't accidentally update all matters.
+            nextSelections[m.display_number] = false;
+            nextDates[m.display_number] = today;
+        });
+        setCclMatterSelections(nextSelections);
+        setCclMatterDates(nextDates);
+    }, []);
+
+    const cclDateUpdates = useMemo(() => {
+        if (confirmAction !== 'ccl-date' || !confirmClient) return [] as Array<{ matter_id: string; display_number: string; date_value: string }>;
+        return confirmClient.open_matters
+            .filter(m => cclMatterSelections[m.display_number] ?? false)
+            .map(m => ({
+                matter_id: m.matter_id,
+                display_number: m.display_number,
+                date_value: cclMatterDates[m.display_number] || cclDate,
+            }));
+    }, [confirmAction, confirmClient, cclMatterSelections, cclMatterDates, cclDate]);
+
+    const isCclDateActionValid = useMemo(() => {
+        if (confirmAction !== 'ccl-date') return true;
+        if (cclDateUpdates.length === 0) return false;
+        return cclDateUpdates.every(u => /^\d{4}-\d{2}-\d{2}$/.test(u.date_value));
+    }, [confirmAction, cclDateUpdates]);
+
     const handleUndoClick = useCallback((client: RateChangeClient, e: React.MouseEvent) => {
         e.stopPropagation();
         if (!undoUnlocked) {
@@ -424,7 +454,10 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
             case 'complete':
                 setStreamingStep('Complete');
                 setStreamingComplete(true);
-                if (event.clio_updates) {
+                if (event.progress) {
+                    setStreamingAllSucceeded(event.progress.failed === 0);
+                    setStreamingSummary(event.progress);
+                } else if (event.clio_updates) {
                     const allSucceeded = event.clio_updates.failed === 0;
                     setStreamingAllSucceeded(allSucceeded);
                     setStreamingSummary({ 
@@ -442,6 +475,57 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                 break;
         }
     }, [showToast]);
+
+    const updateCclDateStreaming = useCallback(async (
+        updates: Array<{ matter_id: string; display_number: string; date_value: string }>,
+        onUpdate: MatterUpdateCallback
+    ) => {
+        const response = await fetch('/api/ccl-date/stream', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                updates,
+            }),
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('[RateChangeModal] CCL Date stream error response:', errorText);
+            throw new Error(`Failed to update CCL Date: ${response.status}`);
+        }
+
+        if (!response.body) {
+            const data = await response.json();
+            if (data?.success && data?.progress) {
+                onUpdate({ type: 'complete', success: true, progress: data.progress });
+                return;
+            }
+            throw new Error('No stream body returned');
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                try {
+                    const event: MatterUpdateEvent = JSON.parse(line.slice(6));
+                    onUpdate(event);
+                } catch (parseErr) {
+                    console.warn('[RateChangeModal] CCL Date stream parse error:', parseErr);
+                }
+            }
+        }
+    }, []);
 
     const executeAction = useCallback(async () => {
         if (!confirmClient || !confirmAction) return;
@@ -530,6 +614,27 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                 
                 // Small delay to show final state
                 await new Promise(r => setTimeout(r, 1500));
+            } else if (confirmAction === 'ccl-date') {
+                if (!isCclDateActionValid) {
+                    throw new Error('Select at least one matter and enter valid dates (YYYY-MM-DD)');
+                }
+
+                setIsStreaming(true);
+                setStreamingStep('Preparing...');
+                setStreamingSummary(null);
+                setStreamingComplete(false);
+                setStreamingAllSucceeded(false);
+                setMatterProgress(
+                    cclDateUpdates.map(u => ({
+                        displayNumber: u.display_number,
+                        status: 'pending' as const,
+                    }))
+                );
+
+                await updateCclDateStreaming(cclDateUpdates, handleStreamingUpdate);
+
+                // Small delay to show final state
+                await new Promise(r => setTimeout(r, 1500));
             }
             
             // For streaming actions, DON'T auto-close - let user see the results
@@ -544,7 +649,7 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
             setIsStreaming(false);
             // DON'T close the modal on error - let user see what happened
         }
-    }, [confirmClient, confirmAction, naReason, customReason, naNotes, sentDate, onMarkSentStreaming, onMarkNAStreaming, onUndo, showToast, handleStreamingUpdate]);
+    }, [confirmClient, confirmAction, naReason, customReason, naNotes, sentDate, cclDate, cclDateUpdates, isCclDateActionValid, onMarkSentStreaming, onMarkNAStreaming, onUndoStreaming, showToast, handleStreamingUpdate, updateCclDateStreaming]);
 
     /** Close the confirmation modal and reset all streaming state */
     const closeConfirmModal = useCallback(() => {
@@ -561,6 +666,8 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
         setStreamingComplete(false);
         setStreamingAllSucceeded(false);
         setToasts([]); // Clear any pending toasts
+        setCclMatterSelections({});
+        setCclMatterDates({});
     }, [isStreaming, streamingComplete]);
 
     // ========== MIGRATE TAB LOGIC ==========
@@ -687,12 +794,14 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
 
     const progressPercent = currentStats.total > 0 
         ? Math.round(((currentStats.sent + currentStats.not_applicable) / currentStats.total) * 100) : 0;
-    const confirmMatterCount = confirmClient?.open_matters.length ?? 0;
+    const confirmMatterCount = confirmAction === 'ccl-date'
+        ? cclDateUpdates.length
+        : (confirmClient?.open_matters.length ?? 0);
     const confirmMatterPhrase = confirmMatterCount === 0
         ? 'these matters'
         : confirmMatterCount === 1
             ? 'this matter'
-            : `all ${confirmMatterCount} matters`;
+            : (confirmAction === 'ccl-date' ? `${confirmMatterCount} matters` : `all ${confirmMatterCount} matters`);
 
     // Styles
     const borderColor = isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
@@ -1140,16 +1249,24 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                             >
                                                 <td style={{ padding: '12px', textAlign: 'center', color: textMuted, fontSize: 10, fontWeight: 600 }}>
                                                     {filter === 'migrate' ? (
-                                                        /* Migrate view: show 5 status dots for the migration steps */
-                                                        /* Dots 1-2: From sent/NA (Clio update + DB insert), Dots 3-5: Migrate steps (Fetch, Fill, Complete) */
+                                                        /* Migrate view: show 6 status dots */
+                                                        /* Dots 1-2: From sent/NA (Clio update + DB insert), Dots 3-5: Migrate steps (Fetch, Fill, Complete), Dot 6: CCL Date (separate op) */
                                                         (() => {
                                                             const isThisClientMigrating = migrateClient?.client_id === client.client_id;
                                                             const stepOrder = ['form', 'lookup', 'db', 'done'] as const;
                                                             const currentStepIndex = isThisClientMigrating ? stepOrder.indexOf(migrateStep) : -1;
+                                                            const isThisClientCclDating = confirmAction === 'ccl-date' && isStreaming && confirmClient?.client_id === client.client_id;
                                                             
                                                             const getDotColor = (dotIndex: number) => {
                                                                 // Dots 0-1 = Clio update + DB insert, always green (prerequisite for migrate view)
                                                                 if (dotIndex <= 1) return colours.green;
+
+                                                                // Dot 5 = CCL Date (separate op)
+                                                                if (dotIndex === 5) {
+                                                                    if (!isThisClientCclDating) return isDarkMode ? '#4b5563' : '#d1d5db';
+                                                                    if (streamingComplete) return streamingAllSucceeded ? colours.green : colours.cta;
+                                                                    return colours.highlight;
+                                                                }
                                                                 
                                                                 if (!isThisClientMigrating) {
                                                                     return isDarkMode ? '#4b5563' : '#d1d5db';
@@ -1176,6 +1293,9 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                                                     <div style={{ width: 6, height: 6, borderRadius: '50%', background: getDotColor(2), transition: 'background 0.2s' }} title="3. Clio Fetch" />
                                                                     <div style={{ width: 6, height: 6, borderRadius: '50%', background: getDotColor(3), transition: 'background 0.2s' }} title="4. DB Fill" />
                                                                     <div style={{ width: 6, height: 6, borderRadius: '50%', background: getDotColor(4), transition: 'background 0.2s' }} title="5. Complete" />
+                                                                    {/* subtle separator to indicate CCL Date is a separate operation */}
+                                                                    <div style={{ width: 6 }} />
+                                                                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: getDotColor(5), transition: 'background 0.2s' }} title="6. CCL Date" />
                                                                 </div>
                                                             );
                                                         })()
@@ -1364,23 +1484,43 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                                             </button>
                                                         </div>
                                                     ) : filter === 'migrate' ? (
-                                                        <button
-                                                            className="rc-btn rc-btn-primary"
-                                                            onClick={() => handleStartMigrate(client)}
-                                                            disabled={isProcessing}
-                                                            style={{
-                                                                padding: '6px 16px', border: 'none', borderRadius: 0,
-                                                                background: colours.highlight,
-                                                                color: '#fff',
-                                                                fontSize: 11, fontWeight: 600, 
-                                                                cursor: 'pointer',
-                                                                letterSpacing: '0.03em', textTransform: 'uppercase',
-                                                                display: 'flex', alignItems: 'center', gap: 6,
-                                                            }}
-                                                        >
-                                                            <Icon iconName="Database" style={{ fontSize: 10 }} />
-                                                            Migrate
-                                                        </button>
+                                                        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                                                            <button
+                                                                className="rc-btn"
+                                                                onClick={(e) => handleSetCclDate(client, e)}
+                                                                disabled={isProcessing}
+                                                                style={{
+                                                                    padding: '6px 14px', 
+                                                                    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)'}`,
+                                                                    borderRadius: 0, background: 'transparent', 
+                                                                    color: textMuted,
+                                                                    fontSize: 11, fontWeight: 600, 
+                                                                    cursor: 'pointer',
+                                                                    letterSpacing: '0.03em', textTransform: 'uppercase',
+                                                                    display: 'flex', alignItems: 'center', gap: 6,
+                                                                }}
+                                                            >
+                                                                <Icon iconName="Calendar" style={{ fontSize: 10 }} />
+                                                                CCL Date
+                                                            </button>
+                                                            <button
+                                                                className="rc-btn rc-btn-primary"
+                                                                onClick={() => handleStartMigrate(client)}
+                                                                disabled={isProcessing}
+                                                                style={{
+                                                                    padding: '6px 16px', border: 'none', borderRadius: 0,
+                                                                    background: colours.highlight,
+                                                                    color: '#fff',
+                                                                    fontSize: 11, fontWeight: 600, 
+                                                                    cursor: 'pointer',
+                                                                    letterSpacing: '0.03em', textTransform: 'uppercase',
+                                                                    display: 'flex', alignItems: 'center', gap: 6,
+                                                                }}
+                                                            >
+                                                                <Icon iconName="Database" style={{ fontSize: 10 }} />
+                                                                Migrate
+                                                            </button>
+                                                        </div>
                                                     ) : (
                                                         <button
                                                             className="rc-btn"
@@ -1484,7 +1624,13 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                 color: isDarkMode ? '#f9fafb' : '#1d1d1f',
                                 marginBottom: 6,
                             }}>
-                                {confirmAction === 'sent' ? 'Notice Recorded' : confirmAction === 'na' ? 'Marked N/A' : 'Record Removed'}
+                                {confirmAction === 'sent'
+                                    ? 'Notice Recorded'
+                                    : confirmAction === 'na'
+                                    ? 'Marked N/A'
+                                    : confirmAction === 'ccl-date'
+                                    ? 'CCL Date Updated'
+                                    : 'Record Removed'}
                             </div>
                             <div style={{ 
                                 fontSize: 13, 
@@ -1505,12 +1651,12 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                             <Icon 
                                 iconName={streamingComplete 
                                     ? 'Warning'
-                                    : (confirmAction === 'sent' ? 'Send' : confirmAction === 'na' ? 'Cancel' : 'Undo')} 
+                                    : (confirmAction === 'sent' ? 'Send' : confirmAction === 'na' ? 'Cancel' : confirmAction === 'ccl-date' ? 'Calendar' : 'Undo')} 
                                 style={{ 
                                     fontSize: 16, 
                                     color: streamingComplete 
                                         ? colours.cta
-                                        : (confirmAction === 'sent' ? colours.green : confirmAction === 'na' ? colours.cta : '#94a3b8'),
+                                        : (confirmAction === 'sent' ? colours.green : confirmAction === 'na' ? colours.cta : confirmAction === 'ccl-date' ? colours.highlight : '#94a3b8'),
                                 }} 
                             />
                             <span style={{ 
@@ -1524,6 +1670,8 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                         ? 'Confirm rate notice sent' 
                                         : confirmAction === 'na' 
                                         ? 'Mark as not applicable' 
+                                        : confirmAction === 'ccl-date'
+                                        ? 'Set CCL Date'
                                         : 'Remove record')}
                             </span>
                         </div>
@@ -1538,6 +1686,8 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                     ? <>Record that the Jan {year} rate change letter has been sent to <strong style={{ color: textPrimary }}>{confirmClient?.client_name}</strong>.{confirmMatterCount > 1 && <> Updates <strong style={{ color: textPrimary }}>{confirmMatterPhrase}</strong> in Clio.</>}</>
                                     : confirmAction === 'na' 
                                     ? <>Mark <strong style={{ color: textPrimary }}>{confirmClient?.client_name}</strong> as not requiring a rate notice.{confirmMatterCount > 1 && <> Applies to <strong style={{ color: textPrimary }}>{confirmMatterPhrase}</strong>.</>}</>
+                                    : confirmAction === 'ccl-date'
+                                    ? <>Write <strong style={{ color: textPrimary }}>CCL Date</strong> to Clio and SQL for <strong style={{ color: textPrimary }}>{confirmClient?.client_name}</strong>.{confirmMatterCount > 1 && <> Applies to <strong style={{ color: textPrimary }}>{confirmMatterPhrase}</strong>.</>}</>
                                     : <>Remove the tracking record for <strong style={{ color: textPrimary }}>{confirmClient?.client_name}</strong>.</>}
                             </div>
                         )}
@@ -1556,39 +1706,97 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                             border: `1px solid ${borderColor}`,
                             marginBottom: 16,
                         }}>
-                            {/* Matters - always show with solicitor */}
+                            {/* Matters */}
                             <div style={{ flex: '1 1 100%' }}>
-                                <div style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', marginBottom: 6, fontWeight: 500, letterSpacing: '0.03em' }}>Matters</div>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                                    {confirmClient?.open_matters.map((m, i) => (
-                                        <span 
-                                            key={i} 
-                                            title={m.responsible_solicitor || 'No solicitor'}
-                                            style={{
-                                                padding: '3px 8px',
-                                                background: isDarkMode ? '#374151' : '#fff',
-                                                border: `1px solid ${borderColor}`,
-                                                fontSize: 11,
-                                                color: textPrimary,
-                                                fontWeight: 500,
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: 6,
-                                            }}
-                                        >
-                                            <span>{m.display_number}</span>
-                                            {m.responsible_solicitor && (
-                                                <span style={{ 
-                                                    fontSize: 9, 
-                                                    color: textMuted,
-                                                    fontWeight: 400,
-                                                }}>
-                                                    {m.responsible_solicitor.split(' ').map(n => n[0]).join('')}
-                                                </span>
-                                            )}
-                                        </span>
-                                    ))}
+                                <div style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', marginBottom: 6, fontWeight: 500, letterSpacing: '0.03em' }}>
+                                    {confirmAction === 'ccl-date' ? 'Matters to update' : 'Matters'}
                                 </div>
+
+                                {confirmAction === 'ccl-date' ? (
+                                    <div style={{
+                                        border: `1px solid ${borderColor}`,
+                                        background: isDarkMode ? '#374151' : '#fff',
+                                    }}>
+                                        {confirmClient?.open_matters.map((m, i) => {
+                                            const isChecked = cclMatterSelections[m.display_number] ?? false;
+                                            const dateValue = cclMatterDates[m.display_number] || cclDate;
+                                            return (
+                                                <div
+                                                    key={m.display_number}
+                                                    style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: 10,
+                                                        padding: '8px 10px',
+                                                        borderBottom: i < (confirmClient?.open_matters.length || 0) - 1 ? `1px solid ${borderColor}` : 'none',
+                                                    }}
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isChecked}
+                                                        onChange={() => setCclMatterSelections(prev => ({ ...prev, [m.display_number]: !isChecked }))}
+                                                        style={{ cursor: 'pointer' }}
+                                                    />
+                                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                            <span style={{ fontSize: 12, color: textPrimary, fontWeight: 600 }}>
+                                                                {m.display_number}
+                                                            </span>
+                                                            {m.responsible_solicitor && (
+                                                                <span style={{ fontSize: 9, color: textMuted, fontWeight: 500 }} title={m.responsible_solicitor}>
+                                                                    {m.responsible_solicitor.split(' ').map(n => n[0]).join('')}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <input
+                                                        type="date"
+                                                        value={dateValue}
+                                                        onChange={(e) => setCclMatterDates(prev => ({ ...prev, [m.display_number]: e.target.value }))}
+                                                        disabled={!isChecked}
+                                                        style={{
+                                                            padding: '4px 8px',
+                                                            fontSize: 11,
+                                                            border: `1px solid ${borderColor}`,
+                                                            borderRadius: 0,
+                                                            background: isDarkMode ? '#2d3748' : '#fff',
+                                                            color: isDarkMode ? '#f3f4f6' : '#1f2937',
+                                                            cursor: isChecked ? 'pointer' : 'not-allowed',
+                                                            opacity: isChecked ? 1 : 0.5,
+                                                        }}
+                                                    />
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                ) : (
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                        {confirmClient?.open_matters.map((m, i) => (
+                                            <span
+                                                key={i}
+                                                title={m.responsible_solicitor || 'No solicitor'}
+                                                style={{
+                                                    padding: '3px 8px',
+                                                    background: isDarkMode ? '#374151' : '#fff',
+                                                    border: `1px solid ${borderColor}`,
+                                                    fontSize: 11,
+                                                    color: textPrimary,
+                                                    fontWeight: 500,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: 6,
+                                                }}
+                                            >
+                                                <span>{m.display_number}</span>
+                                                {m.responsible_solicitor && (
+                                                    <span style={{ fontSize: 9, color: textMuted, fontWeight: 400 }}>
+                                                        {m.responsible_solicitor.split(' ').map(n => n[0]).join('')}
+                                                    </span>
+                                                )}
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
 
                             {/* Date for sent action */}
@@ -1613,10 +1821,10 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                             )}
 
                             {/* User */}
-                            {(confirmAction === 'sent' || confirmAction === 'na') && (
+                            {(confirmAction === 'sent' || confirmAction === 'na' || confirmAction === 'ccl-date') && (
                                 <div>
                                     <div style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', marginBottom: 6, fontWeight: 500, letterSpacing: '0.03em' }}>
-                                        {confirmAction === 'sent' ? 'Sent by' : 'Marked by'}
+                                        {confirmAction === 'sent' ? 'Sent by' : confirmAction === 'na' ? 'Marked by' : 'Updated by'}
                                     </div>
                                     <div style={{ fontSize: 12, color: textPrimary, fontWeight: 500 }}>{currentUserName}</div>
                                 </div>
@@ -1693,7 +1901,7 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                 display: 'flex', alignItems: 'center', gap: 8,
                             }}>
                                 <Spinner size={SpinnerSize.xSmall} />
-                                Updating Clio Matters
+                                Updating Matters
                             </div>
                             
                             {/* Status message */}
@@ -1902,7 +2110,7 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                             color: textSecondary,
                         }}>
                             <Spinner size={SpinnerSize.small} />
-                            Updating Clio...
+                            Updating...
                         </div>
                     ) : streamingComplete ? (
                         /* After streaming complete - show results and close button */
@@ -1977,15 +2185,20 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                             <button
                                 className="rc-btn rc-btn-primary"
                                 onClick={executeAction}
-                                disabled={confirmAction === 'na' && (!naReason || (naReason === 'custom' && !customReason.trim()))}
+                                disabled={(confirmAction === 'na' && (!naReason || (naReason === 'custom' && !customReason.trim())))
+                                    || (confirmAction === 'ccl-date' && !isCclDateActionValid)}
                                 style={{ 
                                     flex: 1, padding: '12px 16px', 
                                     border: 'none',
                                     borderRadius: 0,
-                                    background: (confirmAction === 'na' && (!naReason || (naReason === 'custom' && !customReason.trim()))) 
+                                    background: ((confirmAction === 'na' && (!naReason || (naReason === 'custom' && !customReason.trim())))
+                                        || (confirmAction === 'ccl-date' && !isCclDateActionValid)) 
                                         ? (isDarkMode ? '#4b5563' : 'rgba(54,144,206,0.4)')
                                         : colours.highlight,
-                                    color: (confirmAction === 'na' && (!naReason || (naReason === 'custom' && !customReason.trim()))) ? (isDarkMode ? '#9ca3af' : '#fff') : '#fff',
+                                    color: ((confirmAction === 'na' && (!naReason || (naReason === 'custom' && !customReason.trim())))
+                                        || (confirmAction === 'ccl-date' && !isCclDateActionValid))
+                                        ? (isDarkMode ? '#9ca3af' : '#fff')
+                                        : '#fff',
                                     fontSize: 14, fontWeight: 600, cursor: 'pointer',
                                 }}
                             >

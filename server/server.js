@@ -77,6 +77,7 @@ const teamsActivityTrackingRouter = require('./routes/teamsActivityTracking');
 const pitchTrackingRouter = require('./routes/pitchTracking');
 const enquiryEnrichmentRouter = require('./routes/enquiryEnrichment');
 const rateChangesRouter = require('./routes/rate-changes');
+const cclDateRouter = require('./routes/ccl-date');
 const expertsRouter = require('./routes/experts');
 const counselRouter = require('./routes/counsel');
 const techTicketsRouter = require('./routes/techTickets');
@@ -180,6 +181,9 @@ app.use('/api/pitch-tracking', pitchTrackingRouter);
 app.use('/api/enquiry-enrichment', enquiryEnrichmentRouter);
 // Rate change notification tracking
 app.use('/api/rate-changes', rateChangesRouter);
+
+// CCL Date operation (Clio + legacy SQL)
+app.use('/api/ccl-date', cclDateRouter);
 
 // Expert and Counsel directories
 app.use('/api/experts', expertsRouter);

@@ -1,7 +1,7 @@
 import { UserData } from './functionality/types';
 
 // Centralized list of admin users by initials
-export const ADMIN_USERS = ['LZ', 'AC', 'CB', 'KW', 'BL', 'JW', 'LA', 'BOD', 'IM'] as const;
+export const ADMIN_USERS = ['LZ', 'AC', 'CB', 'KW', 'JW', 'LA', 'FA'] as const;
 
 // Helper to determine if a user has admin privileges
 export function isAdminUser(user?: UserData | null): boolean {
@@ -9,7 +9,7 @@ export function isAdminUser(user?: UserData | null): boolean {
     const initials = user.Initials?.toUpperCase().trim();
     const first = user.First?.toLowerCase().trim();
     const nickname = user.Nickname?.toLowerCase().trim();
-    const adminNames = ['lukasz', 'luke', 'alex', 'cass', 'kanchel', 'billy', 'jonathan', 'laura', 'bianca'];
+    const adminNames = ['lukasz', 'luke', 'alex', 'cass', 'kanchel', 'jonathan', 'laura', 'finlay', 'fa'];
     return !!(
         (initials && ADMIN_USERS.includes(initials as any)) ||
         (first && adminNames.includes(first)) ||

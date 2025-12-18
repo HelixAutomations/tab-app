@@ -58,6 +58,34 @@ module.exports = function(app) {
       },
     })
   );
+
+  // Dedicated SSE proxy for CCL Date streaming
+  app.use(
+    '/api/ccl-date',
+    createProxyMiddleware({
+      target: 'http://localhost:8080',
+      changeOrigin: true,
+      ws: false,
+      timeout: 0,
+      proxyTimeout: 0,
+      selfHandleResponse: false,
+      onProxyReq: (proxyReq) => {
+        proxyReq.setHeader('Cache-Control', 'no-cache, no-transform');
+        proxyReq.setHeader('Connection', 'keep-alive');
+      },
+      onProxyRes: (proxyRes) => {
+        try {
+          proxyRes.headers['cache-control'] = 'no-cache, no-transform';
+          proxyRes.headers['x-accel-buffering'] = 'no';
+          delete proxyRes.headers['content-length'];
+        } catch { /* ignore */ }
+      },
+      onError: (err, req, res) => {
+        console.error(`SSE proxy error for ${req.url}:`, err.message);
+        try { res.writeHead(502); res.end('SSE proxy error'); } catch { /* ignore */ }
+      },
+    })
+  );
   // Routes that go to the Express server (port 8080)
   const expressRoutes = [
     '/api/matters',
@@ -76,10 +104,14 @@ module.exports = function(app) {
     '/api/ccl',
     '/api/enquiry-emails',
     '/api/pitches',
+    '/api/documents',
+    '/api/demo-documents',
     '/api/instructions',
     '/api/verify-id',
     '/api/sendEmail', // Centralized server email route
     '/api/attendance', // Attendance routes with annual leave integration
+    '/api/rate-changes',
+    '/api/ccl-date',
   '/api/reporting-stream', // Streaming datasets endpoint
   '/api/home-metrics',     // Home metrics SSE endpoint
     '/ccls'

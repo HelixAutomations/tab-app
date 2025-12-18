@@ -401,10 +401,16 @@ const App: React.FC<AppProps> = ({
     };
   }, []);
 
-  // Handler to show test enquiry (for local dev and admins)
+  // Handler to enable demo mode (adds a stable demo enquiry for demos/testing)
   const handleShowTestEnquiry = useCallback(() => {
     // Navigate to enquiries tab first
     setActiveTab('enquiries');
+    // Persist demo mode across sessions on this device
+    try {
+      localStorage.setItem('demoModeEnabled', 'true');
+    } catch {
+      // ignore storage errors (e.g., restricted environments)
+    }
     // Dispatch event to select the test enquiry
     setTimeout(() => {
       window.dispatchEvent(new CustomEvent('selectTestEnquiry'));

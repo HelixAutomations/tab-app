@@ -133,7 +133,8 @@ router.post('/searchInbox', async (req, res) => {
     const searchUrl = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(feeEarnerEmail)}/messages?` +
       `$search="${encodeURIComponent(searchQuery)}"&` +
       `$top=${maxResults}&` +
-      `$select=id,subject,receivedDateTime,from,toRecipients,ccRecipients,bodyPreview,hasAttachments,importance,internetMessageId`;
+      // bodyPreview is always truncated; include body to allow rendering the full email content
+      `$select=id,subject,receivedDateTime,from,toRecipients,ccRecipients,bodyPreview,body,hasAttachments,importance,internetMessageId`;
 
     if (debug) {
       console.log(`[inbox ${reqId}] searching inbox`, { searchUrl });
@@ -143,6 +144,8 @@ router.post('/searchInbox', async (req, res) => {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${accessToken}`,
+        // Required by Graph for $search queries; harmless if Graph relaxes this.
+        ConsistencyLevel: 'eventual',
         'client-request-id': reqId,
         'return-client-request-id': 'true',
       },
@@ -180,22 +183,44 @@ router.post('/searchInbox', async (req, res) => {
       const emails = searchResults.value || [];
       
       // Transform the results for frontend consumption
-      const transformedEmails = emails.map(email => ({
+      const transformedEmails = emails.map(email => {
+        const rawBody = email?.body || null;
+        const bodyContentType = rawBody?.contentType === 'html' || rawBody?.contentType === 'text'
+          ? rawBody.contentType
+          : null;
+        const bodyContent = typeof rawBody?.content === 'string' ? rawBody.content : null;
+
+        return ({
         id: email.id,
         subject: email.subject || '(No Subject)',
         receivedDateTime: email.receivedDateTime,
         from: email.from?.emailAddress?.address || 'Unknown',
         fromName: email.from?.emailAddress?.name || email.from?.emailAddress?.address || 'Unknown',
         bodyPreview: email.bodyPreview || '',
+        bodyHtml: bodyContentType === 'html' ? (bodyContent || '') : '',
+        bodyText: bodyContentType === 'text' ? (bodyContent || '') : '',
         hasAttachments: email.hasAttachments || false,
         importance: email.importance || 'normal',
         toRecipients: (email.toRecipients || []).map(r => r.emailAddress?.address).filter(Boolean),
         ccRecipients: (email.ccRecipients || []).map(r => r.emailAddress?.address).filter(Boolean),
         internetMessageId: email.internetMessageId || null,
-      }));
+      });
+      });
 
       // Sort by date since we can't use $orderby with $search
       transformedEmails.sort((a, b) => new Date(b.receivedDateTime).getTime() - new Date(a.receivedDateTime).getTime());
+
+      if (debug) {
+        try {
+          const sample = transformedEmails.slice(0, 3).map(e => ({
+            id: e.id,
+            previewLen: (e.bodyPreview || '').length,
+            htmlLen: (e.bodyHtml || '').length,
+            textLen: (e.bodyText || '').length,
+          }));
+          console.log(`[inbox ${reqId}] body length sample`, sample);
+        } catch { /* ignore debug logging failures */ }
+      }
 
       res.setHeader('X-Inbox-Request-Id', reqId);
       res.setHeader('X-Graph-Request-Id', graphRes.headers.get('request-id') || graphRes.headers.get('x-ms-request-id') || '');
