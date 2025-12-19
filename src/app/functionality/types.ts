@@ -71,6 +71,11 @@ export interface UserData {
 // Define the structure for Enquiry
 export interface Enquiry {
   ID: string;
+  /**
+   * Instructions DB id (Pitch-facing enquiry id). Present when unified API provides a cross-reference
+   * for migrated/paired enquiries.
+   */
+  pitchEnquiryId?: number | string;
   Date_Created: string;
   Touchpoint_Date: string;
   Email: string;

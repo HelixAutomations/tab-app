@@ -2318,7 +2318,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
     setReassignmentMessage(null);
     
     try {
-      const response = await fetch('/api/updateEnquiryPOC', {
+      const response = await fetch('/api/enquiries-unified/update', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

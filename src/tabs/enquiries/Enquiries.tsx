@@ -1035,7 +1035,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     setToastVisible(true);
     
     try {
-      const response = await fetch('/api/updateEnquiryPOC', {
+      const response = await fetch('/api/enquiries-unified/update', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1052,12 +1052,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         // Update local state immediately for optimistic UI
         setAllEnquiries(prev => prev.map(enq => 
           String(enq.ID) === String(enquiryId)
-            ? { ...enq, Point_of_Contact: selectedEmail }
+            ? { ...enq, Point_of_Contact: selectedEmail, poc: selectedEmail }
             : enq
         ));
         setTeamWideEnquiries(prev => prev.map(enq => 
           String(enq.ID) === String(enquiryId)
-            ? { ...enq, Point_of_Contact: selectedEmail }
+            ? { ...enq, Point_of_Contact: selectedEmail, poc: selectedEmail }
             : enq
         ));
         
@@ -3163,11 +3163,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             userInitials={userData && userData[0] ? userData[0].Initials : undefined}
             userEmail={userData?.[0]?.Email}
             featureToggles={featureToggles}
+            onOpenPitchBuilder={() => setActiveSubTab('Pitch')}
           />
         )}
       </>
     ),
-  [activeSubTab, userData, isLocalhost, featureToggles]
+  [activeSubTab, userData, isLocalhost, featureToggles, setActiveSubTab]
   );
 
   const enquiriesCountPerMember = useMemo(() => {

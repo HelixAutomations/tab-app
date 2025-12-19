@@ -397,7 +397,8 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
     if (richTextMode && bodyEditorRef?.current) {
       // Skip if the editor is currently focused - let the user type freely
       // Only sync when content changes from external sources (scenario selection, template insertion, etc.)
-      if (document.activeElement === bodyEditorRef.current) {
+      const active = document.activeElement as HTMLElement | null;
+      if (active && bodyEditorRef.current.contains(active)) {
         return;
       }
       
@@ -939,6 +940,7 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
         onFocus={() => setIsFocused(true)}
         onInput={(e) => {
           const target = e.currentTarget as HTMLDivElement;
+          internalUpdateRef.current = true;
           onChange(target.innerHTML);
         }}
         onBlur={(e) => {

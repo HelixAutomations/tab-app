@@ -24,6 +24,8 @@ const OperationStatusToast: React.FC<OperationStatusToastProps> = ({
   icon,
   isDarkMode = false
 }) => {
+  const nodeRef = React.useRef<HTMLDivElement>(null);
+
   const messageBarType = type === 'success' 
     ? MessageBarType.success 
     : type === 'error' 
@@ -54,8 +56,9 @@ const OperationStatusToast: React.FC<OperationStatusToastProps> = ({
   };
 
   return (
-    <CSSTransition in={visible} timeout={300} classNames="toast" unmountOnExit>
+    <CSSTransition in={visible} timeout={300} classNames="toast" unmountOnExit nodeRef={nodeRef}>
       <div
+        ref={nodeRef}
         style={{
           position: 'fixed',
           bottom: 20,

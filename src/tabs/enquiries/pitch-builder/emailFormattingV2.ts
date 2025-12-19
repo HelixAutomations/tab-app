@@ -1,9 +1,14 @@
 import { colours } from '../../../app/styles/colours';
 
 const FONT_FAMILY = 'Raleway,Arial,sans-serif';
-const BASE_PARAGRAPH_STYLE = `margin:0 0 10px 0;line-height:1.4;font-family:${FONT_FAMILY};font-size:10pt;`;
-const LIST_MARGIN = '0 0 12px 20px';
-const LIST_ITEM_STYLE = `margin:0 0 4px 0;line-height:1.4;font-family:${FONT_FAMILY};font-size:10pt;`;
+// Outlook (especially web) often collapses/ignores paragraph margins.
+// Use structural breaks (a dedicated <div><br></div>) to create separation instead.
+const BASE_LINE_STYLE = `line-height:1.4;font-family:${FONT_FAMILY};font-size:10pt;`;
+const BASE_PARAGRAPH_STYLE = `margin:0;${BASE_LINE_STYLE}`;
+const OUTLOOK_BREAK_BLOCK = `<div style="${BASE_LINE_STYLE}"><br></div>`;
+// Match Outlook Web's default list spacing more closely.
+const LIST_MARGIN = '0 0 0 20px';
+const LIST_ITEM_STYLE = `margin:0;${BASE_LINE_STYLE}`;
 
 const LOG_OPERATIONS = process.env.REACT_APP_EMAIL_V2_LOGGING === 'true';
 
@@ -141,30 +146,32 @@ export function preserveLineBreaksV2(html: string): string {
 
   let processed = html.replace(/\r\n/g, '\n');
 
+  // Email HTML often contains formatting newlines between tags; these should not become visible breaks.
+  processed = processed.replace(/>\s*\n+\s*</g, '><');
+  // Also strip formatting newlines after tags before plain text (common in indented table/signature HTML).
+  processed = processed.replace(/>\s*\n+\s*([^<\s])/g, '>$1');
+
   processed = processed.replace(/<div[^>]*>\s*<br[^>]*>\s*<\/div>/gi, '<br>');
   processed = processed.replace(/<div[^>]*>\s*<\/div>/gi, '');
 
   processed = processed.replace(/\n{3,}/g, '\n\n');
-  processed = processed.replace(/\n\s*\n/g, `</p><p style="${BASE_PARAGRAPH_STYLE}">`);
   processed = processed.replace(/\n/g, '<br>');
 
   processed = processed.replace(/(<br[^>]*>\s*){3,}/gi, `<br><br>`);
-  processed = processed.replace(/(<br[^>]*>\s*){2}/gi, `</p><p style="${BASE_PARAGRAPH_STYLE}">`);
 
   const trimmed = processed.trim();
   if (!trimmed) {
     return '';
   }
 
-  let wrapped = trimmed;
-  if (!/^<p\b/i.test(trimmed)) {
-    wrapped = `<p style="${BASE_PARAGRAPH_STYLE}">${wrapped}`;
-  }
-  if (!/<\/p>\s*$/i.test(wrapped)) {
-    wrapped = `${wrapped}</p>`;
+  const hasParagraph = /<p\b/i.test(trimmed);
+  const hasBlockContainer = /<(div|table|thead|tbody|tfoot|tr|td|th|ul|ol|li|section|article|header|footer|main|aside|form|figure|blockquote|h1|h2|h3|h4|h5|h6)\b/i.test(trimmed);
+
+  if (hasParagraph || hasBlockContainer) {
+    return trimmed;
   }
 
-  return wrapped;
+  return `<p style="${BASE_PARAGRAPH_STYLE}">${trimmed}</p>`;
 }
 
 /**
@@ -188,7 +195,23 @@ export function normalizeHtmlStructure(html: string): string {
       }
 
       if (shouldPreserveSpan(attributes)) {
-        return `<span${attributes}>${content}</span>`;
+        const styleMatch = attributes.match(/style\s*=\s*"([^"]*)"/i);
+        const otherAttrs = styleMatch ? attributes.replace(styleMatch[0], '').trim() : attributes.trim();
+        const cleanedStyleRaw = styleMatch ? stripProperties(styleMatch[1], ['font-family', 'font-size']) : '';
+        const cleanedStyle = cleanedStyleRaw
+          ? cleanedStyleRaw.concat(cleanedStyleRaw.trim().endsWith(';') ? '' : ';')
+          : '';
+        const attrFragment = otherAttrs ? ` ${otherAttrs}` : '';
+
+        if (cleanedStyle) {
+          return `<span${attrFragment} style="${cleanedStyle}">${content}</span>`;
+        }
+
+        if (attrFragment) {
+          return `<span${attrFragment}>${content}</span>`;
+        }
+
+        return content;
       }
 
       return content;
@@ -286,6 +309,10 @@ export function splitParagraphsOnDoubleBreaks(html: string): string {
   return html.replace(
     /<p([^>]*)>([\s\S]*?)<\/p>/gi,
     (match, attrs = '', content = '') => {
+      if (/(<\s*(div|table|thead|tbody|tfoot|tr|td|th|ul|ol|li|section|article|header|footer|main|aside|form|figure|blockquote)[^>]*>)/i.test(content)) {
+        return `<p${attrs}>${content}</p>`;
+      }
+
       const segments = content
         .split(/(?:<br[^>]*>\s*){2,}/gi)
         .map((segment: string) => segment.trim())
@@ -467,6 +494,45 @@ export function enhanceLinkFormatting(html: string): string {
 }
 
 /**
+ * Outlook can apply unexpected default font/spacing to bare text nodes.
+ * This commonly happens when rich HTML produces `</ul></div>Some text...`.
+ * Wrap those loose text runs into paragraphs with our base style.
+ */
+export function wrapLooseTextAfterLists(html: string): string {
+  if (!html) {
+    return '';
+  }
+
+  let processed = html;
+
+  // Case: </ul> ...text... <br><br> (often before another list)
+  processed = processed.replace(
+    /(<\/(?:ul|ol)>\s*(?:<\/div>)?\s*)([^<][\s\S]*?)(\s*(?:<br[^>]*>\s*){2,})/gi,
+    (match, prefix = '', text = '', suffix = '') => {
+      const cleaned = String(text).trim();
+      if (!cleaned) {
+        return `${prefix}${suffix}`;
+      }
+      return `${prefix}<p style="${BASE_PARAGRAPH_STYLE}">${cleaned}</p>${suffix}`;
+    }
+  );
+
+  // Case: </ul> ...text... <div (often followed by another block)
+  processed = processed.replace(
+    /(<\/(?:ul|ol)>\s*(?:<\/div>)?\s*)([^<][\s\S]*?)(\s*<div\b)/gi,
+    (match, prefix = '', text = '', next = '') => {
+      const cleaned = String(text).trim();
+      if (!cleaned) {
+        return `${prefix}${next}`;
+      }
+      return `${prefix}<p style="${BASE_PARAGRAPH_STYLE}">${cleaned}</p>${next}`;
+    }
+  );
+
+  return processed;
+}
+
+/**
  * Enhanced paragraph formatting for consistent spacing
  */
 export function enhanceParagraphFormatting(html: string): string {
@@ -533,9 +599,37 @@ export function addStructuralParagraphBreaks(html: string): string {
     return '';
   }
 
-  // Insert a <br> between closing </p> and opening <p> tags
-  // This creates a structural break that email clients won't collapse
-  let processed = html.replace(/<\/p>\s*<p/gi, '</p><br><p');
+  // Only add breaks between our *main* 10pt Raleway paragraphs / lists.
+  // This avoids changing signature tables and other embedded HTML.
+
+  const mainParagraphLookahead = String.raw`(?=<p[^>]*style="[^"]*font-family\s*:\s*Raleway[^"]*font-size\s*:\s*10pt[^"]*"\s*>)`;
+  const mainListLookahead = String.raw`(?=<(?:ul|ol)\b)`;
+
+  let processed = html;
+
+  // Paragraph -> Paragraph
+  processed = processed.replace(
+    new RegExp(String.raw`<\/p>\s*${mainParagraphLookahead}`, 'gi'),
+    `</p>${OUTLOOK_BREAK_BLOCK}`
+  );
+
+  // Paragraph -> List
+  processed = processed.replace(
+    new RegExp(String.raw`<\/p>\s*${mainListLookahead}`, 'gi'),
+    `</p>${OUTLOOK_BREAK_BLOCK}`
+  );
+
+  // List -> Paragraph
+  processed = processed.replace(
+    new RegExp(String.raw`<\/(?:ul|ol)>\s*${mainParagraphLookahead}`, 'gi'),
+    (m) => `${m}${OUTLOOK_BREAK_BLOCK}`
+  );
+
+  // List -> List
+  processed = processed.replace(
+    /<\/(?:ul|ol)>\s*(?=<(?:ul|ol)\b)/gi,
+    (m) => `${m}${OUTLOOK_BREAK_BLOCK}`
+  );
 
   return processed;
 }
@@ -568,6 +662,9 @@ export function processEmailContentV2(html: string): string {
     processed = enhanceParagraphFormatting(processed);
     LOG_OPERATIONS && console.log('[EmailV2] Paragraphs enhanced');
 
+    processed = wrapLooseTextAfterLists(processed);
+    LOG_OPERATIONS && console.log('[EmailV2] Loose text after lists wrapped');
+
     processed = splitParagraphsOnDoubleBreaks(processed);
     LOG_OPERATIONS && console.log('[EmailV2] Paragraphs split');
 
@@ -586,8 +683,9 @@ export function processEmailContentV2(html: string): string {
     processed = enhanceLinkFormatting(processed);
     LOG_OPERATIONS && console.log('[EmailV2] Links enhanced');
 
-    // Removed addStructuralParagraphBreaks - paragraphs now have bottom margin for proper spacing
-    // This eliminates the </p><br><p> pattern that caused double line breaks in Outlook
+    // Outlook often collapses paragraph margins; add a structural blank line between blocks.
+    processed = addStructuralParagraphBreaks(processed);
+    LOG_OPERATIONS && console.log('[EmailV2] Structural paragraph breaks added');
 
     processed = wrapWithEmailContainer(processed);
     LOG_OPERATIONS && console.log('[EmailV2] Container applied');

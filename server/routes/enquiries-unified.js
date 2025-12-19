@@ -26,7 +26,7 @@ router.get('/', async (req, res) => {
 
     // Build cache params (not a prebuilt key) for consistent unified cache keys
     const cacheParams = [
-      'enquiries-v2', // bump cache schema to invalidate old payloads
+      'enquiries-v3', // bump cache schema to invalidate old payloads
       limit,
       email,
       initials,
@@ -314,6 +314,15 @@ async function performUnifiedEnquiriesQuery(queryParams) {
 
   // Prefer legacy: add all legacy records first (with enhanced composite key to preserve distinct records)
   mainEnquiries.forEach(enquiry => {
+    // Expose the corresponding instructions DB id for downstream integrations (e.g. Pitch)
+    // For migrated/partial records, crossReferenceMap maps legacy id -> instructions id.
+    try {
+      const mapped = crossReferenceMap.get(enquiry.id);
+      if (mapped !== undefined && mapped !== null) {
+        enquiry.pitchEnquiryId = mapped;
+      }
+    } catch { /* ignore */ }
+
     const pocLower = (enquiry.poc || '').toString().trim().toLowerCase();
     const firstName = (enquiry.First_Name || '').toString().trim().toLowerCase();
     const lastName = (enquiry.Last_Name || '').toString().trim().toLowerCase();
@@ -333,6 +342,12 @@ async function performUnifiedEnquiriesQuery(queryParams) {
   instructionsEnquiries.forEach(enquiry => {
     const isMatchedToLegacy = matchedInstructionIds.has(String(enquiry.id));
     if (isMatchedToLegacy) return; // suppress new when a legacy counterpart exists
+
+    // For instructions-only records, the Pitch enquiry id is the instructions id
+    try {
+      enquiry.pitchEnquiryId = enquiry.id;
+    } catch { /* ignore */ }
+
     const compositeKey = `instructions-${enquiry.id}`;
     if (!seenIds.has(compositeKey)) {
       seenIds.add(compositeKey);
@@ -416,22 +431,70 @@ router.post('/update', async (req, res) => {
       return res.status(500).json({ error: 'Database configuration missing' });
     }
 
-    // Check which database(s) contain this enquiry
+    // Check which database(s) contain this enquiry.
+    // IMPORTANT: legacy and new instructions DB often use DIFFERENT IDs for the same enquiry.
+    // - Legacy: enquiries.ID
+    // - Instructions: enquiries.id (primary), with enquiries.acid storing the legacy ID (when available)
+    // We resolve a paired legacyId/instructionsId so updates persist and don't "revert" when
+    // the UI refreshes from the other source.
+
     const checkMainQuery = `SELECT COUNT(*) as count FROM enquiries WHERE ID = @id`;
+    const checkInstructionsQuery = `SELECT COUNT(*) as count FROM enquiries WHERE id = @id`;
+
+    let legacyIdToUpdate = enquiryId;
+    let instructionsIdToUpdate = enquiryId;
+
     const mainResult = await withRequest(mainConnectionString, async (request) => {
       request.input('id', sql.VarChar(50), enquiryId);
       return await request.query(checkMainQuery);
     });
-    const mainCount = mainResult.recordset[0]?.count || 0;
-    
-    // Check new instructions database (using lowercase 'id' field)
-    const checkInstructionsQuery = `SELECT COUNT(*) as count FROM enquiries WHERE id = @id`;
+    let mainCount = mainResult.recordset[0]?.count || 0;
+
     const instructionsResult = await withRequest(instructionsConnectionString, async (request) => {
       request.input('id', sql.VarChar(50), enquiryId);
       return await request.query(checkInstructionsQuery);
     });
-    const instructionsCount = instructionsResult.recordset[0]?.count || 0;
-    
+    let instructionsCount = instructionsResult.recordset[0]?.count || 0;
+
+    // If we only found a legacy row, try to locate its paired instructions row via acid.
+    if (mainCount > 0 && instructionsCount === 0) {
+      try {
+        const pairResult = await withRequest(instructionsConnectionString, async (request) => {
+          request.input('acid', sql.VarChar(50), enquiryId);
+          return await request.query(`SELECT TOP 1 id FROM enquiries WHERE acid = @acid`);
+        });
+        const pairedInstructionsId = pairResult.recordset?.[0]?.id;
+        if (pairedInstructionsId) {
+          instructionsIdToUpdate = String(pairedInstructionsId);
+          instructionsCount = 1;
+        }
+      } catch (pairErr) {
+        // Tolerant: not all environments may have acid populated
+        log.warn('Failed to resolve paired instructions enquiry via acid (legacy ID):', pairErr?.message);
+      }
+    }
+
+    // If we only found an instructions row, try to locate its paired legacy row via acid.
+    if (instructionsCount > 0 && mainCount === 0) {
+      try {
+        const acidResult = await withRequest(instructionsConnectionString, async (request) => {
+          request.input('id', sql.VarChar(50), enquiryId);
+          return await request.query(`SELECT TOP 1 acid FROM enquiries WHERE id = @id`);
+        });
+        const pairedLegacyId = acidResult.recordset?.[0]?.acid;
+        if (pairedLegacyId) {
+          legacyIdToUpdate = String(pairedLegacyId);
+          const legacyCheck = await withRequest(mainConnectionString, async (request) => {
+            request.input('id', sql.VarChar(50), legacyIdToUpdate);
+            return await request.query(checkMainQuery);
+          });
+          mainCount = legacyCheck.recordset[0]?.count || 0;
+        }
+      } catch (pairErr) {
+        log.warn('Failed to resolve paired legacy enquiry via acid (instructions ID):', pairErr?.message);
+      }
+    }
+
     if (mainCount === 0 && instructionsCount === 0) {
       return res.status(404).json({ error: 'Enquiry not found in either database' });
     }
@@ -442,7 +505,7 @@ router.post('/update', async (req, res) => {
     if (mainCount > 0) {
       await withRequest(mainConnectionString, async (request) => {
         const setClause = [];
-        request.input('id', sql.VarChar(50), enquiryId);
+        request.input('id', sql.VarChar(50), legacyIdToUpdate);
 
         if (updates.First_Name !== undefined) {
           setClause.push('First_Name = @firstName');
@@ -473,6 +536,11 @@ router.post('/update', async (req, res) => {
           request.input('rating', sql.VarChar(50), updates.Rating);
         }
 
+        if (updates.Point_of_Contact !== undefined) {
+          setClause.push('Point_of_Contact = @pointOfContact');
+          request.input('pointOfContact', sql.VarChar(255), updates.Point_of_Contact);
+        }
+
         if (setClause.length > 0) {
           const updateQuery = `UPDATE enquiries SET ${setClause.join(', ')} WHERE ID = @id`;
           await request.query(updateQuery);
@@ -485,7 +553,7 @@ router.post('/update', async (req, res) => {
     if (instructionsCount > 0) {
       await withRequest(instructionsConnectionString, async (request) => {
         const setClause = [];
-        request.input('id', sql.VarChar(50), enquiryId);
+        request.input('id', sql.VarChar(50), instructionsIdToUpdate);
 
         // Map to lowercase field names used in instructions database
         if (updates.First_Name !== undefined) {
@@ -517,6 +585,11 @@ router.post('/update', async (req, res) => {
           request.input('rating', sql.VarChar(50), updates.Rating);
         }
 
+        if (updates.Point_of_Contact !== undefined) {
+          setClause.push('poc = @poc');
+          request.input('poc', sql.VarChar(255), updates.Point_of_Contact);
+        }
+
         if (setClause.length > 0) {
           const updateQuery = `UPDATE enquiries SET ${setClause.join(', ')} WHERE id = @id`;
           await request.query(updateQuery);
@@ -541,7 +614,11 @@ router.post('/update', async (req, res) => {
       success: true,
       message: 'Enquiry updated successfully',
       enquiryId: ID,
-      updatedTables
+      updatedTables,
+      updatedIds: {
+        legacyId: legacyIdToUpdate,
+        instructionsId: instructionsIdToUpdate
+      }
     });
 
   } catch (error) {
