@@ -10,6 +10,7 @@ import { placeholderSuggestions } from '../../../app/customisation/InsertSuggest
 import { wrapInsertPlaceholders } from './emailUtils';
 import { SCENARIOS, SCENARIOS_VERSION } from './scenarios';
 import { applyDynamicSubstitutions, convertDoubleBreaksToParagraphs } from './emailUtils';
+import { processEmailContentV2 } from './emailFormattingV2';
 import FormattingToolbar from './FormattingToolbar';
 import { processEditorContentForEmail, KEYBOARD_SHORTCUTS, type FormattingCommand } from './emailFormattingUtils';
 import markUrl from '../../../assets/dark blue mark.svg';
@@ -3483,7 +3484,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                           ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.92) 0%, rgba(11, 30, 55, 0.86) 100%)'
                           : 'linear-gradient(135deg, rgba(248, 250, 252, 0.96) 0%, rgba(255, 255, 255, 0.92) 100%)',
                         color: isDarkMode ? '#E0F2FE' : '#1F2937',
-                        lineHeight: 1.4,
+                        lineHeight: 1.6,
                         fontSize: '14px',
                         borderRadius: '0 0 12px 12px',
                         border: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.3)' : 'rgba(148, 163, 184, 0.22)'}`,
@@ -3510,10 +3511,10 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                           undefined
                         );
                         const unresolvedBody = findPlaceholders(substituted);
-                        const finalBody = convertDoubleBreaksToParagraphs(substituted);
-                        const finalHighlighted = highlightPlaceholdersHtml(finalBody);
+                        // Use V2 formatter for proper Outlook-style spacing, then highlight placeholders
+                        const formatted = processEmailContentV2(substituted);
+                        const finalHighlighted = highlightPlaceholdersHtml(formatted);
                         const styledFinalHighlighted = finalHighlighted.replace(/<a\s+href="([^"]+)"[^>]*>\s*Instruct\s+Helix\s+Law\s*<\/a>/gi, (m, href) => {
-                          // Don't escape href - it's already a valid URL from the HTML
                           return `<a href="${href}" target="_blank" rel="noopener noreferrer" style="color:${colours.highlight};font-weight:700;text-decoration:underline;">Instruct Helix Law</a>`;
                         });
                         return (
@@ -3886,21 +3887,41 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
           box-shadow: none !important;
         }
         
-        /* Numbered list styling aligned with regular paragraph spacing */
-        ol:not(.hlx-numlist) {
+        /* Email preview lists - use native list-style, NOT custom counters */
+        .email-preview [data-hlx-email-container] ol,
+        .email-preview [data-hlx-email-container] ul {
+          counter-reset: none !important;
+          list-style-position: outside !important;
+        }
+        .email-preview [data-hlx-email-container] ol {
+          list-style-type: decimal !important;
+        }
+        .email-preview [data-hlx-email-container] ul {
+          list-style-type: disc !important;
+        }
+        .email-preview [data-hlx-email-container] li::before {
+          content: none !important;
+          display: none !important;
+        }
+        .email-preview [data-hlx-email-container] li {
+          counter-increment: none !important;
+        }
+        
+        /* Numbered list styling aligned with regular paragraph spacing (editor lists only) */
+        ol:not(.hlx-numlist):not([data-hlx-email-container] ol) {
           counter-reset: list-counter;
           list-style: none;
           padding-left: 1.5em;
           margin: 0 0 8px 0;
         }
-        ol:not(.hlx-numlist) li {
+        ol:not(.hlx-numlist):not([data-hlx-email-container] ol) li {
           counter-increment: list-counter;
           position: relative;
           padding-left: 1em;
           margin: 0 0 6px 0;
           line-height: 1.6;
         }
-        ol:not(.hlx-numlist) li::before {
+        ol:not(.hlx-numlist):not([data-hlx-email-container] ol) li::before {
           content: counter(list-counter) ".";
           position: absolute;
           left: -1.5em;

@@ -64,12 +64,10 @@ import {
   replacePlaceholders,
   applyDynamicSubstitutions,
   wrapInsertPlaceholders,
-  sanitizeBodyForSend,
-  sanitizeFinalHtml,
 } from './pitch-builder/emailUtils';
 import { inputFieldStyle } from '../../CustomForms/BespokeForms';
 import { ADDITIONAL_CLIENT_PLACEHOLDER_ID } from '../../constants/deals';
-import EmailProcessor from './pitch-builder/EmailProcessor';
+import { buildOutboundPitchEmailHtml } from './pitch-builder/EmailProcessor';
 import { pitchTelemetry } from './pitch-builder/pitchTelemetry';
 
 // PROOF_OF_ID_URL constant removed - now constructed dynamically with passcode in applyDynamicSubstitutions
@@ -3338,24 +3336,16 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
 
     await delay(400);
     
-    // Use shared sanitization utilities
-    const cleanedBody = sanitizeBodyForSend(body);
-
-    let finalHtml = EmailProcessor.processCompleteEmail(cleanedBody, {
+    const passForLink = normalizePasscode(dealPasscode, enquiry?.ID) || dealPasscode;
+    const rawHtmlForSend = (bodyEditorRef.current ? bodyEditorRef.current.innerHTML : body) || '';
+    const { html: finalHtml } = buildOutboundPitchEmailHtml({
+      rawHtml: rawHtmlForSend,
+      editorElement: bodyEditorRef.current,
       userData: effectiveUserData,
       enquiry,
       amount,
-      passcode: normalizePasscode(dealPasscode, enquiry?.ID) || dealPasscode,
-      editorElement: bodyEditorRef.current
+      passcode: passForLink
     });
-
-    // Build canonical instructions link for final sanitization
-    const finalInstructionsUrlBase = (process.env.REACT_APP_INSTRUCTIONS_URL || 'https://instruct.helix-law.com');
-    const passForLink = normalizePasscode(dealPasscode, enquiry?.ID) || dealPasscode;
-    const canonicalInstructionsHref = passForLink ? `${finalInstructionsUrlBase}/pitch/${passForLink}` : `${finalInstructionsUrlBase}/pitch`;
-    
-    // Apply final sanitization pass
-    finalHtml = sanitizeFinalHtml(finalHtml, canonicalInstructionsHref);
 
     // Step 3: Email composition (server will append personal signature)
     setEmailMessage('Generating final email…');
@@ -3542,7 +3532,6 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
           }
         }
       );
-      setBody(bodyEditorRef.current.innerHTML);
     }
 
     // Step 1: Deal capture with enhanced feedback
@@ -3585,24 +3574,16 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
 
     await delay(400);
 
-    // Use shared sanitization utilities (same as sendEmail)
-    const cleanedBody = sanitizeBodyForSend(body);
-
-    let finalHtml = EmailProcessor.processCompleteEmail(cleanedBody, {
+    const passForLink = normalizePasscode(currentPasscode, enquiry?.ID) || currentPasscode;
+    const rawHtmlForSend = (bodyEditorRef.current ? bodyEditorRef.current.innerHTML : body) || '';
+    const { html: finalHtml } = buildOutboundPitchEmailHtml({
+      rawHtml: rawHtmlForSend,
+      editorElement: bodyEditorRef.current,
       userData: effectiveUserData,
       enquiry,
       amount,
-      passcode: normalizePasscode(currentPasscode, enquiry?.ID) || currentPasscode,
-      editorElement: bodyEditorRef.current
+      passcode: passForLink
     });
-
-    // Build canonical instructions link for final sanitization
-    const finalInstructionsUrlBase = (process.env.REACT_APP_INSTRUCTIONS_URL || 'https://instruct.helix-law.com');
-    const passForLink = normalizePasscode(currentPasscode, enquiry?.ID) || currentPasscode;
-    const canonicalInstructionsHref = passForLink ? `${finalInstructionsUrlBase}/pitch/${passForLink}` : `${finalInstructionsUrlBase}/pitch`;
-    
-    // Apply final sanitization pass (same as sendEmail)
-    finalHtml = sanitizeFinalHtml(finalHtml, canonicalInstructionsHref);
 
     // Step 3: Email composition (server will append personal signature)
     setEmailMessage('Generating email draft…');

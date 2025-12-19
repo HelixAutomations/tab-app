@@ -24,13 +24,7 @@ import {
 } from '../../../app/styles/ButtonStyles';
 import { componentTokens } from '../../../app/styles/componentTokens';
 import markWhite from '../../../assets/markwhite.svg';
-import {
-  removeHighlightSpans,
-  markUnfilledPlaceholders,
-  removeUnfilledPlaceholders,
-  applyDynamicSubstitutions,
-} from './emailUtils';
-import { processEmailContentV2 } from './emailFormattingV2';
+import { buildPitchEmailPreviewHtml } from './EmailProcessor';
 import ExperimentalAssistant from './ExperimentalAssistant';
 import { isInTeams } from '../../../app/functionality/isInTeams';
 import { TemplateBlock } from '../../../app/customisation/ProductionTemplateBlocks';
@@ -118,17 +112,15 @@ const EmailPreview: React.FC<EmailPreviewProps> = ({
   // Generate checkout URL first
   const checkoutPreviewUrl = 'https://instruct.helix-law.com/pitch';
   
-  // Process body HTML using imported functions
-  const sanitized = removeHighlightSpans(withoutAutoBlocks);
-  const substituted = applyDynamicSubstitutions(
-    sanitized,
+  const processedBody = buildPitchEmailPreviewHtml({
+    rawHtml: withoutAutoBlocks,
+    editorElement: null,
     userData,
     enquiry,
     amount,
-    passcode
-  );
-  const highlightedBody = markUnfilledPlaceholders(substituted, templateBlocks);
-  const processedBody = processEmailContentV2(highlightedBody);
+    passcode,
+    templateBlocks
+  });
   const previewHtml = ReactDOMServer.renderToStaticMarkup(
     <div dangerouslySetInnerHTML={{ __html: processedBody }} />
   );

@@ -3,12 +3,14 @@ import { colours } from '../../../app/styles/colours';
 const FONT_FAMILY = 'Raleway,Arial,sans-serif';
 // Outlook (especially web) often collapses/ignores paragraph margins.
 // Use structural breaks (a dedicated <div><br></div>) to create separation instead.
-const BASE_LINE_STYLE = `line-height:1.4;font-family:${FONT_FAMILY};font-size:10pt;`;
+// Keep line-height consistent with the in-app editor/preview to avoid visible differences.
+const BASE_LINE_STYLE = `line-height:1.6;font-family:${FONT_FAMILY};font-size:10pt;`;
 const BASE_PARAGRAPH_STYLE = `margin:0;${BASE_LINE_STYLE}`;
-const OUTLOOK_BREAK_BLOCK = `<div style="${BASE_LINE_STYLE}"><br></div>`;
+const OUTLOOK_BREAK_BLOCK = `<div data-hlx-break="true" style="${BASE_LINE_STYLE}"><br></div>`;
 // Match Outlook Web's default list spacing more closely.
+// No bottom margin since structural breaks provide separation after lists.
 const LIST_MARGIN = '0 0 0 20px';
-const LIST_ITEM_STYLE = `margin:0;${BASE_LINE_STYLE}`;
+const LIST_ITEM_STYLE = `margin:0 0 4px 0;line-height:1.4;font-family:${FONT_FAMILY};font-size:10pt;`;
 
 const LOG_OPERATIONS = process.env.REACT_APP_EMAIL_V2_LOGGING === 'true';
 
@@ -150,6 +152,8 @@ export function preserveLineBreaksV2(html: string): string {
   processed = processed.replace(/>\s*\n+\s*</g, '><');
   // Also strip formatting newlines after tags before plain text (common in indented table/signature HTML).
   processed = processed.replace(/>\s*\n+\s*([^<\s])/g, '>$1');
+  // Avoid generating stray <br> just before list item closing tags due to formatting newlines.
+  processed = processed.replace(/\s*\n+\s*(<\/li>)/gi, '$1');
 
   processed = processed.replace(/<div[^>]*>\s*<br[^>]*>\s*<\/div>/gi, '<br>');
   processed = processed.replace(/<div[^>]*>\s*<\/div>/gi, '');
@@ -172,6 +176,184 @@ export function preserveLineBreaksV2(html: string): string {
   }
 
   return `<p style="${BASE_PARAGRAPH_STYLE}">${trimmed}</p>`;
+}
+
+function normalizeTopLevelTextRuns(html: string): string {
+  if (!html) {
+    return '';
+  }
+
+  // This formatter runs in the browser, but keep a safe fallback in case
+  // it is invoked in a non-DOM environment.
+  if (typeof DOMParser === 'undefined') {
+    return html;
+  }
+
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(`<div data-hlx-root="true">${html}</div>`, 'text/html');
+    const container = doc.body.firstElementChild as HTMLDivElement | null;
+    if (!container) {
+      return html;
+    }
+
+    const blockTags = new Set([
+      'DIV',
+      'P',
+      'UL',
+      'OL',
+      'TABLE',
+      'THEAD',
+      'TBODY',
+      'TFOOT',
+      'TR',
+      'TD',
+      'TH',
+      'SECTION',
+      'ARTICLE',
+      'HEADER',
+      'FOOTER',
+      'MAIN',
+      'ASIDE',
+      'FORM',
+      'FIGURE',
+      'BLOCKQUOTE',
+      'H1',
+      'H2',
+      'H3',
+      'H4',
+      'H5',
+      'H6'
+    ]);
+
+    const newChildren: Node[] = [];
+    let buffer: Node[] = [];
+
+    const hasMeaningfulBuffer = () =>
+      buffer.some((n) => (n.nodeType === Node.TEXT_NODE ? (n.textContent || '').trim().length > 0 : true));
+
+    const flushParagraph = () => {
+      if (!hasMeaningfulBuffer()) {
+        buffer = [];
+        return;
+      }
+
+      const p = doc.createElement('p');
+      p.setAttribute('style', BASE_PARAGRAPH_STYLE);
+      buffer.forEach((n) => p.appendChild(n));
+      newChildren.push(p);
+      buffer = [];
+    };
+
+    const nodes = Array.from(container.childNodes);
+    for (let index = 0; index < nodes.length; index++) {
+      const node = nodes[index];
+
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.textContent || '';
+        if (text.trim().length === 0) {
+          continue;
+        }
+        buffer.push(node);
+        continue;
+      }
+
+      if (node.nodeType !== Node.ELEMENT_NODE) {
+        continue;
+      }
+
+      const el = node as HTMLElement;
+
+      if (el.tagName === 'BR') {
+        // Treat <br><br> as a paragraph boundary.
+        const next = nodes[index + 1];
+        if (next && next.nodeType === Node.ELEMENT_NODE && (next as HTMLElement).tagName === 'BR') {
+          flushParagraph();
+          // Skip all consecutive <br> after the first.
+          while (
+            nodes[index + 1] &&
+            nodes[index + 1].nodeType === Node.ELEMENT_NODE &&
+            (nodes[index + 1] as HTMLElement).tagName === 'BR'
+          ) {
+            index++;
+          }
+          continue;
+        }
+
+        // Single <br> stays within a paragraph.
+        buffer.push(el);
+        continue;
+      }
+
+      if (blockTags.has(el.tagName)) {
+        flushParagraph();
+        newChildren.push(el);
+        continue;
+      }
+
+      // Inline element at top-level: include it in paragraph.
+      buffer.push(el);
+    }
+
+    flushParagraph();
+
+    container.innerHTML = '';
+    newChildren.forEach((n) => container.appendChild(n));
+
+    return container.innerHTML;
+  } catch {
+    return html;
+  }
+}
+
+function tidyListItemBreaks(html: string): string {
+  if (!html) {
+    return '';
+  }
+
+  return html.replace(
+    /<li([^>]*)>([\s\S]*?)<\/li>/gi,
+    (_match, attrs = '', content = '') => {
+      const cleaned = String(content)
+        .replace(/^(?:\s*<br[^>]*>\s*)+/gi, '')
+        .replace(/(?:\s*<br[^>]*>\s*)+$/gi, '')
+        .replace(/(<br[^>]*>\s*){3,}/gi, '<br><br>')
+        .trim();
+
+      const withoutNbsp = cleaned.replace(/(?:&nbsp;|&#160;|\u00a0)/gi, '').trim();
+      if (!withoutNbsp) {
+        // Drop empty list items so we don't render a stray bullet for a visual line break.
+        return '';
+      }
+
+      return `<li${attrs}>${cleaned}</li>`;
+    }
+  );
+}
+
+function collapseStructuralBreakBlocks(html: string): string {
+  if (!html) {
+    return '';
+  }
+
+  let processed = html;
+
+  processed = processed.replace(
+    /(?:\s*<div[^>]*data-hlx-break\s*=\s*"true"[^>]*>\s*<br[^>]*>\s*<\/div>\s*){2,}/gi,
+    OUTLOOK_BREAK_BLOCK
+  );
+
+  processed = processed.replace(
+    new RegExp(String.raw`^\s*${OUTLOOK_BREAK_BLOCK}\s*`, 'i'),
+    ''
+  );
+
+  processed = processed.replace(
+    new RegExp(String.raw`\s*${OUTLOOK_BREAK_BLOCK}\s*$`, 'i'),
+    ''
+  );
+
+  return processed;
 }
 
 /**
@@ -360,7 +542,23 @@ export function protectNumbersFromOutlook(html: string): string {
 }
 
 export function wrapWithEmailContainer(html: string): string {
-  return html || '';
+  if (!html) {
+    return '';
+  }
+
+  const trimmed = html.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  // Idempotent: avoid double-wrapping if already wrapped.
+  if (/^<div[^>]*data-hlx-email-container\s*=\s*"true"[^>]*>/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  // Ensure bare text nodes (e.g. between <br> tags) inherit the same base font sizing.
+  // Keep this wrapper minimal to avoid interfering with signature tables appended server-side.
+  return `<div data-hlx-email-container="true" style="${BASE_LINE_STYLE}color:#000;">${trimmed}</div>`;
 }
 
 function adjustParagraphMargin(paragraph: RegExpMatchArray, margin: string): string {
@@ -436,6 +634,19 @@ export function enhanceListFormattingV2(html: string): string {
   }
 
   let processed = html;
+
+  // Normalize data-list-paragraph wrappers: use consistent V2 line-height, strip legacy 1.4
+  processed = processed.replace(
+    /<div([^>]*data-list-paragraph[^>]*)>/gi,
+    (match, attrs = '') => {
+      const otherAttrs = attrs
+        .replace(/style\s*=\s*"[^"]*"/gi, '')
+        .replace(/data-list-paragraph\s*=\s*"[^"]*"/gi, '')
+        .trim();
+      const attrFragment = otherAttrs ? ` ${otherAttrs}` : '';
+      return `<div${attrFragment} data-list-paragraph="true">`;
+    }
+  );
 
   processed = processed.replace(
     /<ul([^>]*)>/gi,
@@ -603,7 +814,8 @@ export function addStructuralParagraphBreaks(html: string): string {
   // This avoids changing signature tables and other embedded HTML.
 
   const mainParagraphLookahead = String.raw`(?=<p[^>]*style="[^"]*font-family\s*:\s*Raleway[^"]*font-size\s*:\s*10pt[^"]*"\s*>)`;
-  const mainListLookahead = String.raw`(?=<(?:ul|ol)\b)`;
+  // Lists may be wrapped in <div data-list-paragraph>
+  const mainListLookahead = String.raw`(?=(?:<div[^>]*data-list-paragraph[^>]*>\s*)?<(?:ul|ol)\b)`;
 
   let processed = html;
 
@@ -613,25 +825,31 @@ export function addStructuralParagraphBreaks(html: string): string {
     `</p>${OUTLOOK_BREAK_BLOCK}`
   );
 
-  // Paragraph -> List
+  // Paragraph -> List (including wrapped lists)
   processed = processed.replace(
     new RegExp(String.raw`<\/p>\s*${mainListLookahead}`, 'gi'),
     `</p>${OUTLOOK_BREAK_BLOCK}`
   );
 
-  // List -> Paragraph
+  // List wrapper div end -> Paragraph (</div></p> after list wrapper)
+  processed = processed.replace(
+    new RegExp(String.raw`<\/(?:ul|ol)>\s*<\/div>\s*${mainParagraphLookahead}`, 'gi'),
+    (m) => `${m}${OUTLOOK_BREAK_BLOCK}`
+  );
+
+  // List -> Paragraph (unwrapped lists)
   processed = processed.replace(
     new RegExp(String.raw`<\/(?:ul|ol)>\s*${mainParagraphLookahead}`, 'gi'),
     (m) => `${m}${OUTLOOK_BREAK_BLOCK}`
   );
 
-  // List -> List
+  // List -> List (including wrapped)
   processed = processed.replace(
-    /<\/(?:ul|ol)>\s*(?=<(?:ul|ol)\b)/gi,
+    /<\/(?:ul|ol)>\s*(?:<\/div>\s*)?(?=(?:<div[^>]*data-list-paragraph[^>]*>\s*)?<(?:ul|ol)\b)/gi,
     (m) => `${m}${OUTLOOK_BREAK_BLOCK}`
   );
 
-  return processed;
+  return collapseStructuralBreakBlocks(processed);
 }
 
 /**
@@ -656,6 +874,9 @@ export function processEmailContentV2(html: string): string {
     processed = preserveLineBreaksV2(processed);
     LOG_OPERATIONS && console.log('[EmailV2] Line breaks preserved');
 
+    processed = normalizeTopLevelTextRuns(processed);
+    LOG_OPERATIONS && console.log('[EmailV2] Top-level text runs normalised');
+
     processed = protectNumbersFromOutlook(processed);
     LOG_OPERATIONS && console.log('[EmailV2] Numbers protected');
 
@@ -679,6 +900,9 @@ export function processEmailContentV2(html: string): string {
 
     processed = enhanceListFormattingV2(processed);
     LOG_OPERATIONS && console.log('[EmailV2] Lists enhanced');
+
+    processed = tidyListItemBreaks(processed);
+    LOG_OPERATIONS && console.log('[EmailV2] List item breaks tidied');
 
     processed = enhanceLinkFormatting(processed);
     LOG_OPERATIONS && console.log('[EmailV2] Links enhanced');

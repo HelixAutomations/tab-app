@@ -10,7 +10,10 @@ import { processEmailContentV2 } from './emailFormattingV2';
 import { 
   removeHighlightSpans,
   applyDynamicSubstitutions,
-  removeUnfilledPlaceholders
+  removeUnfilledPlaceholders,
+  markUnfilledPlaceholders,
+  sanitizeBodyForSend,
+  sanitizeFinalHtml
 } from './emailUtils';
 
 import { pitchTelemetry } from './pitchTelemetry';
@@ -235,6 +238,66 @@ export class EmailProcessor {
       return content || 'Email content processing failed. Please try again.';
     }
   }
+}
+
+/**
+ * Canonical outbound HTML builder for Pitch Builder.
+ *
+ * This intentionally centralises the send/draft pipeline so we don't have
+ * multiple slightly-different codepaths producing email HTML.
+ */
+export function buildOutboundPitchEmailHtml(args: {
+  rawHtml: string;
+  editorElement?: HTMLElement | null;
+  userData: any;
+  enquiry: any;
+  amount?: number | string;
+  passcode: string;
+}): { html: string; instructionsHref: string } {
+  const cleanedBody = sanitizeBodyForSend(args.rawHtml);
+
+  const passForLink = args.passcode;
+  const instructionsUrlBase = (process.env.REACT_APP_INSTRUCTIONS_URL || 'https://instruct.helix-law.com').replace(/\/$/, '');
+  const canonicalInstructionsHref = passForLink ? `${instructionsUrlBase}/pitch/${passForLink}` : `${instructionsUrlBase}/pitch`;
+
+  let html = EmailProcessor.processCompleteEmail(cleanedBody, {
+    userData: args.userData,
+    enquiry: args.enquiry,
+    amount: args.amount,
+    passcode: passForLink,
+    editorElement: args.editorElement
+  });
+
+  html = sanitizeFinalHtml(html, canonicalInstructionsHref);
+
+  return { html, instructionsHref: canonicalInstructionsHref };
+}
+
+/**
+ * Canonical preview HTML builder (keeps unfilled placeholders highlighted).
+ * This is used by the preview UI; it should remain consistent with the outbound
+ * formatting engine, but must NOT remove placeholders.
+ */
+export function buildPitchEmailPreviewHtml(args: {
+  rawHtml: string;
+  editorElement?: HTMLElement | null;
+  userData: any;
+  enquiry: any;
+  amount?: number | string;
+  passcode?: string;
+  templateBlocks: any;
+}): string {
+  const cleanedBody = sanitizeBodyForSend(args.rawHtml);
+  const sanitized = removeHighlightSpans(cleanedBody);
+  const substituted = applyDynamicSubstitutions(
+    sanitized,
+    args.userData,
+    args.enquiry,
+    args.amount,
+    args.passcode
+  );
+  const highlighted = markUnfilledPlaceholders(substituted, args.templateBlocks);
+  return processEmailContentV2(highlighted);
 }
 
 /**
