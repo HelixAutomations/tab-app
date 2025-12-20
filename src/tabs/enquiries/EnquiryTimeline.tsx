@@ -4,10 +4,11 @@ import { Enquiry } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
 import SectionCard from '../home/SectionCard';
 import { useTheme } from '../../app/functionality/ThemeContext';
-import { FaEnvelope, FaPhone, FaFileAlt, FaCheckCircle, FaCircle, FaArrowRight, FaUser, FaCalendar, FaInfoCircle, FaChevronDown, FaChevronUp, FaPoundSign } from 'react-icons/fa';
+import { FaEnvelope, FaPhone, FaFileAlt, FaCheckCircle, FaCircle, FaArrowRight, FaUser, FaCalendar, FaInfoCircle, FaChevronDown, FaChevronUp, FaPoundSign, FaClipboard } from 'react-icons/fa';
 import { parseISO, format, differenceInDays } from 'date-fns';
 import OperationStatusToast from './pitch-builder/OperationStatusToast';
 import { practiceAreasByArea } from '../instructions/MatterOpening/config';
+import { SCENARIOS } from './pitch-builder/scenarios';
 
 // Add spinner animation
 const spinnerStyle = document.createElement('style');
@@ -32,9 +33,67 @@ spinnerStyle.textContent = `
     }
   }
 `;
-if (!document.head.querySelector('style[data-spinner]')) {
+const existingSpinnerStyle = document.head.querySelector('style[data-spinner]') as HTMLStyleElement | null;
+if (existingSpinnerStyle) {
+  existingSpinnerStyle.textContent = spinnerStyle.textContent;
+} else {
   spinnerStyle.setAttribute('data-spinner', 'true');
   document.head.appendChild(spinnerStyle);
+}
+
+// Action button hover/active effects (separate style tag so it always applies)
+const actionButtonStyle = document.createElement('style');
+actionButtonStyle.textContent = `
+  .action-btn-group,
+  .action-btn {
+    transform: translateY(0);
+    transition: transform 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+  }
+
+  /* Light mode hover/active */
+  .action-btn-group:not([data-disabled="true"]):not(.dark-mode):hover,
+  .action-btn:not(:disabled):not(.dark-mode):hover {
+    background-color: rgba(54, 144, 206, 0.18) !important;
+    border-color: rgba(54, 144, 206, 0.5) !important;
+    box-shadow: 0 1px 4px rgba(54, 144, 206, 0.15);
+  }
+
+  .action-btn-group:not([data-disabled="true"]):not(.dark-mode):active,
+  .action-btn:not(:disabled):not(.dark-mode):active {
+    transform: translateY(1px);
+    background-color: rgba(54, 144, 206, 0.22) !important;
+    box-shadow: none;
+  }
+
+  /* Dark mode hover/active */
+  .action-btn-group.dark-mode:not([data-disabled="true"]):hover,
+  .action-btn.dark-mode:not(:disabled):hover {
+    background-color: rgba(135, 243, 243, 0.25) !important;
+    border-color: rgba(135, 243, 243, 0.6) !important;
+    box-shadow: 0 1px 4px rgba(135, 243, 243, 0.12);
+  }
+
+  .action-btn-group.dark-mode:not([data-disabled="true"]):active,
+  .action-btn.dark-mode:not(:disabled):active {
+    transform: translateY(1px);
+    background-color: rgba(135, 243, 243, 0.3) !important;
+    box-shadow: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .action-btn-group,
+    .action-btn {
+      transition: none !important;
+    }
+  }
+`;
+
+const existingActionButtonStyle = document.head.querySelector('style[data-action-buttons]') as HTMLStyleElement | null;
+if (existingActionButtonStyle) {
+  existingActionButtonStyle.textContent = actionButtonStyle.textContent;
+} else {
+  actionButtonStyle.setAttribute('data-action-buttons', 'true');
+  document.head.appendChild(actionButtonStyle);
 }
 
 // Email HTML: prevent embedded styles/scripts from breaking the UI, and keep rendering consistent.
@@ -166,7 +225,7 @@ interface TimelineItem {
     contentType?: string;         // MIME type
     blobUrl?: string;             // Azure blob URL for download
     stageUploaded?: 'enquiry' | 'pitch' | 'instruction';
-    documentId?: number;          // Database ID for preview URL fetch
+    documentId?: number | string; // Database ID for preview URL fetch (or blob id when listed from storage)
 
     // Document workspace shell (created via Request Docs)
     isDocWorkspace?: boolean;
@@ -213,9 +272,18 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({ document, o
           return;
         }
 
+        // Prefer proxying a provided blob URL (if it is an Azure blob URL).
+        if (typeof blobUrl === 'string' && blobUrl.startsWith('http')) {
+          const base = `/api/prospect-documents/proxy?url=${encodeURIComponent(blobUrl)}&filename=${encodeURIComponent(filename)}`;
+          setPreviewUrl(base);
+          setDownloadUrl(`${base}&download=true`);
+          setLoading(false);
+          return;
+        }
+
         const docId = document.metadata?.documentId;
 
-        if (!docId) {
+        if (typeof docId !== 'number' || !Number.isFinite(docId)) {
           setError('Preview not available');
           setLoading(false);
           return;
@@ -228,15 +296,6 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({ document, o
           return;
         }
 
-        // Prefer proxying a provided blob URL (if it is an Azure blob URL).
-        if (typeof blobUrl === 'string' && blobUrl.startsWith('http')) {
-          const base = `/api/prospect-documents/proxy?url=${encodeURIComponent(blobUrl)}&filename=${encodeURIComponent(filename)}`;
-          setPreviewUrl(base);
-          setDownloadUrl(`${base}&download=true`);
-          setLoading(false);
-          return;
-        }
-        
         const pitchBackendUrl = process.env.REACT_APP_PITCH_BACKEND_URL || 'https://instruct.helix-law.com';
         const res = await fetch(`${pitchBackendUrl}/api/prospect-documents/preview-url?id=${docId}`);
         if (res.ok) {
@@ -480,7 +539,7 @@ interface EnquiryTimelineProps {
   userInitials?: string;
   userEmail?: string;
   featureToggles?: Record<string, boolean>;
-  onOpenPitchBuilder?: () => void;
+  onOpenPitchBuilder?: (scenarioId?: string) => void;
 }
 
 const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoadingStatus = true, userInitials, userEmail, featureToggles, onOpenPitchBuilder }) => {
@@ -524,6 +583,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   const [showForwardDialog, setShowForwardDialog] = useState(false);
   const [forwardEmail, setForwardEmail] = useState<TimelineItem | null>(null);
   const [forwardCc, setForwardCc] = useState('');
+  const [showPitchConfirm, setShowPitchConfirm] = useState(false);
+  const [selectedScenario, setSelectedScenario] = useState<string | null>(null);
   const { isDarkMode } = useTheme();
 
   const viewAsProdFromStorage = (() => {
@@ -576,14 +637,14 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     return Array.isArray(options) ? options : [];
   }, [docRequestAreaOfWork]);
 
-  const [docRequestWorktype, setDocRequestWorktype] = useState<string>(() => {
-    const area = resolveDefaultAreaOfWork(resolveEnquiryAreaOfWorkRaw(enquiry));
-    return practiceAreasByArea[area]?.[0] ?? '';
-  });
+  const [docRequestWorktype, setDocRequestWorktype] = useState<string>('');
   const [docRequestServiceDescription, setDocRequestServiceDescription] = useState<string>(() => String(resolveEnquiryAreaOfWorkRaw(enquiry) || 'Document request'));
   const [docRequestAmount, setDocRequestAmount] = useState<string>('');
   const [docRequestDealIsNa, setDocRequestDealIsNa] = useState<boolean>(true);
   const [docRequestConfirmOpen, setDocRequestConfirmOpen] = useState<boolean>(false);
+
+  // Hover states for action buttons
+  const [hoveredAction, setHoveredAction] = useState<string | null>(null);
 
   const formatDocRequestAmount = (val: string): string => {
     const raw = String(val || '').replace(/[£\s]/g, '').replace(/,/g, '');
@@ -623,7 +684,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   useEffect(() => {
     const nextArea = resolveDefaultAreaOfWork(resolveEnquiryAreaOfWorkRaw(enquiry));
     setDocRequestAreaOfWork(nextArea);
-    setDocRequestWorktype(practiceAreasByArea[nextArea]?.[0] ?? '');
+    setDocRequestWorktype('');
     setDocRequestServiceDescription(String(resolveEnquiryAreaOfWorkRaw(enquiry) || 'Document request'));
     setDocRequestConfirmOpen(false);
   }, [enquiry?.ID, enquiry?.Area_of_Work]);
@@ -634,12 +695,14 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     setDocRequestDealIsNa(true);
     setDocRequestAmount('0.00');
     setDocRequestServiceDescription('Document request');
+    // Avoid misleading defaults: force explicit work type selection.
+    setDocRequestWorktype('');
   }, [docRequestConfirmOpen]);
 
   useEffect(() => {
     // Keep worktype consistent with selected area.
     if (!docRequestWorktypeOptions.includes(docRequestWorktype)) {
-      setDocRequestWorktype(docRequestWorktypeOptions[0] ?? '');
+      setDocRequestWorktype('');
     }
   }, [docRequestWorktypeOptions, docRequestWorktype]);
 
@@ -664,6 +727,130 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     const hours = Math.floor((totalMinutes - days * 60 * 24) / 60);
     if (days > 0) return `Expires in ${days}d ${hours}h`;
     return `Expires in ${Math.max(0, hours)}h`;
+  };
+
+  const isExpiredIso = (expiresAtIso?: string) => {
+    if (!expiresAtIso) return false;
+    const expiresAt = new Date(expiresAtIso);
+    const expiresMs = expiresAt.getTime();
+    if (!Number.isFinite(expiresMs)) return false;
+    return expiresMs - nowTick <= 0;
+  };
+
+  const DOC_WORKSPACE_STORAGE_PREFIX = 'helix:doc-workspace:';
+
+  type DocWorkspaceStored = {
+    passcode: string;
+    urlPath: string;
+    createdAt?: string;
+    expiresAt?: string;
+    dealId?: number;
+    worktype?: string;
+  };
+
+  const readStoredDocWorkspace = (pitchEnquiryId: number): DocWorkspaceStored | null => {
+    try {
+      const raw = window.localStorage.getItem(`${DOC_WORKSPACE_STORAGE_PREFIX}${pitchEnquiryId}`);
+      if (!raw) return null;
+      const parsed: unknown = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return null;
+      const record = parsed as Record<string, unknown>;
+      const passcode = typeof record.passcode === 'string' ? record.passcode : '';
+      const urlPath = typeof record.urlPath === 'string' ? record.urlPath : '';
+      if (!passcode || !urlPath) return null;
+
+      const createdAt = typeof record.createdAt === 'string' ? record.createdAt : undefined;
+      const expiresAt = typeof record.expiresAt === 'string' ? record.expiresAt : undefined;
+      const dealId = typeof record.dealId === 'number' ? record.dealId : undefined;
+      const worktype = typeof record.worktype === 'string' ? record.worktype : undefined;
+
+      return { passcode, urlPath, createdAt, expiresAt, dealId, worktype };
+    } catch {
+      return null;
+    }
+  };
+
+  const writeStoredDocWorkspace = (pitchEnquiryId: number, value: DocWorkspaceStored) => {
+    try {
+      window.localStorage.setItem(`${DOC_WORKSPACE_STORAGE_PREFIX}${pitchEnquiryId}`, JSON.stringify(value));
+    } catch {
+      // ignore
+    }
+  };
+
+  const ensureDocWorkspaceShell = (input: { passcode: string; urlPath: string; expiresAt?: string; createdAt?: string; dealId?: number; worktype?: string }) => {
+    const workspaceItemId = `doc-workspace-${enquiry.ID}`;
+    const createdAt = (() => {
+      const raw = input.createdAt;
+      if (!raw) return new Date().toISOString();
+      const d = new Date(raw);
+      return Number.isFinite(d.getTime()) ? d.toISOString() : new Date().toISOString();
+    })();
+
+    const workspaceItem: TimelineItem = {
+      id: workspaceItemId,
+      type: 'document',
+      date: createdAt,
+      subject: 'Document Workspace',
+      content: '',
+      createdBy: userEmail || 'Unknown',
+      metadata: {
+        isDocWorkspace: true,
+        workspacePasscode: input.passcode,
+        workspaceUrlPath: input.urlPath,
+        workspaceExpiresAt: input.expiresAt,
+        workspaceDealId: input.dealId,
+        workspaceWorktype: input.worktype,
+      },
+    };
+
+    setTimeline((prev) => {
+      const withoutExisting = prev.filter((t) => t.id !== workspaceItemId);
+      const next = [workspaceItem, ...withoutExisting];
+      next.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      return next;
+    });
+    setSelectedItem(workspaceItem);
+  };
+
+  type DocRequestStatusResult =
+    | ({ kind: 'found' } & { passcode: string; urlPath: string; createdAt?: string; expiresAt?: string; dealId?: number; isExpired?: boolean })
+    | { kind: 'not-found' }
+    | { kind: 'unsupported' }
+    | { kind: 'error' };
+
+  const fetchDocRequestStatus = async (pitchEnquiryId: number): Promise<DocRequestStatusResult> => {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 5000);
+    try {
+      const res = await fetch(`/api/doc-workspace/status?enquiry_id=${pitchEnquiryId}`, {
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        // If the endpoint isn't deployed on the tab backend yet, we'll see a 404.
+        if (res.status === 404) return { kind: 'unsupported' };
+        return { kind: 'error' };
+      }
+      const data: unknown = await res.json();
+      if (!data || typeof data !== 'object') return { kind: 'error' };
+      const record = data as Record<string, unknown>;
+      if (record.exists !== true) return { kind: 'not-found' };
+
+      const passcode = typeof record.passcode === 'string' ? record.passcode : '';
+      const urlPath = typeof record.urlPath === 'string' ? record.urlPath : '';
+      if (!passcode || !urlPath) return { kind: 'error' };
+
+      const createdAt = typeof record.createdAt === 'string' ? record.createdAt : undefined;
+      const expiresAt = typeof record.expiresAt === 'string' ? record.expiresAt : undefined;
+      const dealId = typeof record.dealId === 'number' ? record.dealId : undefined;
+      const isExpired = typeof record.isExpired === 'boolean' ? record.isExpired : undefined;
+
+      return { kind: 'found', passcode, urlPath, createdAt, expiresAt, dealId, isExpired };
+    } catch {
+      return { kind: 'error' };
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
   };
 
   // Toast helper
@@ -733,13 +920,25 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   };
 
   const openPitchBuilder = () => {
-    const hasExistingPitch = timeline.some((t) => t.type === 'pitch');
-    if (hasExistingPitch) {
-      const confirmed = window.confirm('A pitch already exists for this enquiry in the timeline. Do you want to create another pitch?');
-      if (!confirmed) return;
+    const existingPitches = timeline.filter((t) => t.type === 'pitch');
+    if (existingPitches.length > 0) {
+      setShowPitchConfirm(true);
+    } else {
+      // No existing pitches - go straight to scenario picker
+      setShowPitchConfirm(true);
     }
+  };
+
+  const handlePitchConfirmed = () => {
+    // User confirmed - show scenario picker (same modal, different view)
+    // Modal already showing, just let user pick scenario
+  };
+
+  const handleScenarioSelected = (scenarioId: string) => {
+    setSelectedScenario(scenarioId);
+    setShowPitchConfirm(false);
     if (onOpenPitchBuilder) {
-      onOpenPitchBuilder();
+      onOpenPitchBuilder(scenarioId);
       return;
     }
     showToast('Pitch builder not available here', 'info');
@@ -784,6 +983,61 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     const pitchEnquiryId = resolvePitchEnquiryId(enquiry);
     if (!pitchEnquiryId) {
       showToast('Unable to determine Pitch enquiry id for this record', 'error');
+      return;
+    }
+
+    // If the Pitch status endpoint isn't available yet, fall back to locally remembered workspace
+    // (prevents repeatedly generating new workspaces for the same user/browser).
+    const stored = readStoredDocWorkspace(pitchEnquiryId);
+    if (stored) {
+      setDocRequestResult({
+        passcode: stored.passcode,
+        urlPath: stored.urlPath,
+        createdAt: stored.createdAt,
+        expiresAt: stored.expiresAt,
+        dealId: stored.dealId,
+        worktype: stored.worktype,
+      });
+      ensureDocWorkspaceShell({
+        passcode: stored.passcode,
+        urlPath: stored.urlPath,
+        createdAt: stored.createdAt,
+        expiresAt: stored.expiresAt,
+        dealId: stored.dealId,
+        worktype: stored.worktype,
+      });
+      showToast(isExpiredIso(stored.expiresAt) ? 'Workspace exists (expired)' : 'Workspace already exists', 'info', { duration: 4500 });
+      return;
+    }
+
+    // Backend truth: if a workspace already exists, show it (active/expired) and do not create a new one.
+    const existingStatus = await fetchDocRequestStatus(pitchEnquiryId);
+    if (existingStatus.kind === 'found') {
+      setDocRequestResult({
+        passcode: existingStatus.passcode,
+        urlPath: existingStatus.urlPath,
+        createdAt: existingStatus.createdAt,
+        expiresAt: existingStatus.expiresAt,
+        dealId: existingStatus.dealId,
+        worktype: docRequestWorktype || undefined,
+      });
+      ensureDocWorkspaceShell({
+        passcode: existingStatus.passcode,
+        urlPath: existingStatus.urlPath,
+        createdAt: existingStatus.createdAt,
+        expiresAt: existingStatus.expiresAt,
+        dealId: existingStatus.dealId,
+        worktype: docRequestWorktype || undefined,
+      });
+      writeStoredDocWorkspace(pitchEnquiryId, {
+        passcode: existingStatus.passcode,
+        urlPath: existingStatus.urlPath,
+        createdAt: existingStatus.createdAt,
+        expiresAt: existingStatus.expiresAt,
+        dealId: existingStatus.dealId,
+        worktype: docRequestWorktype || undefined,
+      });
+      showToast(existingStatus.isExpired ? 'Workspace exists (expired)' : 'Workspace already exists', 'info', { duration: 4500 });
       return;
     }
 
@@ -863,15 +1117,14 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             return next;
           });
           setSelectedItem(workspaceItem);
-          setDocRequestConfirmOpen(false);
+          // Keep modal open so user can see status/details.
 
           // Best-effort: list any existing docs (listing does not require the enquiry table).
           try {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 5000);
-            const docsRes = await fetch(`${pitchBackendUrl}/api/prospect-documents?enquiry_id=${pitchEnquiryId}`, {
+            const docsRes = await fetch(`/api/doc-workspace/documents?enquiry_id=${pitchEnquiryId}`, {
               signal: controller.signal,
-              credentials: 'include',
             });
             clearTimeout(timeoutId);
 
@@ -879,7 +1132,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               const docsData = await docsRes.json();
               const documents = Array.isArray(docsData?.documents) ? docsData.documents : [];
               const docItems: TimelineItem[] = documents.map((doc: any) => ({
-                id: `document-${doc.id}`,
+                id: `document-${String(doc?.id ?? doc?.blob_name ?? doc?.blob_url ?? '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(-200) || String(Math.random()).slice(2)}`,
                 type: 'document' as CommunicationType,
                 date: doc.uploaded_at,
                 subject: doc.original_filename || 'Document',
@@ -906,9 +1159,13 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 next.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
                 return next;
               });
+            } else {
+              const err = await docsRes.json().catch(() => null);
+              const msg = typeof err?.error === 'string' ? err.error : 'Unable to load workspace documents';
+              showToast(msg, 'warning', { duration: 6000 });
             }
           } catch {
-            // ignore
+            showToast('Unable to load workspace documents', 'warning', { duration: 6000 });
           }
 
           showToast('Workspace not live yet (Pitch missing enquiry record)', 'warning', { duration: 6000 });
@@ -950,8 +1207,13 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         return typeof value === 'string' ? value : null;
       };
 
-      const passcode = readString('passcode') ?? '';
-      const urlPathFromApi = readString('urlPath') ?? '';
+      const passcode = readString('passcode')
+        ?? readString('workspacePasscode')
+        ?? readString('dealPasscode')
+        ?? '';
+      const urlPathFromApi = readString('urlPath')
+        ?? readString('workspaceUrlPath')
+        ?? '';
       const urlPath = urlPathFromApi.startsWith('/pitch/')
         ? urlPathFromApi
         : (passcode ? `/pitch/${passcode}` : urlPathFromApi);
@@ -961,11 +1223,13 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
       const createdAtRaw = readString('createdAt')
         ?? readString('created_at')
         ?? readString('created')
+        ?? readString('workspaceCreatedAt')
         ?? (typeof existingWorkspace?.date === 'string' ? existingWorkspace.date : null);
       const expiresAtRaw = readString('expiresAt')
         ?? readString('expires_at')
         ?? readString('validUntil')
         ?? readString('valid_until')
+        ?? readString('workspaceExpiresAt')
         ?? (typeof existingWorkspace?.metadata?.workspaceExpiresAt === 'string' ? existingWorkspace.metadata.workspaceExpiresAt : null);
 
       if (!passcode || !urlPath.startsWith('/pitch/')) {
@@ -984,6 +1248,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
       const expiresAt = expiresAtDate.toISOString();
 
       setDocRequestResult({ passcode, urlPath, createdAt, expiresAt, dealId, worktype: worktypeFromApi ?? worktype });
+
+      writeStoredDocWorkspace(pitchEnquiryId, { passcode, urlPath, createdAt, expiresAt, dealId, worktype: worktypeFromApi ?? worktype });
 
       // Insert/update a "workspace shell" item in the timeline.
       const workspaceItemId = `doc-workspace-${enquiry.ID}`;
@@ -1011,15 +1277,14 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         return next;
       });
       setSelectedItem(workspaceItem);
-      setDocRequestConfirmOpen(false);
+      // Keep modal open so user can see/copy the generated link.
 
       // Best-effort: fetch docs again now that the workspace is confirmed.
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000);
-        const docsRes = await fetch(`${pitchBackendUrl}/api/prospect-documents?enquiry_id=${pitchEnquiryId}`, {
+        const docsRes = await fetch(`/api/doc-workspace/documents?enquiry_id=${pitchEnquiryId}&passcode=${encodeURIComponent(passcode)}`, {
           signal: controller.signal,
-          credentials: 'include',
         });
         clearTimeout(timeoutId);
 
@@ -1027,7 +1292,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           const docsData = await docsRes.json();
           const documents = Array.isArray(docsData?.documents) ? docsData.documents : [];
           const docItems: TimelineItem[] = documents.map((doc: any) => ({
-            id: `document-${doc.id}`,
+            id: `document-${String(doc?.id ?? doc?.blob_name ?? doc?.blob_url ?? '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(-200) || String(Math.random()).slice(2)}`,
             type: 'document' as CommunicationType,
             date: doc.uploaded_at,
             subject: doc.original_filename || 'Document',
@@ -1054,19 +1319,118 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             next.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
             return next;
           });
+        } else {
+          const err = await docsRes.json().catch(() => null);
+          const msg = typeof err?.error === 'string' ? err.error : 'Unable to load workspace documents';
+          showToast(msg, 'warning', { duration: 6000 });
         }
       } catch {
-        // ignore
+        showToast('Unable to load workspace documents', 'warning', { duration: 6000 });
       }
 
       showToast(`Workspace is live • ${getExpiryLabel(expiresAt)}`, 'success', { duration: 6000 });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to create document request';
+
+      // Create a non-live workspace shell so the action is idempotent in the UI.
+      const createdAt = new Date().toISOString();
+      const workspaceItemId = `doc-workspace-${enquiry.ID}`;
+      const workspaceItem: TimelineItem = {
+        id: workspaceItemId,
+        type: 'document',
+        date: createdAt,
+        subject: 'Document Workspace',
+        content: '',
+        createdBy: userEmail || 'Unknown',
+        metadata: {
+          isDocWorkspace: true,
+          workspacePasscode: '',
+          workspaceUrlPath: '',
+          workspaceExpiresAt: undefined,
+          workspaceError: message,
+        },
+      };
+
+      setTimeline((prev) => {
+        const withoutExisting = prev.filter((t) => t.id !== workspaceItemId);
+        const next = [workspaceItem, ...withoutExisting];
+        next.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        return next;
+      });
+      setSelectedItem(workspaceItem);
+      // Keep modal open so user can see status/error details.
+
       showToast(message, 'error');
     } finally {
       setDocRequestLoading(false);
     }
   };
+
+  // On enquiry load: check if a doc workspace already exists so button/status is accurate.
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      if (!requestDocsEnabled) return;
+      const pitchEnquiryId = resolvePitchEnquiryId(enquiry);
+      if (!pitchEnquiryId) return;
+
+      const status = await fetchDocRequestStatus(pitchEnquiryId);
+      if (cancelled) return;
+
+      if (status.kind === 'found') {
+        setDocRequestResult({
+          passcode: status.passcode,
+          urlPath: status.urlPath,
+          createdAt: status.createdAt,
+          expiresAt: status.expiresAt,
+          dealId: status.dealId,
+        });
+        ensureDocWorkspaceShell({
+          passcode: status.passcode,
+          urlPath: status.urlPath,
+          createdAt: status.createdAt,
+          expiresAt: status.expiresAt,
+          dealId: status.dealId,
+        });
+
+        writeStoredDocWorkspace(pitchEnquiryId, {
+          passcode: status.passcode,
+          urlPath: status.urlPath,
+          createdAt: status.createdAt,
+          expiresAt: status.expiresAt,
+          dealId: status.dealId,
+        });
+        return;
+      }
+
+      if (status.kind === 'unsupported') {
+        const stored = readStoredDocWorkspace(pitchEnquiryId);
+        if (!stored) return;
+        setDocRequestResult({
+          passcode: stored.passcode,
+          urlPath: stored.urlPath,
+          createdAt: stored.createdAt,
+          expiresAt: stored.expiresAt,
+          dealId: stored.dealId,
+          worktype: stored.worktype,
+        });
+        ensureDocWorkspaceShell({
+          passcode: stored.passcode,
+          urlPath: stored.urlPath,
+          createdAt: stored.createdAt,
+          expiresAt: stored.expiresAt,
+          dealId: stored.dealId,
+          worktype: stored.worktype,
+        });
+      }
+      // not-found/error: do nothing
+
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [enquiry?.ID, requestDocsEnabled]);
 
   // Manual sync handlers
   const handleManualSync = async (syncType: 'pitches' | 'emails' | 'calls' | 'instructions') => {
@@ -1884,9 +2248,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         setLoadingStates(prev => ({ ...prev, calls: false }));
       }
 
-      // Fetch prospect documents from pitch backend (skip in local dev if backend unavailable)
+      // Fetch prospect documents via tab-app backend (storage-backed)
       try {
-        const pitchBackendUrl = process.env.REACT_APP_PITCH_BACKEND_URL || 'https://instruct.helix-law.com';
         const pitchEnquiryId = resolvePitchEnquiryId(enquiry);
         if (!pitchEnquiryId) {
           setLoadingStates(prev => ({ ...prev, documents: false }));
@@ -1895,9 +2258,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000);
         
-        const docsRes = await fetch(`${pitchBackendUrl}/api/prospect-documents?enquiry_id=${pitchEnquiryId}`, {
+        const docsRes = await fetch(`/api/doc-workspace/documents?enquiry_id=${pitchEnquiryId}`, {
           signal: controller.signal,
-          credentials: 'include',
         });
         clearTimeout(timeoutId);
         
@@ -1906,7 +2268,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           const documents = Array.isArray(docsData?.documents) ? docsData.documents : [];
         
           const docItems: TimelineItem[] = documents.map((doc: any) => ({
-            id: `document-${doc.id}`,
+            id: `document-${String(doc?.id ?? doc?.blob_name ?? doc?.blob_url ?? '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(-200) || String(Math.random()).slice(2)}`,
             type: 'document' as CommunicationType,
             date: doc.uploaded_at,
             subject: doc.original_filename || 'Document',
@@ -1942,11 +2304,19 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     fetchTimeline();
   }, [enquiry.ID, timelineUnlocked]);
 
+  // Auto-select the first item only on initial timeline load (not when user collapses).
+  const hasAutoSelectedRef = React.useRef(false);
   useEffect(() => {
-    if (!selectedItem && timeline.length > 0) {
+    if (!hasAutoSelectedRef.current && timeline.length > 0) {
       setSelectedItem(timeline[0]);
+      hasAutoSelectedRef.current = true;
     }
-  }, [selectedItem, timeline]);
+  }, [timeline]);
+
+  // Reset auto-select flag when enquiry changes.
+  useEffect(() => {
+    hasAutoSelectedRef.current = false;
+  }, [enquiry.ID]);
 
   const getTypeIcon = (type: CommunicationType) => {
     switch (type) {
@@ -2295,6 +2665,218 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
   const pitchCount = useMemo(() => timeline.reduce((acc, item) => acc + (item.type === 'pitch' ? 1 : 0), 0), [timeline]);
 
+  // Pitch confirmation and scenario picker modal
+  const renderPitchConfirmModal = () => {
+    if (!showPitchConfirm) return null;
+
+    const existingPitches = timeline.filter((t) => t.type === 'pitch');
+    
+    return createPortal(
+      <div
+        onClick={() => setShowPitchConfirm(false)}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0, 0, 0, 0.6)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10000,
+          padding: '20px',
+        }}
+      >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            background: isDarkMode ? 'rgb(17, 24, 39)' : 'white',
+            borderRadius: '8px',
+            padding: '28px',
+            maxWidth: '700px',
+            width: '100%',
+            boxShadow: isDarkMode 
+              ? '0 20px 60px rgba(0, 0, 0, 0.6)'
+              : '0 20px 60px rgba(0, 0, 0, 0.15)',
+            border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.15)'}`,
+          }}
+        >
+          {/* Existing pitches info */}
+          {existingPitches.length > 0 && (
+            <div style={{ marginBottom: '28px' }}>
+              <h3 style={{
+                margin: 0,
+                fontSize: '18px',
+                fontWeight: 600,
+                color: isDarkMode ? 'rgb(249, 250, 251)' : colours.light.text,
+                marginBottom: '14px',
+              }}>
+                {existingPitches.length} {existingPitches.length === 1 ? 'pitch exists' : 'pitches exist'}
+              </h3>
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '10px',
+                marginBottom: '16px',
+              }}>
+                {existingPitches.map((pitch) => {
+                  const scenarioName = getScenarioName(pitch.metadata?.scenarioId) || 'Unknown scenario';
+                  const amount = pitch.metadata?.amount;
+                  const createdBy = pitch.createdBy || 'Unknown';
+                  const date = pitch.date ? new Date(pitch.date).toLocaleDateString('en-GB', { 
+                    day: 'numeric', 
+                    month: 'short', 
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  }) : 'Unknown date';
+
+                  return (
+                    <div
+                      key={pitch.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '12px 14px',
+                        borderRadius: '6px',
+                        background: isDarkMode 
+                          ? 'linear-gradient(135deg, rgba(11, 22, 43, 0.88) 0%, rgba(13, 30, 56, 0.8) 100%)'
+                          : 'linear-gradient(135deg, rgba(248, 250, 252, 0.92) 0%, rgba(255, 255, 255, 0.88) 100%)',
+                        border: `2px solid ${colours.blue}`,
+                        boxShadow: isDarkMode 
+                          ? '0 6px 18px rgba(4, 9, 20, 0.55)' 
+                          : '0 3px 12px rgba(13, 47, 96, 0.08)',
+                      }}
+                    >
+                      <div style={{ flex: 1 }}>
+                        <div style={{
+                          fontSize: '14px',
+                          fontWeight: 600,
+                          color: colours.blue,
+                          marginBottom: '6px',
+                        }}>
+                          {scenarioName}
+                        </div>
+                        <div style={{
+                          fontSize: '12px',
+                          color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.6)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '12px',
+                        }}>
+                          <span>{createdBy}</span>
+                          <span>•</span>
+                          <span>{date}</span>
+                          {amount && Number(amount) > 0 && (
+                            <>
+                              <span>•</span>
+                              <span style={{ 
+                                color: isDarkMode ? colours.accent : colours.darkBlue,
+                                fontWeight: 500 
+                              }}>
+                                £{Number(amount).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <p style={{
+                margin: 0,
+                fontSize: '14px',
+                color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.7)',
+                lineHeight: 1.5,
+              }}>
+                Are you sure you want to pitch again?
+              </p>
+            </div>
+          )}
+
+          {/* Scenario picker */}
+          <div>
+            <h4 style={{
+              margin: 0,
+              fontSize: '14px',
+              fontWeight: 600,
+              color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.7)',
+              marginBottom: '12px',
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px',
+            }}>
+              Select scenario
+            </h4>
+            <div style={{
+              display: 'flex',
+              gap: '10px',
+              flexWrap: 'wrap',
+              marginBottom: '20px',
+            }}>
+              {SCENARIOS.map((scenario) => (
+                <button
+                  key={scenario.id}
+                  onClick={() => handleScenarioSelected(scenario.id)}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = colours.blue;
+                    e.currentTarget.style.boxShadow = isDarkMode
+                      ? '0 6px 24px rgba(54, 144, 206, 0.35), 0 0 0 1px rgba(54, 144, 206, 0.2) inset'
+                      : '0 4px 16px rgba(54, 144, 206, 0.2), 0 0 0 1px rgba(54, 144, 206, 0.1) inset';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.16)';
+                    e.currentTarget.style.boxShadow = isDarkMode ? '0 6px 18px rgba(4, 9, 20, 0.55)' : '0 3px 12px rgba(13, 47, 96, 0.08)';
+                  }}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    padding: '12px 18px',
+                    border: `2px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.16)'}`,
+                    borderRadius: '10px',
+                    background: isDarkMode 
+                      ? 'linear-gradient(135deg, rgba(11, 22, 43, 0.88) 0%, rgba(13, 30, 56, 0.8) 100%)'
+                      : 'linear-gradient(135deg, rgba(248, 250, 252, 0.92) 0%, rgba(255, 255, 255, 0.88) 100%)',
+                    color: isDarkMode ? 'rgb(249, 250, 251)' : colours.light.text,
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                    whiteSpace: 'nowrap',
+                    boxShadow: isDarkMode ? '0 6px 18px rgba(4, 9, 20, 0.55)' : '0 3px 12px rgba(13, 47, 96, 0.08)',
+                    backdropFilter: 'blur(8px)',
+                  }}
+                >
+                  {scenario.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Cancel button */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+            <button
+              onClick={() => setShowPitchConfirm(false)}
+              style={{
+                padding: '8px 16px',
+                border: `1px solid ${isDarkMode ? 'rgba(156, 163, 175, 0.3)' : 'rgba(15, 23, 42, 0.2)'}`,
+                borderRadius: '4px',
+                background: 'transparent',
+                color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.6)',
+                fontSize: '13px',
+                fontWeight: 500,
+                cursor: 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>,
+      document.body
+    );
+  };
+
   // Do not block the page behind a global loader; render the container and let
   // dataset-level spinners indicate progress as data arrives.
 
@@ -2352,7 +2934,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.6)',
               marginTop: '2px',
             }}>
-              {enquiry.ID} • {enquiry.Point_of_Contact || '—'}
+              {enquiry.ID} • {enquiry.Email || enquiry.Point_of_Contact || '—'}
             </div>
           </div>
         </div>
@@ -2370,14 +2952,24 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             }}
           >
             <div
+              onMouseEnter={(e) => {
+                if (!enquiry.Email) return;
+                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.4)';
+                e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)';
+                e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)';
+              }}
               style={{
                 display: 'inline-flex',
                 alignItems: 'stretch',
                 borderRadius: '2px',
                 overflow: 'hidden',
-                background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(135, 243, 243, 0.1)',
-                border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(135, 243, 243, 0.3)'}`,
+                background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
+                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'}`,
                 opacity: enquiry.Email ? 1 : 0.5,
+                transition: 'all 0.2s ease',
               }}
             >
               <button
@@ -2392,9 +2984,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   border: 'none',
                   background: 'transparent',
                   cursor: enquiry.Email ? 'pointer' : 'default',
-                  color: isDarkMode ? colours.accent : colours.darkBlue,
+                  color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(51, 65, 85, 0.85)',
                   fontSize: '12px',
-                  fontWeight: 600,
+                  fontWeight: 500,
                 }}
               >
                 <FaEnvelope size={11} />
@@ -2405,33 +2997,50 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 disabled={!enquiry.Email}
                 title={enquiry.Email ? `Copy: ${enquiry.Email}` : 'Email not available'}
                 aria-label="Copy email"
+                onMouseEnter={(e) => {
+                  if (enquiry.Email) e.currentTarget.style.opacity = '1';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.opacity = '0.4';
+                }}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  padding: '6px 10px',
+                  padding: '6px 8px',
                   border: 'none',
-                  borderLeft: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.28)' : 'rgba(135, 243, 243, 0.22)'}`,
+                  borderLeft: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.18)'}`,
                   background: 'transparent',
                   cursor: enquiry.Email ? 'pointer' : 'default',
-                  color: isDarkMode ? colours.accent : colours.darkBlue,
-                  fontSize: '12px',
-                  fontWeight: 700,
+                  color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(51, 65, 85, 0.85)',
+                  fontSize: '11px',
+                  opacity: 0.4,
+                  transition: 'opacity 0.15s ease',
                 }}
               >
-                Copy
+                <FaClipboard size={11} />
               </button>
             </div>
 
             <div
+              onMouseEnter={(e) => {
+                if (!enquiry.Phone_Number) return;
+                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.4)';
+                e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)';
+                e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)';
+              }}
               style={{
                 display: 'inline-flex',
                 alignItems: 'stretch',
                 borderRadius: '2px',
                 overflow: 'hidden',
-                background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(135, 243, 243, 0.1)',
-                border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(135, 243, 243, 0.3)'}`,
+                background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
+                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'}`,
                 opacity: enquiry.Phone_Number ? 1 : 0.5,
+                transition: 'all 0.2s ease',
               }}
             >
               <button
@@ -2446,9 +3055,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   border: 'none',
                   background: 'transparent',
                   cursor: enquiry.Phone_Number ? 'pointer' : 'default',
-                  color: isDarkMode ? colours.accent : colours.darkBlue,
+                  color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(51, 65, 85, 0.85)',
                   fontSize: '12px',
-                  fontWeight: 600,
+                  fontWeight: 500,
                 }}
               >
                 <FaPhone size={11} />
@@ -2459,21 +3068,28 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 disabled={!enquiry.Phone_Number}
                 title={enquiry.Phone_Number ? `Copy: ${enquiry.Phone_Number}` : 'Phone number not available'}
                 aria-label="Copy phone number"
+                onMouseEnter={(e) => {
+                  if (enquiry.Phone_Number) e.currentTarget.style.opacity = '1';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.opacity = '0.4';
+                }}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  padding: '6px 10px',
+                  padding: '6px 8px',
                   border: 'none',
-                  borderLeft: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.28)' : 'rgba(135, 243, 243, 0.22)'}`,
+                  borderLeft: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.18)'}`,
                   background: 'transparent',
                   cursor: enquiry.Phone_Number ? 'pointer' : 'default',
-                  color: isDarkMode ? colours.accent : colours.darkBlue,
-                  fontSize: '12px',
-                  fontWeight: 700,
+                  color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(51, 65, 85, 0.85)',
+                  fontSize: '11px',
+                  opacity: 0.4,
+                  transition: 'opacity 0.15s ease',
                 }}
               >
-                Copy
+                <FaClipboard size={11} />
               </button>
             </div>
           </div>
@@ -2482,19 +3098,27 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             <button
               onClick={openPitchBuilder}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(135, 243, 243, 0.6)' : 'rgba(54, 144, 206, 0.5)';
+                e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(54, 144, 206, 0.18)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(54, 144, 206, 0.3)';
+                e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.1)';
+              }}
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
-                background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(135, 243, 243, 0.1)',
-                border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(135, 243, 243, 0.3)'}`,
+                background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.1)',
+                border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(54, 144, 206, 0.3)'}`,
                 borderRadius: '2px',
                 padding: '6px 12px',
                 cursor: 'pointer',
                 color: isDarkMode ? colours.accent : colours.darkBlue,
                 fontSize: '12px',
-                fontWeight: 600,
-                transition: 'all 0.15s',
+                fontWeight: 500,
+                transition: 'all 0.2s ease',
               }}
             >
               <FaCheckCircle size={11} />
@@ -2506,8 +3130,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                     fontWeight: 800,
                     padding: '1px 6px',
                     borderRadius: '999px',
-                    border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(135, 243, 243, 0.28)'}`,
-                    background: isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(135, 243, 243, 0.08)',
+                    border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(54, 144, 206, 0.28)'}`,
+                    background: isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.08)',
                     color: isDarkMode ? colours.accent : colours.darkBlue,
                     lineHeight: 1.2,
                   }}>
@@ -2528,24 +3152,33 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 setDocRequestConfirmOpen(true);
               }}
               disabled={docRequestLoading || !requestDocsEnabled}
+              onMouseEnter={(e) => {
+                if (docRequestLoading || !requestDocsEnabled) return;
+                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(135, 243, 243, 0.6)' : 'rgba(54, 144, 206, 0.5)';
+                e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(54, 144, 206, 0.18)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(54, 144, 206, 0.3)';
+                e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.1)';
+              }}
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
-                background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(135, 243, 243, 0.1)',
-                border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(135, 243, 243, 0.3)'}`,
+                background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.1)',
+                border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(54, 144, 206, 0.3)'}`,
                 borderRadius: '2px',
                 padding: '6px 12px',
                 cursor: docRequestLoading || !requestDocsEnabled ? 'default' : 'pointer',
                 color: isDarkMode ? colours.accent : colours.darkBlue,
                 fontSize: '12px',
-                fontWeight: 600,
-                transition: 'all 0.15s',
+                fontWeight: 500,
+                transition: 'all 0.2s ease',
                 opacity: !requestDocsEnabled ? 0.45 : 1,
               }}
             >
               {docRequestLoading ? (
-                <div style={{ width: '12px', height: '12px', border: '2px solid rgba(135, 243, 243, 0.2)', borderTop: `2px solid ${colours.accent}`, borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                <div style={{ width: '12px', height: '12px', border: `2px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.2)'}`, borderTop: `2px solid ${isDarkMode ? colours.accent : colours.highlight}`, borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
               ) : (
                 <FaArrowRight size={11} />
               )}
@@ -2553,7 +3186,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 const existingWorkspace = timeline.find((t) => t.type === 'document' && Boolean(t.metadata?.isDocWorkspace));
                 const hasPasscode = Boolean(existingWorkspace?.metadata?.workspacePasscode);
                 const hasUrl = Boolean(existingWorkspace?.metadata?.workspaceUrlPath);
-                return hasPasscode && hasUrl ? 'Workspace Live' : 'Request Docs';
+                if (!hasPasscode || !hasUrl) return 'Request Docs';
+                const expiresAt = existingWorkspace?.metadata?.workspaceExpiresAt;
+                return isExpiredIso(expiresAt) ? 'Workspace Expired' : 'Workspace Live';
               })()}</span>
             </button>
 
@@ -2564,8 +3199,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
-                background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(135, 243, 243, 0.1)',
-                border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(135, 243, 243, 0.3)'}`,
+                background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.1)',
+                border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(54, 144, 206, 0.3)'}`,
                 borderRadius: '2px',
                 padding: '6px 12px',
                 cursor: 'default',
@@ -2713,12 +3348,15 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   const expiresAt = workspaceTimelineItem?.metadata?.workspaceExpiresAt;
                   const error = workspaceTimelineItem?.metadata?.workspaceError || '';
                   const isLive = Boolean(passcode && urlPath);
+                  const isExpired = isLive && isExpiredIso(expiresAt);
                   const pitchBaseUrlRaw = process.env.REACT_APP_PITCH_BACKEND_URL || 'https://instruct.helix-law.com';
                   const pitchBaseUrl = pitchBaseUrlRaw.replace(/\/$/, '');
                   const clientLink = isLive ? `${pitchBaseUrl}${urlPath.startsWith('/') ? '' : '/'}${urlPath}` : '';
-                  const statusLabel = isLive ? 'Live' : 'Not live';
-                  const dotColor = isLive ? '#22c55e' : '#f59e0b';
-                  const statusColor = isLive
+                  const statusLabel = isExpired ? 'Expired' : isLive ? 'Live' : 'Not live';
+                  const dotColor = isExpired ? '#f59e0b' : isLive ? '#22c55e' : '#f59e0b';
+                  const statusColor = isExpired
+                    ? (isDarkMode ? 'rgba(253, 230, 138, 0.95)' : 'rgb(180, 83, 9)')
+                    : isLive
                     ? (isDarkMode ? 'rgba(134, 239, 172, 0.95)' : 'rgb(22, 163, 74)')
                     : (isDarkMode ? 'rgba(253, 230, 138, 0.95)' : 'rgb(180, 83, 9)');
 
@@ -2964,7 +3602,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
                       <div style={{ display: 'flex', gap: '8px', flex: '0 0 auto', alignItems: 'center' }}>
                         <button
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation();
                             setExpandedQuickAccessEmailIds((prev) => {
                               const next = new Set(prev);
                               if (next.has(item.id)) next.delete(item.id);
@@ -3663,21 +4302,33 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                               const hasPasscode = Boolean(item.metadata?.workspacePasscode);
                               const hasUrl = Boolean(item.metadata?.workspaceUrlPath);
                               const isLive = hasPasscode && hasUrl;
-                              const statusLabel = isLive ? 'Live' : 'Not live';
-                              const dotColor = isLive ? '#22c55e' : '#f59e0b';
-                              const statusColor = isLive
+                              const expiresAt = item.metadata?.workspaceExpiresAt;
+                              const isExpired = isLive && isExpiredIso(expiresAt);
+                              const statusLabel = isExpired ? 'Expired' : isLive ? 'Live' : 'Not live';
+                              const dotColor = isExpired ? '#f59e0b' : isLive ? '#22c55e' : '#f59e0b';
+                              const statusColor = isExpired
+                                ? (isDarkMode ? 'rgba(253, 230, 138, 0.95)' : 'rgb(180, 83, 9)')
+                                : isLive
                                 ? (isDarkMode ? 'rgba(134, 239, 172, 0.95)' : 'rgb(22, 163, 74)')
                                 : (isDarkMode ? 'rgba(253, 230, 138, 0.95)' : 'rgb(180, 83, 9)');
 
                               return (
                                 <>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '10px' }}>
-                              <div style={{ minWidth: 0 }}>
-                                <div style={{ fontSize: '12px', fontWeight: 700, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)' }}>
-                                  {isLive ? 'Workspace is live' : 'Workspace not live yet'}
+                              <div style={{ minWidth: 0, flex: 1 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 700, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)' }}>
+                                  <span>{isExpired ? 'Workspace expired' : isLive ? 'Workspace is live' : 'Workspace not live yet'}</span>
+                                  {isLive && !isExpired && (
+                                    <>
+                                      <span style={{ color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(15, 23, 42, 0.35)' }}>•</span>
+                                      <span style={{ fontWeight: 500, fontSize: '11px', color: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(15, 23, 42, 0.6)' }}>
+                                        {getExpiryLabel(item.metadata.workspaceExpiresAt)}
+                                      </span>
+                                    </>
+                                  )}
                                 </div>
                                 <div style={{ fontSize: '10px', color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.6)', marginTop: '2px' }}>
-                                  Passcode: {item.metadata.workspacePasscode || '—'} • {getExpiryLabel(item.metadata.workspaceExpiresAt)}
+                                  Passcode: {item.metadata.workspacePasscode || '—'}
                                 </div>
                                 {!isLive && (item.metadata?.workspaceError || '') ? (
                                   <div style={{ fontSize: '10px', color: isDarkMode ? 'rgba(253, 230, 138, 0.85)' : 'rgb(180, 83, 9)', marginTop: '6px' }}>
@@ -3749,6 +4400,35 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                 </div>
                               );
                             })()}
+
+                            {/* Workspace link at the bottom */}
+                            {item.metadata?.workspaceUrlPath && item.metadata?.workspacePasscode ? (
+                              <div
+                                style={{
+                                  marginTop: '12px',
+                                  paddingTop: '10px',
+                                  borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
+                                }}
+                              >
+                                <a
+                                  href={`https://instruct.helix-law.com${item.metadata.workspaceUrlPath}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  style={{
+                                    fontSize: '10px',
+                                    color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.55)',
+                                    textDecoration: 'none',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                  }}
+                                >
+                                  <span style={{ opacity: 0.7 }}>↗</span>
+                                  <span style={{ textDecoration: 'underline' }}>instruct.helix-law.com{item.metadata.workspaceUrlPath}</span>
+                                </a>
+                              </div>
+                            ) : null}
                           </div>
                         ) : item.contentHtml ? (
                           <div className="helix-email-html" dangerouslySetInnerHTML={{ __html: sanitizeEmailHtml(item.contentHtml) }} />
@@ -3967,15 +4647,24 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           width: '100%',
         }}>
           <div
+            onMouseEnter={() => enquiry.Email && setHoveredAction('email')}
+            onMouseLeave={() => setHoveredAction(null)}
             style={{
               display: 'inline-flex',
               alignItems: 'stretch',
               justifyContent: 'center',
               borderRadius: '2px',
               overflow: 'hidden',
-              background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(135, 243, 243, 0.1)',
-              border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(135, 243, 243, 0.3)'}`,
+              background: hoveredAction === 'email'
+                ? (isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)')
+                : (isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)'),
+              border: `1px solid ${hoveredAction === 'email'
+                ? (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.4)')
+                : (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)')}`,
               opacity: enquiry.Email ? 1 : 0.5,
+              transition: 'all 0.15s ease',
+              transform: hoveredAction === 'email' ? 'translateY(-1px)' : 'translateY(0)',
+              boxShadow: hoveredAction === 'email' ? `0 2px 8px ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)'}` : 'none',
             }}
           >
             <button
@@ -3991,9 +4680,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 border: 'none',
                 background: 'transparent',
                 cursor: enquiry.Email ? 'pointer' : 'default',
-                color: isDarkMode ? colours.accent : colours.darkBlue,
+                color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(51, 65, 85, 0.85)',
                 fontSize: '12px',
-                fontWeight: 600,
+                fontWeight: 500,
                 width: '100%',
               }}
             >
@@ -4005,35 +4694,50 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               disabled={!enquiry.Email}
               title={enquiry.Email ? `Copy: ${enquiry.Email}` : 'Email not available'}
               aria-label="Copy email"
+              onMouseEnter={(e) => {
+                if (enquiry.Email) e.currentTarget.style.opacity = '1';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.opacity = '0.4';
+              }}
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                padding: '8px 12px',
+                padding: '8px 10px',
                 border: 'none',
-                borderLeft: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.28)' : 'rgba(135, 243, 243, 0.22)'}`,
+                borderLeft: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.18)'}`,
                 background: 'transparent',
                 cursor: enquiry.Email ? 'pointer' : 'default',
-                color: isDarkMode ? colours.accent : colours.darkBlue,
-                fontSize: '12px',
-                fontWeight: 700,
-                whiteSpace: 'nowrap',
+                color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(51, 65, 85, 0.85)',
+                fontSize: '11px',
+                opacity: 0.4,
+                transition: 'opacity 0.15s ease',
               }}
             >
-              Copy
+              <FaClipboard size={12} />
             </button>
           </div>
 
           <div
+            onMouseEnter={() => enquiry.Phone_Number && setHoveredAction('call')}
+            onMouseLeave={() => setHoveredAction(null)}
             style={{
               display: 'inline-flex',
               alignItems: 'stretch',
               justifyContent: 'center',
               borderRadius: '2px',
               overflow: 'hidden',
-              background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(135, 243, 243, 0.1)',
-              border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(135, 243, 243, 0.3)'}`,
+              background: hoveredAction === 'call'
+                ? (isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)')
+                : (isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)'),
+              border: `1px solid ${hoveredAction === 'call'
+                ? (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.4)')
+                : (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)')}`,
               opacity: enquiry.Phone_Number ? 1 : 0.5,
+              transition: 'all 0.15s ease',
+              transform: hoveredAction === 'call' ? 'translateY(-1px)' : 'translateY(0)',
+              boxShadow: hoveredAction === 'call' ? `0 2px 8px ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)'}` : 'none',
             }}
           >
             <button
@@ -4049,9 +4753,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 border: 'none',
                 background: 'transparent',
                 cursor: enquiry.Phone_Number ? 'pointer' : 'default',
-                color: isDarkMode ? colours.accent : colours.darkBlue,
+                color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(51, 65, 85, 0.85)',
                 fontSize: '12px',
-                fontWeight: 600,
+                fontWeight: 500,
                 width: '100%',
               }}
             >
@@ -4063,41 +4767,55 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               disabled={!enquiry.Phone_Number}
               title={enquiry.Phone_Number ? `Copy: ${enquiry.Phone_Number}` : 'Phone number not available'}
               aria-label="Copy phone number"
+              onMouseEnter={(e) => {
+                if (enquiry.Phone_Number) e.currentTarget.style.opacity = '1';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.opacity = '0.4';
+              }}
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                padding: '8px 12px',
+                padding: '8px 10px',
                 border: 'none',
-                borderLeft: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.28)' : 'rgba(135, 243, 243, 0.22)'}`,
+                borderLeft: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.18)'}`,
                 background: 'transparent',
                 cursor: enquiry.Phone_Number ? 'pointer' : 'default',
-                color: isDarkMode ? colours.accent : colours.darkBlue,
-                fontSize: '12px',
-                fontWeight: 700,
-                whiteSpace: 'nowrap',
+                color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(51, 65, 85, 0.85)',
+                fontSize: '11px',
+                opacity: 0.4,
+                transition: 'opacity 0.15s ease',
               }}
             >
-              Copy
+              <FaClipboard size={12} />
             </button>
           </div>
 
           <button
+            onMouseEnter={() => setHoveredAction('pitch')}
+            onMouseLeave={() => setHoveredAction(null)}
             onClick={openPitchBuilder}
             style={{
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: '6px',
-              background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(135, 243, 243, 0.1)',
-              border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(135, 243, 243, 0.3)'}`,
+              background: hoveredAction === 'pitch'
+                ? (isDarkMode ? 'rgba(135, 243, 243, 0.28)' : 'rgba(54, 144, 206, 0.2)')
+                : (isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.1)'),
+              border: `1px solid ${hoveredAction === 'pitch'
+                ? (isDarkMode ? 'rgba(135, 243, 243, 0.6)' : 'rgba(54, 144, 206, 0.5)')
+                : (isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(54, 144, 206, 0.3)')}`,
               borderRadius: '2px',
               padding: '8px 12px',
               cursor: 'pointer',
-              color: isDarkMode ? colours.accent : colours.darkBlue,
+              color: isDarkMode ? colours.accent : colours.highlight,
               fontSize: '12px',
-              fontWeight: 600,
-              transition: 'all 0.15s',
+              fontWeight: 500,
+              transition: 'all 0.15s ease',
+              transform: hoveredAction === 'pitch' ? 'translateY(-1px)' : 'translateY(0)',
+              boxShadow: hoveredAction === 'pitch' ? `0 2px 8px ${isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.15)'}` : 'none',
             }}
           >
             <FaCheckCircle size={11} />
@@ -4106,12 +4824,12 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               {pitchCount > 0 && (
                 <span style={{
                   fontSize: '10px',
-                  fontWeight: 800,
+                  fontWeight: 600,
                   padding: '1px 6px',
                   borderRadius: '999px',
-                  border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(135, 243, 243, 0.28)'}`,
-                  background: isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(135, 243, 243, 0.08)',
-                  color: isDarkMode ? colours.accent : colours.darkBlue,
+                  border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(54, 144, 206, 0.28)'}`,
+                  background: isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.08)',
+                  color: isDarkMode ? colours.accent : colours.highlight,
                   lineHeight: 1.2,
                 }}>
                   {pitchCount}
@@ -4121,6 +4839,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           </button>
 
           <button
+            onMouseEnter={() => requestDocsEnabled && !docRequestLoading && setHoveredAction('docs')}
+            onMouseLeave={() => setHoveredAction(null)}
             onClick={() => {
               const existingWorkspace = timeline.find((t) => t.type === 'document' && Boolean(t.metadata?.isDocWorkspace));
               if (existingWorkspace) {
@@ -4136,24 +4856,33 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               alignItems: 'center',
               justifyContent: 'center',
               gap: '6px',
-              background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(135, 243, 243, 0.1)',
-              border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(135, 243, 243, 0.3)'}`,
+              background: hoveredAction === 'docs'
+                ? (isDarkMode ? 'rgba(135, 243, 243, 0.28)' : 'rgba(54, 144, 206, 0.2)')
+                : (isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.1)'),
+              border: `1px solid ${hoveredAction === 'docs'
+                ? (isDarkMode ? 'rgba(135, 243, 243, 0.6)' : 'rgba(54, 144, 206, 0.5)')
+                : (isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(54, 144, 206, 0.3)')}`,
               borderRadius: '2px',
               padding: '8px 12px',
               cursor: docRequestLoading || !requestDocsEnabled ? 'default' : 'pointer',
-              color: isDarkMode ? colours.accent : colours.darkBlue,
+              color: isDarkMode ? colours.accent : colours.highlight,
               fontSize: '12px',
-              fontWeight: 600,
-              transition: 'all 0.15s',
+              fontWeight: 500,
+              transition: 'all 0.15s ease',
               opacity: !requestDocsEnabled ? 0.45 : 1,
+              transform: hoveredAction === 'docs' ? 'translateY(-1px)' : 'translateY(0)',
+              boxShadow: hoveredAction === 'docs' ? `0 2px 8px ${isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.15)'}` : 'none',
             }}
           >
             {docRequestLoading ? (
-              <div style={{ width: '12px', height: '12px', border: '2px solid rgba(135, 243, 243, 0.2)', borderTop: `2px solid ${colours.accent}`, borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+              <div style={{ width: '12px', height: '12px', border: `2px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.2)'}`, borderTop: `2px solid ${isDarkMode ? colours.accent : colours.highlight}`, borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
             ) : (
               <FaArrowRight size={11} />
             )}
-            <span>{docRequestResult ? 'Workspace Live' : 'Request Docs'}</span>
+            <span>{(() => {
+              if (!docRequestResult) return 'Request Docs';
+              return isExpiredIso(docRequestResult.expiresAt) ? 'Workspace Expired' : 'Workspace Live';
+            })()}</span>
           </button>
 
           <button
@@ -4164,15 +4893,15 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               alignItems: 'center',
               justifyContent: 'center',
               gap: '6px',
-              background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(135, 243, 243, 0.1)',
-              border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(135, 243, 243, 0.3)'}`,
+              background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.1)',
+              border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(54, 144, 206, 0.3)'}`,
               borderRadius: '2px',
               padding: '8px 12px',
               cursor: 'default',
-              color: isDarkMode ? colours.accent : colours.darkBlue,
+              color: isDarkMode ? colours.accent : colours.highlight,
               fontSize: '12px',
-              fontWeight: 600,
-              transition: 'all 0.15s',
+              fontWeight: 500,
+              transition: 'all 0.15s ease',
               opacity: 0.45,
             }}
           >
@@ -5105,25 +5834,46 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               position: 'fixed',
               inset: 0,
               zIndex: 1000,
-              background: isDarkMode ? 'rgba(2, 6, 23, 0.72)' : 'rgba(15, 23, 42, 0.45)',
+              background: isDarkMode ? 'rgba(2, 6, 23, 0.80)' : 'rgba(15, 23, 42, 0.50)',
+              backdropFilter: 'blur(4px)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              padding: '16px',
+              padding: '24px',
             }}
           >
             <div
               style={{
-                width: 'min(520px, 96vw)',
-                borderRadius: '2px',
-                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.30)'}`,
-                background: isDarkMode ? 'rgba(7, 16, 32, 0.96)' : 'rgba(255, 255, 255, 0.98)',
-                padding: '12px',
+                width: 'min(680px, 96vw)',
+                borderRadius: '8px',
+                border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.20)' : 'rgba(54, 144, 206, 0.25)'}`,
+                background: isDarkMode ? 'rgb(17, 24, 39)' : 'rgb(255, 255, 255)',
+                padding: '32px',
+                boxShadow: isDarkMode 
+                  ? '0 20px 60px rgba(0, 0, 0, 0.6)'
+                  : '0 20px 60px rgba(0, 0, 0, 0.15)',
               }}
             >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
-              <div style={{ fontSize: '12px', fontWeight: 800, color: isDarkMode ? 'rgba(226, 232, 240, 0.92)' : 'rgba(15, 23, 42, 0.9)' }}>
-                Request Docs
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', marginBottom: '24px' }}>
+              <div>
+                <h2 style={{ 
+                  margin: 0, 
+                  fontSize: '20px', 
+                  fontWeight: 700, 
+                  color: isDarkMode ? 'rgb(249, 250, 251)' : colours.light.text,
+                  marginBottom: '8px',
+                }}>
+                  Request Documents
+                </h2>
+                <p style={{ 
+                  margin: 0, 
+                  fontSize: '13px', 
+                  color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.7)',
+                  lineHeight: 1.5,
+                }}>
+                  Create a secure workspace for document collection and collaboration
+                </p>
               </div>
               <button
                 type="button"
@@ -5131,43 +5881,131 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 style={{
                   border: 'none',
                   background: 'transparent',
-                  color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : 'rgba(15, 23, 42, 0.6)',
+                  color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.5)',
                   cursor: 'pointer',
-                  fontSize: '12px',
-                  fontWeight: 800,
+                  fontSize: '24px',
+                  lineHeight: 1,
+                  padding: '4px',
                 }}
               >
                 ×
               </button>
             </div>
 
-            <div style={{ marginTop: '8px', fontSize: '11px', color: isDarkMode ? 'rgba(148, 163, 184, 0.85)' : 'rgba(15, 23, 42, 0.65)' }}>
-              Preview: uploads will go under <span style={{ fontFamily: 'Consolas, Monaco, monospace' }}>enquiries/{String(enquiry?.ID ?? '')}/{String(docRequestWorktype || '').trim() || '…'}/</span>
+            {/* Upload location info */}
+            <div style={{ 
+              marginBottom: '28px',
+              padding: '16px',
+              borderRadius: '6px',
+              background: isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)',
+              border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
+            }}>
+              <div style={{ 
+                fontSize: '11px', 
+                fontWeight: 600,
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+                color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.6)',
+                marginBottom: '8px',
+              }}>
+                Document Storage
+              </div>
+              <div style={{ 
+                fontSize: '13px', 
+                color: isDarkMode ? 'rgb(209, 213, 219)' : 'rgba(15, 23, 42, 0.85)',
+                fontFamily: 'Consolas, Monaco, monospace',
+              }}>
+                enquiries/{String(enquiry?.ID ?? '')}/
+              </div>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <div style={{ fontSize: '10px', fontWeight: 700, color: isDarkMode ? 'rgba(226, 232, 240, 0.75)' : 'rgba(15, 23, 42, 0.7)' }}>
-                    Area of work
+            {/* Workspace link preview */}
+            <div style={{
+              marginBottom: '28px',
+              padding: '16px',
+              borderRadius: '6px',
+              background: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(148, 163, 184, 0.04)',
+              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.20)'}`,
+            }}>
+              <div style={{
+                fontSize: '11px',
+                fontWeight: 600,
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+                color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.6)',
+                marginBottom: '8px',
+              }}>
+                Workspace Link
+              </div>
+              {(() => {
+                const base = String(process.env.REACT_APP_PITCH_BACKEND_URL || 'https://instruct.helix-law.com').replace(/\/$/, '');
+                const passcode = docRequestResult?.passcode;
+                if (!passcode) {
+                  return (
+                    <div style={{
+                      fontSize: '13px',
+                      color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.6)',
+                      lineHeight: 1.5,
+                    }}>
+                      Link will appear after you create the workspace.
+                    </div>
+                  );
+                }
+
+                const prefix = `${base}/pitch/`;
+
+                return (
+                  <div style={{
+                    fontSize: '13px',
+                    color: isDarkMode ? 'rgb(209, 213, 219)' : 'rgba(15, 23, 42, 0.85)',
+                    fontFamily: 'Consolas, Monaco, monospace',
+                    wordBreak: 'break-all',
+                  }}>
+                    <span>{prefix}</span>
+                    <span style={{
+                      background: isDarkMode ? 'rgba(135, 243, 243, 0.18)' : 'rgba(54, 144, 206, 0.12)',
+                      border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(54, 144, 206, 0.18)'}`,
+                      color: isDarkMode ? colours.accent : colours.highlight,
+                      fontWeight: 700,
+                      borderRadius: '3px',
+                      padding: '0 4px',
+                    }}>
+                      {passcode}
+                    </span>
                   </div>
+                );
+              })()}
+            </div>
+
+            {/* Form fields */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+              {/* Area of work & Worktype */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <label style={{ 
+                    fontSize: '13px', 
+                    fontWeight: 600, 
+                    color: isDarkMode ? 'rgb(209, 213, 219)' : 'rgba(15, 23, 42, 0.85)',
+                  }}>
+                    Area of Work
+                  </label>
                   <select
                     value={docRequestAreaOfWork}
                     onChange={(e) => {
                       const nextArea = e.target.value;
                       setDocRequestAreaOfWork(nextArea);
-                      // Let the effect snap worktype to the first valid option.
                       setDocRequestWorktype('');
                     }}
                     style={{
                       width: '100%',
-                      padding: '8px 10px',
-                      borderRadius: '2px',
-                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.30)'}`,
-                      background: isDarkMode ? 'rgba(2, 6, 23, 0.35)' : 'rgba(255, 255, 255, 0.9)',
-                      color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)',
-                      fontSize: '12px',
+                      padding: '12px 14px',
+                      borderRadius: '4px',
+                      border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(148, 163, 184, 0.30)'}`,
+                      background: isDarkMode ? 'rgba(2, 6, 23, 0.40)' : 'rgba(255, 255, 255, 0.95)',
+                      color: isDarkMode ? 'rgb(226, 232, 240)' : 'rgba(15, 23, 42, 0.90)',
+                      fontSize: '14px',
                       outline: 'none',
+                      cursor: 'pointer',
                     }}
                   >
                     {Object.keys(practiceAreasByArea).map((area) => (
@@ -5178,26 +6016,31 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   </select>
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <div style={{ fontSize: '10px', fontWeight: 700, color: isDarkMode ? 'rgba(226, 232, 240, 0.75)' : 'rgba(15, 23, 42, 0.7)' }}>
-                    Worktype (folder)
-                  </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <label style={{ 
+                    fontSize: '13px', 
+                    fontWeight: 600, 
+                    color: isDarkMode ? 'rgb(209, 213, 219)' : 'rgba(15, 23, 42, 0.85)',
+                  }}>
+                    Work Type
+                  </label>
                   <select
                     value={docRequestWorktype}
                     onChange={(e) => setDocRequestWorktype(e.target.value)}
                     style={{
                       width: '100%',
-                      padding: '8px 10px',
-                      borderRadius: '2px',
-                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.30)'}`,
-                      background: isDarkMode ? 'rgba(2, 6, 23, 0.35)' : 'rgba(255, 255, 255, 0.9)',
-                      color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)',
-                      fontSize: '12px',
+                      padding: '12px 14px',
+                      borderRadius: '4px',
+                      border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(148, 163, 184, 0.30)'}`,
+                      background: isDarkMode ? 'rgba(2, 6, 23, 0.40)' : 'rgba(255, 255, 255, 0.95)',
+                      color: isDarkMode ? 'rgb(226, 232, 240)' : 'rgba(15, 23, 42, 0.90)',
+                      fontSize: '14px',
                       outline: 'none',
+                      cursor: 'pointer',
                     }}
                   >
                     <option value="" disabled>
-                      Select worktype
+                      Select work type
                     </option>
                     {docRequestWorktypeOptions.map((wt) => (
                       <option key={wt} value={wt}>
@@ -5208,8 +6051,14 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 </div>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+              {/* Skip deal details option */}
+              <div style={{ 
+                padding: '16px',
+                borderRadius: '6px',
+                background: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(148, 163, 184, 0.04)',
+                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.20)'}`,
+              }}>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', cursor: 'pointer' }}>
                   <input
                     type="checkbox"
                     checked={docRequestDealIsNa}
@@ -5221,132 +6070,203 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                         setDocRequestServiceDescription('Document request');
                       }
                     }}
+                    style={{
+                      marginTop: '2px',
+                      width: '18px',
+                      height: '18px',
+                      cursor: 'pointer',
+                    }}
                   />
-                  <span style={{ fontSize: '11px', fontWeight: 800, color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.75)' }}>
-                    Skip deal details
-                  </span>
-                  <span style={{ fontSize: '10px', color: isDarkMode ? 'rgba(148, 163, 184, 0.75)' : 'rgba(15, 23, 42, 0.6)' }}>
-                    Creates the workspace link only.
-                  </span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ 
+                      fontSize: '14px', 
+                      fontWeight: 600, 
+                      color: isDarkMode ? 'rgb(226, 232, 240)' : 'rgba(15, 23, 42, 0.85)',
+                      marginBottom: '4px',
+                    }}>
+                      Skip Deal Details
+                    </div>
+                    <div style={{ 
+                      fontSize: '12px', 
+                      color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.6)',
+                      lineHeight: 1.5,
+                    }}>
+                      Creates workspace link only without recording deal information in the system
+                    </div>
+                  </div>
                 </label>
               </div>
-
+ 
+              {/* Deal details (conditionally shown) */}
               {!docRequestDealIsNa ? (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 160px', gap: '10px' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <div style={{ fontSize: '10px', fontWeight: 700, color: isDarkMode ? 'rgba(226, 232, 240, 0.75)' : 'rgba(15, 23, 42, 0.7)' }}>
-                      Service description
-                    </div>
-                    <input
-                      value={docRequestServiceDescription}
-                      onChange={(e) => setDocRequestServiceDescription(e.target.value)}
-                      placeholder="Document request"
-                      style={{
-                        width: '100%',
-                        padding: '8px 10px',
-                        borderRadius: '2px',
-                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.30)'}`,
-                        background: isDarkMode ? 'rgba(2, 6, 23, 0.35)' : 'rgba(255, 255, 255, 0.9)',
-                        color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)',
-                        fontSize: '12px',
-                        outline: 'none',
-                      }}
-                    />
+                <div style={{ 
+                  display: 'flex', 
+                  flexDirection: 'column', 
+                  gap: '20px',
+                  padding: '20px',
+                  borderRadius: '6px',
+                  background: isDarkMode ? 'rgba(135, 243, 243, 0.04)' : 'rgba(54, 144, 206, 0.03)',
+                  border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.12)'}`,
+                }}>
+                  <div style={{ 
+                    fontSize: '13px', 
+                    fontWeight: 600,
+                    color: isDarkMode ? 'rgb(209, 213, 219)' : 'rgba(15, 23, 42, 0.85)',
+                    marginBottom: '4px',
+                  }}>
+                    Deal Information
                   </div>
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <div style={{ fontSize: '10px', fontWeight: 700, color: isDarkMode ? 'rgba(226, 232, 240, 0.75)' : 'rgba(15, 23, 42, 0.7)' }}>
-                      Amount
-                    </div>
-                    <div style={{ position: 'relative' }}>
-                      <span
-                        aria-hidden="true"
-                        style={{
-                          position: 'absolute',
-                          left: '10px',
-                          top: '50%',
-                          transform: 'translateY(-50%)',
-                          color: isDarkMode ? 'rgba(226, 232, 240, 0.75)' : 'rgba(15, 23, 42, 0.6)',
-                          pointerEvents: 'none',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                        }}
-                      >
-                        <FaPoundSign size={12} />
-                      </span>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 200px', gap: '20px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <label style={{ 
+                        fontSize: '13px', 
+                        fontWeight: 600, 
+                        color: isDarkMode ? 'rgb(209, 213, 219)' : 'rgba(15, 23, 42, 0.85)',
+                      }}>
+                        Service Description
+                      </label>
                       <input
-                        value={docRequestAmount}
-                        onChange={(e) => handleDocRequestAmountChange(e.target.value)}
-                        onBlur={handleDocRequestAmountBlur}
-                        placeholder="0.00"
-                        inputMode="decimal"
+                        value={docRequestServiceDescription}
+                        onChange={(e) => setDocRequestServiceDescription(e.target.value)}
+                        placeholder="e.g., Document request, Initial review"
                         style={{
                           width: '100%',
-                          padding: '8px 10px 8px 28px',
-                          borderRadius: '2px',
-                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.30)'}`,
-                          background: isDarkMode ? 'rgba(2, 6, 23, 0.35)' : 'rgba(255, 255, 255, 0.9)',
-                          color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)',
-                          fontSize: '12px',
+                          padding: '12px 14px',
+                          borderRadius: '4px',
+                          border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(148, 163, 184, 0.30)'}`,
+                          background: isDarkMode ? 'rgba(2, 6, 23, 0.40)' : 'rgba(255, 255, 255, 0.95)',
+                          color: isDarkMode ? 'rgb(226, 232, 240)' : 'rgba(15, 23, 42, 0.90)',
+                          fontSize: '14px',
                           outline: 'none',
                         }}
                       />
                     </div>
 
-                    <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
-                      <button
-                        type="button"
-                        onClick={() => adjustDocRequestAmount(50)}
-                        style={{
-                          padding: '6px 10px',
-                          border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(54, 144, 206, 0.25)'}`,
-                          background: isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.08)',
-                          color: isDarkMode ? colours.accent : colours.highlight,
-                          borderRadius: '2px',
-                          cursor: 'pointer',
-                          fontSize: '11px',
-                          fontWeight: 800,
-                        }}
-                      >
-                        +50
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => adjustDocRequestAmount(-50)}
-                        style={{
-                          padding: '6px 10px',
-                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.25)'}`,
-                          background: isDarkMode ? 'rgba(148, 163, 184, 0.10)' : 'rgba(148, 163, 184, 0.08)',
-                          color: isDarkMode ? 'rgba(226, 232, 240, 0.65)' : 'rgba(15, 23, 42, 0.65)',
-                          borderRadius: '2px',
-                          cursor: 'pointer',
-                          fontSize: '11px',
-                          fontWeight: 800,
-                        }}
-                      >
-                        -50
-                      </button>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <label style={{ 
+                        fontSize: '13px', 
+                        fontWeight: 600, 
+                        color: isDarkMode ? 'rgb(209, 213, 219)' : 'rgba(15, 23, 42, 0.85)',
+                      }}>
+                        Amount
+                      </label>
+                      <div style={{ position: 'relative' }}>
+                        <span
+                          aria-hidden="true"
+                          style={{
+                            position: 'absolute',
+                            left: '14px',
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.5)',
+                            pointerEvents: 'none',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <FaPoundSign size={13} />
+                        </span>
+                        <input
+                          value={docRequestAmount}
+                          onChange={(e) => handleDocRequestAmountChange(e.target.value)}
+                          onBlur={handleDocRequestAmountBlur}
+                          placeholder="0.00"
+                          inputMode="decimal"
+                          style={{
+                            width: '100%',
+                            padding: '12px 14px 12px 36px',
+                            borderRadius: '4px',
+                            border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(148, 163, 184, 0.30)'}`,
+                            background: isDarkMode ? 'rgba(2, 6, 23, 0.40)' : 'rgba(255, 255, 255, 0.95)',
+                            color: isDarkMode ? 'rgb(226, 232, 240)' : 'rgba(15, 23, 42, 0.90)',
+                            fontSize: '14px',
+                            outline: 'none',
+                          }}
+                        />
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                        <button
+                          type="button"
+                          onClick={() => adjustDocRequestAmount(50)}
+                          style={{
+                            flex: 1,
+                            padding: '8px 12px',
+                            border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(54, 144, 206, 0.25)'}`,
+                            background: isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.08)',
+                            color: isDarkMode ? colours.accent : colours.highlight,
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            transition: 'all 0.15s ease',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.20)' : 'rgba(54, 144, 206, 0.15)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.08)';
+                          }}
+                        >
+                          +50
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => adjustDocRequestAmount(-50)}
+                          style={{
+                            flex: 1,
+                            padding: '8px 12px',
+                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.25)'}`,
+                            background: isDarkMode ? 'rgba(148, 163, 184, 0.10)' : 'rgba(148, 163, 184, 0.08)',
+                            color: isDarkMode ? 'rgba(226, 232, 240, 0.65)' : 'rgba(15, 23, 42, 0.65)',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            transition: 'all 0.15s ease',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.16)' : 'rgba(148, 163, 184, 0.14)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.10)' : 'rgba(148, 163, 184, 0.08)';
+                          }}
+                        >
+                          -50
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
               ) : null}
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '12px' }}>
+            {/* Action buttons */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '28px', paddingTop: '24px', borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.20)'}` }}>
               <button
                 type="button"
                 onClick={() => setDocRequestConfirmOpen(false)}
                 disabled={docRequestLoading}
                 style={{
-                  padding: '8px 12px',
-                  borderRadius: '2px',
-                  fontSize: '12px',
-                  fontWeight: 800,
+                  padding: '10px 20px',
+                  borderRadius: '4px',
+                  fontSize: '14px',
+                  fontWeight: 600,
                   background: 'transparent',
-                  color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : 'rgba(15, 23, 42, 0.65)',
+                  color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.65)',
                   border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.30)'}`,
                   cursor: docRequestLoading ? 'default' : 'pointer',
-                  opacity: docRequestLoading ? 0.6 : 1,
+                  opacity: docRequestLoading ? 0.5 : 1,
+                  transition: 'all 0.15s ease',
+                }}
+                onMouseEnter={(e) => {
+                  if (!docRequestLoading) {
+                    e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.10)' : 'rgba(148, 163, 184, 0.08)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent';
                 }}
               >
                 Cancel
@@ -5359,25 +6279,45 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '8px',
-                  padding: '8px 12px',
-                  borderRadius: '2px',
-                  fontSize: '12px',
-                  fontWeight: 800,
-                  background: colours.highlight,
+                  padding: '10px 24px',
+                  borderRadius: '4px',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  background: docRequestLoading || !requestDocsEnabled 
+                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.4)' : 'rgba(54, 144, 206, 0.5)')
+                    : colours.highlight,
                   color: '#ffffff',
                   border: 'none',
                   cursor: docRequestLoading || !requestDocsEnabled ? 'default' : 'pointer',
-                  opacity: docRequestLoading || !requestDocsEnabled ? 0.6 : 1,
+                  boxShadow: docRequestLoading || !requestDocsEnabled 
+                    ? 'none'
+                    : '0 2px 8px rgba(54, 144, 206, 0.25)',
+                  transition: 'all 0.15s ease',
+                }}
+                onMouseEnter={(e) => {
+                  if (!docRequestLoading && requestDocsEnabled) {
+                    e.currentTarget.style.background = isDarkMode ? 'rgb(65, 165, 225)' : 'rgb(44, 124, 186)';
+                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(54, 144, 206, 0.35)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!docRequestLoading && requestDocsEnabled) {
+                    e.currentTarget.style.background = colours.highlight;
+                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(54, 144, 206, 0.25)';
+                  }
                 }}
               >
-                {docRequestLoading ? 'Creating…' : 'Create workspace'}
+                {docRequestLoading ? 'Creating workspace…' : 'Create Workspace'}
               </button>
             </div>
-            </div>
-          </div>,
+          </div>
+        </div>,
           document.body
         )
         : null}
+
+      {/* Pitch confirmation and scenario picker modal */}
+      {renderPitchConfirmModal()}
 
       {/* Toast Notifications */}
       <OperationStatusToast

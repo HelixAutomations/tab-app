@@ -70,6 +70,7 @@ const updateInstructionStatusRouter = require('./routes/updateInstructionStatus'
 const documentsRouter = require('./routes/documents');
 const demoDocumentsRouter = require('./routes/demo-documents');
 const prospectDocumentsRouter = require('./routes/prospect-documents');
+const docWorkspaceRouter = require('./routes/doc-workspace');
 const enquiriesUnifiedRouter = require('./routes/enquiries-unified');
 const mattersUnifiedRouter = require('./routes/mattersUnified');
 const verifyIdRouter = require('./routes/verify-id');
@@ -213,6 +214,7 @@ app.use('/api/update-instruction-status', updateInstructionStatusRouter);
 app.use('/api/documents', documentsRouter);
 app.use('/api/demo-documents', demoDocumentsRouter);
 app.use('/api/prospect-documents', prospectDocumentsRouter);
+app.use('/api/doc-workspace', docWorkspaceRouter);
 app.use('/api/verify-id', verifyIdRouter);
 app.use('/api/test-db', testDbRouter);
 app.use('/api/team-lookup', teamLookupRouter);

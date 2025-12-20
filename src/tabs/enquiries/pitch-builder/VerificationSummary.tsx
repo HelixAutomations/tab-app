@@ -3,6 +3,37 @@ import { Enquiry, UserData } from '../../../app/functionality/types';
 import { colours } from '../../../app/styles/colours';
 
 /**
+ * Safe clipboard copy that won't crash if navigator.clipboard is unavailable (e.g., in Teams context).
+ * Falls back to legacy execCommand approach if needed.
+ */
+async function safeCopyToClipboard(text: string): Promise<boolean> {
+  const trimmed = String(text ?? '').trim();
+  if (!trimmed) return false;
+  
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(trimmed);
+      return true;
+    }
+    // Fallback for environments without clipboard API
+    const textarea = document.createElement('textarea');
+    textarea.value = trimmed;
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.style.top = '0';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textarea);
+    return true;
+  } catch (err) {
+    console.warn('[VerificationSummary] Copy failed:', err);
+    return false;
+  }
+}
+
+/**
  * A compact, theme-aware summary of the effective details used for substitutions in Pitch Builder.
  * Shows fee earner info (name, initials, role, rate), enquiry id, amount, passcode, and instruction link,
  * plus a small indicator of the data source (server route vs default).
@@ -173,7 +204,7 @@ export const VerificationSummary: React.FC<VerificationSummaryProps> = ({
           : 'linear-gradient(135deg, #f8fafc 0%, #ffffff 100%)',
         border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : 'rgba(148, 163, 184, 0.2)'}`,
         borderRadius: '2px',
-        padding: '12px 16px',
+        padding: '16px 20px',
         backdropFilter: 'blur(6px)',
         marginBottom: '0'
       }}
@@ -428,10 +459,12 @@ export const VerificationSummary: React.FC<VerificationSummaryProps> = ({
                 <button
                   type="button"
                   aria-label={notesCopied ? 'Copied' : 'Copy notes'}
-                  onClick={() => {
-                    navigator.clipboard.writeText(notesDisplay);
-                    setNotesCopied(true);
-                    setTimeout(() => setNotesCopied(false), 1200);
+                  onClick={async () => {
+                    const ok = await safeCopyToClipboard(notesDisplay);
+                    if (ok) {
+                      setNotesCopied(true);
+                      setTimeout(() => setNotesCopied(false), 1200);
+                    }
                   }}
                   style={{
                     fontSize: 11,
@@ -529,19 +562,24 @@ const ContactChip: React.FC<{
 }> = ({ label, kind, subtle, isDarkMode, accent }) => {
   const [copied, setCopied] = React.useState(false);
   const [isHovered, setIsHovered] = React.useState(false);
+  const [isActive, setIsActive] = React.useState(false);
   
-  const copy = () => {
-    navigator.clipboard.writeText(label);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1200);
+  const copy = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const ok = await safeCopyToClipboard(label);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    }
   };
   
   const bg = isDarkMode 
-    ? (isHovered ? 'rgba(125, 211, 252, 0.15)' : 'rgba(125, 211, 252, 0.1)') 
-    : (isHovered ? 'rgba(54, 144, 206, 0.1)' : '#f1f5f9');
+    ? (isActive ? 'rgba(125, 211, 252, 0.20)' : isHovered ? 'rgba(125, 211, 252, 0.15)' : 'rgba(125, 211, 252, 0.1)') 
+    : (isActive ? 'rgba(54, 144, 206, 0.15)' : isHovered ? 'rgba(54, 144, 206, 0.1)' : '#f1f5f9');
   const border = isDarkMode 
-    ? (isHovered ? 'rgba(125, 211, 252, 0.35)' : 'rgba(125, 211, 252, 0.2)') 
-    : (isHovered ? 'rgba(54, 144, 206, 0.3)' : '#e2e8f0');
+    ? (isHovered || isActive ? 'rgba(125, 211, 252, 0.35)' : 'rgba(125, 211, 252, 0.2)') 
+    : (isHovered || isActive ? 'rgba(54, 144, 206, 0.3)' : '#e2e8f0');
     
   const icon = kind === 'mail' ? (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -569,13 +607,15 @@ const ContactChip: React.FC<{
         color: isDarkMode ? '#F1F5F9' : '#1E293B',
         cursor: 'pointer',
         transition: 'all 0.15s ease',
-        transform: 'translateY(0)',
+        transform: isActive ? 'translateY(1px)' : 'translateY(0)',
         boxShadow: 'none'
       }}
       title={label}
       onClick={copy}
       onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      onMouseLeave={() => { setIsHovered(false); setIsActive(false); }}
+      onMouseDown={() => setIsActive(true)}
+      onMouseUp={() => setIsActive(false)}
     >
       <div style={{ color: accent }}>
         {icon}
@@ -619,15 +659,21 @@ const KV: React.FC<{
 }> = ({ label, value, text, subtle, copyable, mono }) => {
   const [copied, setCopied] = React.useState(false);
   const [isHovered, setIsHovered] = React.useState(false);
+  const [isActive, setIsActive] = React.useState(false);
   
-  const handleCopy = () => {
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
     if (!copyable || !value || value === '—') return;
-    navigator.clipboard.writeText(value);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1200);
+    const ok = await safeCopyToClipboard(value);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    }
   };
   
   const isDarkMode = text === '#F8FAFC'; // Determine theme from text color
+  const canCopy = copyable && value !== '—';
   
   return (
     <div 
@@ -637,20 +683,24 @@ const KV: React.FC<{
         gap: '4px',
         padding: '8px 10px',
         borderRadius: '2px',
-        background: isHovered 
-          ? (isDarkMode ? 'rgba(125, 211, 252, 0.12)' : 'rgba(54, 144, 206, 0.08)')
-          : (isDarkMode ? 'rgba(7, 16, 32, 0.6)' : 'rgba(248, 250, 252, 0.8)'),
+        background: isActive
+          ? (isDarkMode ? 'rgba(125, 211, 252, 0.18)' : 'rgba(54, 144, 206, 0.12)')
+          : isHovered 
+            ? (isDarkMode ? 'rgba(125, 211, 252, 0.12)' : 'rgba(54, 144, 206, 0.08)')
+            : (isDarkMode ? 'rgba(7, 16, 32, 0.6)' : 'rgba(248, 250, 252, 0.8)'),
         border: `1px solid ${isDarkMode 
-          ? (isHovered ? 'rgba(125, 211, 252, 0.3)' : 'rgba(125, 211, 252, 0.15)') 
-          : (isHovered ? 'rgba(54, 144, 206, 0.25)' : 'rgba(148, 163, 184, 0.2)')}`,
+          ? (isHovered || isActive ? 'rgba(125, 211, 252, 0.3)' : 'rgba(125, 211, 252, 0.15)') 
+          : (isHovered || isActive ? 'rgba(54, 144, 206, 0.25)' : 'rgba(148, 163, 184, 0.2)')}`,
         transition: 'all 0.15s ease',
-        cursor: copyable && value !== '—' ? 'pointer' : 'default',
-        transform: 'translateY(0)',
+        cursor: canCopy ? 'pointer' : 'default',
+        transform: isActive ? 'translateY(1px)' : 'translateY(0)',
         boxShadow: 'none'
       }}
       onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-      onClick={copyable && value !== '—' ? handleCopy : undefined}
+      onMouseLeave={() => { setIsHovered(false); setIsActive(false); }}
+      onMouseDown={() => canCopy && setIsActive(true)}
+      onMouseUp={() => setIsActive(false)}
+      onClick={canCopy ? handleCopy : undefined}
     >
       <div style={{ 
         color: subtle, 

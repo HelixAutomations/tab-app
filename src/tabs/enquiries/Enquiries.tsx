@@ -587,6 +587,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [ratingEnquiryId, setRatingEnquiryId] = useState<string | null>(null);
   const [isSuccessVisible, setIsSuccessVisible] = useState<boolean>(false);
   const [activeSubTab, setActiveSubTab] = useState<string>('Pitch');
+  const [selectedPitchScenario, setSelectedPitchScenario] = useState<string | undefined>(undefined);
   const [showUnclaimedBoard, setShowUnclaimedBoard] = useState<boolean>(false);
   const [isCreateContactModalOpen, setIsCreateContactModalOpen] = useState<boolean>(false);
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
@@ -3155,7 +3156,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     (enquiry: Enquiry) => (
       <>
         {activeSubTab === 'Pitch' && (
-          <PitchBuilder enquiry={enquiry} userData={userData} />
+          <PitchBuilder 
+            enquiry={enquiry} 
+            userData={userData}
+            initialScenario={selectedPitchScenario}
+          />
         )}
         {activeSubTab === 'Timeline' && (
           <EnquiryTimeline 
@@ -3163,7 +3168,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             userInitials={userData && userData[0] ? userData[0].Initials : undefined}
             userEmail={userData?.[0]?.Email}
             featureToggles={featureToggles}
-            onOpenPitchBuilder={() => setActiveSubTab('Pitch')}
+            onOpenPitchBuilder={(scenarioId) => {
+              setSelectedPitchScenario(scenarioId);
+              setActiveSubTab('Pitch');
+            }}
           />
         )}
       </>

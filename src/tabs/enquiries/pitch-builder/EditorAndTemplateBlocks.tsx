@@ -1201,6 +1201,7 @@ interface EditorAndTemplateBlocksProps {
   emailMessage?: string;
   // Scenario callback to expose selectedScenarioId to parent
   onScenarioChange?: (scenarioId: string) => void;
+  initialScenario?: string;
 }
 
 const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
@@ -1254,7 +1255,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   dealStatus,
   emailStatus,
   emailMessage,
-  onScenarioChange
+  onScenarioChange,
+  initialScenario
 }) => {
   // State for removed blocks
   const [removedBlocks, setRemovedBlocks] = useState<{ [key: string]: boolean }>({});
@@ -1269,7 +1271,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   // Removed PIC placeholder insertion feature per user request
   const [isNotesPinned, setIsNotesPinned] = useState(false);
   const [showSubjectHint, setShowSubjectHint] = useState(false);
-  const [selectedScenarioId, setSelectedScenarioId] = useState<string>('');
+  const [selectedScenarioId, setSelectedScenarioId] = useState<string>(initialScenario || '');
   const isBeforeCallCall = selectedScenarioId === 'before-call-call';
 
   // Track selectedScenarioId changes and notify parent

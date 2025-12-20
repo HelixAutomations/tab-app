@@ -111,6 +111,7 @@ interface PitchBuilderProps {
   enquiry: Enquiry;
   userData: UserData[] | null;
   showDealCapture?: boolean;
+  initialScenario?: string;
 }
 
 // Small typed fetch helper with discriminated result for safer error handling
@@ -557,7 +558,7 @@ if (typeof window !== 'undefined' && !document.getElementById('block-label-style
   document.head.appendChild(style);
 }
 
-const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDealCapture = true }) => {
+const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDealCapture = true, initialScenario }) => {
   /**
    * Ensure any raw passcode (api or fallback) is converted to a 5‑digit numeric string.
    * Rules:
@@ -4779,6 +4780,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
           emailStatus={emailStatus}
           emailMessage={emailMessage}
           onScenarioChange={setSelectedScenarioId}
+          initialScenario={initialScenario}
         />
 
         {snippetOptionsBlock && snippetOptionsTarget && (
