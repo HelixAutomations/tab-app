@@ -462,7 +462,7 @@ router.get('/documents', async (req, res) => {
     }
 
     if (!passcode) {
-      if (!debug) return res.json({ enquiryId, passcode: null, documents: [] });
+      if (!debug) return res.json({ enquiryId, passcode: null, folders: [], documents: [] });
       const passcodes = await listPasscodeDiagnostics(containerClient, enquiryId);
 
       safeLog('documents no passcode resolved', {
@@ -474,6 +474,7 @@ router.get('/documents', async (req, res) => {
       return res.json({
         enquiryId,
         passcode: null,
+        folders: [],
         documents: [],
         debug: {
           storageAccount: STORAGE_ACCOUNT_NAME,
@@ -488,10 +489,20 @@ router.get('/documents', async (req, res) => {
     const prefix = `enquiries/${enquiryId}/${passcode}/`;
 
     const documents = [];
+    const foldersSet = new Set();
     for await (const blob of containerClient.listBlobsFlat({ prefix })) {
       const blobName = blob.name;
 
+      // Track workspace folder structure from marker blobs and document blobs.
+      const rel = blobName.startsWith(prefix) ? blobName.slice(prefix.length) : blobName;
+      const relParts = String(rel || '').split('/').filter(Boolean);
+      if (relParts.length > 1) {
+        foldersSet.add(relParts[0]);
+      }
+
       // Skip folder markers and instructions.
+      if (rel === '.keep') continue;
+      if (rel === 'Instructions.txt') continue;
       if (blobName.endsWith('/.keep')) continue;
       if (blobName.endsWith('/Instructions.txt')) continue;
 
@@ -518,6 +529,10 @@ router.get('/documents', async (req, res) => {
       });
     }
 
+    const folders = Array.from(foldersSet)
+      .filter((f) => typeof f === 'string' && f.trim())
+      .sort((a, b) => String(a).localeCompare(String(b)));
+
     // Sort newest first when we have timestamps.
     documents.sort((a, b) => {
       const am = a.uploaded_at ? new Date(a.uploaded_at).getTime() : 0;
@@ -532,11 +547,12 @@ router.get('/documents', async (req, res) => {
       documentCount: documents.length,
     });
 
-    if (!debug) return res.json({ enquiryId, passcode, documents });
+    if (!debug) return res.json({ enquiryId, passcode, folders, documents });
 
     return res.json({
       enquiryId,
       passcode,
+      folders,
       documents,
       debug: {
         storageAccount: STORAGE_ACCOUNT_NAME,
@@ -562,6 +578,78 @@ router.get('/documents', async (req, res) => {
       error: 'Failed to list workspace documents',
       detail,
       hint: 'Ensure the server has blob read access to the storage account/container (managed identity RBAC or INSTRUCTIONS_STORAGE_CONNECTION_STRING/INSTRUCTIONS_STORAGE_ACCOUNT_KEY).',
+    });
+  }
+});
+
+/**
+ * GET /pending-actions
+ * Returns a list of enquiries with files in Holding folder that need allocation.
+ * Query params:
+ * - enquiryIds: comma-separated list of enquiry IDs to check (optional, limits scope)
+ */
+router.get('/pending-actions', async (req, res) => {
+  try {
+    const svc = getBlobServiceClient();
+    const containerClient = svc.getContainerClient(PROSPECT_CONTAINER);
+
+    // Parse optional enquiry IDs filter
+    const enquiryIdsParam = String(req.query?.enquiryIds || '').trim();
+    const filterIds = enquiryIdsParam ? enquiryIdsParam.split(',').map(id => id.trim()).filter(Boolean) : null;
+
+    const pendingActions = [];
+    const seenEnquiries = new Set();
+
+    // List all blobs and find those in /Holding/ folders
+    for await (const blob of containerClient.listBlobsFlat({ prefix: 'enquiries/' })) {
+      const blobName = blob.name;
+      
+      // Pattern: enquiries/{enquiryId}/{passcode}/Holding/{filename}
+      const match = blobName.match(/^enquiries\/(\d+)\/([^/]+)\/Holding\/(.+)$/);
+      if (!match) continue;
+
+      const [, enquiryId, passcode, filename] = match;
+      
+      // Skip .folder marker files
+      if (filename === '.folder') continue;
+      
+      // Filter by enquiry IDs if provided
+      if (filterIds && !filterIds.includes(enquiryId)) continue;
+
+      // Track unique enquiry+passcode combinations
+      const key = `${enquiryId}:${passcode}`;
+      if (seenEnquiries.has(key)) {
+        // Increment count for existing entry
+        const existing = pendingActions.find(a => a.enquiryId === enquiryId && a.passcode === passcode);
+        if (existing) existing.holdingCount += 1;
+        continue;
+      }
+
+      seenEnquiries.add(key);
+      pendingActions.push({
+        enquiryId,
+        passcode,
+        holdingCount: 1,
+        actionType: 'allocate_documents',
+        actionLabel: 'Files need allocation',
+      });
+    }
+
+    return res.json({
+      pendingActions,
+      total: pendingActions.length,
+      totalFiles: pendingActions.reduce((sum, a) => sum + a.holdingCount, 0),
+    });
+  } catch (err) {
+    console.error('doc-workspace/pending-actions failed', {
+      name: err?.name,
+      message: err?.message,
+    });
+
+    return res.status(500).json({
+      error: 'Failed to check pending actions',
+      pendingActions: [],
+      total: 0,
     });
   }
 });

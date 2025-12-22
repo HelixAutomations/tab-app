@@ -20,6 +20,7 @@ import {
 } from 'react-icons/md';
 import { Icon } from '@fluentui/react';
 import { useTheme } from '../../app/functionality/ThemeContext';
+import { colours } from '../../app/styles/colours';
 
 export type ImmediateActionCategory = 'critical' | 'standard' | 'success';
 
@@ -88,13 +89,15 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
   const text = isDark ? '#f1f5f9' : '#1e293b';
   const textMuted = isDark ? '#94a3b8' : '#64748b';
   const textSubtle = isDark ? '#64748b' : '#94a3b8';
+
+  const needsUrgentAttention = !disabled && (count ?? 0) > 0 && title.toLowerCase().startsWith('approve annual leave');
   
   // Category accent - subtle left indicator
-  const categoryColor = category === 'critical' 
-    ? (isDark ? '#f87171' : '#dc2626')
+  const categoryColor = category === 'critical'
+    ? colours.cta
     : category === 'success'
-    ? (isDark ? '#4ade80' : '#16a34a')
-    : '#3690CE'; // Helix highlight for standard category
+    ? colours.green
+    : colours.highlight;
 
   const hovered = isHovered && !disabled;
 
@@ -111,18 +114,23 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
         padding: '8px 12px',
         minWidth: 140,
         maxWidth: 280,
-        background: hovered ? bgHover : bg,
+        background: needsUrgentAttention
+          ? (isDark ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.08)')
+          : (hovered ? bgHover : bg),
         color: text,
         borderTop: `1px solid ${hovered ? borderHover : border}`,
         borderRight: `1px solid ${hovered ? borderHover : border}`,
         borderBottom: `1px solid ${hovered ? borderHover : border}`,
         borderLeft: `3px solid ${categoryColor}`,
-        boxShadow: hovered 
-          ? (isDark ? '0 4px 12px rgba(0,0,0,0.3)' : '0 4px 12px rgba(0,0,0,0.08)')
-          : (isDark ? '0 1px 3px rgba(0,0,0,0.2)' : '0 1px 3px rgba(0,0,0,0.04)'),
+        boxShadow: needsUrgentAttention
+          ? (isDark ? '0 0 0 2px rgba(214, 85, 65, 0.25), 0 10px 22px rgba(0,0,0,0.35)' : '0 0 0 2px rgba(214, 85, 65, 0.22), 0 10px 22px rgba(0,0,0,0.10)')
+          : hovered
+            ? (isDark ? '0 4px 12px rgba(0,0,0,0.3)' : '0 4px 12px rgba(0,0,0,0.08)')
+            : (isDark ? '0 1px 3px rgba(0,0,0,0.2)' : '0 1px 3px rgba(0,0,0,0.04)'),
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.5 : 1,
         transition: 'all 0.15s ease',
+        animation: needsUrgentAttention ? 'helixUrgentPulse 1.4s ease-in-out infinite' : undefined,
         position: 'relative',
         textAlign: 'left',
       }}
@@ -204,3 +212,16 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
 };
 
 export default ImmediateActionChip;
+
+// CSS animation for urgent approval chip
+const urgentStyle = document.createElement('style');
+urgentStyle.textContent = `
+@keyframes helixUrgentPulse {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-1px); }
+}
+`;
+if (!document.head.querySelector('style[data-immediate-action-chip]')) {
+  urgentStyle.setAttribute('data-immediate-action-chip', '');
+  document.head.appendChild(urgentStyle);
+}

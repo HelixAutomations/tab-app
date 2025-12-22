@@ -303,7 +303,8 @@ router.get('/:year', async (req, res) => {
                     [Responsible Solicitor] as responsible_solicitor,
                     [Practice Area] as practice_area,
                     [Status] as status,
-                    [Open Date] as open_date
+                    [Open Date] as open_date,
+                    [CCL_date] as ccl_date
                 FROM matters
                 WHERE [Status] = 'Open'
                 ORDER BY [Client Name], [Display Number]
@@ -327,7 +328,8 @@ router.get('/:year', async (req, res) => {
                     [Practice Area] as practice_area,
                     [Status] as status,
                     [Open Date] as open_date,
-                    [Close Date] as close_date
+                    [Close Date] as close_date,
+                    [CCL_date] as ccl_date
                 FROM matters
                 ORDER BY [Client ID], [Display Number]
             `);
@@ -415,7 +417,8 @@ router.get('/:year', async (req, res) => {
                 responsible_solicitor: m.responsible_solicitor,
                 practice_area: m.practice_area,
                 status: 'Open',
-                open_date: m.open_date
+                open_date: m.open_date,
+                ccl_date: m.ccl_date
             });
             if (m.responsible_solicitor) {
                 client.responsible_solicitors.add(m.responsible_solicitor);
@@ -456,7 +459,8 @@ router.get('/:year', async (req, res) => {
                 sent_by: tracking?.sent_by || null,
                 na_reason: tracking?.na_reason || null,
                 na_notes: tracking?.na_notes || null,
-                updated_at: tracking?.updated_at || null
+                updated_at: tracking?.updated_at || null,
+                ccl_confirmed: Array.isArray(client.open_matters) && client.open_matters.some(m => m.ccl_date)
             };
 
             

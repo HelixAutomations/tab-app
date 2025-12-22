@@ -4,6 +4,7 @@ import {
   Stack,
   Text,
   DefaultButton,
+  IconButton,
   Persona,
   PersonaSize,
   TextField,
@@ -48,6 +49,8 @@ export interface LeaveEntry {
   start_date: string;
   end_date: string;
   status: string;
+  request_id?: number;
+  days_taken?: number;
   leave_type?: string;
 }
 
@@ -73,34 +76,94 @@ function isDateInFiscalYear(date: Date, fyStartYear: number): boolean {
   return date >= start && date <= end;
 }
 
-function sumBookedAndRequestedDaysInFY(
+function normalizePersonKey(value: string): string {
+  return (value || '').trim().toLowerCase();
+}
+
+type LeaveTypeBucket = 'standard' | 'purchase' | 'sale' | 'other';
+
+type LeaveBreakdown = {
+  standard: number;
+  purchase: number;
+  sale: number;
+  other: number;
+};
+
+function normalizeLeaveType(value: unknown): LeaveTypeBucket {
+  const t = String(value || '').trim().toLowerCase();
+  if (t === 'standard') return 'standard';
+  if (t === 'purchase') return 'purchase';
+  if (t === 'sale') return 'sale';
+  return 'other';
+}
+
+function formatDays(value: number): string {
+  if (!Number.isFinite(value)) return '0';
+  const rounded = Math.round(value * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
+function getLeaveDaysWithinFY(entry: LeaveEntry, fyStartYear: number): number {
+  const startDate = new Date(entry.start_date);
+  const endDate = new Date(entry.end_date);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return 0;
+
+  const intervalStart = startDate <= endDate ? startDate : endDate;
+  const intervalEnd = startDate <= endDate ? endDate : startDate;
+
+  const fyStart = new Date(fyStartYear, 3, 1);
+  const fyEnd = new Date(fyStartYear + 1, 2, 31, 23, 59, 59, 999);
+
+  // Only count the overlap with the fiscal year (prevents cross-FY overcount)
+  if (!isDateInFiscalYear(intervalStart, fyStartYear) && !isDateInFiscalYear(intervalEnd, fyStartYear)) {
+    return 0;
+  }
+
+  const overlapStart = intervalStart > fyStart ? intervalStart : fyStart;
+  const overlapEnd = intervalEnd < fyEnd ? intervalEnd : fyEnd;
+  if (overlapStart > overlapEnd) return 0;
+
+  // If the record sits fully inside FY and has a reliable days_taken, prefer it (supports half-days).
+  const daysTaken = typeof entry.days_taken === 'number' ? entry.days_taken : Number(entry.days_taken);
+  const fullyInsideFY = intervalStart >= fyStart && intervalEnd <= fyEnd;
+  if (fullyInsideFY && Number.isFinite(daysTaken) && daysTaken > 0) {
+    return daysTaken;
+  }
+
+  return eachDayOfInterval({ start: overlapStart, end: overlapEnd })
+    .filter(day => !isWeekend(day))
+    .length;
+}
+
+function sumBookedApprovedDaysByTypeInFY(
   allLeaveEntries: LeaveEntry[],
   person: string,
-  fyStartYear: number
-): number {
-  let totalDays = 0;
+  fyStartYear: number,
+  personAliases: string[] = []
+): LeaveBreakdown {
+  const breakdown: LeaveBreakdown = { standard: 0, purchase: 0, sale: 0, other: 0 };
+
+  const aliasSet = new Set(
+    [person, ...personAliases]
+      .map(normalizePersonKey)
+      .filter(Boolean)
+  );
 
   allLeaveEntries
-    .filter(entry => entry.person === person)
-    .filter(entry => 
-      entry.status && 
-      (entry.status.toLowerCase() === 'booked' || 
-       entry.status.toLowerCase() === 'approved')
-      // Removed 'requested' - pending requests shouldn't count toward "days used"
-    )
+    .filter(entry => aliasSet.has(normalizePersonKey(entry.person)))
+    .filter(entry => {
+      const s = String(entry.status || '').toLowerCase();
+      return s === 'booked' || s === 'approved';
+    })
     .forEach(entry => {
-      const startDate = new Date(entry.start_date);
-      const endDate = new Date(entry.end_date);
+      const days = getLeaveDaysWithinFY(entry, fyStartYear);
+      if (!days) return;
 
-      if (isDateInFiscalYear(startDate, fyStartYear) || isDateInFiscalYear(endDate, fyStartYear)) {
-        const businessDays = eachDayOfInterval({ start: startDate, end: endDate })
-          .filter(day => !isWeekend(day))
-          .length;
-        totalDays += businessDays;
-      }
+      const bucket = normalizeLeaveType(entry.leave_type);
+      breakdown[bucket] += days;
     });
 
-  return totalDays;
+  return breakdown;
 }
 
 /* ---------------------------------------------------------------------------
@@ -154,9 +217,9 @@ const toastContainerStyle = mergeStyles({
 const formContainerStyle = mergeStyles({
   position: 'fixed',
   inset: 0,
-  backgroundColor: 'rgba(0, 0, 0, 0.35)',
-  backdropFilter: 'blur(4px)',
-  WebkitBackdropFilter: 'blur(4px)',
+  backgroundColor: 'rgba(0, 0, 0, 0.6)',
+  backdropFilter: 'blur(2px)',
+  WebkitBackdropFilter: 'blur(2px)',
   zIndex: 2147483000, // ensure above any app/panel overlays
   display: 'flex',
   alignItems: 'center',
@@ -166,58 +229,46 @@ const formContainerStyle = mergeStyles({
 });
 
 const modalContentStyle = (isDarkMode: boolean) => mergeStyles({
-  background: isDarkMode
-    ? '#0f172a'
-    : '#fafafa',
-  borderRadius: 0,
+  background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+  borderRadius: 2,
   boxShadow: isDarkMode
-    ? '0 10px 30px rgba(0, 0, 0, 0.35)'
-    : '0 10px 30px rgba(0, 0, 0, 0.08)',
-  width: 'min(1200px, 96%)',
+    ? '0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255,255,255,0.1)'
+    : '0 25px 50px -12px rgba(0, 0, 0, 0.15)',
+  width: 'min(1000px, 95vw)',
   maxHeight: '90vh',
-  overflow: 'auto',
-  padding: '1.5rem',
+  overflow: 'hidden',
+  padding: 0,
   position: 'relative',
-  border: isDarkMode
-    ? '1px solid rgba(148, 163, 184, 0.12)'
-    : '1px solid rgba(0, 0, 0, 0.06)',
+  border: isDarkMode ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(0,0,0,0.08)',
+  display: 'flex',
+  flexDirection: 'column',
   '@media (max-width: 768px)': {
-    padding: '20px',
-    borderRadius: 0,
+    borderRadius: 2,
     width: '98%',
     maxHeight: '95vh',
   },
 });
 
-const closeButtonStyle = (isDarkMode: boolean) => mergeStyles({
-  position: 'absolute',
-  top: '16px',
-  right: '16px',
-  backgroundColor: 'transparent',
-  border: 'none',
-  fontSize: '24px',
-  cursor: 'pointer',
-  color: isDarkMode ? colours.dark.text : colours.greyText,
-  padding: '8px',
-  borderRadius: '50%',
-  width: '40px',
-  height: '40px',
+const modalHeaderStyle = (isDarkMode: boolean) => mergeStyles({
+  padding: '20px 24px',
+  borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)'}`,
   display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  transition: 'all 0.2s ease',
-  ':hover': {
-    backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
-    color: isDarkMode ? colours.dark.text : colours.light.text,
-  },
+  justifyContent: 'space-between',
+  alignItems: 'flex-start',
+});
+
+const modalBodyStyle = mergeStyles({
+  padding: '20px 24px',
+  overflow: 'auto',
+  flex: 1,
 });
 
 // Compact card design for better information density
 const compactCardStyle = (isDarkMode: boolean, isExpanded: boolean) => mergeStyles({
-  background: isDarkMode ? 'rgba(30, 41, 59, 0.3)' : '#ffffff',
-  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
-  borderLeft: `3px solid ${isDarkMode ? colours.accent : colours.highlight}`,
-  borderRadius: 0,
+  background: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+  border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.18)' : colours.light.border}`,
+  borderLeft: `2px solid ${isDarkMode ? colours.accent : colours.highlight}`,
+  borderRadius: 2,
   padding: '1rem',
   marginBottom: '12px',
   boxShadow: isDarkMode 
@@ -306,31 +357,15 @@ const actionButtonsStyle = mergeStyles({
 });
 
 const statusBadgeStyle = (status: string, isDarkMode: boolean) => mergeStyles({
-  padding: '6px 12px',
-  borderRadius: '20px',
-  fontSize: '12px',
-  fontWeight: 600,
+  padding: '4px 10px',
+  borderRadius: 2,
+  fontSize: '11px',
+  fontWeight: 700,
   textTransform: 'uppercase',
-  letterSpacing: '0.5px',
-  backgroundColor:
-    status === 'approved'
-      ? (isDarkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.10)')
-      : status === 'rejected'
-      ? (isDarkMode ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.10)')
-      : (isDarkMode ? 'rgba(251, 191, 36, 0.12)' : 'rgba(251, 191, 36, 0.10)'),
-  color:
-    status === 'approved'
-      ? (isDarkMode ? '#86efac' : '#166534')
-      : status === 'rejected'
-      ? (isDarkMode ? '#fca5a5' : '#7f1d1d')
-      : (isDarkMode ? '#fcd34d' : '#854d0e'),
-  border: `1px solid ${
-    status === 'approved'
-      ? (isDarkMode ? 'rgba(34, 197, 94, 0.28)' : 'rgba(34, 197, 94, 0.25)')
-      : status === 'rejected'
-      ? (isDarkMode ? 'rgba(239, 68, 68, 0.28)' : 'rgba(239, 68, 68, 0.25)')
-      : (isDarkMode ? 'rgba(251, 191, 36, 0.28)' : 'rgba(251, 191, 36, 0.25)')
-  }`,
+  letterSpacing: '0.06em',
+  backgroundColor: isDarkMode ? 'rgba(135, 243, 243, 0.10)' : 'rgba(54, 144, 206, 0.10)',
+  color: isDarkMode ? colours.accent : colours.highlight,
+  border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(54, 144, 206, 0.25)'}`,
 });
 
 const criticalInfoStyle = mergeStyles({
@@ -372,37 +407,46 @@ const infoValueStyle = (isDarkMode: boolean) => mergeStyles({
 });
 
 const approveButtonStyle = (isDarkMode: boolean) => mergeStyles({
-  backgroundColor: 'transparent',
-  borderColor: isDarkMode ? colours.accent : colours.highlight,
-  color: isDarkMode ? colours.accent : colours.highlight,
+  backgroundColor: isDarkMode ? colours.dark.buttonBackground : colours.light.buttonBackground,
+  borderColor: isDarkMode ? colours.dark.buttonBackground : colours.light.buttonBackground,
+  color: isDarkMode ? colours.dark.buttonText : colours.light.buttonText,
   fontWeight: 600,
-  padding: '10px 20px',
-  borderRadius: '8px',
+  padding: '8px 14px',
+  borderRadius: '2px',
   transition: 'all 0.2s ease',
-  borderWidth: '1.5px',
+  borderWidth: '1px',
+  selectors: {
+    ':disabled': {
+      backgroundColor: isDarkMode ? colours.dark.disabledBackground : colours.light.disabledBackground,
+      borderColor: isDarkMode ? colours.dark.borderColor : colours.light.borderColor,
+      color: isDarkMode ? 'rgba(243,244,246,0.6)' : 'rgba(6,23,51,0.55)',
+      cursor: 'not-allowed',
+    },
+  },
   ':hover': {
-    backgroundColor: isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.08)',
-    transform: 'translateY(-1px)',
-    boxShadow: isDarkMode
-      ? '0 3px 10px rgba(0, 0, 0, 0.25)'
-      : '0 3px 10px rgba(2, 6, 23, 0.10)',
+    backgroundColor: isDarkMode ? colours.dark.hoverBackground : colours.light.hoverBackground,
+    borderColor: isDarkMode ? colours.dark.hoverBackground : colours.light.hoverBackground,
   },
 });
 
 const rejectButtonStyle = (isDarkMode: boolean) => mergeStyles({
   backgroundColor: 'transparent',
-  borderColor: 'rgba(239, 68, 68, 0.45)',
-  color: isDarkMode ? '#fca5a5' : '#b91c1c',
+  borderColor: isDarkMode ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.18)',
+  color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.75)',
   fontWeight: 600,
-  padding: '10px 20px',
-  borderRadius: '8px',
+  padding: '8px 14px',
+  borderRadius: '2px',
   transition: 'all 0.2s ease',
+  selectors: {
+    ':disabled': {
+      borderColor: isDarkMode ? colours.dark.borderColor : colours.light.borderColor,
+      color: isDarkMode ? 'rgba(243,244,246,0.6)' : 'rgba(6,23,51,0.55)',
+      cursor: 'not-allowed',
+    },
+  },
   ':hover': {
-    backgroundColor: isDarkMode ? 'rgba(239, 68, 68, 0.10)' : 'rgba(239, 68, 68, 0.08)',
-    transform: 'translateY(-1px)',
-    boxShadow: isDarkMode
-      ? '0 3px 10px rgba(0, 0, 0, 0.25)'
-      : '0 3px 10px rgba(2, 6, 23, 0.10)',
+    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(148, 163, 184, 0.12)',
+    borderColor: isDarkMode ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.28)',
   },
 });
 
@@ -434,25 +478,35 @@ const compactHeaderStyle = mergeStyles({
 
 const compactMetricsStyle = (isDarkMode: boolean) => mergeStyles({
   display: 'flex',
-  gap: '16px',
   alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 12,
   flexWrap: 'wrap',
-  fontSize: '13px',
-  color: isDarkMode ? colours.dark.subText : colours.greyText,
-  marginBottom: '12px',
+  fontSize: 12,
+  fontWeight: 600,
+  color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.65)',
+  marginBottom: 10,
 });
 
-const metricItemStyle = (isDarkMode: boolean, isWarning?: boolean) => mergeStyles({
+const summaryLineStyle = (isDarkMode: boolean) => mergeStyles({
   display: 'flex',
-  alignItems: 'center',
-  gap: '4px',
-  padding: '4px 8px',
-  borderRadius: '6px',
-  backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
-  fontWeight: 500,
-  color: isWarning 
-    ? (isDarkMode ? colours.orange : colours.red) 
-    : (isDarkMode ? colours.dark.text : colours.light.text),
+  alignItems: 'baseline',
+  gap: 8,
+  flexWrap: 'wrap',
+});
+
+const summaryKeyStyle = (isDarkMode: boolean) => mergeStyles({
+  fontSize: 11,
+  fontWeight: 700,
+  textTransform: 'uppercase',
+  letterSpacing: '0.08em',
+  color: isDarkMode ? 'rgba(226, 232, 240, 0.55)' : 'rgba(15, 23, 42, 0.55)',
+});
+
+const summaryValueStyle = (isDarkMode: boolean, isEmphasis?: boolean) => mergeStyles({
+  fontSize: 12,
+  fontWeight: isEmphasis ? 700 : 600,
+  color: isEmphasis ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? colours.dark.text : colours.light.text),
 });
 
 const compactActionsStyle = mergeStyles({
@@ -464,6 +518,46 @@ const compactActionsStyle = mergeStyles({
   },
 });
 
+const rejectPanelStyle = (isDarkMode: boolean) => mergeStyles({
+  marginTop: 8,
+  padding: '10px 12px',
+  borderRadius: 2,
+  border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.10)'}`,
+  backgroundColor: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(148, 163, 184, 0.08)',
+});
+
+const rejectPanelActionsStyle = mergeStyles({
+  display: 'flex',
+  gap: 8,
+  marginTop: 8,
+  justifyContent: 'flex-end',
+  '@media (max-width: 768px)': {
+    flexDirection: 'column',
+  },
+});
+
+const confirmRejectButtonStyle = (isDarkMode: boolean) => mergeStyles({
+  backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(148, 163, 184, 0.12)',
+  borderColor: isDarkMode ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.18)',
+  color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)',
+  fontWeight: 700,
+  padding: '8px 14px',
+  borderRadius: 2,
+  borderWidth: 1,
+  transition: 'all 0.2s ease',
+  selectors: {
+    ':disabled': {
+      backgroundColor: isDarkMode ? colours.dark.disabledBackground : colours.light.disabledBackground,
+      borderColor: isDarkMode ? colours.dark.borderColor : colours.light.borderColor,
+      color: isDarkMode ? 'rgba(243,244,246,0.6)' : 'rgba(6,23,51,0.55)',
+      cursor: 'not-allowed',
+    },
+  },
+  ':hover': {
+    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(148, 163, 184, 0.16)',
+  },
+});
+
 const expandButtonStyle = (isDarkMode: boolean) => mergeStyles({
   background: 'transparent',
   border: 'none',
@@ -472,7 +566,7 @@ const expandButtonStyle = (isDarkMode: boolean) => mergeStyles({
   fontWeight: 600,
   cursor: 'pointer',
   padding: '4px 8px',
-  borderRadius: '4px',
+  borderRadius: '2px',
   display: 'flex',
   alignItems: 'center',
   gap: '4px',
@@ -482,23 +576,12 @@ const expandButtonStyle = (isDarkMode: boolean) => mergeStyles({
   },
 });
 
-const conflictPillStyle = (isDarkMode: boolean, count: number) => mergeStyles({
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: '4px',
-  padding: '4px 10px',
-  borderRadius: '12px',
-  fontSize: '12px',
+const conflictsHintStyle = (isDarkMode: boolean, hasConflicts: boolean) => mergeStyles({
+  fontSize: 12,
   fontWeight: 600,
-  backgroundColor: count > 0 
-    ? (isDarkMode ? 'rgba(251, 191, 36, 0.15)' : '#FFF3CD')
-    : (isDarkMode ? 'rgba(34, 197, 94, 0.15)' : '#E8F5E8'),
-  color: count > 0 
-    ? (isDarkMode ? '#FCD34D' : '#856404')
-    : (isDarkMode ? '#86EFAC' : '#2D5A2D'),
-  border: `1px solid ${count > 0 
-    ? (isDarkMode ? 'rgba(251, 191, 36, 0.3)' : '#FFEAA7')
-    : (isDarkMode ? 'rgba(34, 197, 94, 0.3)' : '#A3D977')}`,
+  color: hasConflicts
+    ? (isDarkMode ? 'rgba(226, 232, 240, 0.75)' : 'rgba(15, 23, 42, 0.7)')
+    : (isDarkMode ? 'rgba(226, 232, 240, 0.55)' : 'rgba(15, 23, 42, 0.55)'),
 });
 
 /* ---------------------------------------------------------------------------
@@ -692,15 +775,50 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
     console.log('✅ Annual Leave Update Success:', result);
   };
 
-  function getNickname(initials: string): string {
-    const member = team.find(m => m.Initials.toLowerCase() === initials.toLowerCase());
-    return member?.Nickname || initials;
+  function findTeamMember(person: string): TeamMember | undefined {
+    const rawKey = (person || '').trim().toLowerCase();
+    const key = rawKey.replace(/[’']/g, "'").replace(/\s+/g, ' ').trim();
+    if (!key) return undefined;
+
+    const keyStripped = key.replace(/[^a-z0-9 ]/g, '').trim();
+
+    return team.find(m => {
+      const initials = (m.Initials || '').trim().toLowerCase();
+      const first = (m.First || '').trim().toLowerCase();
+      const nickname = (m.Nickname || '').trim().toLowerCase();
+
+      if (initials === key || first === key || nickname === key) return true;
+
+      // Handle full-name strings like "bianca o'donnell" by matching the first token
+      if (first && key.startsWith(first + ' ')) return true;
+      if (nickname && key.startsWith(nickname + ' ')) return true;
+
+      // Also try stripped punctuation comparison for common cases (odonnell vs o'donnell)
+      const firstStripped = first.replace(/[^a-z0-9 ]/g, '').trim();
+      const nicknameStripped = nickname.replace(/[^a-z0-9 ]/g, '').trim();
+      if (firstStripped && keyStripped.startsWith(firstStripped + ' ')) return true;
+      if (nicknameStripped && keyStripped.startsWith(nicknameStripped + ' ')) return true;
+
+      return false;
+    });
   }
 
-  function getEntitlement(initials: string): number {
-    const normalizedInitials = initials.trim().toLowerCase();
-    const member = team.find(m => m.Initials && m.Initials.trim().toLowerCase() === normalizedInitials);
+  function getNickname(person: string): string {
+    const member = findTeamMember(person);
+    return member?.Nickname || member?.First || person;
+  }
+
+  function getEntitlement(person: string): number {
+    const member = findTeamMember(person);
     return member?.holiday_entitlement ?? 20;
+  }
+
+  function normalizeDateKey(value: string): string {
+    try {
+      return format(new Date(value), 'yyyy-MM-dd');
+    } catch {
+      return value;
+    }
   }
 
   function getAllConflicts(current: ApprovalEntry): ApprovalEntry[] {
@@ -743,21 +861,44 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
   const ApprovalCard: React.FC<{ entry: ApprovalEntry; isActive?: boolean; cardIndex?: number }> = ({ entry, isActive = false, cardIndex }) => {
     const [localRejection, setLocalRejection] = useState<string>(rejectionReason[entry.id] || '');
     const [isExpanded, setIsExpanded] = useState<boolean>(false);
+    const [isRejecting, setIsRejecting] = useState<boolean>(false);
 
-    const requestDays = calculateBusinessDays(entry.start_date, entry.end_date);
+    const requestDays = Number.isFinite(Number(entry.days_taken)) && Number(entry.days_taken) > 0
+      ? Number(entry.days_taken)
+      : calculateBusinessDays(entry.start_date, entry.end_date);
     const entitlement = getEntitlement(entry.person);
     const fyStartYear = getFiscalYearStart(new Date());
-    
-    // FIX: Exclude current request from "days used" calculation
-    const daysSoFar = sumBookedAndRequestedDaysInFY(
-      allLeaveEntries.filter(e => e.person === entry.person && 
-        (e.start_date !== entry.start_date || e.end_date !== entry.end_date)),
-      entry.person, 
-      fyStartYear
-    );
-    const daysAfterApproval = daysSoFar + requestDays;
-    const daysRemaining = entitlement - daysAfterApproval;
-    const availableSell = Math.max(0, daysRemaining - 5);
+
+    const member = findTeamMember(entry.person);
+    const personAliases = [entry.person, member?.Initials, member?.First, member?.Nickname].filter(Boolean) as string[];
+    const personAliasSet = new Set(personAliases.map(normalizePersonKey));
+
+    const entryRequestId = Number(entry.id);
+    const hasNumericRequestId = Number.isFinite(entryRequestId);
+
+    // Exclude the current request from "days used" (normalize dates to avoid string-format mismatches)
+    const entryStartKey = normalizeDateKey(entry.start_date);
+    const entryEndKey = normalizeDateKey(entry.end_date);
+    const leaveEntriesExcludingCurrent = allLeaveEntries.filter(e => {
+      if (!personAliasSet.has(normalizePersonKey(e.person))) return true;
+
+      // Prefer excluding by request_id when available (safer than date matching)
+      if (hasNumericRequestId && typeof e.request_id === 'number' && e.request_id === entryRequestId) {
+        return false;
+      }
+      const startKey = normalizeDateKey(e.start_date);
+      const endKey = normalizeDateKey(e.end_date);
+      return startKey !== entryStartKey || endKey !== entryEndKey;
+    });
+
+    const breakdownSoFar = sumBookedApprovedDaysByTypeInFY(leaveEntriesExcludingCurrent, entry.person, fyStartYear, personAliases);
+    const requestType = normalizeLeaveType((entry as unknown as { leave_type?: unknown })?.leave_type);
+    const breakdownAfter: LeaveBreakdown = { ...breakdownSoFar };
+    breakdownAfter[requestType] += requestDays;
+
+    const standardUsedSoFar = breakdownSoFar.standard;
+    const standardUsedAfter = breakdownAfter.standard;
+    const standardRemainingAfter = entitlement - standardUsedAfter;
     
     const conflicts = getAllConflicts(entry);
     const isProcessing = processingStates[entry.id] || false;
@@ -772,8 +913,12 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
           },
           reject: async () => {
             if (isProcessing) return;
+            if (!isRejecting) {
+              setIsRejecting(true);
+              showToast('Add a rejection reason, then confirm.', 'info');
+              return;
+            }
             if (!localRejection || localRejection.trim() === '') {
-              setIsExpanded(true); // Expand to show rejection reason field
               showToast('Please provide a rejection reason', 'warning');
               return;
             }
@@ -784,10 +929,15 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
           actionHandlersRef.current.delete(cardIndex);
         };
       }
-    }, [cardIndex, localRejection, isProcessing]);
+    }, [cardIndex, localRejection, isProcessing, isRejecting]);
 
     const handleAction = async (action: 'approve' | 'reject') => {
       if (isProcessing || animatingOut.has(entry.id)) return;
+
+      if (action === 'reject' && (!localRejection || localRejection.trim() === '')) {
+        showToast('Please provide a rejection reason', 'warning');
+        return;
+      }
       
       console.log('🎯 Annual Leave Action:', {
         action,
@@ -857,6 +1007,19 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
       } finally {
         setProcessingStates(prev => ({ ...prev, [entry.id]: false }));
       }
+    };
+
+    const openRejectPanel = () => {
+      setIsRejecting(prev => !prev);
+    };
+
+    const confirmReject = async () => {
+      if (isProcessing) return;
+      if (!localRejection || localRejection.trim() === '') {
+        showToast('Please provide a rejection reason', 'warning');
+        return;
+      }
+      await handleAction('reject');
     };
 
     // Format compact date range
@@ -934,7 +1097,7 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
             <span style={{
               fontSize: '13px',
               padding: '2px 8px',
-              borderRadius: '4px',
+              borderRadius: '2px',
               backgroundColor: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)',
               color: colours.highlight,
               fontWeight: 600
@@ -949,16 +1112,24 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
 
         {/* Compact Metrics Row */}
         <div className={compactMetricsStyle(isDarkMode)}>
-          <div className={metricItemStyle(isDarkMode)}>
-            <span style={{ fontSize: '11px', opacity: 0.7 }}>Used:</span>
-            <strong>{daysSoFar}/{entitlement}</strong>
-          </div>
-          <div className={metricItemStyle(isDarkMode, daysRemaining < 0)}>
-            <span style={{ fontSize: '11px', opacity: 0.7 }}>After:</span>
-            <strong>{daysRemaining} left</strong>
-          </div>
-          <div className={conflictPillStyle(isDarkMode, conflicts.length)}>
-            {conflicts.length === 0 ? '✓ No conflicts' : `⚠ ${conflicts.length} conflict${conflicts.length > 1 ? 's' : ''}`}
+          <div className={summaryLineStyle(isDarkMode)}>
+            <span className={summaryKeyStyle(isDarkMode)}>Standard</span>
+            <span className={summaryValueStyle(isDarkMode)}>{formatDays(standardUsedSoFar)}/{formatDays(entitlement)}</span>
+            <span style={{ opacity: 0.6 }}>·</span>
+            <span className={summaryKeyStyle(isDarkMode)}>Bought</span>
+            <span className={summaryValueStyle(isDarkMode)}>{formatDays(breakdownSoFar.purchase)}</span>
+            <span style={{ opacity: 0.6 }}>·</span>
+            <span className={summaryKeyStyle(isDarkMode)}>Sold</span>
+            <span className={summaryValueStyle(isDarkMode)}>{formatDays(breakdownSoFar.sale)}</span>
+            <span style={{ opacity: 0.6 }}>·</span>
+            <span className={summaryKeyStyle(isDarkMode)}>After</span>
+            <span className={summaryValueStyle(isDarkMode, true)}>{formatDays(standardRemainingAfter)} left</span>
+            <span style={{ opacity: 0.6 }}>·</span>
+            <span className={conflictsHintStyle(isDarkMode, conflicts.length > 0)}>
+              {conflicts.length === 0
+                ? 'No conflicts'
+                : `${conflicts.length} conflict${conflicts.length > 1 ? 's' : ''}`}
+            </span>
           </div>
           {!isExpanded && (entry.reason?.trim() || entry.hearing_confirmation !== undefined) && (
             <button 
@@ -999,14 +1170,15 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
                   Request Notes
                 </div>
                 <div style={{
-                  padding: '12px',
-                  borderRadius: '8px',
-                  backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)',
+                  padding: '10px 12px',
+                  borderRadius: '2px',
+                  backgroundColor: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(148, 163, 184, 0.08)',
+                  border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.14)' : 'rgba(148, 163, 184, 0.22)'}`,
                   fontSize: '13px',
-                  fontStyle: 'italic',
-                  color: isDarkMode ? colours.dark.text : colours.light.text
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                  lineHeight: 1.4
                 }}>
-                  "{entry.reason}"
+                  {entry.reason}
                 </div>
               </div>
             )}
@@ -1026,7 +1198,7 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
                 </div>
                 <div style={{
                   padding: '12px',
-                  borderRadius: '8px',
+                  borderRadius: '2px',
                   backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)',
                   fontSize: '13px',
                   color: isDarkMode ? colours.dark.text : colours.light.text
@@ -1074,7 +1246,7 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
                   {conflicts.map((conflict, idx) => (
                     <div key={idx} style={{
                       padding: '8px',
-                      borderRadius: '6px',
+                      borderRadius: '2px',
                       backgroundColor: isDarkMode ? 'rgba(251, 191, 36, 0.1)' : 'rgba(251, 191, 36, 0.08)',
                       border: `1px solid ${isDarkMode ? 'rgba(251, 191, 36, 0.3)' : 'rgba(251, 191, 36, 0.2)'}`,
                       fontSize: '12px'
@@ -1095,41 +1267,60 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
 
         {/* Compact Action Buttons */}
         {entry.status.toLowerCase() === 'requested' && (
-          <div className={compactActionsStyle}>
-            <DefaultButton
-              text={isProcessing ? 'Processing...' : '✓ Approve'}
-              onClick={() => handleAction('approve')}
-              disabled={isProcessing}
-              className={approveButtonStyle(isDarkMode)}
-              style={{ flex: 1 }}
-            />
-            <DefaultButton
-              text={isProcessing ? 'Processing...' : '✗ Reject'}
-              onClick={() => handleAction('reject')}
-              disabled={isProcessing}
-              className={rejectButtonStyle(isDarkMode)}
-              style={{ flex: 1 }}
-            />
-            {isExpanded && (
-              <TextField
-                placeholder="Rejection reason (required)"
-                value={localRejection}
-                onChange={(e, val) => setLocalRejection(val || '')}
-                multiline
-                rows={2}
-                styles={{
-                  root: { marginTop: '8px', width: '100%' },
-                  fieldGroup: {
-                    borderRadius: '6px',
-                    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                    backgroundColor: isDarkMode ? colours.dark.inputBackground : colours.light.inputBackground,
-                  },
-                  field: {
-                    fontSize: '13px',
-                    color: isDarkMode ? colours.dark.text : colours.light.text,
-                  }
-                }}
+          <div style={{ marginTop: 12 }}>
+            <div className={compactActionsStyle}>
+              <DefaultButton
+                text={isProcessing ? 'Processing...' : '✓ Approve'}
+                onClick={() => handleAction('approve')}
+                disabled={isProcessing}
+                className={approveButtonStyle(isDarkMode)}
+                style={{ flex: 1 }}
               />
+              <DefaultButton
+                text={isProcessing ? 'Processing...' : 'Reject'}
+                onClick={openRejectPanel}
+                disabled={isProcessing}
+                className={rejectButtonStyle(isDarkMode)}
+                style={{ flex: 1 }}
+              />
+            </div>
+
+            {isRejecting && (
+              <div className={rejectPanelStyle(isDarkMode)}>
+                <TextField
+                  placeholder="Rejection reason (required)"
+                  value={localRejection}
+                  onChange={(e, val) => setLocalRejection(val || '')}
+                  multiline
+                  rows={2}
+                  styles={{
+                    root: { width: '100%' },
+                    fieldGroup: {
+                      borderRadius: 2,
+                      border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                      backgroundColor: isDarkMode ? colours.dark.inputBackground : colours.light.inputBackground,
+                    },
+                    field: {
+                      fontSize: '13px',
+                      color: isDarkMode ? colours.dark.text : colours.light.text,
+                    }
+                  }}
+                />
+                <div className={rejectPanelActionsStyle}>
+                  <DefaultButton
+                    text="Cancel"
+                    onClick={() => setIsRejecting(false)}
+                    disabled={isProcessing}
+                    className={rejectButtonStyle(isDarkMode)}
+                  />
+                  <DefaultButton
+                    text={isProcessing ? 'Processing...' : 'Confirm reject'}
+                    onClick={confirmReject}
+                    disabled={isProcessing}
+                    className={confirmRejectButtonStyle(isDarkMode)}
+                  />
+                </div>
+              </div>
             )}
           </div>
         )}
@@ -1166,7 +1357,7 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
               dismissButtonAriaLabel="Close"
               styles={{
                 root: {
-                  borderRadius: '8px',
+                  borderRadius: '2px',
                   boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
                 }
               }}
@@ -1179,14 +1370,38 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
       
       {/* Modal Content */}
       <div className={modalContentStyle(isDarkMode)} onClick={(e) => e.stopPropagation()}>
-        {/* Close Button */}
-        <button 
-          className={closeButtonStyle(isDarkMode)}
-          onClick={onClose}
-          aria-label="Close"
-        >
-          ✕
-        </button>
+        {/* Header */}
+        <div className={modalHeaderStyle(isDarkMode)}>
+          <div>
+            <div style={{
+              fontSize: 15,
+              fontWeight: 600,
+              color: isDarkMode ? colours.dark.text : colours.light.text,
+            }}>
+              Annual Leave Approvals
+            </div>
+            <div style={{
+              fontSize: 12,
+              marginTop: 2,
+              color: isDarkMode ? colours.dark.subText : colours.greyText,
+            }}>
+              {pendingCount === 0
+                ? 'No pending requests'
+                : `${pendingCount} request${pendingCount !== 1 ? 's' : ''} require${pendingCount === 1 ? 's' : ''} your review`}
+            </div>
+          </div>
+          <IconButton
+            iconProps={{ iconName: 'Cancel' }}
+            ariaLabel="Close"
+            onClick={onClose}
+            styles={{
+              root: { color: isDarkMode ? colours.dark.subText : colours.greyText },
+              rootHovered: { background: 'transparent', color: isDarkMode ? colours.dark.text : colours.light.text },
+            }}
+          />
+        </div>
+
+        <div className={modalBodyStyle}>
 
         {pendingCount === 0 ? (
           <div style={{ 
@@ -1196,7 +1411,7 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
             color: isDarkMode ? colours.dark.text : colours.greyText
           }}>
             <FaUmbrellaBeach style={{ fontSize: '48px', marginBottom: '16px', color: colours.green }} />
-            <div>All done! 🎉</div>
+            <div>All done</div>
             <div style={{ fontSize: '14px', marginTop: '8px' }}>
               All annual leave requests have been processed.
             </div>
@@ -1206,31 +1421,13 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
               styles={{
                 root: {
                   marginTop: '20px',
-                  borderRadius: '8px',
+                  borderRadius: '2px',
                 }
               }}
             />
           </div>
         ) : (
           <Stack tokens={{ childrenGap: 24 }}>
-            <div style={{
-              fontSize: '24px',
-              fontWeight: 700,
-              color: isDarkMode ? colours.dark.text : colours.light.text,
-              textAlign: 'center',
-              marginBottom: '8px'
-            }}>
-              Annual Leave Approvals
-            </div>
-            <div style={{
-              fontSize: '14px',
-              color: isDarkMode ? colours.dark.subText : colours.greyText,
-              textAlign: 'center',
-              marginBottom: '16px'
-            }}>
-              {pendingCount} request{pendingCount !== 1 ? 's' : ''} require{pendingCount === 1 ? 's' : ''} your review
-            </div>
-            
             {localApprovals.map((entry, index) => (
               <ApprovalCard 
                 key={entry.id || entry.request_id || `${entry.person}-${entry.start_date}`} 
@@ -1240,64 +1437,10 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
               />
             ))}
             
-            {/* Keyboard shortcuts hint */}
-            <div style={{
-              marginTop: '16px',
-              padding: '12px 16px',
-              borderRadius: '8px',
-              backgroundColor: isDarkMode ? 'rgba(135, 243, 243, 0.05)' : 'rgba(135, 243, 243, 0.1)',
-              border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(135, 243, 243, 0.25)'}`,
-              fontSize: '12px',
-              color: isDarkMode ? colours.dark.subText : colours.greyText,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '16px',
-              flexWrap: 'wrap'
-            }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <kbd style={{
-                  padding: '2px 6px',
-                  borderRadius: '4px',
-                  backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
-                  fontFamily: 'monospace',
-                  fontSize: '11px'
-                }}>↑↓</kbd>
-                Navigate
-              </span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <kbd style={{
-                  padding: '2px 6px',
-                  borderRadius: '4px',
-                  backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
-                  fontFamily: 'monospace',
-                  fontSize: '11px'
-                }}>A</kbd>
-                Approve
-              </span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <kbd style={{
-                  padding: '2px 6px',
-                  borderRadius: '4px',
-                  backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
-                  fontFamily: 'monospace',
-                  fontSize: '11px'
-                }}>R</kbd>
-                Reject
-              </span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <kbd style={{
-                  padding: '2px 6px',
-                  borderRadius: '4px',
-                  backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
-                  fontFamily: 'monospace',
-                  fontSize: '11px'
-                }}>ESC</kbd>
-                Close
-              </span>
-            </div>
+            {/* Keyboard shortcuts hint removed (kept shortcuts) */}
           </Stack>
         )}
+        </div>
       </div>
     </div>
   );

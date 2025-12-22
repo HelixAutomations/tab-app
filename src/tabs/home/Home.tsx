@@ -179,6 +179,8 @@ interface AnnualLeaveRecord {
   reason: string;
   status: string;
   id: string;
+  days_taken?: number;
+  leave_type?: string;
   rejection_notes?: string;
   approvers?: string[];
   hearing_confirmation?: string; // "yes" or "no"
@@ -269,6 +271,7 @@ export interface TeamMember {
   Initials: string;
   "Entra ID": string;
   Nickname: string;
+  holiday_entitlement?: number;
 }
 
 interface MatterBalance {
@@ -290,6 +293,7 @@ interface MatterBalance {
 //////////////////////
 
 const quickActionOrder: Record<string, number> = {
+  'Approve Annual Leave': 0,
   'Update Attendance': 1,
   'Confirm Attendance': 1,
   'Open Matter': 2,
@@ -779,9 +783,20 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
   // Component mounted successfully
 
   const [attendanceTeam, setAttendanceTeam] = useState<any[]>([]);
+  const [annualLeaveTeam, setAnnualLeaveTeam] = useState<any[]>([]);
   // Transform teamData into our lite TeamMember type
   const transformedTeamData = useMemo<TeamMember[]>(() => {
     const data: TeamData[] = teamData ?? attendanceTeam ?? [];
+
+    const entitlementByInitials = new Map<string, number>();
+    for (const row of annualLeaveTeam || []) {
+      const initials = String(row?.Initials || '').trim().toUpperCase();
+      const entitlement = Number(row?.holiday_entitlement);
+      if (initials && Number.isFinite(entitlement)) {
+        entitlementByInitials.set(initials, entitlement);
+      }
+    }
+
     return data
       .filter(
         (member) => member.status === 'active' || member.status === undefined
@@ -791,8 +806,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
         Initials: member.Initials ?? '',
         "Entra ID": member["Entra ID"] ?? '',
         Nickname: member.Nickname ?? member.First ?? '',
+        holiday_entitlement: entitlementByInitials.get(String(member.Initials ?? '').trim().toUpperCase()),
       }));
-  }, [teamData, attendanceTeam]);
+  }, [teamData, attendanceTeam, annualLeaveTeam]);
 
   const renderContextsPanelContent = () => (
     <Stack tokens={dashboardTokens} styles={cardStyles}>
@@ -996,6 +1012,36 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
 
   // Pending snippet edits for approval
   const [snippetEdits, setSnippetEdits] = useState<SnippetEdit[]>([]);
+
+  // Pending document workspace actions (files in Holding needing allocation)
+  interface PendingDocAction {
+    enquiryId: string;
+    passcode: string;
+    holdingCount: number;
+    actionType: string;
+    actionLabel: string;
+  }
+  const [pendingDocActions, setPendingDocActions] = useState<PendingDocAction[]>([]);
+  const [pendingDocActionsLoading, setPendingDocActionsLoading] = useState<boolean>(true);
+
+  // Fetch pending doc workspace actions on mount
+  useEffect(() => {
+    const fetchPendingDocActions = async () => {
+      try {
+        setPendingDocActionsLoading(true);
+        const res = await fetch(`${proxyBaseUrl}/api/doc-workspace/pending-actions`);
+        if (res.ok) {
+          const data = await res.json();
+          setPendingDocActions(data.pendingActions || []);
+        }
+      } catch (err) {
+        console.error('Failed to fetch pending doc actions:', err);
+      } finally {
+        setPendingDocActionsLoading(false);
+      }
+    };
+    fetchPendingDocActions();
+  }, []);
 
   // Rate change notification modal state
   const [showRateChangeModal, setShowRateChangeModal] = useState<boolean>(false);
@@ -1653,6 +1699,8 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
       setAttendanceTeam(localCopy.team || []);
       setAnnualLeaveRecords((localAnnualLeave as any).annual_leave || []);
       setFutureLeaveRecords((localAnnualLeave as any).future_leave || []);
+      setAnnualLeaveAllData((localAnnualLeave as any).all_data || []);
+      setAnnualLeaveTeam((localAnnualLeave as any).team || []);
       if ((localAnnualLeave as any).user_details?.totals) {
         setAnnualLeaveTotals((localAnnualLeave as any).user_details.totals);
       }
@@ -1750,6 +1798,8 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
                   reason: rec.reason,
                   status: rec.status,
                   id: rec.request_id ? String(rec.request_id) : rec.id || `temp-${rec.start_date}-${rec.end_date}`,
+                  days_taken: typeof rec.days_taken === 'number' ? rec.days_taken : undefined,
+                  leave_type: rec.leave_type || undefined,
                   rejection_notes: rec.rejection_notes || undefined,
                   approvers: rec.approvers || [],
                   hearing_confirmation: rec.hearing_confirmation,
@@ -1773,6 +1823,8 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
                   reason: rec.reason,
                   status: rec.status,
                   id: rec.request_id ? String(rec.request_id) : rec.id || `temp-${rec.start_date}-${rec.end_date}`,
+                  days_taken: typeof rec.days_taken === 'number' ? rec.days_taken : undefined,
+                  leave_type: rec.leave_type || undefined,
                   rejection_notes: rec.rejection_notes || undefined,
                   approvers: rec.approvers || [],
                   hearing_confirmation: rec.hearing_confirmation,
@@ -1793,6 +1845,13 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
             // Use all_data (all team members) instead of user_leave (only current user)
             if (annualLeaveData.all_data) {
               setAnnualLeaveAllData(annualLeaveData.all_data);
+            }
+
+            // Store team entitlement data (Initials + holiday_entitlement)
+            if (Array.isArray(annualLeaveData.team)) {
+              setAnnualLeaveTeam(annualLeaveData.team);
+            } else {
+              setAnnualLeaveTeam([]);
             }
           } else {
             // Handle null/undefined response by setting empty arrays
@@ -2873,6 +2932,8 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
               end_date: item.end_date,
               reason: item.reason,
               status: item.status,
+              days_taken: item.days_taken,
+              leave_type: item.leave_type,
               hearing_confirmation: item.hearing_confirmation,
               hearing_details: item.hearing_details,
             }))}
@@ -2883,6 +2944,8 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
               end_date: item.end_date,
               reason: item.reason,
               status: item.status,
+              days_taken: item.days_taken,
+              leave_type: item.leave_type,
               hearing_confirmation: item.hearing_confirmation,
               hearing_details: item.hearing_details,
             }))}
@@ -2939,6 +3002,8 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
             end_date: item.end_date,
             reason: item.reason,
             status: item.status,
+            days_taken: item.days_taken,
+            leave_type: item.leave_type,
             hearing_confirmation: item.hearing_confirmation,
             hearing_details: item.hearing_details,
           }))}
@@ -3461,6 +3526,39 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       });
     }
 
+    // Add pending document allocation actions (files in Holding)
+    if (pendingDocActions.length > 0) {
+      const totalFiles = pendingDocActions.reduce((sum, a) => sum + a.holdingCount, 0);
+      const firstAction = pendingDocActions[0];
+      // Look up enquiry name from enquiries prop if available
+      const firstEnquiry = enquiries?.find(e => String(e.ID) === firstAction.enquiryId);
+      const firstName = firstEnquiry 
+        ? `${firstEnquiry.First_Name || ''} ${firstEnquiry.Last_Name || ''}`.trim() || `Enquiry ${firstAction.enquiryId}`
+        : `Enquiry ${firstAction.enquiryId}`;
+      
+      const subtitle = pendingDocActions.length > 1 
+        ? `${firstName} +${pendingDocActions.length - 1} more`
+        : firstName;
+
+      actions.push({
+        title: 'Allocate Documents',
+        subtitle,
+        icon: 'DocumentSet',
+        count: totalFiles,
+        onClick: () => {
+          // Navigate to enquiries tab and select the first enquiry with pending docs
+          safeSetItem('navigateToEnquiryId', firstAction.enquiryId);
+          safeSetItem('navigateToTimelineItem', 'doc-workspace');
+          try {
+            window.dispatchEvent(new CustomEvent('navigateToEnquiries'));
+          } catch (error) {
+            console.error('Failed to dispatch navigation event:', error);
+          }
+        },
+        category: 'standard' as ImmediateActionCategory,
+      });
+    }
+
     // Normalize titles (strip count suffix like " (3)") when sorting
     const sortKey = (title: string) => {
       const base = title.replace(/\s*\(\d+\)$/,'');
@@ -3484,6 +3582,8 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     rateChangeStats.pending,
     rateChangePendingCount,
     featureToggles.rateChangeTracker,
+    pendingDocActions,
+    enquiries,
   ]);
 
   // Notify parent component when immediate actions state changes

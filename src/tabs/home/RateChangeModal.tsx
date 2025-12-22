@@ -70,6 +70,7 @@ export interface RateChangeMatter {
     practice_area?: string;
     status?: string;
     open_date?: string;
+    ccl_date?: string | null;
 }
 
 export interface RateChangeClient {
@@ -86,6 +87,8 @@ export interface RateChangeClient {
     sent_by?: string;
     na_reason?: string;
     na_notes?: string;
+    // Persisted server-side signal that at least one open matter has a CCL date set.
+    ccl_confirmed?: boolean;
 }
 
 interface RateChangeModalProps {
@@ -169,6 +172,9 @@ const RateChangeModal: React.FC<RateChangeModalProps> = ({
     const [streamingSummary, setStreamingSummary] = useState<{ success: number; failed: number; skipped?: number; total: number } | null>(null);
     const [streamingComplete, setStreamingComplete] = useState<boolean>(false);
     const [streamingAllSucceeded, setStreamingAllSucceeded] = useState<boolean>(false);
+
+    // Tracks clients whose CCL Date action has succeeded this session (so dots stay lit immediately).
+    const [cclConfirmedClientIds, setCclConfirmedClientIds] = useState<Set<string>>(new Set());
     
     // Migrate tab state
     const [migrateUnlocked, setMigrateUnlocked] = useState<boolean>(isAdmin);
@@ -454,18 +460,32 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
             case 'complete':
                 setStreamingStep('Complete');
                 setStreamingComplete(true);
-                if (event.progress) {
-                    setStreamingAllSucceeded(event.progress.failed === 0);
-                    setStreamingSummary(event.progress);
-                } else if (event.clio_updates) {
-                    const allSucceeded = event.clio_updates.failed === 0;
-                    setStreamingAllSucceeded(allSucceeded);
-                    setStreamingSummary({ 
-                        success: event.clio_updates.success, 
-                        failed: event.clio_updates.failed, 
-                        skipped: event.clio_updates.skipped || 0,
-                        total: event.clio_updates.success + event.clio_updates.failed + (event.clio_updates.skipped || 0)
-                    });
+                {
+                    let allSucceeded = false;
+
+                    if (event.progress) {
+                        allSucceeded = event.progress.failed === 0;
+                        setStreamingAllSucceeded(allSucceeded);
+                        setStreamingSummary(event.progress);
+                    } else if (event.clio_updates) {
+                        allSucceeded = event.clio_updates.failed === 0;
+                        setStreamingAllSucceeded(allSucceeded);
+                        setStreamingSummary({
+                            success: event.clio_updates.success,
+                            failed: event.clio_updates.failed,
+                            skipped: event.clio_updates.skipped || 0,
+                            total: event.clio_updates.success + event.clio_updates.failed + (event.clio_updates.skipped || 0)
+                        });
+                    }
+
+                    // If the CCL Date operation succeeded, keep the client's dot lit immediately.
+                    if (confirmAction === 'ccl-date' && allSucceeded && confirmClient?.client_id) {
+                        setCclConfirmedClientIds(prev => {
+                            const next = new Set(prev);
+                            next.add(confirmClient.client_id);
+                            return next;
+                        });
+                    }
                 }
                 break;
             case 'error':
@@ -474,7 +494,7 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                 setStreamingAllSucceeded(false);
                 break;
         }
-    }, [showToast]);
+    }, [confirmAction, confirmClient, showToast]);
 
     const updateCclDateStreaming = useCallback(async (
         updates: Array<{ matter_id: string; display_number: string; date_value: string }>,
@@ -1256,6 +1276,7 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                                             const stepOrder = ['form', 'lookup', 'db', 'done'] as const;
                                                             const currentStepIndex = isThisClientMigrating ? stepOrder.indexOf(migrateStep) : -1;
                                                             const isThisClientCclDating = confirmAction === 'ccl-date' && isStreaming && confirmClient?.client_id === client.client_id;
+                                                            const isThisClientCclConfirmed = Boolean((client as any).ccl_confirmed) || cclConfirmedClientIds.has(client.client_id);
                                                             
                                                             const getDotColor = (dotIndex: number) => {
                                                                 // Dots 0-1 = Clio update + DB insert, always green (prerequisite for migrate view)
@@ -1263,9 +1284,16 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
 
                                                                 // Dot 5 = CCL Date (separate op)
                                                                 if (dotIndex === 5) {
-                                                                    if (!isThisClientCclDating) return isDarkMode ? '#4b5563' : '#d1d5db';
-                                                                    if (streamingComplete) return streamingAllSucceeded ? colours.green : colours.cta;
-                                                                    return colours.highlight;
+                                                                    // Persisted state: stay green once confirmed.
+                                                                    if (isThisClientCclConfirmed && !isThisClientCclDating) return colours.green;
+
+                                                                    // Live streaming UX for current action.
+                                                                    if (isThisClientCclDating) {
+                                                                        if (streamingComplete) return streamingAllSucceeded ? colours.green : colours.cta;
+                                                                        return colours.highlight;
+                                                                    }
+
+                                                                    return isDarkMode ? '#4b5563' : '#d1d5db';
                                                                 }
                                                                 
                                                                 if (!isThisClientMigrating) {

@@ -2000,6 +2000,26 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     }
   }, [displayEnquiries, handleSelectEnquiry]);
 
+  // Handle deep link navigation from Home page To Do actions
+  useEffect(() => {
+    const navEnquiryId = localStorage.getItem('navigateToEnquiryId');
+    if (navEnquiryId) {
+      localStorage.removeItem('navigateToEnquiryId');
+      const navTimelineItem = localStorage.getItem('navigateToTimelineItem');
+      localStorage.removeItem('navigateToTimelineItem');
+      
+      const found = displayEnquiries.find(e => String(e.ID) === navEnquiryId);
+      if (found) {
+        handleSelectEnquiry(found);
+        // If we need to scroll to a specific timeline item, store it for the timeline component
+        if (navTimelineItem) {
+          // Store for EnquiryTimeline to pick up
+          sessionStorage.setItem('scrollToTimelineItem', navTimelineItem);
+        }
+      }
+    }
+  }, [displayEnquiries, handleSelectEnquiry]);
+
   const ensureDemoEnquiryPresent = useCallback(() => {
     const currentUserEmail = userData && userData[0] && userData[0].Email
       ? userData[0].Email

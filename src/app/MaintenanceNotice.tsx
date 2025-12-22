@@ -40,9 +40,9 @@ const MaintenanceNotice: React.FC<MaintenanceNoticeProps> = ({ state, isDarkMode
         backdropFilter: 'blur(8px)',
       }}
     >
-      <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>We&apos;re finishing an update</div>
+      <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>Service temporarily unavailable</div>
       <div style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 12 }}>
-        {subtitle} Please leave this window open; we&apos;ll reconnect automatically as soon as the deployment completes.
+        {subtitle} Please leave this window open; we&apos;ll keep retrying and reconnect automatically.
         {state.lastChecked && (
           <span style={{ display: 'block', marginTop: 4, opacity: 0.8 }}>
             Last check: {state.lastChecked.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}

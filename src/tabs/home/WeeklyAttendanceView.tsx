@@ -842,7 +842,9 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
         status,
         attendanceDays,
         nextWeekAttendanceDays,
-        isConfirmed: currentWeekRecord?.Confirmed_At !== null,
+        isConfirmed: Boolean(currentWeekRecord?.Confirmed_At),
+        isConfirmedCurrentWeek: Boolean(currentWeekRecord?.Confirmed_At),
+        isConfirmedNextWeek: Boolean(nextWeekRecord?.Confirmed_At),
         isUser: isCurrentUser,
         isOnLeaveCurrentWeek: Boolean(leaveStatusCurrentWeek),
         isOnLeaveNextWeek: Boolean(leaveStatusNextWeek),
@@ -1208,6 +1210,19 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
     const weekOffset = selectedWeek === 'next' ? 1 : 0; // 'today' and 'current' both use current week
 
     return processedTeamData.filter(member => {
+      const isConfirmedForSelectedWeek = selectedWeek === 'next'
+        ? Boolean((member as any).isConfirmedNextWeek)
+        : Boolean((member as any).isConfirmedCurrentWeek);
+
+      const isOnLeaveForSelectedWeek = selectedWeek === 'next'
+        ? Boolean((member as any).isOnLeaveNextWeek)
+        : Boolean((member as any).isOnLeaveCurrentWeek);
+
+      // Only show "actual" attendance: confirmed records (and explicit leave) for the selected week.
+      if (!isConfirmedForSelectedWeek && !isOnLeaveForSelectedWeek) {
+        return false;
+      }
+
       const weekAttendance = getDailyAttendance(member, weekOffset);
 
       if (selectedDays.length > 0) {
@@ -1931,34 +1946,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                                 {member.Nickname || member.First || member.Initials}
                               </span>
                               
-                              {nextWorkdayDifferent && !isEditingThisMember && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', opacity: 0.6 }}>
-                                  <span style={{ 
-                                    fontSize: '8px', 
-                                    color: isDarkMode ? colours.accent : colours.blue
-                                  }}>
-                                    {nextWorkday.label}
-                                  </span>
-                                  <div 
-                                    style={{
-                                      width: '12px',
-                                      height: '12px',
-                                      borderRadius: '3px',
-                                      backgroundColor: getDayColor(nextWorkday.status as 'office' | 'wfh' | 'away' | 'off-sick' | 'out-of-office'),
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center'
-                                    }}
-                                    title={`${nextWorkday.day}: ${nextWorkday.status}`}
-                                  >
-                                    <StatusIcon
-                                      status={nextWorkday.status as 'office' | 'wfh' | 'away' | 'off-sick' | 'out-of-office'}
-                                      size="6px"
-                                      color="white"
-                                    />
-                                  </div>
-                                </div>
-                              )}
+                              {/* (Temporarily hidden) Tomorrow marker */}
                               
                               {/* Week Editor - shows all days when expanded */}
                               {isExpandedMember && (

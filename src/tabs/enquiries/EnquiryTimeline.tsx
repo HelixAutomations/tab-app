@@ -4,7 +4,7 @@ import { Enquiry } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
 import SectionCard from '../home/SectionCard';
 import { useTheme } from '../../app/functionality/ThemeContext';
-import { FaEnvelope, FaPhone, FaFileAlt, FaCheckCircle, FaCircle, FaArrowRight, FaUser, FaCalendar, FaInfoCircle, FaChevronDown, FaChevronUp, FaPoundSign, FaClipboard } from 'react-icons/fa';
+import { FaEnvelope, FaPhone, FaFileAlt, FaCheckCircle, FaCircle, FaArrowRight, FaUser, FaCalendar, FaInfoCircle, FaChevronDown, FaChevronUp, FaPoundSign, FaClipboard, FaExternalLinkAlt } from 'react-icons/fa';
 import { parseISO, format, differenceInDays } from 'date-fns';
 import OperationStatusToast from './pitch-builder/OperationStatusToast';
 import { practiceAreasByArea } from '../instructions/MatterOpening/config';
@@ -21,6 +21,16 @@ spinnerStyle.textContent = `
   @keyframes timelineItemIn {
     from { opacity: 0; transform: translateY(6px); }
     to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes slideInRight {
+    from { transform: translateX(100%); opacity: 0.8; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
   }
 
   .helix-timeline-item-in {
@@ -206,6 +216,7 @@ interface TimelineItem {
   content?: string;
   contentHtml?: string;
   createdBy: string;
+  actionRequired?: boolean | string; // true/string = action needed, false/undefined = complete
   metadata?: {
     duration?: number;
     direction?: 'inbound' | 'outbound';
@@ -224,6 +235,7 @@ interface TimelineItem {
     fileSize?: number;            // In bytes
     contentType?: string;         // MIME type
     blobUrl?: string;             // Azure blob URL for download
+    blobName?: string;            // Storage blob name (path within container)
     stageUploaded?: 'enquiry' | 'pitch' | 'instruction';
     documentId?: number | string; // Database ID for preview URL fetch (or blob id when listed from storage)
 
@@ -235,6 +247,8 @@ interface TimelineItem {
     workspaceDealId?: number;
     workspaceWorktype?: string;
     workspaceError?: string;
+    workspaceFolders?: string[];
+    hidden?: boolean;
   };
 }
 
@@ -459,17 +473,59 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({ document, o
               <div>{error}</div>
             </div>
           ) : isPdf && previewUrl ? (
-            <iframe
-              src={previewUrl}
-              style={{
-                width: '100%',
-                height: '100%',
-                minHeight: '500px',
-                border: 'none',
-                borderRadius: '8px',
-              }}
-              title={filename}
-            />
+            <div style={{ width: '100%', height: '100%', minHeight: '500px', display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: '0' }}>
+              {/* Always show action bar for PDFs */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'flex-end',
+                gap: '8px',
+                padding: '8px 12px',
+                background: isDarkMode ? 'rgba(2, 6, 23, 0.5)' : 'rgba(241, 245, 249, 0.8)',
+                borderRadius: '4px 4px 0 0',
+                borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
+              }}>
+                <span style={{
+                  fontSize: '11px',
+                  color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.5)',
+                  marginRight: 'auto',
+                }}>
+                  If preview doesn't load:
+                </span>
+                <a
+                  href={previewUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    padding: '6px 12px',
+                    borderRadius: '4px',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    background: colours.highlight,
+                    color: '#ffffff',
+                    textDecoration: 'none',
+                  }}
+                >
+                  <FaExternalLinkAlt size={10} />
+                  Open in new tab
+                </a>
+              </div>
+              <iframe
+                src={previewUrl}
+                style={{
+                  width: '100%',
+                  flex: 1,
+                  minHeight: '450px',
+                  border: 'none',
+                  borderRadius: '0 0 8px 8px',
+                  background: isDarkMode ? 'rgba(30, 30, 30, 0.9)' : '#ffffff',
+                }}
+                title={filename}
+              />
+            </div>
           ) : isImage && previewUrl ? (
             <img
               src={previewUrl}
@@ -533,6 +589,36 @@ interface InstructionStatus {
   paymentStatus: 'pending' | 'processing' | 'complete';
 }
 
+type TimelineSourceKey = 'pitches' | 'emails' | 'calls' | 'documents';
+type TimelineSourceStatus = 'loading' | 'done' | 'error';
+
+type TimelineSourceProgress = Record<TimelineSourceKey, { status: TimelineSourceStatus; count: number }>;
+
+const TIMELINE_SOURCES: Array<{ key: TimelineSourceKey; label: string }> = [
+  { key: 'pitches', label: 'Pitches' },
+  { key: 'emails', label: 'Emails' },
+  { key: 'calls', label: 'Calls' },
+  { key: 'documents', label: 'Documents' },
+];
+
+const createInitialSourceProgress = (): TimelineSourceProgress => ({
+  pitches: { status: 'loading', count: 0 },
+  emails: { status: 'loading', count: 0 },
+  calls: { status: 'loading', count: 0 },
+  documents: { status: 'loading', count: 0 },
+});
+
+type CachedTimelineSession = {
+  enquiryId: string;
+  timeline: TimelineItem[];
+  instructionStatuses: { [pitchId: string]: InstructionStatus };
+  sourceProgress: TimelineSourceProgress;
+  cachedAt: number;
+};
+
+// Session-only cache (in-memory). Avoids re-fetching when users leave/return to the same enquiry timeline.
+const enquiryTimelineSessionCache = new Map<string, CachedTimelineSession>();
+
 interface EnquiryTimelineProps {
   enquiry: Enquiry;
   showDataLoadingStatus?: boolean;
@@ -547,6 +633,16 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   const [selectedItem, setSelectedItem] = useState<TimelineItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeFilters, setActiveFilters] = useState<CommunicationType[]>([]);
+  const [hiddenItemIds, setHiddenItemIds] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem(`hiddenTimelineItems_${enquiry?.ID}`);
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+  const [hiddenPanelOpen, setHiddenPanelOpen] = useState(false);
+  const [collapsedDays, setCollapsedDays] = useState<Set<string>>(() => new Set());
   const [expandedQuickAccessEmailIds, setExpandedQuickAccessEmailIds] = useState<Set<string>>(() => new Set());
   const [loadingStates, setLoadingStates] = useState({
     pitches: true,
@@ -554,6 +650,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     calls: true,
     documents: true,
   });
+  const [sourceProgress, setSourceProgress] = useState<TimelineSourceProgress>(() => createInitialSourceProgress());
   const [completedSources, setCompletedSources] = useState({
     pitches: false,
     emails: false,
@@ -791,7 +888,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
       id: workspaceItemId,
       type: 'document',
       date: createdAt,
-      subject: 'Document Workspace',
+      subject: 'Client Upload Portal',
       content: '',
       createdBy: userEmail || 'Unknown',
       metadata: {
@@ -863,6 +960,35 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     if (!options?.loading && options?.duration !== 0) {
       setTimeout(() => setToast(null), options?.duration || 4000);
     }
+  };
+
+  // Hide/show timeline items
+  const toggleHideItem = (itemId: string) => {
+    setHiddenItemIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) {
+        next.delete(itemId);
+      } else {
+        next.add(itemId);
+      }
+      // Persist to localStorage
+      try {
+        localStorage.setItem(`hiddenTimelineItems_${enquiry?.ID}`, JSON.stringify(Array.from(next)));
+      } catch {
+        // ignore storage errors
+      }
+      return next;
+    });
+  };
+
+  const unhideAllItems = () => {
+    setHiddenItemIds(new Set());
+    try {
+      localStorage.removeItem(`hiddenTimelineItems_${enquiry?.ID}`);
+    } catch {
+      // ignore
+    }
+    showToast('All hidden items restored', 'success');
   };
 
   const copyToClipboard = async (value: string, label: string) => {
@@ -1098,7 +1224,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             id: workspaceItemId,
             type: 'document',
             date: createdAt,
-            subject: 'Document Workspace',
+            subject: 'Client Upload Portal',
             content: '',
             createdBy: userEmail,
             metadata: {
@@ -1131,6 +1257,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             if (docsRes.ok) {
               const docsData = await docsRes.json();
               const documents = Array.isArray(docsData?.documents) ? docsData.documents : [];
+              const folders = Array.isArray(docsData?.folders) ? docsData.folders.filter((f: unknown) => typeof f === 'string') : [];
               const docItems: TimelineItem[] = documents.map((doc: any) => ({
                 id: `document-${String(doc?.id ?? doc?.blob_name ?? doc?.blob_url ?? '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(-200) || String(Math.random()).slice(2)}`,
                 type: 'document' as CommunicationType,
@@ -1144,6 +1271,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   fileSize: doc.file_size,
                   contentType: doc.content_type,
                   blobUrl: doc.blob_url,
+                  blobName: typeof doc.blob_name === 'string' ? doc.blob_name : (typeof doc.id === 'string' ? doc.id : undefined),
                   stageUploaded: doc.stage_uploaded,
                   documentId: doc.id,
                 },
@@ -1151,7 +1279,19 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
               setTimeline((prev) => {
                 const byId = new Map<string, TimelineItem>();
-                for (const item of prev) byId.set(item.id, item);
+                for (const item of prev) {
+                  if (item.metadata?.isDocWorkspace && folders.length > 0) {
+                    byId.set(item.id, {
+                      ...item,
+                      metadata: {
+                        ...item.metadata,
+                        workspaceFolders: folders,
+                      },
+                    });
+                    continue;
+                  }
+                  byId.set(item.id, item);
+                }
                 for (const item of docItems) {
                   if (!byId.has(item.id)) byId.set(item.id, item);
                 }
@@ -1257,7 +1397,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         id: workspaceItemId,
         type: 'document',
         date: createdAt,
-        subject: 'Document Workspace',
+        subject: 'Client Upload Portal',
         content: '',
         createdBy: userEmail,
         metadata: {
@@ -1291,6 +1431,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         if (docsRes.ok) {
           const docsData = await docsRes.json();
           const documents = Array.isArray(docsData?.documents) ? docsData.documents : [];
+          const folders = Array.isArray(docsData?.folders) ? docsData.folders.filter((f: unknown) => typeof f === 'string') : [];
           const docItems: TimelineItem[] = documents.map((doc: any) => ({
             id: `document-${String(doc?.id ?? doc?.blob_name ?? doc?.blob_url ?? '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(-200) || String(Math.random()).slice(2)}`,
             type: 'document' as CommunicationType,
@@ -1304,6 +1445,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               fileSize: doc.file_size,
               contentType: doc.content_type,
               blobUrl: doc.blob_url,
+              blobName: typeof doc.blob_name === 'string' ? doc.blob_name : (typeof doc.id === 'string' ? doc.id : undefined),
               stageUploaded: doc.stage_uploaded,
               documentId: doc.id,
             },
@@ -1311,7 +1453,19 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
           setTimeline((prev) => {
             const byId = new Map<string, TimelineItem>();
-            for (const item of prev) byId.set(item.id, item);
+            for (const item of prev) {
+              if (item.metadata?.isDocWorkspace && folders.length > 0) {
+                byId.set(item.id, {
+                  ...item,
+                  metadata: {
+                    ...item.metadata,
+                    workspaceFolders: folders,
+                  },
+                });
+                continue;
+              }
+              byId.set(item.id, item);
+            }
             for (const item of docItems) {
               if (!byId.has(item.id)) byId.set(item.id, item);
             }
@@ -1339,7 +1493,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         id: workspaceItemId,
         type: 'document',
         date: createdAt,
-        subject: 'Document Workspace',
+        subject: 'Client Upload Portal',
         content: '',
         createdBy: userEmail || 'Unknown',
         metadata: {
@@ -1845,12 +1999,42 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   useEffect(() => {
     // Do not fetch anything until timeline is unlocked
     if (!timelineUnlocked) return;
+
+    // If we have a cached session snapshot for this enquiry, show it immediately and skip re-fetch.
+    // (This keeps the timeline "ready" for the duration of the browser session.)
+    const cached = enquiryTimelineSessionCache.get(enquiry.ID);
+    if (cached) {
+      setTimeline(cached.timeline);
+      setInstructionStatuses(cached.instructionStatuses);
+      setSourceProgress(cached.sourceProgress);
+      setLoadingStates({ pitches: false, emails: false, calls: false, documents: false });
+      setCompletedSources({
+        pitches: cached.sourceProgress.pitches.status !== 'loading',
+        emails: cached.sourceProgress.emails.status !== 'loading',
+      });
+      setLoading(false);
+      setSelectedItem((prevSelected) => prevSelected ?? (cached.timeline.length > 0 ? cached.timeline[0] : null));
+      return;
+    }
+
     const fetchTimeline = async () => {
       setLoading(true);
       setTimeline([]);
       setSelectedItem(null);
       setLoadingStates({ pitches: true, emails: true, calls: true, documents: true });
       setCompletedSources({ pitches: false, emails: false });
+      let progressSnapshot: TimelineSourceProgress = createInitialSourceProgress();
+      setSourceProgress(progressSnapshot);
+
+      let timelineSnapshot: TimelineItem[] = [];
+
+      const updateSourceProgress = (key: TimelineSourceKey, next: { status: TimelineSourceStatus; count: number }) => {
+        progressSnapshot = {
+          ...progressSnapshot,
+          [key]: next,
+        };
+        setSourceProgress(progressSnapshot);
+      };
 
       let hasShownAnyItems = false;
       const mergeTimelineItems = (items: TimelineItem[]) => {
@@ -1862,6 +2046,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           for (const item of items) byId.set(item.id, item);
           const next = Array.from(byId.values());
           next.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+          timelineSnapshot = next;
           return next;
         });
 
@@ -2064,11 +2249,15 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           }
 
           mergeTimelineItems(pitchItems);
+          updateSourceProgress('pitches', { status: 'done', count: pitchItems.length });
+        } else {
+          updateSourceProgress('pitches', { status: 'error', count: 0 });
         }
         setLoadingStates(prev => ({ ...prev, pitches: false }));
         setCompletedSources(prev => ({ ...prev, pitches: true }));
       } catch (error) {
         console.error('Failed to fetch pitches:', error);
+        updateSourceProgress('pitches', { status: 'error', count: 0 });
         setLoadingStates(prev => ({ ...prev, pitches: false }));
         setCompletedSources(prev => ({ ...prev, pitches: true }));
       }
@@ -2118,14 +2307,20 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             }));
 
             mergeTimelineItems(emailItems);
+            updateSourceProgress('emails', { status: 'done', count: emailItems.length });
           } else {
             console.error('Failed to auto-fetch emails:', response.status);
+            updateSourceProgress('emails', { status: 'error', count: 0 });
           }
+        } else {
+          // No data to query emails; treat as a completed step.
+          updateSourceProgress('emails', { status: 'done', count: 0 });
         }
         setLoadingStates(prev => ({ ...prev, emails: false }));
         setCompletedSources(prev => ({ ...prev, emails: true }));
       } catch (error) {
         console.error('Failed to auto-fetch emails:', error);
+        updateSourceProgress('emails', { status: 'error', count: 0 });
         setLoadingStates(prev => ({ ...prev, emails: false }));
         setCompletedSources(prev => ({ ...prev, emails: true }));
       }
@@ -2238,13 +2433,19 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             });
 
             mergeTimelineItems(callItems);
+            updateSourceProgress('calls', { status: 'done', count: callItems.length });
           } else {
             console.error('Failed to auto-fetch CallRail calls:', response.status);
+            updateSourceProgress('calls', { status: 'error', count: 0 });
           }
+        } else {
+          // No phone to query calls; treat as a completed step.
+          updateSourceProgress('calls', { status: 'done', count: 0 });
         }
         setLoadingStates(prev => ({ ...prev, calls: false }));
       } catch (error) {
         console.error('Failed to auto-fetch CallRail calls:', error);
+        updateSourceProgress('calls', { status: 'error', count: 0 });
         setLoadingStates(prev => ({ ...prev, calls: false }));
       }
 
@@ -2252,6 +2453,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
       try {
         const pitchEnquiryId = resolvePitchEnquiryId(enquiry);
         if (!pitchEnquiryId) {
+          updateSourceProgress('documents', { status: 'done', count: 0 });
           setLoadingStates(prev => ({ ...prev, documents: false }));
         } else {
         // Use AbortController with timeout to avoid long waits if backend is unreachable
@@ -2266,6 +2468,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         if (docsRes.ok) {
           const docsData = await docsRes.json();
           const documents = Array.isArray(docsData?.documents) ? docsData.documents : [];
+          const folders = Array.isArray(docsData?.folders) ? docsData.folders.filter((f: unknown) => typeof f === 'string') : [];
         
           const docItems: TimelineItem[] = documents.map((doc: any) => ({
             id: `document-${String(doc?.id ?? doc?.blob_name ?? doc?.blob_url ?? '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(-200) || String(Math.random()).slice(2)}`,
@@ -2280,12 +2483,29 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               fileSize: doc.file_size,
               contentType: doc.content_type,
               blobUrl: doc.blob_url,
+              blobName: typeof doc.blob_name === 'string' ? doc.blob_name : (typeof doc.id === 'string' ? doc.id : undefined),
               stageUploaded: doc.stage_uploaded,
               documentId: doc.id,
             }
           }));
 
           mergeTimelineItems(docItems);
+
+          if (folders.length > 0) {
+            setTimeline((prev) => prev.map((t) => {
+              if (!t.metadata?.isDocWorkspace) return t;
+              return {
+                ...t,
+                metadata: {
+                  ...t.metadata,
+                  workspaceFolders: folders,
+                },
+              };
+            }));
+          }
+          updateSourceProgress('documents', { status: 'done', count: docItems.length });
+        } else {
+          updateSourceProgress('documents', { status: 'error', count: 0 });
         }
         setLoadingStates(prev => ({ ...prev, documents: false }));
         }
@@ -2294,11 +2514,21 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         if (process.env.NODE_ENV === 'development') {
           console.debug('Prospect documents unavailable (pitch backend not reachable)');
         }
+        updateSourceProgress('documents', { status: 'error', count: 0 });
         setLoadingStates(prev => ({ ...prev, documents: false }));
       }
 
       // Ensure the loading cue clears even if no items were found.
       setLoading(false);
+
+      // Cache the result for this enquiry for the duration of the session.
+      enquiryTimelineSessionCache.set(enquiry.ID, {
+        enquiryId: enquiry.ID,
+        timeline: timelineSnapshot,
+        instructionStatuses: statusMap,
+        sourceProgress: progressSnapshot,
+        cachedAt: Date.now(),
+      });
     };
 
     fetchTimeline();
@@ -2317,6 +2547,43 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   useEffect(() => {
     hasAutoSelectedRef.current = false;
   }, [enquiry.ID]);
+
+  // Handle deep link scroll-to from Home page To Do actions
+  useEffect(() => {
+    const scrollTarget = sessionStorage.getItem('scrollToTimelineItem');
+    if (scrollTarget && timeline.length > 0) {
+      sessionStorage.removeItem('scrollToTimelineItem');
+      
+      // Find the target item (e.g., 'doc-workspace' for document workspace)
+      if (scrollTarget === 'doc-workspace') {
+        const docWorkspaceItem = timeline.find(
+          (item) => item.type === 'document' && item.metadata?.isDocWorkspace
+        );
+        if (docWorkspaceItem) {
+          setSelectedItem(docWorkspaceItem);
+          // Scroll to the item after a brief delay for render
+          setTimeout(() => {
+            const el = document.getElementById(`timeline-item-${docWorkspaceItem.id}`);
+            if (el) {
+              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          }, 300);
+        }
+      } else {
+        // Generic scroll to item by ID
+        const targetItem = timeline.find((item) => item.id === scrollTarget);
+        if (targetItem) {
+          setSelectedItem(targetItem);
+          setTimeout(() => {
+            const el = document.getElementById(`timeline-item-${targetItem.id}`);
+            if (el) {
+              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          }, 300);
+        }
+      }
+    }
+  }, [timeline]);
 
   const getTypeIcon = (type: CommunicationType) => {
     switch (type) {
@@ -2354,6 +2621,23 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
       default:
         return '#6B7280';
     }
+  };
+
+  // Status-based colors for action required vs complete
+  const statusColors = {
+    complete: isDarkMode ? 'rgb(34, 197, 94)' : 'rgb(22, 163, 74)', // green
+    actionRequired: isDarkMode ? 'rgb(251, 191, 36)' : 'rgb(217, 119, 6)', // amber
+  };
+
+  // Helper to compute holding doc count for action required status
+  const computeHoldingDocCount = (allItems: TimelineItem[]) => {
+    return allItems
+      .filter((t) => t.type === 'document' && !t.metadata?.isDocWorkspace)
+      .filter((doc) => {
+        const blobName = doc.metadata?.blobName;
+        if (typeof blobName !== 'string') return false;
+        return blobName.includes('/Holding/');
+      }).length;
   };
 
   const getTypeLabel = (type: CommunicationType) => {
@@ -3141,56 +3425,124 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               </span>
             </button>
 
-            <button
-              onClick={() => {
-                const existingWorkspace = timeline.find((t) => t.type === 'document' && Boolean(t.metadata?.isDocWorkspace));
-                if (existingWorkspace) {
-                  setSelectedItem(existingWorkspace);
-                  return;
-                }
+            {(() => {
+              const existingWorkspace = timeline.find((t) => t.type === 'document' && Boolean(t.metadata?.isDocWorkspace));
+              const hasPasscode = Boolean(existingWorkspace?.metadata?.workspacePasscode);
+              const hasUrl = Boolean(existingWorkspace?.metadata?.workspaceUrlPath);
+              const isWorkspaceLinkReady = hasPasscode && hasUrl;
+              const expiresAt = existingWorkspace?.metadata?.workspaceExpiresAt;
+              const isWorkspaceExpired = isWorkspaceLinkReady && isExpiredIso(expiresAt);
+              const isWorkspaceLive = isWorkspaceLinkReady && !isWorkspaceExpired;
 
-                setDocRequestConfirmOpen(true);
-              }}
-              disabled={docRequestLoading || !requestDocsEnabled}
-              onMouseEnter={(e) => {
-                if (docRequestLoading || !requestDocsEnabled) return;
-                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(135, 243, 243, 0.6)' : 'rgba(54, 144, 206, 0.5)';
-                e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(54, 144, 206, 0.18)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(54, 144, 206, 0.3)';
-                e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.1)';
-              }}
-              style={{
+              const isDisabled = docRequestLoading || !requestDocsEnabled;
+
+              const baseStyle: React.CSSProperties = {
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
-                background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.1)',
-                border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(54, 144, 206, 0.3)'}`,
                 borderRadius: '2px',
                 padding: '6px 12px',
-                cursor: docRequestLoading || !requestDocsEnabled ? 'default' : 'pointer',
-                color: isDarkMode ? colours.accent : colours.darkBlue,
                 fontSize: '12px',
                 fontWeight: 500,
                 transition: 'all 0.2s ease',
                 opacity: !requestDocsEnabled ? 0.45 : 1,
-              }}
-            >
-              {docRequestLoading ? (
-                <div style={{ width: '12px', height: '12px', border: `2px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.2)'}`, borderTop: `2px solid ${isDarkMode ? colours.accent : colours.highlight}`, borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-              ) : (
-                <FaArrowRight size={11} />
-              )}
-              <span>{(() => {
-                const existingWorkspace = timeline.find((t) => t.type === 'document' && Boolean(t.metadata?.isDocWorkspace));
-                const hasPasscode = Boolean(existingWorkspace?.metadata?.workspacePasscode);
-                const hasUrl = Boolean(existingWorkspace?.metadata?.workspaceUrlPath);
-                if (!hasPasscode || !hasUrl) return 'Request Docs';
-                const expiresAt = existingWorkspace?.metadata?.workspaceExpiresAt;
-                return isExpiredIso(expiresAt) ? 'Workspace Expired' : 'Workspace Live';
-              })()}</span>
-            </button>
+                cursor: isDisabled ? 'default' : 'pointer',
+              };
+
+              const buttonColours = (() => {
+                if (isWorkspaceLive) {
+                  return {
+                    background: isDarkMode ? 'rgba(32, 178, 108, 0.22)' : 'rgba(32, 178, 108, 0.12)',
+                    border: isDarkMode ? 'rgba(32, 178, 108, 0.6)' : 'rgba(32, 178, 108, 0.45)',
+                    hoverBackground: isDarkMode ? 'rgba(32, 178, 108, 0.32)' : 'rgba(32, 178, 108, 0.18)',
+                    hoverBorder: isDarkMode ? 'rgba(32, 178, 108, 0.78)' : 'rgba(32, 178, 108, 0.65)',
+                    text: isDarkMode ? 'rgba(226, 232, 240, 0.92)' : colours.darkBlue,
+                    icon: colours.green,
+                  };
+                }
+
+                // Keep existing palette for other states (Request Docs / Expired)
+                return {
+                  background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.1)',
+                  border: isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(54, 144, 206, 0.3)',
+                  hoverBackground: isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(54, 144, 206, 0.18)',
+                  hoverBorder: isDarkMode ? 'rgba(135, 243, 243, 0.6)' : 'rgba(54, 144, 206, 0.5)',
+                  text: isDarkMode ? colours.accent : colours.darkBlue,
+                  icon: isDarkMode ? colours.accent : colours.darkBlue,
+                };
+              })();
+
+              const label = (() => {
+                if (!isWorkspaceLinkReady) return 'Request Docs';
+                if (isWorkspaceExpired) return 'Workspace expired';
+                return 'Workspace';
+              })();
+
+              return (
+                <button
+                  onClick={() => {
+                    if (existingWorkspace) {
+                      setSelectedItem(existingWorkspace);
+                      return;
+                    }
+                    setDocRequestConfirmOpen(true);
+                  }}
+                  disabled={isDisabled}
+                  onMouseEnter={(e) => {
+                    if (isDisabled) return;
+                    e.currentTarget.style.borderColor = buttonColours.hoverBorder;
+                    e.currentTarget.style.background = buttonColours.hoverBackground;
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = buttonColours.border;
+                    e.currentTarget.style.background = buttonColours.background;
+                  }}
+                  style={{
+                    ...baseStyle,
+                    background: buttonColours.background,
+                    border: `1px solid ${buttonColours.border}`,
+                    color: buttonColours.text,
+                  }}
+                >
+                  {docRequestLoading ? (
+                    <div
+                      style={{
+                        width: '12px',
+                        height: '12px',
+                        border: `2px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.2)'}`,
+                        borderTop: `2px solid ${isDarkMode ? colours.accent : colours.highlight}`,
+                        borderRadius: '50%',
+                        animation: 'spin 1s linear infinite',
+                      }}
+                    />
+                  ) : isWorkspaceLive ? (
+                    <FaCheckCircle size={11} color={buttonColours.icon} />
+                  ) : (
+                    <FaArrowRight size={11} color={buttonColours.icon} />
+                  )}
+
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    {label}
+                    {isWorkspaceLive ? (
+                      <span
+                        style={{
+                          fontSize: '10px',
+                          fontWeight: 800,
+                          padding: '1px 6px',
+                          borderRadius: '999px',
+                          border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.55)' : 'rgba(32, 178, 108, 0.35)'}`,
+                          background: isDarkMode ? 'rgba(32, 178, 108, 0.18)' : 'rgba(32, 178, 108, 0.1)',
+                          color: isDarkMode ? 'rgba(226, 232, 240, 0.92)' : colours.darkBlue,
+                          lineHeight: 1.2,
+                        }}
+                      >
+                        LIVE
+                      </span>
+                    ) : null}
+                  </span>
+                </button>
+              );
+            })()}
 
             <button
               disabled
@@ -3389,33 +3741,6 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                           </div>
                         </div>
                       </div>
-
-                      {!isLive ? (
-                        <div style={{ marginBottom: '10px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                            <button
-                              onClick={() => setDocRequestConfirmOpen(true)}
-                              disabled={docRequestLoading || !requestDocsEnabled}
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                padding: '8px 12px',
-                                borderRadius: '2px',
-                                fontSize: '12px',
-                                fontWeight: 700,
-                                background: colours.highlight,
-                                color: '#ffffff',
-                                border: 'none',
-                                cursor: docRequestLoading || !requestDocsEnabled ? 'default' : 'pointer',
-                                opacity: docRequestLoading || !requestDocsEnabled ? 0.6 : 1,
-                              }}
-                            >
-                              Request Docs
-                            </button>
-                          </div>
-                        </div>
-                      ) : null}
 
                       {isLive ? (
                         <div
@@ -3951,6 +4276,50 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 </button>
               );
             })}
+
+            {/* Day fold toggle */}
+            <div style={{ width: '1px', height: '16px', background: isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.25)', margin: '0 4px' }} />
+            <button
+              onClick={() => {
+                if (collapsedDays.size > 0) {
+                  // Unfold all
+                  setCollapsedDays(new Set());
+                } else {
+                  // Fold all days
+                  const allDays = new Set(
+                    timeline
+                      .filter((item) => !hiddenItemIds.has(item.id))
+                      .map((item) => {
+                        const d = parseISO(item.date);
+                        return Number.isFinite(d.getTime()) ? format(d, 'yyyy-MM-dd') : null;
+                      })
+                      .filter((d): d is string => d !== null)
+                  );
+                  setCollapsedDays(allDays);
+                }
+              }}
+              title={collapsedDays.size > 0 ? 'Expand all days' : 'Collapse by day'}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '5px 8px',
+                background: collapsedDays.size > 0
+                  ? (isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)')
+                  : 'transparent',
+                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.3)'}`,
+                borderRadius: '2px',
+                color: collapsedDays.size > 0
+                  ? colours.highlight
+                  : (isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.5)'),
+                cursor: 'pointer',
+                fontSize: '10px',
+                fontWeight: 600,
+              }}
+            >
+              <span style={{ fontSize: '12px' }}>{collapsedDays.size > 0 ? '▼' : '▶'}</span>
+              <span>{collapsedDays.size > 0 ? 'Expand' : 'Fold'}</span>
+            </button>
           </div>
         </div>
 
@@ -3958,8 +4327,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           <div
             style={{
               display: 'flex',
-              alignItems: 'center',
-              gap: '10px',
+              flexDirection: 'column',
+              gap: '6px',
               padding: '10px 12px',
               borderRadius: '2px',
               border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.18)' : 'rgba(148, 163, 184, 0.22)'}`,
@@ -3967,43 +4336,115 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               marginBottom: '12px',
             }}
           >
-            <div
-              style={{
-                width: '14px',
-                height: '14px',
-                border: `2px solid ${colours.highlight}`,
-                borderTopColor: 'transparent',
-                borderRadius: '50%',
-                animation: 'spin 1s linear infinite',
-                flex: '0 0 auto',
-              }}
-            />
             <div style={{ minWidth: 0 }}>
               <div
                 style={{
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.8)',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  color: isDarkMode ? 'rgba(148, 163, 184, 0.75)' : 'rgba(15, 23, 42, 0.55)',
+                  marginBottom: '8px',
                 }}
               >
                 {loading && timeline.length === 0 ? 'Loading timeline…' : 'Updating timeline…'}
               </div>
-              <div
-                style={{
-                  marginTop: '2px',
-                  fontSize: '10px',
-                  color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.55)',
-                }}
-              >
-                {(() => {
-                  const pending = Object.entries(loadingStates)
-                    .filter(([, isPending]) => Boolean(isPending))
-                    .map(([key]) => key);
+              {(() => {
+                const completed = TIMELINE_SOURCES.filter(({ key }) => sourceProgress[key].status !== 'loading').length;
+                const total = TIMELINE_SOURCES.length;
 
-                  if (pending.length === 0) return 'Finalising…';
-                  return `Fetching: ${pending.join(', ')}`;
-                })()}
-              </div>
+                const iconBase: React.CSSProperties = {
+                  width: 16,
+                  height: 16,
+                  borderRadius: 999,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flex: '0 0 auto',
+                  fontSize: 10,
+                  fontWeight: 900,
+                  lineHeight: 1,
+                };
+
+                const renderStatusIcon = (status: TimelineSourceStatus) => {
+                  if (status === 'done') {
+                    return (
+                      <span
+                        style={{
+                          ...iconBase,
+                          background: isDarkMode ? 'rgba(34, 197, 94, 0.18)' : 'rgba(34, 197, 94, 0.12)',
+                          border: `1px solid ${isDarkMode ? 'rgba(34, 197, 94, 0.35)' : 'rgba(34, 197, 94, 0.25)'}`,
+                          color: isDarkMode ? 'rgba(134, 239, 172, 0.95)' : 'rgb(22, 163, 74)',
+                        }}
+                      >
+                        ✓
+                      </span>
+                    );
+                  }
+                  if (status === 'error') {
+                    return (
+                      <span
+                        style={{
+                          ...iconBase,
+                          background: isDarkMode ? 'rgba(253, 230, 138, 0.14)' : 'rgba(253, 230, 138, 0.22)',
+                          border: `1px solid ${isDarkMode ? 'rgba(253, 230, 138, 0.25)' : 'rgba(180, 83, 9, 0.22)'}`,
+                          color: isDarkMode ? 'rgba(253, 230, 138, 0.95)' : 'rgb(180, 83, 9)',
+                        }}
+                      >
+                        !
+                      </span>
+                    );
+                  }
+
+                  return (
+                    <span
+                      style={{
+                        ...iconBase,
+                        border: `2px solid ${colours.highlight}`,
+                        borderTopColor: 'transparent',
+                        animation: 'spin 1s linear infinite',
+                      }}
+                    />
+                  );
+                };
+
+                return (
+                  <div>
+                    <div style={{ display: 'flex', flexWrap: 'nowrap', gap: 10, width: '100%' }}>
+                      {TIMELINE_SOURCES.map(({ key, label }) => {
+                        const entry = sourceProgress[key];
+                        const suffix = entry.status === 'done' ? `(${entry.count})` : '';
+                        const statusText = entry.status === 'loading' ? 'Working…' : entry.status === 'error' ? 'Unavailable' : `Done ${suffix}`;
+
+                        return (
+                          <div
+                            key={key}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 8,
+                              fontSize: '10px',
+                              color: isDarkMode ? 'rgba(226, 232, 240, 0.78)' : 'rgba(15, 23, 42, 0.6)',
+                              flex: '1 1 0',
+                              minWidth: 0,
+                              padding: '6px 8px',
+                              borderRadius: '2px',
+                              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.16)'}`,
+                              background: isDarkMode ? 'rgba(2, 6, 23, 0.18)' : 'rgba(255, 255, 255, 0.6)',
+                            }}
+                          >
+                            {renderStatusIcon(entry.status)}
+                            <div style={{ minWidth: 0, display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                              <span style={{ fontWeight: 700 }}>{label}</span>
+                              <span style={{ color: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(15, 23, 42, 0.5)' }}>
+                                {statusText}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         ) : null}
@@ -4021,28 +4462,200 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             }} />
 
             {/* Timeline items */}
-            {timeline
-              .slice()
-              .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-              .map((item, index, allItems) => {
-              const typeColor = getTypeColor(item.type);
-              const isExpanded = selectedItem?.id === item.id;
-              const isDimmed = Boolean(activeFilters.length > 0 && !activeFilters.includes(item.type));
+            {(() => {
+              const sortedItems = timeline
+                .slice()
+                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                .filter((item) => !hiddenItemIds.has(item.id));
 
-              const itemDate = (() => {
+              // Group items by day for collapse tracking
+              const itemsByDay = new Map<string, typeof sortedItems>();
+              for (const item of sortedItems) {
                 const d = parseISO(item.date);
-                return Number.isFinite(d.getTime()) ? d : new Date();
-              })();
-              const prevDateKey = (() => {
-                if (index <= 0) return null;
-                const prev = parseISO(allItems[index - 1].date);
-                return Number.isFinite(prev.getTime()) ? format(prev, 'yyyy-MM-dd') : null;
-              })();
-              const dateKey = format(itemDate, 'yyyy-MM-dd');
-              const isSameDayAsPrev = Boolean(prevDateKey && prevDateKey === dateKey);
-              const dayName = format(itemDate, 'EEE');
-              const dayMonth = format(itemDate, 'd MMM');
-              const time = format(itemDate, 'HH:mm');
+                const dateKey = Number.isFinite(d.getTime()) ? format(d, 'yyyy-MM-dd') : 'unknown';
+                const list = itemsByDay.get(dateKey) || [];
+                list.push(item);
+                itemsByDay.set(dateKey, list);
+              }
+
+              const renderedDays = new Set<string>();
+
+              // Pre-compute holding doc count for action required status
+              const holdingDocsCount = computeHoldingDocCount(sortedItems);
+
+              return sortedItems.map((item, index, allItems) => {
+                const typeColor = getTypeColor(item.type);
+                const isExpanded = selectedItem?.id === item.id;
+                const isDimmed = Boolean(activeFilters.length > 0 && !activeFilters.includes(item.type));
+                // Individual doc uploads (not the workspace itself) should be subtle "bookmarks"
+                const isPortalUpload = item.type === 'document' && item.metadata && !item.metadata.isDocWorkspace;
+
+                // Compute action required status for this item
+                const isDocWorkspace = item.type === 'document' && item.metadata?.isDocWorkspace;
+                const itemActionRequired = isDocWorkspace ? holdingDocsCount > 0 : item.actionRequired;
+                
+                // Status-based dot color: amber if action required, green if complete, type-based for portal uploads
+                const dotColor = isPortalUpload
+                  ? (isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(148, 163, 184, 0.5)')
+                  : itemActionRequired
+                    ? statusColors.actionRequired
+                    : statusColors.complete;
+
+                const itemDate = (() => {
+                  const d = parseISO(item.date);
+                  return Number.isFinite(d.getTime()) ? d : new Date();
+                })();
+                const prevDateKey = (() => {
+                  if (index <= 0) return null;
+                  const prev = parseISO(allItems[index - 1].date);
+                  return Number.isFinite(prev.getTime()) ? format(prev, 'yyyy-MM-dd') : null;
+                })();
+                const dateKey = format(itemDate, 'yyyy-MM-dd');
+                const isSameDayAsPrev = Boolean(prevDateKey && prevDateKey === dateKey);
+                const dayName = format(itemDate, 'EEE');
+                const dayMonth = format(itemDate, 'd MMM');
+                const time = format(itemDate, 'HH:mm');
+
+                const isDayCollapsed = collapsedDays.has(dateKey);
+                const isFirstOfDay = !renderedDays.has(dateKey);
+                if (isFirstOfDay) renderedDays.add(dateKey);
+
+                // If this day is collapsed, render a summary row for the first item only
+                if (isDayCollapsed && isFirstOfDay) {
+                  const dayItems = itemsByDay.get(dateKey) || [];
+                  const typeCounts = new Map<string, number>();
+                  for (const di of dayItems) {
+                    typeCounts.set(di.type, (typeCounts.get(di.type) || 0) + 1);
+                  }
+
+                  return (
+                    <div
+                      key={`day-${dateKey}`}
+                      style={{
+                        position: 'relative',
+                        marginBottom: '12px',
+                      }}
+                    >
+                      {/* Date badge (left column) */}
+                      <div
+                        style={{
+                          position: 'absolute',
+                          left: '-90px',
+                          top: '0px',
+                          width: '64px',
+                          textAlign: 'right',
+                          lineHeight: 1.1,
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: '10px',
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.4px',
+                            color: isDarkMode ? 'rgba(226, 232, 240, 0.65)' : 'rgba(15, 23, 42, 0.55)',
+                          }}
+                        >
+                          {dayName}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.8)',
+                            marginTop: '2px',
+                          }}
+                        >
+                          {dayMonth}
+                        </div>
+                      </div>
+
+                      {/* Collapsed day indicator */}
+                      <div style={{
+                        position: 'absolute',
+                        left: '-25px',
+                        top: '4px',
+                        width: '10px',
+                        height: '10px',
+                        boxSizing: 'border-box',
+                        borderRadius: '2px',
+                        background: isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.4)',
+                        zIndex: 1,
+                      }} />
+
+                      {/* Collapsed day summary */}
+                      <button
+                        onClick={() => {
+                          setCollapsedDays((prev) => {
+                            const next = new Set(prev);
+                            next.delete(dateKey);
+                            return next;
+                          });
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          width: '100%',
+                          padding: '8px 12px',
+                          marginLeft: '-8px',
+                          background: isDarkMode ? 'rgba(7, 16, 32, 0.35)' : 'rgba(255, 255, 255, 0.5)',
+                          border: `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.35)'}`,
+                          borderRadius: '2px',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <span style={{
+                            fontSize: '10px',
+                            color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.5)',
+                          }}>
+                            ▶
+                          </span>
+                          <span style={{
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.6)',
+                          }}>
+                            {dayItems.length} item{dayItems.length === 1 ? '' : 's'}
+                          </span>
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            {Array.from(typeCounts.entries()).map(([type, count]) => (
+                              <span
+                                key={type}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  fontSize: '10px',
+                                  color: getTypeColor(type as CommunicationType),
+                                }}
+                              >
+                                {getTypeIcon(type as CommunicationType)}
+                                <span style={{ opacity: 0.8 }}>{count}</span>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                        <span style={{
+                          fontSize: '9px',
+                          fontWeight: 600,
+                          color: colours.highlight,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.3px',
+                        }}>
+                          Expand
+                        </span>
+                      </button>
+                    </div>
+                  );
+                }
+
+                // Skip other items for this collapsed day
+                if (isDayCollapsed && !isFirstOfDay) {
+                  return null;
+                }
               
               return (
                 <div
@@ -4056,8 +4669,16 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                     transition: 'opacity 0.2s ease',
                   }}
                 >
-                  {/* Date badge (left column) */}
+                  {/* Date badge (left column) - clickable to fold this day */}
                   <div
+                    onClick={!isSameDayAsPrev ? () => {
+                      setCollapsedDays((prev) => {
+                        const next = new Set(prev);
+                        next.add(dateKey);
+                        return next;
+                      });
+                    } : undefined}
+                    title={!isSameDayAsPrev ? 'Click to fold this day' : undefined}
                     style={{
                       position: 'absolute',
                       left: '-90px',
@@ -4065,6 +4686,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                       width: '64px',
                       textAlign: 'right',
                       lineHeight: 1.1,
+                      cursor: !isSameDayAsPrev ? 'pointer' : 'default',
                     }}
                   >
                     {!isSameDayAsPrev ? (
@@ -4115,60 +4737,58 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                     )}
                   </div>
 
-                  {/* Dot */}
-                  <div style={{
+                  {/* Dot - status-based coloring: green=complete, amber=action required */}
+                  <div 
+                    title={itemActionRequired ? (typeof itemActionRequired === 'string' ? itemActionRequired : 'Action required') : 'Complete'}
+                    style={{
                     position: 'absolute',
-                    left: '-26px',
+                    left: '-25px',
                     top: '2px',
-                    width: '10px',
-                    height: '10px',
+                    width: isPortalUpload ? '6px' : '10px',
+                    height: isPortalUpload ? '6px' : '10px',
+                    boxSizing: 'border-box',
                     borderRadius: '50%',
-                    background: typeColor,
-                    border: `2px solid ${isDarkMode ? colours.dark.cardBackground : '#ffffff'}`,
+                    background: dotColor,
+                    border: isPortalUpload ? 'none' : `2px solid ${isDarkMode ? colours.dark.cardBackground : '#ffffff'}`,
                     zIndex: 1,
+                    marginTop: isPortalUpload ? '2px' : '0px',
+                    marginLeft: isPortalUpload ? '2px' : '0px',
+                    // Pulse animation for action required
+                    ...(itemActionRequired && !isPortalUpload ? {
+                      boxShadow: `0 0 0 2px ${statusColors.actionRequired}30`,
+                    } : {}),
                   }} />
 
                   {/* Expandable item */}
                   <div style={{
-                    background: isExpanded 
+                    background: isExpanded
                       ? isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.05)'
-                      : item.type === 'email' && item.metadata?.direction === 'inbound'
-                        ? isDarkMode ? 'rgba(34, 197, 94, 0.05)' : 'rgba(34, 197, 94, 0.03)'
-                        : item.type === 'email' && item.metadata?.direction === 'outbound'
-                          ? isDarkMode ? 'rgba(54, 144, 206, 0.05)' : 'rgba(54, 144, 206, 0.03)'
-                          : 'transparent',
-                    borderTop: isExpanded 
-                      ? `1px solid ${colours.highlight}` 
-                      : item.type === 'email' && item.metadata?.direction === 'inbound'
-                        ? isDarkMode ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid rgba(34, 197, 94, 0.2)'
-                        : item.type === 'email' && item.metadata?.direction === 'outbound'
-                          ? isDarkMode ? '1px solid rgba(54, 144, 206, 0.3)' : '1px solid rgba(54, 144, 206, 0.2)'
-                          : '1px solid transparent',
-                    borderRight: isExpanded 
-                      ? `1px solid ${colours.highlight}` 
-                      : item.type === 'email' && item.metadata?.direction === 'inbound'
-                        ? isDarkMode ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid rgba(34, 197, 94, 0.2)'
-                        : item.type === 'email' && item.metadata?.direction === 'outbound'
-                          ? isDarkMode ? '1px solid rgba(54, 144, 206, 0.3)' : '1px solid rgba(54, 144, 206, 0.2)'
-                          : '1px solid transparent',
-                    borderBottom: isExpanded 
-                      ? `1px solid ${colours.highlight}` 
-                      : item.type === 'email' && item.metadata?.direction === 'inbound'
-                        ? isDarkMode ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid rgba(34, 197, 94, 0.2)'
-                        : item.type === 'email' && item.metadata?.direction === 'outbound'
-                          ? isDarkMode ? '1px solid rgba(54, 144, 206, 0.3)' : '1px solid rgba(54, 144, 206, 0.2)'
-                          : '1px solid transparent',
+                      : isPortalUpload
+                        ? 'transparent'
+                        : item.type === 'email' && item.metadata?.direction === 'inbound'
+                          ? isDarkMode ? 'rgba(34, 197, 94, 0.05)' : 'rgba(34, 197, 94, 0.03)'
+                          : item.type === 'email' && item.metadata?.direction === 'outbound'
+                            ? isDarkMode ? 'rgba(54, 144, 206, 0.05)' : 'rgba(54, 144, 206, 0.03)'
+                            : 'transparent',
+                    border: isExpanded
+                      ? `1px solid ${colours.highlight}`
+                      : isPortalUpload
+                        ? `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`
+                        : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.16)'}`,
                     borderLeft: isExpanded
                       ? `1px solid ${colours.highlight}`
-                      : item.type === 'email' && item.metadata?.direction === 'inbound'
-                        ? isDarkMode ? '3px solid rgba(34, 197, 94, 0.6)' : '3px solid rgba(34, 197, 94, 0.5)'
-                        : item.type === 'email' && item.metadata?.direction === 'outbound'
-                          ? isDarkMode ? '3px solid rgba(54, 144, 206, 0.6)' : '3px solid rgba(54, 144, 206, 0.5)'
-                          : '1px solid transparent',
+                      : isPortalUpload
+                        ? `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`
+                        : item.type === 'email' && item.metadata?.direction === 'inbound'
+                          ? isDarkMode ? '3px solid rgba(34, 197, 94, 0.6)' : '3px solid rgba(34, 197, 94, 0.5)'
+                          : item.type === 'email' && item.metadata?.direction === 'outbound'
+                            ? isDarkMode ? '3px solid rgba(54, 144, 206, 0.6)' : '3px solid rgba(54, 144, 206, 0.5)'
+                            : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.16)'}`,
                     borderRadius: '2px',
-                    padding: '8px',
+                    padding: isPortalUpload ? '6px 8px' : '8px',
                     marginLeft: '-8px',
                     transition: 'all 0.2s ease',
+                    opacity: isPortalUpload && !isExpanded ? 0.7 : 1,
                   }}>
                     {/* Header - clickable */}
                     <div
@@ -4184,17 +4804,29 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                       <div style={{ flex: 1, minWidth: 0 }}>
                         {/* Type and Subject on same line */}
                         <div style={{
-                          fontSize: '12px',
-                          fontWeight: 600,
-                          color: isDarkMode ? colours.dark.text : colours.light.text,
-                          marginBottom: '4px',
+                          fontSize: isPortalUpload ? '11px' : '12px',
+                          fontWeight: isPortalUpload ? 500 : 600,
+                          color: isPortalUpload
+                            ? (isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.55)')
+                            : (isDarkMode ? colours.dark.text : colours.light.text),
+                          marginBottom: isPortalUpload ? '2px' : '4px',
                           display: 'flex',
                           alignItems: 'center',
                           gap: '8px',
                         }}>
-                          <span style={{ color: typeColor }}>
-                            {getTypeIcon(item.type)}
-                          </span>
+                          {!isPortalUpload && (
+                            <span style={{ color: typeColor }}>
+                              {getTypeIcon(item.type)}
+                            </span>
+                          )}
+                          {isPortalUpload && (
+                            <span style={{ 
+                              fontSize: '10px', 
+                              color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(15, 23, 42, 0.4)',
+                            }}>
+                              📎
+                            </span>
+                          )}
                           {item.type === 'email' && item.metadata?.direction && (
                             <span style={{
                               fontSize: '9px',
@@ -4211,25 +4843,82 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                               {item.metadata.direction === 'inbound' ? '← RECEIVED' : 'SENT →'}
                             </span>
                           )}
-                          <span>{item.subject}</span>
+                          <span>
+                            {(() => {
+                              if (item.type === 'pitch' && item.metadata?.scenarioId) return getScenarioName(item.metadata.scenarioId);
+                              if (item.metadata?.isDocWorkspace) {
+                                const passcode = typeof item.metadata.workspacePasscode === 'string' ? item.metadata.workspacePasscode.trim() : '';
+                                return passcode ? `${item.subject} • ${passcode}` : item.subject;
+                              }
+                              return item.subject;
+                            })()}
+                          </span>
                         </div>
                         
                         {/* Time and Author - smaller, subtle */}
                         <div style={{
-                          fontSize: '10px',
+                          fontSize: isPortalUpload ? '9px' : '10px',
                           color: isDarkMode ? 'rgba(226, 232, 240, 0.5)' : 'rgba(15, 23, 42, 0.5)',
                           display: 'flex',
                           alignItems: 'center',
                           gap: '8px',
                         }}>
-                          <span>{format(itemDate, 'd MMM yyyy, HH:mm')}</span>
-                          {item.createdBy && (
+                          {isPortalUpload ? (
                             <>
+                              <span>{format(itemDate, 'd MMM')}</span>
                               <span>•</span>
-                              <span>{item.createdBy}</span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const workspaceItem = timeline.find((t) => t.type === 'document' && Boolean(t.metadata?.isDocWorkspace));
+                                  if (workspaceItem) {
+                                    setSelectedItem(workspaceItem);
+                                    const el = document.getElementById(`timeline-item-${workspaceItem.id}`);
+                                    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                  }
+                                }}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  padding: 0,
+                                  cursor: 'pointer',
+                                  color: isDarkMode ? 'rgba(125, 211, 252, 0.6)' : 'rgba(54, 144, 206, 0.7)',
+                                  fontSize: '9px',
+                                  textDecoration: 'underline',
+                                  textUnderlineOffset: '2px',
+                                }}
+                              >
+                                via Client Upload Portal
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <span>{format(itemDate, 'd MMM yyyy, HH:mm')}</span>
+                              {item.createdBy && (
+                                <>
+                                  <span>•</span>
+                                  <span>{item.createdBy}</span>
+                                </>
+                              )}
                             </>
                           )}
-                          {(() => {
+                          {!isPortalUpload && (() => {
+                            if (item.type === 'pitch' && item.metadata?.scenarioId) {
+                              return (
+                                <>
+                                  <span>•</span>
+                                  <span style={{
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                    minWidth: 0,
+                                  }}>
+                                    {item.subject}
+                                  </span>
+                                </>
+                              );
+                            }
+
                             return item.metadata?.scenarioId ? (
                               <>
                                 <span>•</span>
@@ -4252,8 +4941,44 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                       <div style={{
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '8px',
+                        gap: '4px',
                       }}>
+                        {/* Hide button */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleHideItem(item.id);
+                          }}
+                          title="Hide this item"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: '20px',
+                            height: '20px',
+                            padding: 0,
+                            background: 'transparent',
+                            border: 'none',
+                            borderRadius: '2px',
+                            cursor: 'pointer',
+                            color: isDarkMode ? 'rgba(226, 232, 240, 0.3)' : 'rgba(15, 23, 42, 0.25)',
+                            opacity: 0,
+                            transition: 'opacity 0.15s ease, color 0.15s ease',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.opacity = '1';
+                            e.currentTarget.style.color = isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.5)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.opacity = '0';
+                            e.currentTarget.style.color = isDarkMode ? 'rgba(226, 232, 240, 0.3)' : 'rgba(15, 23, 42, 0.25)';
+                          }}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                            <line x1="1" y1="1" x2="23" y2="23" />
+                          </svg>
+                        </button>
                         <div style={{
                           color: isDarkMode ? 'rgba(226, 232, 240, 0.4)' : 'rgba(15, 23, 42, 0.4)',
                           fontSize: '14px',
@@ -4304,46 +5029,180 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                               const isLive = hasPasscode && hasUrl;
                               const expiresAt = item.metadata?.workspaceExpiresAt;
                               const isExpired = isLive && isExpiredIso(expiresAt);
-                              const statusLabel = isExpired ? 'Expired' : isLive ? 'Live' : 'Not live';
-                              const dotColor = isExpired ? '#f59e0b' : isLive ? '#22c55e' : '#f59e0b';
-                              const statusColor = isExpired
-                                ? (isDarkMode ? 'rgba(253, 230, 138, 0.95)' : 'rgb(180, 83, 9)')
-                                : isLive
-                                ? (isDarkMode ? 'rgba(134, 239, 172, 0.95)' : 'rgb(22, 163, 74)')
-                                : (isDarkMode ? 'rgba(253, 230, 138, 0.95)' : 'rgb(180, 83, 9)');
+
+                              // Count holding docs for action prompt
+                              const holdingDocsCount = timeline
+                                .filter((t) => t.type === 'document' && !t.metadata?.isDocWorkspace)
+                                .filter((doc) => {
+                                  const blobName = doc.metadata?.blobName;
+                                  if (typeof blobName !== 'string') return false;
+                                  return blobName.includes('/Holding/');
+                                }).length;
 
                               return (
                                 <>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '10px' }}>
-                              <div style={{ minWidth: 0, flex: 1 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 700, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)' }}>
-                                  <span>{isExpired ? 'Workspace expired' : isLive ? 'Workspace is live' : 'Workspace not live yet'}</span>
-                                  {isLive && !isExpired && (
-                                    <>
-                                      <span style={{ color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(15, 23, 42, 0.35)' }}>•</span>
-                                      <span style={{ fontWeight: 500, fontSize: '11px', color: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(15, 23, 42, 0.6)' }}>
-                                        {getExpiryLabel(item.metadata.workspaceExpiresAt)}
-                                      </span>
-                                    </>
+                                  {/* ACTION NEEDED - prominent if holding has items */}
+                                  {holdingDocsCount > 0 && (
+                                    <div style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '10px',
+                                      padding: '10px 12px',
+                                      marginBottom: '12px',
+                                      borderRadius: '2px',
+                                      background: isDarkMode ? 'rgba(253, 230, 138, 0.08)' : 'rgba(180, 83, 9, 0.06)',
+                                      border: `1px solid ${isDarkMode ? 'rgba(253, 230, 138, 0.25)' : 'rgba(180, 83, 9, 0.2)'}`,
+                                    }}>
+                                      <div style={{
+                                        width: '20px',
+                                        height: '20px',
+                                        borderRadius: '50%',
+                                        background: isDarkMode ? 'rgba(253, 230, 138, 0.15)' : 'rgba(180, 83, 9, 0.1)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontSize: '11px',
+                                        fontWeight: 700,
+                                        color: isDarkMode ? 'rgba(253, 230, 138, 0.95)' : 'rgb(180, 83, 9)',
+                                        flex: '0 0 auto',
+                                      }}>
+                                        !
+                                      </div>
+                                      <div>
+                                        <div style={{
+                                          fontSize: '12px',
+                                          fontWeight: 700,
+                                          color: isDarkMode ? 'rgba(253, 230, 138, 0.95)' : 'rgb(180, 83, 9)',
+                                        }}>
+                                          {holdingDocsCount} file{holdingDocsCount === 1 ? '' : 's'} need{holdingDocsCount === 1 ? 's' : ''} allocation
+                                        </div>
+                                        <div style={{
+                                          fontSize: '10px',
+                                          color: isDarkMode ? 'rgba(253, 230, 138, 0.7)' : 'rgba(180, 83, 9, 0.8)',
+                                          marginTop: '2px',
+                                        }}>
+                                          Client uploaded files are in Holding — move to appropriate folder
+                                        </div>
+                                      </div>
+                                    </div>
                                   )}
-                                </div>
-                                <div style={{ fontSize: '10px', color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.6)', marginTop: '2px' }}>
-                                  Passcode: {item.metadata.workspacePasscode || '—'}
-                                </div>
-                                {!isLive && (item.metadata?.workspaceError || '') ? (
-                                  <div style={{ fontSize: '10px', color: isDarkMode ? 'rgba(253, 230, 138, 0.85)' : 'rgb(180, 83, 9)', marginTop: '6px' }}>
-                                    {item.metadata?.workspaceError}
-                                  </div>
-                                ) : null}
-                              </div>
 
-                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: dotColor }} />
-                                <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', color: statusColor }}>
-                                  {statusLabel}
-                                </div>
-                              </div>
-                            </div>
+                                  {/* Status row - compact */}
+                                  <div style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: '12px',
+                                    marginBottom: holdingDocsCount > 0 ? '0px' : '8px',
+                                  }}>
+                                    <div style={{
+                                      fontSize: '11px',
+                                      color: isDarkMode ? 'rgba(148, 163, 184, 0.85)' : 'rgba(15, 23, 42, 0.65)',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '8px',
+                                    }}>
+                                      {isExpired ? (
+                                        <span style={{ color: isDarkMode ? 'rgba(253, 230, 138, 0.95)' : 'rgb(180, 83, 9)' }}>Portal expired</span>
+                                      ) : isLive ? (
+                                        <>
+                                          <span style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '5px',
+                                            color: isDarkMode ? 'rgba(134, 239, 172, 0.95)' : 'rgb(22, 163, 74)',
+                                          }}>
+                                            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'currentColor' }} />
+                                            Active
+                                          </span>
+                                          <span style={{ color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(15, 23, 42, 0.35)' }}>•</span>
+                                          <span>{getExpiryLabel(item.metadata.workspaceExpiresAt)}</span>
+                                        </>
+                                      ) : (
+                                        <span style={{ color: isDarkMode ? 'rgba(253, 230, 138, 0.95)' : 'rgb(180, 83, 9)' }}>Not yet active</span>
+                                      )}
+                                    </div>
+                                    <div style={{ fontSize: '10px', color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(15, 23, 42, 0.5)' }}>
+                                      Code: {item.metadata.workspacePasscode || '—'}
+                                    </div>
+                                  </div>
+
+                                  {!isLive && (item.metadata?.workspaceError || '') ? (
+                                    <div style={{ fontSize: '10px', color: isDarkMode ? 'rgba(253, 230, 138, 0.85)' : 'rgb(180, 83, 9)', marginTop: '4px', marginBottom: '8px' }}>
+                                      {item.metadata?.workspaceError}
+                                    </div>
+                                  ) : null}
+
+                                  {/* Request Docs buttons - show when workspace is NOT live */}
+                                  {!isLive && (
+                                    <div style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '10px',
+                                      marginTop: '12px',
+                                      marginBottom: '12px',
+                                      flexWrap: 'wrap',
+                                    }}>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setDocRequestConfirmOpen(true);
+                                        }}
+                                        disabled={docRequestLoading || !requestDocsEnabled}
+                                        style={{
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '8px',
+                                          padding: '8px 14px',
+                                          borderRadius: '2px',
+                                          fontSize: '12px',
+                                          fontWeight: 700,
+                                          background: colours.highlight,
+                                          color: '#ffffff',
+                                          border: 'none',
+                                          cursor: docRequestLoading || !requestDocsEnabled ? 'default' : 'pointer',
+                                          opacity: docRequestLoading || !requestDocsEnabled ? 0.6 : 1,
+                                        }}
+                                      >
+                                        {docRequestLoading ? (
+                                          <div
+                                            style={{
+                                              width: '12px',
+                                              height: '12px',
+                                              border: '2px solid rgba(255, 255, 255, 0.3)',
+                                              borderTop: '2px solid #ffffff',
+                                              borderRadius: '50%',
+                                              animation: 'spin 1s linear infinite',
+                                            }}
+                                          />
+                                        ) : (
+                                          <FaArrowRight size={11} />
+                                        )}
+                                        {docRequestLoading ? 'Creating…' : 'Request Docs'}
+                                      </button>
+
+                                      <button
+                                        disabled
+                                        aria-disabled
+                                        style={{
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '8px',
+                                          padding: '8px 14px',
+                                          borderRadius: '2px',
+                                          fontSize: '12px',
+                                          fontWeight: 700,
+                                          background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.1)',
+                                          border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(54, 144, 206, 0.3)'}`,
+                                          color: isDarkMode ? colours.accent : colours.highlight,
+                                          cursor: 'default',
+                                          opacity: 0.45,
+                                        }}
+                                      >
+                                        Request structured data
+                                      </button>
+                                    </div>
+                                  )}
                                 </>
                               );
                             })()}
@@ -4354,6 +5213,46 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                 .slice()
                                 .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
+                              const passcode = String(item.metadata?.workspacePasscode || '').trim();
+                              const folderPrefix = passcode ? `enquiries/${resolvePitchEnquiryId(enquiry) || ''}/${passcode}/` : '';
+
+                              const resolveFolderName = (doc: TimelineItem): string | null => {
+                                const blobName = doc.metadata?.blobName;
+                                if (typeof blobName !== 'string' || !blobName) return null;
+
+                                // Prefer removing the known prefix, but tolerate unknown/mismatched prefixes.
+                                const rel = folderPrefix && blobName.startsWith(folderPrefix)
+                                  ? blobName.slice(folderPrefix.length)
+                                  : blobName;
+
+                                const parts = rel.split('/').filter(Boolean);
+                                if (parts.length <= 1) return null;
+                                return parts[0] || null;
+                              };
+
+                              const docsByFolder = new Map<string, TimelineItem[]>();
+                              for (const doc of docs) {
+                                const folder = resolveFolderName(doc) || '';
+                                const list = docsByFolder.get(folder) || [];
+                                list.push(doc);
+                                docsByFolder.set(folder, list);
+                              }
+
+                              const knownFoldersRaw = Array.isArray(item.metadata?.workspaceFolders) ? item.metadata.workspaceFolders : [];
+                              const knownFolders = knownFoldersRaw.filter((f) => typeof f === 'string' && f.trim());
+                              const folderNames = Array.from(new Set([
+                                ...knownFolders,
+                                ...Array.from(docsByFolder.keys()).filter((k) => k && k.trim()),
+                              ]));
+
+                              folderNames.sort((a, b) => {
+                                if (a === 'Holding') return -1;
+                                if (b === 'Holding') return 1;
+                                return a.localeCompare(b);
+                              });
+
+                              const holdingDocs = docsByFolder.get('Holding') || [];
+
                               if (docs.length === 0) {
                                 return (
                                   <div style={{ fontSize: '11px', color: isDarkMode ? 'rgba(148, 163, 184, 0.75)' : 'rgba(15, 23, 42, 0.6)' }}>
@@ -4363,40 +5262,111 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                               }
 
                               return (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                  {docs.map((doc) => (
-                                    <button
-                                      key={doc.id}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        openTimelineItem(doc);
-                                      }}
-                                      style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'space-between',
-                                        gap: '10px',
-                                        padding: '8px 10px',
-                                        borderRadius: '2px',
-                                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.22)'}`,
-                                        background: isDarkMode ? 'rgba(2, 6, 23, 0.25)' : 'rgba(255, 255, 255, 0.65)',
-                                        cursor: 'pointer',
-                                        textAlign: 'left',
-                                      }}
-                                    >
-                                      <div style={{ minWidth: 0 }}>
-                                        <div style={{ fontSize: '11px', fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                          {doc.subject}
-                                        </div>
-                                        <div style={{ fontSize: '10px', color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.55)', marginTop: '2px' }}>
-                                          {formatDocDate(doc.date)}
-                                        </div>
-                                      </div>
-                                      <div style={{ fontSize: '10px', color: colours.highlight, fontWeight: 700 }}>
-                                        View
-                                      </div>
-                                    </button>
-                                  ))}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                  {/* Uploaded files by folder */}
+                                  <div style={{ fontSize: '10px', fontWeight: 600, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.55)', marginBottom: '2px' }}>
+                                    Uploaded files ({docs.length})
+                                  </div>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                      {folderNames.map((folder) => {
+                                        const folderDocs = docsByFolder.get(folder) || [];
+                                        const isHolding = folder === 'Holding' && folderDocs.length > 0;
+                                        const folderLabelColor = isHolding
+                                          ? (isDarkMode ? 'rgba(253, 230, 138, 0.95)' : 'rgb(180, 83, 9)')
+                                          : (isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.75)');
+                                        const folderBorder = isHolding
+                                          ? (isDarkMode ? 'rgba(253, 230, 138, 0.35)' : 'rgba(180, 83, 9, 0.25)')
+                                          : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)');
+                                        const folderBg = isHolding
+                                          ? (isDarkMode ? 'rgba(253, 230, 138, 0.04)' : 'rgba(180, 83, 9, 0.03)')
+                                          : (isDarkMode ? 'rgba(2, 6, 23, 0.25)' : 'rgba(255, 255, 255, 0.65)');
+
+                                        // Skip empty non-Holding folders
+                                        if (folderDocs.length === 0 && folder !== 'Holding') return null;
+
+                                        return (
+                                          <div
+                                            key={folder}
+                                            style={{
+                                              border: `1px solid ${folderBorder}`,
+                                              borderRadius: '2px',
+                                              padding: '8px',
+                                              background: folderBg,
+                                            }}
+                                          >
+                                            <div style={{
+                                              display: 'flex',
+                                              justifyContent: 'space-between',
+                                              alignItems: 'center',
+                                              gap: '10px',
+                                              marginBottom: folderDocs.length > 0 ? '6px' : '0px',
+                                            }}>
+                                              <div style={{
+                                                fontSize: '11px',
+                                                fontWeight: 700,
+                                                color: folderLabelColor,
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
+                                                whiteSpace: 'nowrap',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '6px',
+                                              }}>
+                                                <span style={{ opacity: 0.7 }}>📁</span>
+                                                {folder}{folderDocs.length > 0 ? ` (${folderDocs.length})` : ''}
+                                              </div>
+                                              {isHolding ? (
+                                                <div style={{ fontSize: '9px', fontWeight: 700, color: folderLabelColor, textTransform: 'uppercase', letterSpacing: '0.3px' }}>
+                                                  Allocate →
+                                                </div>
+                                              ) : null}
+                                            </div>
+
+                                            {folderDocs.length === 0 ? (
+                                              <div style={{ fontSize: '10px', color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.55)' }}>
+                                                Empty
+                                              </div>
+                                            ) : (
+                                              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                {folderDocs.map((doc) => (
+                                                  <button
+                                                    key={doc.id}
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      openTimelineItem(doc);
+                                                    }}
+                                                    style={{
+                                                      display: 'flex',
+                                                      alignItems: 'center',
+                                                      justifyContent: 'space-between',
+                                                      gap: '10px',
+                                                      padding: '8px 10px',
+                                                      borderRadius: '2px',
+                                                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.22)'}`,
+                                                      background: isDarkMode ? 'rgba(7, 16, 32, 0.25)' : 'rgba(255, 255, 255, 0.7)',
+                                                      cursor: 'pointer',
+                                                      textAlign: 'left',
+                                                    }}
+                                                  >
+                                                    <div style={{ minWidth: 0 }}>
+                                                      <div style={{ fontSize: '11px', fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                        {doc.subject}
+                                                      </div>
+                                                      <div style={{ fontSize: '10px', color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.55)', marginTop: '2px' }}>
+                                                        {formatDocDate(doc.date)}
+                                                      </div>
+                                                    </div>
+                                                    <div style={{ fontSize: '10px', color: colours.highlight, fontWeight: 700 }}>
+                                                      View
+                                                    </div>
+                                                  </button>
+                                                ))}
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                  </div>
                                 </div>
                               );
                             })()}
@@ -4410,23 +5380,68 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                   borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
                                 }}
                               >
-                                <a
-                                  href={`https://instruct.helix-law.com${item.metadata.workspaceUrlPath}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  onClick={(e) => e.stopPropagation()}
-                                  style={{
+                                {(() => {
+                                  const workspaceUrl = `https://instruct.helix-law.com${item.metadata.workspaceUrlPath}`;
+                                  const copyButtonBase: React.CSSProperties = {
+                                    padding: '6px 10px',
                                     fontSize: '10px',
-                                    color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.55)',
-                                    textDecoration: 'none',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '4px',
-                                  }}
-                                >
-                                  <span style={{ opacity: 0.7 }}>↗</span>
-                                  <span style={{ textDecoration: 'underline' }}>instruct.helix-law.com{item.metadata.workspaceUrlPath}</span>
-                                </a>
+                                    fontWeight: 700,
+                                    borderRadius: '2px',
+                                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.25)'}`,
+                                    background: isDarkMode ? 'rgba(2, 6, 23, 0.25)' : 'rgba(255, 255, 255, 0.65)',
+                                    color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.7)',
+                                    cursor: 'pointer',
+                                    whiteSpace: 'nowrap',
+                                  };
+
+                                  return (
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+                                      <a
+                                        href={workspaceUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        onClick={(e) => e.stopPropagation()}
+                                        style={{
+                                          fontSize: '10px',
+                                          color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.55)',
+                                          textDecoration: 'none',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: '4px',
+                                          minWidth: 0,
+                                        }}
+                                      >
+                                        <span style={{ opacity: 0.7 }}>↗</span>
+                                        <span style={{ textDecoration: 'underline', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                          instruct.helix-law.com{item.metadata.workspaceUrlPath}
+                                        </span>
+                                      </a>
+
+                                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            copyToClipboard(workspaceUrl, 'Workspace link');
+                                          }}
+                                          style={copyButtonBase}
+                                        >
+                                          Copy link
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            copyToClipboard(item.metadata?.workspacePasscode || '', 'Passcode');
+                                          }}
+                                          style={copyButtonBase}
+                                        >
+                                          Copy passcode
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             ) : null}
                           </div>
@@ -4563,7 +5578,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   </div>
                 </div>
               );
-            })}
+            });
+            })()}
           </div>
         ) : (
           <div style={{
@@ -4838,75 +5854,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             </span>
           </button>
 
-          <button
-            onMouseEnter={() => requestDocsEnabled && !docRequestLoading && setHoveredAction('docs')}
-            onMouseLeave={() => setHoveredAction(null)}
-            onClick={() => {
-              const existingWorkspace = timeline.find((t) => t.type === 'document' && Boolean(t.metadata?.isDocWorkspace));
-              if (existingWorkspace) {
-                setSelectedItem(existingWorkspace);
-                showToast('Workspace already exists for this enquiry', 'info');
-                return;
-              }
-              setDocRequestConfirmOpen(true);
-            }}
-            disabled={docRequestLoading || !requestDocsEnabled}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              background: hoveredAction === 'docs'
-                ? (isDarkMode ? 'rgba(135, 243, 243, 0.28)' : 'rgba(54, 144, 206, 0.2)')
-                : (isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.1)'),
-              border: `1px solid ${hoveredAction === 'docs'
-                ? (isDarkMode ? 'rgba(135, 243, 243, 0.6)' : 'rgba(54, 144, 206, 0.5)')
-                : (isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(54, 144, 206, 0.3)')}`,
-              borderRadius: '2px',
-              padding: '8px 12px',
-              cursor: docRequestLoading || !requestDocsEnabled ? 'default' : 'pointer',
-              color: isDarkMode ? colours.accent : colours.highlight,
-              fontSize: '12px',
-              fontWeight: 500,
-              transition: 'all 0.15s ease',
-              opacity: !requestDocsEnabled ? 0.45 : 1,
-              transform: hoveredAction === 'docs' ? 'translateY(-1px)' : 'translateY(0)',
-              boxShadow: hoveredAction === 'docs' ? `0 2px 8px ${isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.15)'}` : 'none',
-            }}
-          >
-            {docRequestLoading ? (
-              <div style={{ width: '12px', height: '12px', border: `2px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.2)'}`, borderTop: `2px solid ${isDarkMode ? colours.accent : colours.highlight}`, borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-            ) : (
-              <FaArrowRight size={11} />
-            )}
-            <span>{(() => {
-              if (!docRequestResult) return 'Request Docs';
-              return isExpiredIso(docRequestResult.expiresAt) ? 'Workspace Expired' : 'Workspace Live';
-            })()}</span>
-          </button>
-
-          <button
-            disabled
-            aria-disabled
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.1)',
-              border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(54, 144, 206, 0.3)'}`,
-              borderRadius: '2px',
-              padding: '8px 12px',
-              cursor: 'default',
-              color: isDarkMode ? colours.accent : colours.highlight,
-              fontSize: '12px',
-              fontWeight: 500,
-              transition: 'all 0.15s ease',
-              opacity: 0.45,
-            }}
-          >
-            <span>Request structured data</span>
-          </button>
+          {/* Doc-request actions moved down to deal/workspace level */}
         </div>
 
       </div>
@@ -6318,6 +7266,386 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
       {/* Pitch confirmation and scenario picker modal */}
       {renderPitchConfirmModal()}
+
+      {/* Hidden Items Panel Trigger */}
+      {hiddenItemIds.size > 0 && (
+        <button
+          onClick={() => setHiddenPanelOpen(true)}
+          style={{
+            position: 'fixed',
+            bottom: '24px',
+            right: '24px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '10px 16px',
+            borderRadius: '8px',
+            background: isDarkMode
+              ? 'linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.98) 100%)'
+              : 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.35)'}`,
+            boxShadow: isDarkMode
+              ? '0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(148, 163, 184, 0.1)'
+              : '0 8px 32px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(148, 163, 184, 0.08)',
+            cursor: 'pointer',
+            zIndex: 100,
+            transition: 'all 0.2s ease',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = 'translateY(-2px)';
+            e.currentTarget.style.boxShadow = isDarkMode
+              ? '0 12px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(148, 163, 184, 0.15)'
+              : '0 12px 40px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(148, 163, 184, 0.12)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.boxShadow = isDarkMode
+              ? '0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(148, 163, 184, 0.1)'
+              : '0 8px 32px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(148, 163, 184, 0.08)';
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.6)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+            <line x1="1" y1="1" x2="23" y2="23" />
+          </svg>
+          <span style={{
+            fontSize: '12px',
+            fontWeight: 600,
+            color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.7)',
+          }}>
+            Hidden
+          </span>
+          <span style={{
+            fontSize: '11px',
+            fontWeight: 700,
+            padding: '2px 7px',
+            borderRadius: '10px',
+            background: isDarkMode ? 'rgba(253, 230, 138, 0.2)' : 'rgba(180, 83, 9, 0.12)',
+            color: isDarkMode ? 'rgba(253, 230, 138, 0.95)' : 'rgb(180, 83, 9)',
+          }}>
+            {hiddenItemIds.size}
+          </span>
+        </button>
+      )}
+
+      {/* Hidden Items Side Panel */}
+      {hiddenPanelOpen && createPortal(
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1001,
+            display: 'flex',
+            justifyContent: 'flex-end',
+          }}
+        >
+          {/* Backdrop */}
+          <div
+            onClick={() => setHiddenPanelOpen(false)}
+            style={{
+              position: 'absolute',
+              inset: 0,
+              background: isDarkMode ? 'rgba(2, 6, 23, 0.6)' : 'rgba(15, 23, 42, 0.3)',
+              backdropFilter: 'blur(2px)',
+              animation: 'fadeIn 0.2s ease',
+            }}
+          />
+
+          {/* Panel */}
+          <div
+            style={{
+              position: 'relative',
+              width: '380px',
+              maxWidth: '90vw',
+              height: '100%',
+              background: isDarkMode
+                ? 'linear-gradient(180deg, rgb(17, 24, 39) 0%, rgb(15, 23, 42) 100%)'
+                : 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
+              borderLeft: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.25)'}`,
+              boxShadow: isDarkMode
+                ? '-8px 0 32px rgba(0, 0, 0, 0.5)'
+                : '-8px 0 32px rgba(0, 0, 0, 0.1)',
+              display: 'flex',
+              flexDirection: 'column',
+              animation: 'slideInRight 0.25s ease',
+            }}
+          >
+            {/* Header */}
+            <div style={{
+              padding: '20px 20px 16px',
+              borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.18)'}`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={isDarkMode ? 'rgba(253, 230, 138, 0.8)' : 'rgb(180, 83, 9)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                  <line x1="1" y1="1" x2="23" y2="23" />
+                </svg>
+                <span style={{
+                  fontSize: '15px',
+                  fontWeight: 700,
+                  color: isDarkMode ? 'rgb(249, 250, 251)' : colours.light.text,
+                }}>
+                  Hidden Items
+                </span>
+                <span style={{
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  padding: '2px 8px',
+                  borderRadius: '10px',
+                  background: isDarkMode ? 'rgba(253, 230, 138, 0.15)' : 'rgba(180, 83, 9, 0.1)',
+                  color: isDarkMode ? 'rgba(253, 230, 138, 0.9)' : 'rgb(180, 83, 9)',
+                }}>
+                  {hiddenItemIds.size}
+                </span>
+              </div>
+              <button
+                onClick={() => setHiddenPanelOpen(false)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '28px',
+                  height: '28px',
+                  background: 'transparent',
+                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.25)'}`,
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.5)',
+                  transition: 'all 0.15s ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)';
+                  e.currentTarget.style.color = isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.8)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent';
+                  e.currentTarget.style.color = isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.5)';
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Actions bar */}
+            <div style={{
+              padding: '12px 20px',
+              borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.12)'}`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+            }}>
+              <button
+                onClick={() => {
+                  unhideAllItems();
+                  setHiddenPanelOpen(false);
+                }}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  background: isDarkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.08)',
+                  border: `1px solid ${isDarkMode ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.25)'}`,
+                  borderRadius: '4px',
+                  color: isDarkMode ? 'rgb(134, 239, 172)' : 'rgb(22, 163, 74)',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = isDarkMode ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.15)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = isDarkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.08)';
+                }}
+              >
+                Restore all
+              </button>
+            </div>
+
+            {/* Hidden items list */}
+            <div style={{
+              flex: 1,
+              overflowY: 'auto',
+              padding: '16px 20px',
+            }}>
+              {(() => {
+                const hiddenItems = timeline.filter((item) => hiddenItemIds.has(item.id));
+                
+                if (hiddenItems.length === 0) {
+                  return (
+                    <div style={{
+                      textAlign: 'center',
+                      padding: '40px 20px',
+                      color: isDarkMode ? 'rgba(226, 232, 240, 0.4)' : 'rgba(15, 23, 42, 0.4)',
+                      fontSize: '13px',
+                    }}>
+                      No hidden items
+                    </div>
+                  );
+                }
+
+                // Group by type
+                const groupedByType = new Map<CommunicationType, TimelineItem[]>();
+                for (const item of hiddenItems) {
+                  const list = groupedByType.get(item.type) || [];
+                  list.push(item);
+                  groupedByType.set(item.type, list);
+                }
+
+                const typeOrder: CommunicationType[] = ['email', 'call', 'pitch', 'document', 'instruction', 'note'];
+                const sortedTypes = Array.from(groupedByType.keys()).sort(
+                  (a, b) => typeOrder.indexOf(a) - typeOrder.indexOf(b)
+                );
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    {sortedTypes.map((type) => {
+                      const items = groupedByType.get(type) || [];
+                      const typeColor = getTypeColor(type);
+                      const typeLabel = getTypeLabel(type);
+
+                      return (
+                        <div key={type}>
+                          {/* Type header */}
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            marginBottom: '10px',
+                            paddingBottom: '6px',
+                            borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.15)'}`,
+                          }}>
+                            <span style={{ color: typeColor, display: 'flex', alignItems: 'center' }}>
+                              {getTypeIcon(type)}
+                            </span>
+                            <span style={{
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.5px',
+                              color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.55)',
+                            }}>
+                              {typeLabel}s
+                            </span>
+                            <span style={{
+                              fontSize: '10px',
+                              fontWeight: 600,
+                              padding: '1px 6px',
+                              borderRadius: '8px',
+                              background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
+                              color: isDarkMode ? 'rgba(226, 232, 240, 0.5)' : 'rgba(15, 23, 42, 0.45)',
+                            }}>
+                              {items.length}
+                            </span>
+                          </div>
+
+                          {/* Items */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            {items
+                              .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                              .map((item) => {
+                                const itemDate = (() => {
+                                  try {
+                                    const d = parseISO(item.date);
+                                    return Number.isFinite(d.getTime()) ? d : new Date();
+                                  } catch {
+                                    return new Date();
+                                  }
+                                })();
+
+                                return (
+                                  <div
+                                    key={item.id}
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '10px',
+                                      padding: '8px 10px',
+                                      borderRadius: '4px',
+                                      background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(148, 163, 184, 0.03)',
+                                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.1)'}`,
+                                      transition: 'all 0.15s ease',
+                                    }}
+                                    onMouseEnter={(e) => {
+                                      e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(148, 163, 184, 0.03)';
+                                    }}
+                                  >
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                      <div style={{
+                                        fontSize: '12px',
+                                        fontWeight: 600,
+                                        color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.8)',
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        whiteSpace: 'nowrap',
+                                      }}>
+                                        {item.type === 'pitch' && item.metadata?.scenarioId
+                                          ? getScenarioName(item.metadata.scenarioId)
+                                          : item.subject}
+                                      </div>
+                                      <div style={{
+                                        fontSize: '10px',
+                                        color: isDarkMode ? 'rgba(226, 232, 240, 0.45)' : 'rgba(15, 23, 42, 0.45)',
+                                        marginTop: '2px',
+                                      }}>
+                                        {format(itemDate, 'd MMM yyyy')}
+                                        {item.createdBy && ` • ${item.createdBy}`}
+                                      </div>
+                                    </div>
+                                    <button
+                                      onClick={() => toggleHideItem(item.id)}
+                                      title="Restore this item"
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        width: '26px',
+                                        height: '26px',
+                                        padding: 0,
+                                        background: isDarkMode ? 'rgba(34, 197, 94, 0.1)' : 'rgba(34, 197, 94, 0.08)',
+                                        border: `1px solid ${isDarkMode ? 'rgba(34, 197, 94, 0.25)' : 'rgba(34, 197, 94, 0.2)'}`,
+                                        borderRadius: '4px',
+                                        cursor: 'pointer',
+                                        color: isDarkMode ? 'rgb(134, 239, 172)' : 'rgb(22, 163, 74)',
+                                        transition: 'all 0.15s ease',
+                                        flexShrink: 0,
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        e.currentTarget.style.background = isDarkMode ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.15)';
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        e.currentTarget.style.background = isDarkMode ? 'rgba(34, 197, 94, 0.1)' : 'rgba(34, 197, 94, 0.08)';
+                                      }}
+                                    >
+                                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                        <circle cx="12" cy="12" r="3" />
+                                      </svg>
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
 
       {/* Toast Notifications */}
       <OperationStatusToast

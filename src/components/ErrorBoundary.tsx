@@ -103,10 +103,10 @@ class ErrorBoundary extends Component<Props, State> {
             }}
           >
             <h1 style={{ color: '#d13438', marginBottom: '16px' }}>
-              Something went wrong
+              We hit a problem
             </h1>
             <p style={{ color: '#666', marginBottom: '16px', lineHeight: '1.5' }}>
-              The application encountered an unexpected error. Please try reloading the page.
+              This page ran into an unexpected error. Reload to try again.
             </p>
             {this.state.errorCode && (
               <div
@@ -190,7 +190,7 @@ class ErrorBoundary extends Component<Props, State> {
                 onMouseOver={(e) => (e.currentTarget.style.backgroundColor = '#106ebe')}
                 onMouseOut={(e) => (e.currentTarget.style.backgroundColor = '#0078d4')}
               >
-                Reload Page
+                Reload
               </button>
               <button
                 onClick={this.handleReset}
