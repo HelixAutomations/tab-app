@@ -418,11 +418,9 @@ const ExpertRecommendationFormContent: React.FC<ExpertRecommendationFormProps> =
   );
 };
 
-// Wrap with passcode guard
+// Passcode guard removed - direct access enabled
 const ExpertRecommendationForm: React.FC<ExpertRecommendationFormProps> = (props) => (
-  <PasscodeGuard title="Expert Recommendation" onBack={props.onBack}>
-    <ExpertRecommendationFormContent {...props} />
-  </PasscodeGuard>
+  <ExpertRecommendationFormContent {...props} />
 );
 
 export default ExpertRecommendationForm;

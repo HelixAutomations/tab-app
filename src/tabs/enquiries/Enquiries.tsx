@@ -199,6 +199,7 @@ interface EnquiriesProps {
   onOptimisticClaim?: (enquiryId: string, claimerEmail: string) => void;
   instructionData?: any[]; // For detecting promoted enquiries
   featureToggles?: Record<string, boolean>;
+  isActive?: boolean; // Whether this tab is currently active
 }
 
 // Add keyframes for loading spinner
@@ -227,6 +228,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   onOptimisticClaim,
   instructionData,
   featureToggles = {},
+  isActive = false,
 }) => {
 
   // Function to check if an enquiry has been promoted to pitch/instruction
@@ -2002,6 +2004,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   // Handle deep link navigation from Home page To Do actions
   useEffect(() => {
+    // Only process navigation when tab is active
+    if (!isActive) return;
+    
     const navEnquiryId = localStorage.getItem('navigateToEnquiryId');
     if (navEnquiryId) {
       localStorage.removeItem('navigateToEnquiryId');
@@ -2010,15 +2015,20 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       
       const found = displayEnquiries.find(e => String(e.ID) === navEnquiryId);
       if (found) {
-        handleSelectEnquiry(found);
-        // If we need to scroll to a specific timeline item, store it for the timeline component
+        // Select the enquiry
+        setSelectedEnquiry(found);
+        // If we need to navigate to a timeline item, go to Timeline sub-tab
         if (navTimelineItem) {
-          // Store for EnquiryTimeline to pick up
+          setActiveSubTab('Timeline');
+          // Store for EnquiryTimeline to pick up and scroll to specific item
           sessionStorage.setItem('scrollToTimelineItem', navTimelineItem);
+        } else {
+          // Default behavior: go to Pitch sub-tab
+          setActiveSubTab('Pitch');
         }
       }
     }
-  }, [displayEnquiries, handleSelectEnquiry]);
+  }, [isActive, displayEnquiries]);
 
   const ensureDemoEnquiryPresent = useCallback(() => {
     const currentUserEmail = userData && userData[0] && userData[0].Email

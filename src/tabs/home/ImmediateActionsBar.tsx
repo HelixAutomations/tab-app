@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { ImmediateActionChip, ImmediateActionCategory } from './ImmediateActionChip';
 
@@ -39,9 +39,18 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
   const { isDarkMode: contextDarkMode } = useTheme();
   const isDark = contextDarkMode ?? propDarkMode ?? false;
   const [showSuccess, setShowSuccess] = useState(false);
+  
+  // Urgency tooltip state - shows once per session for rate change notices
+  const [showUrgencyTooltip, setShowUrgencyTooltip] = useState(false);
+  const [tooltipDismissed, setTooltipDismissed] = useState(false);
+  const rateChangeChipRef = useRef<HTMLDivElement>(null);
 
   const loading = !immediateActionsReady;
   const actions = immediateActionsList;
+  
+  // Check if there's a rate change action
+  const rateChangeAction = actions.find(a => a.title.toLowerCase().includes('rate change'));
+  const rateChangeIndex = actions.findIndex(a => a.title.toLowerCase().includes('rate change'));
 
   // Show success briefly when loading completes with no actions
   useEffect(() => {
@@ -51,6 +60,34 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
       return () => clearTimeout(timer);
     }
   }, [immediateActionsReady, actions.length]);
+  
+  // Show urgency tooltip for rate change action - once per session, auto-dismiss after 8 seconds
+  useEffect(() => {
+    if (immediateActionsReady && rateChangeAction && !tooltipDismissed) {
+      // Check if already shown this session
+      const alreadyShown = sessionStorage.getItem('rateChangeUrgencyShown');
+      if (!alreadyShown) {
+        // Delay showing slightly so chips render first
+        const showTimer = setTimeout(() => {
+          setShowUrgencyTooltip(true);
+          sessionStorage.setItem('rateChangeUrgencyShown', 'true');
+        }, 600);
+        
+        return () => clearTimeout(showTimer);
+      }
+    }
+  }, [immediateActionsReady, rateChangeAction, tooltipDismissed]);
+  
+  // Auto-dismiss tooltip after 8 seconds
+  useEffect(() => {
+    if (showUrgencyTooltip) {
+      const dismissTimer = setTimeout(() => {
+        setShowUrgencyTooltip(false);
+        setTooltipDismissed(true);
+      }, 8000);
+      return () => clearTimeout(dismissTimer);
+    }
+  }, [showUrgencyTooltip]);
 
   // Colors
   const headerText = isDark ? '#94a3b8' : '#64748b';
@@ -83,20 +120,37 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
         gap: 6,
         borderTop: `1px solid ${border}`,
         paddingTop: 8,
+        position: 'relative',
       }}>
         {actions.map((action, idx) => (
-          <ImmediateActionChip
-            key={`${action.title}-${idx}`}
-            title={action.title}
-            icon={action.icon}
-            category={action.category}
-            count={action.count}
-            totalCount={action.totalCount}
-            subtitle={action.subtitle}
-            onClick={action.onClick}
-            disabled={action.disabled}
-            isDarkMode={isDark}
-          />
+          <div 
+            key={`${action.title}-${idx}`} 
+            ref={idx === rateChangeIndex ? rateChangeChipRef : undefined}
+            style={{ position: 'relative' }}
+          >
+            <ImmediateActionChip
+              title={action.title}
+              icon={action.icon}
+              category={action.category}
+              count={action.count}
+              totalCount={action.totalCount}
+              subtitle={action.subtitle}
+              onClick={action.onClick}
+              disabled={action.disabled}
+              isDarkMode={isDark}
+            />
+            {/* Urgency tooltip - appears attached to rate change chip */}
+            {idx === rateChangeIndex && showUrgencyTooltip && (
+              <UrgencyTooltip 
+                isDark={isDark} 
+                onDismiss={() => {
+                  setShowUrgencyTooltip(false);
+                  setTooltipDismissed(true);
+                }}
+                onClick={action.onClick}
+              />
+            )}
+          </div>
         ))}
       </div>
     </Section>
@@ -191,9 +245,118 @@ const SuccessCheck: React.FC = () => (
   </svg>
 );
 
-// CSS animation for spinner
+// Urgency tooltip that animates out from the rate change chip
+const UrgencyTooltip: React.FC<{ isDark: boolean; onDismiss: () => void; onClick: () => void }> = ({ isDark, onDismiss, onClick }) => (
+  <div 
+    className="urgency-tooltip"
+    style={{
+      position: 'absolute',
+      top: 'calc(100% + 8px)',
+      left: 0,
+      zIndex: 1000,
+      minWidth: 260,
+      maxWidth: 320,
+      padding: '10px 12px',
+      background: isDark 
+        ? 'linear-gradient(135deg, rgba(30, 30, 35, 0.98) 0%, rgba(40, 35, 35, 0.98) 100%)'
+        : 'linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 252, 250, 0.98) 100%)',
+      border: `1px solid ${isDark ? 'rgba(239, 68, 68, 0.3)' : 'rgba(239, 68, 68, 0.25)'}`,
+      borderRadius: 6,
+      boxShadow: isDark 
+        ? '0 8px 24px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(239, 68, 68, 0.15)'
+        : '0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(239, 68, 68, 0.1)',
+      animation: 'urgencyTooltipIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards',
+    }}
+  >
+    {/* Arrow pointing up */}
+    <div style={{
+      position: 'absolute',
+      top: -6,
+      left: 16,
+      width: 12,
+      height: 12,
+      background: isDark ? 'rgba(30, 30, 35, 0.98)' : 'rgba(255, 255, 255, 0.98)',
+      border: `1px solid ${isDark ? 'rgba(239, 68, 68, 0.3)' : 'rgba(239, 68, 68, 0.25)'}`,
+      borderRight: 'none',
+      borderBottom: 'none',
+      transform: 'rotate(45deg)',
+    }} />
+    
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+      {/* Alert icon - professional, not playful */}
+      <svg 
+        width="16" 
+        height="16" 
+        viewBox="0 0 24 24" 
+        fill="none" 
+        stroke="#ef4444" 
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        style={{ flexShrink: 0, marginTop: 1 }}
+      >
+        <circle cx="12" cy="12" r="10" />
+        <line x1="12" y1="8" x2="12" y2="12" />
+        <line x1="12" y1="16" x2="12.01" y2="16" />
+      </svg>
+      
+      <div style={{ flex: 1 }}>
+        <div style={{ 
+          fontSize: 12, 
+          fontWeight: 600, 
+          color: '#ef4444',
+          marginBottom: 4,
+        }}>
+          Year-End Deadline
+        </div>
+        <div style={{ 
+          fontSize: 11, 
+          color: isDark ? 'rgba(255,255,255,0.75)' : 'rgba(0,0,0,0.7)',
+          lineHeight: 1.4,
+        }}>
+          Please action outstanding rate change notices before 1st January.
+        </div>
+      </div>
+      
+      {/* Dismiss button */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onDismiss();
+        }}
+        style={{
+          background: 'transparent',
+          border: 'none',
+          padding: 2,
+          cursor: 'pointer',
+          color: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.3)',
+          fontSize: 12,
+          lineHeight: 1,
+          flexShrink: 0,
+        }}
+        title="Dismiss"
+      >
+        ✕
+      </button>
+    </div>
+  </div>
+);
+
+// CSS animation for spinner and urgency tooltip
 const style = document.createElement('style');
-style.textContent = `@keyframes spin { to { transform: rotate(360deg); } }`;
+style.textContent = `
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes urgencyTooltipIn {
+  0% { 
+    opacity: 0; 
+    transform: translateY(-8px) scale(0.95);
+  }
+  100% { 
+    opacity: 1; 
+    transform: translateY(0) scale(1);
+  }
+}
+`;
 if (!document.head.querySelector('style[data-immediate-actions]')) {
   style.setAttribute('data-immediate-actions', '');
   document.head.appendChild(style);

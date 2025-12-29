@@ -250,11 +250,9 @@ const TechIdeaFormContent: React.FC<TechIdeaFormProps> = ({
   );
 };
 
-// Wrap with passcode guard
+// Passcode guard removed - direct access enabled
 const TechIdeaForm: React.FC<TechIdeaFormProps> = (props) => (
-  <PasscodeGuard title="Tech Development Idea" onBack={props.onBack}>
-    <TechIdeaFormContent {...props} />
-  </PasscodeGuard>
+  <TechIdeaFormContent {...props} />
 );
 
 export default TechIdeaForm;

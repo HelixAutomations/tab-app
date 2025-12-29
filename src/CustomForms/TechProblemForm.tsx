@@ -262,11 +262,9 @@ const TechProblemFormContent: React.FC<TechProblemFormProps> = ({
   );
 };
 
-// Wrap with passcode guard
+// Passcode guard removed - direct access enabled
 const TechProblemForm: React.FC<TechProblemFormProps> = (props) => (
-  <PasscodeGuard title="Report Technical Problem" onBack={props.onBack}>
-    <TechProblemFormContent {...props} />
-  </PasscodeGuard>
+  <TechProblemFormContent {...props} />
 );
 
 export default TechProblemForm;

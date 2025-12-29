@@ -799,7 +799,10 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
 
     return data
       .filter(
-        (member) => member.status === 'active' || member.status === undefined
+        (member) => {
+          const status = String(member.status ?? '').trim().toLowerCase();
+          return !status || status === 'active';
+        }
       )
       .map((member: TeamData) => ({
         First: member.First ?? '',
@@ -4032,6 +4035,7 @@ const conversionRate = enquiriesMonthToDate
         onUndoStreaming={undoRateChangeStreaming}
         currentUserName={currentUserName}
         userData={userData?.[0] || null}
+        teamData={teamData}
         isDarkMode={isDarkMode}
       />
 

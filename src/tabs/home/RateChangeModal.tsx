@@ -1,7 +1,7 @@
 // RateChangeModal.tsx
 // Clean ledger-style rate change notification tracker
 
-import React, { useState, useCallback, useMemo, useEffect, useTransition } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useTransition, useRef } from 'react';
 import {
     Modal,
     IconButton,
@@ -61,12 +61,38 @@ const buttonStyles = `
 .rc-row:hover {
     background: rgba(255,255,255,0.02) !important;
 }
+.rc-urgency-banner {
+    animation: urgencyFadeIn 0.6s ease-out forwards, urgencyPulse 4s ease-in-out 2s infinite;
+}
+@keyframes urgencyFadeIn {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+@keyframes urgencyPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.85; }
+}
+.rc-urgency-icon {
+    animation: urgencyIconPulse 2s ease-in-out infinite;
+}
+@keyframes urgencyIconPulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+}
+.rc-urgency-dismiss {
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+.rc-urgency-banner:hover .rc-urgency-dismiss {
+    opacity: 1;
+}
 `;
 
 export interface RateChangeMatter {
     matter_id: string;
     display_number: string;
     responsible_solicitor: string;
+    originating_solicitor?: string;
     practice_area?: string;
     status?: string;
     open_date?: string;
@@ -82,13 +108,27 @@ export interface RateChangeClient {
     open_matters: RateChangeMatter[];
     closed_matters: RateChangeMatter[];
     responsible_solicitors: string[];
+    originating_solicitors?: string[];
     status: 'pending' | 'sent' | 'not_applicable';
     sent_date?: string;
     sent_by?: string;
+    escalated_at?: string | null;
+    escalated_by?: string | null;
     na_reason?: string;
     na_notes?: string;
     // Persisted server-side signal that at least one open matter has a CCL date set.
     ccl_confirmed?: boolean;
+}
+
+/** Minimal team member info for inactive detection */
+interface TeamMemberInfo {
+    "Full Name"?: string;
+    First?: string;
+    Last?: string;
+    Nickname?: string;
+    Email?: string;
+    Initials?: string;
+    status?: string;
 }
 
 interface RateChangeModalProps {
@@ -99,6 +139,7 @@ interface RateChangeModalProps {
     stats: { total: number; pending: number; sent: number; not_applicable: number };
     currentUserName: string;
     userData?: UserData | null;
+    teamData?: TeamMemberInfo[] | null;
     onMarkSent: (clientId: string, clientData: Partial<RateChangeClient>, sentDate?: string) => Promise<void>;
     onMarkNA: (clientId: string, reason: string, notes: string, clientData: Partial<RateChangeClient>) => Promise<void>;
     onMarkSentStreaming: (clientId: string, clientData: Partial<RateChangeClient>, onUpdate: MatterUpdateCallback, sentDate?: string) => Promise<void>;
@@ -130,11 +171,12 @@ const NA_REASONS = [
 ];
 
 const RateChangeModal: React.FC<RateChangeModalProps> = ({
-    isOpen, onClose, year, clients, stats, currentUserName, userData,
+    isOpen, onClose, year, clients, stats, currentUserName, userData, teamData,
     onMarkSent, onMarkNA, onMarkSentStreaming, onMarkNAStreaming, onUndo, onUndoStreaming, onRefresh, isLoading, isDarkMode,
 }) => {
     const isAdmin = isAdminUser(userData);
-    const [viewMode, setViewMode] = useState<'mine' | 'all'>('mine');
+    const [viewMode, setViewMode] = useState<'mine' | 'all' | 'inactive'>('mine');
+    const [roleFilter, setRoleFilter] = useState<'responsible' | 'originating' | 'both'>('both');
     const [filter, setFilter] = useState<'pending' | 'sent' | 'not_applicable' | 'migrate'>('pending');
     const [inputTerm, setInputTerm] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
@@ -152,9 +194,32 @@ const RateChangeModal: React.FC<RateChangeModalProps> = ({
     const [showTemplate, setShowTemplate] = useState<boolean>(false);
     const [showCopyConfirm, setShowCopyConfirm] = useState<boolean>(false);
     const [openDateFilter, setOpenDateFilter] = useState<string>('all');
+    const [responsibleFilter, setResponsibleFilter] = useState<string>('all');
+    const [originatingFilter, setOriginatingFilter] = useState<string>('all');
     const [sortField, setSortField] = useState<'opened' | 'client' | 'solicitor'>('opened');
     const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
     const [, startTransition] = useTransition();
+
+    // Clio verification state - tracks which matters have been verified and any mismatches found
+    const [clioVerificationCache, setClioVerificationCache] = useState<Record<string, {
+        verified: boolean;
+        loading: boolean;
+        mismatch: boolean;
+        syncing?: boolean;
+        synced?: boolean;
+        syncError?: string;
+        clioResponsible?: string;
+        clioOriginating?: string;
+        sqlResponsible?: string;
+        sqlOriginating?: string;
+    }>>({});
+    const [verifyingMatters, setVerifyingMatters] = useState<Set<string>>(new Set());
+    const [syncingMatters, setSyncingMatters] = useState<Set<string>>(new Set());
+
+    // Escalation selection + UI marker (front-end only)
+    const [selectedClientIds, setSelectedClientIds] = useState<Set<string>>(new Set());
+    const [localEscalatedAtByClientId, setLocalEscalatedAtByClientId] = useState<Map<string, string>>(new Map());
+    const [isEscalating, setIsEscalating] = useState<boolean>(false);
 
     const toggleSort = useCallback((field: 'opened' | 'client' | 'solicitor') => {
         if (field === sortField) {
@@ -176,6 +241,9 @@ const RateChangeModal: React.FC<RateChangeModalProps> = ({
     // Tracks clients whose CCL Date action has succeeded this session (so dots stay lit immediately).
     const [cclConfirmedClientIds, setCclConfirmedClientIds] = useState<Set<string>>(new Set());
     
+    // Urgency banner state - dismissed per session
+    const [showUrgencyBanner, setShowUrgencyBanner] = useState<boolean>(true);
+    
     // Migrate tab state
     const [migrateUnlocked, setMigrateUnlocked] = useState<boolean>(isAdmin);
     const [showPasscodeModal, setShowPasscodeModal] = useState<boolean>(false);
@@ -196,7 +264,9 @@ const RateChangeModal: React.FC<RateChangeModalProps> = ({
     const [migrateStep, setMigrateStep] = useState<'form' | 'lookup' | 'db' | 'done'>('form');
     const [migrateError, setMigrateError] = useState<string>('');
 
-    // Ensure admins can open migrate by default
+    // Ref to track row visibility for lazy-loading Clio verification
+    const rowRefs = useRef<Map<string, HTMLTableRowElement>>(new Map());
+    const observerRef = useRef<IntersectionObserver | null>(null);
     useEffect(() => {
         setMigrateUnlocked(isAdmin);
         if (!isAdmin) {
@@ -216,6 +286,39 @@ const RateChangeModal: React.FC<RateChangeModalProps> = ({
             userRole: roleRaw ? String(roleRaw).trim() : null,
         };
     }, [userData]);
+
+    const normalizePersonName = useCallback((value: string): string => {
+        return String(value || '')
+            .toLowerCase()
+            .trim()
+            .normalize('NFKD')
+            // normalize straight/curly apostrophes and remove punctuation/whitespace
+            .replace(/[’']/g, '')
+            .replace(/[^a-z0-9]/g, '');
+    }, []);
+
+    const signatureInitials = useMemo(() => {
+        const u: any = Array.isArray(userData) ? (userData?.[0] ?? null) : userData;
+        const fromUserData = String(u?.Initials || u?.initials || '').trim().toUpperCase();
+        if (fromUserData) return fromUserData;
+
+        // Fallback: attempt to resolve from team data by current user name
+        const me = String(currentUserName || '').trim();
+        if (!me || !teamData) return '';
+
+        const meNorm = normalizePersonName(me);
+        for (const member of teamData) {
+            const full = normalizePersonName(String((member as any)["Full Name"] || ''));
+            const first = normalizePersonName(String((member as any).First || ''));
+            const last = normalizePersonName(String((member as any).Last || ''));
+            const combined = first && last ? `${first}${last}` : '';
+            if (meNorm && (meNorm === full || meNorm === combined || (full && full.includes(meNorm)))) {
+                const initials = String((member as any).Initials || '').trim().toUpperCase();
+                if (initials) return initials;
+            }
+        }
+        return '';
+    }, [userData, currentUserName, teamData, normalizePersonName]);
 
     // Standard rate increase amount (£25 for 2026)
     const RATE_INCREASE = 25;
@@ -253,19 +356,295 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
         setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 2500);
     }, []);
 
+    // Clear selections when leaving pending view
+    useEffect(() => {
+        if (filter !== 'pending') {
+            setSelectedClientIds(new Set());
+        }
+    }, [filter]);
+
+    // Helper to match user name against solicitor name
+    const matchesSolicitor = useCallback((solicitorName: string) => {
+        if (!currentUserName) return false;
+        const nameParts = currentUserName.toLowerCase().split(/\s+/);
+        const lastName = nameParts[nameParts.length - 1];
+        const solicitor = solicitorName.toLowerCase();
+        // Match by last name (handles Sam vs Samuel Packwood)
+        if (lastName && solicitor.includes(lastName)) return true;
+        // Also match if all parts are included (for exact matches)
+        return nameParts.every(part => solicitor.includes(part));
+    }, [currentUserName]);
+
+    // Build set of active team member names for inactive detection
+    // Must be defined before myClients which depends on it
+    const activeTeamNames = useMemo(() => {
+        const names = new Set<string>();
+        if (!teamData) return names;
+        
+        teamData.forEach(member => {
+            const status = String(member.status ?? '').trim().toLowerCase();
+            if (!status || status === 'active') {
+                // Add various name forms for matching
+                const fullName = normalizePersonName(member["Full Name"] || '');
+                const firstName = normalizePersonName(member.First || '');
+                const lastName = normalizePersonName(member.Last || '');
+                const nickname = normalizePersonName(member.Nickname || '');
+                
+                if (fullName) names.add(fullName);
+                if (firstName && lastName) names.add(`${firstName}${lastName}`);
+                if (nickname && lastName) names.add(`${nickname}${lastName}`);
+            }
+        });
+        return names;
+    }, [teamData]);
+
+    // Helper to check if a solicitor name matches an active team member
+    // Must be defined before myClients which depends on it
+    const isActiveSolicitor = useCallback((solicitorName: string) => {
+        if (!teamData || activeTeamNames.size === 0) return true; // Assume active if no team data
+        const normalized = normalizePersonName(solicitorName);
+        
+        // Direct match
+        if (activeTeamNames.has(normalized)) return true;
+        
+        // Partial match - check if any active name contains all parts of solicitor name
+        const parts = normalized.split(/\s+/);
+        for (const activeName of activeTeamNames) {
+            if (parts.every(part => activeName.includes(part))) return true;
+        }
+        
+        return false;
+    }, [teamData, activeTeamNames, normalizePersonName]);
+
+    const getTeamEmailForName = useCallback((name: string): string | null => {
+        const raw = String(name || '').trim();
+        if (!raw || !teamData) return null;
+
+        const normalizedNeedle = normalizePersonName(raw);
+        if (!normalizedNeedle) return null;
+
+        const candidates: Array<{ email: string; score: number }> = [];
+
+        for (const member of teamData) {
+            const email = String((member as any).Email || '').trim();
+            if (!email) continue;
+
+            const fullName = normalizePersonName(String((member as any)["Full Name"] || ''));
+            const first = normalizePersonName(String((member as any).First || ''));
+            const last = normalizePersonName(String((member as any).Last || ''));
+            const nick = normalizePersonName(String((member as any).Nickname || ''));
+
+            const nameForms = [
+                fullName,
+                (first && last) ? `${first}${last}` : '',
+                (nick && last) ? `${nick}${last}` : '',
+            ].filter(Boolean);
+
+            const matches = nameForms.some(form => form && (form === normalizedNeedle || form.includes(normalizedNeedle) || normalizedNeedle.includes(form)));
+            if (!matches) continue;
+
+            // Prefer exact full name matches, then more parts matched
+            const score = (nameForms.includes(normalizedNeedle) ? 10 : 0) + normalizedNeedle.length;
+            candidates.push({ email, score });
+        }
+
+        if (candidates.length === 0) return null;
+        candidates.sort((a, b) => b.score - a.score);
+        return candidates[0].email;
+    }, [teamData]);
+
+        const buildGroupedEscalationEmailHtml = useCallback((recipientName: string, items: RateChangeClient[]) => {
+            const firstName = String(recipientName || '').trim().split(/\s+/).filter(Boolean)[0] || '';
+                const rowsHtml = items.map((client) => {
+                        const matters = client.open_matters || [];
+                        const mattersHtml = matters.length
+                                ? `<ul style="margin: 6px 0 0 18px; padding: 0;">${matters.map(m => `<li><strong>${m.display_number}</strong>${m.practice_area ? ` — ${m.practice_area}` : ''}</li>`).join('')}</ul>`
+                                : '<div style="margin-top: 6px;">No open matters listed.</div>';
+
+                        const resp = Array.from(new Set((client.responsible_solicitors || []).filter(Boolean))).join(', ') || '—';
+                        const orig = Array.from(new Set((client.originating_solicitors || []).filter(Boolean))).join(', ') || '—';
+
+                        return `
+<div style="padding: 10px; border: 1px solid #E5E7EB; background: #F9FAFB; margin-top: 10px;">
+    <div><strong>Client:</strong> ${client.client_name}</div>
+    <div style="margin-top: 6px;"><strong>Open matters:</strong>${mattersHtml}</div>
+    <div style="margin-top: 10px;"><strong>Responsible:</strong> ${resp}</div>
+    <div style="margin-top: 4px;"><strong>Originating:</strong> ${orig}</div>
+</div>`;
+                }).join('');
+
+                return `
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px; color: #111;">
+    <p><strong>Rate change notice escalation</strong></p>
+    <p>Hi ${firstName || 'there'},</p>
+    <p>Please action the outstanding rate change notice(s) for the following client${items.length === 1 ? '' : 's'}:</p>
+    ${rowsHtml}
+    <p style="margin-top: 14px;">Action required:</p>
+    <ol style="margin: 8px 0 0 18px; padding: 0;">
+        <li>Send the client the rate change notice (template available in Helix Hub → Home → Rate Change Notices).</li>
+        <li>Then mark the client as <strong>Sent</strong> (or <strong>N/A</strong> with a reason) in the Rate Change Notices tracker.</li>
+    </ol>
+</div>`;
+        }, []);
+
+    const handleEscalateSelected = useCallback(async () => {
+        if (filter !== 'pending') return;
+        const ids = Array.from(selectedClientIds);
+        if (ids.length === 0) return;
+
+        setIsEscalating(true);
+        let successCount = 0;
+        let failCount = 0;
+
+        try {
+            // Build per-recipient grouping (responsible only; if no active responsible, originating)
+            const groups = new Map<string, { recipientName: string; recipientEmail: string; clients: RateChangeClient[] }>();
+
+            for (const clientId of ids) {
+                const client = clients.find(c => c.client_id === clientId);
+                if (!client) continue;
+
+                const responsibleNames = Array.from(new Set((client.responsible_solicitors || []).filter(Boolean)));
+                const originatingNames = Array.from(new Set((client.originating_solicitors || []).filter(Boolean)));
+
+                const activeResponsible = responsibleNames.filter(n => isActiveSolicitor(n));
+
+                // Choose a single action owner to avoid duplicate/noisy sends
+                const chosenName = (activeResponsible[0] || originatingNames[0] || '').trim();
+                const chosenEmail = chosenName ? getTeamEmailForName(chosenName) : null;
+
+                if (!chosenName || !chosenEmail) {
+                    failCount++;
+                    continue;
+                }
+
+                const key = chosenEmail.toLowerCase();
+                const existing = groups.get(key);
+                if (existing) {
+                    existing.clients.push(client);
+                } else {
+                    groups.set(key, { recipientName: chosenName, recipientEmail: chosenEmail, clients: [client] });
+                }
+            }
+
+            // Send one email per recipient
+            for (const group of groups.values()) {
+                const emailHtml = buildGroupedEscalationEmailHtml(group.recipientName, group.clients);
+                const subject = `Rate change notice escalation (${group.clients.length})`;
+
+                const response = await fetch('/api/sendEmail', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        to: group.recipientEmail,
+                        subject,
+                        from_email: 'automations@helix-law.com',
+                        body_html: emailHtml,
+                        use_personal_signature: true,
+                        signature_initials: signatureInitials,
+                    }),
+                });
+
+                if (!response.ok) {
+                    failCount += group.clients.length;
+                    continue;
+                }
+
+                // Persist escalation (date + who) for each client in the group
+                const nowIso = new Date().toISOString();
+                for (const client of group.clients) {
+                    try {
+                        const persistResponse = await fetch(`/api/rate-changes/${encodeURIComponent(String(year))}/mark-escalated`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                client_id: client.client_id,
+                                escalated_by: currentUserName || null,
+                            }),
+                        });
+
+                        if (persistResponse.ok) {
+                            const payload = await persistResponse.json().catch(() => null);
+                            const iso = payload && typeof payload.escalated_at === 'string' ? payload.escalated_at : nowIso;
+                            setLocalEscalatedAtByClientId(prev => {
+                                const next = new Map(prev);
+                                next.set(client.client_id, iso);
+                                return next;
+                            });
+                            successCount++;
+                        } else {
+                            setLocalEscalatedAtByClientId(prev => {
+                                const next = new Map(prev);
+                                next.set(client.client_id, nowIso);
+                                return next;
+                            });
+                            failCount++;
+                        }
+                    } catch {
+                        setLocalEscalatedAtByClientId(prev => {
+                            const next = new Map(prev);
+                            next.set(client.client_id, nowIso);
+                            return next;
+                        });
+                        failCount++;
+                    }
+                }
+            }
+
+            if (successCount > 0 && failCount === 0) {
+                showToast(`Escalated ${successCount} client${successCount === 1 ? '' : 's'}`);
+            } else if (successCount > 0 && failCount > 0) {
+                showToast(`Escalated ${successCount}, failed ${failCount}`, 'error');
+            } else {
+                showToast('No escalations sent (missing emails?)', 'error');
+            }
+        } catch (err) {
+            console.error('[RateChangeModal] Escalation error:', err);
+            showToast('Escalation failed', 'error');
+        } finally {
+            setIsEscalating(false);
+        }
+    }, [filter, selectedClientIds, clients, isActiveSolicitor, getTeamEmailForName, buildGroupedEscalationEmailHtml, showToast, year, currentUserName, signatureInitials]);
+
+    const getEscalatedAtIso = useCallback((client: RateChangeClient): string | null => {
+        const serverValue = client.escalated_at;
+        if (typeof serverValue === 'string' && serverValue) return serverValue;
+        const localValue = localEscalatedAtByClientId.get(client.client_id);
+        return localValue || null;
+    }, [localEscalatedAtByClientId]);
+
+    const formatShortDate = useCallback((iso: string | null): string => {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return '';
+        return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    }, []);
+
     const myClients = useMemo(() => {
         if (!currentUserName) return [];
-        const nameParts = currentUserName.toLowerCase().split(/\s+/);
-        // Match if solicitor name contains the last name (most reliable) or all name parts
-        const lastName = nameParts[nameParts.length - 1];
-        return clients.filter(c => c.responsible_solicitors.some(s => {
-            const solicitor = s.toLowerCase();
-            // Match by last name (handles Sam vs Samuel Packwood)
-            if (lastName && solicitor.includes(lastName)) return true;
-            // Also match if all parts are included (for exact matches)
-            return nameParts.every(part => solicitor.includes(part));
-        }));
-    }, [clients, currentUserName]);
+        
+        // Filter based on roleFilter setting
+        // Also include matters where responsible is inactive but user is originating (rescue scenario)
+        return clients.filter(c => {
+            const isResponsible = c.responsible_solicitors.some(matchesSolicitor);
+            const isOriginating = (c.originating_solicitors || []).some(matchesSolicitor);
+            
+            // Check if this is a "rescue" scenario - responsible is inactive, user is originating
+            const hasInactiveResponsible = teamData && activeTeamNames.size > 0 && 
+                c.responsible_solicitors.some(s => !isActiveSolicitor(s));
+            const shouldRescue = hasInactiveResponsible && isOriginating;
+            
+            switch (roleFilter) {
+                case 'responsible':
+                    return isResponsible;
+                case 'originating':
+                    return isOriginating || shouldRescue; // Include rescue matters
+                case 'both':
+                default:
+                    return isResponsible || isOriginating || shouldRescue;
+            }
+        });
+    }, [clients, currentUserName, roleFilter, matchesSolicitor, teamData, activeTeamNames, isActiveSolicitor]);
 
     // Set of client IDs that belong to current user (for checking if they can action)
     const myClientIds = useMemo(() => new Set(myClients.map(c => c.client_id)), [myClients]);
@@ -275,6 +654,24 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
         return isAdmin || myClientIds.has(clientId);
     }, [isAdmin, myClientIds]);
 
+    // Clients where at least one responsible OR originating solicitor is inactive
+    const inactiveClients = useMemo(() => {
+        if (!teamData || activeTeamNames.size === 0) return [];
+        
+        return clients.filter(c => {
+            const hasInactiveResponsible = c.responsible_solicitors.some(s => !isActiveSolicitor(s));
+            const hasInactiveOriginating = (c.originating_solicitors || []).some(s => !isActiveSolicitor(s));
+            return hasInactiveResponsible || hasInactiveOriginating;
+        });
+    }, [clients, teamData, activeTeamNames, isActiveSolicitor]);
+
+    const inactiveStats = useMemo(() => ({
+        total: inactiveClients.length,
+        pending: inactiveClients.filter(c => c.status === 'pending').length,
+        sent: inactiveClients.filter(c => c.status === 'sent').length,
+        not_applicable: inactiveClients.filter(c => c.status === 'not_applicable').length,
+    }), [inactiveClients]);
+
     const myStats = useMemo(() => ({
         total: myClients.length,
         pending: myClients.filter(c => c.status === 'pending').length,
@@ -282,8 +679,8 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
         not_applicable: myClients.filter(c => c.status === 'not_applicable').length,
     }), [myClients]);
 
-    const currentStats = viewMode === 'mine' ? myStats : stats;
-    const currentClients = viewMode === 'mine' ? myClients : clients;
+    const currentStats = viewMode === 'mine' ? myStats : viewMode === 'inactive' ? inactiveStats : stats;
+    const currentClients = viewMode === 'mine' ? myClients : viewMode === 'inactive' ? inactiveClients : clients;
 
     // Get unique years from open matters for filter dropdown
     const availableYears = useMemo(() => {
@@ -299,6 +696,28 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
         });
         return Array.from(years).sort((a, b) => b - a); // Most recent first
     }, [clients, currentClients, filter]);
+
+    // Get unique responsible solicitors for filter dropdown - from ALL clients so filters work across views
+    const availableResponsibleSolicitors = useMemo(() => {
+        const solicitors = new Set<string>();
+        clients.forEach(c => {
+            c.responsible_solicitors.forEach(s => {
+                if (s && s.trim()) solicitors.add(s.trim());
+            });
+        });
+        return Array.from(solicitors).sort((a, b) => a.localeCompare(b));
+    }, [clients]);
+
+    // Get unique originating solicitors for filter dropdown - from ALL clients
+    const availableOriginatingSolicitors = useMemo(() => {
+        const solicitors = new Set<string>();
+        clients.forEach(c => {
+            (c.originating_solicitors || []).forEach(s => {
+                if (s && s.trim()) solicitors.add(s.trim());
+            });
+        });
+        return Array.from(solicitors).sort((a, b) => a.localeCompare(b));
+    }, [clients]);
 
     const filteredClients = useMemo(() => {
         // Base list depends on the selected tab
@@ -318,6 +737,20 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                     const matterYear = new Date(m.open_date).getFullYear();
                     return matterYear === filterYear;
                 })
+            );
+        }
+
+        // Filter by responsible solicitor
+        if (responsibleFilter !== 'all') {
+            result = result.filter(c => 
+                c.responsible_solicitors.some(s => s === responsibleFilter)
+            );
+        }
+
+        // Filter by originating solicitor
+        if (originatingFilter !== 'all') {
+            result = result.filter(c => 
+                (c.originating_solicitors || []).some(s => s === originatingFilter)
             );
         }
         
@@ -357,7 +790,183 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
         });
         
         return result;
-    }, [clients, currentClients, filter, searchTerm, openDateFilter, sortField, sortDir]);
+    }, [clients, currentClients, filter, searchTerm, openDateFilter, responsibleFilter, originatingFilter, sortField, sortDir]);
+
+    // Verify matter against Clio to check for responsible/originating mismatches
+    const verifyMatterAgainstClio = useCallback(async (displayNumber: string, sqlResponsible?: string, sqlOriginating?: string) => {
+        // Skip if already verified or currently loading
+        if (clioVerificationCache[displayNumber]?.verified || verifyingMatters.has(displayNumber)) {
+            return;
+        }
+
+        setVerifyingMatters(prev => new Set(prev).add(displayNumber));
+        setClioVerificationCache(prev => ({
+            ...prev,
+            [displayNumber]: { verified: false, loading: true, mismatch: false }
+        }));
+
+        try {
+            const response = await fetch(`/api/rate-changes/verify-matter/${encodeURIComponent(displayNumber)}`);
+            if (!response.ok) {
+                throw new Error('Failed to verify matter');
+            }
+            
+            const data = await response.json();
+            const clioResponsible = data.responsible_attorney?.name || '';
+            const clioOriginating = data.originating_attorney?.name || '';
+            
+            // Check for mismatches (case-insensitive comparison)
+            const responsibleMismatch = sqlResponsible && clioResponsible && 
+                sqlResponsible.toLowerCase().trim() !== clioResponsible.toLowerCase().trim();
+            const originatingMismatch = sqlOriginating && clioOriginating &&
+                sqlOriginating.toLowerCase().trim() !== clioOriginating.toLowerCase().trim();
+            
+            setClioVerificationCache(prev => ({
+                ...prev,
+                [displayNumber]: {
+                    verified: true,
+                    loading: false,
+                    mismatch: responsibleMismatch || originatingMismatch,
+                    clioResponsible,
+                    clioOriginating,
+                    sqlResponsible,
+                    sqlOriginating,
+                }
+            }));
+        } catch (err) {
+            console.error(`[RateChange] Failed to verify ${displayNumber}:`, err);
+            setClioVerificationCache(prev => ({
+                ...prev,
+                [displayNumber]: { verified: true, loading: false, mismatch: false }
+            }));
+        } finally {
+            setVerifyingMatters(prev => {
+                const next = new Set(prev);
+                next.delete(displayNumber);
+                return next;
+            });
+        }
+    }, [clioVerificationCache, verifyingMatters]);
+
+    // Set up IntersectionObserver to lazy-load Clio verification when rows scroll into view
+    useEffect(() => {
+        // Cleanup existing observer
+        if (observerRef.current) {
+            observerRef.current.disconnect();
+        }
+
+        observerRef.current = new IntersectionObserver(
+            (entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        const displayNumber = entry.target.getAttribute('data-display-number');
+                        const sqlResponsible = entry.target.getAttribute('data-sql-responsible') || '';
+                        const sqlOriginating = entry.target.getAttribute('data-sql-originating') || '';
+                        
+                        if (displayNumber && !clioVerificationCache[displayNumber]?.verified && !verifyingMatters.has(displayNumber)) {
+                            verifyMatterAgainstClio(displayNumber, sqlResponsible, sqlOriginating);
+                        }
+                    }
+                });
+            },
+            { rootMargin: '100px', threshold: 0.1 }
+        );
+
+        // Observe all tracked rows
+        rowRefs.current.forEach((element) => {
+            observerRef.current?.observe(element);
+        });
+
+        return () => {
+            observerRef.current?.disconnect();
+        };
+    }, [verifyMatterAgainstClio, clioVerificationCache, verifyingMatters]);
+
+    // Sync a single matter from Clio to SQL
+    const syncMatterFromClio = useCallback(async (displayNumber: string, skipRefresh = false) => {
+        if (syncingMatters.has(displayNumber)) return;
+        
+        setSyncingMatters(prev => new Set(prev).add(displayNumber));
+        setClioVerificationCache(prev => ({
+            ...prev,
+            [displayNumber]: { ...prev[displayNumber], syncing: true, syncError: undefined }
+        }));
+        
+        try {
+            const response = await fetch(`/api/rate-changes/sync-matter/${encodeURIComponent(displayNumber)}`, {
+                method: 'POST',
+            });
+            
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({ error: 'Sync failed' }));
+                throw new Error(errData.error || `Sync failed: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            // Update cache to reflect synced state
+            setClioVerificationCache(prev => ({
+                ...prev,
+                [displayNumber]: {
+                    ...prev[displayNumber],
+                    syncing: false,
+                    synced: true,
+                    mismatch: false,
+                    sqlResponsible: data.updated.responsible_solicitor,
+                    sqlOriginating: data.updated.originating_solicitor,
+                }
+            }));
+            
+            // Show success toast
+            showToast(`Synced ${displayNumber}`, 'success');
+            
+            // Refresh clients data to update UI (unless bulk syncing)
+            if (!skipRefresh) {
+                await onRefresh();
+            }
+            
+        } catch (err) {
+            console.error(`[RateChange] Sync failed for ${displayNumber}:`, err);
+            setClioVerificationCache(prev => ({
+                ...prev,
+                [displayNumber]: { 
+                    ...prev[displayNumber], 
+                    syncing: false, 
+                    syncError: err instanceof Error ? err.message : 'Sync failed' 
+                }
+            }));
+            showToast(`Failed to sync ${displayNumber}`, 'error');
+        } finally {
+            setSyncingMatters(prev => {
+                const next = new Set(prev);
+                next.delete(displayNumber);
+                return next;
+            });
+        }
+    }, [syncingMatters, showToast, onRefresh]);
+
+    // Bulk sync all mismatched matters
+    const syncAllMismatches = useCallback(async () => {
+        const mismatchedMatters = Object.entries(clioVerificationCache)
+            .filter(([_, v]) => v.mismatch && !v.synced && !v.syncing)
+            .map(([dn]) => dn);
+        
+        if (mismatchedMatters.length === 0) {
+            showToast('No mismatches to sync', 'success');
+            return;
+        }
+        
+        showToast(`Syncing ${mismatchedMatters.length} matter(s)...`, 'success');
+        
+        // Skip individual refreshes during bulk sync
+        for (const dn of mismatchedMatters) {
+            await syncMatterFromClio(dn, true);
+        }
+        
+        // Single refresh at the end
+        await onRefresh();
+        showToast(`Sync complete`, 'success');
+    }, [clioVerificationCache, syncMatterFromClio, showToast, onRefresh]);
 
     const handleMarkSent = useCallback(async (client: RateChangeClient, e: React.MouseEvent) => {
         e.stopPropagation();
@@ -814,6 +1423,24 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
 
     const progressPercent = currentStats.total > 0 
         ? Math.round(((currentStats.sent + currentStats.not_applicable) / currentStats.total) * 100) : 0;
+    
+    // Count verification mismatches
+    const verificationStats = useMemo(() => {
+        let verified = 0;
+        let mismatches = 0;
+        let synced = 0;
+        let loading = 0;
+        Object.values(clioVerificationCache).forEach(v => {
+            if (v.loading) loading++;
+            else if (v.verified) {
+                verified++;
+                if (v.synced) synced++;
+                else if (v.mismatch) mismatches++;
+            }
+        });
+        return { verified, mismatches, synced, loading };
+    }, [clioVerificationCache]);
+    
     const confirmMatterCount = confirmAction === 'ccl-date'
         ? cclDateUpdates.length
         : (confirmClient?.open_matters.length ?? 0);
@@ -822,6 +1449,126 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
         : confirmMatterCount === 1
             ? 'this matter'
             : (confirmAction === 'ccl-date' ? `${confirmMatterCount} matters` : `all ${confirmMatterCount} matters`);
+
+    // Helper to render verification status indicator for a matter
+    const renderVerificationIndicator = useCallback((displayNumber: string, matter: RateChangeMatter) => {
+        const verification = clioVerificationCache[displayNumber];
+        
+        if (!verification) {
+            // Not yet verified - show placeholder that will trigger verification when visible
+            return (
+                <span
+                    ref={(el) => {
+                        if (el) {
+                            rowRefs.current.set(displayNumber, el as any);
+                            observerRef.current?.observe(el);
+                        }
+                    }}
+                    data-display-number={displayNumber}
+                    data-sql-responsible={matter.responsible_solicitor || ''}
+                    data-sql-originating={matter.originating_solicitor || ''}
+                    style={{ display: 'inline-block', width: 14, height: 14, marginLeft: 4, verticalAlign: 'middle' }}
+                    title="Click to verify against Clio"
+                />
+            );
+        }
+        
+        if (verification.loading) {
+            return (
+                <Spinner size={SpinnerSize.xSmall} style={{ marginLeft: 4 }} />
+            );
+        }
+        
+        // Syncing state
+        if (verification.syncing) {
+            return (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 4 }}>
+                    <Spinner size={SpinnerSize.xSmall} />
+                    <span style={{ fontSize: 9, color: isDarkMode ? '#9ca3af' : '#999' }}>Syncing...</span>
+                </span>
+            );
+        }
+        
+        // Successfully synced
+        if (verification.synced) {
+            return (
+                <Icon
+                    iconName="Sync"
+                    style={{
+                        marginLeft: 4,
+                        fontSize: 10,
+                        color: colours.green,
+                    }}
+                    title={`Synced! Resp="${verification.clioResponsible}", Orig="${verification.clioOriginating}"`}
+                />
+            );
+        }
+        
+        if (verification.mismatch) {
+            const tooltip = [
+                'Data mismatch detected! Click to sync from Clio.',
+                verification.sqlResponsible !== verification.clioResponsible 
+                    ? `Responsible: SQL="${verification.sqlResponsible}" → Clio="${verification.clioResponsible}"`
+                    : '',
+                verification.sqlOriginating !== verification.clioOriginating
+                    ? `Originating: SQL="${verification.sqlOriginating}" → Clio="${verification.clioOriginating}"`
+                    : '',
+            ].filter(Boolean).join('\n');
+            
+            return (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, marginLeft: 4 }}>
+                    <Icon
+                        iconName="Warning"
+                        style={{
+                            fontSize: 12,
+                            color: colours.cta,
+                            cursor: 'pointer',
+                        }}
+                        title={tooltip}
+                        onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            syncMatterFromClio(displayNumber);
+                        }}
+                    />
+                    <button
+                        onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            syncMatterFromClio(displayNumber);
+                        }}
+                        style={{
+                            background: 'transparent',
+                            border: 'none',
+                            padding: '0 2px',
+                            cursor: 'pointer',
+                            color: colours.highlight,
+                            fontSize: 9,
+                            fontWeight: 600,
+                            textDecoration: 'underline',
+                        }}
+                        title="Sync this matter from Clio"
+                    >
+                        Sync
+                    </button>
+                </span>
+            );
+        }
+        
+        // Verified and no mismatch - show subtle checkmark
+        return (
+            <Icon
+                iconName="CheckMark"
+                style={{
+                    marginLeft: 4,
+                    fontSize: 10,
+                    color: colours.green,
+                    opacity: 0.6,
+                }}
+                title="Verified: SQL matches Clio"
+            />
+        );
+    }, [clioVerificationCache, isDarkMode, syncMatterFromClio]);
 
     // Styles
     const borderColor = isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
@@ -865,6 +1612,28 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                             </div>
                         </div>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            {filter === 'pending' && (
+                                <button
+                                    className="rc-btn rc-btn-secondary"
+                                    onClick={handleEscalateSelected}
+                                    disabled={isEscalating || selectedClientIds.size === 0}
+                                    title={selectedClientIds.size === 0 ? 'Select one or more clients to escalate' : 'Send escalation email(s)'}
+                                    style={{
+                                        padding: '6px 12px', borderRadius: 0,
+                                        border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)'}`,
+                                        background: 'transparent',
+                                        color: textMuted,
+                                        fontSize: 11, fontWeight: 600,
+                                        cursor: isEscalating || selectedClientIds.size === 0 ? 'not-allowed' : 'pointer',
+                                        letterSpacing: '0.02em', textTransform: 'uppercase',
+                                        display: 'flex', alignItems: 'center', gap: 6,
+                                        opacity: isEscalating || selectedClientIds.size === 0 ? 0.5 : 1,
+                                    }}
+                                >
+                                    <Icon iconName="MailForward" style={{ fontSize: 12 }} />
+                                    {isEscalating ? 'Escalating...' : `Escalate (${selectedClientIds.size})`}
+                                </button>
+                            )}
                             <button
                                 className="rc-btn rc-btn-secondary"
                                 onClick={() => setShowTemplate(!showTemplate)}
@@ -914,6 +1683,51 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                             />
                         </div>
                     </div>
+
+                    {/* Urgency Banner - prompts action before year-end */}
+                    {showUrgencyBanner && filter === 'pending' && currentStats.pending > 0 && (
+                        <div
+                            className="rc-urgency-banner"
+                            style={{
+                                marginTop: 12,
+                                padding: '10px 14px',
+                                background: isDarkMode 
+                                    ? 'linear-gradient(90deg, rgba(239, 68, 68, 0.12) 0%, rgba(245, 158, 11, 0.08) 100%)'
+                                    : 'linear-gradient(90deg, rgba(239, 68, 68, 0.08) 0%, rgba(245, 158, 11, 0.05) 100%)',
+                                border: `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.2)' : 'rgba(239, 68, 68, 0.15)'}`,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: 12,
+                                position: 'relative',
+                            }}
+                        >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                <span className="rc-urgency-icon" style={{ fontSize: 14 }}>⏰</span>
+                                <span style={{ fontSize: 12, color: textPrimary }}>
+                                    <strong style={{ color: colours.cta }}>Year-end deadline:</strong>
+                                    {' '}Please action these rate change notices before 1st January
+                                </span>
+                            </div>
+                            <button
+                                className="rc-urgency-dismiss"
+                                onClick={() => setShowUrgencyBanner(false)}
+                                style={{
+                                    background: 'transparent',
+                                    border: 'none',
+                                    padding: '2px 6px',
+                                    cursor: 'pointer',
+                                    color: textMuted,
+                                    fontSize: 10,
+                                    fontWeight: 500,
+                                    letterSpacing: '0.02em',
+                                }}
+                                title="Dismiss"
+                            >
+                                ✕
+                            </button>
+                        </div>
+                    )}
 
                     {/* Template panel (collapsible) */}
                     {showTemplate && (
@@ -1087,6 +1901,56 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                         </div>
                     </Modal>
 
+                    {/* Inactive Users Warning Banner */}
+                    {viewMode === 'inactive' && inactiveStats.pending > 0 && filter === 'pending' && (
+                        <div style={{
+                            marginTop: 16,
+                            padding: '12px 16px',
+                            background: isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)',
+                            border: `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.3)' : 'rgba(239, 68, 68, 0.25)'}`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 16,
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                <Icon iconName="BlockContact" style={{ fontSize: 16, color: '#ef4444' }} />
+                                <span style={{ fontSize: 12, color: textPrimary }}>
+                                    <strong>{inactiveStats.pending}</strong> matters attributed to inactive team members
+                                </span>
+                            </div>
+                            <div style={{ fontSize: 11, color: textMuted }}>
+                                <span style={{ color: '#f59e0b' }}>Orange</span> = active originating solicitor can action
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Status Summary Bar - shows when viewing All and there are pending items */}
+                    {viewMode === 'all' && stats.pending > 0 && filter === 'pending' && (
+                        <div style={{
+                            marginTop: 16,
+                            padding: '12px 16px',
+                            background: isDarkMode ? 'rgba(245, 158, 11, 0.15)' : 'rgba(245, 158, 11, 0.1)',
+                            border: `1px solid ${isDarkMode ? 'rgba(245, 158, 11, 0.3)' : 'rgba(245, 158, 11, 0.25)'}`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 16,
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                <Icon iconName="Warning" style={{ fontSize: 16, color: '#f59e0b' }} />
+                                <span style={{ fontSize: 12, color: textPrimary }}>
+                                    <strong>{stats.pending}</strong> clients still need rate change notifications
+                                </span>
+                            </div>
+                            <div style={{ fontSize: 11, color: textMuted }}>
+                                <span style={{ color: colours.green }}>{stats.sent} sent</span>
+                                <span style={{ margin: '0 8px' }}>•</span>
+                                <span>{stats.not_applicable} N/A</span>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Controls row */}
                     <div style={{ display: 'flex', gap: 12, marginTop: 16, alignItems: 'center', flexWrap: 'wrap' }}>
                         {/* View toggle */}
@@ -1118,7 +1982,74 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                             >
                                 All ({stats.pending}){!isAdmin && <Icon iconName="View" style={{ fontSize: 9, marginLeft: 4, opacity: 0.6 }} />}
                             </button>
+                            {/* Inactive users tab - shows matters attributed to people who've left */}
+                            {teamData && teamData.length > 0 && inactiveStats.pending > 0 && (
+                                <button
+                                    className="rc-btn"
+                                    onClick={() => setViewMode('inactive')}
+                                    style={{
+                                        padding: '6px 12px', border: 'none', height: 32,
+                                        cursor: 'pointer',
+                                        background: viewMode === 'inactive' ? (isDarkMode ? '#4b5563' : '#fff') : 'transparent',
+                                        color: viewMode === 'inactive' ? '#ef4444' : (inactiveStats.pending > 0 ? '#ef4444' : textMuted),
+                                        fontWeight: 600, fontSize: 11, letterSpacing: '0.02em',
+                                        boxShadow: viewMode === 'inactive' ? '0 1px 2px rgba(0,0,0,0.15)' : 'none',
+                                    }}
+                                    title="Matters attributed to inactive team members (people who've left)"
+                                >
+                                    <Icon iconName="BlockContact" style={{ fontSize: 10, marginRight: 4 }} />
+                                    Inactive ({inactiveStats.pending})
+                                </button>
+                            )}
                         </div>
+
+                        {/* Role Filter - only show when Mine is selected */}
+                        {viewMode === 'mine' && (
+                            <div style={{ display: 'flex', fontSize: 11, background: isDarkMode ? '#374151' : '#f5f5f5', padding: 2 }}>
+                                <button
+                                    className="rc-btn"
+                                    onClick={() => setRoleFilter('both')}
+                                    style={{
+                                        padding: '4px 8px', border: 'none', cursor: 'pointer', height: 28,
+                                        background: roleFilter === 'both' ? (isDarkMode ? '#4b5563' : '#fff') : 'transparent',
+                                        color: roleFilter === 'both' ? textPrimary : textMuted,
+                                        fontWeight: 600, fontSize: 10, letterSpacing: '0.02em',
+                                        boxShadow: roleFilter === 'both' ? '0 1px 2px rgba(0,0,0,0.15)' : 'none',
+                                    }}
+                                    title="Show clients where I'm responsible or originating"
+                                >
+                                    Both
+                                </button>
+                                <button
+                                    className="rc-btn"
+                                    onClick={() => setRoleFilter('responsible')}
+                                    style={{
+                                        padding: '4px 8px', border: 'none', cursor: 'pointer', height: 28,
+                                        background: roleFilter === 'responsible' ? (isDarkMode ? '#4b5563' : '#fff') : 'transparent',
+                                        color: roleFilter === 'responsible' ? textPrimary : textMuted,
+                                        fontWeight: 600, fontSize: 10, letterSpacing: '0.02em',
+                                        boxShadow: roleFilter === 'responsible' ? '0 1px 2px rgba(0,0,0,0.15)' : 'none',
+                                    }}
+                                    title="Show only clients where I'm the responsible solicitor"
+                                >
+                                    Responsible
+                                </button>
+                                <button
+                                    className="rc-btn"
+                                    onClick={() => setRoleFilter('originating')}
+                                    style={{
+                                        padding: '4px 8px', border: 'none', cursor: 'pointer', height: 28,
+                                        background: roleFilter === 'originating' ? (isDarkMode ? '#4b5563' : '#fff') : 'transparent',
+                                        color: roleFilter === 'originating' ? textPrimary : textMuted,
+                                        fontWeight: 600, fontSize: 10, letterSpacing: '0.02em',
+                                        boxShadow: roleFilter === 'originating' ? '0 1px 2px rgba(0,0,0,0.15)' : 'none',
+                                    }}
+                                    title="Show only clients where I'm the originating solicitor"
+                                >
+                                    Originating
+                                </button>
+                            </div>
+                        )}
 
                         {/* Status toggles: default (none active) shows pending/to-do */}
                         <div style={{ display: 'flex', gap: 1 }}>
@@ -1180,6 +2111,161 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                             </select>
                         )}
 
+                        {/* Responsible Solicitor Filter */}
+                        {availableResponsibleSolicitors.length > 0 && (
+                            <select
+                                value={responsibleFilter}
+                                onChange={(e) => setResponsibleFilter(e.target.value)}
+                                style={{
+                                    padding: '6px 10px',
+                                    height: 32,
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    background: isDarkMode ? '#374151' : '#f5f5f5',
+                                    color: responsibleFilter !== 'all' ? textPrimary : textMuted,
+                                    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
+                                    borderRadius: 0,
+                                    cursor: 'pointer',
+                                    outline: 'none',
+                                    maxWidth: 160,
+                                }}
+                                title="Filter by Responsible Solicitor"
+                            >
+                                <option value="all">All Responsible</option>
+                                {availableResponsibleSolicitors.map(s => (
+                                    <option key={s} value={s}>{s}</option>
+                                ))}
+                            </select>
+                        )}
+
+                        {/* Originating Solicitor Filter */}
+                        {availableOriginatingSolicitors.length > 0 && (
+                            <select
+                                value={originatingFilter}
+                                onChange={(e) => setOriginatingFilter(e.target.value)}
+                                style={{
+                                    padding: '6px 10px',
+                                    height: 32,
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    background: isDarkMode ? '#374151' : '#f5f5f5',
+                                    color: originatingFilter !== 'all' ? textPrimary : textMuted,
+                                    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
+                                    borderRadius: 0,
+                                    cursor: 'pointer',
+                                    outline: 'none',
+                                    maxWidth: 160,
+                                }}
+                                title="Filter by Originating Solicitor"
+                            >
+                                <option value="all">All Originating</option>
+                                {availableOriginatingSolicitors.map(s => (
+                                    <option key={s} value={s}>{s}</option>
+                                ))}
+                            </select>
+                        )}
+
+                        {/* Clear Filters Button - show when any filter is active */}
+                        {(openDateFilter !== 'all' || responsibleFilter !== 'all' || originatingFilter !== 'all' || searchTerm) && (
+                            <button
+                                className="rc-btn rc-btn-ghost"
+                                onClick={() => {
+                                    setOpenDateFilter('all');
+                                    setResponsibleFilter('all');
+                                    setOriginatingFilter('all');
+                                    setInputTerm('');
+                                    setSearchTerm('');
+                                }}
+                                style={{
+                                    padding: '6px 10px',
+                                    height: 32,
+                                    fontSize: 10,
+                                    fontWeight: 600,
+                                    background: 'transparent',
+                                    color: textMuted,
+                                    border: `1px dashed ${isDarkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)'}`,
+                                    borderRadius: 0,
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                }}
+                                title="Clear all filters"
+                            >
+                                <Icon iconName="ClearFilter" style={{ fontSize: 10 }} />
+                                Clear
+                            </button>
+                        )}
+
+                        {/* Verification Status Indicator */}
+                        {(verificationStats.mismatches > 0 || verificationStats.loading > 0 || verificationStats.synced > 0) && (
+                            <div 
+                                style={{ 
+                                    display: 'flex', 
+                                    alignItems: 'center', 
+                                    gap: 6, 
+                                    padding: '4px 10px',
+                                    background: verificationStats.mismatches > 0 
+                                        ? (isDarkMode ? 'rgba(255, 152, 0, 0.15)' : 'rgba(255, 152, 0, 0.1)')
+                                        : verificationStats.synced > 0
+                                            ? (isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.1)')
+                                            : 'transparent',
+                                    border: verificationStats.mismatches > 0 
+                                        ? `1px solid ${colours.cta}`
+                                        : verificationStats.synced > 0
+                                            ? `1px solid ${colours.green}`
+                                            : 'none',
+                                    fontSize: 10,
+                                }}
+                                title={verificationStats.mismatches > 0 
+                                    ? `${verificationStats.mismatches} matter(s) have SQL data that doesn't match Clio`
+                                    : verificationStats.synced > 0
+                                        ? `${verificationStats.synced} matter(s) synced from Clio`
+                                        : `Verifying ${verificationStats.loading} matter(s) against Clio...`}
+                            >
+                                {verificationStats.loading > 0 && (
+                                    <>
+                                        <Spinner size={SpinnerSize.xSmall} />
+                                        <span style={{ color: textMuted }}>Verifying...</span>
+                                    </>
+                                )}
+                                {verificationStats.mismatches > 0 && (
+                                    <>
+                                        <Icon iconName="Warning" style={{ color: colours.cta, fontSize: 12 }} />
+                                        <span style={{ color: colours.cta, fontWeight: 600 }}>
+                                            {verificationStats.mismatches} mismatch{verificationStats.mismatches !== 1 ? 'es' : ''}
+                                        </span>
+                                        <button
+                                            onClick={syncAllMismatches}
+                                            disabled={syncingMatters.size > 0}
+                                            style={{
+                                                background: colours.highlight,
+                                                border: 'none',
+                                                padding: '2px 8px',
+                                                cursor: syncingMatters.size > 0 ? 'wait' : 'pointer',
+                                                color: '#fff',
+                                                fontSize: 9,
+                                                fontWeight: 600,
+                                                marginLeft: 4,
+                                                opacity: syncingMatters.size > 0 ? 0.6 : 1,
+                                            }}
+                                            title="Sync all mismatched matters from Clio to SQL"
+                                        >
+                                            {syncingMatters.size > 0 ? 'Syncing...' : 'Sync All'}
+                                        </button>
+                                    </>
+                                )}
+                                {verificationStats.synced > 0 && verificationStats.mismatches === 0 && (
+                                    <>
+                                        <Icon iconName="Sync" style={{ color: colours.green, fontSize: 12 }} />
+                                        <span style={{ color: colours.green, fontWeight: 600 }}>
+                                            {verificationStats.synced} synced
+                                        </span>
+                                    </>
+                                )}
+                            </div>
+                        )}
+
                         {/* Search */}
                         <div style={{ flex: 1, minWidth: 180 }}>
                             <TextField
@@ -1219,6 +2305,11 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                             <thead>
                                 <tr style={{ borderBottom: `1px solid ${borderColor}` }}>
                                     <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 500, color: textMuted, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', width: filter === 'migrate' ? 60 : 45 }}>#</th>
+                                    {filter === 'pending' && (
+                                        <th style={{ padding: '10px 6px', textAlign: 'center', fontWeight: 500, color: textMuted, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', width: 34 }}>
+                                            Sel
+                                        </th>
+                                    )}
                                     <th
                                         onClick={() => toggleSort('client')}
                                         style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 500, color: textMuted, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', width: '24%', cursor: 'pointer' }}
@@ -1241,9 +2332,10 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                     <th
                                         onClick={() => toggleSort('solicitor')}
                                         style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 500, color: textMuted, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', cursor: 'pointer' }}
+                                        title="Responsible Solicitor (↳ = Originating, if different)"
                                     >
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                            <span>Solicitor</span>
+                                            <span>Resp / Orig</span>
                                             <span style={{ fontSize: 10, opacity: sortField === 'solicitor' ? 1 : 0.4 }}>{sortField === 'solicitor' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
                                         </div>
                                     </th>
@@ -1360,9 +2452,49 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                                         <span style={{ fontSize: 11, color: colours.highlight }}>{queuePosition}</span>
                                                     )}
                                                 </td>
+                                                {filter === 'pending' && (
+                                                    <td style={{ padding: '12px 6px', textAlign: 'center' }}>
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={selectedClientIds.has(client.client_id)}
+                                                            onChange={() => {
+                                                                setSelectedClientIds(prev => {
+                                                                    const next = new Set(prev);
+                                                                    if (next.has(client.client_id)) next.delete(client.client_id);
+                                                                    else next.add(client.client_id);
+                                                                    return next;
+                                                                });
+                                                            }}
+                                                            disabled={isProcessing}
+                                                            style={{ cursor: isProcessing ? 'not-allowed' : 'pointer' }}
+                                                            aria-label={`Select ${client.client_name} for escalation`}
+                                                        />
+                                                    </td>
+                                                )}
                                                 <td style={{ padding: '12px', color: textPrimary, fontWeight: 500 }}>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                                         <span>{client.client_name}</span>
+                                                        {filter === 'pending' && Boolean(getEscalatedAtIso(client)) && (
+                                                            <span style={{
+                                                                fontSize: 9,
+                                                                fontWeight: 700,
+                                                                padding: '2px 6px',
+                                                                borderRadius: 2,
+                                                                background: isDarkMode ? 'rgba(245, 158, 11, 0.18)' : 'rgba(245, 158, 11, 0.12)',
+                                                                color: '#f59e0b',
+                                                                textTransform: 'uppercase',
+                                                                letterSpacing: '0.03em',
+                                                            }} title={(() => {
+                                                                const iso = getEscalatedAtIso(client);
+                                                                const date = formatShortDate(iso);
+                                                                return date ? `Escalated on ${date}` : 'Escalated';
+                                                            })()}>
+                                                                Escalated{(() => {
+                                                                    const date = formatShortDate(getEscalatedAtIso(client));
+                                                                    return date ? ` · ${date}` : '';
+                                                                })()}
+                                                            </span>
+                                                        )}
                                                         {filter === 'migrate' && (
                                                             <span style={{
                                                                 fontSize: 9,
@@ -1386,20 +2518,23 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                                 <td style={{ padding: '12px', color: textSecondary }}>
                                                     {client.open_matters.length === 1 && client.closed_matters.length === 0
                                                         ? (
-                                                            <a 
-                                                                href={`https://app.clio.com/nc/#/matters/${client.open_matters[0].matter_id}`}
-                                                                target="_blank"
-                                                                rel="noopener noreferrer"
-                                                                style={{ 
-                                                                    color: colours.highlight, 
-                                                                    textDecoration: 'none',
-                                                                    fontSize: 11,
-                                                                }}
-                                                                onMouseEnter={(e) => (e.currentTarget.style.textDecoration = 'underline')}
-                                                                onMouseLeave={(e) => (e.currentTarget.style.textDecoration = 'none')}
-                                                            >
-                                                                {client.open_matters[0].display_number}
-                                                            </a>
+                                                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                                                                <a 
+                                                                    href={`https://app.clio.com/nc/#/matters/${client.open_matters[0].matter_id}`}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    style={{ 
+                                                                        color: colours.highlight, 
+                                                                        textDecoration: 'none',
+                                                                        fontSize: 11,
+                                                                    }}
+                                                                    onMouseEnter={(e) => (e.currentTarget.style.textDecoration = 'underline')}
+                                                                    onMouseLeave={(e) => (e.currentTarget.style.textDecoration = 'none')}
+                                                                >
+                                                                    {client.open_matters[0].display_number}
+                                                                </a>
+                                                                {renderVerificationIndicator(client.open_matters[0].display_number, client.open_matters[0])}
+                                                            </div>
                                                         )
                                                         : (
                                                             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -1418,6 +2553,7 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                                                         >
                                                                             {m.display_number}
                                                                         </a>
+                                                                        {renderVerificationIndicator(m.display_number, m)}
                                                                         {m.open_date && (
                                                                             <span style={{ fontSize: 9, color: textMuted }}>
                                                                                 ({new Date(m.open_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' })})
@@ -1464,12 +2600,108 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                                 </td>
                                                 <td style={{ padding: '12px', color: textSecondary, fontSize: 11 }}>
                                                     {client.open_matters.length === 1 
-                                                        ? (client.open_matters[0].responsible_solicitor || '—')
+                                                        ? (() => {
+                                                            const respSol = client.open_matters[0].responsible_solicitor || '';
+                                                            const origSol = client.open_matters[0].originating_solicitor || '';
+                                                            const respInactive = !isActiveSolicitor(respSol);
+                                                            const origInactive = origSol ? !isActiveSolicitor(origSol) : false;
+                                                            // Orange = active originator who can rescue inactive responsible
+                                                            const origCanRescue = respInactive && origSol && !origInactive && origSol !== respSol;
+                                                            
+                                                            return (
+                                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                                                                    <span 
+                                                                        title={respInactive ? 'Inactive - Responsible Solicitor' : 'Responsible Solicitor'}
+                                                                        style={{ 
+                                                                            color: respInactive ? '#ef4444' : undefined,
+                                                                            fontWeight: respInactive ? 600 : undefined,
+                                                                        }}
+                                                                    >
+                                                                        {respSol || '—'}
+                                                                        {respInactive && (
+                                                                            <Icon iconName="Warning" style={{ fontSize: 10, marginLeft: 4, color: '#ef4444' }} />
+                                                                        )}
+                                                                    </span>
+                                                                    {origSol && origSol !== respSol && (
+                                                                        <span 
+                                                                            style={{ 
+                                                                                fontSize: 10, 
+                                                                                color: origCanRescue ? '#f59e0b' : (origInactive ? '#ef4444' : textMuted), 
+                                                                                fontStyle: 'italic',
+                                                                                fontWeight: (origInactive || origCanRescue) ? 600 : undefined,
+                                                                            }} 
+                                                                            title={origCanRescue ? 'Active - Can action this matter' : (origInactive ? 'Inactive - Originating Solicitor' : 'Originating Solicitor')}
+                                                                        >
+                                                                            ↳ {origSol}
+                                                                            {origInactive && (
+                                                                                <Icon iconName="Warning" style={{ fontSize: 9, marginLeft: 3, color: '#ef4444' }} />
+                                                                            )}
+                                                                            {origCanRescue && (
+                                                                                <Icon iconName="UserFollowed" style={{ fontSize: 9, marginLeft: 3, color: '#f59e0b' }} />
+                                                                            )}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })()
                                                         : (
                                                             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                                                {client.responsible_solicitors.map((sol, i) => (
-                                                                    <span key={i}>{sol}</span>
-                                                                ))}
+                                                                {(() => {
+                                                                    // Check if any responsible solicitor is inactive
+                                                                    const hasInactiveResponsible = client.responsible_solicitors.some(s => !isActiveSolicitor(s));
+                                                                    
+                                                                    return client.responsible_solicitors.map((sol, i) => {
+                                                                        const solInactive = !isActiveSolicitor(sol);
+                                                                        return (
+                                                                            <span 
+                                                                                key={i} 
+                                                                                title={solInactive ? 'Inactive - Responsible Solicitor' : 'Responsible Solicitor'}
+                                                                                style={{
+                                                                                    color: solInactive ? '#ef4444' : undefined,
+                                                                                    fontWeight: solInactive ? 600 : undefined,
+                                                                                }}
+                                                                            >
+                                                                                {sol}
+                                                                                {solInactive && (
+                                                                                    <Icon iconName="Warning" style={{ fontSize: 10, marginLeft: 4, color: '#ef4444' }} />
+                                                                                )}
+                                                                            </span>
+                                                                        );
+                                                                    });
+                                                                })()}
+                                                                {(() => {
+                                                                    // Check if any responsible solicitor is inactive
+                                                                    const hasInactiveResponsible = client.responsible_solicitors.some(s => !isActiveSolicitor(s));
+                                                                    
+                                                                    return (client.originating_solicitors || [])
+                                                                        .filter(os => !client.responsible_solicitors.includes(os))
+                                                                        .map((sol, i) => {
+                                                                            const solInactive = !isActiveSolicitor(sol);
+                                                                            // Orange = active originator who can rescue inactive responsible
+                                                                            const canRescue = hasInactiveResponsible && !solInactive;
+                                                                            
+                                                                            return (
+                                                                                <span 
+                                                                                    key={`orig-${i}`} 
+                                                                                    style={{ 
+                                                                                        fontSize: 10, 
+                                                                                        color: canRescue ? '#f59e0b' : (solInactive ? '#ef4444' : textMuted), 
+                                                                                        fontStyle: 'italic',
+                                                                                        fontWeight: (solInactive || canRescue) ? 600 : undefined,
+                                                                                    }} 
+                                                                                    title={canRescue ? 'Active - Can action this matter' : (solInactive ? 'Inactive - Originating Solicitor' : 'Originating Solicitor')}
+                                                                                >
+                                                                                    ↳ {sol}
+                                                                                    {solInactive && (
+                                                                                        <Icon iconName="Warning" style={{ fontSize: 9, marginLeft: 3, color: '#ef4444' }} />
+                                                                                    )}
+                                                                                    {canRescue && (
+                                                                                        <Icon iconName="UserFollowed" style={{ fontSize: 9, marginLeft: 3, color: '#f59e0b' }} />
+                                                                                    )}
+                                                                                </span>
+                                                                            );
+                                                                        });
+                                                                })()}
                                                             </div>
                                                         )
                                                     }

@@ -446,11 +446,9 @@ const CounselRecommendationFormContent: React.FC<CounselRecommendationFormProps>
   );
 };
 
-// Wrap with passcode guard
+// Passcode guard removed - direct access enabled
 const CounselRecommendationForm: React.FC<CounselRecommendationFormProps> = (props) => (
-  <PasscodeGuard title="Counsel Recommendation" onBack={props.onBack}>
-    <CounselRecommendationFormContent {...props} />
-  </PasscodeGuard>
+  <CounselRecommendationFormContent {...props} />
 );
 
 export default CounselRecommendationForm;

@@ -216,22 +216,25 @@ const FormCard: React.FC<FormCardProps> = React.memo(
 
           {/* Right: Action Buttons */}
           <div className={`actionsContainer ${actionsContainerStyle}`}>
-            <TooltipHost
-              content={`Copy link for ${link.title}`}
-              id={`tooltip-copy-${link.title}`}
-            >
-              <ActionIconButton
-                outlineIcon="Copy"
-                filledIcon="Copy"
-                title="Copy Link"
-                ariaLabel="Copy Link"
-                onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
-                  e.stopPropagation();
-                  onCopy && link.url && onCopy(link.url, link.title);
-                }}
-                styles={iconButtonStyles(colours.cta, isDarkMode)}
-              />
-            </TooltipHost>
+            {/* Only show Copy button if there's a URL to copy */}
+            {link.url && onCopy && (
+              <TooltipHost
+                content={`Copy link for ${link.title}`}
+                id={`tooltip-copy-${link.title}`}
+              >
+                <ActionIconButton
+                  outlineIcon="Copy"
+                  filledIcon="Copy"
+                  title="Copy Link"
+                  ariaLabel="Copy Link"
+                  onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+                    e.stopPropagation();
+                    onCopy(link.url!, link.title);
+                  }}
+                  styles={iconButtonStyles(colours.cta, isDarkMode)}
+                />
+              </TooltipHost>
+            )}
 
             <TooltipHost
               content={
@@ -252,22 +255,29 @@ const FormCard: React.FC<FormCardProps> = React.memo(
               />
             </TooltipHost>
 
-            <TooltipHost
-              content={`Go to ${link.title}`}
-              id={`tooltip-go-${link.title}`}
-            >
-              <ActionIconButton
-                outlineIcon="ChevronRight"
-                filledIcon="ChevronRight"
-                title="Go To"
-                ariaLabel="Go To"
-                onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
-                  e.stopPropagation();
-                  onGoTo && onGoTo();
-                }}
-                styles={iconButtonStyles(colours.cta, isDarkMode)}
-              />
-            </TooltipHost>
+            {/* Only show Go To button if there's a URL or external action */}
+            {(link.url || link.component) && (
+              <TooltipHost
+                content={link.component ? `Open ${link.title}` : `Go to ${link.title}`}
+                id={`tooltip-go-${link.title}`}
+              >
+                <ActionIconButton
+                  outlineIcon="ChevronRight"
+                  filledIcon="ChevronRight"
+                  title={link.component ? "Open" : "Go To"}
+                  ariaLabel={link.component ? "Open" : "Go To"}
+                  onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+                    e.stopPropagation();
+                    if (onGoTo) {
+                      onGoTo();
+                    } else {
+                      onSelect();
+                    }
+                  }}
+                  styles={iconButtonStyles(colours.cta, isDarkMode)}
+                />
+              </TooltipHost>
+            )}
           </div>
         </div>
       </TooltipHost>

@@ -497,11 +497,9 @@ const CounselDirectoryContent: React.FC<CounselDirectoryProps> = ({ onBack }) =>
   );
 };
 
-// Wrap with passcode guard
+// Passcode guard removed - direct access enabled
 const CounselDirectory: React.FC<CounselDirectoryProps> = (props) => (
-  <PasscodeGuard title="Counsel Directory" onBack={props.onBack}>
-    <CounselDirectoryContent {...props} />
-  </PasscodeGuard>
+  <CounselDirectoryContent {...props} />
 );
 
 export default CounselDirectory;

@@ -443,11 +443,9 @@ const ExpertDirectoryContent: React.FC<ExpertDirectoryProps> = ({ onBack }) => {
   );
 };
 
-// Wrap with passcode guard
+// Passcode guard removed - direct access enabled
 const ExpertDirectory: React.FC<ExpertDirectoryProps> = (props) => (
-  <PasscodeGuard title="Expert Directory" onBack={props.onBack}>
-    <ExpertDirectoryContent {...props} />
-  </PasscodeGuard>
+  <ExpertDirectoryContent {...props} />
 );
 
 export default ExpertDirectory;

@@ -389,6 +389,84 @@ const Forms: React.FC<FormsProps> = ({ userData, matters }) => {
             </div>
           </section>
         )}
+
+        {filteredSections.Tech_Support.length > 0 && (
+          <section key="Tech_Support" className={sectionStyle(isDarkMode)}>
+            <Text variant="large" className={sectionHeaderStyleCustom(isDarkMode)}>
+              Tech Support
+            </Text>
+            <div className={resourceGridStyle}>
+              {filteredSections.Tech_Support.map((link: FormItem, index: number) => {
+                const animationDelay = calculateAnimationDelay(index);
+                return (
+                  <FormCard
+                    key={link.title}
+                    link={link}
+                    isFavorite={favorites.some(fav => fav.title === link.title)}
+                    onCopy={link.url ? copyToClipboard : undefined}
+                    onToggleFavorite={() => toggleFavorite(link)}
+                    onGoTo={link.url ? () => goToLink(link.url!) : undefined}
+                    onSelect={() => setSelectedLink(link)}
+                    animationDelay={animationDelay}
+                    description={link.description}
+                  />
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {filteredSections.Recommendations.length > 0 && (
+          <section key="Recommendations" className={sectionStyle(isDarkMode)}>
+            <Text variant="large" className={sectionHeaderStyleCustom(isDarkMode)}>
+              Recommendations
+            </Text>
+            <div className={resourceGridStyle}>
+              {filteredSections.Recommendations.map((link: FormItem, index: number) => {
+                const animationDelay = calculateAnimationDelay(index);
+                return (
+                  <FormCard
+                    key={link.title}
+                    link={link}
+                    isFavorite={favorites.some(fav => fav.title === link.title)}
+                    onCopy={link.url ? copyToClipboard : undefined}
+                    onToggleFavorite={() => toggleFavorite(link)}
+                    onGoTo={link.url ? () => goToLink(link.url!) : undefined}
+                    onSelect={() => setSelectedLink(link)}
+                    animationDelay={animationDelay}
+                    description={link.description}
+                  />
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {filteredSections.Browse_Directories.length > 0 && (
+          <section key="Browse_Directories" className={sectionStyle(isDarkMode)}>
+            <Text variant="large" className={sectionHeaderStyleCustom(isDarkMode)}>
+              Browse Directories
+            </Text>
+            <div className={resourceGridStyle}>
+              {filteredSections.Browse_Directories.map((link: FormItem, index: number) => {
+                const animationDelay = calculateAnimationDelay(index);
+                return (
+                  <FormCard
+                    key={link.title}
+                    link={link}
+                    isFavorite={favorites.some(fav => fav.title === link.title)}
+                    onCopy={link.url ? copyToClipboard : undefined}
+                    onToggleFavorite={() => toggleFavorite(link)}
+                    onGoTo={link.url ? () => goToLink(link.url!) : undefined}
+                    onSelect={() => setSelectedLink(link)}
+                    animationDelay={animationDelay}
+                    description={link.description}
+                  />
+                );
+              })}
+            </div>
+          </section>
+        )}
       </main>
 
       {/* Copy Confirmation Message */}

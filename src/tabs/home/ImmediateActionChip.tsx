@@ -90,10 +90,13 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
   const textMuted = isDark ? '#94a3b8' : '#64748b';
   const textSubtle = isDark ? '#64748b' : '#94a3b8';
 
-  const needsUrgentAttention = !disabled && (count ?? 0) > 0 && title.toLowerCase().startsWith('approve annual leave');
+  const needsUrgentAttention = !disabled && (count ?? 0) > 0 && 
+    (title.toLowerCase().startsWith('approve annual leave') || title.toLowerCase().startsWith('rate change'));
   
-  // Category accent - subtle left indicator
-  const categoryColor = category === 'critical'
+  // Category accent - subtle left indicator (red for urgent items)
+  const categoryColor = needsUrgentAttention
+    ? colours.cta  // Red for urgent attention
+    : category === 'critical'
     ? colours.cta
     : category === 'success'
     ? colours.green

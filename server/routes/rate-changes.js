@@ -147,6 +147,326 @@ async function updateClioMattersRateChangeDate(matterIds, dateValue, customField
 }
 
 /**
+ * GET /api/rate-changes/verify-matter/:displayNumber
+ * Verify a matter's responsible/originating attorney against Clio
+ * Used for lazy-loading verification to detect SQL vs Clio mismatches
+ * NOTE: Must be defined BEFORE /:year route to prevent route matching issues
+ */
+router.get('/verify-matter/:displayNumber', async (req, res) => {
+    const { displayNumber } = req.params;
+    const { getSecret } = require('../utils/getSecret');
+    const legacyConn = process.env.SQL_CONNECTION_STRING_LEGACY || process.env.SQL_CONNECTION_STRING;
+    
+    try {
+        // 1. First lookup the Clio matter ID from SQL (more reliable than search)
+        let clioMatterId = null;
+        if (legacyConn) {
+            try {
+                const sqlResult = await withRequest(legacyConn, async (request) => {
+                    request.input('displayNumber', sql.NVarChar, displayNumber);
+                    const result = await request.query(`
+                        SELECT [Unique ID] as clio_id
+                        FROM matters
+                        WHERE [Display Number] = @displayNumber
+                    `);
+                    return result.recordset?.[0];
+                });
+                clioMatterId = sqlResult?.clio_id;
+            } catch (sqlErr) {
+                console.log('[verify-matter] SQL lookup failed, falling back to search:', sqlErr.message);
+            }
+        }
+        
+        const initials = (process.env.CLIO_USER_INITIALS || 'lz').toLowerCase();
+        const [clientId, clientSecret, refreshToken] = await Promise.all([
+            getSecret(`${initials}-clio-v1-clientid`),
+            getSecret(`${initials}-clio-v1-clientsecret`),
+            getSecret(`${initials}-clio-v1-refreshtoken`),
+        ]);
+        
+        const clioBase = process.env.CLIO_API_BASE || 'https://eu.app.clio.com/api/v4';
+        const tokenUrl = `https://eu.app.clio.com/oauth/token?client_id=${clientId}&client_secret=${clientSecret}&grant_type=refresh_token&refresh_token=${refreshToken}`;
+        
+        const tokenResp = await fetch(tokenUrl, { method: 'POST' });
+        if (!tokenResp.ok) throw new Error('Failed to get Clio access token');
+        const { access_token } = await tokenResp.json();
+        
+        let matter = null;
+        
+        // 2. Try direct ID lookup first (most reliable)
+        if (clioMatterId) {
+            const directUrl = `${clioBase}/matters/${clioMatterId}?fields=id,display_number,responsible_attorney{id,name},originating_attorney{id,name},status`;
+            const directResp = await fetch(directUrl, {
+                headers: { Authorization: `Bearer ${access_token}` }
+            });
+            
+            if (directResp.ok) {
+                const directData = await directResp.json();
+                matter = directData.data;
+            }
+        }
+        
+        // 3. Fall back to search if direct lookup failed
+        if (!matter) {
+            const searchUrl = `${clioBase}/matters?query=${encodeURIComponent(displayNumber)}&fields=id,display_number,responsible_attorney{id,name},originating_attorney{id,name},status`;
+            const searchResp = await fetch(searchUrl, {
+                headers: { Authorization: `Bearer ${access_token}` }
+            });
+            
+            if (!searchResp.ok) {
+                throw new Error(`Clio search failed: ${searchResp.status}`);
+            }
+            
+            const searchData = await searchResp.json();
+            matter = searchData.data?.find(m => m.display_number === displayNumber);
+        }
+        
+        if (!matter) {
+            return res.status(404).json({ error: 'Matter not found in Clio', displayNumber });
+        }
+        
+        res.json({
+            display_number: matter.display_number,
+            responsible_attorney: matter.responsible_attorney,
+            originating_attorney: matter.originating_attorney,
+            status: matter.status,
+        });
+        
+    } catch (error) {
+        console.error('[rate-changes] Error verifying matter:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/rate-changes/sync-matter/:displayNumber
+ * Sync a matter's responsible/originating attorney from Clio to SQL
+ * Updates the local SQL database with current Clio data
+ */
+router.post('/sync-matter/:displayNumber', async (req, res) => {
+    const { displayNumber } = req.params;
+    const legacyConn = process.env.SQL_CONNECTION_STRING_LEGACY || process.env.SQL_CONNECTION_STRING;
+    
+    if (!legacyConn) {
+        return res.status(500).json({ error: 'Missing legacy database connection string' });
+    }
+    
+    try {
+        // 1. First lookup the Clio matter ID from SQL (more reliable than search)
+        let clioMatterId = null;
+        const sqlLookup = await withRequest(legacyConn, async (request) => {
+            request.input('displayNumber', sql.NVarChar, displayNumber);
+            const result = await request.query(`
+                SELECT [Unique ID] as clio_id
+                FROM matters
+                WHERE [Display Number] = @displayNumber
+            `);
+            return result.recordset?.[0];
+        });
+        clioMatterId = sqlLookup?.clio_id;
+        
+        // 2. Get current data from Clio
+        const accessToken = await getClioAccessToken();
+        const clioBase = process.env.CLIO_API_BASE || 'https://eu.app.clio.com/api/v4';
+        
+        let matter = null;
+        
+        // Try direct ID lookup first (most reliable)
+        if (clioMatterId) {
+            const directUrl = `${clioBase}/matters/${clioMatterId}?fields=id,display_number,responsible_attorney{id,name},originating_attorney{id,name},status`;
+            const directResp = await fetch(directUrl, {
+                headers: { Authorization: `Bearer ${accessToken}` }
+            });
+            
+            if (directResp.ok) {
+                const directData = await directResp.json();
+                matter = directData.data;
+            }
+        }
+        
+        // Fall back to search if direct lookup failed
+        if (!matter) {
+            const searchUrl = `${clioBase}/matters?query=${encodeURIComponent(displayNumber)}&fields=id,display_number,responsible_attorney{id,name},originating_attorney{id,name},status`;
+            const searchResp = await fetch(searchUrl, {
+                headers: { Authorization: `Bearer ${accessToken}` }
+            });
+            
+            if (!searchResp.ok) {
+                throw new Error(`Clio search failed: ${searchResp.status}`);
+            }
+            
+            const searchData = await searchResp.json();
+            matter = searchData.data?.find(m => m.display_number === displayNumber);
+        }
+        
+        if (!matter) {
+            return res.status(404).json({ error: 'Matter not found in Clio', displayNumber });
+        }
+        
+        const clioResponsible = matter.responsible_attorney?.name || null;
+        const clioOriginating = matter.originating_attorney?.name || null;
+        
+        // 3. Update SQL database
+        const updateResult = await withRequest(legacyConn, async (request) => {
+            request.input('displayNumber', sql.NVarChar, displayNumber);
+            request.input('responsible', sql.NVarChar, clioResponsible);
+            request.input('originating', sql.NVarChar, clioOriginating);
+            
+            const result = await request.query(`
+                UPDATE matters
+                SET [Responsible Solicitor] = @responsible,
+                    [Originating Solicitor] = @originating
+                WHERE [Display Number] = @displayNumber
+            `);
+            return result.rowsAffected[0] || 0;
+        });
+        
+        console.log(`[rate-changes] Synced ${displayNumber}: Resp="${clioResponsible}", Orig="${clioOriginating}" (${updateResult} rows)`);
+        
+        res.json({
+            success: true,
+            display_number: displayNumber,
+            updated: {
+                responsible_solicitor: clioResponsible,
+                originating_solicitor: clioOriginating,
+            },
+            rows_affected: updateResult,
+        });
+        
+    } catch (error) {
+        console.error('[rate-changes] Error syncing matter:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/rate-changes/sync-matters
+ * Bulk sync multiple matters from Clio to SQL
+ * Accepts array of display numbers in request body
+ */
+router.post('/sync-matters', async (req, res) => {
+    const { displayNumbers } = req.body;
+    
+    if (!displayNumbers || !Array.isArray(displayNumbers) || displayNumbers.length === 0) {
+        return res.status(400).json({ error: 'displayNumbers array required' });
+    }
+    
+    const legacyConn = process.env.SQL_CONNECTION_STRING_LEGACY || process.env.SQL_CONNECTION_STRING;
+    
+    if (!legacyConn) {
+        return res.status(500).json({ error: 'Missing legacy database connection string' });
+    }
+    
+    // Set up SSE for real-time progress
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+    
+    const sendEvent = (data) => {
+        res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+    
+    try {
+        const accessToken = await getClioAccessToken();
+        const clioBase = process.env.CLIO_API_BASE || 'https://eu.app.clio.com/api/v4';
+        
+        const results = { success: 0, failed: 0, notFound: 0, total: displayNumbers.length };
+        
+        for (let i = 0; i < displayNumbers.length; i++) {
+            const displayNumber = displayNumbers[i];
+            
+            sendEvent({ 
+                type: 'progress', 
+                current: i + 1, 
+                total: displayNumbers.length,
+                displayNumber,
+                step: 'fetching'
+            });
+            
+            try {
+                // Fetch from Clio
+                const searchUrl = `${clioBase}/matters?query=${encodeURIComponent(displayNumber)}&fields=id,display_number,responsible_attorney{id,name},originating_attorney{id,name}`;
+                const searchResp = await fetch(searchUrl, {
+                    headers: { Authorization: `Bearer ${accessToken}` }
+                });
+                
+                if (!searchResp.ok) {
+                    throw new Error(`Clio API error: ${searchResp.status}`);
+                }
+                
+                const searchData = await searchResp.json();
+                const matter = searchData.data?.find(m => m.display_number === displayNumber);
+                
+                if (!matter) {
+                    results.notFound++;
+                    sendEvent({ 
+                        type: 'matter', 
+                        displayNumber, 
+                        status: 'not_found',
+                        current: i + 1
+                    });
+                    continue;
+                }
+                
+                const clioResponsible = matter.responsible_attorney?.name || null;
+                const clioOriginating = matter.originating_attorney?.name || null;
+                
+                sendEvent({ 
+                    type: 'progress', 
+                    current: i + 1, 
+                    total: displayNumbers.length,
+                    displayNumber,
+                    step: 'updating'
+                });
+                
+                // Update SQL
+                await withRequest(legacyConn, async (request) => {
+                    request.input('displayNumber', sql.NVarChar, displayNumber);
+                    request.input('responsible', sql.NVarChar, clioResponsible);
+                    request.input('originating', sql.NVarChar, clioOriginating);
+                    
+                    await request.query(`
+                        UPDATE matters
+                        SET [Responsible Solicitor] = @responsible,
+                            [Originating Solicitor] = @originating
+                        WHERE [Display Number] = @displayNumber
+                    `);
+                });
+                
+                results.success++;
+                sendEvent({ 
+                    type: 'matter', 
+                    displayNumber, 
+                    status: 'success',
+                    responsible: clioResponsible,
+                    originating: clioOriginating,
+                    current: i + 1
+                });
+                
+            } catch (err) {
+                results.failed++;
+                sendEvent({ 
+                    type: 'matter', 
+                    displayNumber, 
+                    status: 'error',
+                    error: err.message,
+                    current: i + 1
+                });
+            }
+        }
+        
+        sendEvent({ type: 'complete', results });
+        res.end();
+        
+    } catch (error) {
+        console.error('[rate-changes] Error in bulk sync:', error);
+        sendEvent({ type: 'error', error: error.message });
+        res.end();
+    }
+});
+
+/**
  * GET /api/rate-changes/clio/custom-fields
  * Get Clio custom fields for matters to find the "Date of Rate Change" field
  * NOTE: Must be defined BEFORE /:year route to prevent route matching issues
@@ -301,6 +621,7 @@ router.get('/:year', async (req, res) => {
                     [Unique ID] as matter_id,
                     [Display Number] as display_number,
                     [Responsible Solicitor] as responsible_solicitor,
+                    [Originating Solicitor] as originating_solicitor,
                     [Practice Area] as practice_area,
                     [Status] as status,
                     [Open Date] as open_date,
@@ -325,6 +646,7 @@ router.get('/:year', async (req, res) => {
                     [Unique ID] as matter_id,
                     [Display Number] as display_number,
                     [Responsible Solicitor] as responsible_solicitor,
+                    [Originating Solicitor] as originating_solicitor,
                     [Practice Area] as practice_area,
                     [Status] as status,
                     [Open Date] as open_date,
@@ -350,6 +672,8 @@ router.get('/:year', async (req, res) => {
                     status,
                     sent_date,
                     sent_by,
+                    escalated_at,
+                    escalated_by,
                     na_reason,
                     na_notes,
                     updated_at
@@ -387,6 +711,7 @@ router.get('/:year', async (req, res) => {
                 matter_id: m.matter_id,
                 display_number: m.display_number,
                 responsible_solicitor: m.responsible_solicitor,
+                originating_solicitor: m.originating_solicitor,
                 practice_area: m.practice_area,
                 status: 'Closed',
                 open_date: m.open_date,
@@ -406,7 +731,8 @@ router.get('/:year', async (req, res) => {
                     client_name: m.client_name,
                     open_matters: [],
                     closed_matters: [],
-                    responsible_solicitors: new Set()
+                    responsible_solicitors: new Set(),
+                    originating_solicitors: new Set()
                 });
             }
             
@@ -415,6 +741,7 @@ router.get('/:year', async (req, res) => {
                 matter_id: m.matter_id,
                 display_number: m.display_number,
                 responsible_solicitor: m.responsible_solicitor,
+                originating_solicitor: m.originating_solicitor,
                 practice_area: m.practice_area,
                 status: 'Open',
                 open_date: m.open_date,
@@ -422,6 +749,9 @@ router.get('/:year', async (req, res) => {
             });
             if (m.responsible_solicitor) {
                 client.responsible_solicitors.add(m.responsible_solicitor);
+            }
+            if (m.originating_solicitor) {
+                client.originating_solicitors.add(m.originating_solicitor);
             }
         });
         
@@ -454,9 +784,12 @@ router.get('/:year', async (req, res) => {
                 open_matters: client.open_matters,
                 closed_matters: client.closed_matters,
                 responsible_solicitors: Array.from(client.responsible_solicitors),
+                originating_solicitors: Array.from(client.originating_solicitors),
                 status: tracking?.status || 'pending',
                 sent_date: tracking?.sent_date || null,
                 sent_by: tracking?.sent_by || null,
+                escalated_at: tracking?.escalated_at || null,
+                escalated_by: tracking?.escalated_by || null,
                 na_reason: tracking?.na_reason || null,
                 na_notes: tracking?.na_notes || null,
                 updated_at: tracking?.updated_at || null,
@@ -496,6 +829,60 @@ router.get('/:year', async (req, res) => {
         
     } catch (error) {
         console.error('[rate-changes] Error fetching data:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/rate-changes/:year/mark-escalated
+ * Persist that an escalation email was sent (with date)
+ */
+router.post('/:year/mark-escalated', async (req, res) => {
+    const { year } = req.params;
+    const { client_id, escalated_by } = req.body;
+
+    if (!client_id) {
+        return res.status(400).json({ error: 'client_id required' });
+    }
+
+    const instructionsConn = process.env.SQL_CONNECTION_STRING_VNET || process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+    if (!instructionsConn) {
+        return res.status(500).json({ error: 'Missing instructions database connection string' });
+    }
+
+    try {
+        const now = new Date();
+
+        await withRequest(instructionsConn, async (request) => {
+            request.input('year', sql.Int, parseInt(year));
+            request.input('effective_date', sql.Date, new Date(`${year}-01-01`));
+            request.input('client_id', sql.NVarChar, client_id);
+            request.input('escalated_by', sql.NVarChar, escalated_by || null);
+            request.input('escalated_at', sql.DateTime2, now);
+
+            await request.query(`
+                MERGE rate_change_notifications AS target
+                USING (SELECT @year AS rate_change_year, @client_id AS client_id) AS source
+                ON target.rate_change_year = source.rate_change_year AND target.client_id = source.client_id
+                WHEN MATCHED THEN
+                    UPDATE SET
+                        escalated_at = @escalated_at,
+                        escalated_by = @escalated_by,
+                        updated_at = GETDATE()
+                WHEN NOT MATCHED THEN
+                    INSERT (rate_change_year, effective_date, client_id, status, escalated_at, escalated_by)
+                    VALUES (@year, @effective_date, @client_id, 'pending', @escalated_at, @escalated_by);
+            `);
+        });
+
+        res.json({
+            success: true,
+            client_id,
+            escalated_at: now.toISOString(),
+            escalated_by: escalated_by || null
+        });
+    } catch (error) {
+        console.error('[rate-changes] Error marking escalated:', error);
         res.status(500).json({ error: error.message });
     }
 });

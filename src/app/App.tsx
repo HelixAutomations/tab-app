@@ -717,6 +717,7 @@ const App: React.FC<AppProps> = ({
             onOptimisticClaim={onOptimisticClaim}
             instructionData={allInstructionData}
             featureToggles={featureToggles}
+            isActive={activeTab === 'enquiries'}
           />
         );
       case 'instructions':

@@ -2583,7 +2583,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         }
       }
     }
-  }, [timeline]);
+  }, [timeline, enquiry.ID]);
 
   const getTypeIcon = (type: CommunicationType) => {
     switch (type) {
