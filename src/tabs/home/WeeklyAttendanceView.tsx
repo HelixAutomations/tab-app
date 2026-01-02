@@ -1337,26 +1337,20 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                   fontSize: '11px',
                   fontWeight: 600,
                   background: isDarkMode
-                    ? `linear-gradient(135deg, ${colours.cta}30 0%, ${colours.cta}20 100%)`
-                    : `linear-gradient(135deg, ${colours.cta}25 0%, ${colours.cta}15 100%)`,
-                  border: `1px solid ${colours.cta}`,
-                  color: isDarkMode ? '#fff' : colours.cta,
+                    ? 'rgba(100, 200, 255, 0.08)'
+                    : 'rgba(54, 144, 206, 0.06)',
+                  border: `1px solid ${isDarkMode ? 'rgba(100, 200, 255, 0.25)' : 'rgba(54, 144, 206, 0.18)'}`,
+                  color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(54, 144, 206, 0.85)',
                   borderRadius: '2px',
-                  animationName: keyframes({
-                    '0%, 100%': { boxShadow: `0 0 0 0 ${colours.cta}40`, transform: 'scale(1)' },
-                    '50%': { boxShadow: `0 0 12px 4px ${colours.cta}30`, transform: 'scale(1.02)' }
-                  }),
-                  animationDuration: '2s',
-                  animationIterationCount: 'infinite',
-                  animationTimingFunction: 'ease-in-out',
-                  transition: 'background 0.2s ease, transform 0.15s ease',
+                  transition: 'all 0.25s ease',
                 },
                 rootHovered: {
                   background: isDarkMode
-                    ? `linear-gradient(135deg, ${colours.cta}45 0%, ${colours.cta}30 100%)`
-                    : `linear-gradient(135deg, ${colours.cta}35 0%, ${colours.cta}25 100%)`,
-                  transform: 'scale(1.05)',
-                  animationPlayState: 'paused'
+                    ? 'rgba(100, 200, 255, 0.12)'
+                    : 'rgba(54, 144, 206, 0.12)',
+                  border: `1px solid ${isDarkMode ? 'rgba(100, 200, 255, 0.35)' : 'rgba(54, 144, 206, 0.28)'}`,
+                  color: isDarkMode ? '#f1f5f9' : 'rgba(54, 144, 206, 1)',
+                  transform: 'translateY(-1px)',
                 }
               }}
             />

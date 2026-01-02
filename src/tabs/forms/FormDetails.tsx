@@ -167,7 +167,7 @@ const FormDetails: React.FC<FormDetailsProps> = ({
         initials: userData?.[0]?.Initials || 'N/A',
       };
       
-      const endpointUrl = `${getProxyBaseUrl()}/${process.env.REACT_APP_POST_FINANCIAL_TASK_PATH}?code=${process.env.REACT_APP_POST_FINANCIAL_TASK_CODE}`;
+      const endpointUrl = '/api/financial-task';
 
       try {
         const response = await fetch(endpointUrl, {

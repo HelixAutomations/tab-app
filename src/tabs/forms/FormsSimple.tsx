@@ -173,7 +173,7 @@ const getCategoryColor = (category: string): string => {
     General: '#0078d4',      // Blue
     Operations: '#107c10',    // Green
     Financial: '#8764b8',     // Purple
-    Tech: '#ff8c00',          // Orange
+    Tech: colours.highlight,  // Brand blue
     Directories: '#00b7c3',   // Teal
   };
   return colors[category] || colours.highlight;

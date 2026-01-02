@@ -195,13 +195,8 @@ router.get('/getComplianceData', (req, res) => proxyToAzureFunction(req, res, 'g
 // Deal capture API
 router.post('/insertDeal', (req, res) => proxyToAzureFunction(req, res, 'insertDeal', 7072, 'POST'));
 
-// Decoupled Functions (port 7071) - These are the JavaScript functions
-router.get('/fetchMattersData', (req, res) => proxyToAzureFunction(req, res, 'fetchMattersData', 7071, 'GET'));
-router.post('/fetchEnquiriesData', (req, res) => proxyToAzureFunction(req, res, 'fetchEnquiriesData', 7071, 'POST'));
-router.get('/fetchSnippetEdits', (req, res) => proxyToAzureFunction(req, res, 'fetchSnippetEdits', 7071, 'GET'));
-router.post('/insertEnquiry', (req, res) => proxyToAzureFunction(req, res, 'insertEnquiry', 7071, 'POST'));
-router.post('/processEnquiry', (req, res) => proxyToAzureFunction(req, res, 'processEnquiry', 7071, 'POST'));
-// sendEmail handled by Express redirect above
+// Decoupled Functions - ALL REMOVED (migrated to Express direct SQL)
+// Previous functions: fetchMattersData, fetchSnippetEdits, processEnquiry, fetchEnquiriesData, insertEnquiry, sendEmail
 
 // Handle OPTIONS requests for CORS
 router.options('*', (req, res) => {

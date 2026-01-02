@@ -114,6 +114,7 @@ router.get('/', async (req, res) => {
             d.PitchedTime,
             d.CloseDate,
             d.CloseTime,
+            d.InstructionRef,
             p.ScenarioId,
             d.PitchContent
           FROM [instructions].[dbo].[Deals] d
@@ -151,8 +152,20 @@ router.get('/', async (req, res) => {
               pitchedTime: row.PitchedTime,
               closeDate: row.CloseDate,
               closeTime: row.CloseTime,
+              instructionRef: row.InstructionRef,
               pitchContent: row.PitchContent,
-              scenarioId: row.ScenarioId,
+              scenarioId: row.ScenarioId || (() => {
+                // Try to extract scenarioId from PitchContent JSON if not in separate column
+                if (row.PitchContent) {
+                  try {
+                    const parsed = JSON.parse(row.PitchContent);
+                    return parsed.scenario || parsed.scenarioId || parsed.id || null;
+                  } catch (e) {
+                    return null;
+                  }
+                }
+                return null;
+              })(),
               scenarioDisplay: getScenarioDisplayName(row.AreaOfWork, row.ServiceDescription)
             };
             pitchByEmail.set(email, pitchEntry);

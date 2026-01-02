@@ -37,7 +37,7 @@ const TwoLayerFilter: React.FC<TwoLayerFilterProps> = ({
   hideSecondaryInProduction = false
 }) => {
   const { isDarkMode } = useTheme();
-  const height = 28; // align with SegmentedControl sm height
+  const height = 32; // align with FilterBanner standard height
   const fontSize = 12;
   const paddingX = 14;
 
@@ -193,12 +193,12 @@ const TwoLayerFilter: React.FC<TwoLayerFilterProps> = ({
               height: Math.max(0, height - 8),
               left: primaryThumbRect.left,
               width: primaryThumbRect.width,
-              background: '#FFFFFF',
-              borderRadius: height / 2 - 4,
+              background: isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.9)',
+              borderRadius: (height - 8) / 2,
               transition: 'left 250ms cubic-bezier(0.25, 0.46, 0.45, 0.94), width 250ms cubic-bezier(0.25, 0.46, 0.45, 0.94)',
               boxShadow: isDarkMode
-                ? '0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.24)'
-                : '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)',
+                ? '0 1px 2px rgba(0,0,0,0.2)'
+                : '0 1px 2px rgba(0,0,0,0.06)',
             }}
           />
         )}
@@ -222,7 +222,7 @@ const TwoLayerFilter: React.FC<TwoLayerFilterProps> = ({
                 padding: `0 ${paddingX}px`,
                 fontSize,
                 fontWeight: 500,
-                color: isActive ? '#1f2937' : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
+                color: isActive ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937') : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
                 transition: 'color 200ms ease',
                 minWidth: 0,
                 whiteSpace: 'nowrap'
@@ -279,12 +279,12 @@ const TwoLayerFilter: React.FC<TwoLayerFilterProps> = ({
                       height: Math.max(0, height - 8),
                       left: secondaryThumbRect.left,
                       width: secondaryThumbRect.width,
-                      background: '#FFFFFF',
-                      borderRadius: height / 2 - 4,
+                      background: isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.9)',
+                      borderRadius: (height - 8) / 2,
                       transition: 'left 250ms cubic-bezier(0.25, 0.46, 0.45, 0.94), width 250ms cubic-bezier(0.25, 0.46, 0.45, 0.94)',
                       boxShadow: isDarkMode
-                        ? '0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.24)'
-                        : '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)',
+                        ? '0 1px 2px rgba(0,0,0,0.2)'
+                        : '0 1px 2px rgba(0,0,0,0.06)',
                     }}
                   />
                 )}
@@ -310,7 +310,7 @@ const TwoLayerFilter: React.FC<TwoLayerFilterProps> = ({
                         padding: `0 ${paddingX}px`,
                         fontSize,
                         fontWeight: 500,
-                        color: isActive ? '#1f2937' : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
+                        color: isActive ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937') : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
                         transition: `color 160ms, opacity 240ms ease-out ${idx * 40}ms, transform 240ms ease-out ${idx * 40}ms`,
                         minWidth: 0,
                         whiteSpace: 'nowrap',
@@ -352,11 +352,11 @@ const TwoLayerFilter: React.FC<TwoLayerFilterProps> = ({
                     height: Math.max(0, height - 8),
                     left: 4,
                     right: 4,
-                    background: '#FFFFFF',
+                    background: isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.9)',
                     borderRadius: height / 2 - 4,
                     boxShadow: isDarkMode
-                      ? '0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.24)'
-                      : '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)',
+                      ? '0 1px 2px rgba(0,0,0,0.2)'
+                      : '0 1px 2px rgba(0,0,0,0.06)',
                   }}
                 />
                 {(() => {
@@ -380,7 +380,7 @@ const TwoLayerFilter: React.FC<TwoLayerFilterProps> = ({
                         padding: `0 ${paddingX}px`,
                         fontSize,
                         fontWeight: 500,
-                        color: '#1f2937',
+                        color: isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937',
                         minWidth: 0,
                         whiteSpace: 'nowrap',
                       }}
@@ -388,8 +388,8 @@ const TwoLayerFilter: React.FC<TwoLayerFilterProps> = ({
                       <span>{activeSubOpt.label}</span>
                       {typeof activeSubOpt.badge !== 'undefined' && (
                         <span style={{
-                          background: isDarkMode ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.08)',
-                          color: '#1f2937',
+                          background: isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)',
+                          color: isDarkMode ? 'rgba(255,255,255,0.9)' : '#1f2937',
                           borderRadius: 8,
                           padding: '2px 6px',
                           fontSize: fontSize - 2,

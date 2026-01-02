@@ -147,18 +147,18 @@ const dedupeClientMatters = (matters: MatterLike[]): MatterLike[] => {
 
 const panelBackground = (dark: boolean): string => (
   dark
-    ? 'linear-gradient(135deg, rgba(17, 24, 39, 0.94) 0%, rgba(15, 23, 42, 0.98) 100%)'
-    : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)'
+    ? colours.dark.cardBackground
+    : '#FFFFFF'
 );
 
 const cardBackground = (dark: boolean): string => (
   dark
-    ? 'linear-gradient(135deg, rgba(30, 41, 59, 0.92) 0%, rgba(15, 23, 42, 0.96) 100%)'
+    ? colours.dark.cardBackground
     : '#FFFFFF'
 );
 
 const borderColour = (dark: boolean): string => (
-  dark ? 'rgba(148, 163, 184, 0.32)' : '#e2e8f0'
+  dark ? 'rgba(54, 144, 206, 0.2)' : '#e2e8f0'
 );
 
 const mutedText = (dark: boolean): string => (

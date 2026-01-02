@@ -282,7 +282,9 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
   // Check if claimed
   const lowerPOC = enquiry.Point_of_Contact?.toLowerCase() || '';
   // Unclaimed criteria: ONLY team@helix-law.com (legacy distribution lists removed)
-  const isClaimed = lowerPOC !== 'team@helix-law.com' && !!lowerPOC;
+  // Triaged enquiries should not show as claimed since they're processed by triage system, not claimed by a person
+  const isTriaged = lowerPOC.includes('triage') || lowerPOC.includes('triaged');
+  const isClaimed = lowerPOC !== 'team@helix-law.com' && !!lowerPOC && !isTriaged;
 
   // Get claimer info
   const claimer = isClaimed
@@ -855,7 +857,8 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
           </div>
         )}
   {/* (ID badge bottom-right removed; now inline after name) */}
-        {/* Action buttons (cascade) */}
+        {/* Action buttons (cascade) - Only show for unclaimed enquiries, not triaged */}
+        {!isTriaged && (
         <div style={{ display: 'flex', flexDirection: 'column', marginTop: 6, transition: 'max-height 0.35s cubic-bezier(.4,0,.2,1), padding 0.35s cubic-bezier(.4,0,.2,1)', maxHeight: unclaimedShowActions || unclaimedSelected ? 60 : 0, paddingTop: unclaimedShowActions || unclaimedSelected ? 4 : 0, paddingBottom: unclaimedShowActions || unclaimedSelected ? 8 : 0, overflow: 'hidden' }}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {(() => {
@@ -904,6 +907,7 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
             })()}
           </div>
         </div>
+        )}
       </div>
     );
   }

@@ -14,6 +14,7 @@ import { lazy, Suspense } from "react";
 const Privacy = lazy(() => import("./Privacy"));
 const TermsOfUse = lazy(() => import("./TermsOfUse"));
 const Tab = lazy(() => import("./Tab"));
+import LoadingDebugTrigger from "./debug/LoadingDebugTrigger";
 import { TeamsFxContext } from "./Context";
 import config from "./sample/lib/config";
 
@@ -55,6 +56,7 @@ export default function App() {
               </Suspense>
           )}
         </Router>
+        <LoadingDebugTrigger />
       </FluentProvider>
     </TeamsFxContext.Provider>
   );

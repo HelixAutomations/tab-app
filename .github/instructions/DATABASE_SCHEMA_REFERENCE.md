@@ -238,6 +238,6 @@ WHERE i.InstructionRef = 'HLX-XXXXX-XXXXX';
 ## Related Files
 
 - Backend queries: `server/routes/instructions.js`, `server/routes/matter-operations.js`
-- Frontend display: `src/tabs/instructions/InstructionsTable.tsx`, `MatterOperations.tsx`
+- Frontend display: `src/tabs/instructions/Instructions.tsx`, `MatterOperations.tsx`
 - Normalization: `src/utils/matterNormalization.ts`
 - Backfill script: `scripts/backfill-instruction-matters.js`

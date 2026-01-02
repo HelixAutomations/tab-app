@@ -1,4 +1,3 @@
-
 // Clean admin tools - removed beaker and legacy toggle
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
@@ -62,10 +61,14 @@ import { app } from '@microsoft/teams-js';
 import AreaCountCard from './AreaCountCard';
 import 'rc-slider/assets/index.css';
 import '../../app/styles/NavigatorPivot.css';
+import '../../app/styles/animations.css';
+import '../../app/styles/CustomTabs.css';
 import Slider from 'rc-slider';
 import { debugLog, debugWarn } from '../../utils/debug';
 import { shouldAlwaysShowProspectHistory, isSharedProspectRecord } from './sharedProspects';
 import { checkIsLocalDev, isActuallyLocalhost } from '../../utils/useIsLocalDev';
+import EmptyState from '../../components/states/EmptyState';
+import LoadingState from '../../components/states/LoadingState';
 
 // Synthetic demo enquiry for demos/testing - always available, not from database
 const DEV_PREVIEW_TEST_ENQUIRY: Enquiry & { __sourceType: 'new' | 'legacy' } = {
@@ -332,6 +335,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // Unified enrichment data state (Teams + pitch data)
   const [enrichmentMap, setEnrichmentMap] = useState<Map<string, EnquiryEnrichmentData>>(new Map());
   
+  // Track whether triage pitch data has been loaded (for Triaged filter)
+  const [triagedDataLoaded, setTriagedDataLoaded] = useState(false);
+  
   // Track ongoing enrichment requests to prevent duplicates
   const enrichmentRequestsRef = useRef<Set<string>>(new Set());
 
@@ -342,10 +348,49 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
   
   // Table view: Sorting state
-  type SortColumn = 'date' | 'aow' | 'value' | 'contact' | 'pipeline' | null;
+  type SortColumn = 'date' | 'aow' | 'id' | 'value' | 'contact' | 'pipeline' | null;
   type SortDirection = 'asc' | 'desc';
   const [sortColumn, setSortColumn] = useState<SortColumn>('date');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  
+  // Pipeline filter state - for filtering by Teams/Pitched status (yes/no toggles)
+  type EnquiryPipelineStage = 'teams' | 'pitched';
+  type EnquiryPipelineStatus = 'yes' | 'no';
+  const [enquiryPipelineFilters, setEnquiryPipelineFilters] = useState<Map<EnquiryPipelineStage, EnquiryPipelineStatus>>(new Map());
+  
+  // POC filter - dropdown with team members (separate from toggle filters)
+  const [selectedPocFilter, setSelectedPocFilter] = useState<string | null>(null);
+  const [isPocDropdownOpen, setIsPocDropdownOpen] = useState(false);
+  
+  // Pitch scenario filter - dropdown with scenarios
+  const [selectedPitchScenarioFilter, setSelectedPitchScenarioFilter] = useState<string | null>(null);
+  const [isPitchScenarioDropdownOpen, setIsPitchScenarioDropdownOpen] = useState(false);
+  
+  // Pipeline filter toggle handler - cycles through: no filter → yes → no → no filter
+  const cycleEnquiryPipelineFilter = useCallback((stage: EnquiryPipelineStage) => {
+    setEnquiryPipelineFilters(prev => {
+      const newFilters = new Map(prev);
+      const currentFilter = newFilters.get(stage);
+      
+      if (!currentFilter) {
+        // Start with 'yes' (has this stage)
+        newFilters.set(stage, 'yes');
+      } else if (currentFilter === 'yes') {
+        // Switch to 'no' (doesn't have this stage)
+        newFilters.set(stage, 'no');
+      } else {
+        // Clear filter
+        newFilters.delete(stage);
+      }
+      
+      return newFilters;
+    });
+  }, []);
+  
+  // Get the current filter state for a stage (for display)
+  const getEnquiryStageFilterState = useCallback((stage: EnquiryPipelineStage): EnquiryPipelineStatus | null => {
+    return enquiryPipelineFilters.get(stage) || null;
+  }, [enquiryPipelineFilters]);
   
   const handleSortClick = (column: SortColumn) => {
     if (sortColumn === column) {
@@ -360,6 +405,25 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   
   // Table view: Track expanded grouped enquiries by client key
   const [expandedGroupsInTable, setExpandedGroupsInTable] = useState<Set<string>>(new Set());
+  
+  // Table view: Track collapsed days (by day key like '2025-12-31')
+  const [collapsedDays, setCollapsedDays] = useState<Set<string>>(new Set());
+  
+  // Table view: Track hovered day for highlight effect
+  const [hoveredDayKey, setHoveredDayKey] = useState<string | null>(null);
+  
+  // Toggle day collapse
+  const toggleDayCollapse = useCallback((dayKey: string) => {
+    setCollapsedDays(prev => {
+      const next = new Set(prev);
+      if (next.has(dayKey)) {
+        next.delete(dayKey);
+      } else {
+        next.add(dayKey);
+      }
+      return next;
+    });
+  }, []);
 
   // Reassignment state
   const [reassignmentDropdown, setReassignmentDropdown] = useState<{ enquiryId: string; x: number; y: number } | null>(null);
@@ -705,14 +769,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     }) => {
       const size = options?.size ?? 'default';
       const metrics = size === 'compact'
-        ? { padding: '3px 8px', fontSize: 9, iconSize: 11, minWidth: 110 }
-        : { padding: '5px 12px', fontSize: 10, iconSize: 12, minWidth: 140 };
-      const baseShadow = isDarkMode
-        ? '0 2px 6px rgba(135, 243, 243, 0.08)'
-        : '0 2px 6px rgba(54, 144, 206, 0.10)';
-      const hoverShadow = isDarkMode
-        ? '0 3px 8px rgba(135, 243, 243, 0.12)'
-        : '0 3px 8px rgba(54, 144, 206, 0.15)';
+        ? { padding: '4px 8px', fontSize: 9, iconSize: 10 }
+        : { padding: '4px 10px', fontSize: 10, iconSize: 11 };
       const leadLabel = options?.leadName?.trim() || 'this lead';
       const isClaiming = options?.enquiryId ? claimingEnquiries.has(options.enquiryId) : false;
 
@@ -779,45 +837,54 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           style={{
             display: 'inline-flex',
             alignItems: 'center',
-            gap: '6px',
+            gap: '4px',
             padding: metrics.padding,
-            borderRadius: 6,
-            border: `1px dashed ${isDarkMode ? 'rgba(135, 243, 243, 0.6)' : 'rgba(54, 144, 206, 0.7)'}`,
-            background: isDarkMode ? 'rgba(135, 243, 243, 0.10)' : 'rgba(54, 144, 206, 0.12)',
-            color: isDarkMode ? 'rgba(135, 243, 243, 0.95)' : 'rgba(54, 144, 206, 0.95)',
+            borderRadius: 0,
+            border: `1px solid ${isDarkMode ? 'rgba(245, 158, 11, 0.4)' : 'rgba(217, 119, 6, 0.45)'}`,
+            background: isDarkMode ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.08)',
+            color: isDarkMode ? 'rgba(251, 191, 36, 0.95)' : 'rgba(180, 83, 9, 0.9)',
             textTransform: 'uppercase',
-            fontWeight: 700,
-            letterSpacing: '0.45px',
+            fontWeight: 600,
+            letterSpacing: '0.3px',
             fontSize: `${metrics.fontSize}px`,
             cursor: isClaiming ? 'wait' : 'pointer',
-            minWidth: `${metrics.minWidth}px`,
             justifyContent: 'center',
-            boxShadow: baseShadow,
-            transition: 'all 0.2s ease',
+            transition: 'all 0.15s ease',
             fontFamily: 'inherit',
-            animation: isClaiming ? 'none' : 'pulse-glow 3s infinite ease-in-out',
+            opacity: isClaiming ? 0.6 : 1,
             position: 'relative',
-            opacity: isClaiming ? 0.7 : 1,
           }}
           onMouseEnter={(e) => {
             if (!isClaiming) {
-              e.currentTarget.style.boxShadow = hoverShadow;
-              e.currentTarget.style.transform = 'translateY(-1px) scale(1.02)';
-              e.currentTarget.style.animation = 'none';
+              e.currentTarget.style.background = isDarkMode ? 'rgba(245, 158, 11, 0.18)' : 'rgba(245, 158, 11, 0.14)';
+              e.currentTarget.style.borderColor = isDarkMode ? 'rgba(245, 158, 11, 0.55)' : 'rgba(217, 119, 6, 0.6)';
             }
           }}
           onMouseLeave={(e) => {
             if (!isClaiming) {
-              e.currentTarget.style.boxShadow = baseShadow;
-              e.currentTarget.style.transform = 'translateY(0) scale(1)';
-              e.currentTarget.style.animation = 'pulse-glow 2s infinite';
+              e.currentTarget.style.background = isDarkMode ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.08)';
+              e.currentTarget.style.borderColor = isDarkMode ? 'rgba(245, 158, 11, 0.4)' : 'rgba(217, 119, 6, 0.45)';
             }
           }}
           title={isClaiming ? 'Claiming...' : (options?.enquiryId ? `Claim ${leadLabel}` : 'Open shared inbox channel in Teams')}
         >
-          <Icon iconName={isClaiming ? 'Sync' : 'LockSolid'} styles={{ root: { fontSize: metrics.iconSize, color: 'inherit', animation: isClaiming ? 'spin 1s linear infinite' : 'none' } }} />
+          {/* Status dot indicator */}
+          {!isClaiming && (
+            <span
+              style={{
+                position: 'absolute',
+                top: '-3px',
+                right: '-3px',
+                width: '6px',
+                height: '6px',
+                borderRadius: '50%',
+                background: isDarkMode ? 'rgba(251, 191, 36, 0.9)' : 'rgba(217, 119, 6, 0.85)',
+                animation: 'status-breathe 2s ease-in-out infinite',
+              }}
+            />
+          )}
+          <Icon iconName={isClaiming ? 'Sync' : 'Contact'} styles={{ root: { fontSize: metrics.iconSize, color: 'inherit', animation: isClaiming ? 'spin 1s linear infinite' : 'none' } }} />
           <span>{isClaiming ? 'Claiming...' : 'Claim'}</span>
-          {!isClaiming && <Icon iconName="ChevronRight" styles={{ root: { fontSize: metrics.iconSize - 1, opacity: 0.85, color: 'inherit' } }} />}
         </button>
       );
     },
@@ -1116,6 +1183,21 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [reassignmentDropdown, closeReassignmentDropdown]);
 
+  // Close POC dropdown when clicking outside
+  useEffect(() => {
+    if (!isPocDropdownOpen) return;
+    
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest('.poc-filter-dropdown')) {
+        setIsPocDropdownOpen(false);
+      }
+    };
+    
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isPocDropdownOpen]);
+
   // Helper function to get initials from POC email
   const getPocInitials = (pocEmail: string | null | undefined): string => {
     if (!pocEmail || pocEmail.toLowerCase() === 'team@helix-law.com') {
@@ -1400,6 +1482,94 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       hour12: false,
       timeZoneName: 'short',
     });
+  };
+
+  // Time ago helper for stacked display
+  const timeAgo = (dateStr: string | null): string => {
+    if (!dateStr) return '';
+    const now = new Date();
+    const then = new Date(dateStr);
+    if (isNaN(then.getTime())) return '';
+    const seconds = Math.floor((now.getTime() - then.getTime()) / 1000);
+    
+    if (seconds < 60) return `${seconds}s ago`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    return `${Math.floor(seconds / 86400)}d ago`;
+  };
+
+  // Get compact time display - single line format
+  const getCompactTimeDisplay = (dateStr: string | null): string => {
+    if (!dateStr) return '-';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return '-';
+    
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    const diffHours = diffMs / (1000 * 60 * 60);
+    const diffDays = diffMs / (1000 * 60 * 60 * 24);
+    
+    const timePart = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const isLegacyPlaceholder = timePart === '00:00';
+    
+    // Today: show time + relative (e.g. "14:32 · 2h")
+    if (d.toDateString() === now.toDateString()) {
+      if (isLegacyPlaceholder) return 'Today';
+      if (diffHours < 1) return `${Math.floor(diffMs / 60000)}m ago`;
+      return `${timePart}`;
+    }
+    
+    // Yesterday
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (d.toDateString() === yesterday.toDateString()) {
+      return isLegacyPlaceholder ? 'Yesterday' : `Yest ${timePart}`;
+    }
+    
+    // Within 7 days: show day name + time
+    if (diffDays < 7) {
+      const dayName = d.toLocaleDateString('en-GB', { weekday: 'short' });
+      return isLegacyPlaceholder ? dayName : `${dayName} ${timePart}`;
+    }
+    
+    // Older: show date
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  };
+  
+  // Format day separator label (e.g. "Today", "Yesterday", "Mon 30 Dec")
+  const formatDaySeparatorLabel = (dayKey: string): string => {
+    if (!dayKey) return '';
+    const d = new Date(dayKey + 'T12:00:00'); // Use noon to avoid timezone issues
+    if (isNaN(d.getTime())) return dayKey;
+    
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const targetDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    
+    if (targetDay.getTime() === today.getTime()) {
+      return 'Today';
+    }
+    
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (targetDay.getTime() === yesterday.getTime()) {
+      return 'Yesterday';
+    }
+    
+    // Within 7 days: show day name + date
+    const diffDays = (today.getTime() - targetDay.getTime()) / (1000 * 60 * 60 * 24);
+    if (diffDays < 7) {
+      return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+    }
+    
+    // Older: show full date
+    return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  };
+  
+  // Legacy helper - keep for compatibility but redirect to compact
+  const getStackedTimeParts = (dateStr: string | null): { datePart: string; timePart: string; relative: string } => {
+    const compact = getCompactTimeDisplay(dateStr);
+    return { datePart: compact, timePart: '', relative: '' };
   };
 
   // Format claim time display
@@ -2193,16 +2363,17 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       }
     }, 5 * 60 * 1000); // 5 minutes
 
-    // Set up countdown timer (updates every second for smooth progress)
+    // Set up countdown timer (updates every 30 seconds to reduce re-renders)
+    // For a 5-minute timer, second-by-second updates are unnecessary
     countdownIntervalRef.current = setInterval(() => {
       setNextRefreshIn(prev => {
-        const newValue = prev - 1;
+        const newValue = prev - 30;
         if (newValue <= 0) {
           return 5 * 60; // Reset to 5 minutes
         }
         return newValue;
       });
-    }, 1000); // 1 second
+    }, 30000); // 30 seconds - reduces re-renders from 300 to 10 per cycle
 
     debugLog('🕐 Auto-refresh intervals initialized');
 
@@ -2549,6 +2720,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       filtered = filtered.filter(enquiry => {
         // Handle both old and new schema
         const poc = (enquiry.Point_of_Contact || (enquiry as any).poc || '').toLowerCase();
+        // Exclude triaged enquiries from unclaimed view
+        if (poc.includes('triage')) return false;
+        // Also exclude enquiries with triage deals
+        const enrichmentData = enrichmentMap.get(String(enquiry.ID));
+        const pitchedBy = ((enrichmentData?.pitchData as any)?.pitchedBy || '').toLowerCase();
+        if (pitchedBy === 'triage') return false;
         if (!unclaimedEmails.includes(poc)) return false;
         // suppression against claimed same-day same-contact
         const email = typeof (enquiry as any).Email === 'string' ? (enquiry as any).Email.toLowerCase() : (typeof (enquiry as any).email === 'string' ? (enquiry as any).email.toLowerCase() : '');
@@ -2567,12 +2744,28 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         const key = `${contact}|${day}`;
         return !claimedContactDaySet.has(key);
       });
+    } else if (activeState === 'Triaged') {
+      // Admin-only: Show enquiries that were pitched via triage flow
+      // Wait for triage pitch data to load before filtering
+      if (!triagedDataLoaded) {
+        return []; // Return empty while loading
+      }
+      
+      filtered = filtered.filter(enquiry => {
+        const enrichmentData = enrichmentMap.get(String(enquiry.ID));
+        const pitchedBy = ((enrichmentData?.pitchData as any)?.pitchedBy || '').toLowerCase();
+        return pitchedBy === 'triage';
+      });
     }
 
     // Area-based access control and filtering
-    // CRITICAL: Skip ALL area filtering in Mine+Claimed mode to show every claimed enquiry
+    // CRITICAL: Skip ALL area filtering for:
+    // 1. Mine+Claimed mode - show every claimed enquiry regardless of area
+    // 2. Triaged state - triage is cross-area, filtering is done by pitchedBy only
     if (showMineOnly && activeState === 'Claimed') {
       // No area filtering at all - show everything the user claimed
+    } else if (activeState === 'Triaged') {
+      // Skip area filtering for Triaged - triage is cross-area, filtering already done by pitchedBy
     } else if (activeState === 'Claimable' && userData && userData.length > 0 && userData[0].AOW) {
       // Area-based access control - only applies for unclaimed enquiries
       const userAOW = userData[0].AOW.split(',').map(a => a.trim().toLowerCase());
@@ -2661,7 +2854,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       });
     }
 
-    
     // Apply search term filter using debounced value
     if (debouncedSearchTerm.trim()) {
       const term = debouncedSearchTerm.toLowerCase();
@@ -2693,7 +2885,50 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         return computed === selectedPersonInitials;
       });
     }
-    
+
+    // Apply pipeline filters (Teams/Pitched - yes/no toggles)
+    if (enquiryPipelineFilters.size > 0) {
+      filtered = filtered.filter(enquiry => {
+        const enrichmentData = enrichmentMap.get(String(enquiry.ID));
+        
+        // Check each active filter
+        for (const [stage, requiredStatus] of enquiryPipelineFilters.entries()) {
+          let hasStage = false;
+          
+          if (stage === 'teams') {
+            hasStage = !!(enrichmentData?.teamsData);
+          } else if (stage === 'pitched') {
+            hasStage = !!(enrichmentData?.pitchData);
+          }
+          
+          // requiredStatus is 'yes' or 'no'
+          if (requiredStatus === 'yes' && !hasStage) return false;
+          if (requiredStatus === 'no' && hasStage) return false;
+        }
+        
+        return true;
+      });
+    }
+
+    // Apply POC filter (dropdown selection by team member email)
+    if (selectedPocFilter) {
+      filtered = filtered.filter(enquiry => {
+        const poc = (enquiry.Point_of_Contact || (enquiry as any).poc || '').toLowerCase();
+        return poc === selectedPocFilter.toLowerCase();
+      });
+    }
+
+    // Apply pitch scenario filter
+    if (selectedPitchScenarioFilter) {
+      filtered = filtered.filter(enquiry => {
+        const enrichmentData = enrichmentMap.get(String(enquiry.ID));
+        if (!enrichmentData?.pitchData) return false;
+        // Check if the pitch has the selected scenario
+        const pitchScenario = enrichmentData.pitchData.scenarioId;
+        return pitchScenario === selectedPitchScenarioFilter;
+      });
+    }
+
     return filtered;
   }, [
     dedupedEnquiries, // Use deduped full dataset, not slider range
@@ -2705,6 +2940,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     unclaimedEmails,
     selectedPersonInitials,
     teamData,
+    enrichmentMap, // For Triaged filter and pipeline filters
+    triagedDataLoaded, // For Triaged filter - wait until data is loaded
+    enquiryPipelineFilters, // For pipeline filtering (Teams/Pitched)
+    selectedPocFilter, // For POC dropdown filter
+    selectedPitchScenarioFilter, // For pitch scenario filter
   ]);
 
   // Build a quick lookup of every enquiry keyed by ID so special shared IDs can hydrate their history.
@@ -2813,6 +3053,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           comparison = aowA.localeCompare(aowB);
           break;
         }
+        case 'id': {
+          const idA = parseInt(String(a.ID || '0').replace(/\D/g, ''), 10) || 0;
+          const idB = parseInt(String(b.ID || '0').replace(/\D/g, ''), 10) || 0;
+          comparison = idA - idB;
+          break;
+        }
         case 'value': {
           const valueA = parseFloat(String(a.Value || '0').replace(/[^0-9.-]/g, '')) || 0;
           const valueB = parseFloat(String(b.Value || '0').replace(/[^0-9.-]/g, '')) || 0;
@@ -2859,16 +3105,28 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       return next;
     };
 
-    // When Unclaimed board is active, override with unclaimed dataset (always table-oriented ordering)
+    // When Unclaimed board is active, override with unclaimed dataset
     if (showUnclaimedBoard) {
       const sorted = sortEnquiries([...unclaimedEnquiries]);
-      // If sorting by date desc (default), reverse to show newest first
-      const ordered = sortColumn === 'date' && sortDirection === 'desc' ? sorted : sorted;
-      return ordered.slice(0, itemsToShow);
+      return sorted.slice(0, itemsToShow);
     }
     if (showGroupedView) {
-      const mixedItems = getMixedEnquiryDisplay([...filteredEnquiriesWithSharedHistory].reverse());
-      const pinned = pinDemoFirst(mixedItems);
+      // For grouped view, get mixed display then sort the result
+      const mixedItems = getMixedEnquiryDisplay([...filteredEnquiriesWithSharedHistory]);
+      // Sort based on current sort settings
+      const sortedMixed = [...mixedItems].sort((a, b) => {
+        const getDate = (item: any): number => {
+          if (isGroupedEnquiry(item)) {
+            const latest = item.enquiries[0];
+            return new Date(latest?.Touchpoint_Date || latest?.Date_Created || 0).getTime();
+          }
+          return new Date(item?.Touchpoint_Date || item?.Date_Created || 0).getTime();
+        };
+        const dateA = getDate(a);
+        const dateB = getDate(b);
+        return sortDirection === 'asc' ? dateA - dateB : dateB - dateA;
+      });
+      const pinned = pinDemoFirst(sortedMixed);
       return pinned.slice(0, itemsToShow);
     }
     // Apply sorting to filtered enquiries
@@ -2895,12 +3153,18 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   // Progressive enrichment for displayed items only (more efficient)
   useEffect(() => {
+    // Skip enrichment when viewing a single enquiry detail
+    if (selectedEnquiry) {
+      return;
+    }
+
     const fetchProgressiveEnrichment = async () => {
       // Get currently displayed enquiries that need enrichment
       const displayedEnquiries = displayedItems.filter((item): item is (Enquiry & { __sourceType: 'new' | 'legacy' }) => {
         if (!('ID' in item) || !item.ID) return false;
-        const hasEnrichment = enrichmentMap.has(item.ID);
-        const isBeingFetched = enrichmentRequestsRef.current.has(item.ID);
+        const key = String(item.ID);
+        const hasEnrichment = enrichmentMap.has(key);
+        const isBeingFetched = enrichmentRequestsRef.current.has(key);
         return !hasEnrichment && !isBeingFetched;
       });
 
@@ -3014,7 +3278,83 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     // Add a small delay to debounce rapid calls
     const timeoutId = setTimeout(fetchProgressiveEnrichment, 100);
     return () => clearTimeout(timeoutId);
-  }, [displayedItems, dedupedEnquiries.length, showGroupedView, showUnclaimedBoard, filteredEnquiries.length, filteredEnquiriesWithSharedHistory.length, unclaimedEnquiries.length, itemsToShow, viewMode]); // Trigger on any data or view change
+  }, [selectedEnquiry, displayedItems, dedupedEnquiries.length, showGroupedView, showUnclaimedBoard, filteredEnquiries.length, filteredEnquiriesWithSharedHistory.length, unclaimedEnquiries.length, itemsToShow, viewMode]); // Trigger on any data or view change
+
+  // Bulk fetch pitch data when Triaged filter is active (needs all emails, not just displayed)
+  const triagedBulkFetchRef = useRef<boolean>(false);
+  useEffect(() => {
+    if (activeState !== 'Triaged') {
+      // Reset state when switching away from Triaged
+      if (triagedBulkFetchRef.current || triagedDataLoaded) {
+        triagedBulkFetchRef.current = false;
+        setTriagedDataLoaded(false);
+      }
+      return;
+    }
+    
+    if (triagedBulkFetchRef.current && triagedDataLoaded) return;
+    
+    const fetchAllPitchData = async () => {
+      // Get ALL enquiry emails (not just displayed ones)
+      const allEmails = dedupedEnquiries
+        .map(enquiry => enquiry.Email)
+        .filter((email): email is string => Boolean(email) && email.toLowerCase() !== 'team@helix-law.com');
+      
+      const uniqueEmails = [...new Set(allEmails.map(e => e.toLowerCase()))];
+      
+      if (uniqueEmails.length === 0) {
+        setTriagedDataLoaded(true);
+        return;
+      }
+      
+      try {
+        // Batch emails to avoid URL length limits (431 error)
+        const batchSize = 50;
+        const batches: string[][] = [];
+        for (let i = 0; i < uniqueEmails.length; i += batchSize) {
+          batches.push(uniqueEmails.slice(i, i + batchSize));
+        }
+        
+        // Run batches in parallel (max 4 concurrent) for speed
+        const concurrency = 4;
+        let allPitchData: { [email: string]: any } = {};
+        
+        for (let i = 0; i < batches.length; i += concurrency) {
+          const chunk = batches.slice(i, i + concurrency);
+          const results = await Promise.all(
+            chunk.map(batch => fetchEnquiryEnrichment([], batch))
+          );
+          results.forEach(res => Object.assign(allPitchData, res.pitchByEmail || {}));
+        }
+        
+        // Update enrichment map with pitch data for all enquiries
+        setEnrichmentMap(prevMap => {
+          const newMap = new Map(prevMap);
+          
+          dedupedEnquiries.forEach(enquiry => {
+            if (enquiry.Email && enquiry.ID) {
+              const pitchData = allPitchData[enquiry.Email.toLowerCase()];
+              if (pitchData) {
+                const key = String(enquiry.ID);
+                const existingData = newMap.get(key) || { enquiryId: key };
+                newMap.set(key, { ...existingData, pitchData });
+              }
+            }
+          });
+          
+          return newMap;
+        });
+        
+        triagedBulkFetchRef.current = true;
+        setTriagedDataLoaded(true);
+      } catch (error) {
+        console.error('[Triaged Bulk Fetch] Failed:', error);
+        setTriagedDataLoaded(true); // Mark as loaded even on error to stop loading state
+      }
+    };
+    
+    fetchAllPitchData();
+  }, [activeState, dedupedEnquiries, triagedDataLoaded]);
 
   // Clear enrichment request tracking when view context changes significantly
   useEffect(() => {
@@ -3518,31 +3858,301 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     // List mode: filter/search bar in Navigator (like Matters list state)
     if (!selectedEnquiry) {
       debugLog('🔄 Setting new FilterBanner content for Enquiries');
+      
+      // Build filter options - admins get Triaged option
+      const baseFilterOptions = ['Claimed', 'Unclaimed'];
+      const filterOptions = isAdmin ? [...baseFilterOptions, 'Triaged'] : baseFilterOptions;
+      
+      const getFilterIcon = (k: string) => {
+        if (k === 'Claimed') {
+          return (
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <path d="M3 8.5L6.5 12L13 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            </svg>
+          );
+        } else if (k === 'Unclaimed') {
+          return (
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
+              <path d="M8 4V8.5L11 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            </svg>
+          );
+        } else {
+          // Triaged - filter/funnel icon
+          return (
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <path d="M2 3h12l-4.5 5.5V13l-3 1.5V8.5L2 3z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            </svg>
+          );
+        }
+      };
+
+      // Custom status filter with embedded Mine/All toggle when Claimed is selected
+      const StatusFilterWithScope = () => {
+        const height = 32;
+        const currentState = activeState === 'Claimable' ? 'Unclaimed' : activeState;
+        const isClaimed = currentState === 'Claimed';
+        
+        return (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0,
+            }}
+          >
+            {/* Claimed tab with integrated Mine/All extension */}
+            <div
+              style={{
+                display: 'flex',
+                position: 'relative',
+                background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                borderRadius: `${height / 2}px`,
+                padding: 4,
+                height,
+                fontFamily: 'Raleway, sans-serif',
+                userSelect: 'none',
+                overflow: 'hidden',
+              }}
+            >
+              <button
+                type="button"
+                aria-pressed={isClaimed}
+                onClick={() => handleSetActiveState('Claimed')}
+                style={{
+                  position: 'relative',
+                  zIndex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 5,
+                  background: isClaimed ? (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.9)') : 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '0 12px',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: isClaimed 
+                    ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937')
+                    : (isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.55)'),
+                  transition: 'color 200ms ease',
+                  minWidth: 0,
+                  whiteSpace: 'nowrap',
+                  outline: 'none',
+                  borderRadius: (height - 8) / 2,
+                  boxShadow: isClaimed ? (isDarkMode ? '0 1px 2px rgba(0,0,0,0.2)' : '0 1px 2px rgba(0,0,0,0.06)') : 'none',
+                }}
+              >
+                <span style={{ display: 'flex', alignItems: 'center', color: 'inherit' }}>
+                  {getFilterIcon('Claimed')}
+                </span>
+                <span>Claimed</span>
+              </button>
+              
+              {/* Mine/All toggle - inside the same container, flows from Claimed */}
+              {isClaimed && (
+                <>
+                  <div
+                    role="group"
+                    aria-label="Filter by ownership"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      height: height - 8,
+                      padding: '0 3px',
+                      background: isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
+                      borderRadius: (height - 8) / 2,
+                      gap: 2,
+                      marginLeft: 4,
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setShowMineOnly(true)}
+                      title={`Show my claimed enquiries (${scopeCounts.mineCount || 0})`}
+                      aria-pressed={showMineOnly}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 4,
+                        height: height - 12,
+                        padding: '0 7px',
+                        background: showMineOnly 
+                          ? (isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)')
+                          : 'transparent',
+                        border: 'none',
+                        borderRadius: (height - 12) / 2,
+                        cursor: 'pointer',
+                        fontSize: 10,
+                        fontWeight: 600,
+                        color: showMineOnly 
+                          ? (isDarkMode ? 'rgba(255, 255, 255, 0.95)' : 'rgba(0, 0, 0, 0.85)')
+                          : (isDarkMode ? 'rgba(255, 255, 255, 0.45)' : 'rgba(0, 0, 0, 0.4)'),
+                        transition: 'all 150ms ease',
+                        boxShadow: showMineOnly ? (isDarkMode ? '0 1px 2px rgba(0,0,0,0.2)' : '0 1px 2px rgba(0,0,0,0.06)') : 'none',
+                      }}
+                    >
+                      <span>Mine</span>
+                      {scopeCounts.mineCount !== undefined && (
+                        <span 
+                          style={{
+                          background: showMineOnly 
+                            ? (isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)')
+                            : (isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.05)'),
+                          borderRadius: 5,
+                          padding: '1px 4px',
+                          fontSize: 9,
+                          fontWeight: 600,
+                          lineHeight: 1.2,
+                        }}>
+                          {scopeCounts.mineCount}
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowMineOnly(false)}
+                      title={`Show all claimed enquiries (${scopeCounts.allCount || 0})`}
+                      aria-pressed={!showMineOnly}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 4,
+                        height: height - 12,
+                        padding: '0 7px',
+                        background: !showMineOnly 
+                          ? (isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)')
+                          : 'transparent',
+                        border: 'none',
+                        borderRadius: (height - 12) / 2,
+                        cursor: 'pointer',
+                        fontSize: 10,
+                        fontWeight: 600,
+                        color: !showMineOnly 
+                          ? (isDarkMode ? 'rgba(255, 255, 255, 0.95)' : 'rgba(0, 0, 0, 0.85)')
+                          : (isDarkMode ? 'rgba(255, 255, 255, 0.45)' : 'rgba(0, 0, 0, 0.4)'),
+                        transition: 'all 150ms ease',
+                        boxShadow: !showMineOnly ? (isDarkMode ? '0 1px 2px rgba(0,0,0,0.2)' : '0 1px 2px rgba(0,0,0,0.06)') : 'none',
+                      }}
+                    >
+                      <span>All</span>
+                      {scopeCounts.allCount !== undefined && (
+                        <span 
+                          style={{
+                          background: !showMineOnly 
+                            ? (isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)')
+                            : (isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.05)'),
+                          borderRadius: 5,
+                          padding: '1px 4px',
+                          fontSize: 9,
+                          fontWeight: 600,
+                          lineHeight: 1.2,
+                        }}>
+                          {scopeCounts.allCount}
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Unclaimed and Triaged tabs */}
+            <div
+              style={{
+                display: 'flex',
+                position: 'relative',
+                background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                borderRadius: `${height / 2}px`,
+                padding: 4,
+                height,
+                fontFamily: 'Raleway, sans-serif',
+                userSelect: 'none',
+                overflow: 'hidden',
+                marginLeft: 4,
+              }}
+            >
+              <button
+                type="button"
+                aria-pressed={currentState === 'Unclaimed'}
+                onClick={() => handleSetActiveState('Claimable')}
+                style={{
+                  position: 'relative',
+                  zIndex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 5,
+                  background: currentState === 'Unclaimed' ? (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.9)') : 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '0 12px',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: currentState === 'Unclaimed'
+                    ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937')
+                    : (isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.55)'),
+                  transition: 'color 200ms ease',
+                  minWidth: 0,
+                  whiteSpace: 'nowrap',
+                  outline: 'none',
+                  borderRadius: currentState === 'Unclaimed' ? (height - 8) / 2 : 0,
+                  boxShadow: currentState === 'Unclaimed' ? (isDarkMode ? '0 1px 2px rgba(0,0,0,0.2)' : '0 1px 2px rgba(0,0,0,0.06)') : 'none',
+                }}
+              >
+                <span style={{ display: 'flex', alignItems: 'center', color: 'inherit' }}>
+                  {getFilterIcon('Unclaimed')}
+                </span>
+                <span>Unclaimed</span>
+              </button>
+
+              <button
+                type="button"
+                aria-pressed={currentState === 'Triaged'}
+                onClick={() => handleSetActiveState('Triaged')}
+                style={{
+                  position: 'relative',
+                  zIndex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 5,
+                  background: currentState === 'Triaged' ? (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.9)') : 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '0 12px',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: currentState === 'Triaged'
+                    ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937')
+                    : (isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.55)'),
+                  transition: 'color 200ms ease',
+                  minWidth: 0,
+                  whiteSpace: 'nowrap',
+                  outline: 'none',
+                  borderRadius: currentState === 'Triaged' ? (height - 8) / 2 : 0,
+                  boxShadow: currentState === 'Triaged' ? (isDarkMode ? '0 1px 2px rgba(0,0,0,0.2)' : '0 1px 2px rgba(0,0,0,0.06)') : 'none',
+                }}
+              >
+                <span style={{ display: 'flex', alignItems: 'center', color: 'inherit' }}>
+                  {getFilterIcon('Triaged')}
+                </span>
+                <span>Triaged</span>
+              </button>
+            </div>
+          </div>
+        );
+      };
+      
       setContent(
         <FilterBanner
           seamless
           dense
           collapsibleSearch
           sticky={false}
-          primaryFilter={{
-            value: activeState === 'Claimable' ? 'Unclaimed' : activeState,
-            onChange: (k) => handleSetActiveState(k === 'Unclaimed' ? 'Claimable' : k),
-            options: ['Claimed','Unclaimed'].map(k => ({ 
-              key: k, 
-              label: k,
-              icon: k === 'Claimed' ? (
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                  <path d="M3 8.5L6.5 12L13 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-                </svg>
-              ) : (
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                  <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
-                  <path d="M8 4V8.5L11 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-                </svg>
-              )
-            })),
-            ariaLabel: "Filter enquiries by status"
-          }}
+          primaryFilter={<StatusFilterWithScope />}
           secondaryFilter={(
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               {userData && userData[0]?.AOW && (
@@ -3553,40 +4163,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                   ariaLabel="Filter enquiries by area of work"
                 />
               )}
-              <SegmentedControl
-                id="enquiries-scope-seg"
-                ariaLabel="Scope: toggle between my enquiries and all enquiries"
-                value={showMineOnly ? 'mine' : 'all'}
-                onChange={(v) => setShowMineOnly(v === 'mine')}
-                options={[
-                  { 
-                    key: 'mine', 
-                    label: 'Mine', 
-                    badge: scopeCounts.mineCount || undefined, 
-                    disabled: activeState === 'Claimable',
-                    icon: (
-                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                        <circle cx="8" cy="5" r="3" stroke="currentColor" strokeWidth="1.5" fill="none" />
-                        <path d="M3 15C3 11.6863 5.23858 9 8 9C10.7614 9 13 11.6863 13 15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
-                      </svg>
-                    )
-                  },
-                  { 
-                    key: 'all', 
-                    label: 'All', 
-                    badge: scopeCounts.allCount || undefined, 
-                    disabled: activeState === 'Claimable',
-                    icon: (
-                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                        <circle cx="5" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.4" fill="none" />
-                        <path d="M1 14C1 11.5 2.8 9.5 5 9.5C7.2 9.5 9 11.5 9 14" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none" />
-                        <circle cx="11" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.4" fill="none" />
-                        <path d="M7 14C7 11.5 8.8 9.5 11 9.5C13.2 9.5 15 11.5 15 14" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none" />
-                      </svg>
-                    )
-                  }
-                ]}
-              />
               {/* Add Contact button */}
               <button
                 type="button"
@@ -3666,7 +4242,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                     gap: 5,
                     height: 26,
                     padding: '0 10px',
-                    background: viewMode === 'card' ? '#FFFFFF' : 'transparent',
+                    background: viewMode === 'card' ? (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.9)') : 'transparent',
                     border: 'none',
                     borderRadius: 13,
                     cursor: 'pointer',
@@ -3674,49 +4250,25 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                     opacity: viewMode === 'card' ? 1 : 0.6,
                     boxShadow: viewMode === 'card' 
                       ? (isDarkMode
-                          ? '0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.24)'
-                          : '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)')
+                          ? '0 1px 2px rgba(0,0,0,0.2)'
+                          : '0 1px 2px rgba(0,0,0,0.06)')
                       : 'none',
                   }}
                 >
-                  {/* Card icon - shows current column state when active */}
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 16 16"
-                    fill="none"
+                  <Icon
+                    iconName="GridViewMedium"
                     style={{
-                      color: viewMode === 'card' 
-                        ? '#1f2937'
+                      fontSize: 12,
+                      color: viewMode === 'card'
+                        ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937')
                         : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
                     }}
-                  >
-                    {viewMode === 'card' && twoColumn ? (
-                      // Two column icon
-                      <>
-                        <rect x="1" y="1" width="6" height="14" rx="1.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
-                        <rect x="9" y="1" width="6" height="14" rx="1.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
-                      </>
-                    ) : viewMode === 'card' && !twoColumn ? (
-                      // Single column icon
-                      <>
-                        <rect x="3" y="1" width="10" height="14" rx="1.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
-                      </>
-                    ) : (
-                      // Default card grid icon when not selected
-                      <>
-                        <rect x="1" y="1" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" fill="none" />
-                        <rect x="9" y="1" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" fill="none" />
-                        <rect x="1" y="9" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" fill="none" />
-                        <rect x="9" y="9" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" fill="none" />
-                      </>
-                    )}
-                  </svg>
+                  />
                   <span style={{
                     fontSize: '12px',
                     fontWeight: 500,
                     color: viewMode === 'card' 
-                      ? '#1f2937'
+                      ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937')
                       : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
                   }}>
                     {viewMode === 'card' ? (twoColumn ? '2 Col' : '1 Col') : 'Cards'}
@@ -3738,7 +4290,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                   gap: 5,
                   height: 26,
                   padding: '0 10px',
-                  background: viewMode === 'table' ? '#FFFFFF' : 'transparent',
+                  background: viewMode === 'table' ? (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.9)') : 'transparent',
                   border: 'none',
                   borderRadius: 13,
                   cursor: 'pointer',
@@ -3746,32 +4298,25 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                   opacity: viewMode === 'table' ? 1 : 0.6,
                   boxShadow: viewMode === 'table' 
                     ? (isDarkMode
-                        ? '0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.24)'
-                        : '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)')
+                        ? '0 1px 2px rgba(0,0,0,0.2)'
+                        : '0 1px 2px rgba(0,0,0,0.06)')
                     : 'none',
                 }}
               >
-                {/* Table icon - clearer rows representation */}
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 16 16"
-                  fill="none"
+                <Icon
+                  iconName="BulletedList"
                   style={{
-                    color: viewMode === 'table' 
-                      ? '#1f2937'
+                    fontSize: 12,
+                    color: viewMode === 'table'
+                      ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937')
                       : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
                   }}
-                >
-                  <rect x="1" y="2" width="14" height="3" rx="0.75" stroke="currentColor" strokeWidth="1.5" fill="none" />
-                  <rect x="1" y="6.5" width="14" height="3" rx="0.75" stroke="currentColor" strokeWidth="1.5" fill="none" />
-                  <rect x="1" y="11" width="14" height="3" rx="0.75" stroke="currentColor" strokeWidth="1.5" fill="none" />
-                </svg>
+                />
                 <span style={{
                   fontSize: '12px',
                   fontWeight: 500,
                   color: viewMode === 'table' 
-                    ? '#1f2937'
+                    ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937')
                     : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
                 }}>
                   Table
@@ -3833,40 +4378,66 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         </FilterBanner>
       );
     } else {
-      // Detail mode: reuse FilterBanner space with back button + tabs (same visual position as claimed/unclaimed bar)
+      // Detail mode: navigation on left side (back + context tabs)
       setContent(
         <FilterBanner
           seamless={false}
           dense
           sticky={false}
           leftAction={
-            <IconButton
-              iconProps={{ iconName: 'ChevronLeft' }}
-              onClick={handleBackToList}
-              title="Back to enquiries list"
-              ariaLabel="Back to enquiries list"
-              styles={{
-                root: {
-                  width: 32,
-                  height: 32,
-                },
-                rootHovered: {
-                  backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : '#e7f1ff',
-                }
-              }}
-            />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <ActionButton
+                iconProps={{ iconName: 'ChevronLeft' }}
+                onClick={handleBackToList}
+                title="Back to enquiries list"
+                aria-label="Back to enquiries list"
+                styles={{
+                  root: {
+                    height: 32,
+                    padding: '0 10px 0 6px',
+                    color: isDarkMode ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.6)',
+                    gap: 6,
+                  },
+                  rootHovered: {
+                    backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.08)' : '#e7f1ff',
+                  },
+                  icon: {
+                    fontSize: 16,
+                    color: isDarkMode ? 'rgb(125, 211, 252)' : '#3690ce',
+                  },
+                  label: {
+                    fontSize: 13,
+                    userSelect: 'none',
+                  },
+                }}
+              >
+                Back
+              </ActionButton>
+              <div style={{
+                width: '1px',
+                height: '24px',
+                backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.06)',
+              }} />
+              <button
+                onClick={() => setActiveSubTab('Timeline')}
+                title="Overview"
+                aria-label="Overview"
+                className="enquiry-sub-tab"
+                data-active={activeSubTab === 'Timeline'}
+              >
+                Overview
+              </button>
+              <button
+                onClick={() => setActiveSubTab('Pitch')}
+                title="Pitch Builder"
+                aria-label="Pitch Builder"
+                className="enquiry-sub-tab"
+                data-active={activeSubTab === 'Pitch'}
+              >
+                Pitch Builder
+              </button>
+            </div>
           }
-          primaryFilter={{
-            value: activeSubTab,
-            onChange: (key) => {
-              setActiveSubTab(key);
-            },
-            options: [
-              { key: 'Pitch', label: 'Pitch Builder' },
-              { key: 'Timeline', label: 'Timeline', icon: <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', backgroundColor: '#22c55e', marginRight: 4 }} /> }
-            ],
-            ariaLabel: "Switch between enquiry detail tabs"
-          }}
         />
       );
     }
@@ -3951,61 +4522,65 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           renderDetailView(selectedEnquiry)
         ) : (
           <>
-                  {filteredEnquiries.length === 0 ? (
-                    <div
-                      className={mergeStyles({
-                        backgroundColor: 'transparent',
-                        borderRadius: '12px',
-                        padding: '60px 40px',
-                        textAlign: 'center',
-                        boxShadow: 'none',
-                      })}
-                    >
-                      <Icon
-                        iconName="Search"
-                        styles={{
-                          root: {
-                            fontSize: '48px',
-                            color: isDarkMode ? colours.dark.subText : colours.light.subText,
-                            marginBottom: '20px',
-                          },
-                        }}
-                      />
-                      <Text
-                        variant="xLarge"
-                        styles={{
-                          root: {
-                            color: isDarkMode ? colours.dark.text : colours.light.text,
-                            fontFamily: 'Raleway, sans-serif',
-                            fontWeight: '600',
-                            marginBottom: '8px',
-                          },
-                        }}
-                      >
-                        {activeState === 'Claimed' && showMineOnly
-                          ? 'No claimed enquiries found'
+                  {/* Show loading state for triaged enquiries when data is being fetched */}
+                  {activeState === 'Triaged' && !triagedDataLoaded ? (
+                    <LoadingState
+                      message="Loading triage data"
+                      subMessage="Fetching pitch information from across all enquiries..."
+                      size="md"
+                      icon={
+                        <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                          <path d="M22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3Z" />
+                        </svg>
+                      }
+                    />
+                  ) :filteredEnquiries.length === 0 ? (
+                    <EmptyState
+                      title={
+                        enquiryPipelineFilters.size > 0 || selectedPocFilter || selectedPitchScenarioFilter || debouncedSearchTerm || selectedAreas.length > 0 || selectedPersonInitials
+                          ? 'No matching enquiries'
+                          : activeState === 'Claimed' && showMineOnly
+                          ? 'No claimed enquiries yet'
                           : activeState === 'Claimed'
-                          ? 'No claimed enquiries found'
+                          ? 'No claimed enquiries'
+                          : activeState === 'Triaged'
+                          ? 'No triaged enquiries'
                           : 'No enquiries found'
-                        }
-                      </Text>
-                      <Text
-                        variant="medium"
-                        styles={{
-                          root: {
-                            color: isDarkMode ? colours.dark.subText : colours.light.subText,
-                            fontFamily: 'Raleway, sans-serif',
-                          },
-                        }}
-                      >
-                        {activeState === 'Claimed' && showMineOnly
-                          ? 'You have no claimed enquiries yet. Try switching to "All" to see claimed enquiries from all team members.'
+                      }
+                      description={
+                        enquiryPipelineFilters.size > 0 || selectedPocFilter || selectedPitchScenarioFilter || debouncedSearchTerm || selectedAreas.length > 0 || selectedPersonInitials
+                          ? 'No enquiries match your current filters. Try adjusting or clearing your filters to see more results.'
+                          : activeState === 'Claimed' && showMineOnly
+                          ? 'You haven\'t claimed any enquiries yet. Check the claimable section to get started.'
                           : activeState === 'Claimed'
                           ? 'No enquiries have been claimed yet.'
-                          : 'Try adjusting your search criteria or filters'
-                        }
-                      </Text>
-                    </div>
+                          : activeState === 'Triaged'
+                          ? 'No enquiries have been processed by triage in this view.'
+                          : 'Try adjusting your date range or filters.'
+                      }
+                      illustration={
+                        enquiryPipelineFilters.size > 0 || selectedPocFilter || selectedPitchScenarioFilter || debouncedSearchTerm || selectedAreas.length > 0 || selectedPersonInitials
+                          ? 'filter'
+                          : activeState === 'Triaged' ? 'filter' : 'search'
+                      }
+                      size="md"
+                      action={
+                        (enquiryPipelineFilters.size > 0 || selectedPocFilter || selectedPitchScenarioFilter || debouncedSearchTerm || selectedAreas.length > 0 || selectedPersonInitials)
+                          ? {
+                              label: 'Clear All Filters',
+                              onClick: () => {
+                                setEnquiryPipelineFilters(new Map());
+                                setSelectedPocFilter(null);
+                                setSelectedPitchScenarioFilter(null);
+                                setSearchTerm('');
+                                setSelectedAreas([]);
+                                setSelectedPersonInitials(null);
+                              },
+                              variant: 'primary'
+                            }
+                          : undefined
+                      }
+                    />
 
             ) : (
               <>
@@ -4121,18 +4696,17 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                     style={{
                       backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.6)' : '#ffffff',
                       border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
-                      borderRadius: 12,
+                      borderRadius: 2,
                       overflow: 'visible',
-                      paddingLeft: '32px',
-                      fontFamily: 'Raleway, sans-serif',
+                      fontFamily: 'Raleway, "Segoe UI", sans-serif',
                     }}
                   >
                     <div 
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: '50px 0.5fr 0.7fr 1.6fr 2.4fr 0.6fr',
-                        gap: '10px',
-                        padding: '10px 16px 10px 40px',
+                        gridTemplateColumns: '32px 70px 50px 60px 1.2fr 0.5fr 1.6fr 0.5fr',
+                        gap: '12px',
+                        padding: '10px 16px',
                         alignItems: 'center',
                         position: 'sticky',
                         top: 0,
@@ -4142,16 +4716,37 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           : 'rgba(255, 255, 255, 0.95)',
                         backdropFilter: 'blur(12px)',
                         borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)'}`,
+                        fontFamily: 'Raleway, "Segoe UI", sans-serif',
                         fontSize: '10px',
                         fontWeight: 500,
                         color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
                         textTransform: 'uppercase',
-                        letterSpacing: '0.8px',
+                        letterSpacing: '0.5px',
                         boxShadow: isDarkMode 
                           ? '0 2px 8px rgba(0, 0, 0, 0.3)'
                           : '0 2px 8px rgba(0, 0, 0, 0.08)',
                       }}
                     >
+                      {/* Timeline header cell */}
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          opacity: 0.5,
+                        }}
+                        title="Timeline"
+                      >
+                        <Icon
+                          iconName="TimelineProgress"
+                          styles={{
+                            root: {
+                              fontSize: 12,
+                              color: isDarkMode ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.35)',
+                            },
+                          }}
+                        />
+                      </div>
                       <div 
                         onClick={() => {
                           if (sortColumn === 'date') {
@@ -4169,18 +4764,26 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           gap: '4px',
                           transition: 'color 0.15s ease',
                           color: sortColumn === 'date' 
-                            ? (isDarkMode ? '#60a5fa' : '#2563eb')
+                            ? (isDarkMode ? colours.accent : colours.highlight)
                             : undefined,
                         }}
                         title="Sort by date"
                       >
                         Date
-                        {sortColumn === 'date' && (
-                          <Icon 
-                            iconName={sortDirection === 'asc' ? 'ChevronUpSmall' : 'ChevronDownSmall'} 
-                            styles={{ root: { fontSize: '8px' } }}
-                          />
-                        )}
+                        <Icon 
+                          iconName={sortColumn === 'date' ? (sortDirection === 'asc' ? 'ChevronUpSmall' : 'ChevronDownSmall') : 'ChevronDownSmall'} 
+                          styles={{ 
+                            root: { 
+                              fontSize: 8,
+                              marginLeft: 4,
+                              opacity: sortColumn === 'date' ? 1 : 0.35,
+                              color: sortColumn === 'date' 
+                                ? (isDarkMode ? colours.accent : colours.highlight)
+                                : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)'),
+                              transition: 'opacity 0.15s ease',
+                            },
+                          }}
+                        />
                       </div>
                       <div 
                         onClick={() => {
@@ -4196,50 +4799,52 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           justifyContent: 'center', 
                           alignItems: 'center',
                           cursor: 'pointer',
-                          gap: '4px',
                           transition: 'color 0.15s ease',
                           color: sortColumn === 'aow' 
-                            ? (isDarkMode ? '#60a5fa' : '#2563eb')
+                            ? (isDarkMode ? colours.accent : colours.highlight)
                             : undefined,
                         }}
                         title="Sort by area of work"
                       >
                         AOW
-                        {sortColumn === 'aow' && (
-                          <Icon 
-                            iconName={sortDirection === 'asc' ? 'ChevronUpSmall' : 'ChevronDownSmall'} 
-                            styles={{ root: { fontSize: '8px' } }}
-                          />
-                        )}
                       </div>
+                      {/* ID header (sortable) */}
                       <div 
                         onClick={() => {
-                          if (sortColumn === 'value') {
+                          if (sortColumn === 'id') {
                             setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
                           } else {
-                            setSortColumn('value');
+                            setSortColumn('id');
                             setSortDirection('desc');
                           }
                         }}
                         style={{ 
-                          cursor: 'pointer',
                           display: 'flex',
                           alignItems: 'center',
                           gap: '4px',
+                          cursor: 'pointer',
                           transition: 'color 0.15s ease',
-                          color: sortColumn === 'value' 
-                            ? (isDarkMode ? '#60a5fa' : '#2563eb')
+                          color: sortColumn === 'id' 
+                            ? (isDarkMode ? colours.accent : colours.highlight)
                             : undefined,
                         }}
-                        title="Sort by value"
+                        title="Sort by ID"
                       >
-                        Value
-                        {sortColumn === 'value' && (
-                          <Icon 
-                            iconName={sortDirection === 'asc' ? 'ChevronUpSmall' : 'ChevronDownSmall'} 
-                            styles={{ root: { fontSize: '8px' } }}
-                          />
-                        )}
+                        ID
+                        <Icon 
+                          iconName={sortColumn === 'id' ? (sortDirection === 'asc' ? 'ChevronUpSmall' : 'ChevronDownSmall') : 'ChevronDownSmall'} 
+                          styles={{ 
+                            root: { 
+                              fontSize: 8,
+                              marginLeft: 2,
+                              opacity: sortColumn === 'id' ? 1 : 0.35,
+                              color: sortColumn === 'id' 
+                                ? (isDarkMode ? colours.accent : colours.highlight)
+                                : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)'),
+                              transition: 'opacity 0.15s ease',
+                            },
+                          }}
+                        />
                       </div>
                       <div 
                         onClick={() => {
@@ -4257,26 +4862,34 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           gap: '4px',
                           transition: 'color 0.15s ease',
                           color: sortColumn === 'contact' 
-                            ? (isDarkMode ? '#60a5fa' : '#2563eb')
+                            ? (isDarkMode ? colours.accent : colours.highlight)
                             : undefined,
                         }}
-                        title="Sort by contact name"
+                        title="Sort by prospect name"
                       >
-                        Contact
-                        {sortColumn === 'contact' && (
-                          <Icon 
-                            iconName={sortDirection === 'asc' ? 'ChevronUpSmall' : 'ChevronDownSmall'} 
-                            styles={{ root: { fontSize: '8px' } }}
-                          />
-                        )}
+                        Prospect
+                        <Icon 
+                          iconName={sortColumn === 'contact' ? (sortDirection === 'asc' ? 'ChevronUpSmall' : 'ChevronDownSmall') : 'ChevronDownSmall'} 
+                          styles={{ 
+                            root: { 
+                              fontSize: 8,
+                              marginLeft: 4,
+                              opacity: sortColumn === 'contact' ? 1 : 0.35,
+                              color: sortColumn === 'contact' 
+                                ? (isDarkMode ? colours.accent : colours.highlight)
+                                : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)'),
+                              transition: 'opacity 0.15s ease',
+                            },
+                          }}
+                        />
                       </div>
                       <div 
                         onClick={() => {
-                          if (sortColumn === 'pipeline') {
+                          if (sortColumn === 'value') {
                             setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
                           } else {
-                            setSortColumn('pipeline');
-                            setSortDirection('asc');
+                            setSortColumn('value');
+                            setSortDirection('desc');
                           }
                         }}
                         style={{ 
@@ -4285,18 +4898,620 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           alignItems: 'center',
                           gap: '4px',
                           transition: 'color 0.15s ease',
-                          color: sortColumn === 'pipeline' 
-                            ? (isDarkMode ? '#60a5fa' : '#2563eb')
+                          color: sortColumn === 'value' 
+                            ? (isDarkMode ? colours.accent : colours.highlight)
                             : undefined,
                         }}
-                        title="Sort by pipeline owner"
+                        title="Sort by value"
                       >
-                        Pipeline
-                        {sortColumn === 'pipeline' && (
-                          <Icon 
-                            iconName={sortDirection === 'asc' ? 'ChevronUpSmall' : 'ChevronDownSmall'} 
-                            styles={{ root: { fontSize: '8px' } }}
-                          />
+                        Value
+                        <Icon 
+                          iconName={sortColumn === 'value' ? (sortDirection === 'asc' ? 'ChevronUpSmall' : 'ChevronDownSmall') : 'ChevronDownSmall'} 
+                          styles={{ 
+                            root: { 
+                              fontSize: 8,
+                              marginLeft: 4,
+                              opacity: sortColumn === 'value' ? 1 : 0.35,
+                              color: sortColumn === 'value' 
+                                ? (isDarkMode ? colours.accent : colours.highlight)
+                                : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)'),
+                              transition: 'opacity 0.15s ease',
+                            },
+                          }}
+                        />
+                      </div>
+                      {/* Pipeline filter buttons */}
+                      <div 
+                        style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: 0,
+                          width: '100%',
+                          justifyContent: 'flex-start',
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {/* Teams toggle */}
+                        {(() => {
+                          const filterState = getEnquiryStageFilterState('teams');
+                          const hasFilter = filterState !== null;
+                          const getFilterColor = () => {
+                            if (!filterState) return isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)';
+                            if (filterState === 'yes') return '#22c55e';
+                            if (filterState === 'no') return '#ef4444';
+                            return colours.highlight;
+                          };
+                          const filterColor = getFilterColor();
+                          const stateLabel = filterState === 'yes' ? 'Has' : filterState === 'no' ? 'No' : null;
+                          
+                          return (
+                            <button
+                              type="button"
+                              title={hasFilter 
+                                ? `Teams: ${stateLabel} (click to cycle)` 
+                                : `Filter by Teams (click to activate)`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                cycleEnquiryPipelineFilter('teams');
+                              }}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 3,
+                                height: 22,
+                                minWidth: '90px',
+                                padding: '0 8px',
+                                background: hasFilter 
+                                  ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
+                                  : 'transparent',
+                                border: hasFilter 
+                                  ? `1px solid ${filterColor}40`
+                                  : '1px solid transparent',
+                                borderRadius: 0,
+                                cursor: 'pointer',
+                                transition: 'all 150ms ease',
+                                opacity: hasFilter ? 1 : 0.7,
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.opacity = '1';
+                                e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.opacity = hasFilter ? '1' : '0.7';
+                                e.currentTarget.style.background = hasFilter 
+                                  ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
+                                  : 'transparent';
+                              }}
+                            >
+                              <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 10, color: filterColor } }} />
+                              <span style={{ fontSize: 9, fontWeight: 600, color: filterColor, textTransform: 'uppercase' }}>Teams</span>
+                              {hasFilter && <span style={{ width: 6, height: 6, borderRadius: '50%', background: filterColor, marginLeft: 1 }}/>}
+                            </button>
+                          );
+                        })()}
+                        
+                        {/* Stage connector */}
+                        <div style={{ width: 8, height: 1, background: isDarkMode ? 'linear-gradient(to right, rgba(148, 163, 184, 0.3), rgba(148, 163, 184, 0.15))' : 'linear-gradient(to right, rgba(148, 163, 184, 0.25), rgba(148, 163, 184, 0.1))', alignSelf: 'center' }} />
+                        
+                        {/* POC filter - dropdown for All mode, simple toggle for Mine mode */}
+                        {(() => {
+                          const currentUserEmail = userData?.[0]?.Email?.toLowerCase() || '';
+                          const currentUserInitials = userData?.[0]?.Initials || 
+                            teamData?.find(t => t.Email?.toLowerCase() === currentUserEmail)?.Initials ||
+                            currentUserEmail.split('@')[0]?.slice(0, 2).toUpperCase() || 'ME';
+                          const isFiltered = !!selectedPocFilter;
+                          const isFilteredToMe = selectedPocFilter?.toLowerCase() === currentUserEmail;
+                          
+                          // Get display initials for current filter
+                          const getFilteredInitials = () => {
+                            if (!selectedPocFilter) return 'POC';
+                            if (selectedPocFilter.toLowerCase() === currentUserEmail) return currentUserInitials;
+                            const teamMember = teamData?.find(t => t.Email?.toLowerCase() === selectedPocFilter.toLowerCase());
+                            return teamMember?.Initials || selectedPocFilter.split('@')[0]?.slice(0, 2).toUpperCase() || 'POC';
+                          };
+                          
+                          const filterColor = isFiltered ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)');
+                          
+                          // In "All" mode, show dropdown; in "Mine" mode, simple toggle
+                          if (!showMineOnly) {
+                            return (
+                              <div style={{ position: 'relative' }}>
+                                <button
+                                  type="button"
+                                  title={isFiltered ? `Filtering by ${getFilteredInitials()} - Click to change` : 'Filter by POC (click to select)'}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setIsPocDropdownOpen(prev => !prev);
+                                  }}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: 3,
+                                    height: 22,
+                                    minWidth: '70px',
+                                    padding: '0 8px',
+                                    background: isFiltered 
+                                      ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
+                                      : 'transparent',
+                                    border: isFiltered 
+                                      ? `1px solid ${colours.highlight}40`
+                                      : '1px solid transparent',
+                                    borderRadius: 0,
+                                    cursor: 'pointer',
+                                    transition: 'all 150ms ease',
+                                    opacity: isFiltered ? 1 : 0.7,
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.opacity = '1';
+                                    e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.opacity = isFiltered ? '1' : '0.7';
+                                    e.currentTarget.style.background = isFiltered 
+                                      ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
+                                      : 'transparent';
+                                  }}
+                                >
+                                  <Icon iconName="Contact" styles={{ root: { fontSize: 10, color: filterColor } }} />
+                                  <span style={{ fontSize: 9, fontWeight: 600, color: filterColor, textTransform: 'uppercase' }}>
+                                    {getFilteredInitials()}
+                                  </span>
+                                  <Icon iconName="ChevronDown" styles={{ root: { fontSize: 8, color: filterColor, marginLeft: 1 } }} />
+                                  {isFiltered && <span style={{ width: 6, height: 6, borderRadius: '50%', background: filterColor, marginLeft: 1 }}/>}
+                                </button>
+                                
+                                {isPocDropdownOpen && (
+                                  <div
+                                    className="poc-filter-dropdown"
+                                    style={{
+                                      position: 'absolute',
+                                      top: '100%',
+                                      left: 0,
+                                      marginTop: 4,
+                                      minWidth: 140,
+                                      background: isDarkMode ? 'rgba(30, 41, 59, 0.98)' : 'rgba(255, 255, 255, 0.98)',
+                                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.3)'}`,
+                                      borderRadius: 4,
+                                      boxShadow: isDarkMode 
+                                        ? '0 4px 12px rgba(0, 0, 0, 0.4)'
+                                        : '0 4px 12px rgba(0, 0, 0, 0.15)',
+                                      zIndex: 1000,
+                                      maxHeight: 200,
+                                      overflowY: 'auto',
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {/* Clear filter option */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedPocFilter(null);
+                                        setIsPocDropdownOpen(false);
+                                      }}
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 8,
+                                        width: '100%',
+                                        padding: '8px 12px',
+                                        background: !selectedPocFilter 
+                                          ? (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.1)')
+                                          : 'transparent',
+                                        border: 'none',
+                                        borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.15)'}`,
+                                        cursor: 'pointer',
+                                        textAlign: 'left',
+                                        fontSize: 11,
+                                        color: isDarkMode ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.6)',
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        if (selectedPocFilter) e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)';
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        e.currentTarget.style.background = !selectedPocFilter 
+                                          ? (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.1)')
+                                          : 'transparent';
+                                      }}
+                                    >
+                                      <Icon iconName="Clear" styles={{ root: { fontSize: 10 } }} />
+                                      <span>All POCs</span>
+                                    </button>
+                                    
+                                    {/* Team members */}
+                                    {teamData?.filter(t => t.Email).map((member) => {
+                                      const memberEmail = member.Email?.toLowerCase() || '';
+                                      const memberInitials = member.Initials || memberEmail.split('@')[0]?.slice(0, 2).toUpperCase();
+                                      const memberName = member.First || member.Initials || memberEmail.split('@')[0];
+                                      const isSelected = selectedPocFilter?.toLowerCase() === memberEmail;
+                                      const isCurrentUser = memberEmail === currentUserEmail;
+                                      
+                                      return (
+                                        <button
+                                          key={memberEmail}
+                                          type="button"
+                                          onClick={() => {
+                                            setSelectedPocFilter(memberEmail);
+                                            setIsPocDropdownOpen(false);
+                                          }}
+                                          style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 8,
+                                            width: '100%',
+                                            padding: '8px 12px',
+                                            background: isSelected 
+                                              ? (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.1)')
+                                              : 'transparent',
+                                            border: 'none',
+                                            cursor: 'pointer',
+                                            textAlign: 'left',
+                                            fontSize: 11,
+                                            color: isSelected 
+                                              ? (isDarkMode ? colours.accent : colours.highlight)
+                                              : (isDarkMode ? 'rgba(255, 255, 255, 0.8)' : 'rgba(0, 0, 0, 0.7)'),
+                                            fontWeight: isSelected ? 600 : 400,
+                                          }}
+                                          onMouseEnter={(e) => {
+                                            if (!isSelected) e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)';
+                                          }}
+                                          onMouseLeave={(e) => {
+                                            e.currentTarget.style.background = isSelected 
+                                              ? (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.1)')
+                                              : 'transparent';
+                                          }}
+                                        >
+                                          <span style={{ 
+                                            width: 24, 
+                                            height: 24, 
+                                            borderRadius: '50%', 
+                                            background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            fontSize: 9,
+                                            fontWeight: 600,
+                                          }}>
+                                            {memberInitials}
+                                          </span>
+                                          <span>{memberName}{isCurrentUser ? ' (me)' : ''}</span>
+                                          {isSelected && <Icon iconName="Accept" styles={{ root: { fontSize: 10, marginLeft: 'auto' } }} />}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          }
+                          
+                          // Mine mode - simple toggle for current user
+                          return (
+                            <button
+                              type="button"
+                              title={isFilteredToMe ? `Filtering by your POC (${currentUserInitials}) - Click to clear` : `Filter by your POC (${currentUserInitials})`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedPocFilter(isFilteredToMe ? null : currentUserEmail);
+                              }}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 3,
+                                height: 22,
+                                minWidth: '70px',
+                                padding: '0 8px',
+                                background: isFilteredToMe 
+                                  ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
+                                  : 'transparent',
+                                border: isFilteredToMe 
+                                  ? `1px solid ${colours.highlight}40`
+                                  : '1px solid transparent',
+                                borderRadius: 0,
+                                cursor: 'pointer',
+                                transition: 'all 150ms ease',
+                                opacity: isFilteredToMe ? 1 : 0.7,
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.opacity = '1';
+                                e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.opacity = isFilteredToMe ? '1' : '0.7';
+                                e.currentTarget.style.background = isFilteredToMe 
+                                  ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
+                                  : 'transparent';
+                              }}
+                            >
+                              <Icon iconName="Contact" styles={{ root: { fontSize: 10, color: filterColor } }} />
+                              <span style={{ fontSize: 9, fontWeight: 600, color: filterColor, textTransform: 'uppercase' }}>
+                                {currentUserInitials}
+                              </span>
+                              {isFilteredToMe && <span style={{ width: 6, height: 6, borderRadius: '50%', background: filterColor, marginLeft: 1 }}/>}
+                            </button>
+                          );
+                        })()}
+                        
+                        {/* Stage connector */}
+                        <div style={{ width: 8, height: 1, background: isDarkMode ? 'linear-gradient(to right, rgba(148, 163, 184, 0.3), rgba(148, 163, 184, 0.15))' : 'linear-gradient(to right, rgba(148, 163, 184, 0.25), rgba(148, 163, 184, 0.1))', alignSelf: 'center' }} />
+                        
+                        {/* Pitch toggle */}
+                        {(() => {
+                          const filterState = getEnquiryStageFilterState('pitched');
+                          const hasFilter = filterState !== null;
+                          const getFilterColor = () => {
+                            if (!filterState) return isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)';
+                            if (filterState === 'yes') return '#22c55e';
+                            if (filterState === 'no') return '#ef4444';
+                            return colours.highlight;
+                          };
+                          const filterColor = getFilterColor();
+                          const stateLabel = filterState === 'yes' ? 'Has' : filterState === 'no' ? 'No' : null;
+                          
+                          return (
+                            <button
+                              type="button"
+                              title={hasFilter 
+                                ? `Pitch: ${stateLabel} (click to cycle)` 
+                                : `Filter by Pitch (click to activate)`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                cycleEnquiryPipelineFilter('pitched');
+                              }}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 3,
+                                height: 22,
+                                minWidth: '70px',
+                                padding: '0 8px',
+                                background: hasFilter 
+                                  ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
+                                  : 'transparent',
+                                border: hasFilter 
+                                  ? `1px solid ${filterColor}40`
+                                  : '1px solid transparent',
+                                borderRadius: 0,
+                                cursor: 'pointer',
+                                transition: 'all 150ms ease',
+                                opacity: hasFilter ? 1 : 0.7,
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.opacity = '1';
+                                e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.opacity = hasFilter ? '1' : '0.7';
+                                e.currentTarget.style.background = hasFilter 
+                                  ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
+                                  : 'transparent';
+                              }}
+                            >
+                              <Icon iconName="Money" styles={{ root: { fontSize: 10, color: filterColor } }} />
+                              <span style={{ fontSize: 9, fontWeight: 600, color: filterColor, textTransform: 'uppercase' }}>Pitch</span>
+                              {hasFilter && <span style={{ width: 6, height: 6, borderRadius: '50%', background: filterColor, marginLeft: 1 }}/>}
+                            </button>
+                          );
+                        })()}
+                        
+                        {/* Pitch Scenario dropdown */}
+                        <div style={{ position: 'relative' }}>
+                          <button
+                            type="button"
+                            title={selectedPitchScenarioFilter 
+                              ? `Scenario: ${SCENARIOS.find(s => s.id === selectedPitchScenarioFilter)?.name || selectedPitchScenarioFilter} (click to change)` 
+                              : 'Filter by Pitch Scenario (click to select)'}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setIsPitchScenarioDropdownOpen(prev => !prev);
+                            }}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: 3,
+                              height: 22,
+                              minWidth: '28px',
+                              padding: '0 6px',
+                              background: selectedPitchScenarioFilter 
+                                ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
+                                : 'transparent',
+                              border: selectedPitchScenarioFilter 
+                                ? `1px solid ${colours.highlight}40`
+                                : '1px solid transparent',
+                              borderRadius: 0,
+                              cursor: 'pointer',
+                              transition: 'all 150ms ease',
+                              opacity: selectedPitchScenarioFilter ? 1 : 0.7,
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.opacity = '1';
+                              e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.opacity = selectedPitchScenarioFilter ? '1' : '0.7';
+                              e.currentTarget.style.background = selectedPitchScenarioFilter 
+                                ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
+                                : 'transparent';
+                            }}
+                          >
+                            <Icon iconName="ChevronDown" styles={{ root: { fontSize: 8, color: selectedPitchScenarioFilter ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)') } }} />
+                          </button>
+                          
+                          {/* Pitch Scenario Dropdown menu */}
+                          {isPitchScenarioDropdownOpen && (
+                            <div 
+                              style={{
+                                position: 'absolute',
+                                top: '100%',
+                                right: 0,
+                                marginTop: 4,
+                                minWidth: 220,
+                                maxHeight: 320,
+                                overflowY: 'auto',
+                                background: isDarkMode ? 'rgba(30, 41, 59, 0.98)' : 'rgba(255, 255, 255, 0.98)',
+                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(100, 116, 139, 0.15)'}`,
+                                borderRadius: 6,
+                                boxShadow: isDarkMode 
+                                  ? '0 10px 40px rgba(0, 0, 0, 0.5)' 
+                                  : '0 10px 40px rgba(0, 0, 0, 0.15)',
+                                zIndex: 1000,
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {/* Clear option */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedPitchScenarioFilter(null);
+                                  setIsPitchScenarioDropdownOpen(false);
+                                }}
+                                style={{
+                                  width: '100%',
+                                  padding: '8px 12px',
+                                  background: !selectedPitchScenarioFilter ? (isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)') : 'transparent',
+                                  border: 'none',
+                                  borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.1)'}`,
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 8,
+                                  fontSize: 12,
+                                  color: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.8)',
+                                  fontStyle: 'italic',
+                                }}
+                                onMouseEnter={(e) => { e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.1)'; }}
+                                onMouseLeave={(e) => { e.currentTarget.style.background = !selectedPitchScenarioFilter ? (isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)') : 'transparent'; }}
+                              >
+                                All scenarios
+                              </button>
+                              
+                              {/* Scenario options */}
+                              {SCENARIOS.map((scenario) => {
+                                // Colors matching pitch-builder EditorAndTemplateBlocks.tsx
+                                const getScenarioColor = () => {
+                                  switch (scenario.id) {
+                                    case 'before-call-call': return colours.blue; // #3690ce
+                                    case 'before-call-no-call': return isDarkMode ? '#FBBF24' : '#D97706'; // amber
+                                    case 'after-call-probably-cant-assist': return isDarkMode ? '#F87171' : '#DC2626'; // red
+                                    case 'after-call-want-instruction': return isDarkMode ? '#4ADE80' : '#059669'; // green
+                                    case 'cfa': return isDarkMode ? '#A855F7' : '#8B5CF6'; // purple
+                                    default: return colours.highlight;
+                                  }
+                                };
+                                const getScenarioIcon = () => {
+                                  switch (scenario.id) {
+                                    case 'before-call-call': return 'Phone';
+                                    case 'before-call-no-call': return 'Mail';
+                                    case 'after-call-probably-cant-assist': return 'Cancel';
+                                    case 'after-call-want-instruction': return 'CheckMark';
+                                    case 'cfa': return 'Scales';
+                                    default: return 'CircleFill';
+                                  }
+                                };
+                                return (
+                                  <button
+                                    key={scenario.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedPitchScenarioFilter(scenario.id);
+                                      // Auto-enable "Pitched: yes" filter when selecting a scenario
+                                      setEnquiryPipelineFilters(prev => {
+                                        const newFilters = new Map(prev);
+                                        newFilters.set('pitched', 'yes');
+                                        return newFilters;
+                                      });
+                                      setIsPitchScenarioDropdownOpen(false);
+                                    }}
+                                    style={{
+                                      width: '100%',
+                                      padding: '8px 12px',
+                                      background: selectedPitchScenarioFilter === scenario.id 
+                                        ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.1)')
+                                        : 'transparent',
+                                      border: 'none',
+                                      cursor: 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: 8,
+                                      fontSize: 12,
+                                      color: selectedPitchScenarioFilter === scenario.id
+                                        ? colours.highlight
+                                        : (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(30, 41, 59, 0.9)'),
+                                      fontWeight: selectedPitchScenarioFilter === scenario.id ? 600 : 400,
+                                    }}
+                                    onMouseEnter={(e) => { e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.1)'; }}
+                                    onMouseLeave={(e) => { 
+                                      e.currentTarget.style.background = selectedPitchScenarioFilter === scenario.id 
+                                        ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.1)')
+                                        : 'transparent'; 
+                                    }}
+                                  >
+                                    <span style={{
+                                      width: 22,
+                                      height: 22,
+                                      borderRadius: '50%',
+                                      background: `${getScenarioColor()}20`,
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                    }}>
+                                      <Icon iconName={getScenarioIcon()} styles={{ root: { fontSize: 10, color: getScenarioColor() } }} />
+                                    </span>
+                                    <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                      {scenario.name}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                        
+                        {/* Clear all filters button */}
+                        {(enquiryPipelineFilters.size > 0 || selectedPocFilter || selectedPitchScenarioFilter) && (
+                          <button
+                            type="button"
+                            title="Clear all pipeline filters"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEnquiryPipelineFilters(new Map());
+                              setSelectedPocFilter(null);
+                              setSelectedPitchScenarioFilter(null);
+                            }}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              width: 18,
+                              height: 18,
+                              marginLeft: 6,
+                              background: isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)',
+                              border: `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.4)' : 'rgba(239, 68, 68, 0.3)'}`,
+                              borderRadius: '50%',
+                              cursor: 'pointer',
+                              transition: 'all 150ms ease',
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = isDarkMode ? 'rgba(239, 68, 68, 0.25)' : 'rgba(239, 68, 68, 0.15)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)';
+                            }}
+                          >
+                            <Icon
+                              iconName="Cancel"
+                              styles={{
+                                root: {
+                                  fontSize: 8,
+                                  color: '#ef4444',
+                                },
+                              }}
+                            />
+                          </button>
                         )}
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '4px' }}>
@@ -4331,35 +5546,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               root: {
                                 fontSize: '11px',
                                 color: areActionsEnabled
-                                  ? (isDarkMode ? '#60a5fa' : '#2563eb')
+                                  ? (isDarkMode ? colours.accent : colours.highlight)
                                   : (isDarkMode ? 'rgba(148, 163, 184, 0.9)' : 'rgba(71, 85, 105, 0.85)'),
                               },
                             }}
                           />
                         </button>
-                      </div>
-
-                      {/* Timeline column header indicator */}
-                      <div 
-                        title="Timeline - Shows chronological order of enquiries received. Recent enquiries appear at the top."
-                        style={{ 
-                        position: 'absolute',
-                        left: '-24px',
-                        top: 0,
-                        bottom: 0,
-                        width: '8px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center'
-                      }}>
-                        <div style={{
-                          width: '8px',
-                          height: '8px',
-                          borderRadius: '50%',
-                          background: isDarkMode ? colours.accent : colours.highlightBlue,
-                          border: `2px solid ${isDarkMode ? 'rgba(15, 23, 42, 0.9)' : 'rgba(255, 255, 255, 0.95)'}`,
-                          boxShadow: `0 0 6px ${isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(54, 144, 206, 0.3)'}`
-                        }} />
                       </div>
                     </div>
 
@@ -4415,35 +5607,171 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           }
                         }
                         const groupShowDaySeparator = viewMode === 'table' && (idx === 0 || groupToDayKey(groupThisDateStr) !== groupToDayKey(groupPrevDateStr));
+                        const thisDayKey = groupToDayKey(groupThisDateStr);
+                        const isDayCollapsed = collapsedDays.has(thisDayKey);
 
                         return (
                           <React.Fragment key={item.clientKey}>
+                          {/* Day separator with timeline dot */}
+                          {groupShowDaySeparator && (
+                            <div
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleDayCollapse(thisDayKey);
+                              }}
+                              onMouseEnter={() => setHoveredDayKey(thisDayKey)}
+                              onMouseLeave={() => setHoveredDayKey((prev) => (prev === thisDayKey ? null : prev))}
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns: '32px 1fr auto',
+                                gap: '12px',
+                                alignItems: 'center',
+                                padding: '8px 16px',
+                                cursor: 'pointer',
+                                background:
+                                  hoveredDayKey === thisDayKey
+                                    ? (isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.08)')
+                                    : (isDarkMode ? 'rgba(30, 41, 59, 0.6)' : 'rgba(241, 245, 249, 0.8)'),
+                                borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.25)'}`,
+                                borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.25)'}`,
+                              }}
+                            >
+                              {/* Timeline cell with line and dot */}
+                              <div style={{
+                                position: 'relative',
+                                height: '100%',
+                                minHeight: 24,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}>
+                                {/* Vertical line - only below the dot */}
+                                <div style={{
+                                  position: 'absolute',
+                                  left: '50%',
+                                  top: '50%',
+                                  bottom: 0,
+                                  width: '1px',
+                                  transform: 'translateX(-50%)',
+                                  background:
+                                    hoveredDayKey === thisDayKey
+                                      ? (isDarkMode ? colours.accent : colours.highlight)
+                                      : (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'),
+                                  opacity: hoveredDayKey === thisDayKey ? 0.9 : 1,
+                                }} />
+                                {/* Timeline dot */}
+                                <div style={{
+                                  width: 8,
+                                  height: 8,
+                                  borderRadius: '50%',
+                                  background:
+                                    hoveredDayKey === thisDayKey
+                                      ? (isDarkMode ? colours.accent : colours.highlight)
+                                      : (isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(148, 163, 184, 0.5)'),
+                                  border: `2px solid ${isDarkMode ? 'rgb(15, 23, 42)' : 'rgb(255, 255, 255)'}`,
+                                  zIndex: 1,
+                                }} />
+                              </div>
+                              {/* Day label and chevron */}
+                              <div style={{ display: 'flex', alignItems: 'center' }}>
+                                <span style={{
+                                  fontSize: '10px',
+                                  fontWeight: hoveredDayKey === thisDayKey ? 800 : 700,
+                                  color:
+                                    hoveredDayKey === thisDayKey
+                                      ? (isDarkMode ? colours.accent : colours.highlight)
+                                      : (isDarkMode ? 'rgba(148, 163, 184, 0.85)' : 'rgba(71, 85, 105, 0.95)'),
+                                  textTransform: 'uppercase',
+                                  letterSpacing: '0.5px',
+                                }}>
+                                  {formatDaySeparatorLabel(thisDayKey)}
+                                  <span style={{
+                                    marginLeft: '6px',
+                                    fontSize: '9px',
+                                    fontWeight: 400,
+                                    color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)',
+                                    backgroundColor: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.1)',
+                                    padding: '1px 5px',
+                                    borderRadius: '8px',
+                                    lineHeight: 1.2,
+                                    textTransform: 'none',
+                                    letterSpacing: 'normal',
+                                  }}>
+                                    {displayedItems.filter((enq) => {
+                                      const enqDateStr = isGroupedEnquiry(enq) ? enq.latestDate : ((enq as any)?.Touchpoint_Date || (enq as any)?.datetime || (enq as any)?.claim || (enq as any)?.Date_Created || '');
+                                      return groupToDayKey(enqDateStr) === thisDayKey;
+                                    }).length}
+                                  </span>
+                                </span>
+                                <Icon 
+                                  iconName={isDayCollapsed ? 'ChevronRight' : 'ChevronDown'} 
+                                  styles={{ 
+                                    root: { 
+                                      fontSize: 10, 
+                                      marginLeft: 6,
+                                      color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
+                                    } 
+                                  }} 
+                                />
+                              </div>
+
+                              {/* Collapsed eye indicator */}
+                              <div style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                justifyContent: 'flex-end',
+                                paddingLeft: '12px',
+                                pointerEvents: 'none',
+                                opacity: isDayCollapsed ? 1 : 0,
+                                transition: 'opacity 0.2s ease'
+                              }}>
+                                {isDayCollapsed && (
+                                  <Icon
+                                    iconName="Hide3"
+                                    styles={{
+                                      root: {
+                                        fontSize: 12,
+                                        color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)',
+                                      },
+                                    }}
+                                    title={`${displayedItems.filter((enq) => {
+                                      const enqDateStr = isGroupedEnquiry(enq) ? enq.latestDate : ((enq as any)?.Touchpoint_Date || (enq as any)?.datetime || (enq as any)?.claim || (enq as any)?.Date_Created || '');
+                                      return groupToDayKey(enqDateStr) === thisDayKey;
+                                    }).length} items hidden`}
+                                  />
+                                )}
+                              </div>
+                            </div>
+                          )}
+                          {/* Skip row if day is collapsed */}
+                          {!isDayCollapsed && (
                           <div
                             style={{
                               display: 'grid',
-                              gridTemplateColumns: '50px 0.5fr 0.7fr 1.6fr 2.4fr 0.6fr',
-                              gap: '10px',
-                              padding: '10px 16px 10px 40px',
+                              gridTemplateColumns: '32px 70px 50px 60px 1.2fr 0.5fr 1.6fr 0.5fr',
+                              gap: '12px',
+                              padding: '10px 16px',
                               alignItems: 'center',
                               borderBottom: isLast ? 'none' : `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)'}`,
-                              fontSize: '12px',
+                              fontSize: '13px',
                               color: isDarkMode ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0, 0, 0, 0.85)',
                               background: idx % 2 === 0 
                                 ? (isDarkMode ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.01)')
                                 : 'transparent',
-                              transition: 'all 0.2s ease',
+                              transition: 'background-color 0.15s ease',
                               cursor: 'pointer',
-                              position: 'relative',
                             }}
                             onMouseEnter={(e) => {
                               e.currentTarget.style.backgroundColor = isDarkMode 
                                 ? 'rgba(255, 255, 255, 0.06)' 
                                 : 'rgba(0, 0, 0, 0.03)';
+                              setHoveredDayKey(thisDayKey);
                             }}
                             onMouseLeave={(e) => {
                               e.currentTarget.style.backgroundColor = idx % 2 === 0 
                                 ? (isDarkMode ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.01)')
                                 : 'transparent';
+                              setHoveredDayKey((prev) => (prev === thisDayKey ? null : prev));
                             }}
                             onClick={(e) => {
                               // Toggle group expansion
@@ -4459,61 +5787,44 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               });
                             }}
                           >
-                            {/* Timeline bookmark on the left */}
+                            {/* Timeline cell */}
                             <div style={{
-                              position: 'absolute',
-                              left: '-27px',
-                              top: 0,
-                              bottom: 0,
-                              width: '8px',
+                              position: 'relative',
+                              height: '100%',
                               display: 'flex',
-                              flexDirection: 'column',
                               alignItems: 'center',
-                              justifyContent: 'center'
+                              justifyContent: 'center',
                             }}>
-                              {/* Timeline line */}
                               <div style={{
                                 position: 'absolute',
-                                left: '3px',
+                                left: '50%',
                                 top: 0,
                                 bottom: 0,
-                                width: '2px',
-                                background: isDarkMode 
-                                  ? 'linear-gradient(to bottom, rgba(135, 243, 243, 0.15), rgba(135, 243, 243, 0.3), rgba(135, 243, 243, 0.15))' 
-                                  : 'linear-gradient(to bottom, rgba(54, 144, 206, 0.15), rgba(54, 144, 206, 0.25), rgba(54, 144, 206, 0.15))',
+                                width: '1px',
+                                transform: 'translateX(-50%)',
+                                background: hoveredDayKey === thisDayKey
+                                  ? (isDarkMode ? colours.accent : colours.highlight)
+                                  : (isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'),
+                                opacity: hoveredDayKey === thisDayKey ? 0.9 : 1,
+                                transition: 'background 0.15s ease, opacity 0.15s ease',
                               }} />
-                              
-                              {/* Day checkpoint indicator */}
-                              {groupShowDaySeparator && (
-                                <div style={{
-                                  position: 'absolute',
-                                  left: '0px',
-                                  top: '50%',
-                                  transform: 'translateY(-50%)',
-                                  width: '8px',
-                                  height: '8px',
-                                  borderRadius: '50%',
-                                  background: isDarkMode ? colours.accent : colours.highlightBlue,
-                                  border: `2px solid ${isDarkMode ? 'rgba(15, 23, 42, 0.9)' : 'rgba(255, 255, 255, 0.95)'}`,
-                                  boxShadow: `0 0 6px ${isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(54, 144, 206, 0.3)'}`,
-                                  zIndex: 2
-                                }} />
-                              )}
                             </div>
 
-                            {/* Date column - show relative time with tooltip */}
+                            {/* Date column - compact single-line format */}
                             <TooltipHost
                               content={formatFullDateTime(dateReceived || null)}
                               styles={{ root: { display: 'flex', alignItems: 'center', height: '100%' } }}
                               calloutProps={{ gapSpace: 6 }}
                             >
-                              <div style={{
+                              <span style={{
                                 fontSize: '11px',
-                                color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.4)',
-                                fontFamily: 'Consolas, Monaco, monospace',
+                                color: isDarkMode ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.6)',
+                                fontWeight: 500,
+                                fontVariantNumeric: 'tabular-nums',
+                                whiteSpace: 'nowrap',
                               }}>
-                                {formatDateReceived(dateReceived, false)}
-                              </div>
+                                {getCompactTimeDisplay(dateReceived)}
+                              </span>
                             </TooltipHost>
 
                             {/* Area of Work column - empty for groups */}
@@ -4521,19 +5832,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               {/* Hidden for grouped enquiries */}
                             </div>
 
-                            {/* Value column - show count badge */}
+                            {/* ID column - empty for group headers */}
                             <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
-                              <div style={{
-                                padding: '2px 8px',
-                                borderRadius: 0,
-                                background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
-                                border: `1px solid ${colours.blue}`,
-                                fontSize: 10,
-                                fontWeight: 600,
-                                color: colours.blue,
-                              }}>
-                                x{item.enquiries.length}
-                              </div>
+                              {/* Group rows don't show individual IDs */}
                             </div>
 
                             {/* Contact & Company */}
@@ -4551,6 +5852,21 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     {latestEnquiry.Company}
                                   </div>
                                 )}
+                              </div>
+                            </div>
+
+                            {/* Value column - show count badge */}
+                            <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+                              <div style={{
+                                padding: '2px 8px',
+                                borderRadius: 0,
+                                background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                border: `1px solid ${colours.blue}`,
+                                fontSize: 10,
+                                fontWeight: 600,
+                                color: colours.blue,
+                              }}>
+                                x{item.enquiries.length}
                               </div>
                             </div>
 
@@ -4610,9 +5926,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               </div>
                             </div>
                           </div>
+                          )}
                           
                           {/* Expanded child enquiries - show ALL enquiries when expanded */}
-                          {expandedGroupsInTable.has(item.clientKey) && item.enquiries.map((childEnquiry: Enquiry, childIdx: number) => {
+                          {!isDayCollapsed && expandedGroupsInTable.has(item.clientKey) && item.enquiries.map((childEnquiry: Enquiry, childIdx: number) => {
                             const childAOW = childEnquiry.Area_of_Work || 'Unspecified';
                             const childValue = childEnquiry.Value || '';
                             const childContactName = `${childEnquiry.First_Name || ''} ${childEnquiry.Last_Name || ''}`.trim() || 'Unknown';
@@ -4646,8 +5963,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                 key={`item-${childEnquiry.ID}-${childEnquiry.First_Name || ''}-${childEnquiry.Last_Name || ''}-${childEnquiry.Touchpoint_Date || ''}-${childEnquiry.Point_of_Contact || ''}`}
                                 style={{
                                   display: 'grid',
-                                  gridTemplateColumns: '50px 0.5fr 0.7fr 1.6fr 2.4fr 0.6fr',
-                                  gap: '10px',
+                                  gridTemplateColumns: '70px 50px 60px 1.2fr 0.5fr 1.6fr 0.5fr',
+                                  gap: '12px',
                                   padding: '8px 16px 8px 40px',
                                   alignItems: 'center',
                                   borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)'}`,
@@ -4754,19 +6071,27 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     </>
                                   )}
                                 </div>
-                                {/* Date column for child - first column */}
+
+                                {/* Date column for child - compact format */}
                                 <TooltipHost
                                   content={formatFullDateTime(childEnquiry.Touchpoint_Date || (childEnquiry as any).datetime || (childEnquiry as any).claim || null)}
                                   styles={{ root: { display: 'flex', alignItems: 'center', height: '100%' } }}
                                   calloutProps={{ gapSpace: 6 }}
                                 >
-                                  <div style={{
-                                    fontSize: '11px',
-                                    color: isDarkMode ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.35)',
-                                    fontFamily: 'Consolas, Monaco, monospace',
-                                  }}>
-                                    {formatDateReceived(childEnquiry.Touchpoint_Date, childIsV2)}
-                                  </div>
+                                  {(() => {
+                                    const childDateStr = childEnquiry.Touchpoint_Date || (childEnquiry as any).datetime || (childEnquiry as any).claim;
+                                    return (
+                                      <span style={{
+                                        fontSize: '10px',
+                                        color: isDarkMode ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)',
+                                        fontWeight: 500,
+                                        fontVariantNumeric: 'tabular-nums',
+                                        whiteSpace: 'nowrap',
+                                      }}>
+                                        {getCompactTimeDisplay(childDateStr)}
+                                      </span>
+                                    );
+                                  })()}
                                 </TooltipHost>
                                 
                                 {/* AOW icon - second column */}
@@ -4776,33 +6101,38 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   </span>
                                 </div>
 
-                                {/* Value */}
-                                {(() => {
-                                  const numValue = typeof childValue === 'string' ? parseFloat(childValue.replace(/[^0-9.]/g, '')) : (typeof childValue === 'number' ? childValue : 0);
-                                  const displayValue = formatValueForDisplay(childValue);
-                                  
-                                  let textColor;
-                                  if (numValue >= 50000) {
-                                    textColor = isDarkMode ? 'rgba(32, 178, 108, 0.85)' : 'rgba(32, 178, 108, 0.75)';
-                                  } else if (numValue >= 10000) {
-                                    textColor = isDarkMode ? 'rgba(54, 144, 206, 0.85)' : 'rgba(54, 144, 206, 0.75)';
-                                  } else {
-                                    textColor = isDarkMode ? colours.greyText : 'rgba(107, 107, 107, 0.75)';
-                                  }
-                                  
-                                  return (
-                                    <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
-                                      <span style={{
-                                        fontSize: 11,
-                                        fontWeight: 500,
-                                        color: textColor,
-                                        whiteSpace: 'nowrap',
-                                      }}>
-                                        {displayValue || 'Unsure'}
-                                      </span>
+                                {/* ID / Instruction Ref */}
+                                <div style={{
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: '2px',
+                                  lineHeight: 1.3,
+                                  justifyContent: 'center'
+                                }}>
+                                  <div style={{
+                                    fontFamily: 'Monaco, Consolas, monospace',
+                                    fontSize: '10px',
+                                    fontWeight: 600,
+                                    color: colours.highlight,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                  }}>
+                                    {childEnquiry.ID}
+                                  </div>
+                                  {childEnrichmentData?.pitchData?.instructionRef && (
+                                    <div style={{
+                                      fontFamily: 'Monaco, Consolas, monospace',
+                                      fontSize: '9px',
+                                      color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)',
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      whiteSpace: 'nowrap',
+                                    }}>
+                                      {childEnrichmentData.pitchData.instructionRef}
                                     </div>
-                                  );
-                                })()}
+                                  )}
+                                </div>
                                 
                                 {/* Contact & Company */}
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0px', justifyContent: 'center' }}>
@@ -4850,43 +6180,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         transformOrigin: 'center'
                                       }} className="copy-underline" />
                                     </div>
-                                    <span 
-                                      style={{
-                                        fontSize: '9px',
-                                        color: isDarkMode ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.4)',
-                                        fontWeight: 400,
-                                        cursor: 'pointer',
-                                        fontFamily: 'Consolas, Monaco, monospace',
-                                        padding: '2px 4px',
-                                        borderRadius: '3px',
-                                        transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                                        background: 'transparent',
-                                        border: '1px solid transparent',
-                                        position: 'relative'
-                                      }}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        copyToClipboard(childEnquiry.ID);
-                                      }}
-                                      onMouseEnter={(e) => {
-                                        e.currentTarget.style.color = isDarkMode ? '#87F3F3' : '#3690CE';
-                                        e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(214, 232, 255, 0.8)';
-                                        e.currentTarget.style.border = `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(54, 144, 206, 0.25)'}`;
-                                        e.currentTarget.style.transform = 'scale(1.05)';
-                                        e.currentTarget.style.boxShadow = `0 2px 6px ${isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`;
-                                      }}
-                                      onMouseLeave={(e) => {
-                                        e.currentTarget.style.color = isDarkMode ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.4)';
-                                        e.currentTarget.style.background = 'transparent';
-                                        e.currentTarget.style.border = '1px solid transparent';
-                                        e.currentTarget.style.transform = 'scale(1)';
-                                        e.currentTarget.style.boxShadow = 'none';
-                                      }}
-                                      title="Click to copy enquiry ID"
-                                    >
-                                      {childEnquiry.ID}
-                                    </span>
-                                    {/* Email inline with name/ID */}
+                                    {/* Email inline with name */}
                                     {childEnquiry.Email && (
                                       <div 
                                         onClick={(e) => {
@@ -4972,6 +6266,35 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     </div>
                                   )}
                                 </div>
+
+                                {/* Value */}
+                                {(() => {
+                                  const numValue = typeof childValue === 'string' ? parseFloat(childValue.replace(/[^0-9.]/g, '')) : (typeof childValue === 'number' ? childValue : 0);
+                                  const displayValue = formatValueForDisplay(childValue);
+                                  
+                                  // Blue shades based on value range
+                                  let textColor;
+                                  if (numValue >= 50000) {
+                                    textColor = isDarkMode ? 'rgba(54, 144, 206, 1)' : 'rgba(54, 144, 206, 1)'; // Brightest blue
+                                  } else if (numValue >= 10000) {
+                                    textColor = isDarkMode ? 'rgba(54, 144, 206, 0.75)' : 'rgba(54, 144, 206, 0.75)'; // Medium blue
+                                  } else {
+                                    textColor = isDarkMode ? 'rgba(54, 144, 206, 0.5)' : 'rgba(54, 144, 206, 0.55)'; // Subtle blue
+                                  }
+                                  
+                                  return (
+                                    <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+                                      <span style={{
+                                        fontSize: 11,
+                                        fontWeight: 600,
+                                        color: textColor,
+                                        whiteSpace: 'nowrap',
+                                      }}>
+                                        {displayValue || '-'}
+                                      </span>
+                                    </div>
+                                  );
+                                })()}
                                 
                                 {/* Pipeline for child */}
                                 {(() => {
@@ -5032,56 +6355,43 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   const childEnrichmentWasProcessed = childEnrichmentData && childEnrichmentData.enquiryId;
                                   const showLoadingState = childIsV2 && !childEnrichmentWasProcessed && !childIsLegacy && !childTeamsTime;
                                   const showNotResolvable = childIsV2 && childEnrichmentWasProcessed && !childEnrichmentData?.teamsData && !childIsLegacy;
-                                  const showClaimer = childHasClaimer;
+                                  const showClaimer = childHasClaimer && activeState !== 'Triaged';
                                   const showPitch = !!childEnrichmentData?.pitchData;
 
                                   return (
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: '100%' }}>
-                                      <div style={{
-                                        width: 1,
-                                        height: 24,
-                                        background: isDarkMode
-                                          ? 'linear-gradient(to bottom, transparent, rgba(148, 163, 184, 0.3), transparent)'
-                                          : 'linear-gradient(to bottom, transparent, rgba(148, 163, 184, 0.25), transparent)'
-                                      }} />
-
                                       {/* Loading state - show when V2 but enrichment not loaded yet */}
                                       {showLoadingState && (
                                         <div
+                                          className="skeleton-shimmer"
                                           title="Loading pipeline data..."
                                           style={{
                                             display: 'flex',
                                             alignItems: 'center',
                                             gap: 6,
                                             padding: '4px 10px',
-                                            borderRadius: 6,
-                                            background: isDarkMode ? 'rgba(148,163,184,0.06)' : 'rgba(148,163,184,0.04)',
-                                            border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(100,116,139,0.15)'}`,
+                                            borderRadius: 4,
+                                            background: isDarkMode 
+                                              ? 'linear-gradient(90deg, rgba(148,163,184,0.06) 25%, rgba(148,163,184,0.12) 50%, rgba(148,163,184,0.06) 75%)'
+                                              : 'linear-gradient(90deg, rgba(148,163,184,0.04) 25%, rgba(148,163,184,0.08) 50%, rgba(148,163,184,0.04) 75%)',
+                                            backgroundSize: '200% 100%',
+                                            border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.15)' : 'rgba(100,116,139,0.1)'}`,
                                             fontSize: 9,
                                             fontWeight: 500,
-                                            color: isDarkMode ? 'rgba(148,163,184,0.6)' : 'rgba(71,85,105,0.6)',
+                                            color: isDarkMode ? 'rgba(148,163,184,0.5)' : 'rgba(71,85,105,0.5)',
                                             whiteSpace: 'nowrap',
-                                            minWidth: '120px',
+                                            minWidth: '90px',
                                             justifyContent: 'center',
                                           }}
                                         >
-                                          <div
-                                            style={{
-                                              width: 10,
-                                              height: 10,
-                                              borderRadius: '50%',
-                                              border: `2px solid ${isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(100,116,139,0.15)'}`,
-                                              borderTopColor: isDarkMode ? 'rgba(148,163,184,0.5)' : 'rgba(100,116,139,0.4)',
-                                              animation: 'spin 1s linear infinite',
-                                            }}
-                                          />
-                                          <span style={{ fontSize: 8 }}>processing...</span>
+                                          <span style={{ fontSize: 9, opacity: 0.7 }}>loading...</span>
                                         </div>
                                       )}
 
                                       {(showTeamsStage || showLegacyPlaceholder) && (
                                         showTeamsStage ? (
                                           <button
+                                            className="content-reveal"
                                             onClick={(e) => {
                                               e.stopPropagation();
                                               if (childEnrichmentData?.teamsData?.teamsLink) {
@@ -5093,27 +6403,27 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                               alignItems: 'center',
                                               gap: 6,
                                               padding: '4px 8px',
-                                              borderRadius: 6,
-                                              background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
-                                              border: `1px solid ${colours.blue}`,
+                                              borderRadius: 0,
+                                              background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
+                                              border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`,
                                               fontSize: 11,
-                                              fontWeight: 600,
-                                              color: colours.blue,
+                                              fontWeight: 500,
+                                              color: isDarkMode ? 'rgba(54, 144, 206, 0.95)' : 'rgba(54, 144, 206, 0.9)',
                                               cursor: 'pointer',
-                                              transition: 'all 0.2s ease',
+                                              transition: '0.2s',
                                               whiteSpace: 'nowrap',
-                                              minWidth: '120px',
+                                              minWidth: 90,
                                               justifyContent: 'center',
                                             }}
                                             onMouseEnter={(e) => {
-                                              e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.18)';
+                                              e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)';
                                             }}
                                             onMouseLeave={(e) => {
-                                              e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)';
+                                              e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)';
                                             }}
                                           >
-                                            <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 13, color: colours.blue } }} />
-                                            <span style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)', fontFamily: 'Consolas, Monaco, monospace', fontWeight: 500 }}>
+                                            <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 12, color: isDarkMode ? 'rgba(54, 144, 206, 0.85)' : 'rgba(54, 144, 206, 0.8)' } }} />
+                                            <span style={{ fontSize: 9, color: isDarkMode ? 'rgba(54, 144, 206, 0.7)' : 'rgba(54, 144, 206, 0.65)', fontFamily: 'inherit', fontWeight: 500 }}>
                                               {formatDateTime(childTeamsTime)}
                                             </span>
                                           </button>
@@ -5124,27 +6434,48 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                               display: 'flex',
                                               alignItems: 'center',
                                               gap: 6,
-                                              padding: '4px 10px',
-                                              borderRadius: 6,
-                                              background: isDarkMode ? 'rgba(148,163,184,0.08)' : 'rgba(148,163,184,0.06)',
-                                              border: `1px dashed ${isDarkMode ? 'rgba(148,163,184,0.35)' : 'rgba(100,116,139,0.35)'}`,
+                                              padding: '4px 8px',
+                                              borderRadius: 0,
+                                              background: isDarkMode ? 'rgba(148,163,184,0.06)' : 'rgba(148,163,184,0.04)',
+                                              border: `1px dashed ${isDarkMode ? 'rgba(148,163,184,0.25)' : 'rgba(100,116,139,0.2)'}`,
                                               fontSize: 9,
-                                              fontWeight: 600,
-                                              color: isDarkMode ? 'rgba(148,163,184,0.85)' : 'rgba(71,85,105,0.85)',
+                                              fontWeight: 500,
+                                              color: isDarkMode ? 'rgba(148,163,184,0.6)' : 'rgba(71,85,105,0.6)',
                                               whiteSpace: 'nowrap',
-                                              minWidth: '120px',
+                                              minWidth: 90,
                                               justifyContent: 'center',
                                             }}
                                           >
-                                            <Icon iconName="Info" styles={{ root: { fontSize: 11, opacity: 0.7 } }} />
-                                            <span style={{ fontSize: 9 }}>not tracked</span>
+                                            <span style={{ fontSize: 9 }}>legacy</span>
                                           </div>
                                         )
                                       )}
 
+                                      {/* Teams placeholder shell when no Teams/legacy shown */}
+                                      {!showTeamsStage && !showLegacyPlaceholder && !showLoadingState && (
+                                        <div style={{
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: 6,
+                                          padding: '4px 8px',
+                                          borderRadius: 0,
+                                          background: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(148, 163, 184, 0.04)',
+                                          border: `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
+                                          fontSize: 11,
+                                          fontWeight: 500,
+                                          color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)',
+                                          whiteSpace: 'nowrap',
+                                          minWidth: 90,
+                                          justifyContent: 'center',
+                                        }}>
+                                          <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 12, color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.4)' } }} />
+                                          <span style={{ fontSize: 9, fontFamily: 'inherit', fontWeight: 500 }}>-- --</span>
+                                        </div>
+                                      )}
+
                                       {(showTeamsStage || showLegacyPlaceholder) && showClaimer && (
-                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
-                                          <div style={{ width: 16, height: 1, background: isDarkMode ? 'linear-gradient(to right, rgba(148, 163, 184, 0.3), rgba(148, 163, 184, 0.15))' : 'linear-gradient(to right, rgba(148, 163, 184, 0.25), rgba(148, 163, 184, 0.1))' }} />
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, minWidth: 8 }}>
+                                          <div style={{ width: 8, height: 1, background: isDarkMode ? 'linear-gradient(to right, rgba(148, 163, 184, 0.3), rgba(148, 163, 184, 0.15))' : 'linear-gradient(to right, rgba(148, 163, 184, 0.25), rgba(148, 163, 184, 0.1))' }} />
                                           {(childIsV2 || childIsLegacy) && hasValidClaimTime && childTeamsTime && (
                                             <span style={{ fontSize: 7, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', fontFamily: 'Consolas, Monaco, monospace', fontWeight: 600, whiteSpace: 'nowrap' }}>
                                               {calculateDuration(childTeamsTime, childPocClaimTime)}
@@ -5153,8 +6484,24 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         </div>
                                       )}
 
+                                      {/* Claim placeholder shell when no claimer shown */}
+                                      {!showClaimer && (
+                                        <div style={{
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          padding: '4px 10px',
+                                          borderRadius: 0,
+                                          background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(148, 163, 184, 0.03)',
+                                          border: `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)'}`,
+                                          minWidth: 70,
+                                          height: 24,
+                                        }} />
+                                      )}
+
                                       {showClaimer && (
-                                        childPocEmail === 'team@helix-law.com'
+                                        // Only show claim button for truly unclaimed enquiries (not triaged)
+                                        childPocEmail === 'team@helix-law.com' && !childPocEmail.toLowerCase().includes('triage')
                                           ? renderClaimPromptChip({ 
                                               size: 'compact', 
                                               teamsLink: childTeamsLink, 
@@ -5165,6 +6512,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                             })
                                           : (
                                             <button
+                                              className="content-reveal"
                                               onClick={(e) => handleReassignClick(String(childEnquiry.ID), e)}
                                               title={`Claimed by ${childPocIdentifier} - Click to reassign`}
                                               style={{
@@ -5173,35 +6521,35 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                                 gap: 6,
                                                 padding: '4px 10px',
                                                 borderRadius: 0,
-                                                background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)',
-                                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'}`,
+                                                background: isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.1)',
+                                                border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.3)'}`,
                                                 fontSize: 11,
                                                 fontWeight: 600,
-                                                color: isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)',
+                                                color: isDarkMode ? 'rgba(32, 178, 108, 0.9)' : 'rgba(32, 178, 108, 0.85)',
                                                 cursor: 'pointer',
                                                 minWidth: '70px',
                                                 justifyContent: 'center',
                                                 transition: 'all 0.2s ease',
                                               }}
                                               onMouseEnter={(e) => {
-                                                e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)';
-                                                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(148, 163, 184, 0.4)';
+                                                e.currentTarget.style.background = isDarkMode ? 'rgba(32, 178, 108, 0.25)' : 'rgba(32, 178, 108, 0.18)';
+                                                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.45)';
                                               }}
                                               onMouseLeave={(e) => {
-                                                e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)';
-                                                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)';
+                                                e.currentTarget.style.background = isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.1)';
+                                                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.3)';
                                               }}
                                             >
-                                              <Icon iconName="Contact" styles={{ root: { fontSize: 11, color: isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)' } }} />
+                                              <Icon iconName="Accept" styles={{ root: { fontSize: 11, color: isDarkMode ? 'rgba(32, 178, 108, 0.9)' : 'rgba(32, 178, 108, 0.85)' } }} />
                                               <span style={{ fontSize: 9 }}>{getPocInitials(childPocIdentifier)}</span>
-                                              <Icon iconName="ChevronDown" styles={{ root: { fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.5)', marginLeft: -2 } }} />
+                                              <Icon iconName="ChevronDown" styles={{ root: { fontSize: 8, color: isDarkMode ? 'rgba(32, 178, 108, 0.6)' : 'rgba(32, 178, 108, 0.5)', marginLeft: -2 } }} />
                                             </button>
                                           )
                                       )}
 
                                       {showClaimer && showPitch && (
-                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
-                                          <div style={{ width: 16, height: 1, background: isDarkMode ? 'linear-gradient(to right, rgba(148, 163, 184, 0.3), rgba(148, 163, 184, 0.15))' : 'linear-gradient(to right, rgba(148, 163, 184, 0.25), rgba(148, 163, 184, 0.1))' }} />
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, minWidth: 8 }}>
+                                          <div style={{ width: 8, height: 1, background: isDarkMode ? 'linear-gradient(to right, rgba(148, 163, 184, 0.3), rgba(148, 163, 184, 0.15))' : 'linear-gradient(to right, rgba(148, 163, 184, 0.25), rgba(148, 163, 184, 0.1))' }} />
                                           {hasValidPitchTime && (childPocClaimTime || childTeamsTime) && (
                                             <span style={{ fontSize: 7, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', fontFamily: 'Consolas, Monaco, monospace', fontWeight: 600 }}>
                                               {calculateDuration(childPocClaimTime || childTeamsTime, childPitchTime)}
@@ -5214,13 +6562,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         // Show pitch badge when already pitched
                                         (() => {
                                           const PitchScenarioBadge = require('../../components/PitchScenarioBadge').default;
-                                          return <PitchScenarioBadge scenarioId={(childEnrichmentData.pitchData as any).scenarioId} size="small" />;
+                                          return <PitchScenarioBadge scenarioId={(childEnrichmentData.pitchData as any).scenarioId} size="small" className="content-reveal" />;
                                         })()
                                       ) : (
                                         // Show pitch prompt when claimed but not pitched
                                         showClaimer && childPocEmail !== 'team@helix-law.com' && (
                                           <button
                                             type="button"
+                                            className="content-reveal"
                                             onClick={(e) => {
                                               e.stopPropagation();
                                               handleSelectEnquiry(childEnquiry);
@@ -5230,38 +6579,60 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                               alignItems: 'center',
                                               gap: '4px',
                                               padding: '3px 8px',
-                                              borderRadius: 6,
-                                              border: `1px dashed ${isDarkMode ? 'rgba(32, 178, 108, 0.6)' : 'rgba(32, 178, 108, 0.7)'}`,
-                                              background: isDarkMode ? 'rgba(32, 178, 108, 0.10)' : 'rgba(32, 178, 108, 0.12)',
-                                              color: isDarkMode ? 'rgba(32, 178, 108, 0.95)' : 'rgba(32, 178, 108, 0.95)',
+                                              borderRadius: 0,
+                                              border: `1px solid ${isDarkMode ? 'rgba(245, 158, 11, 0.4)' : 'rgba(245, 158, 11, 0.35)'}`,
+                                              background: isDarkMode ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.08)',
+                                              color: isDarkMode ? 'rgba(251, 191, 36, 0.95)' : 'rgba(251, 191, 36, 0.9)',
                                               textTransform: 'uppercase',
-                                              fontWeight: 700,
-                                              letterSpacing: '0.45px',
+                                              fontWeight: 600,
+                                              letterSpacing: '0.4px',
                                               fontSize: '8px',
                                               cursor: 'pointer',
                                               minWidth: '55px',
                                               justifyContent: 'center',
-                                              boxShadow: isDarkMode ? '0 2px 6px rgba(32, 178, 108, 0.08)' : '0 2px 6px rgba(32, 178, 108, 0.10)',
-                                              transition: 'all 0.2s ease',
+                                              transition: 'all 0.15s ease',
                                               fontFamily: 'inherit',
-                                              animation: 'pulse-glow-green 3s infinite ease-in-out',
+                                              position: 'relative',
                                             }}
                                             onMouseEnter={(e) => {
-                                              e.currentTarget.style.boxShadow = isDarkMode ? '0 3px 8px rgba(32, 178, 108, 0.12)' : '0 3px 8px rgba(32, 178, 108, 0.15)';
-                                              e.currentTarget.style.transform = 'translateY(-1px) scale(1.02)';
-                                              e.currentTarget.style.animation = 'none';
+                                              e.currentTarget.style.background = isDarkMode ? 'rgba(245, 158, 11, 0.18)' : 'rgba(245, 158, 11, 0.15)';
+                                              e.currentTarget.style.borderColor = isDarkMode ? 'rgba(245, 158, 11, 0.55)' : 'rgba(245, 158, 11, 0.5)';
                                             }}
                                             onMouseLeave={(e) => {
-                                              e.currentTarget.style.boxShadow = isDarkMode ? '0 2px 6px rgba(32, 178, 108, 0.08)' : '0 2px 6px rgba(32, 178, 108, 0.10)';
-                                              e.currentTarget.style.transform = 'translateY(0) scale(1)';
-                                              e.currentTarget.style.animation = 'pulse-glow-green 3s infinite ease-in-out';
+                                              e.currentTarget.style.background = isDarkMode ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.08)';
+                                              e.currentTarget.style.borderColor = isDarkMode ? 'rgba(245, 158, 11, 0.4)' : 'rgba(245, 158, 11, 0.35)';
                                             }}
                                             title={`Pitch to ${childContactName}`}
                                           >
+                                            <span style={{
+                                              position: 'absolute',
+                                              top: -3,
+                                              right: -3,
+                                              width: 6,
+                                              height: 6,
+                                              borderRadius: '50%',
+                                              background: isDarkMode ? 'rgba(251, 191, 36, 0.9)' : 'rgba(217, 119, 6, 0.85)',
+                                              animation: 'status-breathe 2s ease-in-out infinite',
+                                            }} />
                                             <Icon iconName="Send" styles={{ root: { fontSize: 9, color: 'inherit' } }} />
                                             <span>Pitch</span>
                                           </button>
                                         )
+                                      )}
+
+                                      {/* Pitch placeholder shell when no pitch shown and no pitch CTA */}
+                                      {!showPitch && !(showClaimer && childPocEmail !== 'team@helix-law.com') && (
+                                        <div style={{
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          padding: '3px 8px',
+                                          borderRadius: 0,
+                                          background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(148, 163, 184, 0.03)',
+                                          border: `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)'}`,
+                                          minWidth: 55,
+                                          height: 22,
+                                        }} />
                                       )}
 
                                       {/* Action buttons: Call, Email, Rate - shown on row hover with cascade animation */}
@@ -5627,27 +6998,161 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                         const prevItem: any = idx > 0 ? displayedItems[idx - 1] : null;
                         const prevDateStr = prevItem ? extractDateStr(prevItem) : '';
                         const showDaySeparator = viewMode === 'table' && (idx === 0 || toDayKey(thisDateStr) !== toDayKey(prevDateStr));
+                        const singleDayKey = toDayKey(thisDateStr);
+                        const isSingleDayCollapsed = collapsedDays.has(singleDayKey);
                         const fullDateTooltip = formatFullDateTime(thisDateStr || dateReceived || null);
 
                         return (
                           <React.Fragment key={`${item.ID}-${item.First_Name || ''}-${item.Last_Name || ''}-${item.Touchpoint_Date || ''}-${item.Point_of_Contact || ''}`}>
+                          {/* Day separator with timeline dot */}
+                          {showDaySeparator && (
+                            <div
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleDayCollapse(singleDayKey);
+                              }}
+                              onMouseEnter={() => setHoveredDayKey(singleDayKey)}
+                              onMouseLeave={() => setHoveredDayKey((prev) => (prev === singleDayKey ? null : prev))}
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns: '32px 1fr auto',
+                                gap: '12px',
+                                alignItems: 'center',
+                                padding: '8px 16px',
+                                cursor: 'pointer',
+                                background:
+                                  hoveredDayKey === singleDayKey
+                                    ? (isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.08)')
+                                    : (isDarkMode ? 'rgba(30, 41, 59, 0.6)' : 'rgba(241, 245, 249, 0.8)'),
+                                borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.25)'}`,
+                                borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.25)'}`,
+                              }}
+                            >
+                              {/* Timeline cell with line and dot */}
+                              <div style={{
+                                position: 'relative',
+                                height: '100%',
+                                minHeight: 24,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}>
+                                {/* Vertical line - only below the dot */}
+                                <div style={{
+                                  position: 'absolute',
+                                  left: '50%',
+                                  top: '50%',
+                                  bottom: 0,
+                                  width: '1px',
+                                  transform: 'translateX(-50%)',
+                                  background:
+                                    hoveredDayKey === singleDayKey
+                                      ? (isDarkMode ? colours.accent : colours.highlight)
+                                      : (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'),
+                                  opacity: hoveredDayKey === singleDayKey ? 0.9 : 1,
+                                }} />
+                                {/* Timeline dot */}
+                                <div style={{
+                                  width: 8,
+                                  height: 8,
+                                  borderRadius: '50%',
+                                  background:
+                                    hoveredDayKey === singleDayKey
+                                      ? (isDarkMode ? colours.accent : colours.highlight)
+                                      : (isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(148, 163, 184, 0.5)'),
+                                  border: `2px solid ${isDarkMode ? 'rgb(15, 23, 42)' : 'rgb(255, 255, 255)'}`,
+                                  zIndex: 1,
+                                }} />
+                              </div>
+                              {/* Day label and chevron */}
+                              <div style={{ display: 'flex', alignItems: 'center' }}>
+                                <span style={{
+                                  fontSize: '10px',
+                                  fontWeight: hoveredDayKey === singleDayKey ? 800 : 700,
+                                  color:
+                                    hoveredDayKey === singleDayKey
+                                      ? (isDarkMode ? colours.accent : colours.highlight)
+                                      : (isDarkMode ? 'rgba(148, 163, 184, 0.85)' : 'rgba(71, 85, 105, 0.95)'),
+                                  textTransform: 'uppercase',
+                                  letterSpacing: '0.5px',
+                                }}>
+                                  {formatDaySeparatorLabel(singleDayKey)}
+                                  <span style={{
+                                    marginLeft: '6px',
+                                    fontSize: '9px',
+                                    fontWeight: 400,
+                                    color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)',
+                                    backgroundColor: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.1)',
+                                    padding: '1px 5px',
+                                    borderRadius: '8px',
+                                    lineHeight: 1.2,
+                                    textTransform: 'none',
+                                    letterSpacing: 'normal',
+                                  }}>
+                                    {displayedItems.filter((enq) => {
+                                      const enqDateStr = isGroupedEnquiry(enq) ? enq.latestDate : ((enq as any)?.Touchpoint_Date || (enq as any)?.datetime || (enq as any)?.claim || (enq as any)?.Date_Created || '');
+                                      return toDayKey(enqDateStr) === singleDayKey;
+                                    }).length}
+                                  </span>
+                                </span>
+                                <Icon 
+                                  iconName={isSingleDayCollapsed ? 'ChevronRight' : 'ChevronDown'} 
+                                  styles={{ 
+                                    root: { 
+                                      fontSize: 10, 
+                                      marginLeft: 6,
+                                      color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
+                                    } 
+                                  }} 
+                                />
+                              </div>
+
+                              {/* Collapsed eye indicator */}
+                              <div style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                justifyContent: 'flex-end',
+                                paddingLeft: '12px',
+                                pointerEvents: 'none',
+                                opacity: isSingleDayCollapsed ? 1 : 0,
+                                transition: 'opacity 0.2s ease'
+                              }}>
+                                {isSingleDayCollapsed && (
+                                  <Icon
+                                    iconName="Hide3"
+                                    styles={{
+                                      root: {
+                                        fontSize: 12,
+                                        color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)',
+                                      },
+                                    }}
+                                    title={`${displayedItems.filter((enq) => {
+                                      const enqDateStr = isGroupedEnquiry(enq) ? enq.latestDate : ((enq as any)?.Touchpoint_Date || (enq as any)?.datetime || (enq as any)?.claim || (enq as any)?.Date_Created || '');
+                                      return toDayKey(enqDateStr) === singleDayKey;
+                                    }).length} items hidden`}
+                                  />
+                                )}
+                              </div>
+                            </div>
+                          )}
+                          {/* Skip row if day is collapsed */}
+                          {!isSingleDayCollapsed && (
                           <div
                             style={{
                               display: 'grid',
-                              gridTemplateColumns: '50px 0.5fr 0.7fr 1.6fr 2.4fr 0.6fr',
-                              gap: '10px',
-                              padding: '10px 16px 10px 40px',
+                              gridTemplateColumns: '32px 70px 50px 60px 1.2fr 0.5fr 1.6fr 0.5fr',
+                              gap: '12px',
+                              padding: '10px 16px',
                               alignItems: 'center',
                               borderBottom: (isLast && !isNotesExpanded) ? 'none' : `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)'}`,
-                              fontSize: '12px',
+                              fontSize: '13px',
                               color: isDarkMode ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0, 0, 0, 0.85)',
                               background: idx % 2 === 0 
                                 ? (isDarkMode ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.01)')
                                 : 'transparent',
-                              transition: 'all 0.2s ease',
+                              transition: 'background-color 0.15s ease',
                               opacity: isFromInstructions ? 1 : 0.85,
                               cursor: 'pointer',
-                              position: 'relative',
                             }}
                             className="enquiry-row"
                             onMouseEnter={(e) => {
@@ -5659,6 +7164,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               if (tooltip) tooltip.style.opacity = '1';
                               // Track hovered row for contact actions
                               setHoveredRowId(item.ID);
+                              // Highlight timeline for this day
+                              setHoveredDayKey(singleDayKey);
                             }}
                             onMouseLeave={(e) => {
                               e.currentTarget.style.backgroundColor = idx % 2 === 0 
@@ -5669,95 +7176,49 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               if (tooltip) tooltip.style.opacity = '0';
                               // Clear hovered row
                               setHoveredRowId(null);
+                              // Clear timeline highlight
+                              setHoveredDayKey((prev) => (prev === singleDayKey ? null : prev));
                             }}
                             onClick={() => !isUnclaimed && handleSelectEnquiry(item)}
                           >
-                            {/* Timeline bookmark on the left */}
+                            {/* Timeline cell */}
                             <div style={{
-                              position: 'absolute',
-                              left: '-27px',
-                              top: 0,
-                              bottom: 0,
-                              width: '8px',
+                              position: 'relative',
+                              height: '100%',
                               display: 'flex',
-                              flexDirection: 'column',
                               alignItems: 'center',
-                              justifyContent: 'center'
+                              justifyContent: 'center',
                             }}>
-                              {/* Timeline line */}
                               <div style={{
                                 position: 'absolute',
-                                left: '3px',
+                                left: '50%',
                                 top: 0,
                                 bottom: 0,
-                                width: '2px',
-                                background: isDarkMode 
-                                  ? 'linear-gradient(to bottom, rgba(135, 243, 243, 0.15), rgba(135, 243, 243, 0.3), rgba(135, 243, 243, 0.15))' 
-                                  : 'linear-gradient(to bottom, rgba(54, 144, 206, 0.15), rgba(54, 144, 206, 0.25), rgba(54, 144, 206, 0.15))',
+                                width: '1px',
+                                transform: 'translateX(-50%)',
+                                background: hoveredDayKey === singleDayKey
+                                  ? (isDarkMode ? colours.accent : colours.highlight)
+                                  : (isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'),
+                                opacity: hoveredDayKey === singleDayKey ? 0.9 : 1,
+                                transition: 'background 0.15s ease, opacity 0.15s ease',
                               }} />
-                              
-                              {/* Day checkpoint indicator */}
-                              {showDaySeparator && (
-                                <div style={{
-                                  position: 'absolute',
-                                  left: '0px',
-                                  top: '50%',
-                                  transform: 'translateY(-50%)',
-                                  width: '8px',
-                                  height: '8px',
-                                  borderRadius: '50%',
-                                  background: isDarkMode ? colours.accent : colours.highlightBlue,
-                                  border: `2px solid ${isDarkMode ? 'rgba(15, 23, 42, 0.9)' : 'rgba(255, 255, 255, 0.95)'}`,
-                                  boxShadow: `0 0 6px ${isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(54, 144, 206, 0.3)'}`,
-                                  zIndex: 2
-                                }} />
-                              )}
-                              
-                              {/* Subtle date label on hover */}
-                              {showDaySeparator && (
-                                <div 
-                                  className="timeline-date-tooltip"
-                                  style={{
-                                    position: 'absolute',
-                                    left: '12px',
-                                    top: '50%',
-                                    transform: 'translateY(-50%)',
-                                    fontSize: '8px',
-                                    fontWeight: 500,
-                                    padding: '2px 4px',
-                                    borderRadius: '3px',
-                                    background: isDarkMode ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)',
-                                    border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.3)' : 'rgba(100,116,139,0.3)'}`,
-                                    color: isDarkMode ? 'rgba(229,231,235,0.8)' : 'rgba(31,41,55,0.8)',
-                                    opacity: 0,
-                                    transition: 'opacity 0.2s ease',
-                                    pointerEvents: 'none',
-                                    whiteSpace: 'nowrap',
-                                    zIndex: 3
-                                  }}
-                                >
-                                  {(() => {
-                                    try {
-                                      const d = new Date(thisDateStr);
-                                      return isNaN(d.getTime()) ? '' : format(d, 'EEE, d MMM');
-                                    } catch (e) { return ''; }
-                                  })()}
-                                </div>
-                              )}
                             </div>
-                            {/* Date column - first */}
+
+                            {/* Date column - compact format */}
                             <TooltipHost
                               content={fullDateTooltip}
                               styles={{ root: { display: 'flex', alignItems: 'center', height: '100%' } }}
                               calloutProps={{ gapSpace: 6 }}
                             >
-                              <div style={{
+                              <span style={{
                                 fontSize: '11px',
-                                color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.4)',
-                                fontFamily: 'Consolas, Monaco, monospace',
+                                color: isDarkMode ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.6)',
+                                fontWeight: 500,
+                                fontVariantNumeric: 'tabular-nums',
+                                whiteSpace: 'nowrap',
                               }}>
-                                {formatDateReceived(dateReceived, isFromInstructions)}
-                              </div>
+                                {getCompactTimeDisplay(dateReceived)}
+                              </span>
                             </TooltipHost>
 
                             {/* Area of Work - second */}
@@ -5767,204 +7228,159 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               </span>
                             </div>
 
-                            {/* Value */}
-                            {(() => {
-                              const numValue = typeof value === 'string' ? parseFloat(value.replace(/[^0-9.]/g, '')) : (typeof value === 'number' ? value : 0);
-                              const displayValue = formatValueForDisplay(value);
-                              
-                              // Simplified subtle color coding: <10k, 10k-50k, 50k+
-                              let textColor;
-                              if (numValue >= 50000) {
-                                textColor = isDarkMode ? 'rgba(32, 178, 108, 0.85)' : 'rgba(32, 178, 108, 0.75)';
-                              } else if (numValue >= 10000) {
-                                textColor = isDarkMode ? 'rgba(54, 144, 206, 0.85)' : 'rgba(54, 144, 206, 0.75)';
-                              } else {
-                                textColor = isDarkMode ? colours.greyText : 'rgba(107, 107, 107, 0.75)';
-                              }
-                              
-                              return (
-                                <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
-                                  <span style={{
-                                    fontSize: '10px',
-                                    fontWeight: 500,
-                                    color: textColor,
-                                    whiteSpace: 'nowrap',
-                                  }}>
-                                    {displayValue || 'Unsure'}
-                                  </span>
+                            {/* ID / Instruction Ref */}
+                            <div style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '2px',
+                              lineHeight: 1.3,
+                              justifyContent: 'center'
+                            }}>
+                              <div style={{
+                                fontFamily: 'Monaco, Consolas, monospace',
+                                fontSize: '10px',
+                                fontWeight: 600,
+                                color: colours.highlight,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}>
+                                {item.ID}
+                              </div>
+                              {enrichmentData?.pitchData?.instructionRef && (
+                                <div style={{
+                                  fontFamily: 'Monaco, Consolas, monospace',
+                                  fontSize: '9px',
+                                  color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                }}>
+                                  {enrichmentData.pitchData.instructionRef}
                                 </div>
-                              );
-                            })()}
+                              )}
+                            </div>
 
-                            {/* Contact & Company */}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0px', justifyContent: 'center', alignItems: 'flex-start', width: '100%' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                                <div 
-                                  style={{ 
-                                    fontWeight: 600, 
-                                    fontSize: '11px', 
-                                    color: isDarkMode ? '#E5E7EB' : '#1F2937', 
-                                    cursor: 'pointer',
-                                    position: 'relative',
-                                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                                    padding: '1px 3px',
-                                    borderRadius: '3px',
-                                    background: 'transparent'
-                                  }}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    copyToClipboard(contactName);
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(214, 232, 255, 0.8)';
-                                    e.currentTarget.style.color = isDarkMode ? '#87F3F3' : '#3690CE';
-                                    e.currentTarget.style.transform = 'translateY(-1px)';
-                                    e.currentTarget.style.boxShadow = `0 2px 8px ${isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.12)'}`;
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.background = 'transparent';
-                                    e.currentTarget.style.color = isDarkMode ? '#E5E7EB' : '#1F2937';
-                                    e.currentTarget.style.transform = 'translateY(0)';
-                                    e.currentTarget.style.boxShadow = 'none';
-                                  }}
-                                  title="Click to copy contact name"
-                                >
-                                  {contactName}
-                                  <span style={{
-                                    position: 'absolute',
-                                    bottom: '-2px',
-                                    left: '4px',
-                                    right: '4px',
-                                    height: '1px',
-                                    background: isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(54, 144, 206, 0.3)',
-                                    transform: 'scaleX(0)',
-                                    transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                                    transformOrigin: 'center'
-                                  }} className="copy-underline" />
-                                </div>
-                                <span 
-                                  style={{
-                                    fontSize: '9px',
-                                    color: isDarkMode ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.4)',
-                                    fontWeight: 400,
-                                    cursor: 'pointer',
-                                    fontFamily: 'Consolas, Monaco, monospace',
-                                    padding: '2px 4px',
-                                    borderRadius: '3px',
-                                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                                    background: 'transparent',
-                                    border: '1px solid transparent',
-                                    position: 'relative'
-                                  }}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    copyToClipboard(item.ID);
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.color = isDarkMode ? '#87F3F3' : '#3690CE';
-                                    e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(214, 232, 255, 0.8)';
-                                    e.currentTarget.style.border = `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(54, 144, 206, 0.25)'}`;
-                                    e.currentTarget.style.transform = 'scale(1.05)';
-                                    e.currentTarget.style.boxShadow = `0 2px 6px ${isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`;
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.color = isDarkMode ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.4)';
-                                    e.currentTarget.style.background = 'transparent';
-                                    e.currentTarget.style.border = '1px solid transparent';
-                                    e.currentTarget.style.transform = 'scale(1)';
-                                    e.currentTarget.style.boxShadow = 'none';
-                                  }}
-                                  title="Click to copy enquiry ID"
-                                >
-                                  {item.ID}
-                                </span>
-                                {/* Email inline with name/ID */}
+                            {/* Contact - stacked layout: name on top, email · phone below */}
+                            <div style={{ 
+                              display: 'flex', 
+                              flexDirection: 'column', 
+                              gap: '2px', 
+                              lineHeight: 1.3,
+                              justifyContent: 'center',
+                            }}>
+                              {/* Name row */}
+                              <div 
+                                style={{ 
+                                  fontSize: '13px', 
+                                  fontWeight: 500, 
+                                  color: isDarkMode ? '#E5E7EB' : '#1F2937', 
+                                  cursor: 'pointer',
+                                  transition: 'color 0.15s ease',
+                                }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  copyToClipboard(contactName);
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.color = isDarkMode ? '#87F3F3' : '#3690CE';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.color = isDarkMode ? '#E5E7EB' : '#1F2937';
+                                }}
+                                title="Click to copy name"
+                              >
+                                {contactName}
+                              </div>
+                              
+                              {/* Email · Phone row */}
+                              <div style={{ 
+                                fontSize: '10px', 
+                                color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0',
+                              }}>
                                 {item.Email && (
-                                  <div 
+                                  <span 
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       copyToClipboard(item.Email);
                                     }}
                                     style={{
-                                      fontSize: '9px',
-                                      color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
-                                      fontFamily: 'Consolas, Monaco, monospace',
-                                      maxWidth: '140px',
+                                      cursor: 'pointer',
+                                      transition: 'color 0.15s ease',
+                                      maxWidth: '160px',
                                       overflow: 'hidden',
                                       textOverflow: 'ellipsis',
                                       whiteSpace: 'nowrap',
-                                      cursor: 'pointer',
-                                      padding: '2px 4px',
-                                      borderRadius: '3px',
-                                      transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                                      background: 'transparent',
-                                      border: '1px solid transparent',
                                     }}
                                     onMouseEnter={(e) => {
-                                      e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(214, 232, 255, 0.8)';
                                       e.currentTarget.style.color = isDarkMode ? '#87F3F3' : '#3690CE';
-                                      e.currentTarget.style.border = `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(54, 144, 206, 0.25)'}`;
                                     }}
                                     onMouseLeave={(e) => {
-                                      e.currentTarget.style.background = 'transparent';
                                       e.currentTarget.style.color = isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)';
-                                      e.currentTarget.style.border = '1px solid transparent';
                                     }}
                                     title={`Click to copy: ${item.Email}`}
                                   >
                                     {item.Email}
-                                  </div>
+                                  </span>
                                 )}
-                                {/* Phone inline with name/ID/email */}
+                                {item.Email && (item.Phone_Number || (item as any).phone) && (
+                                  <span style={{ margin: '0 4px', opacity: 0.5 }}>·</span>
+                                )}
                                 {(item.Phone_Number || (item as any).phone) && (
-                                  <div 
+                                  <span 
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       copyToClipboard(item.Phone_Number || (item as any).phone);
                                     }}
                                     style={{
-                                      fontSize: '9px',
-                                      color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
-                                      fontFamily: 'Consolas, Monaco, monospace',
-                                      maxWidth: '120px',
-                                      overflow: 'hidden',
-                                      textOverflow: 'ellipsis',
-                                      whiteSpace: 'nowrap',
                                       cursor: 'pointer',
-                                      padding: '2px 4px',
-                                      borderRadius: '3px',
-                                      transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                                      background: 'transparent',
-                                      border: '1px solid transparent',
+                                      transition: 'color 0.15s ease',
                                     }}
                                     onMouseEnter={(e) => {
-                                      e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(214, 232, 255, 0.8)';
                                       e.currentTarget.style.color = isDarkMode ? '#87F3F3' : '#3690CE';
-                                      e.currentTarget.style.border = `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(54, 144, 206, 0.25)'}`;
                                     }}
                                     onMouseLeave={(e) => {
-                                      e.currentTarget.style.background = 'transparent';
                                       e.currentTarget.style.color = isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)';
-                                      e.currentTarget.style.border = '1px solid transparent';
                                     }}
                                     title={`Click to copy: ${item.Phone_Number || (item as any).phone}`}
                                   >
                                     {item.Phone_Number || (item as any).phone}
-                                  </div>
+                                  </span>
                                 )}
                               </div>
-                              
-                              {companyName && (
-                                <div style={{ 
-                                  fontSize: '10px', 
-                                  color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
-                                  fontWeight: 500,
-                                  paddingLeft: '3px'
-                                }}>
-                                  {companyName}
-                                </div>
-                              )}
                             </div>
+
+                            {/* Value */}
+                            {(() => {
+                              const numValue = typeof value === 'string' ? parseFloat(value.replace(/[^0-9.]/g, '')) : (typeof value === 'number' ? value : 0);
+                              const displayValue = formatValueForDisplay(value);
+                              
+                              // Blue shades based on value range
+                              let textColor;
+                              if (numValue >= 50000) {
+                                textColor = isDarkMode ? 'rgba(54, 144, 206, 1)' : 'rgba(54, 144, 206, 1)'; // Brightest blue
+                              } else if (numValue >= 10000) {
+                                textColor = isDarkMode ? 'rgba(54, 144, 206, 0.75)' : 'rgba(54, 144, 206, 0.75)'; // Medium blue
+                              } else {
+                                textColor = isDarkMode ? 'rgba(54, 144, 206, 0.5)' : 'rgba(54, 144, 206, 0.55)'; // Subtle blue
+                              }
+                              
+                              return (
+                                <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+                                  <span style={{
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    color: textColor,
+                                    whiteSpace: 'nowrap',
+                                  }}>
+                                    {displayValue || '-'}
+                                  </span>
+                                </div>
+                              );
+                            })()}
 
                             {/* Pipeline - Teams → POC → Pitch */}
                             {(() => {
@@ -6031,20 +7447,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               const enrichmentWasProcessed = enrichmentData && enrichmentData.enquiryId;
                               const showLoadingState = isV2Enquiry && !enrichmentWasProcessed && !isDefinitelyLegacy && !teamsTime;
                               const showNotResolvable = isV2Enquiry && enrichmentWasProcessed && !enrichmentData?.teamsData && !isDefinitelyLegacy;
-                              const showClaimer = hasClaimerStage;
+                              const showClaimer = hasClaimerStage && activeState !== 'Triaged';
                               const showPitch = !!enrichmentData?.pitchData;
                               
                               return (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: '100%' }}>
-                                  {/* Vertical separator */}
-                                  <div style={{ 
-                                    width: 1, 
-                                    height: 24, 
-                                    background: isDarkMode 
-                                      ? 'linear-gradient(to bottom, transparent, rgba(148, 163, 184, 0.3), transparent)'
-                                      : 'linear-gradient(to bottom, transparent, rgba(148, 163, 184, 0.25), transparent)'
-                                  }} />
-
                                   {/* Loading state - show when V2 but enrichment not loaded yet */}
                                   {showLoadingState && (
                                     <div
@@ -6054,7 +7461,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         alignItems: 'center',
                                         gap: 6,
                                         padding: '4px 10px',
-                                        borderRadius: 6,
+                                        borderRadius: 0,
                                         background: isDarkMode ? 'rgba(148,163,184,0.06)' : 'rgba(148,163,184,0.04)',
                                         border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(100,116,139,0.15)'}`,
                                         fontSize: 9,
@@ -6098,30 +7505,30 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                           alignItems: 'center',
                                           gap: 6,
                                           padding: '4px 8px',
-                                          borderRadius: 6,
-                                          background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
-                                          border: `1px solid ${colours.blue}`,
+                                          borderRadius: 0,
+                                          background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
+                                          border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`,
                                           fontSize: 11,
-                                          fontWeight: 600,
-                                          color: colours.blue,
+                                          fontWeight: 500,
+                                          color: isDarkMode ? 'rgba(54, 144, 206, 0.95)' : 'rgba(54, 144, 206, 0.9)',
                                           cursor: 'pointer',
-                                          transition: 'all 0.2s ease',
+                                          transition: '0.2s',
                                           whiteSpace: 'nowrap',
-                                          minWidth: '120px',
+                                          minWidth: 90,
                                           justifyContent: 'center',
                                         }}
                                         onMouseEnter={(e) => {
-                                          e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.18)';
+                                          e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)';
                                         }}
                                         onMouseLeave={(e) => {
-                                          e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)';
+                                          e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)';
                                         }}
                                       >
                                         <Icon
                                           iconName="TeamsLogo"
-                                          styles={{ root: { fontSize: 13, color: colours.blue } }}
+                                          styles={{ root: { fontSize: 12, color: isDarkMode ? 'rgba(54, 144, 206, 0.85)' : 'rgba(54, 144, 206, 0.8)' } }}
                                         />
-                                        <span style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)', fontFamily: 'Consolas, Monaco, monospace', fontWeight: 500 }}>
+                                        <span style={{ fontSize: 9, color: isDarkMode ? 'rgba(54, 144, 206, 0.7)' : 'rgba(54, 144, 206, 0.65)', fontFamily: 'inherit', fontWeight: 500 }}>
                                           {formatDateTime(teamsTime)}
                                         </span>
                                       </button>
@@ -6132,27 +7539,48 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                           display: 'flex',
                                           alignItems: 'center',
                                           gap: 6,
-                                          padding: '4px 10px',
-                                          borderRadius: 6,
-                                          background: isDarkMode ? 'rgba(148,163,184,0.08)' : 'rgba(148,163,184,0.06)',
-                                          border: `1px dashed ${isDarkMode ? 'rgba(148,163,184,0.35)' : 'rgba(100,116,139,0.35)'}`,
+                                          padding: '4px 8px',
+                                          borderRadius: 0,
+                                          background: isDarkMode ? 'rgba(148,163,184,0.06)' : 'rgba(148,163,184,0.04)',
+                                          border: `1px dashed ${isDarkMode ? 'rgba(148,163,184,0.25)' : 'rgba(100,116,139,0.2)'}`,
                                           fontSize: 9,
-                                          fontWeight: 600,
-                                          color: isDarkMode ? 'rgba(148,163,184,0.85)' : 'rgba(71,85,105,0.85)',
+                                          fontWeight: 500,
+                                          color: isDarkMode ? 'rgba(148,163,184,0.6)' : 'rgba(71,85,105,0.6)',
                                           whiteSpace: 'nowrap',
-                                          minWidth: '120px',
+                                          minWidth: 90,
                                           justifyContent: 'center',
                                         }}
                                       >
-                                        <Icon iconName="Info" styles={{ root: { fontSize: 11, opacity: 0.7 } }} />
-                                        <span style={{ fontSize: 9 }}>not tracked</span>
+                                        <span style={{ fontSize: 9 }}>legacy</span>
                                       </div>
                                     )
                                   )}
 
+                                  {/* Teams placeholder shell when no Teams/legacy shown */}
+                                  {!showTeamsStage && !showLegacyPlaceholder && !showLoadingState && (
+                                    <div style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: 6,
+                                      padding: '4px 8px',
+                                      borderRadius: 0,
+                                      background: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(148, 163, 184, 0.04)',
+                                      border: `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
+                                      fontSize: 11,
+                                      fontWeight: 500,
+                                      color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)',
+                                      whiteSpace: 'nowrap',
+                                      minWidth: 90,
+                                      justifyContent: 'center',
+                                    }}>
+                                      <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 12, color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.4)' } }} />
+                                      <span style={{ fontSize: 9, fontFamily: 'inherit', fontWeight: 500 }}>-- --</span>
+                                    </div>
+                                  )}
+
                                   {(showTeamsStage || showLegacyPlaceholder) && showClaimer && (
-                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
-                                      <div style={{ width: 16, height: 1, background: isDarkMode ? 'linear-gradient(to right, rgba(148, 163, 184, 0.3), rgba(148, 163, 184, 0.15))' : 'linear-gradient(to right, rgba(148, 163, 184, 0.25), rgba(148, 163, 184, 0.1))' }} />
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, minWidth: 8 }}>
+                                      <div style={{ width: 8, height: 1, background: isDarkMode ? 'linear-gradient(to right, rgba(148, 163, 184, 0.3), rgba(148, 163, 184, 0.15))' : 'linear-gradient(to right, rgba(148, 163, 184, 0.25), rgba(148, 163, 184, 0.1))' }} />
                                       {teamsTime && hasValidClaimTime && (
                                         <span style={{ fontSize: 7, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', fontFamily: 'Consolas, Monaco, monospace', fontWeight: 600, whiteSpace: 'nowrap' }}>
                                           {calculateDuration(teamsTime, pocClaimTime)}
@@ -6161,8 +7589,24 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     </div>
                                   )}
 
+                                  {/* Claim placeholder shell when no claimer shown */}
+                                  {!showClaimer && (
+                                    <div style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      padding: '4px 10px',
+                                      borderRadius: 0,
+                                      background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(148, 163, 184, 0.03)',
+                                      border: `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)'}`,
+                                      minWidth: 70,
+                                      height: 24,
+                                    }} />
+                                  )}
+
                                   {showClaimer && (
-                                    pocLower === 'team@helix-law.com'
+                                    // Only show claim button for truly unclaimed enquiries (not triaged)
+                                    pocLower === 'team@helix-law.com' && !pocLower.includes('triage')
                                       ? renderClaimPromptChip({ 
                                           teamsLink: enquiryTeamsLink, 
                                           leadName: contactName,
@@ -6180,38 +7624,38 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                             gap: 6,
                                             padding: '4px 10px',
                                             borderRadius: 0,
-                                            background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)',
-                                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'}`,
+                                            background: isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.1)',
+                                            border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.3)'}`,
                                             fontSize: 11,
                                             fontWeight: 600,
-                                            color: isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)',
+                                            color: isDarkMode ? 'rgba(32, 178, 108, 0.9)' : 'rgba(32, 178, 108, 0.85)',
                                             cursor: 'pointer',
                                             minWidth: '70px',
                                             justifyContent: 'center',
                                             transition: 'all 0.2s ease',
                                           }}
                                           onMouseEnter={(e) => {
-                                            e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)';
-                                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(148, 163, 184, 0.4)';
+                                            e.currentTarget.style.background = isDarkMode ? 'rgba(32, 178, 108, 0.25)' : 'rgba(32, 178, 108, 0.18)';
+                                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.45)';
                                           }}
                                           onMouseLeave={(e) => {
-                                            e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)';
-                                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)';
+                                            e.currentTarget.style.background = isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.1)';
+                                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.3)';
                                           }}
                                         >
                                           <Icon
-                                            iconName="Contact"
-                                            styles={{ root: { fontSize: 11, color: isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)' } }}
+                                            iconName="Accept"
+                                            styles={{ root: { fontSize: 11, color: isDarkMode ? 'rgba(32, 178, 108, 0.9)' : 'rgba(32, 178, 108, 0.85)' } }}
                                           />
                                           <span style={{ fontSize: 9 }}>{getPocInitials(pocDisplayName)}</span>
-                                          <Icon iconName="ChevronDown" styles={{ root: { fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.5)', marginLeft: -2 } }} />
+                                          <Icon iconName="ChevronDown" styles={{ root: { fontSize: 8, color: isDarkMode ? 'rgba(32, 178, 108, 0.6)' : 'rgba(32, 178, 108, 0.5)', marginLeft: -2 } }} />
                                         </button>
                                       )
                                   )}
 
                                   {showClaimer && showPitch && (
-                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
-                                      <div style={{ width: 16, height: 1, background: isDarkMode ? 'linear-gradient(to right, rgba(148, 163, 184, 0.3), rgba(148, 163, 184, 0.15))' : 'linear-gradient(to right, rgba(148, 163, 184, 0.25), rgba(148, 163, 184, 0.1))' }} />
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, minWidth: 8 }}>
+                                      <div style={{ width: 8, height: 1, background: isDarkMode ? 'linear-gradient(to right, rgba(148, 163, 184, 0.3), rgba(148, 163, 184, 0.15))' : 'linear-gradient(to right, rgba(148, 163, 184, 0.25), rgba(148, 163, 184, 0.1))' }} />
                                       {hasValidPitchTime && (pocClaimTime || teamsTime) && (
                                         <span style={{ fontSize: 7, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', fontFamily: 'Consolas, Monaco, monospace', fontWeight: 600 }}>
                                           {calculateDuration(pocClaimTime || teamsTime, pitchTime)}
@@ -6240,38 +7684,60 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                           alignItems: 'center',
                                           gap: '5px',
                                           padding: '4px 10px',
-                                          borderRadius: 6,
-                                          border: `1px dashed ${isDarkMode ? 'rgba(32, 178, 108, 0.6)' : 'rgba(32, 178, 108, 0.7)'}`,
-                                          background: isDarkMode ? 'rgba(32, 178, 108, 0.10)' : 'rgba(32, 178, 108, 0.12)',
-                                          color: isDarkMode ? 'rgba(32, 178, 108, 0.95)' : 'rgba(32, 178, 108, 0.95)',
+                                          borderRadius: 0,
+                                          border: `1px solid ${isDarkMode ? 'rgba(245, 158, 11, 0.4)' : 'rgba(245, 158, 11, 0.35)'}`,
+                                          background: isDarkMode ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.08)',
+                                          color: isDarkMode ? 'rgba(251, 191, 36, 0.95)' : 'rgba(251, 191, 36, 0.9)',
                                           textTransform: 'uppercase',
-                                          fontWeight: 700,
-                                          letterSpacing: '0.45px',
+                                          fontWeight: 600,
+                                          letterSpacing: '0.4px',
                                           fontSize: '9px',
                                           cursor: 'pointer',
                                           minWidth: '70px',
                                           justifyContent: 'center',
-                                          boxShadow: isDarkMode ? '0 2px 6px rgba(32, 178, 108, 0.08)' : '0 2px 6px rgba(32, 178, 108, 0.10)',
-                                          transition: 'all 0.2s ease',
+                                          transition: 'all 0.15s ease',
                                           fontFamily: 'inherit',
-                                          animation: 'pulse-glow-green 3s infinite ease-in-out',
+                                          position: 'relative',
                                         }}
                                         onMouseEnter={(e) => {
-                                          e.currentTarget.style.boxShadow = isDarkMode ? '0 3px 8px rgba(32, 178, 108, 0.12)' : '0 3px 8px rgba(32, 178, 108, 0.15)';
-                                          e.currentTarget.style.transform = 'translateY(-1px) scale(1.02)';
-                                          e.currentTarget.style.animation = 'none';
+                                          e.currentTarget.style.background = isDarkMode ? 'rgba(245, 158, 11, 0.18)' : 'rgba(245, 158, 11, 0.15)';
+                                          e.currentTarget.style.borderColor = isDarkMode ? 'rgba(245, 158, 11, 0.55)' : 'rgba(245, 158, 11, 0.5)';
                                         }}
                                         onMouseLeave={(e) => {
-                                          e.currentTarget.style.boxShadow = isDarkMode ? '0 2px 6px rgba(32, 178, 108, 0.08)' : '0 2px 6px rgba(32, 178, 108, 0.10)';
-                                          e.currentTarget.style.transform = 'translateY(0) scale(1)';
-                                          e.currentTarget.style.animation = 'pulse-glow-green 3s infinite ease-in-out';
+                                          e.currentTarget.style.background = isDarkMode ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.08)';
+                                          e.currentTarget.style.borderColor = isDarkMode ? 'rgba(245, 158, 11, 0.4)' : 'rgba(245, 158, 11, 0.35)';
                                         }}
                                         title={`Pitch to ${contactName}`}
                                       >
+                                        <span style={{
+                                          position: 'absolute',
+                                          top: -3,
+                                          right: -3,
+                                          width: 6,
+                                          height: 6,
+                                          borderRadius: '50%',
+                                          background: isDarkMode ? 'rgba(251, 191, 36, 0.9)' : 'rgba(217, 119, 6, 0.85)',
+                                          animation: 'status-breathe 2s ease-in-out infinite',
+                                        }} />
                                         <Icon iconName="Send" styles={{ root: { fontSize: 10, color: 'inherit' } }} />
                                         <span>Pitch</span>
                                       </button>
                                     )
+                                  )}
+
+                                  {/* Pitch placeholder shell when no pitch shown and no pitch CTA */}
+                                  {!showPitch && !(showClaimer && pocLower !== 'team@helix-law.com') && (
+                                    <div style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      padding: '4px 10px',
+                                      borderRadius: 0,
+                                      background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(148, 163, 184, 0.03)',
+                                      border: `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)'}`,
+                                      minWidth: 70,
+                                      height: 24,
+                                    }} />
                                   )}
 
                                   {/* Action buttons: Call, Email, Rate - shown on row hover with cascade animation */}
@@ -6635,8 +8101,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               )}
                             </div>
                           </div>
+                          )}
                           {/* Notes Section - expanded below the row */}
-                          {hasNotes && isNotesExpanded && (
+                          {!isSingleDayCollapsed && hasNotes && isNotesExpanded && (
                             <div style={{
                               gridColumn: '1 / -1',
                               padding: '12px 16px',

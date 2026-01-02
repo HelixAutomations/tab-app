@@ -1,5 +1,7 @@
 # Clio API Integration Reference
 
+> Last verified: 2025-12-30
+
 ## Overview
 This document describes the Clio API integration patterns, authentication flow, API constraints, and common operations discovered through implementation and troubleshooting.
 
@@ -324,7 +326,6 @@ const matterRecord = {
 
 ## Related Files
 
-- Authentication: `server/routes/clio-auth.js` (if exists)
 - Matter creation: `server/routes/matter-operations.js`
 - Backfill script: `scripts/backfill-instruction-matters.js`
 - Key Vault config: Environment variables or `local.settings.json`

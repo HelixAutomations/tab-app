@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Stack, Text, Icon, Pivot, PivotItem, TextField } from '@fluentui/react';
-import { FaBolt, FaEdit, FaFileAlt, FaEraser, FaInfoCircle, FaThumbtack, FaCalculator, FaExclamationTriangle, FaEnvelope, FaPaperPlane, FaChevronDown, FaChevronUp, FaCopy, FaEye, FaCheck, FaTimes, FaUsers, FaArrowLeft, FaPoundSign } from 'react-icons/fa';
+import { FaBolt, FaEdit, FaFileAlt, FaEraser, FaInfoCircle, FaThumbtack, FaCalculator, FaExclamationTriangle, FaEnvelope, FaPaperPlane, FaChevronDown, FaChevronUp, FaCopy, FaEye, FaCheck, FaTimes, FaUsers, FaArrowLeft, FaPoundSign, FaUndo, FaRedo } from 'react-icons/fa';
 import DealCapture from './DealCapture';
 import { colours } from '../../../app/styles/colours';
 import { TemplateBlock } from '../../../app/customisation/ProductionTemplateBlocks';
@@ -117,6 +117,17 @@ const animationStyles = `
     border-color: rgba(234, 179, 8, 0.8);
   }
 }
+
+@keyframes sectionEnter {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
 `;
 
 // Inject animations into head
@@ -180,6 +191,21 @@ function findPlaceholders(text: string): string[] {
 function areAllPlaceholdersSatisfied(htmlContent: string): boolean {
   const placeholders = findPlaceholders(htmlContent);
   return placeholders.length === 0;
+}
+
+// Strip editor-specific placeholder styles BEFORE V2 processing to avoid corruption.
+// The V2 processor's regex can break complex inline styles like rgba(54, 144, 206, 0.18).
+function stripEditorPlaceholderStyles(html: string): string {
+  if (!html) return '';
+  const container = document.createElement('div');
+  container.innerHTML = html;
+  
+  // Remove inline styles from placeholder spans - they'll be re-styled by CSS
+  container.querySelectorAll('.insert-placeholder, .placeholder-edited, .placeholder-editing, [data-insert]').forEach((el) => {
+    (el as HTMLElement).removeAttribute('style');
+  });
+  
+  return container.innerHTML;
 }
 
 // Safely wrap placeholders in preview by operating on TEXT NODES only and
@@ -368,6 +394,11 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
   const preRef = useRef<HTMLPreElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [showToolbar, setShowToolbar] = useState(false);
+  // Debounce onChange to reduce parent re-renders while typing
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingValueRef = useRef<string | null>(null);
+  // Track whether a debounced onChange is pending - prevents innerHTML rewrites while user is typing
+  const debounceActiveRef = useRef(false);
   const [undoRedoState, setUndoRedoState] = useState<UndoRedoState>({
     history: [value],
     currentIndex: 0
@@ -383,6 +414,31 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
   const [syncedPersistentRanges, setSyncedPersistentRanges] = useState<{ start: number; end: number }[]>([]);
   const [isFocused, setIsFocused] = useState(false);
 
+  // Add to undo history (synchronous for rich text editor responsiveness)
+  const addToHistory = useCallback((newValue: string) => {
+    setUndoRedoState(prev => {
+      const currentValue = prev.history[prev.currentIndex];
+      if (currentValue === newValue) return prev;
+
+      const newHistory = prev.history.slice(0, prev.currentIndex + 1);
+      newHistory.push(newValue);
+      
+      // Limit history size
+      if (newHistory.length > 50) {
+        newHistory.shift();
+        return {
+          history: newHistory,
+          currentIndex: newHistory.length - 1
+        };
+      }
+      
+      return {
+        history: newHistory,
+        currentIndex: newHistory.length - 1
+      };
+    });
+  }, []);
+
   useEffect(() => {
     onFocusChange?.(isFocused);
   }, [isFocused, onFocusChange]);
@@ -390,16 +446,63 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
   useEffect(() => {
     return () => {
       onFocusChange?.(false);
+      // Flush any pending debounced change on unmount
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        if (pendingValueRef.current !== null) {
+          onChange(pendingValueRef.current);
+          addToHistory(pendingValueRef.current);
+        }
+      }
     };
-  }, [onFocusChange]);
+  }, [onFocusChange, onChange, addToHistory]);
 
   // Sync contentEditable content with value prop when in rich text mode
+  // Use a ref to track if the editor is focused to avoid dependency on state
+  const editorFocusedRef = useRef(false);
+  const previousBodyRef = useRef(value);
+  
   useEffect(() => {
     if (richTextMode && bodyEditorRef?.current) {
+      // Log body changes to track what's triggering re-renders
+      if (previousBodyRef.current !== value) {
+        console.log('[EditorSync] Body prop changed', {
+          internalUpdate: internalUpdateRef.current,
+          debounceActive: debounceActiveRef.current,
+          focused: editorFocusedRef.current,
+          oldLength: previousBodyRef.current.length,
+          newLength: value.length
+        });
+        previousBodyRef.current = value;
+      }
+      // Skip if this was an internal update (user typing) - prevents cursor jumping
+      if (internalUpdateRef.current) {
+        console.log('[EditorSync] Blocked by internalUpdate');
+        return;
+      }
+
+      // Skip if a debounced onChange is pending (user is actively typing)
+      if (debounceActiveRef.current) {
+        console.log('[EditorSync] Blocked by debounceActive');
+        return;
+      }
+
+      // Also skip if the current selection is within the editor.
+      // This guards against transient focus changes that would otherwise reset the caret.
+      const selection = window.getSelection?.();
+      if (selection && selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        const node = range.commonAncestorContainer;
+        const element = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
+        if (element && bodyEditorRef.current.contains(element)) {
+          return;
+        }
+      }
+      
       // Skip if the editor is currently focused - let the user type freely
       // Only sync when content changes from external sources (scenario selection, template insertion, etc.)
-      const active = document.activeElement as HTMLElement | null;
-      if (active && bodyEditorRef.current.contains(active)) {
+      // Use ref to avoid re-running effect when focus changes
+      if (editorFocusedRef.current) {
         return;
       }
       
@@ -410,6 +513,7 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
       // Only update if the content is different
       const currentContent = bodyEditorRef.current.innerHTML;
       if (currentContent !== wrappedContent) {
+        console.log('[EditorSync] ⚠️ WRITING innerHTML', { wrappedLength: wrappedContent.length });
         bodyEditorRef.current.innerHTML = wrappedContent;
       }
     }
@@ -435,8 +539,11 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
       replacingPlaceholderRef.current = null;
       previousValueRef.current = value;
     }
-    // Always clear the internal update flag after effect
-    internalUpdateRef.current = false;
+    // Only clear the internal update flag if debounce is not active
+    // If debounce is active, user is still typing and we must preserve the flag
+    if (!debounceActiveRef.current) {
+      internalUpdateRef.current = false;
+    }
   }, [value]);
 
   // Note: Do not globally reset internalUpdateRef here to avoid race conditions with the [value] sync effect.
@@ -525,54 +632,18 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
     };
   }, [syncPreStyles]);
 
-  // Add to undo history (debounced)
-  const timeoutRef = useRef<NodeJS.Timeout>();
-  const addToHistory = (newValue: string) => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-    }
-    timeoutRef.current = setTimeout(() => {
-      setUndoRedoState(prev => {
-        const currentValue = prev.history[prev.currentIndex];
-        if (currentValue === newValue) return prev;
-
-        const newHistory = prev.history.slice(0, prev.currentIndex + 1);
-        newHistory.push(newValue);
-        
-        // Limit history size
-        if (newHistory.length > 50) {
-          newHistory.shift();
-          return {
-            history: newHistory,
-            currentIndex: newHistory.length - 1
-          };
-        }
-        
-        return {
-          history: newHistory,
-          currentIndex: newHistory.length - 1
-        };
-      });
-    }, 300); // Reduced debounce for more responsive undo
-  };
-
-  // Cleanup pending debounce on unmount to avoid late updates overriding current input
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-    };
-  }, []);
-
   // Undo function
   const handleUndo = () => {
     setUndoRedoState(prev => {
       if (prev.currentIndex > 0) {
         const newIndex = prev.currentIndex - 1;
         const newValue = prev.history[newIndex];
-  internalUpdateRef.current = true;
+        internalUpdateRef.current = true;
         onChange(newValue);
+        // Also update DOM directly since sync effect won't run when focused
+        if (bodyEditorRef?.current) {
+          bodyEditorRef.current.innerHTML = newValue;
+        }
         return {
           ...prev,
           currentIndex: newIndex
@@ -588,8 +659,13 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
       if (prev.currentIndex < prev.history.length - 1) {
         const newIndex = prev.currentIndex + 1;
         const newValue = prev.history[newIndex];
-  internalUpdateRef.current = true;
+        internalUpdateRef.current = true;
         onChange(newValue);
+        // Also update DOM directly since sync effect won't run when focused
+        // But skip if user is actively typing (debounce active)
+        if (bodyEditorRef?.current && !debounceActiveRef.current) {
+          bodyEditorRef.current.innerHTML = newValue;
+        }
         return {
           ...prev,
           currentIndex: newIndex
@@ -821,114 +897,151 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
         position: 'relative',
         fontSize: 13,
         lineHeight: 1,
-        border: `1px solid ${isFocused ? '#3690CE' : (isDarkMode ? '#1F2937' : '#D0D5DD')}`,
-        background: isDarkMode ? '#0F172A' : '#FFFFFF',
-        borderRadius: 10,
+        border: `1px solid ${isFocused 
+          ? (isDarkMode ? 'rgba(54, 144, 206, 0.6)' : 'rgba(54, 144, 206, 0.5)') 
+          : (isDarkMode ? 'rgba(71, 85, 105, 0.4)' : 'rgba(203, 213, 225, 0.8)')}`,
+        background: isDarkMode 
+          ? 'linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(15, 23, 42, 0.95) 100%)' 
+          : 'linear-gradient(180deg, #FFFFFF 0%, #FAFBFC 100%)',
+        borderRadius: 12,
         padding: 0,
         minHeight,
         boxShadow: isFocused
           ? (isDarkMode
-            ? '0 28px 60px rgba(107, 107, 107, 0.35)'
-            : '0 28px 60px rgba(107, 107, 107, 0.18)')
+            ? '0 0 0 3px rgba(54, 144, 206, 0.15), 0 20px 40px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255,255,255,0.03)'
+            : '0 0 0 3px rgba(54, 144, 206, 0.12), 0 20px 40px rgba(15, 23, 42, 0.12), inset 0 1px 0 rgba(255,255,255,0.8)')
           : (isDarkMode
-            ? '0 12px 28px rgba(8, 14, 29, 0.65)'
-            : '0 12px 28px rgba(15, 23, 42, 0.12)'),
-        transition: 'border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease, transform 0.18s ease',
-        transform: isFocused ? 'translateY(-2px)' : 'none',
+            ? '0 4px 16px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255,255,255,0.02)'
+            : '0 4px 16px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255,255,255,0.9)'),
+        transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+        transform: isFocused ? 'translateY(-1px)' : 'none',
         zIndex: isFocused ? 1350 : 1100
       }}
       onMouseEnter={() => setShowToolbar(true)}
       onMouseLeave={() => setShowToolbar(false)}
     >
-      {/* Floating toolbar */}
+      {/* Floating toolbar - Apple/MS style */}
       {showToolbar && (
-  <div className={`inline-editor-toolbar${isFocused ? ' inline-editor-toolbar-active' : ''}`} style={{
-          position: 'absolute',
-          top: -12,
-          right: 12,
-          zIndex: 10,
-          display: 'flex',
-          gap: 2,
-          backgroundColor: isDarkMode ? 'rgba(22, 30, 46, 0.95)' : '#F8FAFC',
-          border: `1px solid ${isDarkMode ? '#1E293B' : '#D4DAE5'}`,
-          borderRadius: 6,
-          padding: '4px 8px',
-          boxShadow: isDarkMode
-            ? '0 14px 30px rgba(8, 12, 24, 0.55)'
-            : '0 12px 28px rgba(15, 23, 42, 0.18)',
-          opacity: 1,
-          transition: 'opacity 0.2s ease'
-        }}>
+        <div 
+          className={`inline-editor-toolbar${isFocused ? ' inline-editor-toolbar-active' : ''}`} 
+          style={{
+            position: 'absolute',
+            top: -14,
+            right: 12,
+            zIndex: 10,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            backgroundColor: isDarkMode 
+              ? 'rgba(30, 41, 59, 0.92)' 
+              : 'rgba(255, 255, 255, 0.95)',
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
+            border: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.4)' : 'rgba(203, 213, 225, 0.6)'}`,
+            borderRadius: 8,
+            padding: '3px 4px',
+            boxShadow: isDarkMode
+              ? '0 8px 24px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.2)'
+              : '0 8px 24px rgba(15, 23, 42, 0.1), 0 2px 8px rgba(15, 23, 42, 0.06)',
+            opacity: 1,
+            transition: 'all 0.15s ease'
+          }}
+        >
+          {/* Undo button */}
           <button
             onClick={handleUndo}
             disabled={undoRedoState.currentIndex <= 0}
             style={{
-              padding: '4px 6px',
-              fontSize: 11,
-              backgroundColor: 'transparent',
-              color: undoRedoState.currentIndex <= 0
-                ? (isDarkMode ? '#4B5563' : '#CBD5E1')
-                : (isDarkMode ? '#E2E8F0' : '#1F2937'),
-              border: 'none',
-              borderRadius: 4,
-              cursor: undoRedoState.currentIndex <= 0 ? 'not-allowed' : 'pointer',
+              width: 28,
+              height: 26,
               display: 'flex',
               alignItems: 'center',
-              gap: 2
+              justifyContent: 'center',
+              backgroundColor: undoRedoState.currentIndex > 0 
+                ? (isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(241, 245, 249, 0.8)')
+                : 'transparent',
+              color: undoRedoState.currentIndex <= 0
+                ? (isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(148, 163, 184, 0.6)')
+                : (isDarkMode ? '#E2E8F0' : '#334155'),
+              border: 'none',
+              borderRadius: 5,
+              cursor: undoRedoState.currentIndex <= 0 ? 'default' : 'pointer',
+              transition: 'all 0.12s ease',
+              opacity: undoRedoState.currentIndex <= 0 ? 0.5 : 1
             }}
-            title="Undo (Ctrl+Z)"
+            title={`Undo (Ctrl+Z)${undoRedoState.currentIndex > 0 ? ` • ${undoRedoState.currentIndex} step${undoRedoState.currentIndex > 1 ? 's' : ''} back` : ''}`}
+            onMouseOver={(e) => undoRedoState.currentIndex > 0 && (e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(71, 85, 105, 0.5)' : 'rgba(226, 232, 240, 0.9)')}
+            onMouseOut={(e) => (e.currentTarget.style.backgroundColor = undoRedoState.currentIndex > 0 ? (isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(241, 245, 249, 0.8)') : 'transparent')}
           >
-            <FaEdit style={{ fontSize: 12, transform: 'scaleX(-1)' }} />
+            <FaUndo style={{ fontSize: 11 }} />
           </button>
+          
+          {/* Redo button */}
           <button
             onClick={handleRedo}
             disabled={undoRedoState.currentIndex >= undoRedoState.history.length - 1}
             style={{
-              padding: '4px 6px',
-              fontSize: 11,
-              backgroundColor: 'transparent',
-              color: undoRedoState.currentIndex >= undoRedoState.history.length - 1
-                ? (isDarkMode ? '#4B5563' : '#CBD5E1')
-                : (isDarkMode ? '#E2E8F0' : '#1F2937'),
-              border: 'none',
-              borderRadius: 4,
-              cursor: undoRedoState.currentIndex >= undoRedoState.history.length - 1 ? 'not-allowed' : 'pointer',
+              width: 28,
+              height: 26,
               display: 'flex',
               alignItems: 'center',
-              gap: 2
+              justifyContent: 'center',
+              backgroundColor: undoRedoState.currentIndex < undoRedoState.history.length - 1
+                ? (isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(241, 245, 249, 0.8)')
+                : 'transparent',
+              color: undoRedoState.currentIndex >= undoRedoState.history.length - 1
+                ? (isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(148, 163, 184, 0.6)')
+                : (isDarkMode ? '#E2E8F0' : '#334155'),
+              border: 'none',
+              borderRadius: 5,
+              cursor: undoRedoState.currentIndex >= undoRedoState.history.length - 1 ? 'default' : 'pointer',
+              transition: 'all 0.12s ease',
+              opacity: undoRedoState.currentIndex >= undoRedoState.history.length - 1 ? 0.5 : 1
             }}
-            title="Redo (Ctrl+Y)"
+            title={`Redo (Ctrl+Y)${undoRedoState.currentIndex < undoRedoState.history.length - 1 ? ` • ${undoRedoState.history.length - 1 - undoRedoState.currentIndex} step${undoRedoState.history.length - 1 - undoRedoState.currentIndex > 1 ? 's' : ''} forward` : ''}`}
+            onMouseOver={(e) => undoRedoState.currentIndex < undoRedoState.history.length - 1 && (e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(71, 85, 105, 0.5)' : 'rgba(226, 232, 240, 0.9)')}
+            onMouseOut={(e) => (e.currentTarget.style.backgroundColor = undoRedoState.currentIndex < undoRedoState.history.length - 1 ? (isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(241, 245, 249, 0.8)') : 'transparent')}
           >
-            <FaEdit style={{ fontSize: 12 }} />
+            <FaRedo style={{ fontSize: 11 }} />
           </button>
+          
+          {/* Divider */}
           <div style={{
             width: 1,
-            height: 16,
-            backgroundColor: isDarkMode ? '#2C3A4D' : '#E2E8F0',
-            margin: '0 6px'
+            height: 18,
+            backgroundColor: isDarkMode ? 'rgba(71, 85, 105, 0.4)' : 'rgba(203, 213, 225, 0.6)',
+            margin: '0 4px'
           }} />
+          
+          {/* Clear button */}
           <button
             onClick={() => {
               const newValue = '';
               internalUpdateRef.current = true;
               onChange(newValue);
               addToHistory(newValue);
+              if (bodyEditorRef?.current) {
+                bodyEditorRef.current.innerHTML = '';
+              }
             }}
             title="Clear all (Ctrl+Backspace)"
             style={{
-              padding: '4px 6px',
-              fontSize: 11,
-              backgroundColor: 'transparent',
-              color: isDarkMode ? '#E2E8F0' : '#1F2937',
-              border: 'none',
-              borderRadius: 4,
-              cursor: 'pointer',
+              width: 28,
+              height: 26,
               display: 'flex',
               alignItems: 'center',
-              gap: 2
+              justifyContent: 'center',
+              backgroundColor: isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(241, 245, 249, 0.8)',
+              color: isDarkMode ? '#E2E8F0' : '#334155',
+              border: 'none',
+              borderRadius: 5,
+              cursor: 'pointer',
+              transition: 'all 0.12s ease'
             }}
+            onMouseOver={(e) => (e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(239, 68, 68, 0.25)' : 'rgba(254, 226, 226, 0.9)', e.currentTarget.style.color = isDarkMode ? '#FCA5A5' : '#DC2626')}
+            onMouseOut={(e) => (e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(241, 245, 249, 0.8)', e.currentTarget.style.color = isDarkMode ? '#E2E8F0' : '#334155')}
           >
-            <FaEraser style={{ fontSize: 12 }} />
+            <FaEraser style={{ fontSize: 11 }} />
           </button>
         </div>
       )}
@@ -938,15 +1051,77 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
         ref={bodyEditorRef}
         contentEditable={true}
         className="rich-text-editor"
-        onFocus={() => setIsFocused(true)}
+        onFocus={() => {
+          editorFocusedRef.current = true;
+          setIsFocused(true);
+          
+          // Trap innerHTML writes to catch culprit
+          const editor = bodyEditorRef?.current;
+          if (editor && !editor.hasAttribute('data-trapped')) {
+            editor.setAttribute('data-trapped', 'true');
+            const originalDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+            if (originalDescriptor && originalDescriptor.set) {
+              const originalSetter = originalDescriptor.set;
+              Object.defineProperty(editor, 'innerHTML', {
+                set: function(val) {
+                  const stackLines = new Error().stack?.split('\n').slice(1, 6) || [];
+                  console.log('[innerHTML Trap] Someone is writing innerHTML!');
+                  console.log('  debounceActive:', debounceActiveRef.current);
+                  console.log('  internalUpdate:', internalUpdateRef.current);
+                  console.log('  Stack:');
+                  stackLines.forEach((line, i) => console.log(`    ${i}: ${line.trim()}`));
+                  originalSetter.call(this, val);
+                },
+                get: function() {
+                  return originalDescriptor.get?.call(this) || '';
+                }
+              });
+            }
+          }
+        }}
         onInput={(e) => {
           const target = e.currentTarget as HTMLDivElement;
+          const newValue = target.innerHTML;
+          console.log('[EditorInput] User typing - setting flags');
           internalUpdateRef.current = true;
-          onChange(target.innerHTML);
+          debounceActiveRef.current = true;
+          pendingValueRef.current = newValue;
+          // Debounce onChange to avoid excessive parent re-renders
+          if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current);
+          }
+          debounceTimerRef.current = setTimeout(() => {
+            if (pendingValueRef.current !== null) {
+              onChange(pendingValueRef.current);
+              addToHistory(pendingValueRef.current);
+              pendingValueRef.current = null;
+            }
+            console.log('[EditorDebounce] Debounce completed - clearing debounceActiveRef');
+            debounceActiveRef.current = false;
+          }, 150);
         }}
         onBlur={(e) => {
+          // Update ref synchronously to prevent race with sync effect
           const nextTarget = e.relatedTarget as HTMLElement | null;
-          if (!nextTarget || !wrapperRef.current?.contains(nextTarget)) {
+          const leavingEditor = !nextTarget || !wrapperRef.current?.contains(nextTarget);
+          if (leavingEditor) {
+            editorFocusedRef.current = false;
+          }
+          
+          // Flush any pending debounced changes immediately on blur
+          if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current);
+            debounceTimerRef.current = null;
+          }
+          if (pendingValueRef.current !== null) {
+            onChange(pendingValueRef.current);
+            addToHistory(pendingValueRef.current);
+            pendingValueRef.current = null;
+          }
+          console.log('[EditorBlur] Flushing on blur - clearing debounceActiveRef');
+          debounceActiveRef.current = false;
+          
+          if (leavingEditor) {
             setIsFocused(false);
           }
           // Finalize any active placeholder editing when leaving the editor
@@ -1007,7 +1182,11 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
                 el.replaceWith(span);
               }
             }
-            onChange(editorEl.innerHTML);
+            // Only call onChange if not actively typing (debounce not active)
+            // Otherwise this triggers a sync effect that writes innerHTML and resets cursor
+            if (!debounceActiveRef.current) {
+              onChange(editorEl.innerHTML);
+            }
           }
 
           const span = targetEl.closest('.insert-placeholder');
@@ -1030,7 +1209,10 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
             range.selectNodeContents(inner);
             sel?.removeAllRanges();
             sel?.addRange(range);
-            onChange(editorEl.innerHTML);
+            // Only call onChange if not actively typing
+            if (!debounceActiveRef.current) {
+              onChange(editorEl.innerHTML);
+            }
           }
         }}
         onDoubleClick={(e) => {
@@ -1044,6 +1226,38 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
           }
         }}
         onKeyDown={(e) => {
+          // Tab to jump between placeholders
+          if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            const editorEl = e.currentTarget as HTMLDivElement;
+            const placeholders = Array.from(editorEl.querySelectorAll('.insert-placeholder')) as HTMLElement[];
+            if (placeholders.length > 0) {
+              e.preventDefault();
+              const sel = window.getSelection();
+              const currentNode = sel?.anchorNode;
+              
+              // Find which placeholder we're in or near
+              let currentIdx = -1;
+              if (currentNode) {
+                const currentPlaceholder = (currentNode.nodeType === Node.ELEMENT_NODE 
+                  ? currentNode as HTMLElement 
+                  : currentNode.parentElement)?.closest('.insert-placeholder, .placeholder-editing');
+                if (currentPlaceholder) {
+                  currentIdx = placeholders.indexOf(currentPlaceholder as HTMLElement);
+                }
+              }
+              
+              // Move to next (or first if not in any)
+              const nextIdx = e.shiftKey 
+                ? (currentIdx <= 0 ? placeholders.length - 1 : currentIdx - 1)
+                : (currentIdx + 1) % placeholders.length;
+              const next = placeholders[nextIdx];
+              if (next) {
+                next.click(); // Triggers the placeholder editing
+              }
+              return;
+            }
+          }
+          
           // Handle Enter key for placeholder inline editing
           if (e.key === 'Enter') {
             const placeholder = (e.target as HTMLElement).closest('.insert-placeholder');
@@ -1092,17 +1306,16 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
                 handleFormatCommand?.('justifyRight');
                 break;
               case 'z':
+                e.preventDefault();
                 if (shift) {
-                  e.preventDefault();
-                  handleFormatCommand?.('redo');
+                  handleRedo();
                 } else {
-                  e.preventDefault();
-                  handleFormatCommand?.('undo');
+                  handleUndo();
                 }
                 break;
               case 'y':
                 e.preventDefault();
-                handleFormatCommand?.('redo');
+                handleRedo();
                 break;
               case '8':
                 if (shift) {
@@ -1268,6 +1481,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   // Default amount now 1500 if not supplied
   const [amountValue, setAmountValue] = useState(amount && amount.trim() !== '' ? amount : '1500');
   const [amountError, setAmountError] = useState<string | null>(null);
+  // VAT toggle state for international clients
+  const [includeVat, setIncludeVat] = useState(true);
   // Removed PIC placeholder insertion feature per user request
   const [isNotesPinned, setIsNotesPinned] = useState(false);
   const [showSubjectHint, setShowSubjectHint] = useState(false);
@@ -1282,6 +1497,9 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   }, [selectedScenarioId, onScenarioChange]);
 
   const [isTemplatesCollapsed, setIsTemplatesCollapsed] = useState(false); // Start expanded for immediate selection
+  const [isScopeCollapsed, setIsScopeCollapsed] = useState(false);
+  const [isAmountCollapsed, setIsAmountCollapsed] = useState(false);
+  const [isSubjectCollapsed, setIsSubjectCollapsed] = useState(false);
   const [showInlinePreview, setShowInlinePreview] = useState(false);
   const [isBodyEditorFocused, setIsBodyEditorFocused] = useState(false);
   const [allPlaceholdersSatisfied, setAllPlaceholdersSatisfied] = useState(false);
@@ -1572,6 +1790,13 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   useEffect(() => {
     const formattedAmount = formatPoundsAmount(amountValue);
     if (!formattedAmount) return;
+    
+    // Skip if editor is currently focused - don't interrupt user typing (real-time DOM check)
+    if (bodyEditorRef?.current === document.activeElement) {
+      console.log('[AmountSync] Skipped - editor is activeElement');
+      return;
+    }
+    
     // Prefer the current editor DOM (it may contain wrapped placeholders not yet synced to state)
     const editorHtml = bodyEditorRef?.current?.innerHTML;
     const sourceHtml = (editorHtml && editorHtml.trim() !== '' ? editorHtml : body) || '';
@@ -1693,12 +1918,14 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
 
     if (next !== body) {
       setBody(next);
-      // Keep DOM in sync if the editor is mounted
-      if (bodyEditorRef?.current) {
+      // Keep DOM in sync if the editor is mounted AND not focused (avoid cursor jump)
+      if (bodyEditorRef?.current && !isBodyEditorFocused) {
+        console.log('[AmountSync] Writing innerHTML');
         bodyEditorRef.current.innerHTML = next;
       }
     }
-  }, [amountValue, body, setBody, bodyEditorRef]);
+  }, [amountValue, setBody, bodyEditorRef, isBodyEditorFocused]);
+  // Note: Removed 'body' and 'debounceActiveRef' from dependencies - this effect should only run when amount changes
 
   // Handle removing a block
   const handleRemoveBlock = (block: TemplateBlock) => {
@@ -2390,15 +2617,19 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 <div style={{
                   flex: 1,
                   height: '1px',
-                  background: isDarkMode 
-                    ? 'linear-gradient(90deg, rgba(54, 144, 206, 0.3) 0%, transparent 100%)'
-                    : 'linear-gradient(90deg, rgba(54, 144, 206, 0.2) 0%, transparent 100%)'
+                  background: selectedScenarioId
+                    ? (isDarkMode
+                        ? 'linear-gradient(90deg, rgba(74, 222, 128, 0.35) 0%, transparent 100%)'
+                        : 'linear-gradient(90deg, rgba(5, 150, 105, 0.25) 0%, transparent 100%)')
+                    : (isDarkMode
+                        ? 'linear-gradient(90deg, rgba(54, 144, 206, 0.3) 0%, transparent 100%)'
+                        : 'linear-gradient(90deg, rgba(54, 144, 206, 0.2) 0%, transparent 100%)')
                 }} />
                 <div style={{
                   padding: '4px',
                   borderRadius: '4px',
                   background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
-                  transition: 'all 0.2s ease'
+                  transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
                 }}>
                   {isTemplatesCollapsed ? 
                     <FaChevronDown style={{ fontSize: 12, color: isDarkMode ? '#94A3B8' : '#64748B' }} /> : 
@@ -2420,16 +2651,17 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
             <div style={{
               display: 'grid',
               gridTemplateColumns: window.innerWidth < 1024 ? '1fr' : 'repeat(2, 1fr)',
-              gap: '12px',
-              marginBottom: '16px'
+              gap: '14px',
+              marginBottom: '20px'
             }}>
               {(() => {
                 return SCENARIOS?.map((s, index) => (
                   <button
                     key={s.id}
                     type="button"
+                    role="radio"
                     className={`scenario-choice-card ${selectedScenarioId === s.id ? 'active' : ''}`}
-                    aria-pressed={selectedScenarioId === s.id}
+                    aria-checked={selectedScenarioId === s.id}
                     aria-label={`Select ${s.name} template: ${(() => {
                       switch (s.id) {
                         case 'before-call-call':
@@ -2446,7 +2678,6 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                           return 'Standard professional response template';
                       }
                     })()}`}
-                    role="radio"
                     tabIndex={-1}
                     onMouseDown={() => {
                       // Scenario mousedown
@@ -2522,8 +2753,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                       border: `2px solid ${selectedScenarioId === s.id
                         ? colours.blue
                         : (isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.16)')}`,
-                      borderRadius: '10px',
-                      padding: '16px',
+                      borderRadius: '12px',
+                      padding: '18px',
                       cursor: 'pointer',
                       pointerEvents: 'auto',
                       userSelect: 'none',
@@ -2535,8 +2766,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                       textAlign: 'left',
                       minHeight: '100px',
                       boxShadow: selectedScenarioId === s.id
-                        ? (isDarkMode ? '0 12px 42px rgba(54, 144, 206, 0.45), 0 0 0 1px rgba(54, 144, 206, 0.35) inset, 0 4px 16px rgba(96, 165, 250, 0.2)' : '0 6px 24px rgba(54, 144, 206, 0.25), 0 0 0 1px rgba(54, 144, 206, 0.12) inset')
-                        : (isDarkMode ? '0 6px 18px rgba(4, 9, 20, 0.55)' : '0 3px 12px rgba(13, 47, 96, 0.08)'),
+                        ? (isDarkMode ? '0 8px 32px rgba(54, 144, 206, 0.35), 0 0 0 1px rgba(54, 144, 206, 0.25) inset' : '0 4px 20px rgba(54, 144, 206, 0.22), 0 0 0 1px rgba(54, 144, 206, 0.1) inset')
+                        : (isDarkMode ? '0 4px 16px rgba(4, 9, 20, 0.45)' : '0 2px 10px rgba(13, 47, 96, 0.06)'),
                       opacity: 0,
                       animationFillMode: 'forwards',
                       overflow: 'hidden',
@@ -2548,9 +2779,9 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                       if (selectedScenarioId !== s.id) {
                         e.currentTarget.style.borderColor = colours.blue;
                         e.currentTarget.style.boxShadow = isDarkMode
-                          ? '0 12px 28px rgba(96, 165, 250, 0.28)'
-                          : '0 8px 24px rgba(54, 144, 206, 0.2)';
-                        e.currentTarget.style.transform = 'translateY(-2px) scale(1.01)';
+                          ? '0 10px 24px rgba(96, 165, 250, 0.25)'
+                          : '0 6px 20px rgba(54, 144, 206, 0.18)';
+                        e.currentTarget.style.transform = 'translateY(-1px)';
                         e.currentTarget.style.background = isDarkMode
                           ? 'linear-gradient(135deg, rgba(13, 28, 56, 0.95) 0%, rgba(17, 36, 64, 0.9) 100%)'
                           : 'linear-gradient(135deg, rgba(248, 250, 252, 0.96) 0%, rgba(255, 255, 255, 0.92) 100%)';
@@ -2559,8 +2790,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     onMouseLeave={(e) => {
                       if (selectedScenarioId !== s.id) {
                         e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.16)';
-                        e.currentTarget.style.boxShadow = isDarkMode ? '0 6px 18px rgba(4, 9, 20, 0.55)' : '0 3px 12px rgba(13, 47, 96, 0.08)';
-                        e.currentTarget.style.transform = 'translateY(0) scale(1)';
+                        e.currentTarget.style.boxShadow = isDarkMode ? '0 4px 16px rgba(4, 9, 20, 0.45)' : '0 2px 10px rgba(13, 47, 96, 0.06)';
+                        e.currentTarget.style.transform = 'translateY(0)';
                         e.currentTarget.style.background = isDarkMode
                           ? 'linear-gradient(135deg, rgba(11, 22, 43, 0.88) 0%, rgba(13, 30, 56, 0.8) 100%)'
                           : 'linear-gradient(135deg, rgba(248, 250, 252, 0.92) 0%, rgba(255, 255, 255, 0.88) 100%)';
@@ -2795,14 +3026,22 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
             
             {/* Step 2: Subject Line Section */}
             <div style={{ marginBottom: 24 }}>
-              <div style={{
+              <div
+                onClick={() => {
+                  const next = !isSubjectCollapsed;
+                  setIsSubjectCollapsed(next);
+                  if (next) setIsSubjectEditing(false);
+                }}
+                style={{
                 fontSize: '14px',
                 fontWeight: 600,
                 color: isDarkMode ? '#E0F2FE' : '#0F172A',
                 marginBottom: '12px',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '10px'
+                gap: '10px',
+                cursor: 'pointer',
+                userSelect: 'none'
               }}>
                 <div style={{
                   width: '24px',
@@ -2853,9 +3092,32 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   }} />
                 </div>
                 <span style={{ fontSize: '14px' }}>
-                  Subject Line:
+                  Subject Line
                 </span>
+                <div style={{
+                  flex: 1,
+                  height: '1px',
+                  background: (!isSubjectEditing && subject && subject !== 'Your Enquiry - Helix Law')
+                    ? (isDarkMode
+                        ? 'linear-gradient(90deg, rgba(74, 222, 128, 0.35) 0%, transparent 100%)'
+                        : 'linear-gradient(90deg, rgba(5, 150, 105, 0.25) 0%, transparent 100%)')
+                    : (isDarkMode
+                        ? 'linear-gradient(90deg, rgba(54, 144, 206, 0.3) 0%, transparent 100%)'
+                        : 'linear-gradient(90deg, rgba(54, 144, 206, 0.2) 0%, transparent 100%)')
+                }} />
+                <div style={{
+                  padding: '4px',
+                  borderRadius: '4px',
+                  background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
+                  transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
+                }}>
+                  {isSubjectCollapsed ?
+                    <FaChevronDown style={{ fontSize: 12, color: isDarkMode ? '#94A3B8' : '#64748B' }} /> :
+                    <FaChevronUp style={{ fontSize: 12, color: isDarkMode ? '#94A3B8' : '#64748B' }} />
+                  }
+                </div>
               </div>
+              {!isSubjectCollapsed && (
               <div style={{
                 marginLeft: 11,
                 paddingLeft: 23,
@@ -2870,35 +3132,48 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     style={{
                       cursor: 'pointer',
                       padding: '8px 12px', // Match input padding for no jolt
-                      background: 'transparent', // No background when collapsed
-                      border: `1px solid transparent`, // Invisible border to maintain spacing
-                      borderRadius: '6px',
+                      background: isDarkMode
+                        ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.6) 0%, rgba(11, 30, 55, 0.4) 100%)'
+                        : 'linear-gradient(135deg, rgba(248, 250, 252, 0.8) 0%, rgba(255, 255, 255, 0.6) 100%)',
+                      border: `1.5px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.25)' : 'rgba(148, 163, 184, 0.3)'}`,
+                      borderRadius: '8px',
                       color: isDarkMode ? '#E0F2FE' : '#0F172A',
                       fontSize: '14px',
-                      fontWeight: 400,
+                      fontWeight: 500,
                       transition: 'all 0.2s ease',
                       display: 'flex',
                       alignItems: 'center',
                       gap: '8px',
                       flex: 1,
                       minHeight: '20px', // Ensure consistent height
-                      boxSizing: 'border-box'
+                      boxSizing: 'border-box',
+                      boxShadow: isDarkMode
+                        ? '0 2px 6px rgba(0, 0, 0, 0.1)'
+                        : '0 1px 3px rgba(0, 0, 0, 0.05)'
                     }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.background = isDarkMode 
-                        ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.6) 0%, rgba(11, 30, 55, 0.4) 100%)'
-                        : 'linear-gradient(135deg, rgba(248, 250, 252, 0.8) 0%, rgba(255, 255, 255, 0.6) 100%)';
-                      e.currentTarget.style.borderColor = isDarkMode ? 'rgba(125, 211, 252, 0.3)' : 'rgba(148, 163, 184, 0.4)';
+                        ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.8) 0%, rgba(11, 30, 55, 0.6) 100%)'
+                        : 'linear-gradient(135deg, rgba(248, 250, 252, 0.95) 0%, rgba(255, 255, 255, 0.8) 100%)';
+                      e.currentTarget.style.borderColor = isDarkMode ? 'rgba(125, 211, 252, 0.45)' : 'rgba(148, 163, 184, 0.5)';
+                      e.currentTarget.style.boxShadow = isDarkMode
+                        ? '0 4px 12px rgba(0, 0, 0, 0.15)'
+                        : '0 2px 8px rgba(0, 0, 0, 0.08)';
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'transparent';
-                      e.currentTarget.style.borderColor = 'transparent';
+                      e.currentTarget.style.background = isDarkMode
+                        ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.6) 0%, rgba(11, 30, 55, 0.4) 100%)'
+                        : 'linear-gradient(135deg, rgba(248, 250, 252, 0.8) 0%, rgba(255, 255, 255, 0.6) 100%)';
+                      e.currentTarget.style.borderColor = isDarkMode ? 'rgba(125, 211, 252, 0.25)' : 'rgba(148, 163, 184, 0.3)';
+                      e.currentTarget.style.boxShadow = isDarkMode
+                        ? '0 2px 6px rgba(0, 0, 0, 0.1)'
+                        : '0 1px 3px rgba(0, 0, 0, 0.05)';
                     }}
                   >
-                    <span style={{ flex: 1, opacity: subject ? 1 : 0.6 }}>
-                      {subject || 'Craft your email subject based on the context below...'}
+                    <span style={{ flex: 1 }}>
+                      {subject}
                     </span>
-                    <FaEdit style={{ fontSize: 11, color: colours.blue, opacity: 0.6 }} />
+                    <FaEdit style={{ fontSize: 11, color: colours.blue, opacity: 0.7 }} />
                   </div>
                 ) : (
                   <div style={{ flex: 1 }}>
@@ -2906,7 +3181,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                       type="text"
                       value={subject}
                       onChange={(e) => setSubject(e.target.value)}
-                      placeholder="Craft your email subject based on the context below..."
+                      placeholder="E.g., 'Your Enquiry - Our Next Steps'"
                       autoFocus
                       style={{
                         width: '100%',
@@ -2914,14 +3189,14 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                         fontSize: '14px',
                         fontWeight: 400,
                         border: `2px solid #3690CE`,
-                        borderRadius: '6px',
+                        borderRadius: '8px',
                         background: isDarkMode 
                           ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.94) 0%, rgba(11, 30, 55, 0.88) 100%)'
                           : 'linear-gradient(135deg, rgba(248, 250, 252, 0.96) 0%, rgba(255, 255, 255, 0.92) 100%)',
                         color: isDarkMode ? '#E0F2FE' : '#0F172A',
                         outline: 'none',
                         transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                        boxShadow: '0 0 0 4px rgba(107, 107, 107, 0.12)',
+                        boxShadow: '0 0 0 4px rgba(54, 144, 206, 0.1)',
                         fontFamily: 'inherit',
                         boxSizing: 'border-box'
                       }}
@@ -2938,6 +3213,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   </div>
                 )}
               </div>
+            )}
             </div>
 
             {/* Step 3: Scope Description Section */}
@@ -2957,14 +3233,18 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 animation: needsAttention ? 'attentionPulse 2s ease-in-out infinite' : undefined,
                 transition: 'all 0.3s ease'
               }}>
-                <div style={{
+                <div
+                  onClick={() => setIsScopeCollapsed(!isScopeCollapsed)}
+                  style={{
                   fontSize: '14px',
                   fontWeight: 600,
                   color: isDarkMode ? '#E0F2FE' : '#0F172A',
                   marginBottom: '12px',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '10px'
+                  gap: '10px',
+                  cursor: 'pointer',
+                  userSelect: 'none'
                 }}>
                   <div style={{
                     width: '24px',
@@ -3031,32 +3311,68 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     }} />
                   </div>
                   <span style={{ fontSize: '14px' }}>
-                    Scope Description:
+                    Scope of Work
                   </span>
-                  {needsAttention && (
-                    <span style={{ 
-                      fontSize: '11px', 
-                      color: '#CA8A04',
-                      fontWeight: 500,
-                      marginLeft: 'auto',
-                      padding: '2px 8px',
-                      background: isDarkMode ? 'rgba(234, 179, 8, 0.15)' : 'rgba(234, 179, 8, 0.1)',
+                  <div style={{
+                    flex: 1,
+                    height: '1px',
+                    background: !isIncomplete
+                      ? (isDarkMode
+                          ? 'linear-gradient(90deg, rgba(74, 222, 128, 0.35) 0%, transparent 100%)'
+                          : 'linear-gradient(90deg, rgba(5, 150, 105, 0.25) 0%, transparent 100%)')
+                      : needsAttention
+                        ? (isDarkMode
+                            ? 'linear-gradient(90deg, rgba(250, 204, 21, 0.35) 0%, transparent 100%)'
+                            : 'linear-gradient(90deg, rgba(234, 179, 8, 0.22) 0%, transparent 100%)')
+                        : (isDarkMode
+                            ? 'linear-gradient(90deg, rgba(54, 144, 206, 0.3) 0%, transparent 100%)'
+                            : 'linear-gradient(90deg, rgba(54, 144, 206, 0.2) 0%, transparent 100%)')
+                  }} />
+                  <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {needsAttention && (
+                      <span style={{ 
+                        fontSize: '11px', 
+                        color: '#CA8A04',
+                        fontWeight: 500,
+                        padding: '2px 8px',
+                        background: isDarkMode ? 'rgba(234, 179, 8, 0.15)' : 'rgba(234, 179, 8, 0.1)',
+                        borderRadius: '4px',
+                        border: '1px solid rgba(234, 179, 8, 0.3)'
+                      }}>
+                        Required
+                      </span>
+                    )}
+                    <div style={{
+                      padding: '4px',
                       borderRadius: '4px',
-                      border: '1px solid rgba(234, 179, 8, 0.3)'
+                      background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
+                      transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
                     }}>
-                      Required
-                    </span>
-                  )}
+                      {isScopeCollapsed ? 
+                        <FaChevronDown style={{ fontSize: 12, color: isDarkMode ? '#94A3B8' : '#64748B' }} /> :
+                        <FaChevronUp style={{ fontSize: 12, color: isDarkMode ? '#94A3B8' : '#64748B' }} />
+                      }
+                    </div>
+                  </div>
                 </div>
-                <DealCapture
-                  isDarkMode={isDarkMode}
-                  scopeDescription={scopeDescription}
-                  onScopeChange={(v) => { setScopeDescription(v); onScopeDescriptionChange?.(v); }}
-                  amount={amountValue}
-                  onAmountChange={(v) => { setAmountValue(v); onAmountChange?.(v); }}
-                  amountError={amountError}
-                  showScopeOnly={true}
-                />
+                {!isScopeCollapsed && (
+                  <DealCapture
+                    isDarkMode={isDarkMode}
+                    scopeDescription={scopeDescription}
+                    onScopeChange={(v) => { setScopeDescription(v); onScopeDescriptionChange?.(v); }}
+                    amount={amountValue}
+                    onAmountChange={(v) => { setAmountValue(v); onAmountChange?.(v); }}
+                    amountError={amountError}
+                    showScopeOnly={true}
+                    scopeConnectorColor={!isIncomplete
+                      ? (isDarkMode ? 'rgba(74, 222, 128, 0.35)' : 'rgba(5, 150, 105, 0.3)')
+                      : needsAttention
+                        ? (isDarkMode ? 'rgba(250, 204, 21, 0.35)' : 'rgba(234, 179, 8, 0.22)')
+                        : (isDarkMode ? 'rgba(96, 165, 250, 0.25)' : 'rgba(54, 144, 206, 0.2)')}
+                    includeVat={includeVat}
+                    onIncludeVatChange={setIncludeVat}
+                  />
+                )}
               </div>
             );
             })()}
@@ -3064,14 +3380,18 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
             {/* Step 4: Quote Amount Section */}
             {!isBeforeCallCall && (
               <div style={{ marginBottom: 24 }}>
-                <div style={{
+                <div
+                  onClick={() => setIsAmountCollapsed(!isAmountCollapsed)}
+                  style={{
                   fontSize: '14px',
                   fontWeight: 600,
                   color: isDarkMode ? '#E0F2FE' : '#0F172A',
                   marginBottom: '12px',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '10px'
+                  gap: '10px',
+                  cursor: 'pointer',
+                  userSelect: 'none'
                 }}>
                   <div style={{
                     width: '24px',
@@ -3122,18 +3442,49 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     }} />
                   </div>
                   <span style={{ fontSize: '14px' }}>
-                    Quote Amount:
+                    Quote Amount
                   </span>
+                  <div style={{
+                    flex: 1,
+                    height: '1px',
+                    background: (amountValue && parseFloat(amountValue) > 0)
+                      ? (isDarkMode
+                          ? 'linear-gradient(90deg, rgba(74, 222, 128, 0.35) 0%, transparent 100%)'
+                          : 'linear-gradient(90deg, rgba(5, 150, 105, 0.25) 0%, transparent 100%)')
+                      : (isDarkMode
+                          ? 'linear-gradient(90deg, rgba(54, 144, 206, 0.3) 0%, transparent 100%)'
+                          : 'linear-gradient(90deg, rgba(54, 144, 206, 0.2) 0%, transparent 100%)')
+                  }} />
+                  <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
+                    <div style={{
+                      padding: '4px',
+                      borderRadius: '4px',
+                      background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
+                      transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
+                    }}>
+                      {isAmountCollapsed ? 
+                        <FaChevronDown style={{ fontSize: 12, color: isDarkMode ? '#94A3B8' : '#64748B' }} /> :
+                        <FaChevronUp style={{ fontSize: 12, color: isDarkMode ? '#94A3B8' : '#64748B' }} />
+                      }
+                    </div>
+                  </div>
                 </div>
-                <DealCapture
-                  isDarkMode={isDarkMode}
-                  scopeDescription={scopeDescription}
-                  onScopeChange={(v) => { setScopeDescription(v); onScopeDescriptionChange?.(v); }}
-                  amount={amountValue}
-                  onAmountChange={(v) => { setAmountValue(v); onAmountChange?.(v); }}
-                  amountError={amountError}
-                  showAmountOnly={true}
-                />
+                {!isAmountCollapsed && (
+                  <DealCapture
+                    isDarkMode={isDarkMode}
+                    scopeDescription={scopeDescription}
+                    onScopeChange={(v) => { setScopeDescription(v); onScopeDescriptionChange?.(v); }}
+                    amount={amountValue}
+                    onAmountChange={(v) => { setAmountValue(v); onAmountChange?.(v); }}
+                    amountError={amountError}
+                    showAmountOnly={true}
+                    amountConnectorColor={(amountValue && parseFloat(amountValue) > 0)
+                      ? (isDarkMode ? 'rgba(74, 222, 128, 0.35)' : 'rgba(5, 150, 105, 0.3)')
+                      : (isDarkMode ? 'rgba(96, 165, 250, 0.25)' : 'rgba(54, 144, 206, 0.2)')}
+                    includeVat={includeVat}
+                    onIncludeVatChange={setIncludeVat}
+                  />
+                )}
               </div>
             )}
 
@@ -3185,7 +3536,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     : (isDarkMode 
                         ? 'linear-gradient(135deg, rgba(135, 243, 243, 0.24) 0%, rgba(135, 243, 243, 0.18) 100%)'
                         : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(54, 144, 206, 0.18) 100%)'),
-                  borderRadius: '6px',
+                  borderRadius: '8px',
                   display: 'flex',
                   alignItems: 'center',
                   border: allPlaceholdersSatisfied
@@ -3222,12 +3573,12 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
               background: isDarkMode
                 ? 'linear-gradient(135deg, rgba(5, 12, 26, 0.98) 0%, rgba(9, 22, 44, 0.94) 52%, rgba(13, 35, 63, 0.9) 100%)'
                 : 'linear-gradient(135deg, rgba(248, 250, 252, 0.96) 0%, rgba(255, 255, 255, 0.94) 100%)',
-              borderRadius: '16px',
+              borderRadius: '12px',
               padding: '24px',
               border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : 'rgba(148, 163, 184, 0.22)'}`,
               boxShadow: isDarkMode 
-                ? '0 18px 32px rgba(2, 6, 17, 0.58)' 
-                : '0 12px 28px rgba(13, 47, 96, 0.12)',
+                ? '0 8px 24px rgba(2, 6, 17, 0.5)' 
+                : '0 4px 16px rgba(13, 47, 96, 0.1)',
               marginBottom: 20,
               fontFamily: 'Raleway, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
               backdropFilter: 'blur(12px)',
@@ -3503,7 +3854,9 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                         const withoutAutoBlocks = stripDashDividers(body || '');
                         const userDataLocal = (typeof userData !== 'undefined') ? userData : undefined;
                         const enquiryLocal = (typeof enquiry !== 'undefined') ? enquiry : undefined;
-                        const sanitized = withoutAutoBlocks.replace(/\r\n/g, '\n').replace(/\n/g, '<br />');
+                        // Strip editor placeholder styles BEFORE V2 processing to prevent corruption
+                        const cleanedForPreview = stripEditorPlaceholderStyles(withoutAutoBlocks);
+                        const sanitized = cleanedForPreview.replace(/\r\n/g, '\n').replace(/\n/g, '<br />');
                         const substituted = applyDynamicSubstitutions(
                           sanitized,
                           userDataLocal,
@@ -3973,6 +4326,13 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
           outline: none;
           opacity: 1;
         }
+        .insert-placeholder:hover::after {
+          content: '⇥';
+          font-size: 9px;
+          margin-left: 4px;
+          opacity: 0.4;
+          font-style: normal;
+        }
         
         /* Edited placeholder styles - green highlight for user feedback */
         .placeholder-edited {
@@ -4396,7 +4756,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 {/* Replace Subject with Service Description */}
                 {scopeDescription && (
                   <div style={{ fontSize: '12px', marginBottom: '6px' }}>
-                    <span style={{ fontWeight: '500', color: isDarkMode ? '#94A3B8' : '#64748B', fontSize: '11px' }}>Service:</span>
+                    <span style={{ fontWeight: '500', color: isDarkMode ? '#94A3B8' : '#64748B', fontSize: '11px' }}>Scope</span>
                     <div style={{ 
                       marginTop: '2px',
                       color: isDarkMode ? '#CBD5E1' : '#334155',
@@ -4413,14 +4773,14 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 
                 {amountValue && (
                   <div style={{ marginBottom: '0', fontSize: '12px' }}>
-                    <span style={{ fontWeight: '500', color: isDarkMode ? '#94A3B8' : '#64748B', fontSize: '11px' }}>Fee:</span>
+                    <span style={{ fontWeight: '500', color: isDarkMode ? '#94A3B8' : '#64748B', fontSize: '11px' }}>Amount</span>
                     <div style={{ 
                       marginTop: '2px',
                       color: isDarkMode ? '#CBD5E1' : '#334155',
                       fontWeight: 600,
                       fontSize: '13px'
                     }}>
-                      £{parseFloat(amountValue).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} + VAT
+                      £{parseFloat(amountValue).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </div>
                   </div>
                 )}
@@ -4458,7 +4818,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   color: isDarkMode ? '#E2E8F0' : '#1E293B',
                   lineHeight: '1.4'
                 }}>
-                  24-hour follow-up reminder via 1day@followupthen.com
+                  Follow-up reminder set for 24 hours
                 </div>
               </div>
             </div>
@@ -4494,7 +4854,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   color: isDarkMode ? '#E2E8F0' : '#1E293B',
                   lineHeight: '1.4'
                 }}>
-                  Email saved to Outlook Sent Items
+                  Saved to Sent Items
                 </div>
               </div>
             </div>

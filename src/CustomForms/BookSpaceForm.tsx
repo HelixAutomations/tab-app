@@ -1,6 +1,21 @@
 import React, { useState, useEffect } from 'react';
 // invisible change
-import { Stack, Text, Spinner, SpinnerSize, Icon, DefaultButton } from '@fluentui/react';
+import { 
+  Stack, 
+  Text, 
+  Spinner, 
+  SpinnerSize, 
+  Icon, 
+  DefaultButton, 
+  IconButton, 
+  TooltipHost,
+  Dialog,
+  DialogType,
+  DialogFooter,
+  PrimaryButton,
+  MessageBar,
+  MessageBarType
+} from '@fluentui/react';
 import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
 import { colours } from '../app/styles/colours';
 import { useTheme } from '../app/functionality/ThemeContext';
@@ -27,12 +42,14 @@ export interface BookSpaceFormProps {
   onCancel: () => void;
   feeEarner: string;
   futureBookings?: FutureBookingsResponse;
+  onBookingCreated?: () => void;
 }
 
 const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
   onCancel,
   feeEarner,
-  futureBookings
+  futureBookings,
+  onBookingCreated
 }) => {
   const { isDarkMode } = useTheme();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -47,6 +64,10 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
   }>({});
   const [selectedSpaceType, setSelectedSpaceType] = useState<'Boardroom' | 'Soundproof Pod' | null>(null);
   const [displayWeeks, setDisplayWeeks] = useState(2); // Start with 2 weeks
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [bookingToDelete, setBookingToDelete] = useState<(BoardroomBooking | SoundproofPodBooking) | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const formFields: FormField[] = [
     {
@@ -282,6 +303,7 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
     try {
       await submitBooking(payload);
       setSubmissionSuccess(true);
+      onBookingCreated?.(); // Trigger refresh of future bookings
       setTimeout(() => {
         onCancel();
       }, 2000);
@@ -293,7 +315,7 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
   }
 
   async function submitBooking(data: BookSpaceData) {
-  const url = `${getProxyBaseUrl()}/${process.env.REACT_APP_INSERT_BOOK_SPACE_PATH}?code=${process.env.REACT_APP_INSERT_BOOK_SPACE_CODE}`;
+  const url = '/api/book-space';
     let finalTimeStr = data.booking_time;
     if (!finalTimeStr.includes('.')) {
       finalTimeStr += '.0000000';
@@ -337,9 +359,9 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
     const endDate = new Date(today);
     endDate.setDate(today.getDate() + displayWeeks * 7); // Calculate end date based on weeks
     return Object.entries(twoWeekBookings)
-      .filter(([date]) => {
+      .filter(([date, bookings]) => {
         const d = new Date(date);
-        return d >= today && d <= endDate;
+        return d >= today && d <= endDate && bookings.length > 0; // Only show dates with bookings
       })
       .sort(([dateA], [dateB]) => new Date(dateA).getTime() - new Date(dateB).getTime());
   };
@@ -347,6 +369,56 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
   // Load more weeks
   const handleLoadMore = () => {
     setDisplayWeeks((prev) => prev + 2); // Add 2 more weeks
+  };
+
+  // Delete booking functions
+  const handleDeleteBooking = (booking: BoardroomBooking | SoundproofPodBooking) => {
+    setBookingToDelete(booking);
+    setDeleteDialogOpen(true);
+    setDeleteError(null);
+  };
+
+  const confirmDeleteBooking = async () => {
+    if (!bookingToDelete) return;
+    
+    setIsDeleting(true);
+    setDeleteError(null);
+    
+    try {
+      const spaceType = 'booking_date' in bookingToDelete ? 
+        (selectedSpaceType || 'Boardroom') : 
+        (selectedSpaceType || 'Soundproof Pod');
+        
+      const response = await fetch(`/api/book-space/${encodeURIComponent(spaceType)}/${bookingToDelete.id}`, {
+        method: 'DELETE',
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to delete booking');
+      }
+      
+      console.log(`Deleted booking ${bookingToDelete.id}`);
+      
+      // Close dialog
+      setDeleteDialogOpen(false);
+      setBookingToDelete(null);
+      
+      // Refresh bookings
+      onBookingCreated?.();
+      
+    } catch (error: any) {
+      console.error('Delete booking error:', error);
+      setDeleteError(error.message || 'Failed to delete booking');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const cancelDeleteBooking = () => {
+    setDeleteDialogOpen(false);
+    setBookingToDelete(null);
+    setDeleteError(null);
   };
 
   return (
@@ -488,57 +560,134 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
               {selectedSpaceType ? `${selectedSpaceType} Availability` : 'Space Availability'}
             </Text>
             <Stack tokens={{ childrenGap: 16 }}>
-              {getDisplayedBookings().map(([date, bookings]) => (
-                <Stack key={date}>
-                  <Text
-                    variant="medium"
-                    styles={{ root: { fontWeight: 500, color: isDarkMode ? colours.accent : colours.websiteBlue, marginBottom: '6px' } }}
-                  >
-                    {new Date(date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                  </Text>
-                  {bookings.length > 0 ? (
-                    <Stack tokens={{ childrenGap: 6 }}>
-                      {bookings.map((b) => (
-                        <Stack
-                          key={b.id}
-                          horizontal
-                          tokens={{ childrenGap: 12 }}
-                          styles={{
-                            root: {
-                              padding: '6px 10px',
-                              backgroundColor: isDarkMode ? colours.dark.cardBackground : '#fff',
-                              borderRadius: '6px',
-                              border: `1px solid ${isDarkMode ? colours.dark.border : '#e8e8e8'}`,
-                              transition: 'background 0.2s ease',
-                              ':hover': { backgroundColor: isDarkMode ? colours.dark.cardHover : '#f9f9f9' },
-                            },
-                          }}
-                        >
-                          <Text variant="smallPlus" styles={{ root: { fontWeight: 500, width: '90px', color: isDarkMode ? colours.accent : colours.blue } }}>
-                            {formatBookingTime(b)}
-                          </Text>
-                          <Text variant="smallPlus" styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.greyText } }}>
-                            {b.reason} <span style={{ fontWeight: 300 }}>(by {b.fee_earner})</span>
-                          </Text>
+              {getDisplayedBookings().length > 0 ? (
+                <>
+                  {getDisplayedBookings().map(([date, bookings]) => (
+                    <Stack key={date}>
+                      <Text
+                        variant="medium"
+                        styles={{ root: { fontWeight: 500, color: isDarkMode ? colours.accent : colours.websiteBlue, marginBottom: '6px' } }}
+                      >
+                        {new Date(date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                      </Text>
+                      {bookings.length > 0 ? (
+                        <Stack tokens={{ childrenGap: 6 }}>
+                          {bookings.map((b) => (
+                            <Stack
+                              key={b.id}
+                              horizontal
+                              verticalAlign="center"
+                              tokens={{ childrenGap: 12 }}
+                              styles={{
+                                root: {
+                                  padding: '6px 10px',
+                                  backgroundColor: isDarkMode ? colours.dark.cardBackground : '#fff',
+                                  borderRadius: '6px',
+                                  border: `1px solid ${isDarkMode ? colours.dark.border : '#e8e8e8'}`,
+                                  transition: 'background 0.2s ease',
+                                  ':hover': { backgroundColor: isDarkMode ? colours.dark.cardHover : '#f9f9f9' },
+                                },
+                              }}
+                            >
+                              <Text variant="smallPlus" styles={{ root: { fontWeight: 500, width: '90px', color: isDarkMode ? colours.accent : colours.blue } }}>
+                                {formatBookingTime(b)}
+                              </Text>
+                              <Text variant="smallPlus" styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.greyText, flex: 1 } }}>
+                                {b.reason} <span style={{ fontWeight: 300 }}>(by {b.fee_earner})</span>
+                              </Text>
+                              <TooltipHost content="Delete booking">
+                                <IconButton
+                                  iconProps={{ iconName: 'Delete' }}
+                                  onClick={() => handleDeleteBooking(b)}
+                                  styles={{
+                                    root: {
+                                      color: isDarkMode ? colours.dark.subText : '#666',
+                                      ':hover': {
+                                        backgroundColor: isDarkMode ? colours.dark.cardHover : '#f3f2f1',
+                                        color: '#d13438'
+                                      }
+                                    }
+                                  }}
+                                />
+                              </TooltipHost>
+                            </Stack>
+                          ))}
                         </Stack>
-                      ))}
+                      ) : (
+                        <Text variant="smallPlus" styles={{ root: { color: isDarkMode ? colours.dark.subText : '#999', marginLeft: '10px', fontStyle: 'italic' } }}>
+                          No bookings scheduled
+                        </Text>
+                      )}
                     </Stack>
-                  ) : (
-                    <Text variant="smallPlus" styles={{ root: { color: isDarkMode ? colours.dark.subText : '#999', marginLeft: '10px', fontStyle: 'italic' } }}>
-                      No bookings scheduled
-                    </Text>
-                  )}
-                </Stack>
-              ))}
-              <DefaultButton
-                text="Load More"
-                onClick={handleLoadMore}
-                styles={getFormDefaultButtonStyles(isDarkMode)}
-              />
+                  ))}
+                  <DefaultButton
+                    text="Load More"
+                    onClick={handleLoadMore}
+                    styles={getFormDefaultButtonStyles(isDarkMode)}
+                  />
+                </>
+              ) : (
+                <Text variant="smallPlus" styles={{ root: { color: isDarkMode ? colours.dark.subText : '#999', fontStyle: 'italic' } }}>
+                  No upcoming bookings
+                </Text>
+              )}
             </Stack>
           </Stack>
         </>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        hidden={!deleteDialogOpen}
+        onDismiss={cancelDeleteBooking}
+        dialogContentProps={{
+          type: DialogType.normal,
+          title: 'Delete Booking',
+          subText: bookingToDelete ? 
+            `Are you sure you want to delete the booking "${bookingToDelete.reason}" on ${new Date(bookingToDelete.booking_date).toLocaleDateString()}?` :
+            'Are you sure you want to delete this booking?'
+        }}
+        modalProps={{
+          isBlocking: true,
+          styles: {
+            main: {
+              backgroundColor: isDarkMode ? colours.dark.cardBackground : '#fff',
+              color: isDarkMode ? colours.dark.text : colours.light.text,
+            }
+          }
+        }}
+      >
+        {deleteError && (
+          <MessageBar messageBarType={MessageBarType.error} styles={{
+            root: { marginBottom: '16px' }
+          }}>
+            {deleteError}
+          </MessageBar>
+        )}
+        <DialogFooter>
+          <PrimaryButton 
+            onClick={confirmDeleteBooking} 
+            text="Delete" 
+            disabled={isDeleting}
+            styles={{
+              root: {
+                backgroundColor: '#d13438',
+                border: '1px solid #d13438',
+                ':hover': {
+                  backgroundColor: '#a4262c',
+                  border: '1px solid #a4262c'
+                }
+              }
+            }}
+          />
+          <DefaultButton 
+            onClick={cancelDeleteBooking} 
+            text="Cancel"
+            disabled={isDeleting}
+            styles={getFormDefaultButtonStyles(isDarkMode)}
+          />
+        </DialogFooter>
+      </Dialog>
     </Stack>
   );
 };

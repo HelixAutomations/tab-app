@@ -19,6 +19,7 @@ import { useTheme } from '../app/functionality/ThemeContext';
 import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
 import { UserData } from '../app/functionality/types';
 import PasscodeGuard from './shared/PasscodeGuard';
+import TechTicketsLedger from './shared/TechTicketsLedger';
 import {
   getFormScrollContainerStyle,
   getFormCardStyle,
@@ -80,6 +81,7 @@ const TechProblemFormContent: React.FC<TechProblemFormProps> = ({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [ledgerRefreshKey, setLedgerRefreshKey] = useState(0);
 
   const handleFieldChange = useCallback((field: keyof FormData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -116,8 +118,10 @@ const TechProblemFormContent: React.FC<TechProblemFormProps> = ({
         throw new Error(errorData.error || 'Failed to submit problem report');
       }
 
-      setSubmitMessage({ type: 'success', text: 'Problem reported successfully! Asana task created and assigned to tech team.' });
-      onSubmitSuccess?.('Problem reported successfully!');
+      setSubmitMessage({ type: 'success', text: 'Problem reported successfully. The Tech team has been notified.' });
+      onSubmitSuccess?.('Problem reported successfully.');
+
+      setLedgerRefreshKey((k) => k + 1);
 
       setFormData({ title: '', description: '', steps_to_reproduce: '', expected_behavior: '', urgency: 'medium' });
     } catch (error: unknown) {
@@ -168,10 +172,10 @@ const TechProblemFormContent: React.FC<TechProblemFormProps> = ({
             </MessageBar>
           )}
 
-          {/* Warning Box */}
-          <div style={getInfoBoxStyle(isDarkMode, 'warning')}>
+          {/* Info Box */}
+          <div style={getInfoBoxStyle(isDarkMode, 'neutral')}>
             <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
-              <Icon iconName="Warning" style={{ color: accentColor, flexShrink: 0 }} />
+              <Icon iconName="Info" style={{ color: accentColor, flexShrink: 0 }} />
               <Text style={getInfoBoxTextStyle(isDarkMode)}>
                 Report bugs, errors, or technical issues.
               </Text>
@@ -256,6 +260,16 @@ const TechProblemFormContent: React.FC<TechProblemFormProps> = ({
               styles={getFormPrimaryButtonStyles(isDarkMode, accentColor)}
             />
           </Stack>
+
+          <div style={{ marginTop: '1.25rem' }}>
+            <TechTicketsLedger
+              isDarkMode={isDarkMode}
+              refreshKey={ledgerRefreshKey}
+              type="problem"
+              title="Recent problem reports"
+              accentColor={accentColor}
+            />
+          </div>
         </div>
       </div>
     </div>

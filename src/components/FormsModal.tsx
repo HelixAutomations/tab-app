@@ -19,9 +19,9 @@ const sectionConfig: Record<string, { label: string; color: string; locked?: boo
     General_Processes: { label: 'General', color: colours.highlight },      // Brand blue #3690CE
     Operations: { label: 'Operations', color: colours.green },              // Brand green #20b26c
     Financial: { label: 'Financial', color: colours.highlight },            // Brand blue #3690CE
-    Tech_Support: { label: 'Tech Support', color: colours.orange },         // Brand orange
+    Tech_Support: { label: 'Tech Support', color: colours.cta },            // Coral #D65541 - distinct from other categories
     Recommendations: { label: 'Recommendations', color: colours.highlight }, // Brand blue
-    Browse_Directories: { label: 'Directories', color: colours.greyText },  // Grey
+    Browse_Directories: { label: 'Directories', color: colours.darkBlue },  // Dark blue #061733 - distinct from light blue
 };
 
 // Forms to exclude

@@ -14,6 +14,7 @@ import { colours } from '../../../app/styles/colours';
 interface PaymentPreviewProps {
     initialScopeDescription: string; // renamed from serviceDescription
     amount: string;
+    includeVat?: boolean; // optional, defaults to true for backwards compatibility
 }
 
 function formatCurrency(val: number): string {
@@ -22,7 +23,7 @@ function formatCurrency(val: number): string {
     return val.toLocaleString('en-GB', { style: 'currency', currency: 'GBP' });
 }
 
-const PaymentPreview: React.FC<PaymentPreviewProps> = ({ initialScopeDescription, amount }) => {
+const PaymentPreview: React.FC<PaymentPreviewProps> = ({ initialScopeDescription, amount, includeVat = true }) => {
     const { isDarkMode } = useTheme();
 
     const containerClass = mergeStyles({
@@ -50,8 +51,10 @@ const PaymentPreview: React.FC<PaymentPreviewProps> = ({ initialScopeDescription
     });
 
     const num = parseFloat(amount.replace(/,/g, ''));
-    const incVat = !isNaN(num) ? num * 1.2 : NaN;
-    const formattedAmount = isNaN(incVat) ? '' : formatCurrency(incVat);
+    const finalAmount = !isNaN(num) ? (includeVat ? num * 1.2 : num) : NaN;
+    const formattedAmount = isNaN(finalAmount) ? '' : formatCurrency(finalAmount);
+    const vatText = includeVat ? 'inc. VAT' : 'exc. VAT';
+    const tooltipText = 'Read-only preview showing wording and payment details for verification.';
     const desc = initialScopeDescription || '[Initial scope description]';
 
     return (
@@ -64,7 +67,7 @@ const PaymentPreview: React.FC<PaymentPreviewProps> = ({ initialScopeDescription
                     <Icon iconName="Lock" className={iconClass} aria-label="Locked preview" />
                 </Stack>
                 <TooltipHost
-                    content="Preview for checking wording and intake: shows total including VAT; lock icon means read-only."
+                    content={tooltipText}
                     directionalHint={DirectionalHint.bottomAutoEdge}
                     calloutProps={{ directionalHintFixed: true, gapSpace: 8 }}
                 >
@@ -81,12 +84,12 @@ const PaymentPreview: React.FC<PaymentPreviewProps> = ({ initialScopeDescription
                     },
                 }}
             >
-                Preview only: check wording and intake details.
+                Read-only preview
             </Text>
             <Text>
                 {`Please pay ${formattedAmount} on account of costs, using our account details below:`}
             </Text>
-            <Text>{`The fee is ${formattedAmount} including VAT for ${desc}.`}</Text>
+            <Text>{`The fee is ${formattedAmount} ${vatText} for ${desc}.`}</Text>
         </Stack>
     );
 };

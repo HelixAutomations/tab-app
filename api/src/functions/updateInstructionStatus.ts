@@ -12,6 +12,7 @@ interface UpdateStatusBody {
     internalStatus?: string;
     overrideReason?: string;
     userInitials?: string;
+    helixContact?: string;
 }
 
 // Define the handler function
@@ -27,7 +28,8 @@ export async function updateInstructionStatusHandler(req: HttpRequest, context: 
             stage: body.stage, 
             internalStatus: body.internalStatus,
             overrideReason: body.overrideReason,
-            userInitials: body.userInitials
+            userInitials: body.userInitials,
+            helixContact: body.helixContact
         });
     } catch (error) {
         context.error("Error parsing JSON body:", error);
@@ -37,19 +39,19 @@ export async function updateInstructionStatusHandler(req: HttpRequest, context: 
         };
     }
 
-    const { instructionRef, stage, internalStatus, overrideReason, userInitials } = body;
+    const { instructionRef, stage, internalStatus, overrideReason, userInitials, helixContact } = body;
 
-    if (!instructionRef || (!stage && !internalStatus)) {
-        context.warn("Missing 'instructionRef' or both 'stage' and 'internalStatus' in request body.");
+    if (!instructionRef || (!stage && !internalStatus && !helixContact)) {
+        context.warn("Missing 'instructionRef' or all of 'stage', 'internalStatus', and 'helixContact' in request body.");
         return {
             status: 400,
-            body: "Missing 'instructionRef' or status fields in request body."
+            body: "Missing 'instructionRef' or status/helixContact fields in request body."
         };
     }
 
     try {
         context.log("Initiating SQL query to update instruction status.");
-        await updateStatusInSQL(instructionRef, stage, internalStatus, overrideReason, userInitials, context);
+        await updateStatusInSQL(instructionRef, stage, internalStatus, overrideReason, userInitials, helixContact, context);
         context.log("Successfully updated instruction status in SQL database.");
 
         // If the stage is "matter opened", update the corresponding deal to closed
@@ -105,6 +107,7 @@ async function updateStatusInSQL(
     internalStatus?: string, 
     overrideReason?: string,
     userInitials?: string,
+    helixContact?: string,
     context?: InvocationContext
 ): Promise<void> {
     const kvUri = "https://helix-keys.vault.azure.net/";
@@ -162,6 +165,12 @@ async function updateStatusInSQL(
             if (userInitials) {
                 updateFields.push("LastModifiedBy = @LastModifiedBy");
                 parameters.push({ name: 'LastModifiedBy', type: TYPES.NVarChar, value: userInitials });
+            }
+
+            // Add helixContact (fee earner) if provided
+            if (helixContact) {
+                updateFields.push("HelixContact = @HelixContact");
+                parameters.push({ name: 'HelixContact', type: TYPES.NVarChar, value: helixContact });
             }
 
             const query = `

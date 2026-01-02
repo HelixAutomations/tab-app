@@ -59,8 +59,7 @@ const getMattersRouter = require('./routes/getMatters');
 const riskAssessmentsRouter = require('./routes/riskAssessments');
 const bundleRouter = require('./routes/bundle');
 const { router: cclRouter, CCL_DIR } = require('./routes/ccl');
-const enquiriesRouter = require('./routes/enquiries');
-const enquiryEmailsRouter = require('./routes/enquiryEmails');
+
 const updateEnquiryPOCRouter = require('./routes/updateEnquiryPOC');
 const pitchesRouter = require('./routes/pitches');
 const paymentsRouter = require('./routes/payments');
@@ -107,6 +106,8 @@ const counselRouter = require('./routes/counsel');
 const techTicketsRouter = require('./routes/techTickets');
 const logsStreamRouter = require('./routes/logs-stream');
 const telemetryRouter = require('./routes/telemetry');
+const bookSpaceRouter = require('./routes/bookSpace');
+const financialTaskRouter = require('./routes/financialTask');
 const { userContextMiddleware } = require('./middleware/userContext');
 
 const app = express();
@@ -185,12 +186,10 @@ app.use('/api/getAllMatters', (req, res) => {
     });
 });
 app.use('/api/ccl', cclRouter);
-app.use('/api/enquiries', enquiriesRouter);
 app.use('/api/enquiries-unified', enquiriesUnifiedRouter);
 app.use('/api/updateEnquiryPOC', updateEnquiryPOCRouter);
 app.use('/api/claimEnquiry', claimEnquiryRouter);
 app.use('/api/matters-unified', mattersUnifiedRouter);
-app.use('/api/enquiry-emails', enquiryEmailsRouter);
 app.use('/api/ops', opsRouter);
 // Email route (server-based). Expose under both /api and / to match existing callers.
 app.use('/api', sendEmailRouter);
@@ -251,6 +250,10 @@ app.use('/api/telemetry', telemetryRouter);
 // IMPORTANT: Attendance routes must come BEFORE proxy routes to avoid conflicts
 app.use('/api/attendance', attendanceRouter);
 
+// Book space and financial task routes (migrated from Azure Functions)
+app.use('/api/book-space', bookSpaceRouter);
+app.use('/api/financial-task', financialTaskRouter);
+
 // Metrics routes (migrated from Azure Functions to fix cold start issues)
 app.use('/api/poid', poidRouter);
 app.use('/api/future-bookings', futureBookingsRouter);
@@ -284,9 +287,14 @@ app.use('/', proxyToAzureFunctionsRouter);
 // API routes should come BEFORE static file serving and catch-all route
 // This ensures API requests don't get caught by the catch-all route
 
-const buildPath = path.join(__dirname, 'static');
-// Only serve static files if the directory exists
+// Prefer serving the latest CRA build output from the repo root.
+// Fallback to the packaged `server/static` directory if present.
 const fs = require('fs');
+const rootBuildPath = path.resolve(__dirname, '..', 'build');
+const packagedBuildPath = path.join(__dirname, 'static');
+const buildPath = fs.existsSync(rootBuildPath) ? rootBuildPath : packagedBuildPath;
+
+// Only serve static files if the chosen directory exists
 if (fs.existsSync(buildPath)) {
     app.use(express.static(buildPath, {
         etag: true,

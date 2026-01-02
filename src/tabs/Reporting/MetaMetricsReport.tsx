@@ -1998,7 +1998,8 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
                       <div>
                         {(() => {
                           const poc = enquiry.Point_of_Contact?.toLowerCase() || '';
-                          const isClaimed = poc !== 'team@helix-law.com' && !!poc;
+                          const isTriaged = poc.includes('triage') || poc.includes('triaged');
+                          const isClaimed = poc !== 'team@helix-law.com' && !!poc && !isTriaged;
                           
                           if (isClaimed) {
                             // Show who claimed it (extract name part from email)

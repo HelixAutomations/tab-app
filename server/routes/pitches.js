@@ -1,5 +1,4 @@
 const express = require('express');
-const { getSecret } = require('../utils/getSecret');
 const { sql, withRequest } = require('../utils/db');
 
 const router = express.Router();
@@ -52,35 +51,38 @@ router.get('/:enquiryId', async (req, res) => {
 });
 
 router.post('/', async (req, res) => {
-    const baseUrl =
-        process.env.PITCH_SECTIONS_FUNC_BASE_URL ||
-        'https://instructions-vnet-functions.azurewebsites.net/api/recordPitchSections';
-    try {
-        let code = process.env.PITCH_SECTIONS_FUNC_CODE;
-        if (!code) {
-            const secretName =
-                process.env.PITCH_SECTIONS_FUNC_CODE_SECRET || 'recordPitchSections-code';
-            code = await getSecret(secretName);
-        }
+    const body = req.body || {};
+    const { enquiryId, sections = [], user } = body;
 
-        const url = `${baseUrl}?code=${code}`;
-        const resp = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(req.body)
+    if (!enquiryId || !Array.isArray(sections)) {
+        return res.status(400).json({ error: 'Invalid payload - need enquiryId and sections array' });
+    }
+
+    const connectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+    if (!connectionString) {
+        return res.status(500).json({ error: 'INSTRUCTIONS_SQL_CONNECTION_STRING not configured' });
+    }
+
+    try {
+        const result = await withRequest(connectionString, async (request) => {
+            const schema = process.env.DB_SCHEMA || 'pitchbuilder';
+            for (const section of sections) {
+                await request
+                    .input('enquiryId', sql.Int, enquiryId)
+                    .input('block', sql.NVarChar(100), section.block || '')
+                    .input('optionLabel', sql.NVarChar(100), section.option || '')
+                    .input('content', sql.NVarChar(sql.MAX), section.content || '')
+                    .input('createdBy', sql.NVarChar(50), user || null)
+                    .query(`INSERT INTO ${schema}.PitchSections (EnquiryId, Block, OptionLabel, Content, CreatedBy)
+                            VALUES (@enquiryId, @block, @optionLabel, @content, @createdBy)`);
+            }
+            return { ok: true };
         });
 
-        if (!resp.ok) {
-            const text = await resp.text();
-            console.error('Pitch save failed', text);
-            return res.status(500).json({ error: 'Pitch save failed' });
-        }
-
-        const data = await resp.json();
-        res.json(data);
+        res.json(result);
     } catch (err) {
-        console.error('Pitch save error', err);
-        res.status(500).json({ error: 'Pitch save failed' });
+        console.error('[pitches] Error saving pitch sections:', err);
+        res.status(500).json({ error: 'Failed to save pitch sections', detail: err.message });
     }
 });
 

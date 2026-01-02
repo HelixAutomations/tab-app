@@ -3351,6 +3351,18 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
                 resetQuickActionsSelection();
               }}
               futureBookings={futureBookings}
+              onBookingCreated={async () => {
+                // Refresh future bookings after creation
+                try {
+                  const response = await fetch('/api/future-bookings');
+                  if (response.ok) {
+                    const data = await response.json();
+                    setFutureBookings(data);
+                  }
+                } catch (error) {
+                  console.warn('Failed to refresh future bookings:', error);
+                }
+              }}
             />
           </Suspense>
         );

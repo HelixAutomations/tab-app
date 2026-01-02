@@ -401,6 +401,25 @@ const App: React.FC<AppProps> = ({
     };
   }, []);
 
+  // State to trigger instruction data refresh
+  const [instructionRefreshTrigger, setInstructionRefreshTrigger] = useState<number>(0);
+
+  // Listen for instruction data refresh requests from Instructions component
+  useEffect(() => {
+    const handleRefreshInstructionData = () => {
+      // Clear existing data to force re-fetch
+      setInstructionData([]);
+      setAllInstructionData([]);
+      // Trigger re-fetch by incrementing counter
+      setInstructionRefreshTrigger(prev => prev + 1);
+    };
+
+    window.addEventListener('refreshInstructionData', handleRefreshInstructionData);
+    return () => {
+      window.removeEventListener('refreshInstructionData', handleRefreshInstructionData);
+    };
+  }, []);
+
   // Handler to enable demo mode (adds a stable demo enquiry for demos/testing)
   const handleShowTestEnquiry = useCallback(() => {
     // Navigate to enquiries tab first
@@ -635,7 +654,7 @@ const App: React.FC<AppProps> = ({
     if (userInitials) {
       fetchInstructionData();
     }
-  }, [activeTab, userInitials, userData, instructionData.length, allInstructionData.length]);
+  }, [activeTab, userInitials, userData, instructionData.length, allInstructionData.length, instructionRefreshTrigger]);
 
   // Tabs visible to all users start with the Enquiries tab.
   // Instructions tab is available to admins plus BR, LA, SP
@@ -649,8 +668,8 @@ const App: React.FC<AppProps> = ({
     const showReportsTab = isAdmin;
 
     return [
-      { key: 'enquiries', text: 'Enquiries' },
-      ...(showInstructionsTab ? [{ key: 'instructions', text: 'Instructions' }] : []),
+      { key: 'enquiries', text: 'Prospects' },
+      ...(showInstructionsTab ? [{ key: 'instructions', text: 'Clients' }] : []),
       // Disable Matters in production (enabled only on localhost)
       { key: 'matters', text: 'Matters', disabled: !isLocalhost },
       { key: 'forms', text: 'Forms', disabled: true }, // Disabled tab that triggers modal

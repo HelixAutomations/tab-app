@@ -36,6 +36,7 @@ export interface EnquiryEnrichmentData {
     pitchedTime?: string;
     closeDate?: string;
     closeTime?: string;
+    instructionRef?: string;
     pitchContent?: string;
     scenarioId?: string;
     scenarioDisplay?: string;

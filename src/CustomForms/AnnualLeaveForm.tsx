@@ -1,7 +1,7 @@
 // src/CustomForms/AnnualLeaveForm.tsx
 // invisible change
-import React, { useState, useEffect, useMemo } from 'react';
-import { Stack, Text, DefaultButton, TextField, Icon, TooltipHost, ChoiceGroup, DetailsList, IColumn, SelectionMode, DetailsListLayoutMode } from '@fluentui/react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Stack, Text, DefaultButton, TextField, Icon, TooltipHost, ChoiceGroup, DetailsList, IColumn, SelectionMode, DetailsListLayoutMode, Dialog, DialogType, DialogFooter, PrimaryButton, Checkbox, Spinner, SpinnerSize, IconButton } from '@fluentui/react';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';
 import BespokeForm, { FormField } from './BespokeForms';
@@ -24,6 +24,7 @@ interface AnnualLeaveFormProps {
   totals: { standard: number; unpaid: number; sale: number }; // Updated to match Azure Function
   bankHolidays?: Set<string>;
   allLeaveRecords: AnnualLeaveRecord[];
+  onLeaveDeleted?: () => void; // Callback to refresh data after deletion
 }
 
 interface DateRangeSelection {
@@ -60,7 +61,7 @@ const valueStyle: React.CSSProperties = {
 };
 
 // Compact columns for the historical leave list
-const getHistoryColumns = (isDarkMode: boolean): IColumn[] => [
+const getHistoryColumns = (isDarkMode: boolean, onDelete?: (item: AnnualLeaveRecord) => void): IColumn[] => [
   {
     key: 'dates',
     name: 'Dates',
@@ -96,15 +97,18 @@ const getHistoryColumns = (isDarkMode: boolean): IColumn[] => [
     isResizable: false,
     onRender: (item: AnnualLeaveRecord) => {
       const statusColors: { [key: string]: string } = {
-        'Approved': isDarkMode ? colours.green : '#059669',
-        'Pending': isDarkMode ? colours.yellow : '#d97706',
-        'Rejected': isDarkMode ? colours.cta : '#dc2626',
+        'approved': isDarkMode ? colours.green : '#059669',
+        'pending': isDarkMode ? colours.yellow : '#d97706',
+        'requested': isDarkMode ? colours.yellow : '#d97706',
+        'rejected': isDarkMode ? colours.cta : '#dc2626',
+        'booked': isDarkMode ? colours.green : '#059669',
       };
+      const statusLower = (item.status || '').toLowerCase();
       return (
         <Text style={{ 
           fontSize: '12px', 
           fontWeight: 600,
-          color: statusColors[item.status] || (isDarkMode ? colours.dark.subText : colours.greyText),
+          color: statusColors[statusLower] || (isDarkMode ? colours.dark.subText : colours.greyText),
           textTransform: 'uppercase',
           letterSpacing: '0.5px'
         }}>
@@ -117,14 +121,50 @@ const getHistoryColumns = (isDarkMode: boolean): IColumn[] => [
     key: 'type',
     name: 'Type',
     fieldName: 'leave_type',
-    minWidth: 80,
-    maxWidth: 100,
+    minWidth: 70,
+    maxWidth: 80,
     isResizable: false,
     onRender: (item: AnnualLeaveRecord) => (
       <Text style={{ fontSize: '13px', color: isDarkMode ? colours.dark.subText : colours.greyText }}>
         {item.leave_type || 'Standard'}
       </Text>
     ),
+  },
+  {
+    key: 'actions',
+    name: '',
+    fieldName: 'actions',
+    minWidth: 40,
+    maxWidth: 50,
+    isResizable: false,
+    onRender: (item: AnnualLeaveRecord) => {
+      // Allow deletion for pending, requested, or approved (not yet booked) entries
+      const canDelete = ['pending', 'requested', 'approved', 'booked'].includes((item.status || '').toLowerCase());
+      if (!canDelete || !onDelete) return null;
+      
+      return (
+        <TooltipHost content="Delete this leave request">
+          <IconButton
+            iconProps={{ iconName: 'Delete' }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(item);
+            }}
+            styles={{
+              root: {
+                color: isDarkMode ? colours.cta : '#dc2626',
+                height: '28px',
+                width: '28px',
+              },
+              rootHovered: {
+                color: isDarkMode ? '#ff6b6b' : '#b91c1c',
+                backgroundColor: isDarkMode ? 'rgba(214, 85, 65, 0.1)' : 'rgba(220, 38, 38, 0.1)',
+              }
+            }}
+          />
+        </TooltipHost>
+      );
+    },
   },
 ];
 
@@ -179,6 +219,7 @@ function AnnualLeaveForm({
   totals,
   bankHolidays,
   allLeaveRecords,
+  onLeaveDeleted,
 }: AnnualLeaveFormProps) {
   const safeTotals = totals ?? { standard: 0, unpaid: 0, sale: 0 };
   const { isDarkMode } = useTheme();
@@ -191,6 +232,12 @@ function AnnualLeaveForm({
   const [selectedLeaveType, setSelectedLeaveType] = useState<string>('standard');
   const [hearingConfirmation, setHearingConfirmation] = useState<string | null>(null);
   const [hearingDetails, setHearingDetails] = useState<string>('');
+  
+  // Delete modal state
+  const [deleteTarget, setDeleteTarget] = useState<AnnualLeaveRecord | null>(null);
+  const [deleteFromClio, setDeleteFromClio] = useState(true);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string>('');
 
   const leaveTypeOptions: { key: string; text: string }[] = [
     { key: 'standard', text: 'Standard' },
@@ -228,6 +275,52 @@ function AnnualLeaveForm({
     setHearingDetails('');
     setErrorMessage(''); // Clear any error messages
   };
+
+  // Delete leave request handler
+  const handleDeleteLeave = useCallback(async () => {
+    if (!deleteTarget?.request_id) {
+      setDeleteError('Cannot delete: No request ID found.');
+      return;
+    }
+    
+    // Handle demo records - just close the modal with a success message
+    if (deleteTarget.id?.startsWith('demo-')) {
+      setDeleteTarget(null);
+      setConfirmationMessage('✅ Demo leave request deleted (preview only - no actual deletion).');
+      return;
+    }
+    
+    setIsDeleting(true);
+    setDeleteError('');
+    
+    try {
+      const response = await fetch(`/api/attendance/annual-leave/${deleteTarget.request_id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deleteFromClio }),
+      });
+      
+      const result = await response.json();
+      
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Failed to delete leave request');
+      }
+      
+      // Close modal and show success
+      setDeleteTarget(null);
+      setConfirmationMessage(`✅ Leave request deleted successfully${result.clioDeleted ? ' (also removed from Clio calendar)' : ''}.`);
+      
+      // Trigger refresh
+      if (onLeaveDeleted) {
+        onLeaveDeleted();
+      }
+    } catch (error) {
+      console.error('Error deleting leave:', error);
+      setDeleteError(error instanceof Error ? error.message : 'Failed to delete leave request');
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [deleteTarget, deleteFromClio, onLeaveDeleted]);
 
   const holidayEntitlement = Number(userData?.[0]?.holiday_entitlement ?? 0);
   let effectiveRemaining = 0;
@@ -283,6 +376,8 @@ function AnnualLeaveForm({
       const formattedDateRanges = dateRanges.map((range) => ({
         start_date: format(range.startDate, 'yyyy-MM-dd'),
         end_date: format(range.endDate, 'yyyy-MM-dd'),
+        half_day_start: range.halfDayStart || false,
+        half_day_end: range.halfDayEnd || false,
       }));
       const payload = {
         fe: feeEarner,
@@ -319,12 +414,97 @@ function AnnualLeaveForm({
     }
   };
 
+  // Check if demo mode is enabled
+  const isDemoMode = useMemo(() => {
+    try {
+      return localStorage.getItem('demoModeEnabled') === 'true';
+    } catch {
+      return false;
+    }
+  }, []);
+
+  // Demo leave records for previewing UI features
+  const demoLeaveRecords: AnnualLeaveRecord[] = useMemo(() => {
+    if (!isDemoMode) return [];
+    const userInitials = userData?.[0]?.Initials || 'LZ';
+    const today = new Date();
+    return [
+      {
+        person: userInitials,
+        start_date: format(addDays(today, 14), 'yyyy-MM-dd'),
+        end_date: format(addDays(today, 18), 'yyyy-MM-dd'),
+        reason: 'Holiday - Demo pending request',
+        status: 'pending',
+        id: 'demo-1',
+        request_id: 99901,
+        days_taken: 5,
+        leave_type: 'standard',
+      },
+      {
+        person: userInitials,
+        start_date: format(addDays(today, 30), 'yyyy-MM-dd'),
+        end_date: format(addDays(today, 30), 'yyyy-MM-dd'),
+        reason: 'Personal day - Demo requested',
+        status: 'requested',
+        id: 'demo-2',
+        request_id: 99902,
+        days_taken: 1,
+        leave_type: 'standard',
+      },
+      {
+        person: userInitials,
+        start_date: format(addDays(today, -10), 'yyyy-MM-dd'),
+        end_date: format(addDays(today, -8), 'yyyy-MM-dd'),
+        reason: 'Demo approved leave',
+        status: 'approved',
+        id: 'demo-3',
+        request_id: 99903,
+        days_taken: 3,
+        leave_type: 'standard',
+      },
+      {
+        person: userInitials,
+        start_date: format(addDays(today, -30), 'yyyy-MM-dd'),
+        end_date: format(addDays(today, -25), 'yyyy-MM-dd'),
+        reason: 'Demo booked leave (in Clio)',
+        status: 'booked',
+        id: 'demo-4',
+        request_id: 99904,
+        clio_entry_id: 999999,
+        days_taken: 6,
+        leave_type: 'standard',
+      },
+      {
+        person: userInitials,
+        start_date: format(addDays(today, 45), 'yyyy-MM-dd'),
+        end_date: format(addDays(today, 45), 'yyyy-MM-dd'),
+        reason: 'Demo rejected leave',
+        status: 'rejected',
+        id: 'demo-5',
+        request_id: 99905,
+        rejection_notes: 'Insufficient notice provided',
+        days_taken: 1,
+        leave_type: 'standard',
+      },
+    ];
+  }, [isDemoMode, userData]);
+
   const userLeaveHistory = useMemo(() => {
     const userInitials = userData?.[0]?.Initials?.toLowerCase() || '';
-    return allLeaveRecords
+    const realRecords = allLeaveRecords
       .filter((record) => record.person.toLowerCase() === userInitials)
       .sort((a, b) => new Date(b.start_date).getTime() - new Date(a.start_date).getTime());
-  }, [allLeaveRecords, userData]);
+    
+    // In demo mode, prepend demo records
+    if (isDemoMode) {
+      return [...demoLeaveRecords, ...realRecords];
+    }
+    return realRecords;
+  }, [allLeaveRecords, userData, isDemoMode, demoLeaveRecords]);
+
+  const pendingRequests = useMemo(() => {
+    return userLeaveHistory.filter((record) => record.status?.toLowerCase() === 'pending');
+  }, [userLeaveHistory]);
 
   // Removed renderSidePanel - now integrated into main layout
 
@@ -580,7 +760,7 @@ function AnnualLeaveForm({
                 <Text style={{ 
                   fontSize: '13px', 
                   fontWeight: 600, 
-                  color: isDarkMode ? colours.dark.subText : colours.greyText,
+                  color: isDarkMode ? colours.accent : colours.highlight,
                   marginBottom: '8px',
                   display: 'block',
                   textTransform: 'uppercase',
@@ -615,7 +795,7 @@ function AnnualLeaveForm({
               }}>
                 <Stack tokens={{ childrenGap: 8 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                    <Text style={{ fontSize: '12px', color: isDarkMode ? colours.dark.subText : colours.greyText, fontWeight: 600 }}>
+                    <Text style={{ fontSize: '12px', color: isDarkMode ? colours.accent : colours.highlight, fontWeight: 600 }}>
                       Days Requested
                     </Text>
                     <Text style={{ fontSize: '20px', fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>
@@ -626,15 +806,15 @@ function AnnualLeaveForm({
                   {selectedLeaveType === 'standard' && (
                     <>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                        <Text style={{ color: isDarkMode ? colours.dark.subText : colours.greyText }}>Entitlement</Text>
+                        <Text style={{ color: isDarkMode ? colours.accent : colours.highlight }}>Entitlement</Text>
                         <Text style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>{holidayEntitlement}</Text>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                        <Text style={{ color: isDarkMode ? colours.dark.subText : colours.greyText }}>Used</Text>
+                        <Text style={{ color: isDarkMode ? colours.accent : colours.highlight }}>Used</Text>
                         <Text style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>{safeTotals.standard}</Text>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                        <Text style={{ color: isDarkMode ? colours.dark.subText : colours.greyText }}>Remaining</Text>
+                        <Text style={{ color: isDarkMode ? colours.accent : colours.highlight }}>Remaining</Text>
                         <Text style={{ 
                           fontWeight: 700, 
                           color: effectiveRemaining < 0 ? colours.cta : (isDarkMode ? colours.accent : colours.highlight)
@@ -647,15 +827,15 @@ function AnnualLeaveForm({
                   {selectedLeaveType === 'purchase' && (
                     <>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                        <Text style={{ color: isDarkMode ? colours.dark.subText : colours.greyText }}>Purchase Limit</Text>
+                        <Text style={{ color: isDarkMode ? colours.accent : colours.highlight }}>Purchase Limit</Text>
                         <Text style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>5</Text>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                        <Text style={{ color: isDarkMode ? colours.dark.subText : colours.greyText }}>Used</Text>
+                        <Text style={{ color: isDarkMode ? colours.accent : colours.highlight }}>Used</Text>
                         <Text style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>{safeTotals.unpaid}</Text>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                        <Text style={{ color: isDarkMode ? colours.dark.subText : colours.greyText }}>Remaining</Text>
+                        <Text style={{ color: isDarkMode ? colours.accent : colours.highlight }}>Remaining</Text>
                         <Text style={{ 
                           fontWeight: 700, 
                           color: (5 - safeTotals.unpaid - totalDays) < 0 ? colours.cta : (isDarkMode ? colours.accent : colours.highlight)
@@ -668,15 +848,15 @@ function AnnualLeaveForm({
                   {selectedLeaveType === 'sale' && (
                     <>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                        <Text style={{ color: isDarkMode ? colours.dark.subText : colours.greyText }}>Sell Limit</Text>
+                        <Text style={{ color: isDarkMode ? colours.accent : colours.highlight }}>Sell Limit</Text>
                         <Text style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>5</Text>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                        <Text style={{ color: isDarkMode ? colours.dark.subText : colours.greyText }}>Used</Text>
+                        <Text style={{ color: isDarkMode ? colours.accent : colours.highlight }}>Used</Text>
                         <Text style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>{safeTotals.sale}</Text>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                        <Text style={{ color: isDarkMode ? colours.dark.subText : colours.greyText }}>Remaining</Text>
+                        <Text style={{ color: isDarkMode ? colours.accent : colours.highlight }}>Remaining</Text>
                         <Text style={{ 
                           fontWeight: 700, 
                           color: (5 - safeTotals.sale - totalDays) < 0 ? colours.cta : (isDarkMode ? colours.accent : colours.highlight)
@@ -695,7 +875,7 @@ function AnnualLeaveForm({
               <Text style={{ 
                 fontSize: '13px', 
                 fontWeight: 600, 
-                color: isDarkMode ? colours.dark.subText : colours.greyText,
+                color: isDarkMode ? colours.accent : colours.highlight,
                 marginBottom: '8px',
                 display: 'block',
                 textTransform: 'uppercase',
@@ -750,157 +930,322 @@ function AnnualLeaveForm({
                     />
                     
                     {/* Half Day Options */}
-                    <div style={{
-                      marginTop: '12px',
-                      padding: '1rem',
-                      borderRadius: 0,
-                      background: isDarkMode ? 'rgba(135, 243, 243, 0.04)' : 'rgba(54, 144, 206, 0.04)',
-                      border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.1)'}`,
-                    }}>
-                      <Stack tokens={{ childrenGap: 10 }}>
-                        <Text 
-                          style={{ 
-                            fontSize: '12px', 
-                            fontWeight: 700,
-                            color: isDarkMode ? colours.accent : colours.highlight,
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.6px',
-                            margin: '0 0 4px 0'
-                          }}
-                        >
-                          Half-Day Options
-                        </Text>
-                        <Stack horizontal tokens={{ childrenGap: 12 }} wrap>
-                          {/* Start Half-Day */}
-                          <div style={{
-                            flex: '1 1 calc(50% - 6px)',
-                            minWidth: '160px',
-                            padding: '10px',
-                            borderRadius: 0,
-                            background: range.halfDayStart 
-                              ? (isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)')
-                              : (isDarkMode ? 'rgba(30, 41, 59, 0.3)' : '#ffffff'),
-                            border: `1px solid ${range.halfDayStart
-                              ? (isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.15)')
-                              : (isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)')}`,
-                            borderLeft: range.halfDayStart 
-                              ? `3px solid ${isDarkMode ? colours.accent : colours.highlight}`
-                              : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
-                            cursor: 'pointer',
-                            transition: 'all 0.15s ease',
-                          }}>
-                            <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
-                              <input
-                                type="checkbox"
-                                id={`halfDayStart_${index}`}
-                                checked={range.halfDayStart || false}
-                                onChange={(e) => {
-                                  const updatedRanges = [...dateRanges];
-                                  updatedRanges[index] = { ...range, halfDayStart: e.target.checked };
-                                  setDateRanges(updatedRanges);
-                                }}
-                                style={{
-                                  width: '20px',
-                                  height: '20px',
-                                  cursor: 'pointer',
-                                  accentColor: isDarkMode ? colours.accent : colours.highlight,
-                                  flexShrink: 0
-                                }}
-                              />
-                              <Stack tokens={{ childrenGap: 2 }} style={{ flex: 1 }}>
-                                <label 
-                                  htmlFor={`halfDayStart_${index}`}
-                                  style={{ 
-                                    fontSize: '13px',
-                                    fontWeight: 600,
-                                    color: isDarkMode ? colours.dark.text : colours.light.text,
+                    {(() => {
+                      const isSingleDay = format(range.startDate, 'yyyy-MM-dd') === format(range.endDate, 'yyyy-MM-dd');
+                      
+                      return (
+                        <div style={{
+                          marginTop: '12px',
+                          padding: '1rem',
+                          borderRadius: 0,
+                          background: isDarkMode ? 'rgba(135, 243, 243, 0.04)' : 'rgba(54, 144, 206, 0.04)',
+                          border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.1)'}`,
+                        }}>
+                          <Stack tokens={{ childrenGap: 10 }}>
+                            <Text 
+                              style={{ 
+                                fontSize: '12px', 
+                                fontWeight: 700,
+                                color: isDarkMode ? colours.accent : colours.highlight,
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.6px',
+                                margin: '0 0 4px 0'
+                              }}
+                            >
+                              {isSingleDay ? 'Half-Day Option' : 'Half-Day Options'}
+                            </Text>
+                            
+                            {isSingleDay ? (
+                              /* Single day: Show AM or PM choice */
+                              <Stack horizontal tokens={{ childrenGap: 12 }} wrap>
+                                {/* Morning only (AM) */}
+                                <div 
+                                  onClick={() => {
+                                    const updatedRanges = [...dateRanges];
+                                    // AM = halfDayEnd (take morning, skip afternoon)
+                                    const newValue = !range.halfDayEnd;
+                                    updatedRanges[index] = { ...range, halfDayEnd: newValue, halfDayStart: false };
+                                    setDateRanges(updatedRanges);
+                                  }}
+                                  style={{
+                                    flex: '1 1 calc(50% - 6px)',
+                                    minWidth: '160px',
+                                    padding: '10px',
+                                    borderRadius: 0,
+                                    background: range.halfDayEnd && !range.halfDayStart
+                                      ? (isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)')
+                                      : (isDarkMode ? 'rgba(30, 41, 59, 0.3)' : '#ffffff'),
+                                    border: `1px solid ${range.halfDayEnd && !range.halfDayStart
+                                      ? (isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.15)')
+                                      : (isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)')}`,
+                                    borderLeft: range.halfDayEnd && !range.halfDayStart
+                                      ? `3px solid ${isDarkMode ? colours.accent : colours.highlight}`
+                                      : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
                                     cursor: 'pointer',
-                                    userSelect: 'none',
-                                    margin: 0
+                                    transition: 'all 0.15s ease',
                                   }}
                                 >
-                                  Start PM
-                                </label>
-                                <Text 
-                                  style={{ 
-                                    fontSize: '11px',
-                                    color: isDarkMode ? 'rgba(203, 213, 225, 0.72)' : 'rgba(100, 116, 139, 0.8)',
-                                    lineHeight: '1.4',
-                                    margin: 0
+                                  <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
+                                    <input
+                                      type="radio"
+                                      name={`halfDay_${index}`}
+                                      id={`halfDayAM_${index}`}
+                                      checked={range.halfDayEnd === true && !range.halfDayStart}
+                                      onChange={() => {
+                                        const updatedRanges = [...dateRanges];
+                                        updatedRanges[index] = { ...range, halfDayEnd: true, halfDayStart: false };
+                                        setDateRanges(updatedRanges);
+                                      }}
+                                      style={{
+                                        width: '20px',
+                                        height: '20px',
+                                        cursor: 'pointer',
+                                        accentColor: isDarkMode ? colours.accent : colours.highlight,
+                                        flexShrink: 0
+                                      }}
+                                    />
+                                    <Stack tokens={{ childrenGap: 2 }} style={{ flex: 1 }}>
+                                      <label 
+                                        htmlFor={`halfDayAM_${index}`}
+                                        style={{ 
+                                          fontSize: '13px',
+                                          fontWeight: 600,
+                                          color: isDarkMode ? colours.dark.text : colours.light.text,
+                                          cursor: 'pointer',
+                                          userSelect: 'none',
+                                          margin: 0
+                                        }}
+                                      >
+                                        Morning only (AM)
+                                      </label>
+                                      <Text 
+                                        style={{ 
+                                          fontSize: '11px',
+                                          color: isDarkMode ? colours.accent : colours.highlight,
+                                          lineHeight: '1.4',
+                                          margin: 0,
+                                          fontWeight: 500
+                                        }}
+                                      >
+                                        {format(range.startDate, 'd MMM')} until 1pm (0.5 day)
+                                      </Text>
+                                    </Stack>
+                                  </Stack>
+                                </div>
+                                
+                                {/* Afternoon only (PM) */}
+                                <div 
+                                  onClick={() => {
+                                    const updatedRanges = [...dateRanges];
+                                    // PM = halfDayStart (skip morning, take afternoon)
+                                    const newValue = !range.halfDayStart;
+                                    updatedRanges[index] = { ...range, halfDayStart: newValue, halfDayEnd: false };
+                                    setDateRanges(updatedRanges);
                                   }}
-                                >
-                                  0.5 day
-                                </Text>
-                              </Stack>
-                            </Stack>
-                          </div>
-                          
-                          {/* End Half-Day */}
-                          <div style={{
-                            flex: '1 1 calc(50% - 6px)',
-                            minWidth: '160px',
-                            padding: '10px',
-                            borderRadius: 0,
-                            background: range.halfDayEnd 
-                              ? (isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)')
-                              : (isDarkMode ? 'rgba(30, 41, 59, 0.3)' : '#ffffff'),
-                            border: `1px solid ${range.halfDayEnd
-                              ? (isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.15)')
-                              : (isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)')}`,
-                            borderLeft: range.halfDayEnd 
-                              ? `3px solid ${isDarkMode ? colours.accent : colours.highlight}`
-                              : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
-                            cursor: 'pointer',
-                            transition: 'all 0.15s ease',
-                          }}>
-                            <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
-                              <input
-                                type="checkbox"
-                                id={`halfDayEnd_${index}`}
-                                checked={range.halfDayEnd || false}
-                                onChange={(e) => {
-                                  const updatedRanges = [...dateRanges];
-                                  updatedRanges[index] = { ...range, halfDayEnd: e.target.checked };
-                                  setDateRanges(updatedRanges);
-                                }}
-                                style={{
-                                  width: '20px',
-                                  height: '20px',
-                                  cursor: 'pointer',
-                                  accentColor: isDarkMode ? colours.accent : colours.highlight,
-                                  flexShrink: 0
-                                }}
-                              />
-                              <Stack tokens={{ childrenGap: 2 }} style={{ flex: 1 }}>
-                                <label 
-                                  htmlFor={`halfDayEnd_${index}`}
-                                  style={{ 
-                                    fontSize: '13px',
-                                    fontWeight: 600,
-                                    color: isDarkMode ? colours.dark.text : colours.light.text,
+                                  style={{
+                                    flex: '1 1 calc(50% - 6px)',
+                                    minWidth: '160px',
+                                    padding: '10px',
+                                    borderRadius: 0,
+                                    background: range.halfDayStart && !range.halfDayEnd
+                                      ? (isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)')
+                                      : (isDarkMode ? 'rgba(30, 41, 59, 0.3)' : '#ffffff'),
+                                    border: `1px solid ${range.halfDayStart && !range.halfDayEnd
+                                      ? (isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.15)')
+                                      : (isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)')}`,
+                                    borderLeft: range.halfDayStart && !range.halfDayEnd
+                                      ? `3px solid ${isDarkMode ? colours.accent : colours.highlight}`
+                                      : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
                                     cursor: 'pointer',
-                                    userSelect: 'none',
-                                    margin: 0
+                                    transition: 'all 0.15s ease',
                                   }}
                                 >
-                                  End AM
-                                </label>
-                                <Text 
-                                  style={{ 
-                                    fontSize: '11px',
-                                    color: isDarkMode ? 'rgba(203, 213, 225, 0.72)' : 'rgba(100, 116, 139, 0.8)',
-                                    lineHeight: '1.4',
-                                    margin: 0
-                                  }}
-                                >
-                                  0.5 day
-                                </Text>
+                                  <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
+                                    <input
+                                      type="radio"
+                                      name={`halfDay_${index}`}
+                                      id={`halfDayPM_${index}`}
+                                      checked={range.halfDayStart === true && !range.halfDayEnd}
+                                      onChange={() => {
+                                        const updatedRanges = [...dateRanges];
+                                        updatedRanges[index] = { ...range, halfDayStart: true, halfDayEnd: false };
+                                        setDateRanges(updatedRanges);
+                                      }}
+                                      style={{
+                                        width: '20px',
+                                        height: '20px',
+                                        cursor: 'pointer',
+                                        accentColor: isDarkMode ? colours.accent : colours.highlight,
+                                        flexShrink: 0
+                                      }}
+                                    />
+                                    <Stack tokens={{ childrenGap: 2 }} style={{ flex: 1 }}>
+                                      <label 
+                                        htmlFor={`halfDayPM_${index}`}
+                                        style={{ 
+                                          fontSize: '13px',
+                                          fontWeight: 600,
+                                          color: isDarkMode ? colours.dark.text : colours.light.text,
+                                          cursor: 'pointer',
+                                          userSelect: 'none',
+                                          margin: 0
+                                        }}
+                                      >
+                                        Afternoon only (PM)
+                                      </label>
+                                      <Text 
+                                        style={{ 
+                                          fontSize: '11px',
+                                          color: isDarkMode ? colours.accent : colours.highlight,
+                                          lineHeight: '1.4',
+                                          margin: 0,
+                                          fontWeight: 500
+                                        }}
+                                      >
+                                        {format(range.startDate, 'd MMM')} from 1pm (0.5 day)
+                                      </Text>
+                                    </Stack>
+                                  </Stack>
+                                </div>
                               </Stack>
-                            </Stack>
-                          </div>
-                        </Stack>
-                      </Stack>
-                    </div>
+                            ) : (
+                              /* Multi-day range: Show first day PM / last day AM options */
+                              <Stack horizontal tokens={{ childrenGap: 12 }} wrap>
+                                {/* First day: Start afternoon */}
+                                <div style={{
+                                  flex: '1 1 calc(50% - 6px)',
+                                  minWidth: '160px',
+                                  padding: '10px',
+                                  borderRadius: 0,
+                                  background: range.halfDayStart 
+                                    ? (isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)')
+                                    : (isDarkMode ? 'rgba(30, 41, 59, 0.3)' : '#ffffff'),
+                                  border: `1px solid ${range.halfDayStart
+                                    ? (isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.15)')
+                                    : (isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)')}`,
+                                  borderLeft: range.halfDayStart 
+                                    ? `3px solid ${isDarkMode ? colours.accent : colours.highlight}`
+                                    : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                                  cursor: 'pointer',
+                                  transition: 'all 0.15s ease',
+                                }}>
+                                  <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
+                                    <input
+                                      type="checkbox"
+                                      id={`halfDayStart_${index}`}
+                                      checked={range.halfDayStart || false}
+                                      onChange={(e) => {
+                                        const updatedRanges = [...dateRanges];
+                                        updatedRanges[index] = { ...range, halfDayStart: e.target.checked };
+                                        setDateRanges(updatedRanges);
+                                      }}
+                                      style={{
+                                        width: '20px',
+                                        height: '20px',
+                                        cursor: 'pointer',
+                                        accentColor: isDarkMode ? colours.accent : colours.highlight,
+                                        flexShrink: 0
+                                      }}
+                                    />
+                                    <Stack tokens={{ childrenGap: 2 }} style={{ flex: 1 }}>
+                                      <label 
+                                        htmlFor={`halfDayStart_${index}`}
+                                        style={{ 
+                                          fontSize: '13px',
+                                          fontWeight: 600,
+                                          color: isDarkMode ? colours.dark.text : colours.light.text,
+                                          cursor: 'pointer',
+                                          userSelect: 'none',
+                                          margin: 0
+                                        }}
+                                      >
+                                        First day: PM only
+                                      </label>
+                                      <Text 
+                                        style={{ 
+                                          fontSize: '11px',
+                                          color: isDarkMode ? colours.accent : colours.highlight,
+                                          lineHeight: '1.4',
+                                          margin: 0,
+                                          fontWeight: 500
+                                        }}
+                                      >
+                                        {format(range.startDate, 'd MMM')} from 1pm (−0.5 day)
+                                      </Text>
+                                    </Stack>
+                                  </Stack>
+                                </div>
+                                
+                                {/* Last day: End morning */}
+                                <div style={{
+                                  flex: '1 1 calc(50% - 6px)',
+                                  minWidth: '160px',
+                                  padding: '10px',
+                                  borderRadius: 0,
+                                  background: range.halfDayEnd 
+                                    ? (isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)')
+                                    : (isDarkMode ? 'rgba(30, 41, 59, 0.3)' : '#ffffff'),
+                                  border: `1px solid ${range.halfDayEnd
+                                    ? (isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.15)')
+                                    : (isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)')}`,
+                                  borderLeft: range.halfDayEnd 
+                                    ? `3px solid ${isDarkMode ? colours.accent : colours.highlight}`
+                                    : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                                  cursor: 'pointer',
+                                  transition: 'all 0.15s ease',
+                                }}>
+                                  <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
+                                    <input
+                                      type="checkbox"
+                                      id={`halfDayEnd_${index}`}
+                                      checked={range.halfDayEnd || false}
+                                      onChange={(e) => {
+                                        const updatedRanges = [...dateRanges];
+                                        updatedRanges[index] = { ...range, halfDayEnd: e.target.checked };
+                                        setDateRanges(updatedRanges);
+                                      }}
+                                      style={{
+                                        width: '20px',
+                                        height: '20px',
+                                        cursor: 'pointer',
+                                        accentColor: isDarkMode ? colours.accent : colours.highlight,
+                                        flexShrink: 0
+                                      }}
+                                    />
+                                    <Stack tokens={{ childrenGap: 2 }} style={{ flex: 1 }}>
+                                      <label 
+                                        htmlFor={`halfDayEnd_${index}`}
+                                        style={{ 
+                                          fontSize: '13px',
+                                          fontWeight: 600,
+                                          color: isDarkMode ? colours.dark.text : colours.light.text,
+                                          cursor: 'pointer',
+                                          userSelect: 'none',
+                                          margin: 0
+                                        }}
+                                      >
+                                        Last day: AM only
+                                      </label>
+                                      <Text 
+                                        style={{ 
+                                          fontSize: '11px',
+                                          color: isDarkMode ? colours.accent : colours.highlight,
+                                          lineHeight: '1.4',
+                                          margin: 0,
+                                          fontWeight: 500
+                                        }}
+                                      >
+                                        {format(range.endDate, 'd MMM')} until 1pm (−0.5 day)
+                                      </Text>
+                                    </Stack>
+                                  </Stack>
+                                </div>
+                              </Stack>
+                            )}
+                          </Stack>
+                        </div>
+                      );
+                    })()}
 
                     <DefaultButton
                       text="Remove"
@@ -1122,13 +1467,47 @@ function AnnualLeaveForm({
           </div>
         )}
 
+        {/* Pending Requests Banner */}
+        {pendingRequests.length > 0 && (
+          <div style={{
+            marginTop: '24px',
+            padding: '14px 16px',
+            background: isDarkMode ? 'rgba(214, 176, 70, 0.08)' : 'rgba(214, 176, 70, 0.06)',
+            border: `1px solid ${isDarkMode ? 'rgba(214, 176, 70, 0.2)' : 'rgba(214, 176, 70, 0.15)'}`,
+            borderLeft: `3px solid ${colours.yellow}`,
+            borderRadius: 0,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px'
+          }}>
+            <Icon iconName="Clock" style={{ fontSize: 18, color: colours.yellow }} />
+            <div style={{ flex: 1 }}>
+              <Text style={{ 
+                fontSize: '13px', 
+                fontWeight: 600, 
+                color: isDarkMode ? colours.dark.text : colours.light.text,
+                display: 'block',
+                marginBottom: '2px'
+              }}>
+                {pendingRequests.length} Pending Request{pendingRequests.length > 1 ? 's' : ''}
+              </Text>
+              <Text style={{ 
+                fontSize: '12px', 
+                color: isDarkMode ? colours.dark.subText : colours.greyText 
+              }}>
+                {pendingRequests.map(r => `${format(new Date(r.start_date), 'd MMM')} - ${format(new Date(r.end_date), 'd MMM')}`).join(' • ')}
+              </Text>
+            </div>
+          </div>
+        )}
+
         {/* Leave History Section */}
         <div style={{ marginTop: '24px' }}>
           <Text
             style={{
               fontSize: '13px',
               fontWeight: 600,
-              color: isDarkMode ? colours.dark.subText : colours.greyText,
+              color: isDarkMode ? colours.accent : colours.highlight,
               marginBottom: '10px',
               display: 'block',
               textTransform: 'uppercase',
@@ -1148,7 +1527,7 @@ function AnnualLeaveForm({
             }}>
               <DetailsList
                 items={userLeaveHistory}
-                columns={getHistoryColumns(isDarkMode)}
+                columns={getHistoryColumns(isDarkMode, setDeleteTarget)}
                 setKey="set"
                 layoutMode={DetailsListLayoutMode.justified}
                 selectionMode={SelectionMode.none}
@@ -1226,6 +1605,134 @@ function AnnualLeaveForm({
           )}
         </div>
       </Stack>
+      
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        hidden={!deleteTarget}
+        onDismiss={() => {
+          if (!isDeleting) {
+            setDeleteTarget(null);
+            setDeleteError('');
+          }
+        }}
+        dialogContentProps={{
+          type: DialogType.normal,
+          title: 'Delete Leave Request',
+          subText: deleteTarget 
+            ? `Are you sure you want to delete your leave request for ${format(new Date(deleteTarget.start_date), 'd MMM')} - ${format(new Date(deleteTarget.end_date), 'd MMM yyyy')}?`
+            : '',
+          styles: {
+            title: {
+              color: isDarkMode ? '#ffffff' : colours.light.text,
+              fontWeight: 600,
+            },
+            subText: {
+              color: isDarkMode ? 'rgba(255, 255, 255, 0.85)' : colours.light.subText,
+            }
+          }
+        }}
+        modalProps={{
+          isBlocking: isDeleting,
+          styles: {
+            main: {
+              backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+              color: isDarkMode ? '#ffffff' : colours.light.text,
+              borderRadius: '8px',
+              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+            }
+          }
+        }}
+      >
+        <Stack tokens={{ childrenGap: 16 }} style={{ padding: '0 24px 24px' }}>
+          {deleteTarget?.status?.toLowerCase() === 'booked' && (
+            <div style={{
+              padding: '12px',
+              backgroundColor: isDarkMode ? 'rgba(214, 176, 70, 0.1)' : 'rgba(217, 119, 6, 0.1)',
+              border: `1px solid ${isDarkMode ? 'rgba(214, 176, 70, 0.3)' : 'rgba(217, 119, 6, 0.3)'}`,
+              borderRadius: '4px',
+            }}>
+              <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
+                <Icon iconName="Warning" style={{ color: isDarkMode ? colours.yellow : '#d97706' }} />
+                <Text style={{ fontSize: '13px', color: isDarkMode ? colours.yellow : '#d97706' }}>
+                  This leave has been booked and added to Clio calendar.
+                </Text>
+              </Stack>
+            </div>
+          )}
+          
+          <Checkbox
+            label="Also delete from Clio calendar"
+            checked={deleteFromClio}
+            onChange={(_, checked) => setDeleteFromClio(checked ?? true)}
+            disabled={isDeleting}
+            styles={{
+              root: { marginTop: '8px' },
+              text: { 
+                color: isDarkMode ? '#ffffff' : colours.light.text,
+                fontSize: '13px'
+              },
+              checkbox: {
+                borderColor: isDarkMode ? colours.accent : colours.highlight,
+                backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : undefined,
+              }
+            }}
+          />
+          
+          {deleteError && (
+            <Text style={{ 
+              color: isDarkMode ? colours.cta : '#dc2626', 
+              fontSize: '13px',
+              padding: '8px',
+              backgroundColor: isDarkMode ? 'rgba(214, 85, 65, 0.1)' : 'rgba(220, 38, 38, 0.1)',
+              borderRadius: '4px'
+            }}>
+              {deleteError}
+            </Text>
+          )}
+        </Stack>
+        
+        <DialogFooter>
+          <DefaultButton 
+            onClick={() => {
+              setDeleteTarget(null);
+              setDeleteError('');
+            }} 
+            text="Cancel" 
+            disabled={isDeleting}
+            styles={{
+              root: {
+                backgroundColor: 'transparent',
+                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(0, 0, 0, 0.2)'}`,
+              },
+              rootHovered: {
+                backgroundColor: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+              },
+              label: {
+                color: isDarkMode ? colours.dark.text : colours.light.text,
+              }
+            }}
+          />
+          <PrimaryButton 
+            onClick={handleDeleteLeave} 
+            text={isDeleting ? 'Deleting...' : 'Delete'}
+            disabled={isDeleting}
+            styles={{
+              root: {
+                backgroundColor: isDarkMode ? colours.cta : '#dc2626',
+                border: 'none',
+              },
+              rootHovered: {
+                backgroundColor: isDarkMode ? '#ff6b6b' : '#b91c1c',
+              },
+              rootDisabled: {
+                backgroundColor: isDarkMode ? 'rgba(214, 85, 65, 0.5)' : 'rgba(220, 38, 38, 0.5)',
+              }
+            }}
+          >
+            {isDeleting && <Spinner size={SpinnerSize.xSmall} style={{ marginRight: '8px' }} />}
+          </PrimaryButton>
+        </DialogFooter>
+      </Dialog>
     </>
   );
 }

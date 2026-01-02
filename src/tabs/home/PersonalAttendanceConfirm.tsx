@@ -1,6 +1,6 @@
-import React, { useState, useMemo, forwardRef, useImperativeHandle } from 'react';
+import React, { useState, useMemo, forwardRef, useImperativeHandle, useCallback } from 'react';
 import type { CSSProperties } from 'react';
-import { Icon, PrimaryButton, DefaultButton, Dropdown, IDropdownOption } from '@fluentui/react';
+import { Icon, PrimaryButton, DefaultButton, Dropdown, IDropdownOption, IRenderFunction, ISelectableOption } from '@fluentui/react';
 import { colours } from '../../app/styles/colours';
 
 interface AttendanceRecord {
@@ -53,6 +53,7 @@ const STATUS_ORDER: StatusType[] = ['office', 'wfh', 'away', 'sick', 'ooo'];
 const STATUS_OPTIONS: IDropdownOption[] = STATUS_ORDER.map(status => ({
     key: status,
     text: STATUS_CONFIG[status].shortLabel,
+    data: STATUS_CONFIG[status],
 }));
 
 const PersonalAttendanceConfirm = forwardRef<
@@ -334,34 +335,102 @@ const PersonalAttendanceConfirm = forwardRef<
         marginBottom: '6px',
     };
 
-    const getDropdownStyles = (status: StatusType) => ({
-        dropdown: {
-            width: '100%',
-            minWidth: 0,
-        },
-        title: {
-            backgroundColor: isDarkMode ? '#374151' : '#FFFFFF',
-            borderColor: STATUS_CONFIG[status].color,
-            borderWidth: '1px',
-            borderRadius: '4px',
-            color: isDarkMode ? '#F3F4F6' : '#374151',
-            fontSize: '11px',
-            height: '28px',
-            lineHeight: '26px',
-            padding: '0 24px 0 8px',
-        },
-        caretDown: {
-            color: isDarkMode ? '#9CA3AF' : '#6B7280',
-            fontSize: '10px',
-        },
-        dropdownItem: {
-            fontSize: '12px',
-            minHeight: '28px',
-        },
-        dropdownItemSelected: {
-            backgroundColor: isDarkMode ? '#374151' : '#F3F4F6',
-        },
-    });
+    const getDropdownStyles = (status: StatusType) => {
+        const statusColor = STATUS_CONFIG[status].color;
+        return {
+            root: {
+                width: '100%',
+            },
+            dropdown: {
+                width: '100%',
+                minWidth: 0,
+                selectors: {
+                    ':focus::after': {
+                        border: `2px solid ${statusColor}`,
+                        borderRadius: '6px',
+                    },
+                },
+            },
+            title: {
+                backgroundColor: isDarkMode ? 'rgba(55, 65, 81, 0.6)' : '#FFFFFF',
+                borderColor: isDarkMode ? `rgba(${hexToRgb(statusColor)}, 0.5)` : statusColor,
+                borderWidth: '1px',
+                borderRadius: '6px',
+                color: isDarkMode ? '#F3F4F6' : '#374151',
+                fontSize: '12px',
+                fontWeight: 500 as const,
+                height: '32px',
+                lineHeight: '30px',
+                padding: '0 28px 0 10px',
+                transition: 'all 0.15s ease',
+                selectors: {
+                    ':hover': {
+                        backgroundColor: isDarkMode ? 'rgba(55, 65, 81, 0.8)' : '#F9FAFB',
+                        borderColor: statusColor,
+                    },
+                },
+            },
+            caretDownWrapper: {
+                right: '8px',
+                height: '32px',
+                lineHeight: '32px',
+            },
+            caretDown: {
+                color: isDarkMode ? '#9CA3AF' : '#6B7280',
+                fontSize: '10px',
+            },
+            callout: {
+                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : '#E5E7EB'}`,
+                borderRadius: '8px',
+                boxShadow: isDarkMode 
+                    ? '0 8px 24px rgba(0, 0, 0, 0.4)' 
+                    : '0 4px 16px rgba(0, 0, 0, 0.12)',
+                overflow: 'hidden' as const,
+            },
+            dropdownItems: {
+                backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF',
+                padding: '4px',
+            },
+            dropdownItem: {
+                fontSize: '12px',
+                fontWeight: 500 as const,
+                minHeight: '36px',
+                padding: '8px 12px',
+                borderRadius: '6px',
+                color: isDarkMode ? '#E5E7EB' : '#374151',
+                backgroundColor: 'transparent',
+                margin: '2px 0',
+                selectors: {
+                    ':hover': {
+                        backgroundColor: isDarkMode ? 'rgba(55, 65, 81, 0.6)' : '#F3F4F6',
+                        color: isDarkMode ? '#FFFFFF' : '#111827',
+                    },
+                },
+            },
+            dropdownItemSelected: {
+                backgroundColor: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.1)',
+                color: isDarkMode ? '#FFFFFF' : colours.blue,
+                fontWeight: 600 as const,
+                selectors: {
+                    ':hover': {
+                        backgroundColor: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.15)',
+                    },
+                },
+            },
+            dropdownOptionText: {
+                fontSize: '12px',
+            },
+        };
+    };
+
+    // Helper to convert hex to RGB for rgba usage
+    const hexToRgb = (hex: string): string => {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        if (result) {
+            return `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}`;
+        }
+        return '148, 163, 184';
+    };
 
     const quickActionsStyle: CSSProperties = {
         display: 'flex',
@@ -392,6 +461,72 @@ const PersonalAttendanceConfirm = forwardRef<
         marginTop: '20px',
         paddingTop: '16px',
         borderTop: `1px solid ${isDarkMode ? '#374151' : '#E5E7EB'}`,
+    };
+
+    // Custom dropdown option renderer with icons and status colors
+    const onRenderOption: IRenderFunction<ISelectableOption> = (option) => {
+        if (!option) return null;
+        const config = option.data as { label: string; shortLabel: string; color: string; icon: string } | undefined;
+        if (!config) return <span>{option.text}</span>;
+        
+        return (
+            <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '10px',
+                width: '100%',
+            }}>
+                <div style={{
+                    width: '24px',
+                    height: '24px',
+                    borderRadius: '6px',
+                    backgroundColor: isDarkMode ? `rgba(${hexToRgb(config.color)}, 0.2)` : `rgba(${hexToRgb(config.color)}, 0.15)`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                }}>
+                    <Icon 
+                        iconName={config.icon} 
+                        style={{ 
+                            fontSize: '12px', 
+                            color: config.color,
+                        }} 
+                    />
+                </div>
+                <span style={{ 
+                    color: isDarkMode ? '#E5E7EB' : '#374151',
+                    fontWeight: 500,
+                }}>
+                    {config.shortLabel}
+                </span>
+            </div>
+        );
+    };
+
+    // Custom title renderer to show icon with selected status
+    const onRenderTitle = (options?: IDropdownOption[]): JSX.Element => {
+        if (!options || options.length === 0) return <span>Select</span>;
+        const option = options[0];
+        const config = option.data as { label: string; shortLabel: string; color: string; icon: string } | undefined;
+        if (!config) return <span>{option.text}</span>;
+        
+        return (
+            <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '6px',
+            }}>
+                <Icon 
+                    iconName={config.icon} 
+                    style={{ 
+                        fontSize: '11px', 
+                        color: config.color,
+                    }} 
+                />
+                <span>{config.shortLabel}</span>
+            </div>
+        );
     };
 
     const renderWeek = (label: string, weekStart: string) => {
@@ -434,6 +569,8 @@ const PersonalAttendanceConfirm = forwardRef<
                                         options={STATUS_OPTIONS}
                                         onChange={(_, option) => option && setDayStatus(weekStart, day, option.key as StatusType)}
                                         styles={getDropdownStyles(status)}
+                                        onRenderOption={onRenderOption}
+                                        onRenderTitle={onRenderTitle}
                                     />
                                 )}
                             </div>

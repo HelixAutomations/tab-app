@@ -132,15 +132,8 @@ module.exports = function(app) {
     '/insertDeal'  // Added for deal capture
   ];
 
-  // Decoupled Azure Functions routes (port 7071 - JavaScript functions)
-  const decoupledFunctionRoutes = [
-    '/fetchMattersData',
-    '/fetchEnquiriesData',
-    '/fetchSnippetEdits',
-    '/insertEnquiry',
-    '/processEnquiry'
-    // Removed /sendEmail - now handled by Express server
-  ];
+  // Decoupled Azure Functions routes - REMOVED (folder deleted Dec 2024)
+  // Port 7071 no longer used
 
   // Pre-create fallback proxies to avoid adding new listeners per error
   const fallbackToFunctions = createProxyMiddleware({
@@ -199,27 +192,6 @@ module.exports = function(app) {
       },
       onError: (err, req, res) => {
         console.error(`Proxy error for ${req.url} (Azure Functions):`, err.message);
-        // Fallback to Express server if Azure Functions fails
-        console.log('Attempting fallback to Express server...');
-        fallbackToExpress(req, res);
-      }
-    })
-  );
-
-  // Proxy Decoupled Azure Functions routes to port 7071 (JavaScript functions)
-  app.use(
-    decoupledFunctionRoutes,
-    createProxyMiddleware({
-      target: 'http://localhost:7071',
-      changeOrigin: true,
-      pathRewrite: {
-        '^/(.*)': '/api/$1', // Rewrite /sendEmail to /api/sendEmail
-      },
-      onProxyRes: (proxyRes, req, res) => {
-        try { res.setHeader('x-dev-proxy-target', 'decoupled-7071'); } catch { /* ignore */ }
-      },
-      onError: (err, req, res) => {
-        console.error(`Proxy error for ${req.url} (Decoupled Functions):`, err.message);
         // Fallback to Express server if Azure Functions fails
         console.log('Attempting fallback to Express server...');
         fallbackToExpress(req, res);

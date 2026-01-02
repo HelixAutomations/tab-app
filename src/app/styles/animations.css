@@ -159,3 +159,80 @@
 .next-action-pulse {
     animation: nextActionPulse 2s ease-in-out infinite;
 }
+
+/* Subtle glow pulse for claim buttons to attract attention */
+@keyframes claim-pulse {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(245, 158, 11, 0);
+    }
+
+    50% {
+        box-shadow: 0 0 8px 2px rgba(245, 158, 11, 0.25);
+    }
+}
+
+/* Subtle breathing animation for status dot */
+@keyframes status-breathe {
+    0%, 100% {
+        opacity: 0.5;
+        transform: scale(0.85);
+    }
+
+    50% {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* Subtle badge count fade-in - for dynamic counts appearing */
+@keyframes badgeFadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.8);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.badge-fade-in {
+    animation: badgeFadeIn 300ms ease-out forwards;
+}
+
+/* Smooth content reveal - for late-loading content */
+@keyframes contentReveal {
+    from {
+        opacity: 0;
+        transform: translateY(2px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.content-reveal {
+    animation: contentReveal 250ms ease-out forwards;
+}
+
+/* Skeleton shimmer for loading placeholders */
+@keyframes shimmer {
+    0% {
+        background-position: -200% 0;
+    }
+    100% {
+        background-position: 200% 0;
+    }
+}
+
+.skeleton-shimmer {
+    background: linear-gradient(
+        90deg,
+        rgba(148, 163, 184, 0.1) 25%,
+        rgba(148, 163, 184, 0.2) 50%,
+        rgba(148, 163, 184, 0.1) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
+}

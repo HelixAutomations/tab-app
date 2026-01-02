@@ -3712,23 +3712,8 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
     }
   }, [isErrorVisible]);
 
-  /**
-   * Keep the editor's HTML in sync with our `body` state
-   */
-  useEffect(() => {
-    if (
-      bodyEditorRef.current &&
-      document.activeElement !== bodyEditorRef.current
-    ) {
-      // Wrap placeholders before setting innerHTML to ensure they're styled
-      const hasWrappedPlaceholders = body.includes('class="insert-placeholder"');
-      const wrappedContent = hasWrappedPlaceholders ? body : wrapInsertPlaceholders(body);
-      
-      if (bodyEditorRef.current.innerHTML !== wrappedContent) {
-        bodyEditorRef.current.innerHTML = wrappedContent;
-      }
-    }
-  }, [body]);
+  // NOTE: Body-to-DOM sync is handled by InlineEditableArea in EditorAndTemplateBlocks.
+  // We intentionally do NOT sync here to avoid duplicate innerHTML writes that reset the caret.
 
   /**
    * Update selected template options for multi-select blocks

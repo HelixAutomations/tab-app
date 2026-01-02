@@ -130,13 +130,15 @@ const SegmentedControl: React.FC<SegmentedControlProps> = ({
             height: Math.max(0, height - 8),
             left: thumbRect.left,
             width: thumbRect.width,
-            background: '#FFFFFF',
+            background: isDarkMode
+              ? 'rgba(255, 255, 255, 0.12)'
+              : 'rgba(255, 255, 255, 0.9)',
             borderRadius: pill ? (height - 8) / 2 : 8,
             transition:
               'left 250ms cubic-bezier(0.25, 0.46, 0.45, 0.94), width 250ms cubic-bezier(0.25, 0.46, 0.45, 0.94)',
             boxShadow: isDarkMode
-              ? '0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.24)'
-              : '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)',
+              ? '0 1px 2px rgba(0,0,0,0.2)'
+              : '0 1px 2px rgba(0,0,0,0.06)',
           }}
         />
       )}
@@ -167,7 +169,7 @@ const SegmentedControl: React.FC<SegmentedControlProps> = ({
               color: opt.disabled
                 ? (isDarkMode ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.25)')
                 : isActive
-                ? (isDarkMode ? '#1f2937' : '#1f2937')
+                ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937')
                 : isDarkMode
                 ? 'rgba(255,255,255,0.70)'
                 : 'rgba(0,0,0,0.55)',
@@ -197,7 +199,7 @@ const SegmentedControl: React.FC<SegmentedControlProps> = ({
                 color: opt.disabled
                   ? (isDarkMode ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.25)')
                   : isActive
-                  ? '#1f2937'
+                  ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937')
                   : isDarkMode
                   ? 'rgba(255,255,255,0.70)'
                   : 'rgba(0,0,0,0.55)',
@@ -209,12 +211,12 @@ const SegmentedControl: React.FC<SegmentedControlProps> = ({
             {typeof opt.badge !== 'undefined' && (
               <span style={{
                 background: isActive
-                  ? (isDarkMode ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.08)')
+                  ? (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)')
                   : (isDarkMode
                     ? 'rgba(255,255,255,0.15)'
                     : 'rgba(0,0,0,0.06)'),
                 color: isActive
-                  ? (isDarkMode ? '#1f2937' : '#1f2937')
+                  ? (isDarkMode ? 'rgba(255,255,255,0.9)' : '#1f2937')
                   : (isDarkMode ? 'rgba(255,255,255,0.8)' : 'rgba(0,0,0,0.65)'),
                 borderRadius: 8,
                 padding: '2px 6px',

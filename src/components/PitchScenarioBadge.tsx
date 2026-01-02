@@ -83,16 +83,16 @@ const PitchScenarioBadge: React.FC<PitchScenarioBadgeProps> = ({
     alignItems: 'center',
     gap: isSmall ? 3 : 4,
     padding: isSmall ? '4px 8px' : '4px 10px',
-    borderRadius: 6,
+    borderRadius: 0,
     background: isDarkMode 
-      ? `rgba(${parseInt(color.slice(1, 3), 16)}, ${parseInt(color.slice(3, 5), 16)}, ${parseInt(color.slice(5, 7), 16)}, 0.12)`
-      : `rgba(${parseInt(color.slice(1, 3), 16)}, ${parseInt(color.slice(3, 5), 16)}, ${parseInt(color.slice(5, 7), 16)}, 0.08)`,
-    border: `1px solid ${isDarkMode ? `rgba(${parseInt(color.slice(1, 3), 16)}, ${parseInt(color.slice(3, 5), 16)}, ${parseInt(color.slice(5, 7), 16)}, 0.25)` : `rgba(${parseInt(color.slice(1, 3), 16)}, ${parseInt(color.slice(3, 5), 16)}, ${parseInt(color.slice(5, 7), 16)}, 0.15)`}`,
+      ? `rgba(${parseInt(color.slice(1, 3), 16)}, ${parseInt(color.slice(3, 5), 16)}, ${parseInt(color.slice(5, 7), 16)}, 0.08)`
+      : `rgba(${parseInt(color.slice(1, 3), 16)}, ${parseInt(color.slice(3, 5), 16)}, ${parseInt(color.slice(5, 7), 16)}, 0.06)`,
+    border: `1px solid ${isDarkMode ? `rgba(${parseInt(color.slice(1, 3), 16)}, ${parseInt(color.slice(3, 5), 16)}, ${parseInt(color.slice(5, 7), 16)}, 0.2)` : `rgba(${parseInt(color.slice(1, 3), 16)}, ${parseInt(color.slice(3, 5), 16)}, ${parseInt(color.slice(5, 7), 16)}, 0.12)`}`,
     cursor: 'default',
-    transition: 'all 0.2s ease',
+    transition: '0.2s',
     fontSize: isSmall ? 10 : 11,
-    fontWeight: 600,
-    color: isDarkMode ? `rgba(${parseInt(color.slice(1, 3), 16)}, ${parseInt(color.slice(3, 5), 16)}, ${parseInt(color.slice(5, 7), 16)}, 0.9)` : color,
+    fontWeight: 500,
+    color: isDarkMode ? `rgba(${parseInt(color.slice(1, 3), 16)}, ${parseInt(color.slice(3, 5), 16)}, ${parseInt(color.slice(5, 7), 16)}, 0.8)` : color,
     textDecoration: 'none',
     userSelect: 'none',
     position: 'relative' as const,

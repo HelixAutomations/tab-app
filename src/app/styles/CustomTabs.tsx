@@ -63,7 +63,7 @@ const customPivotStyles = (isDarkMode: boolean): Partial<IPivotStyles> => ({
     transition: 'color 0.2s',
     selectors: {
       ':hover': {
-        color: colours.highlight,
+        color: isDarkMode ? '#7dd3fc' : colours.highlight,
       },
     },
   },
@@ -180,19 +180,17 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
       className={`customTabsContainer ${iconOnly ? 'iconOnlyTabs' : ''}`}
       style={{
         background: isDarkMode
-          ? 'linear-gradient(135deg, rgba(7, 16, 32, 1) 0%, rgba(11, 30, 55, 1) 100%)'
+          ? colours.darkBlue
           : '#FFFFFF',
-        backdropFilter: isDarkMode ? 'blur(16px) saturate(180%)' : 'none',
-        WebkitBackdropFilter: isDarkMode ? 'blur(16px) saturate(180%)' : 'none',
         display: 'flex',
         alignItems: 'center',
         padding: '0 24px',
         height: 48,
         borderBottom: isDarkMode 
-          ? '1px solid rgba(125, 211, 252, 0.15)' 
+          ? '1px solid rgba(54, 144, 206, 0.25)' 
           : '1px solid rgba(0, 0, 0, 0.06)',
         boxShadow: isDarkMode
-          ? '0 2px 12px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.3)'
+          ? '0 2px 8px rgba(0, 0, 0, 0.4)'
           : '0 2px 8px rgba(0, 0, 0, 0.08)',
         position: 'sticky',
         top: 0,
@@ -247,7 +245,7 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
         style={{
           width: '1px',
           height: '24px',
-          backgroundColor: 'rgba(255, 255, 255, 0.2)',
+          backgroundColor: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(0, 0, 0, 0.08)',
           marginRight: '12px',
           flexShrink: 0,
         }}

@@ -99,11 +99,12 @@ export const getFormSectionHeaderStyle = (isDarkMode: boolean, accentColor?: str
 // INFO BOX STYLES
 // ============================================================================
 
-export const getInfoBoxStyle = (isDarkMode: boolean, variant: 'info' | 'warning' | 'success' = 'info'): React.CSSProperties => {
+export const getInfoBoxStyle = (isDarkMode: boolean, variant: 'info' | 'warning' | 'success' | 'neutral' = 'info'): React.CSSProperties => {
   const colors = {
     info: { light: colours.cta, dark: colours.cta },
     warning: { light: '#dc3545', dark: '#f87171' },
     success: { light: '#16a34a', dark: '#4ade80' },
+    neutral: { light: colours.highlight, dark: colours.highlight },
   };
   
   const color = isDarkMode ? colors[variant].dark : colors[variant].light;

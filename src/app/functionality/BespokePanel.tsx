@@ -74,12 +74,16 @@ const getPanelStyle = (width: string, isClosing: boolean, isDarkMode: boolean, v
     WebkitBackdropFilter: variant === 'modal' ? 'blur(10px)' : undefined,
   });
 
-// Simple header
-const getHeaderStyle = (isDarkMode: boolean) =>
+// Simple header - updated with modern gradient matching app style
+const getHeaderStyle = (isDarkMode: boolean, variant: 'side' | 'modal') =>
   mergeStyles({
     padding: '16px 20px',
-    background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
-    borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+    background: variant === 'modal'
+      ? (isDarkMode 
+          ? 'linear-gradient(135deg, rgba(17, 24, 39, 0.95) 0%, rgba(30, 41, 59, 0.9) 100%)'
+          : 'linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.95) 100%)')
+      : (isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground),
+    borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(15, 23, 42, 0.08)'}`,
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -192,7 +196,7 @@ const BespokePanel: React.FC<BespokePanelProps> = ({
         className={getPanelStyle(width || '480px', isClosing, isDarkMode, variant)}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className={getHeaderStyle(isDarkMode)}>
+        <div className={getHeaderStyle(isDarkMode, variant)}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
             {IconComponent && typeof IconComponent === 'function' && (
               <div

@@ -20,6 +20,7 @@ import { useTheme } from '../app/functionality/ThemeContext';
 import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
 import { UserData } from '../app/functionality/types';
 import PasscodeGuard from './shared/PasscodeGuard';
+import TechTicketsLedger from './shared/TechTicketsLedger';
 import {
   getFormScrollContainerStyle,
   getFormCardStyle,
@@ -78,6 +79,7 @@ const TechIdeaFormContent: React.FC<TechIdeaFormProps> = ({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [ledgerRefreshKey, setLedgerRefreshKey] = useState(0);
 
   const handleFieldChange = useCallback((field: keyof FormData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -114,8 +116,10 @@ const TechIdeaFormContent: React.FC<TechIdeaFormProps> = ({
         throw new Error(errorData.error || 'Failed to submit tech idea');
       }
 
-      setSubmitMessage({ type: 'success', text: 'Tech idea submitted successfully! Asana task created.' });
-      onSubmitSuccess?.('Tech idea submitted successfully!');
+      setSubmitMessage({ type: 'success', text: 'Tech idea submitted successfully. The Tech team has been notified.' });
+      onSubmitSuccess?.('Tech idea submitted successfully.');
+
+      setLedgerRefreshKey((k) => k + 1);
 
       setFormData({ title: '', description: '', business_value: '', priority: 'medium' });
     } catch (error: unknown) {
@@ -167,11 +171,11 @@ const TechIdeaFormContent: React.FC<TechIdeaFormProps> = ({
           )}
 
           {/* Info Box */}
-          <div style={getInfoBoxStyle(isDarkMode, 'info')}>
+          <div style={getInfoBoxStyle(isDarkMode, 'neutral')}>
             <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
               <Icon iconName="Info" style={{ color: accentColor, flexShrink: 0 }} />
               <Text style={getInfoBoxTextStyle(isDarkMode)}>
-                Creates an Asana task for tech review.
+                Saves this submission and notifies the Tech team. If Asana is configured, it will also create an Asana task for tracking.
               </Text>
             </Stack>
           </div>
@@ -191,7 +195,7 @@ const TechIdeaFormContent: React.FC<TechIdeaFormProps> = ({
                     value={formData.title}
                     onChange={(_, val) => handleFieldChange('title', val || '')}
                     required
-                    placeholder=""
+                    placeholder="Brief description of the idea"
                     styles={getInputStyles(isDarkMode)}
                   />
                 </Stack.Item>
@@ -213,17 +217,17 @@ const TechIdeaFormContent: React.FC<TechIdeaFormProps> = ({
                 required
                 multiline
                 rows={5}
-                placeholder=""
+                placeholder="What should we build/change? Include context, affected users, and any useful links."
                 styles={getInputStyles(isDarkMode)}
               />
 
               <TextField
-                label="Notes"
+                label="Business Value / Impact"
                 value={formData.business_value}
                 onChange={(_, val) => handleFieldChange('business_value', val || '')}
                 multiline
                 rows={3}
-                placeholder="Optional"
+                placeholder="Optional: time saved, risk reduced, client impact, etc."
                 styles={getInputStyles(isDarkMode)}
               />
             </Stack>
@@ -244,6 +248,16 @@ const TechIdeaFormContent: React.FC<TechIdeaFormProps> = ({
               styles={getFormPrimaryButtonStyles(isDarkMode, accentColor)} 
             />
           </Stack>
+
+          <div style={{ marginTop: '1.25rem' }}>
+            <TechTicketsLedger
+              isDarkMode={isDarkMode}
+              refreshKey={ledgerRefreshKey}
+              type="idea"
+              title="Recent ideas"
+              accentColor={accentColor}
+            />
+          </div>
         </div>
       </div>
     </div>

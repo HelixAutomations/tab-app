@@ -571,12 +571,16 @@ export interface AnnualLeaveRecord {
   reason: string;
   status: string;
   id: string;
+  request_id?: number;
   rejection_notes?: string;
   approvers?: string[];
   hearing_confirmation?: string;
   hearing_details?: string;
   days_taken?: number;
   leave_type?: string;
+  clio_entry_id?: number;
+  half_day_start?: boolean;
+  half_day_end?: boolean;
 }
 
 export interface InstructionData {

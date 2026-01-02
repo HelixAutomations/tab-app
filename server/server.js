@@ -45,9 +45,7 @@ const getMattersRouter = require('./routes/getMatters');
 const riskAssessmentsRouter = require('./routes/riskAssessments');
 const bundleRouter = require('./routes/bundle');
 const proxyToAzureFunctionsRouter = require('./routes/proxyToAzureFunctions');
-const enquiriesRouter = require('./routes/enquiries');
 const enquiriesUnifiedRouter = require('./routes/enquiries-unified');
-const enquiryEmailsRouter = require('./routes/enquiryEmails');
 const updateEnquiryPOCRouter = require('./routes/updateEnquiryPOC');
 const pitchesRouter = require('./routes/pitches');
 const mattersRouter = require('./routes/matters');
@@ -66,6 +64,7 @@ const sendEmailRouter = require('./routes/sendEmail');
 const forwardEmailRouter = require('./routes/forwardEmail');
 const searchInboxRouter = require('./routes/searchInbox');
 const attendanceRouter = require('./routes/attendance');
+const bookSpaceRouter = require('./routes/bookSpace');
 const reportingRouter = require('./routes/reporting');
 const reportingStreamRouter = require('./routes/reporting-stream');
 const marketingMetricsRouter = require('./routes/marketing-metrics');
@@ -121,11 +120,10 @@ function getKvClient() {
     return kvClient;
 }
 
-// When running locally index.js lives in the `server` folder and the built
-// client files are one level up. However after deployment the build script
-// copies `index.js` to the site root alongside the compiled client assets.
-// Using `__dirname` directly works for both cases.
-const buildPath = path.join(__dirname);
+// Prefer serving the CRA build output from the repo root when available.
+// Fallback to serving alongside this file (deployment packaging).
+const rootBuildPath = path.resolve(__dirname, '..', 'build');
+const buildPath = require('fs').existsSync(rootBuildPath) ? rootBuildPath : path.join(__dirname);
 
 // basic request logging (disable verbose logs in production)
 if (process.env.NODE_ENV !== 'production') {
@@ -148,10 +146,8 @@ app.use('/api/getMatters', getMattersRouter);
 // app.use('/api/ccl', cclRouter);
 // app.use('/ccls', express.static(CCL_DIR));
 
-app.use('/api/enquiries', enquiriesRouter);
 app.use('/api/enquiries-unified', enquiriesUnifiedRouter);
 app.use('/api/updateEnquiryPOC', updateEnquiryPOCRouter);
-app.use('/api/enquiry-emails', enquiryEmailsRouter);
 
 // Update enquiry endpoint - moved to enquiries-unified/update
 // app.post('/api/update-enquiry', require('../api/update-enquiry'));
@@ -201,6 +197,7 @@ app.use('/api/telemetry', telemetryRouter);
 
 // IMPORTANT: Attendance routes must come BEFORE proxy routes to avoid conflicts
 app.use('/api/attendance', attendanceRouter);
+app.use('/api/book-space', bookSpaceRouter);
 
 // Metrics routes (migrated from Azure Functions to fix cold start issues)
 app.use('/api/poid', poidRouter);

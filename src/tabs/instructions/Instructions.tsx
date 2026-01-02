@@ -34,7 +34,7 @@ import {
   FaBuilding,
 } from 'react-icons/fa';
 import { MdOutlineArticle, MdArticle, MdOutlineWarning, MdWarning, MdAssessment, MdOutlineAssessment, MdSync, MdExpandMore, MdChevronRight } from 'react-icons/md';
-import { FaShieldAlt, FaIdCard, FaCreditCard, FaCog } from 'react-icons/fa';
+import { FaShieldAlt, FaIdCard, FaCreditCard, FaCog, FaEllipsisH } from 'react-icons/fa';
 import QuickActionsCard from "../home/QuickActionsCard"; // legacy, to be removed after full migration
 import { useTheme } from "../../app/functionality/ThemeContext";
 import { useNavigatorActions } from "../../app/functionality/NavigatorContext";
@@ -62,11 +62,13 @@ import localUserData from "../../localData/localUserData.json";
 import SegmentedControl from '../../components/filter/SegmentedControl';
 import TwoLayerFilter, { TwoLayerFilterOption } from '../../components/filter/TwoLayerFilter';
 import FilterBanner from '../../components/filter/FilterBanner';
+import IconAreaFilter from '../../components/filter/IconAreaFilter';
 // ToggleSwitch removed in favor of premium SegmentedControl for scope/layout
 import IDVerificationReviewModal from '../../components/modals/IDVerificationReviewModal';
 import { fetchVerificationDetails, approveVerification } from '../../services/verificationAPI';
 import { debugLog, debugWarn } from '../../utils/debug';
 import { checkIsLocalDev } from '../../utils/useIsLocalDev';
+import InstructionTableView from './InstructionTableView';
 
 interface InstructionsProps {
   userInitials: string;
@@ -235,9 +237,9 @@ const Instructions: React.FC<InstructionsProps> = ({
     const baseBorder = isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.18)';
     const hoverBorder = isDarkMode ? 'rgba(135, 206, 255, 0.5)' : 'rgba(54, 144, 206, 0.4)';
     const focusBorder = isDarkMode ? '#87ceeb' : colours.blue;
-    const backgroundColour = isDarkMode ? 'rgba(15, 23, 42, 0.9)' : 'rgba(255, 255, 255, 0.95)';
-    const hoverBackground = isDarkMode ? 'rgba(15, 23, 42, 0.95)' : 'rgba(248, 250, 252, 1)';
-    const focusBackground = isDarkMode ? 'rgba(15, 23, 42, 1)' : 'rgba(255, 255, 255, 1)';
+    const backgroundColour = isDarkMode ? colours.dark.cardBackground : 'rgba(255, 255, 255, 0.95)';
+    const hoverBackground = isDarkMode ? colours.darkBlue : 'rgba(248, 250, 252, 1)';
+    const focusBackground = isDarkMode ? colours.darkBlue : 'rgba(255, 255, 255, 1)';
 
     return {
       root: { 
@@ -1158,9 +1160,26 @@ const Instructions: React.FC<InstructionsProps> = ({
   // Layout: 1 or 2 columns for overview grid
   const [twoColumn, setTwoColumn] = useState<boolean>(false);
   // View mode: card or table
-  const [viewMode, setViewMode] = useState<'card' | 'table'>('card');
+  const [viewMode, setViewMode] = useState<'card' | 'table'>('table');
   // Track expanded descriptions in table view
   const [expandedDescriptions, setExpandedDescriptions] = useState<Set<string>>(new Set());
+  
+  // Pipeline stage filter - map of stage to selected states (null = no filter, Set = specific states)
+  type PipelineStage = 'id' | 'payment' | 'risk' | 'matter' | 'docs';
+  type PipelineStatus = 'pending' | 'review' | 'complete' | 'processing' | 'neutral';
+  const [pipelineFilters, setPipelineFilters] = useState<Map<PipelineStage, Set<PipelineStatus>>>(new Map());
+  
+  // Area of work filter
+  const ALL_AREAS_OF_WORK = ['Commercial', 'Construction', 'Employment', 'Property', 'Other/Unsure'];
+  const [selectedAreaFilters, setSelectedAreaFilters] = useState<string[]>(ALL_AREAS_OF_WORK);
+  
+  // Auto-refresh state (5 minute interval like Enquiries)
+  const [lastRefreshTime, setLastRefreshTime] = useState<Date>(new Date());
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [nextRefreshIn, setNextRefreshIn] = useState<number>(5 * 60); // 5 minutes in seconds
+  const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const handleManualRefreshRef = useRef<(() => Promise<void>) | null>(null);
   
   // Area of Work icon mapping to match Teams channels (same as Enquiries)
   const getAreaOfWorkIcon = (areaOfWork: string): string => {
@@ -1206,6 +1225,122 @@ const Instructions: React.FC<InstructionsProps> = ({
     fetchUnifiedEnquiries();
   }, []);
   
+  // Manual refresh handler - triggers a page-level data refresh
+  const handleManualRefresh = useCallback(async () => {
+    if (isRefreshing) {
+      debugLog('❌ Refresh already in progress, skipping');
+      return;
+    }
+    
+    setIsRefreshing(true);
+    debugLog('✅ Starting instruction data refresh...');
+    
+    try {
+      // Dispatch event to trigger App-level data refresh
+      window.dispatchEvent(new CustomEvent('refreshInstructionData'));
+      setLastRefreshTime(new Date());
+      setNextRefreshIn(5 * 60); // Reset to 5 minutes
+      debugLog('✅ Instruction refresh triggered successfully');
+    } catch (error) {
+      console.error('❌ Failed to refresh instructions:', error);
+    } finally {
+      // Small delay to show loading state
+      setTimeout(() => setIsRefreshing(false), 500);
+    }
+  }, [isRefreshing]);
+
+  // Fee earner reassignment handler
+  const handleFeeEarnerReassign = useCallback(async (instructionRef: string, newFeeEarnerEmail: string) => {
+    if (!instructionRef || !newFeeEarnerEmail) return;
+    
+    // Find the team member by email to get full name
+    const teamMember = teamData?.find(td => td.Email?.toLowerCase() === newFeeEarnerEmail.toLowerCase());
+    const newFeeEarnerName = teamMember?.['Full Name'] || newFeeEarnerEmail;
+    
+    debugLog(`🔄 Reassigning fee earner for ${instructionRef} to ${newFeeEarnerName}`);
+    
+    try {
+      const response = await fetch('/api/updateInstructionStatus', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          instructionRef,
+          helixContact: newFeeEarnerName,
+          userInitials: currentUser?.Initials || 'SYSTEM'
+        })
+      });
+      
+      const result = await response.json();
+      
+      if (response.ok && result.success) {
+        debugLog(`✅ Fee earner reassigned successfully for ${instructionRef}`);
+        // Trigger refresh after short delay
+        setTimeout(() => {
+          if (handleManualRefreshRef.current) {
+            handleManualRefreshRef.current();
+          }
+        }, 500);
+      } else {
+        console.error('❌ Failed to reassign fee earner:', result);
+        throw new Error(result.error || 'Failed to reassign fee earner');
+      }
+    } catch (error) {
+      console.error('❌ Error reassigning fee earner:', error);
+      throw error;
+    }
+  }, [teamData, currentUser?.Initials]);
+
+  // Keep ref updated with latest handleManualRefresh function
+  useEffect(() => {
+    handleManualRefreshRef.current = handleManualRefresh;
+  }, [handleManualRefresh]);
+
+  // Auto-refresh timer (5 minutes) - uses ref to avoid interval reset on function recreation
+  useEffect(() => {
+    // Clear existing intervals
+    if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current);
+    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+
+    // Set up 5-minute auto-refresh - uses ref so interval doesn't reset when function changes
+    refreshIntervalRef.current = setInterval(() => {
+      debugLog('⏰ Auto-refresh timer fired for Instructions');
+      if (handleManualRefreshRef.current) {
+        handleManualRefreshRef.current();
+      }
+    }, 5 * 60 * 1000); // 5 minutes
+
+    // Set up countdown timer (updates every second for smooth progress)
+    countdownIntervalRef.current = setInterval(() => {
+      setNextRefreshIn(prev => {
+        const newValue = prev - 1;
+        if (newValue <= 0) {
+          return 5 * 60; // Reset to 5 minutes
+        }
+        return newValue;
+      });
+    }, 1000); // 1 second
+
+    debugLog('🕐 Instruction auto-refresh intervals initialized');
+
+    return () => {
+      if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current);
+      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+    };
+  }, []); // Empty deps - only run once on mount
+
+  // Format time remaining for display
+  const formatTimeRemaining = (seconds: number): string => {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    
+    if (hours > 0) {
+      return `${hours}h ${remainingMinutes}m ${remainingSeconds}s`;
+    }
+    return `${remainingMinutes}m ${remainingSeconds}s`;
+  };
+
   // Window resize effect for responsive filters
   useEffect(() => {
     const handleResize = () => setWindowWidth(window.innerWidth);
@@ -1683,8 +1818,8 @@ const Instructions: React.FC<InstructionsProps> = ({
 
 const workbenchPanelBackground = (isDarkMode: boolean): string => (
   isDarkMode
-    ? 'linear-gradient(135deg, rgba(17, 24, 39, 0.94) 0%, rgba(15, 23, 42, 0.98) 100%)'
-    : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)'
+    ? colours.dark.cardBackground
+    : '#FFFFFF'
 );
 
 const workbenchHeaderBackground = (isDarkMode: boolean): string => (
@@ -1695,12 +1830,12 @@ const workbenchHeaderBackground = (isDarkMode: boolean): string => (
 
 const workbenchCardBackground = (isDarkMode: boolean): string => (
   isDarkMode
-    ? 'linear-gradient(135deg, rgba(30, 41, 59, 0.92) 0%, rgba(15, 23, 42, 0.96) 100%)'
+    ? colours.dark.cardBackground
     : '#FFFFFF'
 );
 
 const workbenchBorderColour = (isDarkMode: boolean): string => (
-  isDarkMode ? 'rgba(148, 163, 184, 0.32)' : '#e2e8f0'
+  isDarkMode ? 'rgba(54, 144, 206, 0.2)' : '#e2e8f0'
 );
 
 const workbenchMutedText = (isDarkMode: boolean): string => (
@@ -1992,7 +2127,6 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
 
     // Default (including Matter Opening): show the full filter banner (new navigator with breadcrumbs)
     setContent(
-      <>
         <FilterBanner
           seamless
           dense
@@ -2024,10 +2158,8 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
               display: 'flex', 
               flexDirection: 'row',
               flexWrap: 'nowrap',
-              gap: 6, 
-              alignItems: 'center', 
-              transform: 'scale(0.96)', 
-              transformOrigin: 'left center' 
+              gap: 10, 
+              alignItems: 'center',
             }}>
               <SegmentedControl
                 id="instructions-scope-seg"
@@ -2039,109 +2171,31 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                   { key: 'all', label: 'All', badge: toggleCounts.all }
                 ]}
               />
-              {/* Layout Toggle - Only show for Card view */}
-              {viewMode === 'card' && (
+              <IconAreaFilter
+                selectedAreas={selectedAreaFilters}
+                availableAreas={ALL_AREAS_OF_WORK}
+                onAreaChange={setSelectedAreaFilters}
+                ariaLabel="Filter instructions by area of work"
+              />
+            </div>
+          }
+          middleActions={(
+            <div style={{ position: 'relative' }}>
               <div 
                 role="group" 
-                aria-label="Layout: choose 1 or 2 columns"
+                aria-label="View mode"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 4,
-                  height: 28,
-                  padding: '2px 4px',
+                  gap: 0,
+                  height: 32,
+                  padding: '3px',
                   background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-                  borderRadius: 14,
+                  borderRadius: 16,
                   fontFamily: 'Raleway, sans-serif',
                 }}
               >
-                <button
-                  type="button"
-                  title="Single column layout"
-                  aria-label="Single column layout"
-                  aria-pressed={!twoColumn}
-                  onClick={() => setTwoColumn(false)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: 22,
-                    height: 22,
-                    background: !twoColumn ? '#FFFFFF' : 'transparent',
-                    border: 'none',
-                    borderRadius: 11,
-                    cursor: 'pointer',
-                    transition: 'all 200ms ease',
-                    opacity: !twoColumn ? 1 : 0.6,
-                    boxShadow: !twoColumn 
-                      ? (isDarkMode
-                          ? '0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.24)'
-                          : '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)')
-                      : 'none',
-                  }}
-                >
-                  <Icon
-                    iconName="SingleColumn"
-                    style={{
-                      fontSize: 10,
-                      color: !twoColumn 
-                        ? (isDarkMode ? '#1f2937' : '#1f2937')
-                        : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
-                    }}
-                  />
-                </button>
-                <button
-                  type="button"
-                  title="Two column layout"
-                  aria-label="Two column layout"
-                  aria-pressed={twoColumn}
-                  onClick={() => setTwoColumn(true)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: 22,
-                    height: 22,
-                    background: twoColumn ? '#FFFFFF' : 'transparent',
-                    border: 'none',
-                    borderRadius: 11,
-                    cursor: 'pointer',
-                    transition: 'all 200ms ease',
-                    opacity: twoColumn ? 1 : 0.6,
-                    boxShadow: twoColumn 
-                      ? (isDarkMode
-                          ? '0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.24)'
-                          : '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)')
-                      : 'none',
-                  }}
-                >
-                  <Icon
-                    iconName="DoubleColumn"
-                    style={{
-                      fontSize: 10,
-                      color: twoColumn 
-                        ? (isDarkMode ? '#1f2937' : '#1f2937')
-                        : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
-                    }}
-                  />
-                </button>
-              </div>
-              )}
-              {/* View Mode Toggle - Card vs Table (hidden in prod until ready) */}
-              <div 
-                role="group" 
-                aria-label="View: choose card or table view"
-                style={{
-                  display: window.location.hostname === 'localhost' ? 'flex' : 'none', // Show locally, hide in prod
-                  alignItems: 'center',
-                  gap: 2,
-                  height: 28,
-                  padding: '2px 4px',
-                  background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-                  borderRadius: 14,
-                  fontFamily: 'Raleway, sans-serif',
-                }}
-              >
+                {/* Card view button */}
                 <button
                   type="button"
                   title="Card view"
@@ -2152,41 +2206,42 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: 4,
-                    height: 22,
-                    padding: '0 6px',
-                    background: viewMode === 'card' ? '#FFFFFF' : 'transparent',
+                    gap: 5,
+                    height: 26,
+                    padding: '0 10px',
+                    background: viewMode === 'card' ? (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.9)') : 'transparent',
                     border: 'none',
-                    borderRadius: 11,
+                    borderRadius: 13,
                     cursor: 'pointer',
                     transition: 'all 200ms ease',
                     opacity: viewMode === 'card' ? 1 : 0.6,
                     boxShadow: viewMode === 'card' 
                       ? (isDarkMode
-                          ? '0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.24)'
-                          : '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)')
+                          ? '0 1px 2px rgba(0,0,0,0.2)'
+                          : '0 1px 2px rgba(0,0,0,0.06)')
                       : 'none',
                   }}
                 >
                   <Icon
                     iconName="GridViewMedium"
                     style={{
-                      fontSize: 10,
+                      fontSize: 12,
                       color: viewMode === 'card' 
-                        ? (isDarkMode ? '#1f2937' : '#1f2937')
+                        ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937')
                         : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
                     }}
                   />
                   <span style={{
-                    fontSize: 11,
+                    fontSize: 12,
                     fontWeight: 500,
                     color: viewMode === 'card' 
-                      ? (isDarkMode ? '#1f2937' : '#1f2937')
+                      ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937')
                       : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
                   }}>
                     Card
                   </span>
                 </button>
+                {/* Table view button */}
                 <button
                   type="button"
                   title="Table view"
@@ -2197,36 +2252,36 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: 4,
-                    height: 22,
-                    padding: '0 6px',
-                    background: viewMode === 'table' ? '#FFFFFF' : 'transparent',
+                    gap: 5,
+                    height: 26,
+                    padding: '0 10px',
+                    background: viewMode === 'table' ? (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.9)') : 'transparent',
                     border: 'none',
-                    borderRadius: 11,
+                    borderRadius: 13,
                     cursor: 'pointer',
                     transition: 'all 200ms ease',
                     opacity: viewMode === 'table' ? 1 : 0.6,
                     boxShadow: viewMode === 'table' 
                       ? (isDarkMode
-                          ? '0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.24)'
-                          : '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)')
+                          ? '0 1px 2px rgba(0,0,0,0.2)'
+                          : '0 1px 2px rgba(0,0,0,0.06)')
                       : 'none',
                   }}
                 >
                   <Icon
-                    iconName="Table"
+                    iconName="BulletedList"
                     style={{
-                      fontSize: 10,
+                      fontSize: 12,
                       color: viewMode === 'table' 
-                        ? (isDarkMode ? '#1f2937' : '#1f2937')
+                        ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937')
                         : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
                     }}
                   />
                   <span style={{
-                    fontSize: 11,
+                    fontSize: 12,
                     fontWeight: 500,
                     color: viewMode === 'table' 
-                      ? (isDarkMode ? '#1f2937' : '#1f2937')
+                      ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937')
                       : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
                   }}>
                     Table
@@ -2234,9 +2289,14 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                 </button>
               </div>
             </div>
-          }
+          )}
+          refresh={{
+            onRefresh: handleManualRefresh,
+            isLoading: isRefreshing,
+            nextUpdateTime: nextRefreshIn ? formatTimeRemaining(nextRefreshIn) : undefined,
+            progressPercentage: (nextRefreshIn / (5 * 60)) * 100, // 0-100% remaining
+          }}
         />
-      </>
     );
     return () => setContent(null);
   }, [
@@ -2256,6 +2316,11 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
     secondaryFilter,
     viewMode,
     twoColumn,
+    handleManualRefresh,
+    isRefreshing,
+    nextRefreshIn,
+    pipelineFilters,
+    selectedAreaFilters,
   ]);
 
   const containerStyle = mergeStyles({
@@ -2521,15 +2586,23 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
   }, [overviewItems]);
 
   // Selected overview item for workbench
+  // Handle case where selectedInstruction might already BE an overview item (from table view)
+  // or might be a raw instruction (from card view)
   const selectedOverviewItem = useMemo(
-    () =>
-      selectedInstruction
-        ? overviewItems.find(
-            (item) =>
-              item.instruction?.InstructionRef ===
-              selectedInstruction.InstructionRef,
-          ) || null
-        : null,
+    () => {
+      if (!selectedInstruction) return null;
+      
+      // If selectedInstruction already has overview item structure, use it directly
+      if (selectedInstruction.instruction !== undefined || selectedInstruction.deal !== undefined) {
+        return selectedInstruction;
+      }
+      
+      // Otherwise search for matching overview item by InstructionRef
+      return overviewItems.find(
+        (item) =>
+          item.instruction?.InstructionRef === selectedInstruction.InstructionRef,
+      ) || null;
+    },
     [selectedInstruction, overviewItems],
   );
 
@@ -3149,6 +3222,71 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
     });
   }, [overviewItems]);
 
+  // Helper to compute pipeline statuses for an item (mirrors InstructionTableView logic)
+  const getPipelineStatuses = (item: any) => {
+    const inst = item.instruction as any;
+    const eid = item.eid;
+    const eids = item.eids;
+    const risk = item.risk;
+    const payments = item.payments || inst?.payments || [];
+    const documents = item.documents || inst?.documents || [];
+    
+    // ID status
+    const eidResult = (eid?.EIDOverallResult || eids?.[0]?.EIDOverallResult || inst?.EIDOverallResult)?.toLowerCase() ?? "";
+    const eidStatusVal = (eid?.EIDStatus || eids?.[0]?.EIDStatus)?.toLowerCase() ?? "";
+    const poidPassed = eidResult === 'passed' || eidResult === 'approved' || eidResult === 'verified' || eidResult === 'pass';
+    const stageLower = ((inst?.Stage || inst?.stage || '') + '').trim().toLowerCase();
+    const stageComplete = stageLower === 'proof-of-id-complete';
+    const isInstructedOrLater = stageLower === 'proof-of-id-complete' || stageLower === 'completed';
+    
+    let idStatus: 'pending' | 'review' | 'complete' = 'pending';
+    if (stageComplete) {
+      if (eidResult === 'review') idStatus = 'review';
+      else if (eidResult === 'failed' || eidResult === 'rejected' || eidResult === 'fail') idStatus = 'review';
+      else if (poidPassed || eidResult === 'passed') idStatus = 'complete';
+      else idStatus = 'review';
+    } else if ((!eid && !eids?.length) || eidStatusVal === 'pending') {
+      const hasEidAttempt = Boolean(eid || (eids && eids.length > 0));
+      const hasProofOfId = Boolean(inst?.PassportNumber || inst?.DriversLicenseNumber);
+      idStatus = hasProofOfId && hasEidAttempt ? 'review' : 'pending';
+    } else if (poidPassed) {
+      idStatus = 'complete';
+    } else {
+      idStatus = 'review';
+    }
+    if (isInstructedOrLater && idStatus === 'pending') idStatus = 'review';
+    
+    // Payment status
+    let paymentStatus: 'pending' | 'processing' | 'complete' = 'pending';
+    if (inst?.InternalStatus === 'paid') paymentStatus = 'complete';
+    else if (!payments || payments.length === 0) paymentStatus = 'pending';
+    else {
+      const latest = payments[0];
+      if ((latest.payment_status === 'succeeded' || latest.payment_status === 'confirmed') && 
+          (latest.internal_status === 'completed' || latest.internal_status === 'paid')) {
+        paymentStatus = 'complete';
+      } else if (latest.internal_status === 'completed' || latest.internal_status === 'paid') {
+        paymentStatus = 'complete';
+      } else if (latest.payment_status === 'processing') {
+        paymentStatus = 'processing';
+      }
+    }
+    
+    // Risk status
+    const riskResultRaw = risk?.RiskAssessmentResult?.toString().toLowerCase() ?? "";
+    const riskStatus = riskResultRaw
+      ? (['low', 'low risk', 'pass', 'approved'].includes(riskResultRaw) ? 'complete' : 'review')
+      : 'pending';
+    
+    // Matter status
+    const matterStatus = (inst?.MatterId || (inst as any)?.matters?.length > 0) ? 'complete' : 'pending';
+    
+    // Docs status
+    const docStatus = documents.length > 0 ? 'complete' : 'neutral';
+    
+    return { idStatus, paymentStatus, riskStatus, matterStatus, docStatus };
+  };
+
   const filteredOverviewItems = useMemo(()=>{
     let items = overviewItemsWithNextAction;
     
@@ -3181,8 +3319,49 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
       });
     }
     
+    // Filter by pipeline stages (map of stage → set of statuses to show)
+    if (pipelineFilters.size > 0) {
+      items = items.filter(item => {
+        const statuses = getPipelineStatuses(item);
+        // Show only if ALL filtered stages match their selected status
+        for (const [stage, allowedStatuses] of pipelineFilters.entries()) {
+          const itemStatus = stage === 'id' ? statuses.idStatus
+            : stage === 'payment' ? statuses.paymentStatus
+            : stage === 'risk' ? statuses.riskStatus
+            : stage === 'matter' ? statuses.matterStatus
+            : statuses.docStatus;
+          
+          if (!allowedStatuses.has(itemStatus as any)) return false;
+        }
+        return true;
+      });
+    }
+    
+    // Filter by area of work (if any areas selected)
+    if (selectedAreaFilters.length > 0) {
+      items = items.filter(item => {
+        const area = item.instruction?.AreaOfWork || item.instruction?.Area_of_Work || 
+                     item.deal?.AreaOfWork || item.instruction?.areaOfWork || '';
+        const normalizedArea = area.toLowerCase().trim();
+        
+        // Check if item's area matches any selected filter
+        return selectedAreaFilters.some(selectedArea => {
+          const selectedNorm = selectedArea.toLowerCase();
+          if (selectedNorm === 'other/unsure') {
+            // Match items with no area, unknown area, or explicitly "other"
+            return !normalizedArea || 
+                   normalizedArea === 'other' || 
+                   normalizedArea === 'other/unsure' ||
+                   normalizedArea === 'unsure' ||
+                   !['commercial', 'property', 'construction', 'employment'].includes(normalizedArea);
+          }
+          return normalizedArea.includes(selectedNorm);
+        });
+      });
+    }
+    
     return items;
-  }, [overviewItemsWithNextAction, clientsActionFilter, searchTerm]);
+  }, [overviewItemsWithNextAction, clientsActionFilter, searchTerm, pipelineFilters, selectedAreaFilters]);
 
   // Local dev helper: detect instructions whose next required action is Matter Opening
   const isLocalhostEnv = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
@@ -4880,791 +5059,21 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
             </div>
           )}
           {activeTab === "clients" && viewMode === 'table' && (
-            /* Table View for Instructions */
-            <div 
-              style={{
-                backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.6)' : '#ffffff',
-                border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
-                borderRadius: 12,
-                overflow: 'visible',
-                overflowY: 'auto',
-                fontFamily: 'Raleway, sans-serif',
-                margin: '16px',
-                paddingLeft: '32px', // Left padding for timeline sidebar
+            <InstructionTableView
+              instructions={filteredOverviewItems}
+              isDarkMode={isDarkMode}
+              loading={!instructionData || instructionData.length === 0}
+              pipelineFilters={pipelineFilters}
+              onPipelineFilterChange={setPipelineFilters}
+              teamData={teamData}
+              onFeeEarnerReassign={handleFeeEarnerReassign}
+              onRowClick={(instruction: any) => {
+                setSelectedInstruction(instruction);
+                setIsWorkbenchVisible(true);
               }}
-            >
-              {/* Table Header */}
-              <div 
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '50px 0.35fr 0.7fr 1.3fr 0.7fr 0.5fr 2.2fr 0.4fr',
-                  gap: '10px',
-                  padding: '14px 16px 14px 40px',
-                  alignItems: 'center',
-                  position: 'sticky',
-                  top: 0,
-                  zIndex: 100,
-                  background: isDarkMode 
-                    ? 'rgba(15, 23, 42, 0.95)'
-                    : 'rgba(255, 255, 255, 0.95)',
-                  backdropFilter: 'blur(12px)',
-                  borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)'}`,
-                  borderLeft: '3px solid transparent',
-                  fontSize: '10px',
-                  fontWeight: 500,
-                  color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.8px',
-                  boxShadow: isDarkMode 
-                    ? '0 2px 8px rgba(0, 0, 0, 0.3)'
-                    : '0 2px 8px rgba(0, 0, 0, 0.08)',
-                }}
-              >
-                <div style={{ paddingLeft: '0px' }}>Date</div>
-                <div style={{ textAlign: 'center' }}>Area</div>
-                <div>Reference</div>
-                <div>Client</div>
-                <div>Fee Earner</div>
-                <div>Amount</div>
-                <div>Status</div>
-                <div style={{ textAlign: 'center', paddingRight: '0px' }}>Actions</div>
-              </div>
-              
-              {/* Table Rows */}
-              {filteredOverviewItems.filter(item => item.instruction).map((item, idx) => {
-                const inst = item.instruction;
-                const deal = item.deal;
-                const risk = (item as any).risk;
-                const eid = (item as any).eid;
-                const eids = (item as any).eids;
-                const payments = (item as any).payments || inst?.payments || [];
-                const documents = item.documents || inst?.documents || [];
-                const isLast = idx === filteredOverviewItems.filter(i => i.instruction).length - 1;
-                const isSelected = selectedInstruction?.InstructionRef === inst?.InstructionRef;
-                
-                // Get client name and email
-                const clientEmail = item.clients?.[0]?.ClientEmail || deal?.LeadClientEmail || inst?.ClientEmail || '';
-                
-                // Build client name from actual name fields, not email
-                const firstName = inst?.FirstName || inst?.firstName || inst?.first_name || 
-                  item.clients?.[0]?.FirstName || deal?.FirstName || '';
-                const lastName = inst?.LastName || inst?.lastName || inst?.last_name || 
-                  item.clients?.[0]?.LastName || deal?.LastName || '';
-                const fullNameFromFields = `${firstName} ${lastName}`.trim();
-                
-                // Use actual name fields first, then ClientName field, then fall back to email parsing
-                const clientName = fullNameFromFields 
-                  || inst?.ClientName || inst?.clientName || inst?.client_name
-                  || item.clients?.[0]?.ClientName || deal?.ClientName
-                  || (clientEmail ? clientEmail.split('@')[0].split('.').map((p: string) => p.charAt(0).toUpperCase() + p.slice(1)).join(' ') : 'Unknown');
-                
-                // Get service description
-                const service = deal?.ServiceDescription || inst?.ServiceDescription || 'N/A';
-                
-                // Get Area of Work and WorkType
-                const areaOfWork = inst?.AreaOfWork || inst?.Area_of_Work || inst?.areaOfWork || 
-                  deal?.AreaOfWork || deal?.Area_of_Work || deal?.areaOfWork || '';
-                const workType = inst?.WorkType || inst?.workType || inst?.work_type ||
-                  inst?.PracticeArea || inst?.practiceArea || inst?.Department ||
-                  deal?.WorkType || deal?.workType || deal?.work_type ||
-                  deal?.PracticeArea || deal?.practiceArea || deal?.Department ||
-                  deal?.ServiceDescription || '';
-                
-                // Get Fee Earner - check HelixContact (initials), PitchedBy (initials), then email fields
-                const feeEarnerInitials = inst?.HelixContact || inst?.helixContact || 
-                  deal?.PitchedBy || deal?.pitchedBy || deal?.Owner || '';
-                const feeEarnerEmailRaw = inst?.poc || inst?.POC || inst?.FeeEarner || inst?.fee_earner ||
-                  inst?.AssignedTo || inst?.assigned_to || inst?.Lead || inst?.lead ||
-                  deal?.poc || deal?.POC || deal?.Lead || deal?.lead || deal?.assignedTo ||
-                  (item as any).poc || (item as any).POC || '';
-                
-                // Try to find name from teamData using initials first
-                let feeEarnerName = '—';
-                if (feeEarnerInitials && teamData) {
-                  const teamMember = teamData.find(t => 
-                    t.Initials?.toUpperCase() === feeEarnerInitials.toUpperCase()
-                  );
-                  if (teamMember) {
-                    feeEarnerName = teamMember["Full Name"] || teamMember.First || feeEarnerInitials;
-                  } else {
-                    // Just show the initials if no team match
-                    feeEarnerName = feeEarnerInitials;
-                  }
-                } else if (feeEarnerEmailRaw) {
-                  // Fall back to email parsing
-                  feeEarnerName = feeEarnerEmailRaw.split('@')[0].split('.').map((p: string) => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
-                }
-                
-                // Get Amount
-                const amount = deal?.Amount || deal?.Value || deal?.EstimatedValue || inst?.Amount || 0;
-                const formattedAmount = typeof amount === 'number' && amount > 0
-                  ? `£${amount.toLocaleString()}`
-                  : '—';
-                
-                // Unique key for description expansion
-                const descKey = `${inst?.InstructionRef || idx}`;
-                const hasDescription = service && service !== 'N/A';
-                const isDescExpanded = expandedDescriptions.has(descKey);
-                
-                // Get date - use same fallback logic as InstructionCard
-                const dateStr = inst?.Date_Created || inst?.date_created || inst?.InstructionDate || 
-                  inst?.instructionDate || inst?.Created_Date || inst?.DateCreated || 
-                  inst?.InstructedDate || deal?.PitchedDate || deal?.CreatedDate || inst?.CreatedAt;
-                let formattedDate = 'N/A';
-                try {
-                  if (dateStr) {
-                    formattedDate = format(new Date(dateStr), 'd MMM');
-                  }
-                } catch { /* ignore */ }
-                
-                // Day separator logic - show dot only when date changes between rows
-                const filteredItems = filteredOverviewItems.filter(i => i.instruction);
-                const toDayKey = (s: string | undefined): string => {
-                  if (!s) return '';
-                  const d = new Date(s);
-                  if (isNaN(d.getTime())) return '';
-                  return d.toISOString().split('T')[0];
-                };
-                const extractDateStr = (i: typeof item): string => {
-                  const inst = i.instruction;
-                  const deal = i.deal;
-                  return inst?.Date_Created || inst?.date_created || inst?.InstructionDate || 
-                    inst?.instructionDate || inst?.Created_Date || inst?.DateCreated || 
-                    inst?.InstructedDate || deal?.PitchedDate || deal?.CreatedDate || inst?.CreatedAt || '';
-                };
-                const prevItem = idx > 0 ? filteredItems[idx - 1] : null;
-                const prevDateStr = prevItem ? extractDateStr(prevItem) : '';
-                const showDaySeparator = idx === 0 || toDayKey(dateStr) !== toDayKey(prevDateStr);
-                
-                // === Calculate statuses like InstructionCard ===
-                
-                // ID Verification status - match InstructionCard logic exactly
-                const eidResult = (eid?.EIDOverallResult || eids?.[0]?.EIDOverallResult || inst?.EIDOverallResult)?.toLowerCase() ?? "";
-                const eidStatusVal = (eid?.EIDStatus || eids?.[0]?.EIDStatus)?.toLowerCase() ?? "";
-                const poidPassed = eidResult === 'passed' || eidResult === 'approved' || eidResult === 'verified' || eidResult === 'pass';
-                const stageLower = ((inst?.Stage || inst?.stage || '') + '').trim().toLowerCase();
-                const stageComplete = stageLower === 'proof-of-id-complete';
-                const isInstructedOrLater = stageLower === 'proof-of-id-complete' || stageLower === 'completed';
-                
-                let idStatus: 'pending' | 'review' | 'complete' = 'pending';
-                if (stageComplete) {
-                  // If stage shows proof-of-id-complete, check the actual EID result
-                  if (eidResult === 'review') {
-                    idStatus = 'review';
-                  } else if (eidResult === 'failed' || eidResult === 'rejected' || eidResult === 'fail') {
-                    idStatus = 'review';
-                  } else if (poidPassed || eidResult === 'passed') {
-                    idStatus = 'complete';
-                  } else {
-                    // Stage complete but no clear result - assume review
-                    idStatus = 'review';
-                  }
-                } else if ((!eid && !eids?.length) || eidStatusVal === 'pending') {
-                  // Only show 'review' if we have actual proof of ID AND EID verification has been attempted
-                  const hasEidAttempt = Boolean(eid || (eids && eids.length > 0));
-                  const hasProofOfId = Boolean(inst?.PassportNumber || inst?.DriversLicenseNumber);
-                  idStatus = hasProofOfId && hasEidAttempt ? 'review' : 'pending';
-                } else if (poidPassed) {
-                  idStatus = 'complete';
-                } else {
-                  idStatus = 'review';
-                }
-                
-                // For instructed clients without EID data, show review (fast-tracked) not pending
-                if (isInstructedOrLater && idStatus === 'pending') {
-                  idStatus = 'review';
-                }
-                
-                // Risk status
-                const riskResultRaw = risk?.RiskAssessmentResult?.toString().toLowerCase() ?? "";
-                const riskStatus = riskResultRaw
-                  ? ['low', 'low risk', 'pass', 'approved'].includes(riskResultRaw) ? 'complete' : 'review'
-                  : 'pending';
-                
-                // Payment status
-                const getPaymentStatus = () => {
-                  if (inst?.InternalStatus === 'paid') return 'complete';
-                  if (!payments || payments.length === 0) return 'pending';
-                  const latest = payments[0];
-                  if ((latest.payment_status === 'succeeded' || latest.payment_status === 'confirmed') && 
-                      (latest.internal_status === 'completed' || latest.internal_status === 'paid')) {
-                    return 'complete';
-                  }
-                  if (latest.internal_status === 'completed' || latest.internal_status === 'paid') return 'complete';
-                  if (latest.payment_status === 'processing') return 'processing';
-                  return 'pending';
-                };
-                const paymentStatus = getPaymentStatus();
-                
-                // Check if bank transfer for special status text
-                const isBankTransfer = (() => {
-                  if (!payments || payments.length === 0) return false;
-                  const latestPayment = payments[0];
-                  const hasStripePaymentIntent = Boolean(latestPayment.payment_intent_id && 
-                                                         String(latestPayment.payment_intent_id).startsWith('pi_'));
-                  const isConfirmedStatus = latestPayment.payment_status === 'confirmed';
-                  const isExplicitlyBank = latestPayment.payment_method === 'bank' || 
-                                           latestPayment.PaymentMethod === 'bank';
-                  return isExplicitlyBank || (isConfirmedStatus && !hasStripePaymentIntent);
-                })();
-                
-                // Matter status
-                const matterStatus = (inst?.MatterId || (inst as any)?.matters?.length > 0) ? 'complete' : 'pending';
-                
-                // Documents status
-                const docCount = documents.length;
-                const docStatus = docCount > 0 ? 'complete' : 'neutral';
-                
-                // Rich status chip component - compact like Enquiries pipeline stages
-                const StatusStage = ({ 
-                  label, 
-                  status, 
-                  icon 
-                }: { 
-                  label: string; 
-                  status: 'complete' | 'review' | 'pending' | 'processing' | 'neutral';
-                  icon: string;
-                }) => {
-                  const getColors = () => {
-                    if (status === 'complete') return { 
-                      bg: isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)',
-                      border: colours.green,
-                      text: colours.green
-                    };
-                    if (status === 'review') return {
-                      bg: isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)',
-                      border: '#ef4444',
-                      text: '#ef4444'
-                    };
-                    if (status === 'processing') return {
-                      bg: isDarkMode ? 'rgba(251, 191, 36, 0.15)' : 'rgba(251, 191, 36, 0.1)',
-                      border: '#f59e0b',
-                      text: '#f59e0b'
-                    };
-                    // pending or neutral
-                    return {
-                      bg: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
-                      border: isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)',
-                      text: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)'
-                    };
-                  };
-                  const colors = getColors();
-                  
-                  return (
-                    <div 
-                      title={label}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                        padding: '4px 8px',
-                        borderRadius: '6px',
-                        background: colors.bg,
-                        border: `1px solid ${colors.border}`,
-                        minWidth: '50px',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      <Icon iconName={icon} style={{ fontSize: '11px', color: colors.text }} />
-                      <span style={{ 
-                        fontSize: '9px', 
-                        fontWeight: 600, 
-                        color: colors.text,
-                      }}>
-                        {label}
-                      </span>
-                    </div>
-                  );
-                };
-                
-                // Horizontal connector between stages
-                const StageConnector = ({ complete }: { complete: boolean }) => (
-                  <div style={{ 
-                    width: 12, 
-                    height: 1, 
-                    background: complete
-                      ? (isDarkMode ? `linear-gradient(to right, ${colours.green}, rgba(34, 197, 94, 0.3))` : `linear-gradient(to right, ${colours.green}, rgba(34, 197, 94, 0.2))`)
-                      : (isDarkMode ? 'linear-gradient(to right, rgba(148, 163, 184, 0.3), rgba(148, 163, 184, 0.15))' : 'linear-gradient(to right, rgba(148, 163, 184, 0.25), rgba(148, 163, 184, 0.1))')
-                  }} />
-                );
-                
-                // Calculate status texts like InstructionCard
-                const idStatusText = idStatus === 'complete' ? 'Verified' 
-                  : idStatus === 'review' ? 'Review Required' 
-                  : 'Pending';
-                
-                const payStatusText = paymentStatus === 'complete' 
-                  ? (isBankTransfer ? 'Transfer Pending' : 'Paid')
-                  : paymentStatus === 'processing' ? 'Processing' 
-                  : 'Required';
-                
-                const riskStatusText = riskStatus === 'complete' ? 'Assessed' 
-                  : riskStatus === 'review' ? 'High Risk' 
-                  : 'Pending';
-                
-                const matterStatusText = matterStatus === 'complete' ? 'Opened' : 'Ready';
-                
-                const docStatusText = docCount > 0 ? `${docCount} Uploaded` : 'None';
-                
-                return (
-                  <React.Fragment key={`table-row-${inst?.InstructionRef || idx}`}>
-                  <div
-                    onClick={() => {
-                      if (selectedInstruction?.InstructionRef === inst?.InstructionRef) {
-                        setSelectedInstruction(null);
-                      } else {
-                        setSelectedInstruction(inst);
-                      }
-                    }}
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: '50px 0.35fr 0.7fr 1.3fr 0.7fr 0.5fr 2.2fr 0.4fr',
-                      gap: '10px',
-                      padding: '12px 16px 12px 40px',
-                      alignItems: 'center',
-                      borderBottom: (isLast && !isDescExpanded) ? 'none' : `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)'}`,
-                      fontSize: '13px',
-                      color: isDarkMode ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0, 0, 0, 0.85)',
-                      background: isSelected
-                        ? (isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.08)')
-                        : idx % 2 === 0 
-                          ? (isDarkMode ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.01)')
-                          : 'transparent',
-                      cursor: 'pointer',
-                      transition: 'background 0.2s ease',
-                      borderLeft: isSelected ? `3px solid ${colours.blue}` : '3px solid transparent',
-                      position: 'relative',
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!isSelected) {
-                        e.currentTarget.style.backgroundColor = isDarkMode 
-                          ? 'rgba(255, 255, 255, 0.06)' 
-                          : 'rgba(0, 0, 0, 0.03)';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!isSelected) {
-                        e.currentTarget.style.backgroundColor = idx % 2 === 0 
-                          ? (isDarkMode ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.01)')
-                          : 'transparent';
-                      }
-                    }}
-                  >
-                    {/* Timeline bookmark on the left */}
-                    <div style={{
-                      position: 'absolute',
-                      left: '-27px',
-                      top: 0,
-                      bottom: 0,
-                      width: '8px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center'
-                    }}>
-                      {/* Timeline line */}
-                      <div style={{
-                        position: 'absolute',
-                        left: '3px',
-                        top: 0,
-                        bottom: 0,
-                        width: '2px',
-                        background: isDarkMode 
-                          ? 'linear-gradient(to bottom, rgba(135, 243, 243, 0.15), rgba(135, 243, 243, 0.3), rgba(135, 243, 243, 0.15))' 
-                          : 'linear-gradient(to bottom, rgba(54, 144, 206, 0.15), rgba(54, 144, 206, 0.25), rgba(54, 144, 206, 0.15))',
-                      }} />
-                      
-                      {/* Timeline dot - only show on day separator */}
-                      {showDaySeparator && (
-                        <div style={{
-                          position: 'absolute',
-                          left: '0px',
-                          top: '50%',
-                          transform: 'translateY(-50%)',
-                          width: '8px',
-                          height: '8px',
-                          borderRadius: '50%',
-                          background: isDarkMode ? colours.accent : colours.highlightBlue,
-                          border: `2px solid ${isDarkMode ? 'rgba(15, 23, 42, 0.9)' : 'rgba(255, 255, 255, 0.95)'}`,
-                          boxShadow: `0 0 6px ${isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(54, 144, 206, 0.3)'}`,
-                          zIndex: 2
-                        }} />
-                      )}
-                    </div>
-                    
-                    {/* Date - first column */}
-                    <div style={{
-                      fontSize: '11px',
-                      color: isDarkMode ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)',
-                      fontFamily: 'Consolas, Monaco, monospace',
-                    }}>
-                      {formattedDate}
-                    </div>
-                    
-                    {/* Area of Work Icon with Worktype tooltip */}
-                    <TooltipHost
-                      content={
-                        <div style={{
-                          padding: '8px 12px',
-                          maxWidth: '200px',
-                        }}>
-                          <div style={{
-                            fontSize: '10px',
-                            fontWeight: 600,
-                            color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.5px',
-                            marginBottom: '4px',
-                          }}>
-                            Work Type
-                          </div>
-                          <div style={{
-                            fontSize: '12px',
-                            fontWeight: 500,
-                            color: isDarkMode ? '#e5e7eb' : '#1f2937',
-                          }}>
-                            {workType || areaOfWork || 'Not specified'}
-                          </div>
-                          {areaOfWork && workType && areaOfWork !== workType && (
-                            <div style={{
-                              fontSize: '10px',
-                              color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)',
-                              marginTop: '4px',
-                            }}>
-                              Area: {areaOfWork}
-                            </div>
-                          )}
-                        </div>
-                      }
-                      calloutProps={{
-                        gapSpace: 8,
-                        styles: {
-                          beak: { display: 'none' },
-                          calloutMain: {
-                            borderRadius: '8px',
-                            boxShadow: isDarkMode 
-                              ? '0 4px 20px rgba(0, 0, 0, 0.4)'
-                              : '0 4px 20px rgba(0, 0, 0, 0.12)',
-                            background: isDarkMode ? '#1e293b' : '#ffffff',
-                            border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
-                          }
-                        }
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'help' }}>
-                        <span style={{ fontSize: '16px', lineHeight: 1 }}>
-                          {getAreaOfWorkIcon(areaOfWork)}
-                        </span>
-                      </div>
-                    </TooltipHost>
-                    
-                    {/* Reference */}
-                    <div style={{ 
-                      fontFamily: 'Consolas, Monaco, monospace',
-                      fontSize: '11px',
-                      color: colours.blue,
-                      fontWeight: 500,
-                    }}>
-                      {inst?.InstructionRef || 'N/A'}
-                    </div>
-                    
-                    {/* Client */}
-                    <div style={{ 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      gap: '6px',
-                      overflow: 'hidden',
-                    }}>
-                      {inst?.ClientType === 'Company' ? (
-                        <FaBuilding style={{ fontSize: '11px', color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.4)', flexShrink: 0 }} />
-                      ) : (
-                        <FaUser style={{ fontSize: '11px', color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.4)', flexShrink: 0 }} />
-                      )}
-                      <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0, gap: '0px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                          <span 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              navigator.clipboard.writeText(clientName);
-                            }}
-                            style={{ 
-                              overflow: 'hidden', 
-                              textOverflow: 'ellipsis', 
-                              whiteSpace: 'nowrap',
-                              textTransform: 'capitalize',
-                              fontSize: '12px',
-                              lineHeight: 1.2,
-                              cursor: 'pointer',
-                              padding: '1px 3px',
-                              borderRadius: '3px',
-                              transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                              background: 'transparent',
-                            }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(214, 232, 255, 0.8)';
-                              e.currentTarget.style.color = isDarkMode ? '#87F3F3' : '#3690CE';
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.background = 'transparent';
-                              e.currentTarget.style.color = isDarkMode ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0, 0, 0, 0.85)';
-                            }}
-                            title="Click to copy client name"
-                          >
-                            {clientName}
-                          </span>
-                          <span 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              navigator.clipboard.writeText(inst?.InstructionRef || '');
-                            }}
-                            style={{
-                              fontSize: '9px',
-                              color: isDarkMode ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.4)',
-                              fontWeight: 400,
-                              cursor: 'pointer',
-                              fontFamily: 'Consolas, Monaco, monospace',
-                              padding: '2px 4px',
-                              borderRadius: '3px',
-                              transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                              background: 'transparent',
-                              border: '1px solid transparent',
-                            }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.color = isDarkMode ? '#87F3F3' : '#3690CE';
-                              e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(214, 232, 255, 0.8)';
-                              e.currentTarget.style.border = `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(54, 144, 206, 0.25)'}`;
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.color = isDarkMode ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.4)';
-                              e.currentTarget.style.background = 'transparent';
-                              e.currentTarget.style.border = '1px solid transparent';
-                            }}
-                            title="Click to copy instruction ID"
-                          >
-                            {inst?.InstructionRef || ''}
-                          </span>
-                          {clientEmail && (
-                            <span 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                navigator.clipboard.writeText(clientEmail);
-                              }}
-                              style={{ 
-                                fontSize: '9px',
-                                color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
-                                fontFamily: 'Consolas, Monaco, monospace',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                                maxWidth: '120px',
-                                cursor: 'pointer',
-                                padding: '2px 4px',
-                                borderRadius: '3px',
-                                transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                                background: 'transparent',
-                                border: '1px solid transparent',
-                              }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(214, 232, 255, 0.8)';
-                                e.currentTarget.style.color = isDarkMode ? '#87F3F3' : '#3690CE';
-                                e.currentTarget.style.border = `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(54, 144, 206, 0.25)'}`;
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.background = 'transparent';
-                                e.currentTarget.style.color = isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)';
-                                e.currentTarget.style.border = '1px solid transparent';
-                              }}
-                              title={`Click to copy: ${clientEmail}`}
-                            >
-                              {clientEmail}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    
-                    {/* Fee Earner */}
-                    <div style={{ 
-                      fontSize: '11px',
-                      color: isDarkMode ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.55)',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}>
-                      {feeEarnerName}
-                    </div>
-                    
-                    {/* Amount */}
-                    <div style={{
-                      fontSize: '11px',
-                      fontWeight: 600,
-                      color: formattedAmount !== '—' ? colours.green : (isDarkMode ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.35)'),
-                    }}>
-                      {formattedAmount}
-                    </div>
-                    
-                    {/* Status Pipeline - connected stages like Enquiries */}
-                    <div style={{ 
-                      display: 'flex', 
-                      alignItems: 'center',
-                      gap: '0',
-                      justifyContent: 'flex-start',
-                    }}>
-                      {/* Vertical separator first */}
-                      <div style={{ 
-                        width: 1, 
-                        height: 24, 
-                        background: isDarkMode 
-                          ? 'linear-gradient(to bottom, transparent, rgba(148, 163, 184, 0.3), transparent)'
-                          : 'linear-gradient(to bottom, transparent, rgba(148, 163, 184, 0.25), transparent)',
-                        marginRight: '8px',
-                      }} />
-                      
-                      {/* ID Stage */}
-                      <StatusStage status={idStatus} label="ID" icon="ContactCard" />
-                      <StageConnector complete={idStatus === 'complete'} />
-                      
-                      {/* Payment Stage */}
-                      <StatusStage status={paymentStatus === 'processing' ? 'processing' : paymentStatus === 'complete' ? 'complete' : 'pending'} label="Pay" icon="Money" />
-                      <StageConnector complete={paymentStatus === 'complete'} />
-                      
-                      {/* Risk Stage */}
-                      <StatusStage status={riskStatus} label="Risk" icon="Shield" />
-                      <StageConnector complete={riskStatus === 'complete'} />
-                      
-                      {/* Matter Stage */}
-                      <StatusStage status={matterStatus === 'complete' ? 'complete' : 'pending'} label="Matter" icon="DocumentSet" />
-                      <StageConnector complete={matterStatus === 'complete'} />
-                      
-                      {/* Docs Stage */}
-                      <StatusStage status={docStatus === 'complete' ? 'complete' : 'neutral'} label="Docs" icon="Page" />
-                    </div>
-                    
-                    {/* Actions */}
-                    <div style={{ display: 'flex', justifyContent: 'center', gap: '2px', alignItems: 'center' }}>
-                      {/* Expand chevron for details */}
-                      {hasDescription && (
-                        <IconButton
-                          iconProps={{ iconName: isDescExpanded ? 'ChevronUp' : 'ChevronDown' }}
-                          title={isDescExpanded ? 'Hide details' : 'Show details'}
-                          ariaLabel={isDescExpanded ? 'Hide details' : 'Show details'}
-                          styles={{
-                            root: {
-                              width: 26,
-                              height: 26,
-                              color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.4)',
-                            },
-                            rootHovered: {
-                              background: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
-                              color: colours.blue,
-                            },
-                          }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setExpandedDescriptions(prev => {
-                              const next = new Set(prev);
-                              if (next.has(descKey)) {
-                                next.delete(descKey);
-                              } else {
-                                next.add(descKey);
-                              }
-                              return next;
-                            });
-                          }}
-                        />
-                      )}
-                      <IconButton
-                        iconProps={{ iconName: 'View' }}
-                        title="View Details"
-                        ariaLabel="View instruction details"
-                        styles={{
-                          root: {
-                            width: 26,
-                            height: 26,
-                            color: isDarkMode ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.55)',
-                          },
-                          rootHovered: {
-                            background: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
-                            color: colours.blue,
-                          },
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedInstruction(inst);
-                          setIsWorkbenchVisible(true);
-                        }}
-                      />
-                    </div>
-                  </div>
-                  
-                  {/* Details Row - expanded below */}
-                  {hasDescription && isDescExpanded && (
-                    <div style={{
-                      padding: '12px 60px 12px 80px',
-                      backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.015)' : 'rgba(0, 0, 0, 0.008)',
-                      borderBottom: isLast ? 'none' : `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)'}`,
-                      fontSize: '11px',
-                      lineHeight: '1.5',
-                      color: isDarkMode ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)',
-                      display: 'flex',
-                      gap: '32px',
-                    }}>
-                      {/* Amount */}
-                      <div style={{ minWidth: '80px' }}>
-                        <div style={{
-                          fontSize: '9px',
-                          fontWeight: 600,
-                          color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
-                          marginBottom: '4px',
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.5px',
-                        }}>
-                          Amount
-                        </div>
-                        <div style={{
-                          fontSize: '13px',
-                          fontWeight: 600,
-                          color: formattedAmount !== '—' ? colours.green : (isDarkMode ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.35)'),
-                        }}>
-                          {formattedAmount}
-                        </div>
-                      </div>
-                      {/* Service Description */}
-                      <div style={{ flex: 1 }}>
-                        <div style={{
-                          fontSize: '9px',
-                          fontWeight: 600,
-                          color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
-                          marginBottom: '4px',
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.5px',
-                        }}>
-                          Service Description
-                        </div>
-                        <div style={{ whiteSpace: 'pre-line' }}>
-                          {service}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  </React.Fragment>
-                );
-              })}
-              
-              {/* Empty state */}
-              {filteredOverviewItems.filter(item => item.instruction).length === 0 && (
-                <div style={{
-                  padding: '40px',
-                  textAlign: 'center',
-                  color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
-                }}>
-                  <Icon iconName="Search" style={{ fontSize: '32px', marginBottom: '12px', opacity: 0.5 }} />
-                  <div style={{ fontSize: '14px', fontWeight: 500 }}>No instructions found</div>
-                  <div style={{ fontSize: '12px', marginTop: '4px' }}>Try adjusting your search or filters</div>
-                </div>
-              )}
-            </div>
+            />
           )}
+
           {activeTab === "risk" && (
             <>
               <div className={gridContainerStyle}>
@@ -5784,11 +5193,10 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
               }
               
               .workbench-tab-button {
-                transition: all 0.2s ease;
+                transition: all 0.15s ease;
               }
               
               .workbench-tab-button:hover {
-                background-color: rgba(54, 144, 206, 0.1) !important;
                 transform: translateY(-1px);
               }
               
@@ -6305,7 +5713,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                     <div 
                       className="comprehensive-workbench"
                       style={{
-                        background: workbenchCardBackground(isDarkMode),
+                        background: isDarkMode ? colours.darkBlue : colours.sectionBackground,
                         border: `1px solid ${workbenchBorderColour(isDarkMode)}`,
                         borderTopLeftRadius: 20,
                         borderTopRightRadius: 20,
@@ -6323,134 +5731,119 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                     >
                   {/* Tab Navigation with Collapse Header - Styled like CustomTabs */}
                   <div>
-                    {/* Collapsible header - shows instruction info with collapse button */}
+                    {/* Enhanced header - ref + client + area + date + close */}
                     <div
                       onClick={() => setIsWorkbenchVisible(false)}
                       style={{
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'center',
-                        padding: '12px 26px',
-                        background: workbenchHeaderBackground(isDarkMode),
-                        border: 'none',
-                        borderRadius: '0',
+                        padding: '0 20px',
+                        background: isDarkMode 
+                          ? 'linear-gradient(135deg, rgba(6, 23, 51, 0.95) 0%, rgba(13, 47, 96, 0.98) 100%)'
+                          : '#FFFFFF',
+                        borderBottom: isDarkMode 
+                          ? '1px solid rgba(54, 144, 206, 0.25)' 
+                          : '1px solid rgba(0, 0, 0, 0.06)',
                         cursor: 'pointer',
-                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                        transition: 'background 0.15s ease',
                         height: '48px',
-                        boxSizing: 'border-box',
-                        position: 'relative',
-                        overflow: 'hidden'
+                        boxSizing: 'border-box'
                       }}
                       onMouseEnter={(e) => {
                         e.currentTarget.style.background = isDarkMode 
-                          ? 'linear-gradient(135deg, rgba(13, 47, 96, 1) 0%, rgba(6, 23, 51, 1) 100%)'
-                          : `linear-gradient(135deg, ${colours.missedBlue} 0%, ${colours.websiteBlue} 100%)`;
-                        e.currentTarget.style.boxShadow = isDarkMode 
-                          ? '0 4px 20px rgba(13, 47, 96, 0.6), inset 0 1px 0 rgba(255,255,255,0.15)'
-                          : `0 4px 20px rgba(6, 23, 51, 0.4), inset 0 1px 0 rgba(255,255,255,0.2)`;
+                          ? 'rgba(54, 144, 206, 0.08)'
+                          : 'rgba(54, 144, 206, 0.04)';
                       }}
                       onMouseLeave={(e) => {
-                        e.currentTarget.style.background = workbenchHeaderBackground(isDarkMode);
-                        e.currentTarget.style.boxShadow = 'none';
+                        e.currentTarget.style.background = isDarkMode 
+                          ? 'linear-gradient(135deg, rgba(6, 23, 51, 0.95) 0%, rgba(13, 47, 96, 0.98) 100%)'
+                          : '#FFFFFF';
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <div style={{ 
-                            width: 3, 
-                            height: 3, 
-                            borderRadius: '50%', 
-                            background: getAreaColor(selectedInstruction?.AreaOfWork || selectedInstruction?.Area_of_Work || selectedInstruction?.areaOfWork),
-                            animation: 'pulse 2s infinite'
-                          }} />
-                          <span style={{ 
-                            fontSize: '11px', 
-                            fontWeight: 600, 
-                            color: '#ffffff',
-                            letterSpacing: '0.02em',
-                            fontFamily: 'monospace',
-                            textShadow: '0 1px 2px rgba(0,0,0,0.3)'
-                          }}>
-                            {selectedInstruction?.InstructionRef}
-                          </span>
-                        </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
+                        {/* Area indicator dot */}
+                        <div style={{ 
+                          width: 10, 
+                          height: 10, 
+                          borderRadius: '50%', 
+                          background: getAreaColor(selectedInstruction?.AreaOfWork || selectedInstruction?.Area_of_Work || selectedInstruction?.areaOfWork || selectedOverviewItem?.instruction?.AreaOfWork),
+                          flexShrink: 0,
+                          boxShadow: `0 0 8px ${getAreaColor(selectedInstruction?.AreaOfWork || selectedInstruction?.Area_of_Work || selectedInstruction?.areaOfWork || selectedOverviewItem?.instruction?.AreaOfWork)}50`
+                        }} />
+                        
+                        {/* Instruction ref */}
+                        <span style={{ 
+                          fontSize: '13px', 
+                          fontWeight: 600, 
+                          color: isDarkMode ? colours.highlight : colours.blue,
+                          fontFamily: 'monospace',
+                          letterSpacing: '-0.02em',
+                          flexShrink: 0
+                        }}>
+                          {selectedInstruction?.InstructionRef || selectedOverviewItem?.instruction?.InstructionRef}
+                        </span>
 
-                        {(areaOfWorkInfo.label || 'Commercial') && (
+                        <span style={{ 
+                          color: isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(0, 0, 0, 0.15)',
+                          fontSize: '12px'
+                        }}>|</span>
+
+                        {/* Client name */}
+                        <span style={{
+                          fontSize: '12px',
+                          fontWeight: 500,
+                          color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : colours.darkBlue,
+                          maxWidth: '200px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          flexShrink: 1
+                        }}>
+                          {selectedInstruction?.ClientType === 'Company' 
+                            ? (selectedInstruction.CompanyName || `${selectedInstruction.FirstName || ''} ${selectedInstruction.LastName || ''}`.trim() || 'Company')
+                            : (`${selectedInstruction?.FirstName || ''} ${selectedInstruction?.LastName || ''}`.trim() || selectedInstruction?.CompanyName || selectedOverviewItem?.instruction?.FirstName || 'Client')
+                          }
+                        </span>
+
+                        {/* Area of work badge */}
+                        {(selectedInstruction?.AreaOfWork || selectedInstruction?.Area_of_Work || selectedOverviewItem?.instruction?.AreaOfWork) && (
                           <span style={{
-                            fontSize: '8px',
-                            fontWeight: 700,
-                            color: '#ffffff',
-                            letterSpacing: '0.03em',
-                            textTransform: 'uppercase',
-                            background: `${getAreaColor(selectedInstruction?.AreaOfWork || selectedInstruction?.Area_of_Work || selectedInstruction?.areaOfWork)}40`,
-                            padding: '3px 8px',
+                            fontSize: '9px',
+                            padding: '2px 8px',
                             borderRadius: '4px',
-                            border: `1px solid ${getAreaColor(selectedInstruction?.AreaOfWork || selectedInstruction?.Area_of_Work || selectedInstruction?.areaOfWork)}60`,
-                            backdropFilter: 'blur(4px)',
-                            boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                            background: `${getAreaColor(selectedInstruction?.AreaOfWork || selectedInstruction?.Area_of_Work || selectedOverviewItem?.instruction?.AreaOfWork)}20`,
+                            color: getAreaColor(selectedInstruction?.AreaOfWork || selectedInstruction?.Area_of_Work || selectedOverviewItem?.instruction?.AreaOfWork),
+                            textTransform: 'uppercase',
+                            fontWeight: 600,
+                            letterSpacing: '0.5px',
+                            flexShrink: 0
                           }}>
-                            {areaOfWorkInfo.label || 'Commercial'}
+                            {(selectedInstruction?.AreaOfWork || selectedInstruction?.Area_of_Work || selectedOverviewItem?.instruction?.AreaOfWork || '').slice(0, 3)}
                           </span>
                         )}
 
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          {selectedInstruction?.ClientType === 'Company' ? (
-                            <FaBuilding style={{ 
-                              color: '#ffffff', 
-                              fontSize: '10px',
-                              opacity: 0.9,
-                              filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.2))'
-                            }} />
-                          ) : (
-                            <FaUser style={{ 
-                              color: '#ffffff', 
-                              fontSize: '10px',
-                              opacity: 0.9,
-                              filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.2))'
-                            }} />
-                          )}
-                          
+                        {/* Date */}
+                        {(selectedInstruction?.CreatedDate || selectedInstruction?.InstructionDate || selectedOverviewItem?.instruction?.InstructionDate) && (
                           <span style={{
                             fontSize: '10px',
-                            fontWeight: 500,
-                            color: '#ffffff',
-                            opacity: 0.95,
-                            maxWidth: '200px',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                            textShadow: '0 1px 2px rgba(0,0,0,0.2)'
+                            color: isDarkMode ? 'rgba(226, 232, 240, 0.4)' : 'rgba(100, 116, 139, 0.7)',
+                            flexShrink: 0,
+                            marginLeft: 'auto'
                           }}>
-                            {selectedInstruction?.ClientType === 'Company' 
-                              ? (selectedInstruction.CompanyName || `${selectedInstruction.FirstName || ''} ${selectedInstruction.LastName || ''}`.trim() || 'Company Client')
-                              : (`${selectedInstruction?.FirstName || ''} ${selectedInstruction?.LastName || ''}`.trim() || selectedInstruction?.CompanyName || 'Individual Client')
-                            }
+                            {new Date(selectedInstruction?.CreatedDate || selectedInstruction?.InstructionDate || selectedOverviewItem?.instruction?.InstructionDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
                           </span>
-                        </div>
+                        )}
                       </div>
                       
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span style={{
-                          fontSize: '9px',
-                          color: '#ffffff',
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.05em',
-                          opacity: 0.9,
-                          textShadow: '0 1px 2px rgba(0,0,0,0.2)'
-                        }}>
-                          Collapse
-                        </span>
-                        <div style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          color: '#ffffff',
-                          transform: 'rotate(180deg)',
-                          transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                          padding: '1px',
-                          filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.2))'
-                        }}>
-                          <MdExpandMore size={14} />
-                        </div>
+                      {/* Close indicator */}
+                      <div style={{ 
+                        display: 'flex', 
+                        alignItems: 'center',
+                        color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)',
+                        transition: 'color 0.15s ease'
+                      }}>
+                        <MdExpandMore size={18} style={{ transform: 'rotate(180deg)' }} />
                       </div>
                     </div>
 
@@ -6459,19 +5852,10 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                       display: 'flex',
                       alignItems: 'center',
                       width: '100%',
-                      background: isDarkMode
-                        ? 'linear-gradient(135deg, rgba(7, 16, 32, 1) 0%, rgba(11, 30, 55, 1) 100%)'
-                        : '#FFFFFF',
-                      backdropFilter: isDarkMode ? 'blur(16px) saturate(180%)' : 'none',
-                      WebkitBackdropFilter: isDarkMode ? 'blur(16px) saturate(180%)' : 'none',
-                      borderBottom: isDarkMode 
-                        ? '1px solid rgba(125, 211, 252, 0.15)' 
-                        : '1px solid rgba(0, 0, 0, 0.06)',
-                      boxShadow: isDarkMode
-                        ? '0 2px 12px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.3)'
-                        : '0 2px 8px rgba(0, 0, 0, 0.08)',
+                      background: isDarkMode ? colours.dark.sectionBackground : '#FFFFFF',
+                      borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                       height: 48,
-                      padding: '0 24px',
+                      padding: '0',
                       position: 'sticky',
                       top: 0,
                       zIndex: 100
@@ -6479,79 +5863,45 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                     {[
                       { 
                         key: 'identity', 
-                        label: 'Identity', 
-                        status: verifyIdStatus,
-                        icon: <FaIdCard size={12} />,
-                        isComplete: !!(selectedInstruction?.PassportNumber || selectedInstruction?.DriversLicenseNumber),
-                        badge: selectedOverviewItem?.eid?.EIDOverallResult || null
+                        label: 'ID', 
+                        icon: <FaIdCard size={11} />,
+                        isComplete: !!(selectedOverviewItem?.instruction?.PassportNumber || selectedOverviewItem?.instruction?.DriversLicenseNumber || selectedOverviewItem?.eid?.EIDOverallResult),
+                        hasIssue: selectedOverviewItem?.eid?.EIDOverallResult?.toLowerCase().includes('fail')
                       },
                       { 
                         key: 'payment', 
-                        label: 'Payment', 
-                        status: paymentCompleted ? 'complete' : 'pending',
-                        icon: <FaCreditCard size={12} />,
-                        isComplete: paymentCompleted,
-                        badge: selectedOverviewItem?.instruction?.PaymentResult || 
-                               (selectedOverviewItem?.instruction?.payments && selectedOverviewItem.instruction.payments.length > 0 
-                                 ? (() => {
-                                     const activePayments = selectedOverviewItem.instruction.payments.filter(
-                                       (p: any) => p.internal_status !== 'archived'
-                                     );
-                                     if (activePayments.length === 0) return null;
-                                     if (activePayments.length === 1) {
-                                       // Check if it's a bank transfer
-                                       const payment = activePayments[0];
-                                       const hasStripePaymentIntent = Boolean(payment.payment_intent_id && 
-                                                                               String(payment.payment_intent_id).startsWith('pi_'));
-                                       const isConfirmedStatus = payment.payment_status === 'confirmed';
-                                       const isExplicitlyBank = payment.payment_method === 'bank' || 
-                                                                payment.PaymentMethod === 'bank';
-                                       const isBankTransfer = isExplicitlyBank || (isConfirmedStatus && !hasStripePaymentIntent);
-                                       
-                                       // Show appropriate status text
-                                       if (isBankTransfer && (payment.payment_status === 'confirmed' || payment.internal_status === 'completed')) {
-                                         return 'Pending Transfer';
-                                       }
-                                       
-                                       const status = payment.payment_status || payment.internal_status;
-                                       return status ? status.charAt(0).toUpperCase() + status.slice(1) : '1 txn';
-                                     }
-                                     return `${activePayments.length} txns`;
-                                   })()
-                                 : null)
+                        label: 'Pay', 
+                        icon: <FaCreditCard size={11} />,
+                        isComplete: paymentCompleted || (selectedOverviewItem?.instruction?.payments?.some((p: any) => p.payment_status === 'succeeded' || p.payment_status === 'confirmed')),
+                        hasIssue: selectedOverviewItem?.instruction?.payments?.some((p: any) => p.payment_status === 'failed' || p.internal_status === 'failed')
                       },
                       { 
                         key: 'documents', 
-                        label: 'Documents', 
-                        status: selectedOverviewItem?.instruction?.documents?.length > 0 ? 'complete' : 'pending',
-                        icon: <FaFileAlt size={12} />,
-                        isComplete: selectedOverviewItem?.instruction?.documents?.length > 0,
-                        badge: selectedOverviewItem?.instruction?.documents?.length?.toString() || '0'
+                        label: 'Docs', 
+                        icon: <FaFileAlt size={11} />,
+                        isComplete: (selectedOverviewItem?.documents?.length || selectedOverviewItem?.instruction?.documents?.length) > 0,
+                        count: selectedOverviewItem?.documents?.length || selectedOverviewItem?.instruction?.documents?.length || 0
                       },
                       { 
                         key: 'risk', 
                         label: 'Risk', 
-                        status: riskStatus,
-                        icon: <FaShieldAlt size={12} />,
-                        isComplete: riskStatus === 'complete',
-                        badge: selectedOverviewItem?.risk?.RiskAssessmentResult 
-                          ? `${selectedOverviewItem.risk.RiskAssessmentResult.replace(' Risk', '')}: ${selectedOverviewItem.risk.RiskScore || 'N/A'}`
-                          : null
+                        icon: <FaShieldAlt size={11} />,
+                        isComplete: riskStatus === 'complete' || !!selectedOverviewItem?.risk?.RiskAssessmentResult,
+                        hasIssue: selectedOverviewItem?.risk?.RiskAssessmentResult?.toLowerCase().includes('high')
                       },
                       { 
                         key: 'matter', 
                         label: 'Matter', 
-                        status: matterLinked ? 'complete' : 'pending',
-                        icon: <FaFolder size={12} />,
-                        isComplete: !!selectedInstruction?.MatterId,
-                        badge: selectedInstruction?.MatterId ? 'Open' : null
+                        icon: <FaFolder size={11} />,
+                        isComplete: !!(selectedOverviewItem?.instruction?.MatterId || selectedInstruction?.MatterId),
+                        hasIssue: false
                       },
                       { 
                         key: 'override', 
                         label: '', 
-                        status: 'available',
-                        icon: <FaCog size={16} />,
-                        isComplete: false
+                        icon: <FaEllipsisH size={14} />,
+                        isComplete: false,
+                        isMenu: true
                       }
                     ].map(tab => (
                       <button
@@ -6560,35 +5910,42 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                         onClick={() => setActiveWorkbenchTab(tab.key)}
                         style={{
                           flex: tab.key === 'override' ? '0 0 auto' : 1,
-                          padding: tab.key === 'override' ? '0 12px' : '0 12px',
-                          minWidth: tab.key === 'override' ? '40px' : 'auto',
+                          padding: tab.key === 'override' ? '0 16px' : '0 16px',
+                          minWidth: tab.key === 'override' ? '48px' : 'auto',
                           height: 48,
                           border: 'none',
-                          background: 'transparent',
+                          background: activeWorkbenchTab === tab.key
+                            ? (isDarkMode ? colours.dark.cardBackground : colours.grey)
+                            : 'transparent',
                           borderBottom: activeWorkbenchTab === tab.key 
-                            ? `2px solid ${colours.highlight}` 
-                            : '2px solid transparent',
+                            ? `3px solid ${colours.highlight}` 
+                            : '3px solid transparent',
                           color: activeWorkbenchTab === tab.key
                             ? colours.highlight
-                            : (isDarkMode ? 'rgba(255, 255, 255, 0.65)' : 'rgba(6, 23, 51, 0.75)'),
+                            : (isDarkMode ? colours.dark.text : colours.darkBlue),
                           cursor: 'pointer',
-                          fontSize: 14,
+                          fontSize: 11,
                           fontWeight: 600,
+                          fontFamily: 'Raleway, sans-serif',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
                           gap: '6px',
-                          transition: 'color 0.2s ease',
-                          position: 'relative'
+                          transition: 'all 0.15s ease',
+                          position: 'relative',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px'
                         }}
                         onMouseEnter={(e) => {
                           if (activeWorkbenchTab !== tab.key) {
                             e.currentTarget.style.color = colours.highlight;
+                            e.currentTarget.style.background = isDarkMode ? colours.dark.cardBackground : colours.grey;
                           }
                         }}
                         onMouseLeave={(e) => {
                           if (activeWorkbenchTab !== tab.key) {
-                            e.currentTarget.style.color = isDarkMode ? 'rgba(255, 255, 255, 0.65)' : 'rgba(6, 23, 51, 0.75)';
+                            e.currentTarget.style.color = isDarkMode ? colours.dark.text : colours.darkBlue;
+                            e.currentTarget.style.background = 'transparent';
                           }
                         }}
                       >
@@ -6600,50 +5957,29 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                             {tab.label}
                           </span>
                         )}
-                        {tab.badge && (
+                        {/* Status indicator - dot or count */}
+                        {!tab.isMenu && (
                           <span style={{
+                            width: tab.count !== undefined ? 'auto' : 8,
+                            height: tab.count !== undefined ? 'auto' : 8,
+                            minWidth: tab.count !== undefined ? 16 : 8,
+                            padding: tab.count !== undefined ? '2px 5px' : 0,
+                            borderRadius: tab.count !== undefined ? '10px' : '50%',
+                            fontSize: tab.count !== undefined ? '9px' : 0,
+                            fontWeight: 700,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
                             marginLeft: '6px',
-                            padding: '2px 6px',
-                            borderRadius: '4px',
-                            fontSize: '9px',
-                            fontWeight: 600,
-                            textTransform: 'uppercase',
-                            background: tab.badge.toLowerCase().includes('passed') || 
-                                       tab.badge.toLowerCase().includes('approved') || 
-                                       tab.badge.toLowerCase().includes('verified') ||
-                                       tab.badge.toLowerCase().includes('low') ||
-                                       tab.badge.toLowerCase().includes('confirmed') ||
-                                       tab.badge.toLowerCase().includes('completed') ||
-                                       tab.badge.toLowerCase().includes('succeeded') ||
-                                       tab.badge.toLowerCase().includes('open') ||
-                                       (tab.key === 'documents' && parseInt(tab.badge) > 0)
-                              ? (isDarkMode ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.1)')
-                              : tab.badge.toLowerCase().includes('failed') || 
-                                tab.badge.toLowerCase().includes('rejected') ||
-                                tab.badge.toLowerCase().includes('high')
-                              ? (isDarkMode ? 'rgba(239, 68, 68, 0.2)' : 'rgba(239, 68, 68, 0.1)')
-                              : (tab.key === 'documents' && parseInt(tab.badge) === 0)
-                              ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.1)')
-                              : (isDarkMode ? 'rgba(251, 191, 36, 0.2)' : 'rgba(251, 191, 36, 0.1)'),
-                            color: tab.badge.toLowerCase().includes('passed') || 
-                                  tab.badge.toLowerCase().includes('approved') || 
-                                  tab.badge.toLowerCase().includes('verified') ||
-                                  tab.badge.toLowerCase().includes('low') ||
-                                  tab.badge.toLowerCase().includes('confirmed') ||
-                                  tab.badge.toLowerCase().includes('completed') ||
-                                  tab.badge.toLowerCase().includes('succeeded') ||
-                                  tab.badge.toLowerCase().includes('open') ||
-                                  (tab.key === 'documents' && parseInt(tab.badge) > 0)
+                            background: tab.hasIssue 
+                              ? colours.cta
+                              : tab.isComplete 
                               ? colours.green
-                              : tab.badge.toLowerCase().includes('failed') || 
-                                tab.badge.toLowerCase().includes('rejected') ||
-                                tab.badge.toLowerCase().includes('high')
-                              ? colours.red
-                              : (tab.key === 'documents' && parseInt(tab.badge) === 0)
-                              ? colours.blue
-                              : colours.orange
+                              : colours.greyText,
+                            color: '#FFFFFF',
+                            transition: 'all 0.15s ease'
                           }}>
-                            {tab.badge}
+                            {tab.count !== undefined ? tab.count : ''}
                           </span>
                         )}
                       </button>
@@ -6651,91 +5987,87 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                     </div>
                   </div>
 
-                  {/* Tab Content Area - Styled like ImmediateActionsBar content */}
+                  {/* Tab Content Area */}
                   <div style={{
-                    padding: '16px 24px',
+                    padding: '20px',
                     flex: '1 1 auto',
                     overflowY: 'auto',
-                    background: isDarkMode
-                      ? 'linear-gradient(135deg, rgba(11, 18, 32, 0.95) 0%, rgba(15, 23, 42, 0.98) 100%)'
-                      : 'linear-gradient(135deg, #F8FAFC 0%, #F1F5F9 100%)'
+                    background: isDarkMode ? colours.darkBlue : colours.grey,
+                    fontFamily: 'Raleway, sans-serif'
                   }}>
                     {activeWorkbenchTab === 'identity' && (
-                      <div>
-                        {/* Identity & Instruction Details Header */}
-                        <div style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          marginBottom: '16px',
-                          padding: '16px 20px',
-                          background: isDarkMode 
-                            ? 'rgba(15, 23, 42, 0.6)'
-                            : '#FFFFFF',
-                          borderRadius: '10px',
-                          border: isDarkMode 
-                            ? '1px solid rgba(148, 163, 184, 0.2)' 
-                            : '1px solid rgba(0, 0, 0, 0.08)',
-                          boxShadow: isDarkMode 
-                            ? '0 2px 8px rgba(0, 0, 0, 0.3)'
-                            : '0 1px 3px rgba(15, 23, 42, 0.08)',
-                          transition: 'all 0.2s ease'
-                        }}>
-                          <div>
-                            <h3 style={{
-                              margin: 0,
-                              fontSize: '14px',
-                              fontWeight: 600,
-                              color: colours.blue,
-                              marginBottom: '2px'
-                            }}>
-                              Identity & Instruction Details
-                            </h3>
-                            <p style={{
-                              margin: 0,
-                              fontSize: '11px',
-                              color: isDarkMode ? 'rgba(226, 232, 240, 0.65)' : 'rgba(15, 23, 42, 0.65)'
-                            }}>
-                              Review and edit client identity and instruction information
-                            </p>
-                          </div>
-                          <div style={{ display: 'flex', gap: '6px' }}>
-                            <FaUser style={{ fontSize: '20px', color: colours.blue, opacity: 0.7 }} />
-                          </div>
-                        </div>
-
-                        {/* Compact Identity Details Grid */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                      <div style={{
+                        backgroundColor: isDarkMode ? colours.dark.cardBackground : '#ffffff',
+                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(0, 0, 0, 0.08)'}`,
+                        borderRadius: 2,
+                        overflow: 'hidden',
+                        fontFamily: 'Raleway, sans-serif',
+                      }}>
+                        {/* Identity Details Grid - 2 columns */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1px', background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(0,0,0,0.04)' }}>
                           {/* Personal Information */}
                           <div style={{
-                            background: isDarkMode ? 'rgba(15, 23, 42, 0.88)' : '#FFFFFF',
-                            borderRadius: '10px',
-                            padding: '14px',
-                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.06)'}`,
-                            boxShadow: isDarkMode ? '0 2px 10px rgba(0, 0, 0, 0.22)' : '0 2px 8px rgba(15, 23, 42, 0.06)'
+                            background: isDarkMode ? colours.dark.cardBackground : '#FFFFFF',
+                            padding: '12px 16px',
                           }}>
                             <div style={{
-                              fontSize: '12px',
+                              fontSize: '10px',
                               fontWeight: 600,
-                              color: colours.blue,
-                              marginBottom: '10px',
+                              color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
+                              marginBottom: '8px',
                               textTransform: 'uppercase',
-                              letterSpacing: '0.025em',
-                              borderBottom: `1px solid ${colours.blue}`,
-                              paddingBottom: '6px'
+                              letterSpacing: '0.5px'
                             }}>
-                              Personal Information
+                              Personal
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                              {[
-                                { label: 'Title', field: 'Title', value: selectedInstruction?.Title || 'Not specified', editable: true },
-                                { label: 'First Name', field: 'FirstName', value: selectedInstruction?.FirstName || selectedInstruction?.ClientName || 'Not specified', editable: true },
-                                { label: 'Last Name', field: 'LastName', value: selectedInstruction?.LastName || 'Not specified', editable: true },
-                                { label: 'Email', field: 'Email', value: selectedInstruction?.ClientEmail || selectedInstruction?.Email || 'Not specified', editable: true },
-                                { label: 'Phone', field: 'Phone', value: selectedInstruction?.Phone || 'Not specified', editable: true },
-                                { label: 'Gender', field: 'Gender', value: selectedInstruction?.Gender || 'Not specified', editable: true },
-                                { label: 'Nationality', field: 'Nationality', value: selectedInstruction?.Nationality || 'Not specified', editable: true }
-                              ].map((field) => (
+                              {(() => {
+                                // Handle case where selectedInstruction might be the overview item itself
+                                const overviewItem = selectedOverviewItem || 
+                                  (selectedInstruction?.instruction !== undefined ? selectedInstruction : null);
+                                const inst = overviewItem?.instruction;
+                                const deal = overviewItem?.deal || selectedInstruction?.deal;
+                                const clients = overviewItem?.clients || selectedInstruction?.clients;
+                                const prospectId = overviewItem?.prospectId || selectedInstruction?.prospectId;
+                                
+                                // Get name from enquiry data via prospectId lookup
+                                const enquiryName = prospectId ? getClientNameByProspectId(prospectId) : { firstName: '', lastName: '' };
+                                
+                                // For pitched deals, try to extract name from email or service description
+                                const emailForName = deal?.LeadClientEmail || clients?.[0]?.ClientEmail || '';
+                                const nameFromEmail = emailForName ? emailForName.split('@')[0].replace(/[._]/g, ' ') : '';
+                                
+                                const getValue = (fields: string[], fallback = 'Not specified') => {
+                                  for (const field of fields) {
+                                    if (inst?.[field]) return inst[field];
+                                    if (deal?.[field]) return deal[field];
+                                    if (clients?.[0]?.[field]) return clients[0][field];
+                                  }
+                                  return fallback;
+                                };
+                                
+                                // Get email - this is the most reliable field for pitched deals
+                                const email = getValue(['LeadClientEmail', 'ClientEmail', 'Email', 'email']);
+                                const isPitched = !inst && deal; // No instruction = pitched deal
+                                
+                                // Name resolution priority: instruction > enquiry > email extraction
+                                const firstName = getValue(['FirstName', 'firstName', 'first_name']) !== 'Not specified' 
+                                  ? getValue(['FirstName', 'firstName', 'first_name'])
+                                  : enquiryName.firstName || (isPitched && nameFromEmail ? nameFromEmail.split(' ')[0] : 'Not specified');
+                                const lastName = getValue(['LastName', 'lastName', 'last_name']) !== 'Not specified'
+                                  ? getValue(['LastName', 'lastName', 'last_name'])
+                                  : enquiryName.lastName || (isPitched && nameFromEmail ? nameFromEmail.split(' ').slice(1).join(' ') : 'Not specified');
+                                
+                                return [
+                                  { label: 'Title', field: 'Title', value: getValue(['Title', 'title']), editable: true },
+                                  { label: 'First Name', field: 'FirstName', value: firstName, editable: true },
+                                  { label: 'Last Name', field: 'LastName', value: lastName, editable: true },
+                                  { label: 'Email', field: 'Email', value: email, editable: true },
+                                  { label: 'Phone', field: 'Phone', value: getValue(['Phone', 'phone', 'PhoneNumber']), editable: true },
+                                  { label: 'Service', field: 'ServiceDescription', value: getValue(['ServiceDescription', 'service_description', 'Service']), editable: false },
+                                  { label: 'Area', field: 'AreaOfWork', value: getValue(['AreaOfWork', 'Area_of_Work', 'areaOfWork']), editable: false }
+                                ];
+                              })().map((field) => (
                                 <div key={field.label} style={{ 
                                   display: 'flex', 
                                   justifyContent: 'space-between', 
@@ -6786,31 +6118,37 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
 
                           {/* Identification */}
                           <div style={{
-                            background: isDarkMode ? 'rgba(15, 23, 42, 0.88)' : '#FFFFFF',
-                            borderRadius: '10px',
-                            padding: '14px',
-                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.06)'}`,
-                            boxShadow: isDarkMode ? '0 2px 10px rgba(0, 0, 0, 0.22)' : '0 2px 8px rgba(15, 23, 42, 0.06)'
+                            background: isDarkMode ? colours.dark.cardBackground : '#FFFFFF',
+                            padding: '12px 16px',
                           }}>
                             <div style={{
-                              fontSize: '12px',
+                              fontSize: '10px',
                               fontWeight: 600,
-                              color: colours.blue,
-                              marginBottom: '10px',
+                              color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
+                              marginBottom: '8px',
                               textTransform: 'uppercase',
-                              letterSpacing: '0.025em',
-                              borderBottom: `1px solid ${colours.blue}`,
-                              paddingBottom: '6px'
+                              letterSpacing: '0.5px'
                             }}>
-                              Identification
+                              ID Documents
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                              {[
-                                { label: 'ID Type', field: 'IDType', value: selectedInstruction?.PassportNumber ? 'Passport' : selectedInstruction?.DriversLicenseNumber ? 'Driving License' : selectedInstruction?.NationalIdNumber ? 'National ID' : 'Not specified', editable: true },
-                                { label: 'Passport', field: 'PassportNumber', value: selectedInstruction?.PassportNumber || 'Not provided', editable: true },
-                                { label: 'Driving License', field: 'DriversLicenseNumber', value: selectedInstruction?.DriversLicenseNumber || 'Not provided', editable: true },
-                                { label: 'National ID', field: 'NationalIdNumber', value: selectedInstruction?.NationalIdNumber || 'Not provided', editable: true }
-                              ].map((field) => (
+                              {(() => {
+                                const overviewItem = selectedOverviewItem || 
+                                  (selectedInstruction?.instruction !== undefined ? selectedInstruction : null);
+                                const inst = overviewItem?.instruction;
+                                const deal = overviewItem?.deal || selectedInstruction?.deal;
+                                const passport = inst?.PassportNumber || inst?.passportNumber || deal?.PassportNumber;
+                                const license = inst?.DriversLicenseNumber || inst?.driversLicenseNumber || deal?.DriversLicenseNumber;
+                                const nationalId = inst?.NationalIdNumber || inst?.nationalIdNumber || deal?.NationalIdNumber;
+                                const idType = passport ? 'Passport' : license ? 'Driving License' : nationalId ? 'National ID' : 'Not specified';
+                                
+                                return [
+                                  { label: 'ID Type', field: 'IDType', value: idType, editable: true },
+                                  { label: 'Passport', field: 'PassportNumber', value: passport || 'Not provided', editable: true },
+                                  { label: 'Driving License', field: 'DriversLicenseNumber', value: license || 'Not provided', editable: true },
+                                  { label: 'National ID', field: 'NationalIdNumber', value: nationalId || 'Not provided', editable: true }
+                                ];
+                              })().map((field) => (
                                 <div key={field.label} style={{ 
                                   display: 'flex', 
                                   justifyContent: 'space-between', 
@@ -6861,32 +6199,37 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
 
                           {/* Address Information */}
                           <div style={{
-                            background: isDarkMode ? 'rgba(15, 23, 42, 0.88)' : '#FFFFFF',
-                            borderRadius: '10px',
-                            padding: '14px',
-                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.06)'}`,
-                            boxShadow: isDarkMode ? '0 2px 10px rgba(0, 0, 0, 0.22)' : '0 2px 8px rgba(15, 23, 42, 0.06)'
+                            background: isDarkMode ? colours.dark.cardBackground : '#FFFFFF',
+                            padding: '12px 16px',
                           }}>
                             <div style={{
-                              fontSize: '12px',
+                              fontSize: '10px',
                               fontWeight: 600,
-                              color: colours.blue,
-                              marginBottom: '10px',
+                              color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
+                              marginBottom: '8px',
                               textTransform: 'uppercase',
-                              letterSpacing: '0.025em',
-                              borderBottom: `1px solid ${colours.blue}`,
-                              paddingBottom: '6px'
+                              letterSpacing: '0.5px'
                             }}>
                               Address
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                              {[
-                                { label: 'Street', field: 'Street', value: `${selectedInstruction?.HouseNumber || ''} ${selectedInstruction?.Street || ''}`.trim() || 'Not specified', editable: false },
-                                { label: 'City', field: 'City', value: selectedInstruction?.City || 'Not specified', editable: false },
-                                { label: 'County', field: 'County', value: selectedInstruction?.County || selectedInstruction?.State || 'Not specified', editable: false },
-                                { label: 'Postcode', field: 'Postcode', value: selectedInstruction?.Postcode || selectedInstruction?.PostalCode || 'Not specified', editable: false },
-                                { label: 'Country', field: 'Country', value: selectedInstruction?.Country || 'Not specified', editable: true }
-                              ].map((field) => (
+                              {(() => {
+                                const overviewItem = selectedOverviewItem || 
+                                  (selectedInstruction?.instruction !== undefined ? selectedInstruction : null);
+                                const inst = overviewItem?.instruction;
+                                const deal = overviewItem?.deal || selectedInstruction?.deal;
+                                const houseNum = inst?.HouseNumber || inst?.houseNumber || deal?.HouseNumber || '';
+                                const street = inst?.Street || inst?.street || deal?.Street || '';
+                                const streetFull = `${houseNum} ${street}`.trim() || 'Not specified';
+                                
+                                return [
+                                  { label: 'Street', field: 'Street', value: streetFull, editable: false },
+                                  { label: 'City', field: 'City', value: inst?.City || inst?.city || deal?.City || 'Not specified', editable: false },
+                                  { label: 'County', field: 'County', value: inst?.County || inst?.county || inst?.State || inst?.state || deal?.County || 'Not specified', editable: false },
+                                  { label: 'Postcode', field: 'Postcode', value: inst?.Postcode || inst?.postcode || inst?.PostalCode || deal?.Postcode || 'Not specified', editable: false },
+                                  { label: 'Country', field: 'Country', value: inst?.Country || inst?.country || deal?.Country || 'Not specified', editable: true }
+                                ];
+                              })().map((field) => (
                                 <div key={field.label} style={{ 
                                   display: 'flex', 
                                   justifyContent: 'space-between', 
@@ -6937,31 +6280,35 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
 
                           {/* Entity Information */}
                           <div style={{
-                            background: isDarkMode ? 'rgba(15, 23, 42, 0.88)' : '#FFFFFF',
-                            borderRadius: '10px',
-                            padding: '14px',
-                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.06)'}`,
-                            boxShadow: isDarkMode ? '0 2px 10px rgba(0, 0, 0, 0.22)' : '0 2px 8px rgba(15, 23, 42, 0.06)'
+                            background: isDarkMode ? colours.dark.cardBackground : '#FFFFFF',
+                            padding: '12px 16px',
                           }}>
                             <div style={{
-                              fontSize: '12px',
+                              fontSize: '10px',
                               fontWeight: 600,
-                              color: colours.blue,
-                              marginBottom: '10px',
+                              color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
+                              marginBottom: '8px',
                               textTransform: 'uppercase',
-                              letterSpacing: '0.025em',
-                              borderBottom: `1px solid ${colours.blue}`,
-                              paddingBottom: '6px'
+                              letterSpacing: '0.5px'
                             }}>
-                              Entity Details
+                              Entity
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                              {[
-                                { label: 'Client Type', field: 'ClientType', value: selectedInstruction?.ClientType || selectedInstruction?.EntityType || 'Individual', editable: true },
-                                { label: 'Company', field: 'CompanyName', value: selectedInstruction?.CompanyName || (selectedInstruction?.ClientType === 'Individual' ? 'Not applicable' : 'Not specified'), editable: true },
-                                { label: 'Company No.', field: 'CompanyNumber', value: selectedInstruction?.CompanyNumber || (selectedInstruction?.ClientType === 'Individual' ? 'Not applicable' : 'Not specified'), editable: true },
-                                { label: 'Company Country', field: 'CompanyCountry', value: selectedInstruction?.CompanyCountry || (selectedInstruction?.ClientType === 'Individual' ? 'Not applicable' : 'Not specified'), editable: true }
-                              ].map((field) => (
+                              {(() => {
+                                const overviewItem = selectedOverviewItem || 
+                                  (selectedInstruction?.instruction !== undefined ? selectedInstruction : null);
+                                const inst = overviewItem?.instruction;
+                                const deal = overviewItem?.deal || selectedInstruction?.deal;
+                                const clientType = inst?.ClientType || inst?.clientType || inst?.EntityType || deal?.ClientType || deal?.IsMultiClient ? 'Multi-Client' : 'Individual';
+                                const isIndividual = clientType === 'Individual';
+                                
+                                return [
+                                  { label: 'Client Type', field: 'ClientType', value: clientType, editable: true },
+                                  { label: 'Company', field: 'CompanyName', value: inst?.CompanyName || inst?.companyName || deal?.CompanyName || (isIndividual ? 'Not applicable' : 'Not specified'), editable: true },
+                                  { label: 'Company No.', field: 'CompanyNumber', value: inst?.CompanyNumber || inst?.companyNumber || deal?.CompanyNumber || (isIndividual ? 'Not applicable' : 'Not specified'), editable: true },
+                                  { label: 'Company Country', field: 'CompanyCountry', value: inst?.CompanyCountry || inst?.companyCountry || deal?.CompanyCountry || (isIndividual ? 'Not applicable' : 'Not specified'), editable: true }
+                                ];
+                              })().map((field) => (
                                 <div key={field.label} style={{ 
                                   display: 'flex', 
                                   justifyContent: 'space-between', 
@@ -7015,26 +6362,23 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                         </div>
 
                         {/* Electronic ID Verification Section */}
-                        <div style={{ marginBottom: '24px' }}>
+                        <div style={{ marginBottom: '16px' }}>
                           <div style={{
-                            fontSize: '14px',
+                            fontSize: '10px',
                             fontWeight: 600,
-                            color: isDarkMode ? colours.dark.text : '#1f2937',
-                            marginBottom: '16px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px'
+                            color: isDarkMode ? 'rgba(226, 232, 240, 0.5)' : 'rgba(15, 23, 42, 0.5)',
+                            marginBottom: '8px',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.05em'
                           }}>
-                            <FaShieldAlt style={{ fontSize: '12px', color: colours.green }} />
-                            Electronic ID Verification
+                            EID Verification
                           </div>
 
                           <div style={{
-                            background: workbenchCardBackground(isDarkMode),
-                            borderRadius: '12px',
-                            padding: '16px',
-                            border: `1px solid ${workbenchBorderColour(isDarkMode)}`,
-                            boxShadow: isDarkMode ? '0 6px 16px rgba(2, 6, 23, 0.35)' : '0 6px 16px rgba(15, 23, 42, 0.08)'
+                            background: isDarkMode ? colours.dark.cardBackground : '#FAFBFC',
+                            borderRadius: '8px',
+                            padding: '12px',
+                            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(0, 0, 0, 0.04)'}`,
                           }}>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '16px', alignItems: 'stretch' }}>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -7161,12 +6505,11 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
 
                         {/* Technical Details - Expandable */}
                         <div style={{
-                          background: workbenchCardBackground(isDarkMode),
-                          borderRadius: '12px',
-                          padding: '12px',
-                          border: `1px solid ${workbenchBorderColour(isDarkMode)}`,
-                          boxShadow: isDarkMode ? '0 6px 16px rgba(2, 6, 23, 0.35)' : '0 6px 16px rgba(15, 23, 42, 0.08)',
-                          marginTop: '16px'
+                          background: isDarkMode ? colours.darkBlue : 'rgba(0, 0, 0, 0.02)',
+                          borderRadius: '6px',
+                          padding: '8px 12px',
+                          border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(0, 0, 0, 0.04)'}`,
+                          marginTop: '12px'
                         }}>
                           <button
                             className="expand-button"
@@ -7225,109 +6568,29 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                     )}
 
                     {activeWorkbenchTab === 'risk' && (
-                      <div>
-                        
-                        {/* Risk Assessment Header with Actions */}
-                        <div style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          marginBottom: '16px',
-                          padding: '12px 16px',
-                          background: isDarkMode 
-                            ? 'linear-gradient(135deg, rgba(15, 23, 42, 0.88) 0%, rgba(30, 41, 59, 0.85) 100%)'
-                            : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-                          borderRadius: '10px',
-                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.06)'}`,
-                          boxShadow: isDarkMode ? '0 2px 10px rgba(0, 0, 0, 0.22)' : '0 2px 8px rgba(15, 23, 42, 0.06)'
-                        }}>
-                          <div>
-                            <h3 style={{
-                              margin: 0,
-                              fontSize: '14px',
-                              fontWeight: 600,
-                              color: colours.blue,
-                              marginBottom: '2px'
-                            }}>
-                              Risk Assessment Review
-                            </h3>
-                            <p style={{
-                              margin: 0,
-                              fontSize: '11px',
-                              color: isDarkMode ? 'rgba(226, 232, 240, 0.65)' : 'rgba(15, 23, 42, 0.65)'
-                            }}>
-                              Review and manage risk assessment data for this instruction
-                            </p>
-                          </div>
-                          <div style={{ display: 'flex', gap: '6px' }}>
-                            {selectedOverviewItem?.risk && (
-                              <button
-                                onClick={() => {
-                                  const targetItem = overviewItems.find((item: any) => 
-                                    item.instruction?.InstructionRef === selectedInstruction?.InstructionRef
-                                  );
-                                  if (targetItem) handleRiskAssessment(targetItem);
-                                }}
-                                style={{
-                                  padding: '6px 12px',
-                                  fontSize: '10px',
-                                  border: `1px solid ${colours.orange}`,
-                                  borderRadius: '5px',
-                                  background: 'transparent',
-                                  color: colours.orange,
-                                  cursor: 'pointer',
-                                  fontWeight: 500
-                                }}
-                              >
-                                Reassess
-                              </button>
-                            )}
-                            {!selectedOverviewItem?.risk && (
-                              <button
-                                onClick={() => {
-                                  const targetItem = overviewItems.find((item: any) => 
-                                    item.instruction?.InstructionRef === selectedInstruction?.InstructionRef
-                                  );
-                                  if (targetItem) handleRiskAssessment(targetItem);
-                                }}
-                                style={{
-                                  padding: '6px 12px',
-                                  fontSize: '10px',
-                                  border: `1px solid ${colours.blue}`,
-                                  borderRadius: '5px',
-                                  background: colours.blue,
-                                  color: 'white',
-                                  cursor: 'pointer',
-                                  fontWeight: 500
-                                }}
-                              >
-                                Create Assessment
-                              </button>
-                            )}
-                          </div>
-                        </div>
-
+                      <div style={{
+                        backgroundColor: isDarkMode ? colours.dark.cardBackground : '#ffffff',
+                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(0, 0, 0, 0.08)'}`,
+                        borderRadius: 2,
+                        overflow: 'hidden',
+                        fontFamily: 'Raleway, sans-serif',
+                      }}>
                         {/* Compact Risk Assessment Grid */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1px', background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(0,0,0,0.04)' }}>
                           {/* Risk Summary */}
                           <div style={{
-                            background: isDarkMode ? 'rgba(15, 23, 42, 0.88)' : '#FFFFFF',
-                            borderRadius: '10px',
-                            padding: '14px',
-                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.06)'}`,
-                            boxShadow: isDarkMode ? '0 2px 10px rgba(0, 0, 0, 0.22)' : '0 2px 8px rgba(15, 23, 42, 0.06)'
+                            background: isDarkMode ? colours.dark.cardBackground : '#FFFFFF',
+                            padding: '12px 16px',
                           }}>
                             <div style={{
-                              fontSize: '12px',
+                              fontSize: '10px',
                               fontWeight: 600,
-                              color: colours.blue,
-                              marginBottom: '10px',
+                              color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
+                              marginBottom: '8px',
                               textTransform: 'uppercase',
-                              letterSpacing: '0.025em',
-                              borderBottom: `1px solid ${colours.blue}`,
-                              paddingBottom: '6px'
+                              letterSpacing: '0.5px'
                             }}>
-                              Assessment Summary
+                              Summary
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                               {[
@@ -7387,23 +6650,18 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
 
                           {/* Client Risk Analysis */}
                           <div style={{
-                            background: isDarkMode ? 'rgba(15, 23, 42, 0.88)' : '#FFFFFF',
-                            borderRadius: '10px',
-                            padding: '14px',
-                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.06)'}`,
-                            boxShadow: isDarkMode ? '0 2px 10px rgba(0, 0, 0, 0.22)' : '0 2px 8px rgba(15, 23, 42, 0.06)'
+                            background: isDarkMode ? colours.dark.cardBackground : '#FFFFFF',
+                            padding: '12px 16px',
                           }}>
                             <div style={{
-                              fontSize: '12px',
+                              fontSize: '10px',
                               fontWeight: 600,
-                              color: colours.blue,
-                              marginBottom: '10px',
+                              color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
+                              marginBottom: '8px',
                               textTransform: 'uppercase',
-                              letterSpacing: '0.025em',
-                              borderBottom: `1px solid ${colours.blue}`,
-                              paddingBottom: '6px'
+                              letterSpacing: '0.5px'
                             }}>
-                              Client Analysis
+                              Client
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                               {[
@@ -7460,21 +6718,16 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
 
                           {/* Funds Analysis */}
                           <div style={{
-                            background: isDarkMode ? 'rgba(15, 23, 42, 0.88)' : '#FFFFFF',
-                            borderRadius: '10px',
-                            padding: '14px',
-                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.06)'}`,
-                            boxShadow: isDarkMode ? '0 2px 10px rgba(0, 0, 0, 0.22)' : '0 2px 8px rgba(15, 23, 42, 0.06)'
+                            background: isDarkMode ? colours.dark.cardBackground : '#FFFFFF',
+                            padding: '12px 16px',
                           }}>
                             <div style={{
-                              fontSize: '12px',
+                              fontSize: '10px',
                               fontWeight: 600,
-                              color: colours.blue,
+                              color: colours.greyText,
                               marginBottom: '10px',
                               textTransform: 'uppercase',
-                              letterSpacing: '0.025em',
-                              borderBottom: `1px solid ${colours.blue}`,
-                              paddingBottom: '6px'
+                              letterSpacing: '1px'
                             }}>
                               Funds Analysis
                             </div>
@@ -7535,21 +6788,16 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
 
                           {/* Compliance Factors */}
                           <div style={{
-                            background: isDarkMode ? 'rgba(15, 23, 42, 0.88)' : '#FFFFFF',
-                            borderRadius: '10px',
-                            padding: '14px',
-                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.06)'}`,
-                            boxShadow: isDarkMode ? '0 2px 10px rgba(0, 0, 0, 0.22)' : '0 2px 8px rgba(15, 23, 42, 0.06)'
+                            background: isDarkMode ? colours.dark.cardBackground : '#FFFFFF',
+                            padding: '12px 16px',
                           }}>
                             <div style={{
-                              fontSize: '12px',
+                              fontSize: '10px',
                               fontWeight: 600,
-                              color: colours.blue,
+                              color: colours.greyText,
                               marginBottom: '10px',
                               textTransform: 'uppercase',
-                              letterSpacing: '0.025em',
-                              borderBottom: `1px solid ${colours.blue}`,
-                              paddingBottom: '6px'
+                              letterSpacing: '1px'
                             }}>
                               Compliance
                             </div>
@@ -7637,9 +6885,9 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                                       alignItems: 'center',
                                       gap: '4px',
                                       padding: '4px 6px',
-                                      background: isDarkMode ? 'rgba(15, 23, 42, 0.6)' : '#FFFFFF',
+                                      background: isDarkMode ? colours.dark.cardBackground : '#FFFFFF',
                                       borderRadius: '4px',
-                                      border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
+                                      border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.15)'}`,
                                       transition: 'all 0.15s ease'
                                     }}
                                     onMouseEnter={(e) => {
@@ -7647,8 +6895,8 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                                       e.currentTarget.style.borderColor = '#3690CE';
                                     }}
                                     onMouseLeave={(e) => {
-                                      e.currentTarget.style.background = isDarkMode ? 'rgba(15, 23, 42, 0.6)' : '#FFFFFF';
-                                      e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)';
+                                      e.currentTarget.style.background = isDarkMode ? colours.dark.cardBackground : '#FFFFFF';
+                                      e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.15)';
                                     }}
                                   >
                                     <span style={{ fontSize: 8 }}>📋</span>
@@ -7932,488 +7180,484 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
 
                     {activeWorkbenchTab === 'payment' && (
                       <div>
-                        
-                        {/* Modern Payment Overview */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
-                          {/* Payment Status Card */}
-                          <div style={{
-                            background: isDarkMode ? 'rgba(15, 23, 42, 0.88)' : '#FFFFFF',
-                            borderRadius: '10px',
-                            padding: '14px',
-                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.06)'}`,
-                            boxShadow: isDarkMode ? '0 2px 10px rgba(0, 0, 0, 0.22)' : '0 2px 8px rgba(15, 23, 42, 0.06)'
-                          }}>
-                            <div style={{
-                              fontSize: '12px',
-                              fontWeight: 600,
-                              color: colours.blue,
-                              marginBottom: '10px',
-                              textTransform: 'uppercase',
-                              letterSpacing: '0.025em',
-                              borderBottom: `1px solid ${colours.blue}`,
-                              paddingBottom: '6px'
-                            }}>
-                              Payment Overview
-                            </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                              {[
-                                { 
-                                  label: 'Total Transactions', 
-                                  value: selectedOverviewItem?.instruction?.payments?.length || 0,
-                                  color: isDarkMode ? colours.dark.text : '#111827'
-                                },
-                                { 
-                                  label: 'Total Amount', 
-                                  value: `£${selectedOverviewItem?.instruction?.payments?.reduce((sum: number, p: any) => sum + parseFloat(p.amount || 0), 0).toFixed(2) || '0.00'}`,
-                                  color: colours.green
-                                },
-                                { 
-                                  label: 'Successful Payments', 
-                                  value: selectedOverviewItem?.instruction?.payments?.filter((p: any) => p.payment_status === 'succeeded').length || 0,
-                                  color: colours.green
-                                },
-                                { 
-                                  label: 'Deal Value', 
-                                  value: selectedOverviewItem?.deal?.Amount ? `£${selectedOverviewItem.deal.Amount}` : 'Not specified',
-                                  color: isDarkMode ? colours.dark.text : '#111827'
-                                }
-                              ].map((item) => (
-                                <div key={item.label} style={{ 
-                                  display: 'flex', 
-                                  justifyContent: 'space-between', 
-                                  alignItems: 'center', 
-                                  padding: '4px 0'
-                                }}>
-                                  <span style={{
-                                    fontSize: '10px',
-                                    color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.7)',
-                                    fontWeight: 500
-                                  }}>
-                                    {item.label}:
-                                  </span>
-                                  <span style={{
-                                    fontSize: '10px',
-                                    color: item.color,
-                                    fontWeight: 600,
-                                    textAlign: 'right'
-                                  }}>
-                                    {item.value}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-
-                          {/* Quick Actions Card */}
-                          <div style={{
-                            background: isDarkMode ? 'rgba(15, 23, 42, 0.88)' : '#FFFFFF',
-                            borderRadius: '10px',
-                            padding: '14px',
-                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.06)'}`,
-                            boxShadow: isDarkMode ? '0 2px 10px rgba(0, 0, 0, 0.22)' : '0 2px 8px rgba(15, 23, 42, 0.06)'
-                          }}>
-                            <div style={{
-                              fontSize: '12px',
-                              fontWeight: 600,
-                              color: colours.blue,
-                              marginBottom: '10px',
-                              textTransform: 'uppercase',
-                              letterSpacing: '0.025em',
-                              borderBottom: `1px solid ${colours.blue}`,
-                              paddingBottom: '6px'
-                            }}>
-                              Payment Actions
-                            </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                              <button
-                                disabled
-                                style={{
-                                  width: '100%',
-                                  padding: '8px 12px',
-                                  fontSize: '11px',
-                                  fontWeight: 500,
-                                  border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`,
-                                  borderRadius: '6px',
-                                  background: 'transparent',
-                                  color: isDarkMode ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.3)',
-                                  cursor: 'not-allowed',
-                                  opacity: 0.5,
-                                  transition: 'all 0.15s ease'
-                                }}
-                              >
-                                View Payment Details
-                              </button>
-                              <button
-                                disabled
-                                style={{
-                                  width: '100%',
-                                  padding: '8px 12px',
-                                  fontSize: '11px',
-                                  fontWeight: 500,
-                                  border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`,
-                                  borderRadius: '6px',
-                                  background: 'transparent',
-                                  color: isDarkMode ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.3)',
-                                  cursor: 'not-allowed',
-                                  opacity: 0.5,
-                                  transition: 'all 0.15s ease'
-                                }}
-                              >
-                                Process New Payment
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Payment Transaction Details */}
-                        <div style={{ marginBottom: '20px' }}>
-                          {selectedOverviewItem?.instruction?.payments?.length > 0 ? (
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '12px' }}>
-                              {selectedOverviewItem?.instruction?.payments?.map((payment: any, index: number) => {
-                                const isRemoving = removingPayments.has(payment.id);
-                                return (
-                                <div key={payment.id || index} style={{
-                                  background: isDarkMode ? 'rgba(15, 23, 42, 0.88)' : '#FFFFFF',
-                                  borderRadius: '10px',
+                        {/* Simple Payment Summary */}
+                        {(() => {
+                          const payments = selectedOverviewItem?.instruction?.payments || [];
+                          const totalAmount = payments.reduce((sum: number, p: any) => sum + parseFloat(p.amount || 0), 0);
+                          const successCount = payments.filter((p: any) => p.payment_status === 'succeeded' || p.payment_status === 'confirmed').length;
+                          const dealValue = selectedOverviewItem?.deal?.Amount;
+                          
+                          return (
+                            <>
+                              {/* Summary Row */}
+                              <div style={{
+                                display: 'flex',
+                                gap: '12px',
+                                marginBottom: '20px',
+                                background: 'transparent'
+                              }}>
+                                <div style={{
+                                  flex: 1,
+                                  background: isDarkMode ? colours.dark.cardBackground : '#FFFFFF',
+                                  border: isDarkMode ? `1px solid rgba(54, 144, 206, 0.25)` : '1px solid rgba(148, 163, 184, 0.25)',
+                                  borderRadius: '4px',
                                   padding: '16px',
-                                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.06)'}`,
-                                  boxShadow: isDarkMode ? '0 2px 10px rgba(0, 0, 0, 0.22)' : '0 2px 8px rgba(15, 23, 42, 0.06)',
-                                  textDecoration: isRemoving ? 'line-through' : 'none',
-                                  opacity: isRemoving ? 0.5 : 1,
-                                  pointerEvents: isRemoving ? 'none' : 'auto',
-                                  transition: 'opacity 0.3s ease, text-decoration 0.2s ease'
+                                  textAlign: 'center',
                                 }}>
-                                  <div style={{ position: 'relative', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
-                                    {/* Subtle delete button - top right corner */}
-                                    <button
-                                      onClick={() => setPaymentToDelete(payment.id)}
-                                      title="Remove payment record (Dev)"
-                                      style={{
-                                        position: 'absolute',
-                                        top: -4,
-                                        right: -4,
-                                        width: 18,
-                                        height: 18,
-                                        padding: 0,
-                                        border: 'none',
-                                        background: isDarkMode ? 'rgba(15, 23, 42, 0.7)' : 'rgba(255, 255, 255, 0.9)',
-                                        color: isDarkMode ? 'rgba(226, 232, 240, 0.5)' : 'rgba(15, 23, 42, 0.4)',
-                                        borderRadius: '50%',
-                                        cursor: 'pointer',
-                                        fontSize: '10px',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        opacity: 0.3,
-                                        transition: 'all 0.2s ease',
-                                        zIndex: 10
-                                      }}
-                                      onMouseEnter={(e) => {
-                                        e.currentTarget.style.opacity = '1';
-                                        e.currentTarget.style.color = colours.red;
-                                        e.currentTarget.style.background = isDarkMode ? 'rgba(239, 68, 68, 0.1)' : 'rgba(239, 68, 68, 0.05)';
-                                      }}
-                                      onMouseLeave={(e) => {
-                                        e.currentTarget.style.opacity = '0.3';
-                                        e.currentTarget.style.color = isDarkMode ? 'rgba(226, 232, 240, 0.5)' : 'rgba(15, 23, 42, 0.4)';
-                                        e.currentTarget.style.background = isDarkMode ? 'rgba(15, 23, 42, 0.7)' : 'rgba(255, 255, 255, 0.9)';
-                                      }}
-                                    >
-                                      ×
-                                    </button>
-
-                                    {/* Payment Core Details */}
-                                    <div>
-                                      <h4 style={{ 
-                                        margin: '0 0 8px 0', 
-                                        fontSize: '12px', 
-                                        fontWeight: 600, 
-                                        color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.85)',
-                                        textTransform: 'uppercase',
-                                        letterSpacing: '0.025em'
-                                      }}>
-                                        Payment #{index + 1}
-                                      </h4>
-                                      <div style={{ fontSize: '10px', color: isDarkMode ? colours.dark.text : colours.light.text, lineHeight: '1.6', display: 'grid', gap: '4px' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                          <span style={{ color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.7)' }}>Payment ID:</span>
-                                          <span style={{ fontWeight: 600, fontFamily: 'monospace' }}>{payment.id}</span>
-                                        </div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                          <span style={{ color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.7)' }}>Amount:</span>
-                                          <span style={{ color: colours.green, fontWeight: 600 }}>£{payment.amount} {payment.currency}</span>
-                                        </div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                          <span style={{ color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.7)' }}>Status:</span>
-                                          <span style={{ 
-                                            color: payment.payment_status === 'succeeded' || payment.payment_status === 'confirmed' ? colours.green : 
-                                                   payment.payment_status === 'processing' ? colours.orange : colours.red,
-                                            fontWeight: 600,
-                                            textTransform: 'capitalize'
-                                          }}>
-                                            {payment.payment_status}
-                                          </span>
-                                        </div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                          <span style={{ color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.7)' }}>Internal Status:</span>
-                                          <span style={{ 
-                                            color: payment.internal_status === 'completed' ? colours.green : colours.orange,
-                                            fontWeight: 600,
-                                            textTransform: 'capitalize'
-                                          }}>
-                                            {payment.internal_status}
-                                          </span>
-                                        </div>
-                                      </div>
+                                  <div style={{ fontSize: '26px', fontWeight: 700, color: colours.green, fontFamily: 'Raleway, sans-serif' }}>
+                                    £{totalAmount.toLocaleString()}
+                                  </div>
+                                  <div style={{ fontSize: '10px', color: isDarkMode ? '#94A3B8' : '#64748B', marginTop: '6px', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 600 }}>
+                                    Total Paid
+                                  </div>
+                                </div>
+                                <div style={{
+                                  flex: 1,
+                                  background: isDarkMode ? colours.dark.cardBackground : '#FFFFFF',
+                                  border: isDarkMode ? `1px solid rgba(54, 144, 206, 0.25)` : '1px solid rgba(148, 163, 184, 0.25)',
+                                  borderRadius: '4px',
+                                  padding: '16px',
+                                  textAlign: 'center',
+                                }}>
+                                  <div style={{ fontSize: '26px', fontWeight: 700, color: isDarkMode ? '#F1F5F9' : colours.darkBlue, fontFamily: 'Raleway, sans-serif' }}>
+                                    {successCount}<span style={{ fontWeight: 700 }}>/{payments.length}</span>
+                                  </div>
+                                  <div style={{ fontSize: '10px', color: isDarkMode ? '#94A3B8' : '#64748B', marginTop: '6px', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 600 }}>
+                                    Successful
+                                  </div>
+                                </div>
+                                {dealValue && (
+                                  <div style={{
+                                    flex: 1,
+                                    background: isDarkMode ? colours.dark.cardBackground : '#FFFFFF',
+                                    border: isDarkMode ? `1px solid rgba(54, 144, 206, 0.25)` : '1px solid rgba(148, 163, 184, 0.25)',
+                                    borderRadius: '4px',
+                                    padding: '16px',
+                                    textAlign: 'center',
+                                  }}>
+                                    <div style={{ fontSize: '26px', fontWeight: 700, color: isDarkMode ? colours.highlight : colours.highlight, fontFamily: 'Raleway, sans-serif' }}>
+                                      £{parseFloat(dealValue).toLocaleString()}
                                     </div>
-
-                                    {/* Service Details */}
-                                    <div>
-                                      <h4 style={{ 
-                                        margin: '0 0 8px 0', 
-                                        fontSize: '12px', 
-                                        fontWeight: 600, 
-                                        color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.85)',
-                                        textTransform: 'uppercase',
-                                        letterSpacing: '0.025em'
-                                      }}>
-                                        Service Information
-                                      </h4>
-                                      <div style={{ fontSize: '10px', color: isDarkMode ? colours.dark.text : colours.light.text, lineHeight: '1.6', display: 'grid', gap: '4px' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                                          <span style={{ color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.7)', flexShrink: 0 }}>Instruction:</span>
-                                          <span style={{ fontWeight: 600, fontFamily: 'monospace', textAlign: 'right' }}>{payment.instruction_ref}</span>
-                                        </div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                                          <span style={{ color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.7)', flexShrink: 0 }}>Service:</span>
-                                          <span style={{ fontWeight: 500, textAlign: 'right', wordBreak: 'break-word' }}>
-                                            {payment.service_description || 'Not specified'}
-                                          </span>
-                                        </div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                                          <span style={{ color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.7)', flexShrink: 0 }}>Area of Work:</span>
-                                          <span style={{ fontWeight: 500, textAlign: 'right' }}>{payment.area_of_work || 'Not specified'}</span>
-                                        </div>
-                                        {payment.receipt_url && (
-                                          <div style={{ marginTop: '4px' }}>
-                                            <a 
-                                              href={payment.receipt_url} 
-                                              target="_blank" 
-                                              rel="noopener noreferrer" 
-                                              style={{ 
-                                                color: colours.blue, 
-                                                textDecoration: 'none', 
-                                                fontSize: '10px',
-                                                fontWeight: 500
-                                              }}
-                                            >
-                                              View Receipt ↗
-                                            </a>
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-
-                                    {/* Timestamps & Security */}
-                                    <div>
-                                      <h4 style={{ 
-                                        margin: '0 0 8px 0', 
-                                        fontSize: '12px', 
-                                        fontWeight: 600, 
-                                        color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.85)',
-                                        textTransform: 'uppercase',
-                                        letterSpacing: '0.025em'
-                                      }}>
-                                        Timestamps & Security
-                                      </h4>
-                                      <div style={{ fontSize: '10px', color: isDarkMode ? colours.dark.text : colours.light.text, lineHeight: '1.6', display: 'grid', gap: '4px' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                                          <span style={{ color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.7)', flexShrink: 0 }}>Created:</span>
-                                          <span style={{ fontWeight: 500, fontFamily: 'monospace', textAlign: 'right', fontSize: '9px' }}>
-                                            {new Date(payment.created_at).toLocaleString('en-GB', { 
-                                              day: '2-digit', 
-                                              month: '2-digit', 
-                                              year: 'numeric', 
-                                              hour: '2-digit', 
-                                              minute: '2-digit'
-                                            })}
-                                          </span>
-                                        </div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                                          <span style={{ color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.7)', flexShrink: 0 }}>Updated:</span>
-                                          <span style={{ fontWeight: 500, fontFamily: 'monospace', textAlign: 'right', fontSize: '9px' }}>
-                                            {new Date(payment.updated_at).toLocaleString('en-GB', { 
-                                              day: '2-digit', 
-                                              month: '2-digit', 
-                                              year: 'numeric', 
-                                              hour: '2-digit', 
-                                              minute: '2-digit'
-                                            })}
-                                          </span>
-                                        </div>
-                                        {payment.client_secret && (
-                                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                                            <span style={{ color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.7)', flexShrink: 0 }}>Secret:</span>
-                                            <span style={{ 
-                                              fontFamily: 'monospace', 
-                                              fontSize: '9px', 
-                                              color: colours.greyText,
-                                              textAlign: 'right',
-                                              maxWidth: '120px',
-                                              overflow: 'hidden',
-                                              textOverflow: 'ellipsis',
-                                              whiteSpace: 'nowrap'
-                                            }}>
-                                              {payment.client_secret.substring(0, 20)}...
-                                            </span>
-                                          </div>
-                                        )}
-                                      </div>
+                                    <div style={{ fontSize: '10px', color: isDarkMode ? '#94A3B8' : '#64748B', marginTop: '6px', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 600 }}>
+                                      Deal Value
                                     </div>
                                   </div>
+                                )}
+                              </div>
 
-                                  {/* Metadata Section - Expandable */}
-                                  {payment.metadata && (
-                                    <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.06)'}` }}>
-                                      <button
-                                        onClick={() => toggleSection(`payment-metadata-${index}`)}
-                                        style={{
-                                          background: 'none',
-                                          border: 'none',
-                                          color: colours.greyText,
-                                          fontSize: '11px',
-                                          cursor: 'pointer',
-                                          display: 'flex',
-                                          alignItems: 'center',
-                                          gap: '6px',
-                                          padding: '2px 0',
-                                          fontWeight: 500
-                                        }}
-                                      >
-                                        <span style={{ 
-                                          transform: expandedSections[`payment-metadata-${index}`] ? 'rotate(90deg)' : 'rotate(0deg)', 
-                                          transition: 'transform 0.2s' 
-                                        }}>
-                                          ▶
-                                        </span>
-                                        <span>Transaction Metadata</span>
-                                      </button>
-                                      
-                                      {expandedSections[`payment-metadata-${index}`] && (
-                                        <div style={{ 
-                                          marginTop: '6px',
-                                          background: isDarkMode ? 'rgba(0, 0, 0, 0.3)' : 'rgba(248, 250, 252, 0.8)', 
-                                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.06)'}`, 
-                                          borderRadius: '6px', 
-                                          padding: '8px', 
-                                          fontSize: '9px', 
-                                          fontFamily: 'Monaco, Consolas, monospace',
-                                          color: isDarkMode ? '#e5e5e5' : '#374151',
-                                          maxHeight: '100px',
-                                          overflowY: 'auto'
-                                        }}>
-                                          <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
-                                            {typeof payment.metadata === 'string' ? payment.metadata : JSON.stringify(payment.metadata, null, 2)}
-                                          </pre>
+                              {/* Payment Ledger */}
+                              {payments.length > 0 ? (
+                                <div style={{
+                                  background: isDarkMode ? colours.dark.cardBackground : '#ffffff',
+                                  border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(148, 163, 184, 0.25)'}`,
+                                  borderRadius: '4px',
+                                  overflow: 'visible',
+                                  fontFamily: 'Raleway, sans-serif',
+                                }}>
+                                  {/* Header Row */}
+                                  <div style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: '24px 100px 1fr 80px 80px 32px',
+                                    gap: '12px',
+                                    padding: '10px 16px',
+                                    alignItems: 'center',
+                                    position: 'sticky',
+                                    top: 0,
+                                    zIndex: 100,
+                                    background: isDarkMode 
+                                      ? 'rgba(15, 23, 42, 0.95)'
+                                      : 'rgba(255, 255, 255, 0.95)',
+                                    backdropFilter: 'blur(12px)',
+                                    borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)'}`,
+                                    fontFamily: 'Raleway, sans-serif',
+                                    fontSize: '10px',
+                                    fontWeight: 500,
+                                    color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.5px',
+                                    boxShadow: isDarkMode 
+                                      ? '0 2px 8px rgba(0, 0, 0, 0.3)'
+                                      : '0 2px 8px rgba(0, 0, 0, 0.08)',
+                                  }}>
+                                    <div></div>
+                                    <div>Amount</div>
+                                    <div>Description</div>
+                                    <div>Status</div>
+                                    <div>Date</div>
+                                    <div></div>
+                                  </div>
+                                  
+                                  {/* Data Rows */}
+                                  {payments.map((payment: any, index: number) => {
+                                    const isRemoving = removingPayments.has(payment.id);
+                                    const status = payment.payment_status || payment.internal_status || 'unknown';
+                                    const isSuccess = status === 'succeeded' || status === 'confirmed' || status === 'completed';
+                                    const isFailed = status === 'failed' || status === 'canceled';
+                                    const isPending = !isSuccess && !isFailed;
+                                    
+                                    // Parse metadata if it's a string
+                                    let metadata: any = {};
+                                    try {
+                                      metadata = typeof payment.metadata === 'string' ? JSON.parse(payment.metadata) : (payment.metadata || {});
+                                    } catch { metadata = {}; }
+                                    
+                                    // Parse webhook events for timeline
+                                    let webhookEvents: any[] = [];
+                                    try {
+                                      webhookEvents = typeof payment.webhook_events === 'string' ? JSON.parse(payment.webhook_events) : (payment.webhook_events || []);
+                                    } catch { webhookEvents = []; }
+                                    
+                                    const serviceDesc = payment.service_description || metadata.serviceDescription;
+                                    const areaOfWork = payment.area_of_work || metadata.areaOfWork;
+                                    const product = metadata.product;
+                                    const source = metadata.source;
+                                    const isExpanded = expandedSections[`payment-${payment.id}`];
+                                    const isLast = index === payments.length - 1;
+                                    
+                                    return (
+                                      <div key={payment.id || index} style={{
+                                        opacity: isRemoving ? 0.5 : 1,
+                                        transition: 'all 0.2s ease',
+                                      }}>
+                                        {/* Main Row */}
+                                        <div 
+                                          style={{
+                                            display: 'grid',
+                                            gridTemplateColumns: '24px 100px 1fr 80px 80px 32px',
+                                            gap: '12px',
+                                            padding: '12px 16px',
+                                            alignItems: 'center',
+                                            cursor: 'pointer',
+                                            borderBottom: isExpanded || isLast ? 'none' : `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)'}`,
+                                            background: isExpanded 
+                                              ? (isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(54, 144, 206, 0.04)')
+                                              : (index % 2 === 0 ? (isDarkMode ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.01)') : 'transparent'),
+                                            transition: 'background 0.15s ease',
+                                          }}
+                                          onClick={() => toggleSection(`payment-${payment.id}`)}
+                                          onMouseEnter={(e) => {
+                                            if (!isExpanded) e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)';
+                                          }}
+                                          onMouseLeave={(e) => {
+                                            if (!isExpanded) e.currentTarget.style.background = 'transparent';
+                                          }}
+                                        >
+                                          {/* Status Indicator */}
+                                          <div style={{ display: 'flex', justifyContent: 'center' }}>
+                                            <div style={{
+                                              width: '8px',
+                                              height: '8px',
+                                              borderRadius: '50%',
+                                              background: isSuccess ? colours.green : isFailed ? colours.cta : colours.orange
+                                            }} />
+                                          </div>
+                                          
+                                          {/* Amount */}
+                                          <div style={{ 
+                                            fontSize: '14px', 
+                                            fontWeight: 600, 
+                                            color: isDarkMode ? colours.dark.text : colours.darkBlue,
+                                          }}>
+                                            £{parseFloat(payment.amount || 0).toLocaleString()}
+                                          </div>
+                                          
+                                          {/* Description / Area */}
+                                          <div style={{ overflow: 'hidden' }}>
+                                            {serviceDesc ? (
+                                              <div style={{ 
+                                                fontSize: '12px', 
+                                                color: isDarkMode ? colours.dark.text : colours.darkBlue,
+                                                whiteSpace: 'nowrap',
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis'
+                                              }}>
+                                                {serviceDesc}
+                                              </div>
+                                            ) : areaOfWork ? (
+                                              <div style={{ 
+                                                fontSize: '11px', 
+                                                color: isDarkMode ? 'rgba(255,255,255,0.6)' : colours.greyText,
+                                                textTransform: 'uppercase',
+                                                letterSpacing: '0.3px'
+                                              }}>
+                                                {areaOfWork}
+                                              </div>
+                                            ) : (
+                                              <span style={{ fontSize: '11px', color: colours.greyText }}>—</span>
+                                            )}
+                                          </div>
+                                          
+                                          {/* Status Text */}
+                                          <div style={{ 
+                                            fontSize: '10px', 
+                                            color: isSuccess ? colours.green : isFailed ? colours.cta : colours.orange,
+                                            textTransform: 'uppercase',
+                                            fontWeight: 600,
+                                            letterSpacing: '0.3px'
+                                          }}>
+                                            {status}
+                                          </div>
+                                          
+                                          {/* Date */}
+                                          <div style={{ 
+                                            fontSize: '11px', 
+                                            color: isDarkMode ? 'rgba(255,255,255,0.5)' : colours.greyText,
+                                            fontVariantNumeric: 'tabular-nums'
+                                          }}>
+                                            {new Date(payment.created_at).toLocaleDateString('en-GB', { 
+                                              day: '2-digit', 
+                                              month: 'short'
+                                            })}
+                                          </div>
+                                          
+                                          {/* Expand Chevron */}
+                                          <div style={{ 
+                                            display: 'flex', 
+                                            justifyContent: 'center',
+                                            fontSize: '10px', 
+                                            color: isDarkMode ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)',
+                                            transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                                            transition: 'transform 0.2s'
+                                          }}>
+                                            ▶
+                                          </div>
                                         </div>
-                                      )}
-                                    </div>
+                                        
+                                        {/* Expanded Details */}
+                                        {isExpanded && (
+                                          <div style={{
+                                            padding: '16px',
+                                            borderTop: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.12)' : 'rgba(148, 163, 184, 0.18)'}`,
+                                            borderBottom: !isLast ? `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.12)' : 'rgba(148, 163, 184, 0.18)'}` : 'none',
+                                            background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#F8FAFC'
+                                          }}>
+                                            {/* Service Description */}
+                                            {serviceDesc && (
+                                              <div style={{ 
+                                                padding: '12px 16px',
+                                                background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#FFFFFF',
+                                                border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.12)' : 'rgba(148, 163, 184, 0.18)'}`,
+                                                borderLeft: `3px solid ${isDarkMode ? '#7DD3FC' : colours.highlight}`,
+                                                borderRadius: '4px',
+                                                marginBottom: '12px'
+                                              }}>
+                                                <div style={{ 
+                                                  fontSize: '12px', 
+                                                  color: isDarkMode ? '#F1F5F9' : '#1E293B',
+                                                  lineHeight: '1.5'
+                                                }}>
+                                                  {serviceDesc}
+                                                </div>
+                                              </div>
+                                            )}
+                                            
+                                            {/* Payment Details - 2 column grid */}
+                                            <div style={{ 
+                                              display: 'grid',
+                                              gridTemplateColumns: '1fr 1fr',
+                                              gap: '8px',
+                                              background: 'transparent'
+                                            }}>
+                                              {product && (
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 12px', background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#FFFFFF', border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.12)' : 'rgba(148, 163, 184, 0.18)'}`, borderRadius: '4px' }}>
+                                                  <span style={{ fontSize: '10px', color: isDarkMode ? '#94A3B8' : '#64748B', textTransform: 'uppercase', letterSpacing: '0.3px' }}>Product</span>
+                                                  <span style={{ fontSize: '11px', color: isDarkMode ? '#F1F5F9' : '#1E293B', fontWeight: 500 }}>{product}</span>
+                                                </div>
+                                              )}
+                                              {source && (
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 12px', background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#FFFFFF', border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.12)' : 'rgba(148, 163, 184, 0.18)'}`, borderRadius: '4px' }}>
+                                                  <span style={{ fontSize: '10px', color: isDarkMode ? '#94A3B8' : '#64748B', textTransform: 'uppercase', letterSpacing: '0.3px' }}>Source</span>
+                                                  <span style={{ fontSize: '11px', color: isDarkMode ? '#F1F5F9' : '#1E293B', fontWeight: 500, textTransform: 'capitalize' }}>{source.replace(/_/g, ' ')}</span>
+                                                </div>
+                                              )}
+                                              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 12px', background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#FFFFFF', border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.12)' : 'rgba(148, 163, 184, 0.18)'}`, borderRadius: '4px' }}>
+                                                <span style={{ fontSize: '10px', color: isDarkMode ? '#94A3B8' : '#64748B', textTransform: 'uppercase', letterSpacing: '0.3px' }}>Currency</span>
+                                                <span style={{ fontSize: '11px', color: isDarkMode ? '#F1F5F9' : '#1E293B', fontWeight: 500 }}>{payment.currency || 'GBP'}</span>
+                                              </div>
+                                              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 12px', background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#FFFFFF', border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.12)' : 'rgba(148, 163, 184, 0.18)'}`, borderRadius: '4px' }}>
+                                                <span style={{ fontSize: '10px', color: isDarkMode ? '#94A3B8' : '#64748B', textTransform: 'uppercase', letterSpacing: '0.3px' }}>Payment ID</span>
+                                                <span style={{ fontSize: '10px', color: isDarkMode ? '#94A3B8' : '#64748B', fontFamily: 'monospace' }}>{payment.id?.slice(0, 12)}...</span>
+                                              </div>
+                                              {(payment.instruction_ref || metadata.instructionRef) && (
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 12px', background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#FFFFFF', border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.12)' : 'rgba(148, 163, 184, 0.18)'}`, borderRadius: '4px', gridColumn: 'span 2' }}>
+                                                  <span style={{ fontSize: '10px', color: isDarkMode ? '#94A3B8' : '#64748B', textTransform: 'uppercase', letterSpacing: '0.3px' }}>Instruction Ref</span>
+                                                  <span style={{ fontSize: '11px', color: isDarkMode ? '#7DD3FC' : colours.highlight, fontFamily: 'monospace', fontWeight: 600 }}>{payment.instruction_ref || metadata.instructionRef}</span>
+                                                </div>
+                                              )}
+                                            </div>
+                                            
+                                            {/* Payment Timeline */}
+                                            {webhookEvents.length > 0 && (
+                                              <div style={{ marginTop: '12px' }}>
+                                                <div style={{ 
+                                                  fontSize: '10px', 
+                                                  color: isDarkMode ? '#94A3B8' : '#64748B',
+                                                  marginBottom: '8px',
+                                                  textTransform: 'uppercase',
+                                                  letterSpacing: '0.5px',
+                                                  fontWeight: 600
+                                                }}>
+                                                  Payment Journey
+                                                </div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '0', flexWrap: 'wrap' }}>
+                                                  {webhookEvents.map((event: any, i: number) => {
+                                                    const eventName = event.type?.replace('payment_intent.', '') || 'unknown';
+                                                    const isLastEvent = i === webhookEvents.length - 1;
+                                                    const eventColor = eventName === 'succeeded' ? colours.green 
+                                                      : eventName === 'failed' ? colours.cta 
+                                                      : eventName === 'requires_action' ? colours.orange
+                                                      : isDarkMode ? '#94A3B8' : '#64748B';
+                                                    
+                                                    return (
+                                                      <React.Fragment key={i}>
+                                                        <div 
+                                                          style={{
+                                                            fontSize: '9px',
+                                                            padding: '4px 10px',
+                                                            background: isLastEvent ? eventColor : (isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#FFFFFF'),
+                                                            border: isLastEvent ? 'none' : `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.12)' : 'rgba(148, 163, 184, 0.18)'}`,
+                                                            borderRadius: '3px',
+                                                            color: isLastEvent ? '#FFFFFF' : (isDarkMode ? '#F1F5F9' : '#1E293B'),
+                                                            fontWeight: isLastEvent ? 600 : 400,
+                                                            textTransform: 'uppercase',
+                                                            letterSpacing: '0.3px'
+                                                          }}
+                                                          title={event.timestamp ? new Date(event.timestamp).toLocaleString() : undefined}
+                                                        >
+                                                          {eventName.replace(/_/g, ' ')}
+                                                        </div>
+                                                        {i < webhookEvents.length - 1 && (
+                                                          <div style={{ 
+                                                            width: '16px', 
+                                                            height: '1px', 
+                                                            background: isDarkMode ? 'rgba(125, 211, 252, 0.2)' : 'rgba(148, 163, 184, 0.25)' 
+                                                          }} />
+                                                        )}
+                                                      </React.Fragment>
+                                                    );
+                                                  })}
+                                                </div>
+                                              </div>
+                                            )}
+                                            
+                                            {/* Action Buttons */}
+                                            <div style={{ 
+                                              display: 'flex', 
+                                              gap: '12px', 
+                                              marginTop: '12px',
+                                              paddingTop: '16px',
+                                              borderTop: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.12)' : 'rgba(148, 163, 184, 0.18)'}`
+                                            }}>
+                                              {payment.receipt_url && (
+                                                <a 
+                                                  href={payment.receipt_url} 
+                                                  target="_blank" 
+                                                  rel="noopener noreferrer"
+                                                  style={{
+                                                    fontSize: '11px',
+                                                    padding: '8px 16px',
+                                                    background: isDarkMode ? '#7DD3FC' : colours.highlight,
+                                                    borderRadius: '3px',
+                                                    color: isDarkMode ? '#0F172A' : '#FFFFFF',
+                                                    textDecoration: 'none',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '6px',
+                                                    fontWeight: 500,
+                                                    textTransform: 'uppercase',
+                                                    letterSpacing: '0.5px'
+                                                  }}
+                                                >
+                                                  View Receipt
+                                                </a>
+                                              )}
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setPaymentToDelete(payment.id);
+                                                }}
+                                                style={{
+                                                  fontSize: '11px',
+                                                  padding: '8px 16px',
+                                                  background: 'transparent',
+                                                  color: colours.cta,
+                                                  border: `1px solid ${colours.cta}`,
+                                                  cursor: 'pointer',
+                                                  fontWeight: 500,
+                                                  textTransform: 'uppercase',
+                                                  letterSpacing: '0.5px'
+                                                }}
+                                              >
+                                                Delete
+                                              </button>
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <div style={{
+                                  padding: '40px',
+                                  textAlign: 'center',
+                                  color: colours.greyText,
+                                  background: isDarkMode ? colours.dark.sectionBackground : '#FFFFFF',
+                                  border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`
+                                }}>
+                                  <div style={{ fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '1px' }}>No payments recorded</div>
+                                </div>
+                              )}
+
+                              {/* Expandable Raw Data */}
+                              {payments.length > 0 && (
+                                <div style={{ marginTop: '16px' }}>
+                                  <button
+                                    onClick={() => toggleSection('payment-raw')}
+                                    style={{
+                                      background: 'none',
+                                      border: 'none',
+                                      color: colours.greyText,
+                                      fontSize: '10px',
+                                      cursor: 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '6px',
+                                      padding: 0,
+                                      textTransform: 'uppercase',
+                                      letterSpacing: '0.5px'
+                                    }}
+                                  >
+                                    <span style={{ 
+                                      transform: expandedSections['payment-raw'] ? 'rotate(90deg)' : 'rotate(0deg)', 
+                                      transition: 'transform 0.2s',
+                                      fontSize: '8px'
+                                    }}>▶</span>
+                                    Raw data
+                                  </button>
+                                  
+                                  {expandedSections['payment-raw'] && (
+                                    <pre style={{ 
+                                      marginTop: '8px',
+                                      padding: '8px',
+                                      background: isDarkMode ? 'rgba(0, 0, 0, 0.3)' : 'rgba(0, 0, 0, 0.02)',
+                                      borderRadius: '4px',
+                                      fontSize: '9px',
+                                      fontFamily: 'monospace',
+                                      color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.6)',
+                                      overflow: 'auto',
+                                      maxHeight: '200px',
+                                      whiteSpace: 'pre-wrap',
+                                      wordBreak: 'break-word'
+                                    }}>
+                                      {JSON.stringify(payments, null, 2)}
+                                    </pre>
                                   )}
                                 </div>
-                              );
-                              })}
-                            </div>
-                          ) : (
-                            <div style={{
-                              padding: '24px',
-                              textAlign: 'center',
-                              color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.6)',
-                              background: isDarkMode ? 'rgba(15, 23, 42, 0.88)' : '#FFFFFF',
-                              borderRadius: '10px',
-                              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.06)'}`,
-                              boxShadow: isDarkMode ? '0 2px 10px rgba(0, 0, 0, 0.22)' : '0 2px 8px rgba(15, 23, 42, 0.06)'
-                            }}>
-                              <div style={{ 
-                                fontSize: '40px', 
-                                marginBottom: '12px',
-                                opacity: 0.3
-                              }}>
-                                💳
-                              </div>
-                              <h3 style={{ 
-                                margin: '0 0 8px 0', 
-                                fontSize: '14px', 
-                                fontWeight: 600,
-                                color: isDarkMode ? colours.dark.text : colours.light.text
-                              }}>
-                                No Payment Transactions
-                              </h3>
-                              <p style={{ 
-                                margin: 0, 
-                                fontSize: '11px',
-                                lineHeight: 1.5
-                              }}>
-                                No payment transactions have been recorded for this instruction yet.
-                              </p>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Technical Details - Expandable */}
-                        {selectedOverviewItem?.instruction?.payments?.length > 0 && (
-                          <div style={{
-                            background: workbenchCardBackground(isDarkMode),
-                            borderRadius: '12px',
-                            padding: '12px',
-                            border: `1px solid ${workbenchBorderColour(isDarkMode)}`,
-                            boxShadow: isDarkMode ? '0 6px 16px rgba(2, 6, 23, 0.35)' : '0 6px 16px rgba(15, 23, 42, 0.08)'
-                          }}>
-                            <button
-                              onClick={() => toggleSection('payment-raw')}
-                              style={{
-                                width: '100%',
-                                background: 'none',
-                                border: 'none',
-                                color: colours.greyText,
-                                fontSize: '11px',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                padding: '4px 0'
-                              }}
-                            >
-                              <span>Technical Details & Raw Payment Records ({selectedOverviewItem?.instruction?.payments?.length || 0} Transactions)</span>
-                              <div style={{ 
-                                transform: expandedSections['payment-raw'] ? 'rotate(180deg)' : 'rotate(0deg)', 
-                                transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                                display: 'flex',
-                                alignItems: 'center'
-                              }}>
-                                <MdExpandMore size={14} />
-                              </div>
-                            </button>
-                            
-                            {expandedSections['payment-raw'] && (
-                              <div style={{ 
-                                marginTop: '12px',
-                                background: isDarkMode ? '#1a1a1a' : '#ffffff', 
-                                border: `1px solid ${isDarkMode ? colours.dark.border : '#e2e8f0'}`, 
-                                borderRadius: '6px', 
-                                padding: '12px', 
-                                fontSize: '10px', 
-                                fontFamily: 'Monaco, Consolas, monospace',
-                                maxHeight: '300px',
-                                overflowY: 'auto',
-                                color: isDarkMode ? '#e5e5e5' : '#374151'
-                              }}>
-                                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                                  {JSON.stringify(selectedOverviewItem?.instruction?.payments || [], null, 2)}
-                                </pre>
-                              </div>
-                            )}
-                          </div>
-                        )}
+                              )}
+                            </>
+                          );
+                        })()}
                       </div>
                     )}
 
@@ -8475,7 +7719,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                               color: colours.orange,
                               fontWeight: 600
                             }}>
-                              📦 Archive (Recommended)
+                              Archive (Recommended)
                             </p>
                             <p style={{
                               margin: 0,
@@ -8498,7 +7742,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                               color: colours.red,
                               fontWeight: 600
                             }}>
-                              🗑️ Delete Permanently
+                              Delete Permanently
                             </p>
                             <p style={{
                               margin: 0,
@@ -8512,7 +7756,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                             padding: '8px 12px',
                             background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.05)',
                             borderRadius: '6px',
-                            marginBottom: '20px'
+                            marginBottom: '12px'
                           }}>
                             <p style={{
                               margin: 0,
@@ -8522,6 +7766,34 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                             }}>
                               Payment ID: {paymentToDelete}
                             </p>
+                          </div>
+                          <div style={{ marginBottom: '16px' }}>
+                            <label style={{
+                              display: 'block',
+                              fontSize: '11px',
+                              color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : '#6b7280',
+                              marginBottom: '6px'
+                            }}>
+                              Enter passcode to confirm:
+                            </label>
+                            <input
+                              type="password"
+                              id="payment-delete-passcode"
+                              placeholder="••••"
+                              maxLength={4}
+                              style={{
+                                width: '100%',
+                                padding: '8px 12px',
+                                borderRadius: '6px',
+                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.15)'}`,
+                                background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#f9fafb',
+                                color: isDarkMode ? colours.dark.text : '#1f2937',
+                                fontSize: '14px',
+                                fontFamily: 'monospace',
+                                letterSpacing: '4px',
+                                textAlign: 'center'
+                              }}
+                            />
                           </div>
                           <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                             <button
@@ -8540,7 +7812,14 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                               Cancel
                             </button>
                             <button
-                              onClick={() => handleDeletePayment(paymentToDelete, true)}
+                              onClick={() => {
+                                const passcode = (document.getElementById('payment-delete-passcode') as HTMLInputElement)?.value;
+                                if (passcode !== '2011') {
+                                  alert('Incorrect passcode');
+                                  return;
+                                }
+                                handleDeletePayment(paymentToDelete, true);
+                              }}
                               style={{
                                 padding: '8px 16px',
                                 borderRadius: '6px',
@@ -8555,7 +7834,14 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                               Archive
                             </button>
                             <button
-                              onClick={() => handleDeletePayment(paymentToDelete, false)}
+                              onClick={() => {
+                                const passcode = (document.getElementById('payment-delete-passcode') as HTMLInputElement)?.value;
+                                if (passcode !== '2011') {
+                                  alert('Incorrect passcode');
+                                  return;
+                                }
+                                handleDeletePayment(paymentToDelete, false);
+                              }}
                               style={{
                                 padding: '8px 16px',
                                 borderRadius: '6px',
@@ -8576,44 +7862,105 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
 
                     {activeWorkbenchTab === 'documents' && (
                       <div>
-                        
                         <div>
-                          <h4 style={{ margin: '0 0 12px 0', fontSize: '12px', fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>Document Library</h4>
                           {selectedOverviewItem?.instruction?.documents && selectedOverviewItem.instruction.documents.length > 0 ? (
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
-                              {selectedOverviewItem.instruction.documents.map((doc: any, index: number) => (
-                                <div
-                                  key={index}
-                                  style={{
-                                    padding: '12px',
-                                    border: `1px solid ${isDarkMode ? colours.dark.border : '#e2e8f0'}`,
-                                    borderRadius: '6px',
-                                    background: isDarkMode ? 'rgba(255,255,255,0.02)' : '#f8fafc',
-                                    cursor: 'pointer'
-                                  }}
-                                  onClick={() => {
-                                    // Open document preview modal
-                                    handleDocumentPreview(doc, selectedInstruction?.InstructionRef || '');
-                                  }}
-                                >
-                                  <div style={{ fontSize: '11px', fontWeight: 600, marginBottom: '4px', color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                                    {doc.FileName || doc.filename || doc.DocumentName || `Document ${index + 1}`}
+                            <div style={{
+                              backgroundColor: isDarkMode ? colours.dark.cardBackground : '#ffffff',
+                              border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(0, 0, 0, 0.08)'}`,
+                              borderRadius: 2,
+                              overflow: 'visible',
+                              fontFamily: 'Raleway, sans-serif',
+                            }}>
+                              {/* Header Row */}
+                              <div style={{
+                                display: 'grid',
+                                gridTemplateColumns: '1fr 100px 32px',
+                                gap: '12px',
+                                padding: '10px 16px',
+                                alignItems: 'center',
+                                position: 'sticky',
+                                top: 0,
+                                zIndex: 100,
+                                background: isDarkMode 
+                                  ? 'rgba(11, 30, 55, 0.95)'
+                                  : 'rgba(255, 255, 255, 0.95)',
+                                backdropFilter: 'blur(12px)',
+                                borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(0, 0, 0, 0.08)'}`,
+                                fontFamily: 'Raleway, sans-serif',
+                                fontSize: '10px',
+                                fontWeight: 500,
+                                color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.5px',
+                              }}>
+                                <div>Document</div>
+                                <div>Size</div>
+                                <div></div>
+                              </div>
+                              
+                              {/* Data Rows */}
+                              {selectedOverviewItem.instruction.documents.map((doc: any, index: number) => {
+                                const isLast = index === selectedOverviewItem.instruction.documents.length - 1;
+                                return (
+                                  <div
+                                    key={index}
+                                    style={{
+                                      display: 'grid',
+                                      gridTemplateColumns: '1fr 100px 32px',
+                                      gap: '12px',
+                                      padding: '12px 16px',
+                                      alignItems: 'center',
+                                      cursor: 'pointer',
+                                      borderBottom: isLast ? 'none' : `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(0, 0, 0, 0.04)'}`,
+                                      transition: 'background 0.15s ease'
+                                    }}
+                                    onMouseEnter={(e) => {
+                                      e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      e.currentTarget.style.background = 'transparent';
+                                    }}
+                                    onClick={() => {
+                                      handleDocumentPreview(doc, selectedInstruction?.InstructionRef || '');
+                                    }}
+                                  >
+                                    <div style={{ 
+                                      fontSize: '12px', 
+                                      fontWeight: 500, 
+                                      color: isDarkMode ? colours.dark.text : colours.darkBlue,
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      whiteSpace: 'nowrap'
+                                    }}>
+                                      {doc.FileName || doc.filename || doc.DocumentName || `Document ${index + 1}`}
+                                    </div>
+                                    <div style={{ 
+                                      fontSize: '11px', 
+                                      color: colours.greyText,
+                                      fontVariantNumeric: 'tabular-nums'
+                                    }}>
+                                      {doc.FileSizeBytes ? formatBytes(doc.FileSizeBytes) : (doc.filesize ? formatBytes(doc.filesize) : '—')}
+                                    </div>
+                                    <div style={{ 
+                                      display: 'flex', 
+                                      justifyContent: 'center',
+                                      fontSize: '10px', 
+                                      color: isDarkMode ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)'
+                                    }}>
+                                      ▶
+                                    </div>
                                   </div>
-                                  <div style={{ fontSize: '10px', color: isDarkMode ? colours.dark.subText : '#64748b' }}>
-                                    Size: {doc.FileSizeBytes ? formatBytes(doc.FileSizeBytes) : (doc.filesize ? formatBytes(doc.filesize) : 'Unknown')}
-                                  </div>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           ) : (
                             <div style={{
-                              padding: '20px',
+                              padding: '24px',
                               textAlign: 'center',
-                              color: isDarkMode ? colours.dark.subText : '#64748b',
-                              fontSize: '12px',
-                              fontStyle: 'italic'
+                              color: colours.greyText,
+                              fontSize: '12px'
                             }}>
-                              No documents uploaded yet
+                              No documents uploaded
                             </div>
                           )}
                         </div>

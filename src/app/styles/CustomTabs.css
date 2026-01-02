@@ -2,7 +2,6 @@
 /* Remove bold text */
 .customPivot .ms-Pivot-link {
   font-weight: normal !important;
-  /* Remove bold */
 }
 
 /* Grey out the disabled tab and change the cursor */
@@ -11,60 +10,60 @@
   cursor: not-allowed !important;
 }
 
-/* Hover state: Soft background change and shadow for interactivity */
+/* Base tab styling */
 .customPivot .ms-Pivot-link {
   opacity: 0;
   animation: dropIn 0.3s ease forwards;
   position: relative;
   border-bottom: none;
   padding: 0 16px;
-  transition: background-color 0.2s, color 0.2s, transform 0.1s, box-shadow 0.2s;
+  transition: color 0.15s ease, background-color 0.15s ease;
+  background-color: transparent !important;
 }
 
-/* Dark mode text color handled in TypeScript inline styles */
-
-.customPivot .ms-Pivot-link:hover {
-  background-color: rgba(255, 255, 255, 0.1);
-  /* Soft background for hover */
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  /* Subtle shadow for hover effect */
+/* Hover state - colour and background */
+.theme-light .customPivot .ms-Pivot-link:hover {
+  color: var(--helix-highlight, #3690CE);
+  background-color: transparent;
 }
 
-/* Press state: Refined feedback with subtle inset and glow */
+.theme-dark .customPivot .ms-Pivot-link:hover {
+  color: #7dd3fc;
+  background-color: transparent;
+}
+
+/* Press state */
 .customPivot .ms-Pivot-link:active {
-  background-color: rgba(54, 144, 206, 0.12) !important;
-  /* Light highlight tint on press */
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(54, 144, 206, 0.2) !important;
-  /* Subtle inset + border glow */
-  transform: translateY(1px);
-  /* Slight downward shift for tactile feel */
-  color: var(--helix-highlight) !important;
-  /* Highlight color on press */
+  opacity: 0.7;
 }
 
-/* Selected/Active state: Strong visual indicator below the tab */
+/* Selected/Active state */
 .customPivot .ms-Pivot-link[aria-selected='true'] {
   color: var(--helix-highlight, #3690CE);
-  /* Highlight color */
-  background-color: rgba(255, 255, 255, 0.1);
-  /* Keep hover white pane effect */
 }
 
-/* Remove Fluent UI's default underline */
+/* Separator between tabs */
 .customPivot .ms-Pivot-link::before {
   content: '';
   position: absolute;
   right: 0;
   top: 50%;
   transform: translateY(-50%);
-  height: 20px;
+  height: 16px;
   width: 1px;
-  background-color: rgba(0, 0, 0, 0.08);
-  transition: opacity 0.2s;
+  transition: opacity 0.15s;
 }
 
-/* Hide separator on last tab */
-.customPivot .ms-Pivot-link:last-child::before {
+.theme-light .customPivot .ms-Pivot-link::before {
+  background-color: rgba(0, 0, 0, 0.06);
+}
+
+.theme-dark .customPivot .ms-Pivot-link::before {
+  background-color: rgba(54, 144, 206, 0.25);
+}
+
+/* Hide separator on second tab (first visible tab, after hidden Home) */
+.customPivot .ms-Pivot-link:nth-child(2)::before {
   display: none;
 }
 
@@ -75,40 +74,30 @@
   opacity: 0;
 }
 
-/* Dark mode separator */
-body.dark-mode .customPivot .ms-Pivot-link::before {
-  background-color: rgba(255, 255, 255, 0.1);
-}
-
-/* Underline animation on hover and selection */
-/* Ensure underline stays hidden initially */
+/* Underline indicator */
 .customPivot .ms-Pivot-link::after {
   content: '';
   position: absolute;
   left: 50%;
   bottom: 0;
   height: 2px;
-  width: 100%;
+  width: calc(100% - 24px);
+  border-radius: 1px;
+  transform: translateX(-50%) scaleX(0);
+  transform-origin: center;
+  transition: transform 0.2s ease;
+}
+
+.customPivot .ms-Pivot-link::after {
   background-color: var(--helix-highlight, #3690CE);
-  transform: translateX(-50%) scaleX(0); /* Hidden initially */
-  transform-origin: center; /* Start the animation from the centre */
-  transition: transform 0.3s ease-out; /* Smooth ease-in/ease-out transition */
 }
 
-/* Animate underline on hover and selection */
-.customPivot .ms-Pivot-link:hover::after,
-.customPivot .ms-Pivot-link[aria-selected='true']::after {
-  transform: translateX(-50%) scaleX(1); /* Animate from centre */
-}
-
-/* Ensure underline stays visible when hovered or selected */
-.customPivot .ms-Pivot-link:hover::after,
+/* Full underline when selected */
 .customPivot .ms-Pivot-link[aria-selected='true']::after {
   transform: translateX(-50%) scaleX(1);
-  /* Ensure it animates immediately */
 }
 
-/* Home icon styles (active shade on selection, no focus outline) */
+/* Home icon */
 .home-icon {
   display: flex;
   align-items: center;
@@ -117,13 +106,12 @@ body.dark-mode .customPivot .ms-Pivot-link::before {
   height: 48px;
   cursor: pointer;
   position: relative;
-  transition: background-color 0.15s, transform 0.1s;
+  transition: color 0.15s ease;
 }
 
-/* Icon-hover pattern for home icon - ensure proper centering */
 .home-icon .icon-outline,
 .home-icon .icon-filled {
-  transition: opacity 0.2s ease;
+  transition: opacity 0.15s ease;
 }
 
 .home-icon .icon-outline {
@@ -144,38 +132,30 @@ body.dark-mode .customPivot .ms-Pivot-link::before {
   opacity: 1;
 }
 
+.theme-light .home-icon:hover {
+  color: var(--helix-highlight, #3690CE);
+}
+
+.theme-dark .home-icon:hover {
+  color: #7dd3fc;
+}
+
 .home-icon:active {
-  transform: translateY(1px);
-  background-color: rgba(54, 144, 206, 0.12);
-  /* Light highlight tint on press */
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(54, 144, 206, 0.2);
-  /* Subtle inset + border glow matching tabs */
-  color: var(--helix-highlight);
-  /* Highlight color on press */
+  opacity: 0.7;
 }
 
 .home-icon:focus {
   outline: none;
-  /* Remove focus outline */
-}
-
-.home-icon:hover {
-  color: var(--helix-highlight, #3690CE);
-  /* Highlight color on hover */
-  background-color: rgba(255, 255, 255, 0.1);
-  /* Subtle background on hover */
 }
 
 .home-icon.active {
   color: var(--helix-highlight, #3690CE);
-  /* No background overlay when active - filled icon is enough */
 }
 
-/* Mobile layout tweaks */
+/* Mobile */
 @media (max-width: 600px) {
   .customTabsContainer {
     overflow-x: auto;
-    /* Horizontal scroll on small screens */
   }
 
   .customTabsContainer::-webkit-scrollbar {
@@ -183,12 +163,11 @@ body.dark-mode .customPivot .ms-Pivot-link::before {
   }
 
   .customTabsContainer::-webkit-scrollbar-thumb {
-    background-color: rgba(0, 0, 0, 0.2);
+    background-color: rgba(0, 0, 0, 0.15);
   }
 
   .home-icon {
     padding: 0 8px;
-    /* Adjust padding for mobile */
   }
 }
 
@@ -211,5 +190,99 @@ body.dark-mode .customPivot .ms-Pivot-link::before {
   }
   100% {
     box-shadow: 0 0 0 0 rgba(214, 85, 65, 0);
+  }
+}
+
+/* Enquiry Sub-tabs (Summary, Pitch Builder) */
+.enquiry-sub-tab {
+  position: relative;
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  color: rgba(60, 60, 67, 0.6);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: color 0.15s ease;
+}
+
+/* Underline */
+.enquiry-sub-tab::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  height: 2px;
+  width: calc(100% - 8px);
+  background-color: var(--helix-highlight, #3690CE);
+  border-radius: 1px;
+  transform: translateX(-50%) scaleX(0);
+  transform-origin: center;
+  transition: transform 0.2s ease;
+}
+
+/* Hover */
+.enquiry-sub-tab:hover {
+  color: rgba(60, 60, 67, 0.9);
+}
+
+/* Press */
+.enquiry-sub-tab:active {
+  opacity: 0.7;
+}
+
+/* Active/selected */
+.enquiry-sub-tab[data-active="true"] {
+  color: var(--helix-highlight, #3690CE);
+  font-weight: 600;
+}
+
+.enquiry-sub-tab[data-active="true"]::after {
+  transform: translateX(-50%) scaleX(1);
+}
+
+/* Focus visible */
+.enquiry-sub-tab:focus-visible {
+  outline: 2px solid var(--helix-highlight, #3690CE);
+  outline-offset: 2px;
+}
+
+/* Dark Mode */
+@media (prefers-color-scheme: dark) {
+  .customPivot .ms-Pivot-link:hover {
+    color: rgb(125, 211, 252);
+  }
+
+  .customPivot .ms-Pivot-link[aria-selected='true'] {
+    color: rgb(125, 211, 252);
+  }
+
+  .customPivot .ms-Pivot-link::before {
+    background-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .customPivot .ms-Pivot-link::after {
+    background-color: rgb(125, 211, 252);
+  }
+
+  .home-icon:hover,
+  .home-icon.active {
+    color: rgb(125, 211, 252);
+  }
+
+  .enquiry-sub-tab {
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  .enquiry-sub-tab::after {
+    background-color: rgb(125, 211, 252);
+  }
+
+  .enquiry-sub-tab:hover {
+    color: rgb(125, 211, 252);
+  }
+
+  .enquiry-sub-tab[data-active="true"] {
+    color: rgb(125, 211, 252);
   }
 }

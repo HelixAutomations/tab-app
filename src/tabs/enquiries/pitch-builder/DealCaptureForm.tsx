@@ -151,6 +151,7 @@ const DealCaptureForm: React.FC<DealCaptureFormProps> = ({
   const [isSaved, setIsSaved] = useState(false);
   const [amountBlurred, setAmountBlurred] = useState(false);
   const [clientsBlurred, setClientsBlurred] = useState(false);
+  const [includeVat, setIncludeVat] = useState(true);
   const descRef = useRef<HTMLDivElement>(null);
   // Inform parent components whenever the saved state changes
   useEffect(() => {
@@ -172,7 +173,7 @@ const addingClientRef = useRef(false);
     setClientsBlurred(false);
   }, [isMultiClient]);
 
-  const vat = amount ? parseFloat(amount.replace(/,/g, '')) * 0.2 : 0;
+  const vat = (amount && includeVat) ? parseFloat(amount.replace(/,/g, '')) * 0.2 : 0;
   const total = amount ? parseFloat(amount.replace(/,/g, '')) + vat : 0;
   const showPaymentInfo =
     amountBlurred &&
@@ -686,6 +687,33 @@ useLayoutEffect(() => {
                 inputMode="decimal"
               />
             </div>
+          </div>
+          
+          {/* VAT toggle for international clients */}
+          <div style={{ marginTop: '12px' }}>
+            <label 
+              style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '8px', 
+                fontSize: '12px',
+                color: isDarkMode ? colours.dark.text : colours.light.text,
+                cursor: 'pointer',
+                userSelect: 'none'
+              }}
+            >
+              <input 
+                type="checkbox" 
+                checked={includeVat} 
+                onChange={(e) => setIncludeVat(e.target.checked)}
+                style={{ 
+                  width: '14px', 
+                  height: '14px',
+                  cursor: 'pointer'
+                }}
+              />
+              Include VAT (uncheck for international clients)
+            </label>
           </div>
 
   {/* Expiry removed: validity fixed at 7 days */}

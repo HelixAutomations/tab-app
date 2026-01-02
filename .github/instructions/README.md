@@ -13,6 +13,8 @@ Each document focuses on a specific aspect of the system:
 | **DATABASE_SCHEMA_REFERENCE.md** | Database tables, fields, relationships, and query patterns | Working with Instructions/Matters tables, writing SQL queries, understanding data model |
 | **CLIO_API_REFERENCE.md** | Clio API integration, authentication, endpoints, and constraints | Integrating with Clio, creating clients/matters, troubleshooting API errors |
 | **ARCHITECTURE_DATA_FLOW.md** | System architecture, data flows, integration points, redundant code | Understanding overall system design, identifying cleanup opportunities, performance optimization |
+| **TEAM_DATA_REFERENCE.md** | Team table schema, rate structure, dual-database sync | Updating rates, adding team members, understanding fee earner data |
+| **WORKSPACE_OPTIMIZATION.md** | Cleanup priorities, automation scripts, code patterns | Starting cleanup work, understanding preferred patterns, session hygiene |
 
 ---
 
@@ -34,6 +36,12 @@ Each document focuses on a specific aspect of the system:
 
 **Task**: Identify redundant code  
 **Reference**: `ARCHITECTURE_DATA_FLOW.md` → "Redundant Code & Cleanup Opportunities"
+
+**Task**: Update fee earner rates  
+**Reference**: `TEAM_DATA_REFERENCE.md` → "Rate Update Procedure"
+
+**Task**: Start cleanup/optimization session  
+**Reference**: `WORKSPACE_OPTIMIZATION.md` → "Cleanup Priorities" + "Session Cleanup Checklist"
 
 ---
 

@@ -1,8 +1,9 @@
 /* invisible change 2 */
 .app-navigator {
-    position: relative;
-    /* Lower z-index to avoid overlapping Immediate Actions and other content */
-    z-index: 2;
+    position: sticky;
+    top: 48px; /* Account for CustomTabs header height */
+    /* Higher z-index to stay above content when scrolling */
+    z-index: 100;
     display: flex;
     flex-direction: column;
     gap: 4px; /* compact spacing */

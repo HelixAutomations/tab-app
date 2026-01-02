@@ -53,8 +53,8 @@ let cachedRoadmapData: RoadmapEntry[] | null = null;
 let cachedRoadmapError: string | null = null;
 
 const inTeams = isInTeams();
-const useLocalData =
-  process.env.REACT_APP_USE_LOCAL_DATA === 'true' || !inTeams;
+// PHASED OUT: Roadmap feature no longer supports live data - always use local data
+const useLocalData = true;
 
 /**
  * Normalize status strings to standardized labels.

@@ -83,7 +83,7 @@ const FormEmbed: React.FC<FormEmbedProps> = ({ link, userData, teamData, matters
                 console.log('Disbursement Upload data:', values['Disbursement Upload']);
             }
             
-            const endpointUrl = `${getProxyBaseUrl()}/${process.env.REACT_APP_POST_FINANCIAL_TASK_PATH}?code=${process.env.REACT_APP_POST_FINANCIAL_TASK_CODE}`;
+            const endpointUrl = '/api/financial-task';
             try {
                 const response = await fetch(endpointUrl, {
                     method: 'POST',

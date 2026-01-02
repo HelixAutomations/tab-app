@@ -1,8 +1,8 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const sql = require('mssql');
 const { generateWordFromJson } = require('../utils/wordGenerator.js');
-const { getSecret } = require('../utils/getSecret');
 const {
     tokens: cclTokens
 } = require(path.join(process.cwd(), 'src', 'app', 'functionality', 'cclSchema.js'));
@@ -107,39 +107,47 @@ fs.mkdirSync(CCL_DIR, { recursive: true });
 const filePath = (id) => path.join(CCL_DIR, `${id}.docx`);
 const jsonPath = (id) => path.join(CCL_DIR, `${id}.json`);
 
+// Direct SQL functions (no Azure Function proxy)
 async function saveDraftToDb(matterId, json) {
-    const baseUrl =
-        process.env.CCL_DRAFT_FUNC_BASE_URL ||
-        'https://instructions-vnet-functions.azurewebsites.net/api/recordCclDraft';
-    let code = process.env.CCL_DRAFT_FUNC_CODE;
-    if (!code) {
-        const secretName = process.env.CCL_DRAFT_FUNC_CODE_SECRET || 'recordCclDraft-code';
-        code = await getSecret(secretName);
+    const connectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+    if (!connectionString) {
+        console.warn('[ccl] INSTRUCTIONS_SQL_CONNECTION_STRING not configured, skipping DB save');
+        return;
     }
-    const url = `${baseUrl}?code=${code}`;
-    await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ matterId, draftJson: json })
-    });
+    let pool;
+    try {
+        pool = await sql.connect(connectionString);
+        await pool.request()
+            .input('MatterId', sql.NVarChar(50), matterId)
+            .input('DraftJson', sql.NVarChar(sql.MAX), JSON.stringify(json))
+            .query(`MERGE CclDrafts AS target
+                USING (SELECT @MatterId AS MatterId) AS src
+                ON target.MatterId = src.MatterId
+                WHEN MATCHED THEN UPDATE SET DraftJson = @DraftJson, UpdatedAt = SYSDATETIME()
+                WHEN NOT MATCHED THEN INSERT (MatterId, DraftJson, UpdatedAt)
+                VALUES (@MatterId, @DraftJson, SYSDATETIME());`);
+    } finally {
+        if (pool) await pool.close();
+    }
 }
 
 async function fetchDraftFromDb(matterId) {
-    const baseUrl =
-        process.env.FETCH_CCL_DRAFT_FUNC_BASE_URL ||
-        'https://instructions-vnet-functions.azurewebsites.net/api/fetchCclDraft';
-    let code = process.env.FETCH_CCL_DRAFT_FUNC_CODE;
-    if (!code) {
-        const secretName = process.env.FETCH_CCL_DRAFT_FUNC_CODE_SECRET || 'fetchCclDraft-code';
-        code = await getSecret(secretName);
+    const connectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+    if (!connectionString) {
+        console.warn('[ccl] INSTRUCTIONS_SQL_CONNECTION_STRING not configured');
+        return null;
     }
-    const url = `${baseUrl}?code=${code}&matterId=${encodeURIComponent(matterId)}`;
-    const resp = await fetch(url);
-    if (resp.ok) {
-        const d = await resp.json();
-        return d.draftJson || null;
+    let pool;
+    try {
+        pool = await sql.connect(connectionString);
+        const result = await pool.request()
+            .input('MatterId', sql.NVarChar(50), matterId)
+            .query('SELECT DraftJson FROM CclDrafts WHERE MatterId = @MatterId');
+        const row = result.recordset[0];
+        return row ? JSON.parse(row.DraftJson) : null;
+    } finally {
+        if (pool) await pool.close();
     }
-    return null;
 }
 
 router.post('/', async (req, res) => {

@@ -1,12 +1,10 @@
-// invisible change 3
+// Modern loading screen with clean design inspired by communications dashboard
 // src/components/Loading.tsx
 
-import React, { useEffect, useMemo, useState } from 'react';
-import { mergeStyles } from '@fluentui/react';
-import loaderDarkIcon from '../../assets/markwhite.svg';
-import loaderLightIcon from '../../assets/dark blue mark.svg';
+import React, { useEffect, useState } from 'react';
 import { colours } from './colours';
 import { useTheme } from '../functionality/ThemeContext';
+import AppLoadingScreen from '../../components/states/AppLoadingScreen';
 
 interface LoadingProps {
   /**
@@ -21,355 +19,96 @@ interface LoadingProps {
    * Overrides dark mode detection when supplied (useful before theme context is ready).
    */
   readonly isDarkMode?: boolean;
+  /**
+   * Loading stage for more sophisticated progress indication
+   */
+  readonly stage?: 'initializing' | 'authenticating' | 'loading-data' | 'finalizing';
+  /**
+   * Progress percentage (0-100)
+   */
+  readonly progress?: number;
 }
-
-// Define keyframes for the fade-in and scale-up animation
-const fadeInScaleLoopAnimation = `
-@keyframes fadeInScaleLoop {
-  0% {
-    opacity: 0.75;
-    transform: scale(0.88);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  100% {
-    opacity: 0.75;
-    transform: scale(0.88);
-  }
-}
-`;
-
-const animatedGradient = `
-@keyframes helixGradientShift {
-  0% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-  100% {
-    background-position: 0% 50%;
-  }
-}
-`;
-
-const spinAnimation = `
-@keyframes spinHelixLoader {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg);
-  }
-}
-`;
-
-// Styles for the loading container
-const GlobalStyles: React.FC = () => (
-  <style>
-    {fadeInScaleLoopAnimation}
-    {animatedGradient}
-    {spinAnimation}
-  </style>
-);
 
 /**
- * Branded loading screen with theme-aware gradients used across suspense fallbacks.
+ * Branded loading screen with modern design and progress indication
  */
 const Loading: React.FC<LoadingProps> = ({
-  message = 'Loading...',
+  message = 'Helix Hub',
   detailMessages,
   isDarkMode,
+  stage = 'loading-data',
+  progress = 65,
 }) => {
   const { isDarkMode: themeDarkMode } = useTheme();
-  const normalizeTheme = (value?: string | null) => {
-    if (!value) {
-      return undefined;
-    }
-    const lower = value.toLowerCase();
-    if (lower === 'dark' || lower === 'contrast' || lower === 'light' || lower === 'default') {
-      return lower;
-    }
-    return undefined;
-  };
-
-  const computeHostTheme = () => {
-    if (typeof document === 'undefined') {
-      return undefined;
-    }
-
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const themeParam = normalizeTheme(params.get('theme'));
-      if (themeParam) {
-        return themeParam;
-      }
-    }
-
-    const body = document.body;
-    const datasetTheme = normalizeTheme(body?.dataset?.theme ?? null);
-    if (datasetTheme) {
-      return datasetTheme;
-    }
-
-    if (body?.classList.contains('theme-dark')) {
-      return 'dark';
-    }
-    if (body?.classList.contains('theme-contrast')) {
-      return 'contrast';
-    }
-    if (body?.classList.contains('theme-light')) {
-      return 'light';
-    }
-
-    return undefined;
-  };
-
-  const [prefersDarkMode, setPrefersDarkMode] = useState<boolean>(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) {
-      return false;
-    }
-    return window.matchMedia('(prefers-color-scheme: dark)').matches;
-  });
-  const [hostTheme, setHostTheme] = useState<string | undefined>(() => computeHostTheme());
-  const [activeDetailIndex, setActiveDetailIndex] = useState(0);
+  const [currentDetailIndex, setCurrentDetailIndex] = useState(0);
+  const [computedProgress, setComputedProgress] = useState(progress);
   const [isPaused, setIsPaused] = useState(false);
-
+  
+  // Demo mode: spacebar to pause/unpause for design inspection
   useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) {
-      return undefined;
-    }
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const listener = (event: MediaQueryListEvent) => setPrefersDarkMode(event.matches);
-    if (mediaQuery.addEventListener) {
-      mediaQuery.addEventListener('change', listener);
-      return () => mediaQuery.removeEventListener('change', listener);
-    }
-    mediaQuery.addListener(listener);
-    return () => mediaQuery.removeListener(listener);
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return undefined;
-    }
-    const handler = (event: KeyboardEvent) => {
-      const key = event.key || '';
-      const isControl = event.ctrlKey || event.metaKey;
-      if (isControl && event.shiftKey && (key === 'p' || key === 'P')) {
-        setIsPaused((prev) => !prev);
+    const handleKeyPress = (event: KeyboardEvent) => {
+      if (event.code === 'Space' && !event.ctrlKey && !event.shiftKey && !event.altKey) {
         event.preventDefault();
+        setIsPaused(prev => !prev);
       }
     };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
   }, []);
-
+  
+  // Cycle through detail messages
   useEffect(() => {
-    if (typeof document === 'undefined') {
-      return undefined;
-    }
-    const { body } = document;
-    if (!body) {
-      return undefined;
-    }
-    if (isPaused) {
-      body.classList.add('loading-paused');
-    } else {
-      body.classList.remove('loading-paused');
-    }
-    return () => {
-      body.classList.remove('loading-paused');
-    };
-  }, [isPaused]);
-
-  const defaultDetails: readonly string[] = useMemo(
-    () => [
-      'Syncing Microsoft Teams context…',
-      'Loading user profile…',
-      'Retrieving matters and enquiries…',
-      'Preparing dashboards…',
-    ],
-    [],
-  );
-
-  const details = detailMessages && detailMessages.length > 0 ? detailMessages : defaultDetails;
-
+    if (!detailMessages || detailMessages.length <= 1 || isPaused) return;
+    
+    const interval = setInterval(() => {
+      setCurrentDetailIndex(prev => (prev + 1) % detailMessages.length);
+    }, 2000);
+    
+    return () => clearInterval(interval);
+  }, [detailMessages, isPaused]);
+  
+  // Simulate progress increase for better UX
   useEffect(() => {
-    if (typeof window === 'undefined') {
-      return undefined;
-    }
-    if (!details || details.length <= 1 || isPaused) {
-      return undefined;
-    }
-    const interval = window.setInterval(() => {
-      setActiveDetailIndex((prev) => (prev + 1) % details.length);
-    }, 3200);
-    return () => window.clearInterval(interval);
-  }, [details, isPaused]);
-
-  const resolvedDarkMode = useMemo(
-    () => {
-      if (typeof isDarkMode === 'boolean') {
-        return isDarkMode;
-      }
-      if (typeof themeDarkMode === 'boolean') {
-        return themeDarkMode;
-      }
-      if (hostTheme) {
-        return hostTheme === 'dark' || hostTheme === 'contrast';
-      }
-      return prefersDarkMode;
-    },
-    [hostTheme, isDarkMode, prefersDarkMode, themeDarkMode],
-  );
-
-  const backgroundColor = resolvedDarkMode ? '#050b1a' : '#f8fafd';
-
-  useEffect(() => {
-    if (typeof document === 'undefined') {
-      return undefined;
-    }
-    const body = document.body;
-    if (!body) {
-      return undefined;
-    }
-
-    const updateHostTheme = () => {
-      setHostTheme(computeHostTheme());
-    };
-
-    updateHostTheme();
-
-    const observer = new MutationObserver(updateHostTheme);
-    observer.observe(body, {
-      attributes: true,
-      attributeFilter: ['data-theme', 'class'],
-    });
-
-    return () => observer.disconnect();
-  }, []);
-
-  useEffect(() => {
-    if (typeof document === 'undefined') {
-      return undefined;
-    }
-    const { body } = document;
-    if (!body) {
-      return undefined;
-    }
-    const previousColor = body.style.backgroundColor;
-    const previousTransition = body.style.transition;
-    body.style.transition = 'background-color 0.1s ease';
-    body.style.backgroundColor = backgroundColor;
-
-    return () => {
-      body.style.backgroundColor = previousColor;
-      body.style.transition = previousTransition;
-    };
-  }, [backgroundColor]);
-
-  const containerClass = useMemo(
-    () =>
-      mergeStyles({
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        alignItems: 'center',
-        minHeight: '100vh',
-        width: '100%',
-        padding: '24px',
-        backgroundColor,
-        background: resolvedDarkMode
-          ? `radial-gradient(circle at 20% 20%, rgba(54, 144, 206, 0.12), transparent 55%), linear-gradient(135deg, #0B1220 0%, ${colours.dark.sectionBackground} 45%, #0F1C32 100%)`
-          : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 40%, #E8F0FF 100%)',
-        backgroundSize: '220% 220%',
-        animationName: 'helixGradientShift',
-        animationDuration: '12s',
-        animationTimingFunction: 'ease-in-out',
-        animationIterationCount: 'infinite',
-        animationPlayState: isPaused ? 'paused' : 'running',
-        color: resolvedDarkMode ? colours.dark.text : colours.light.text,
-        transition: 'none', // Remove transition to prevent flash
-      }),
-    [isPaused, resolvedDarkMode, backgroundColor],
-  );
-
-  const logoClass = useMemo(
-    () =>
-      mergeStyles({
-        width: '320px',
-        height: '320px',
-        animationName: 'fadeInScaleLoop',
-        animationDuration: '3.6s',
-        animationTimingFunction: 'ease-in-out',
-        animationIterationCount: 'infinite',
-        animationDirection: 'alternate',
-        animationPlayState: isPaused ? 'paused' : 'running',
-        filter: resolvedDarkMode ? 'drop-shadow(0 4px 6px rgba(0, 0, 0, 0.3))' : 'drop-shadow(0 4px 6px rgba(0, 0, 0, 0.07))',
-      }),
-    [isPaused, resolvedDarkMode],
-  );
-
-  const messageClass = useMemo(
-    () =>
-      mergeStyles({
-        marginTop: '24px',
-        fontSize: '18px',
-        fontWeight: 600,
-        letterSpacing: '0.02em',
-        textAlign: 'center',
-        textShadow: resolvedDarkMode ? '0 4px 6px rgba(0, 0, 0, 0.3)' : '0 4px 6px rgba(0, 0, 0, 0.07)',
-      }),
-    [resolvedDarkMode],
-  );
-
-  const detailClass = useMemo(
-    () =>
-      mergeStyles({
-        marginTop: '12px',
-        fontSize: '15px',
-        fontWeight: 500,
-        letterSpacing: '0.01em',
-        opacity: 0.85,
-        textAlign: 'center',
-        maxWidth: '420px',
-        lineHeight: '22px',
-        transition: 'opacity 0.4s ease',
-      }),
-    [],
-  );
-
-  const spinnerClass = useMemo(
-    () =>
-      mergeStyles({
-        marginTop: '32px',
-        width: '64px',
-        height: '64px',
-        borderRadius: '50%',
-        border: resolvedDarkMode ? '3px solid rgba(255, 255, 255, 0.12)' : '3px solid rgba(6, 23, 51, 0.1)',
-        borderTopColor: resolvedDarkMode ? colours.dark.highlight : colours.highlight,
-        animationName: 'spinHelixLoader',
-        animationDuration: '1s',
-        animationTimingFunction: 'linear',
-        animationIterationCount: 'infinite',
-        animationPlayState: isPaused ? 'paused' : 'running',
-      }),
-    [isPaused, resolvedDarkMode],
-  );
-  const activeDetail = details[activeDetailIndex % details.length];
-  const logoSrc = resolvedDarkMode ? loaderDarkIcon : loaderLightIcon;
+    if (isPaused) return;
+    
+    const timer = setTimeout(() => {
+      setComputedProgress(prev => Math.min(100, prev + 15));
+    }, 500);
+    
+    return () => clearTimeout(timer);
+  }, [progress, isPaused]);
+  
+  const effectiveIsDarkMode = isDarkMode ?? themeDarkMode;
+  const currentDetail = detailMessages?.[currentDetailIndex];
+  const subMessage = currentDetail || 'Connecting to Helix systems...';
 
   return (
-    <div className={containerClass} role="status" aria-live="polite" data-paused={isPaused ? 'true' : 'false'}>
-      <GlobalStyles />
-      <img src={logoSrc} alt="Loading..." className={logoClass} />
-      <span className={messageClass}>{message}</span>
-      <span className={detailClass}>{activeDetail}</span>
-      <div className={spinnerClass} />
-    </div>
+    <>
+      <AppLoadingScreen
+        stage={stage}
+        progress={computedProgress}
+        message={message}
+        subMessage={subMessage}
+        isPaused={isPaused}
+      />
+      {isPaused && (
+        <div style={{
+          position: 'fixed',
+          top: '20px',
+          right: '20px',
+          background: 'rgba(0, 0, 0, 0.8)',
+          color: 'white',
+          padding: '8px 12px',
+          borderRadius: '4px',
+          fontSize: '12px',
+          fontFamily: 'monospace',
+          zIndex: 1001
+        }}>
+          DEMO PAUSED - Press SPACE to resume
+        </div>
+      )}
+    </>
   );
 };
 

@@ -119,7 +119,9 @@ async function getGeneralAnnualLeaveData(today, { forceRefresh = false } = {}) {
               leave_type,
               rejection_notes,
               hearing_confirmation,
-              hearing_details
+              hearing_details,
+              half_day_start,
+              half_day_end
             FROM [dbo].[annualLeave]
             WHERE status = 'booked'
               AND @today BETWEEN start_date AND end_date
@@ -139,7 +141,9 @@ async function getGeneralAnnualLeaveData(today, { forceRefresh = false } = {}) {
               leave_type,
               rejection_notes,
               hearing_confirmation,
-              hearing_details
+              hearing_details,
+              half_day_start,
+              half_day_end
             FROM [dbo].[annualLeave]
             WHERE start_date > @today
               AND status IN ('requested', 'approved', 'booked')
@@ -159,7 +163,9 @@ async function getGeneralAnnualLeaveData(today, { forceRefresh = false } = {}) {
               leave_type,
               rejection_notes,
               hearing_confirmation,
-              hearing_details
+              hearing_details,
+              half_day_start,
+              half_day_end
             FROM [dbo].[annualLeave]
             WHERE start_date >= DATEADD(year, -2, GETDATE())
             ORDER BY start_date DESC
@@ -843,9 +849,13 @@ router.post('/annual-leave', async (req, res) => {
     for (const range of dateRanges) {
       const start = new Date(range.start_date);
       const end = new Date(range.end_date);
-      const computedDays = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
       
-  const result = await attendanceQuery(projectDataConnStr, (req, sql) =>
+      // Calculate actual days considering half-days
+      let computedDays = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+      if (range.half_day_start) computedDays -= 0.5;
+      if (range.half_day_end) computedDays -= 0.5;
+      
+      const result = await attendanceQuery(projectDataConnStr, (req, sql) =>
         req.input('fe', sql.VarChar(50), fe)
           .input('start_date', sql.Date, range.start_date)
           .input('end_date', sql.Date, range.end_date)
@@ -855,11 +865,13 @@ router.post('/annual-leave', async (req, res) => {
           .input('leave_type', sql.VarChar(50), leave_type)
           .input('hearing_confirmation', sql.Bit, hearing_confirmation?.toLowerCase() === "yes" ? 1 : 0)
           .input('hearing_details', sql.NVarChar(sql.MAX), hearing_details || "")
+          .input('half_day_start', sql.Bit, range.half_day_start ? 1 : 0)
+          .input('half_day_end', sql.Bit, range.half_day_end ? 1 : 0)
           .query(`
             INSERT INTO [dbo].[annualLeave] 
-              ([fe], [start_date], [end_date], [reason], [status], [days_taken], [leave_type], [hearing_confirmation], [hearing_details])
+              ([fe], [start_date], [end_date], [reason], [status], [days_taken], [leave_type], [hearing_confirmation], [hearing_details], [half_day_start], [half_day_end])
             VALUES 
-              (@fe, @start_date, @end_date, @reason, @status, @days_taken, @leave_type, @hearing_confirmation, @hearing_details);
+              (@fe, @start_date, @end_date, @reason, @status, @days_taken, @leave_type, @hearing_confirmation, @hearing_details, @half_day_start, @half_day_end);
             SELECT SCOPE_IDENTITY() AS InsertedId;
           `)
       );
@@ -957,11 +969,11 @@ router.post('/updateAnnualLeave', async (req, res) => {
     // If newStatus is 'booked', create Clio calendar entry
     if (newStatus.toLowerCase() === 'booked') {
       try {
-        // Fetch the leave record details
-  const leaveResult = await attendanceQuery(projectDataConnStr, (req, sql) =>
+        // Fetch the leave record details including half-day flags
+        const leaveResult = await attendanceQuery(projectDataConnStr, (req, sql) =>
           req.input('id', sql.Int, parseInt(id, 10))
             .query(`
-              SELECT fe, start_date, end_date, ClioEntryId
+              SELECT fe, start_date, end_date, ClioEntryId, half_day_start, half_day_end
               FROM [dbo].[annualLeave]
               WHERE request_id = @id
             `)
@@ -979,7 +991,9 @@ router.post('/updateAnnualLeave', async (req, res) => {
                 accessToken,
                 leaveRecord.fe,
                 leaveRecord.start_date,
-                leaveRecord.end_date
+                leaveRecord.end_date,
+                leaveRecord.half_day_start,
+                leaveRecord.half_day_end
               );
 
               // Update the SQL record with the Clio entry ID
@@ -1050,7 +1064,9 @@ router.get('/annual-leave-all', async (req, res) => {
 });
 
 // Helper function to create Clio calendar entry
-async function createClioCalendarEntry(accessToken, fe, startDate, endDate) {
+// half_day_start: true means start day is PM only (from 1pm)
+// half_day_end: true means end day is AM only (until 1pm)
+async function createClioCalendarEntry(accessToken, fe, startDate, endDate, halfDayStart = false, halfDayEnd = false) {
   const calendarUrl = "https://eu.app.clio.com/api/v4/calendar_entries.json";
   const calendarId = 152290;
 
@@ -1058,18 +1074,75 @@ async function createClioCalendarEntry(accessToken, fe, startDate, endDate) {
   
   const startDateObject = new Date(startDate);
   const endDateObject = new Date(endDate);
-  endDateObject.setUTCDate(endDateObject.getUTCDate() + 1); // Make end_at exclusive
-
-  const data = {
-    data: {
-      all_day: true,
-      calendar_owner: { id: calendarId },
-      start_at: startDateObject.toISOString(),
-      end_at: endDateObject.toISOString(),
-      summary: summary,
-      send_email_notification: false
+  
+  // Check if it's a single-day half-day request
+  const isSingleDay = startDateObject.toDateString() === endDateObject.toDateString();
+  const isHalfDay = halfDayStart || halfDayEnd;
+  
+  let data;
+  
+  if (isHalfDay && isSingleDay) {
+    // Single day half-day: set specific times
+    // halfDayEnd = AM (morning only, 9am-1pm)
+    // halfDayStart = PM (afternoon only, 1pm-5pm)
+    const startHour = halfDayStart ? 13 : 9; // PM starts at 1pm, AM starts at 9am
+    const endHour = halfDayEnd ? 13 : 17;     // AM ends at 1pm, PM ends at 5pm
+    
+    startDateObject.setUTCHours(startHour, 0, 0, 0);
+    endDateObject.setUTCHours(endHour, 0, 0, 0);
+    
+    data = {
+      data: {
+        all_day: false,
+        calendar_owner: { id: calendarId },
+        start_at: startDateObject.toISOString(),
+        end_at: endDateObject.toISOString(),
+        summary: `${summary} (${halfDayStart ? 'PM' : 'AM'})`,
+        send_email_notification: false
+      }
+    };
+  } else if (isHalfDay) {
+    // Multi-day range with half-day start/end
+    // For Clio, we'll note it in the summary since all_day doesn't support partial days well
+    if (halfDayStart) {
+      startDateObject.setUTCHours(13, 0, 0, 0); // Start at 1pm
     }
-  };
+    if (halfDayEnd) {
+      endDateObject.setUTCHours(13, 0, 0, 0); // End at 1pm
+    } else {
+      // Full end day - set to next day for exclusive end
+      endDateObject.setUTCDate(endDateObject.getUTCDate() + 1);
+    }
+    
+    const suffix = [];
+    if (halfDayStart) suffix.push('starts PM');
+    if (halfDayEnd) suffix.push('ends AM');
+    
+    data = {
+      data: {
+        all_day: !halfDayStart && !halfDayEnd, // Only all_day if no half-days
+        calendar_owner: { id: calendarId },
+        start_at: startDateObject.toISOString(),
+        end_at: endDateObject.toISOString(),
+        summary: suffix.length > 0 ? `${summary} (${suffix.join(', ')})` : summary,
+        send_email_notification: false
+      }
+    };
+  } else {
+    // Full days - original behaviour
+    endDateObject.setUTCDate(endDateObject.getUTCDate() + 1); // Make end_at exclusive
+    
+    data = {
+      data: {
+        all_day: true,
+        calendar_owner: { id: calendarId },
+        start_at: startDateObject.toISOString(),
+        end_at: endDateObject.toISOString(),
+        summary: summary,
+        send_email_notification: false
+      }
+    };
+  }
 
   try {
     const response = await axios.post(calendarUrl, data, {
@@ -1095,5 +1168,135 @@ function getFiscalYearStart(date) {
   const aprilFirst = new Date(year, 3, 1); // April 1st
   return date >= aprilFirst ? aprilFirst : new Date(year - 1, 3, 1);
 }
+
+// Helper function to delete Clio calendar entry
+async function deleteClioCalendarEntry(accessToken, clioEntryId) {
+  const calendarUrl = `https://eu.app.clio.com/api/v4/calendar_entries/${clioEntryId}.json`;
+
+  try {
+    const response = await axios.delete(calendarUrl, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json"
+      }
+    });
+
+    if (response.status === 200 || response.status === 204) {
+      console.log(`Successfully deleted Clio calendar entry ${clioEntryId}`);
+      return true;
+    }
+    return false;
+  } catch (error) {
+    console.error('Error deleting Clio calendar entry:', error?.response?.data || error.message);
+    return false;
+  }
+}
+
+// DELETE /api/attendance/annual-leave/:id - Delete an annual leave record
+router.delete('/annual-leave/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { deleteFromClio = true } = req.body; // Default to deleting from Clio
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing 'id' parameter."
+      });
+    }
+
+    const parsedId = parseInt(id, 10);
+    if (isNaN(parsedId)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid ID format: '${id}'. Expected a numeric value.`
+      });
+    }
+
+    const password = await getSqlPassword();
+    if (!password) {
+      return res.status(500).json({
+        success: false,
+        error: 'Could not retrieve database credentials'
+      });
+    }
+
+    const projectDataConnStr = `Server=tcp:helix-database-server.database.windows.net,1433;Initial Catalog=helix-project-data;Persist Security Info=False;User ID=helix-database-server;Password=${password};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;`;
+
+    // First, fetch the record to get Clio entry ID if it exists
+    const fetchResult = await attendanceQuery(projectDataConnStr, (req, sql) =>
+      req.input('id', sql.Int, parsedId)
+        .query(`
+          SELECT request_id, fe, start_date, end_date, ClioEntryId, status
+          FROM [dbo].[annualLeave]
+          WHERE request_id = @id
+        `)
+    );
+
+    if (fetchResult.recordset.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: `No annual leave record found with ID ${id}.`
+      });
+    }
+
+    const record = fetchResult.recordset[0];
+    let clioDeleted = false;
+
+    // Delete from Clio if requested and there's a Clio entry
+    if (deleteFromClio && record.ClioEntryId) {
+      try {
+        const clioSecrets = await getClioSecrets();
+        if (clioSecrets) {
+          const accessToken = await getClioAccessToken(clioSecrets);
+          if (accessToken) {
+            clioDeleted = await deleteClioCalendarEntry(accessToken, record.ClioEntryId);
+          }
+        }
+      } catch (clioError) {
+        console.error('Error deleting from Clio:', clioError);
+        // Continue with SQL deletion even if Clio fails
+      }
+    }
+
+    // Delete from SQL database
+    const deleteResult = await attendanceQuery(projectDataConnStr, (req, sql) =>
+      req.input('id', sql.Int, parsedId)
+        .query(`
+          DELETE FROM [dbo].[annualLeave]
+          WHERE request_id = @id
+        `)
+    );
+
+    if (deleteResult.rowsAffected[0] === 0) {
+      return res.status(404).json({
+        success: false,
+        error: `Failed to delete annual leave record with ID ${id}.`
+      });
+    }
+
+    console.log(`Deleted annual leave record ${id} (Clio deleted: ${clioDeleted})`);
+
+    res.json({
+      success: true,
+      message: `Annual leave record deleted successfully.`,
+      clioDeleted: record.ClioEntryId ? clioDeleted : null
+    });
+
+    // Clear annual leave cache after successful deletion
+    try {
+      await deleteCachePattern('attendance:annual-leave*');
+    } catch (cacheError) {
+      // Cache clear failed, not critical
+    }
+
+  } catch (error) {
+    console.error('Error deleting annual leave:', error.message || error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete annual leave record'
+    });
+  }
+});
 
 module.exports = router;
