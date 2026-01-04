@@ -47,6 +47,7 @@ import { GroupedEnquiry, getMixedEnquiryDisplay, isGroupedEnquiry } from './enqu
 import PitchBuilder from './PitchBuilder';
 import EnquiryTimeline from './EnquiryTimeline';
 import { colours } from '../../app/styles/colours';
+import InlineExpansionChevron from '../../components/InlineExpansionChevron';
 import SegmentedControl from '../../components/filter/SegmentedControl';
 import { isAdminUser, hasInstructionsAccess } from '../../app/admin';
 import { useTheme } from '../../app/functionality/ThemeContext';
@@ -4205,21 +4206,21 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             placeholder: "Search (name, email, company, type, ID)"
           }}
           middleActions={(
-            <div style={{ position: 'relative' }}>
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <div 
                 role="group" 
                 aria-label="View mode"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 0,
-                height: 32,
-                padding: '3px',
-                background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-                borderRadius: 16,
-                fontFamily: 'Raleway, sans-serif',
-              }}
-            >
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 0,
+                  height: 32,
+                  padding: '3px',
+                  background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                  borderRadius: 16,
+                  fontFamily: 'Raleway, sans-serif',
+                }}
+              >
               {/* Card view button with integrated column toggle */}
               <div style={{ display: 'flex', alignItems: 'center', position: 'relative' }}>
                 <button
@@ -4960,7 +4961,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                 justifyContent: 'center',
                                 gap: 3,
                                 height: 22,
-                                minWidth: '90px',
+                                width: '90px',
                                 padding: '0 8px',
                                 background: hasFilter 
                                   ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
@@ -5030,7 +5031,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     justifyContent: 'center',
                                     gap: 3,
                                     height: 22,
-                                    minWidth: '70px',
+                                    width: '90px',
                                     padding: '0 8px',
                                     background: isFiltered 
                                       ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
@@ -5201,7 +5202,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                 justifyContent: 'center',
                                 gap: 3,
                                 height: 22,
-                                minWidth: '70px',
+                                width: '90px',
                                 padding: '0 8px',
                                 background: isFilteredToMe 
                                   ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
@@ -5266,7 +5267,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                 justifyContent: 'center',
                                 gap: 3,
                                 height: 22,
-                                minWidth: '70px',
+                                width: '90px',
                                 padding: '0 8px',
                                 background: hasFilter 
                                   ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
@@ -5877,7 +5878,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
                             {/* Actions column - contains chevron for group expansion */}
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' }}>
-                              <div
+                              <InlineExpansionChevron
+                                isExpanded={expandedGroupsInTable.has(item.clientKey)}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   const groupKey = item.clientKey;
@@ -5891,39 +5893,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     return next;
                                   });
                                 }}
-                                style={{
-                                  width: 24,
-                                    height: 24,
-                                  borderRadius: 0,
-                                  background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
-                                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  cursor: 'pointer',
-                                  pointerEvents: 'auto',
-                                  transition: 'all 0.2s ease',
-                                }}
-                                onMouseEnter={(e) => {
-                                  e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)';
-                                  e.currentTarget.style.transform = 'scale(1.05)';
-                                }}
-                                onMouseLeave={(e) => {
-                                  e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)';
-                                  e.currentTarget.style.transform = 'scale(1)';
-                                }}
-                                title={expandedGroupsInTable.has(item.clientKey) ? 'Collapse group' : 'Expand group'}
-                              >
-                                <Icon
-                                  iconName={expandedGroupsInTable.has(item.clientKey) ? 'ChevronUp' : 'ChevronDown'}
-                                  styles={{
-                                    root: {
-                                      fontSize: '10px',
-                                      color: isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)',
-                                    }
-                                  }}
-                                />
-                              </div>
+                                isDarkMode={isDarkMode}
+                                count={item.enquiries.length}
+                                itemType="prospect"
+                              />
                             </div>
                           </div>
                           )}
@@ -6120,7 +6093,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   }}>
                                     {childEnquiry.ID}
                                   </div>
-                                  {childEnrichmentData?.pitchData?.instructionRef && (
+                                  {childEnrichmentData?.pitchData?.displayNumber && (
                                     <div style={{
                                       fontFamily: 'Monaco, Consolas, monospace',
                                       fontSize: '9px',
@@ -6129,7 +6102,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                       textOverflow: 'ellipsis',
                                       whiteSpace: 'nowrap',
                                     }}>
-                                      {childEnrichmentData.pitchData.instructionRef}
+                                      {childEnrichmentData.pitchData.displayNumber}
                                     </div>
                                   )}
                                 </div>
@@ -6298,8 +6271,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                 
                                 {/* Pipeline for child */}
                                 {(() => {
-                                  const childTeamsTime = childIsV2 && childEnrichmentData?.teamsData
-                                    ? (childEnrichmentData.teamsData as any).CreatedAt
+                                  const childTeamsData = childEnrichmentData?.teamsData as any;
+                                  const childTeamsTime = childIsV2 && childTeamsData
+                                    ? (childTeamsData.MessageTimestamp
+                                      || childTeamsData.CreatedAt
+                                      || (childTeamsData.CreatedAtMs ? new Date(childTeamsData.CreatedAtMs).toISOString() : null))
                                     : null;
                                   const childPocClaimTime = (childEnquiry as any).claim || null;
                                   const childPitchTime = childEnrichmentData?.pitchData
@@ -6349,7 +6325,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     return date.toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
                                   };
 
-                                  const showTeamsStage = childIsV2 && childTeamsTime;
+                                  const showTeamsStage = childIsV2 && !!childTeamsData;
                                   const showLegacyPlaceholder = childIsLegacy;
                                   // Determine loading vs not-resolvable state for V2 enquiries
                                   const childEnrichmentWasProcessed = childEnrichmentData && childEnrichmentData.enquiryId;
@@ -6380,7 +6356,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                             fontWeight: 500,
                                             color: isDarkMode ? 'rgba(148,163,184,0.5)' : 'rgba(71,85,105,0.5)',
                                             whiteSpace: 'nowrap',
-                                            minWidth: '90px',
+                                            width: '90px',
                                             justifyContent: 'center',
                                           }}
                                         >
@@ -6394,8 +6370,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                             className="content-reveal"
                                             onClick={(e) => {
                                               e.stopPropagation();
-                                              if (childEnrichmentData?.teamsData?.teamsLink) {
-                                                window.open((childEnrichmentData.teamsData as any).teamsLink, '_blank');
+                                              const link = childTeamsData?.teamsLink || getAreaSpecificChannelUrl(childEnquiry.Area_of_Work);
+                                              if (link) {
+                                                window.open(link, '_blank');
                                               }
                                             }}
                                             style={{
@@ -6412,7 +6389,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                               cursor: 'pointer',
                                               transition: '0.2s',
                                               whiteSpace: 'nowrap',
-                                              minWidth: 90,
+                                              width: 90,
                                               justifyContent: 'center',
                                             }}
                                             onMouseEnter={(e) => {
@@ -6424,7 +6401,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                           >
                                             <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 12, color: isDarkMode ? 'rgba(54, 144, 206, 0.85)' : 'rgba(54, 144, 206, 0.8)' } }} />
                                             <span style={{ fontSize: 9, color: isDarkMode ? 'rgba(54, 144, 206, 0.7)' : 'rgba(54, 144, 206, 0.65)', fontFamily: 'inherit', fontWeight: 500 }}>
-                                              {formatDateTime(childTeamsTime)}
+                                              {childTeamsTime ? formatDateTime(childTeamsTime) : 'TEAMS'}
                                             </span>
                                           </button>
                                         ) : (
@@ -6442,7 +6419,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                               fontWeight: 500,
                                               color: isDarkMode ? 'rgba(148,163,184,0.6)' : 'rgba(71,85,105,0.6)',
                                               whiteSpace: 'nowrap',
-                                              minWidth: 90,
+                                              width: 90,
                                               justifyContent: 'center',
                                             }}
                                           >
@@ -6465,7 +6442,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                           fontWeight: 500,
                                           color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)',
                                           whiteSpace: 'nowrap',
-                                          minWidth: 90,
+                                          width: 90,
                                           justifyContent: 'center',
                                         }}>
                                           <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 12, color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.4)' } }} />
@@ -6477,7 +6454,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, minWidth: 8 }}>
                                           <div style={{ width: 8, height: 1, background: isDarkMode ? 'linear-gradient(to right, rgba(148, 163, 184, 0.3), rgba(148, 163, 184, 0.15))' : 'linear-gradient(to right, rgba(148, 163, 184, 0.25), rgba(148, 163, 184, 0.1))' }} />
                                           {(childIsV2 || childIsLegacy) && hasValidClaimTime && childTeamsTime && (
-                                            <span style={{ fontSize: 7, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', fontFamily: 'Consolas, Monaco, monospace', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                                            <span style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', fontFamily: 'Consolas, Monaco, monospace', fontWeight: 600, whiteSpace: 'nowrap', minWidth: '42px', textAlign: 'center', display: 'inline-block' }}>
                                               {calculateDuration(childTeamsTime, childPocClaimTime)}
                                             </span>
                                           )}
@@ -6494,7 +6471,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                           borderRadius: 0,
                                           background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(148, 163, 184, 0.03)',
                                           border: `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)'}`,
-                                          minWidth: 70,
+                                          width: 90,
                                           height: 24,
                                         }} />
                                       )}
@@ -6527,7 +6504,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                                 fontWeight: 600,
                                                 color: isDarkMode ? 'rgba(32, 178, 108, 0.9)' : 'rgba(32, 178, 108, 0.85)',
                                                 cursor: 'pointer',
-                                                minWidth: '70px',
+                                                width: '90px',
                                                 justifyContent: 'center',
                                                 transition: 'all 0.2s ease',
                                               }}
@@ -6551,7 +6528,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, minWidth: 8 }}>
                                           <div style={{ width: 8, height: 1, background: isDarkMode ? 'linear-gradient(to right, rgba(148, 163, 184, 0.3), rgba(148, 163, 184, 0.15))' : 'linear-gradient(to right, rgba(148, 163, 184, 0.25), rgba(148, 163, 184, 0.1))' }} />
                                           {hasValidPitchTime && (childPocClaimTime || childTeamsTime) && (
-                                            <span style={{ fontSize: 7, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', fontFamily: 'Consolas, Monaco, monospace', fontWeight: 600 }}>
+                                            <span style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', fontFamily: 'Consolas, Monaco, monospace', fontWeight: 600, minWidth: '42px', textAlign: 'center', display: 'inline-block' }}>
                                               {calculateDuration(childPocClaimTime || childTeamsTime, childPitchTime)}
                                             </span>
                                           )}
@@ -6588,7 +6565,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                               letterSpacing: '0.4px',
                                               fontSize: '8px',
                                               cursor: 'pointer',
-                                              minWidth: '55px',
+                                              width: '90px',
                                               justifyContent: 'center',
                                               transition: 'all 0.15s ease',
                                               fontFamily: 'inherit',
@@ -6630,7 +6607,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                           borderRadius: 0,
                                           background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(148, 163, 184, 0.03)',
                                           border: `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)'}`,
-                                          minWidth: 55,
+                                          width: 90,
                                           height: 22,
                                         }} />
                                       )}
@@ -7247,7 +7224,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               }}>
                                 {item.ID}
                               </div>
-                              {enrichmentData?.pitchData?.instructionRef && (
+                              {enrichmentData?.pitchData?.displayNumber && (
                                 <div style={{
                                   fontFamily: 'Monaco, Consolas, monospace',
                                   fontSize: '9px',
@@ -7256,7 +7233,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   textOverflow: 'ellipsis',
                                   whiteSpace: 'nowrap',
                                 }}>
-                                  {enrichmentData.pitchData.instructionRef}
+                                  {enrichmentData.pitchData.displayNumber}
                                 </div>
                               )}
                             </div>
@@ -7385,7 +7362,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             {/* Pipeline - Teams → POC → Pitch */}
                             {(() => {
                               const isV2Enquiry = (item as any).__sourceType === 'new' || (item as any).source === 'instructions';
-                              const teamsTime = isV2Enquiry && enrichmentData?.teamsData ? (enrichmentData.teamsData as any).CreatedAt : null;
+                              const teamsData = enrichmentData?.teamsData as any;
+                              const teamsTime = isV2Enquiry && teamsData
+                                ? (teamsData.MessageTimestamp
+                                  || teamsData.CreatedAt
+                                  || (teamsData.CreatedAtMs ? new Date(teamsData.CreatedAtMs).toISOString() : null))
+                                : null;
                               const pocClaimTime = (item as any).claim || null;
                               const pitchTime = enrichmentData?.pitchData ? (enrichmentData.pitchData as any).pitchedDate : null;
                               
@@ -7439,7 +7421,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                 return date.toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
                               };
                               
-                              const showTeamsStage = isV2Enquiry && teamsTime;
+                              const showTeamsStage = isV2Enquiry && !!teamsData;
                               const showLegacyPlaceholder = isDefinitelyLegacy;
                               // Determine loading vs not-resolvable state for V2 enquiries
                               // - enrichmentData exists but no teamsData = processed, not resolvable
@@ -7496,8 +7478,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                       <button
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          if (enrichmentData?.teamsData?.teamsLink) {
-                                            window.open((enrichmentData.teamsData as any).teamsLink, '_blank');
+                                          const link = teamsData?.teamsLink || getAreaSpecificChannelUrl(item['Area_of_Work']);
+                                          if (link) {
+                                            window.open(link, '_blank');
                                           }
                                         }}
                                         style={{
@@ -7514,7 +7497,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                           cursor: 'pointer',
                                           transition: '0.2s',
                                           whiteSpace: 'nowrap',
-                                          minWidth: 90,
+                                          width: 90,
                                           justifyContent: 'center',
                                         }}
                                         onMouseEnter={(e) => {
@@ -7529,7 +7512,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                           styles={{ root: { fontSize: 12, color: isDarkMode ? 'rgba(54, 144, 206, 0.85)' : 'rgba(54, 144, 206, 0.8)' } }}
                                         />
                                         <span style={{ fontSize: 9, color: isDarkMode ? 'rgba(54, 144, 206, 0.7)' : 'rgba(54, 144, 206, 0.65)', fontFamily: 'inherit', fontWeight: 500 }}>
-                                          {formatDateTime(teamsTime)}
+                                          {teamsTime ? formatDateTime(teamsTime) : 'TEAMS'}
                                         </span>
                                       </button>
                                     ) : (
@@ -7547,7 +7530,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                           fontWeight: 500,
                                           color: isDarkMode ? 'rgba(148,163,184,0.6)' : 'rgba(71,85,105,0.6)',
                                           whiteSpace: 'nowrap',
-                                          minWidth: 90,
+                                          width: 90,
                                           justifyContent: 'center',
                                         }}
                                       >
@@ -7570,7 +7553,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                       fontWeight: 500,
                                       color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)',
                                       whiteSpace: 'nowrap',
-                                      minWidth: 90,
+                                      width: 90,
                                       justifyContent: 'center',
                                     }}>
                                       <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 12, color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.4)' } }} />
@@ -7582,7 +7565,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, minWidth: 8 }}>
                                       <div style={{ width: 8, height: 1, background: isDarkMode ? 'linear-gradient(to right, rgba(148, 163, 184, 0.3), rgba(148, 163, 184, 0.15))' : 'linear-gradient(to right, rgba(148, 163, 184, 0.25), rgba(148, 163, 184, 0.1))' }} />
                                       {teamsTime && hasValidClaimTime && (
-                                        <span style={{ fontSize: 7, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', fontFamily: 'Consolas, Monaco, monospace', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                                        <span style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', fontFamily: 'Consolas, Monaco, monospace', fontWeight: 600, whiteSpace: 'nowrap', minWidth: '42px', textAlign: 'center', display: 'inline-block' }}>
                                           {calculateDuration(teamsTime, pocClaimTime)}
                                         </span>
                                       )}
@@ -7599,7 +7582,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                       borderRadius: 0,
                                       background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(148, 163, 184, 0.03)',
                                       border: `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)'}`,
-                                      minWidth: 70,
+                                      width: 90,
                                       height: 24,
                                     }} />
                                   )}
@@ -7630,7 +7613,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                             fontWeight: 600,
                                             color: isDarkMode ? 'rgba(32, 178, 108, 0.9)' : 'rgba(32, 178, 108, 0.85)',
                                             cursor: 'pointer',
-                                            minWidth: '70px',
+                                            width: '90px',
                                             justifyContent: 'center',
                                             transition: 'all 0.2s ease',
                                           }}
@@ -7657,7 +7640,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, minWidth: 8 }}>
                                       <div style={{ width: 8, height: 1, background: isDarkMode ? 'linear-gradient(to right, rgba(148, 163, 184, 0.3), rgba(148, 163, 184, 0.15))' : 'linear-gradient(to right, rgba(148, 163, 184, 0.25), rgba(148, 163, 184, 0.1))' }} />
                                       {hasValidPitchTime && (pocClaimTime || teamsTime) && (
-                                        <span style={{ fontSize: 7, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', fontFamily: 'Consolas, Monaco, monospace', fontWeight: 600 }}>
+                                        <span style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', fontFamily: 'Consolas, Monaco, monospace', fontWeight: 600, minWidth: '42px', textAlign: 'center', display: 'inline-block' }}>
                                           {calculateDuration(pocClaimTime || teamsTime, pitchTime)}
                                         </span>
                                       )}
@@ -7693,7 +7676,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                           letterSpacing: '0.4px',
                                           fontSize: '9px',
                                           cursor: 'pointer',
-                                          minWidth: '70px',
+                                          width: '90px',
                                           justifyContent: 'center',
                                           transition: 'all 0.15s ease',
                                           fontFamily: 'inherit',
@@ -7735,7 +7718,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                       borderRadius: 0,
                                       background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(148, 163, 184, 0.03)',
                                       border: `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)'}`,
-                                      minWidth: 70,
+                                      width: 90,
                                       height: 24,
                                     }} />
                                   )}
@@ -8660,6 +8643,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           </div>
         </div>
       )}
+      
       </Stack>
     </div>
   );

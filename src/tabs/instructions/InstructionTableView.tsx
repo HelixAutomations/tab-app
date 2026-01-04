@@ -4,6 +4,9 @@ import { Icon } from '@fluentui/react';
 import { format } from 'date-fns';
 import { colours } from '../../app/styles/colours';
 import { TeamData } from '../../app/functionality/types';
+import { groupInstructionsByClient, shouldGroupInstructions, GroupedInstruction } from '../../utils/tableGrouping';
+import InlineExpansionChevron from '../../components/InlineExpansionChevron';
+import InlineWorkbench from './InlineWorkbench';
 
 // Pipeline types
 type PipelineStage = 'id' | 'payment' | 'risk' | 'matter' | 'docs';
@@ -20,6 +23,14 @@ interface InstructionTableViewProps {
   // Team data for fee earner badge
   teamData?: TeamData[] | null;
   onFeeEarnerReassign?: (instructionRef: string, newFeeEarnerEmail: string) => Promise<void>;
+  // Matters array for DisplayNumber lookup
+  matters?: any[];
+  // Workbench action callbacks (for inline workbench)
+  onDocumentPreview?: (doc: any) => void;
+  onTriggerEID?: (instructionRef: string) => Promise<void>;
+  onOpenIdReview?: (instructionRef: string) => void;
+  onOpenMatter?: (instruction: any) => void;
+  onOpenRiskAssessment?: (instruction: any) => void;
 }
 
 const InstructionTableView: React.FC<InstructionTableViewProps> = ({
@@ -31,17 +42,122 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
   onPipelineFilterChange,
   teamData,
   onFeeEarnerReassign,
+  matters = [],
+  onDocumentPreview,
+  onTriggerEID,
+  onOpenIdReview,
+  onOpenMatter,
+  onOpenRiskAssessment,
 }) => {
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
   const [collapsedDays, setCollapsedDays] = useState<Set<string>>(new Set());
+  const [expandedClientsInTable, setExpandedClientsInTable] = useState<Set<string>>(new Set());
   const [hoveredDayKey, setHoveredDayKey] = useState<string | null>(null);
   const [areActionsEnabled, setAreActionsEnabled] = useState(false);
   const [sortColumn, setSortColumn] = useState<string>('date');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   
+  // Track which tab to open when expanding via pipeline chip click
+  type WorkbenchTab = 'identity' | 'payment' | 'documents' | 'risk' | 'matter';
+  type StageStatus = 'pending' | 'review' | 'complete' | 'processing' | 'neutral';
+  interface StageStatuses {
+    id: StageStatus;
+    payment: StageStatus;
+    risk: StageStatus;
+    matter: StageStatus;
+    documents: StageStatus;
+  }
+  const [initialWorkbenchTabs, setInitialWorkbenchTabs] = useState<Map<string, WorkbenchTab>>(new Map());
+  
+  // Helper to calculate stage statuses from item data - matches pipeline chip logic
+  const getStageStatuses = useCallback((item: any): StageStatuses => {
+    const inst = item?.rawData?.instruction || item?.instruction;
+    const deal = item?.rawData?.deal || item?.deal;
+    const risk = item?.rawData?.risk || item?.risk;
+    const eid = item?.rawData?.eid || item?.eid;
+    const eids = item?.rawData?.eids || item?.eids;
+    const payments = item?.rawData?.payments || inst?.payments || [];
+    const documents = item?.rawData?.documents || inst?.documents || [];
+    
+    // ID Verification status
+    const eidResult = (eid?.EIDOverallResult || eids?.[0]?.EIDOverallResult || inst?.EIDOverallResult)?.toLowerCase() ?? "";
+    const eidStatusVal = (eid?.EIDStatus || eids?.[0]?.EIDStatus)?.toLowerCase() ?? "";
+    const poidPassed = eidResult === 'passed' || eidResult === 'approved' || eidResult === 'verified' || eidResult === 'pass';
+    const stageLower = ((inst?.Stage || inst?.stage || '') + '').trim().toLowerCase();
+    const stageComplete = stageLower === 'proof-of-id-complete';
+    const isInstructedOrLater = stageLower === 'proof-of-id-complete' || stageLower === 'completed';
+    
+    let idStatus: StageStatus = 'pending';
+    if (stageComplete) {
+      if (eidResult === 'review') {
+        idStatus = 'review';
+      } else if (eidResult === 'failed' || eidResult === 'rejected' || eidResult === 'fail') {
+        idStatus = 'review';
+      } else if (poidPassed || eidResult === 'passed') {
+        idStatus = 'complete';
+      } else {
+        idStatus = 'review';
+      }
+    } else if ((!eid && !eids?.length) || eidStatusVal === 'pending') {
+      const hasEidAttempt = Boolean(eid || (eids && eids.length > 0));
+      const hasProofOfId = Boolean(inst?.PassportNumber || inst?.DriversLicenseNumber);
+      idStatus = hasProofOfId && hasEidAttempt ? 'review' : 'pending';
+    } else if (poidPassed) {
+      idStatus = 'complete';
+    } else {
+      idStatus = 'review';
+    }
+    
+    if (isInstructedOrLater && idStatus === 'pending') {
+      idStatus = 'review';
+    }
+    
+    // Payment status
+    let paymentStatus: StageStatus = 'pending';
+    if (inst?.InternalStatus === 'paid') {
+      paymentStatus = 'complete';
+    } else if (payments && payments.length > 0) {
+      const latest = payments[0];
+      if ((latest.payment_status === 'succeeded' || latest.payment_status === 'confirmed') && 
+          (latest.internal_status === 'completed' || latest.internal_status === 'paid')) {
+        paymentStatus = 'complete';
+      } else if (latest.internal_status === 'completed' || latest.internal_status === 'paid') {
+        paymentStatus = 'complete';
+      } else if (latest.payment_status === 'processing') {
+        paymentStatus = 'processing';
+      }
+    }
+    
+    // Risk status
+    const riskResultRaw = risk?.RiskAssessmentResult?.toString().toLowerCase() ?? "";
+    const riskStatus: StageStatus = riskResultRaw
+      ? ['low', 'low risk', 'pass', 'approved'].includes(riskResultRaw) ? 'complete' : 'review'
+      : 'pending';
+    
+    // Matter status
+    const matterStatus: StageStatus = (inst?.MatterId || (inst as any)?.matters?.length > 0) ? 'complete' : 'pending';
+    
+    // Documents status
+    const docCount = documents.length;
+    const docStatus: StageStatus = docCount > 0 ? 'complete' : 'neutral';
+    
+    return {
+      id: idStatus,
+      payment: paymentStatus,
+      risk: riskStatus,
+      matter: matterStatus,
+      documents: docStatus,
+    };
+  }, []);
+  
   // Fee earner reassignment state
   const [feReassignDropdown, setFeReassignDropdown] = useState<{ instructionRef: string; currentFe: string; x: number; y: number } | null>(null);
   const [isFeReassigning, setIsFeReassigning] = useState(false);
+  
+  // Deal/Matter selector state - tracks which ref to show and dropdown visibility
+  // Key: clientEmail, Value: { viewMode: 'instruction' | 'matter', selectedDealIndex: number }
+  const [clientViewModes, setClientViewModes] = useState<Map<string, { viewMode: 'instruction' | 'matter'; selectedDealIndex: number }>>(new Map());
+
 
   // Pipeline filter toggle handler - cycles through: no filter → pending → review → complete → no filter
   const cyclePipelineFilter = useCallback((stage: PipelineStage) => {
@@ -206,12 +322,17 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
         }
       }
       
+      // Extract company name from various sources
+      const companyName = inst?.CompanyName || deal?.CompanyName || clients?.[0]?.CompanyName || 
+                         inst?.Company || deal?.Company || '';
+      
       return {
       id: item.deal?.DealId || item.instruction?.InstructionRef?.split('-').pop() || 'N/A',
       passcode: item.deal?.Passcode || '',
       date: item.instruction?.SubmittedDate || item.deal?.PitchedDate || '',
       reference: item.instruction?.InstructionRef || `Deal ${item.deal?.DealId}`,
       clientName,
+      companyName,
       clientEmail: item.instruction?.ClientEmail || item.deal?.LeadClientEmail || '',
       feeEarner: item.instruction?.HelixContact || item.deal?.PitchedBy || '',
       amount: item.deal?.Amount || 0,
@@ -224,11 +345,7 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
     });
   }, [instructions]);
 
-  // Debug: Log unique feeEarner values
-  React.useEffect(() => {
-    const uniqueFE = [...new Set(tableData.map(t => t.feeEarner))];
-    console.log('[Instructions] Unique feeEarner values:', uniqueFE);
-  }, [tableData]);
+  // (No console debug here)
 
   const toDayKey = (dateValue: unknown): string => {
     if (!dateValue) return 'unknown';
@@ -352,6 +469,54 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
     return result;
   }, [sortedTableData, collapsedDays, sortColumn, sortDirection]);
 
+  // Client-based grouping data for inline expansion
+  const clientGroupedData = useMemo(() => {
+    if (sortColumn && sortColumn !== 'date') {
+      // Don't group by client when sorting by other columns
+      return [];
+    }
+    
+    const shouldGroup = shouldGroupInstructions(sortedTableData);
+    if (!shouldGroup) {
+      return [];
+    }
+    
+    // Group instructions by client
+    const grouped = groupInstructionsByClient(sortedTableData);
+    return grouped;
+  }, [sortedTableData, sortColumn]);
+
+  // Determine if we should show client-based grouped view
+  const showClientGroups = useMemo(() => {
+    return clientGroupedData.length > 0 && (sortColumn === 'date' || !sortColumn);
+  }, [clientGroupedData, sortColumn]);
+
+  // Helper to process day groups and add client sub-grouping
+  const processedGroupedData = useMemo(() => {
+    return groupedData.map(dayGroup => {
+      // Skip grouping only if there's 1 or fewer items
+      if (dayGroup.items.length <= 1) {
+        return { ...dayGroup, clientGroups: null };
+      }
+      
+      // Check if this group has multiple instructions from the same client
+      const clientGroups = groupInstructionsByClient(dayGroup.items);
+      const hasClientGroups = clientGroups.some(group => group.items.length > 1);
+      
+      if (hasClientGroups) {
+        return { 
+          ...dayGroup, 
+          clientGroups: clientGroups.map(clientGroup => ({
+            ...clientGroup,
+            isExpanded: expandedClientsInTable.has(`${dayGroup.date}-${clientGroup.clientKey}`)
+          }))
+        };
+      }
+      
+      return { ...dayGroup, clientGroups: null };
+    });
+  }, [groupedData, expandedClientsInTable]);
+
   // Area icon and color helper functions
   const getAreaOfWorkIcon = (areaOfWork: string): string => {
     const area = (areaOfWork || '').toLowerCase().trim();
@@ -455,6 +620,21 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
     const docCount = documents.length;
     const docStatus = docCount > 0 ? 'complete' : 'neutral';
     
+    // Map stageKey to workbench tab
+    const stageToTab: Record<string, WorkbenchTab> = {
+      'id': 'identity',
+      'payment': 'payment',
+      'risk': 'risk',
+      'matter': 'matter',
+      'documents': 'documents',
+      'transfer-docs': 'documents',
+      'ccl': 'matter',
+    };
+    
+    // Get item's notes key for expansion
+    // Use the same key that rows use for expansion so chip clicks open the tray reliably
+    const itemNotesKey = (item.id || item.reference || inst?.InstructionRef || deal?.Passcode || '') as string;
+    
     // Status stage component
     const StatusStage = ({ 
       label, 
@@ -495,24 +675,24 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
       
       const handleStageClick = (e: React.MouseEvent) => {
         e.stopPropagation();
-        console.log(`Clicked ${stageKey} stage`, data);
-        // Trigger action based on stage
-        if (stageKey === 'id') {
-          alert(`ID Verification: ${status}\n\nView ID verification details for this instruction`);
-        } else if (stageKey === 'payment') {
-          alert(`Payment: ${status}\n\nView payment information and history`);
-        } else if (stageKey === 'risk') {
-          alert(`Risk Assessment: ${status}\n\nView risk assessment and compliance details`);
-        } else if (stageKey === 'matter') {
-          alert(`Matter: ${status}\n\nLink or view matter details`);
-        } else if (stageKey === 'documents') {
-          alert(`Documents: ${data?.length || 0} file(s)\n\nView or upload documents`);
+        
+        // Map stageKey to workbench tab and expand
+        const targetTab = stageToTab[stageKey] || 'identity';
+        
+        // Set the initial tab for this item
+        setInitialWorkbenchTabs(prev => new Map(prev).set(itemNotesKey, targetTab));
+        
+        // Expand the row if not already expanded
+        if (!expandedNotes.has(itemNotesKey)) {
+          const newSet = new Set(expandedNotes);
+          newSet.add(itemNotesKey);
+          setExpandedNotes(newSet);
         }
       };
       
       return (
         <div 
-          title={`${label} - ${status}`}
+          title={`${label}: ${status === 'complete' ? 'Complete' : status === 'review' ? 'Needs Review' : status === 'processing' ? 'Processing' : 'Pending'} — Click to view details`}
           onClick={handleStageClick}
           style={{
             display: 'flex',
@@ -562,9 +742,69 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
     
     // Get full instruction ref for deal selector
     const instructionRef = inst?.InstructionRef || deal?.Passcode || '';
-    // Check if there are multiple deals (to show selector chevron)
-    const deals = item.rawData.deals || [];
-    const hasMultipleDeals = deals.length > 1;
+    // NOTE: multi-deal selection UI was removed; keep selector focused on instruction↔matter.
+    
+    // Check if matter exists and get matter reference
+    const hasMatter = !!(inst?.MatterId || (inst as any)?.matters?.length > 0);
+    // Get the actual matter DisplayNumber from matters array or rawData
+    const matterIdToFind = inst?.MatterId || inst?.InstructionRef;
+    let matterDisplayNumber = null;
+    
+    if (hasMatter && matterIdToFind) {
+      // Search in passed matters array - check MatterID and InstructionRef with type conversions
+      const foundMatter = matters?.find((m: any) => {
+        // Match MatterID (with type conversions for string/number)
+        if (m?.MatterID === matterIdToFind) return true;
+        if (String(m?.MatterID) === String(matterIdToFind)) return true;
+        if (m?.MatterID && !isNaN(Number(m.MatterID)) && !isNaN(Number(matterIdToFind)) && Number(m.MatterID) === Number(matterIdToFind)) return true;
+        
+        // Match InstructionRef
+        if (m?.InstructionRef === matterIdToFind) return true;
+        if (m?.InstructionRef === inst?.InstructionRef) return true;
+        
+        return false;
+      });
+      
+      if (foundMatter) {
+        matterDisplayNumber = foundMatter.DisplayNumber || foundMatter['Display Number'] || foundMatter.displayNumber || foundMatter.display_number;
+      }
+      
+      // Fallback to rawData matters
+      if (!matterDisplayNumber) {
+        const rawMatters = item.rawData.matters || (inst as any)?.matters || [];
+        const rawMatter = rawMatters.length > 0 ? rawMatters[0] : null;
+        matterDisplayNumber = rawMatter?.DisplayNumber || rawMatter?.['Display Number'] || rawMatter?.displayNumber || rawMatter?.display_number;
+      }
+    }
+    
+    const matterRef = hasMatter ? matterDisplayNumber : null;
+    
+    // Key for tracking view-mode selection (prefer stable client identifier, fallback to refs)
+    const clientEmail = item.rawData?.client?.Email || item.rawData?.email || '';
+    const selectorKey = String(clientEmail || instructionRef || (item as any)?.id || (item as any)?.reference || 'unknown');
+    const clientViewMode = clientViewModes.get(selectorKey);
+    const currentViewMode = clientViewMode?.viewMode || (matterRef ? 'matter' : 'instruction');
+    
+    // Determine what to display based on view mode
+    const displayRef = currentViewMode === 'matter' && matterRef ? matterRef : instructionRef;
+    const isShowingMatter = currentViewMode === 'matter' && !!matterRef;
+    
+    // Toggle only when we genuinely have two refs to switch between (instruction <-> matter)
+    const hasInstructionAndMatter = !!instructionRef && !!matterRef;
+    const canToggle = hasInstructionAndMatter;
+
+    const feName = item.feeEarner as string | undefined;
+    const isTriage = feName?.toLowerCase() === 'triage';
+    const isAlreadyInitials = feName && feName.length <= 4 && !feName.includes(' ');
+    const feInitials = feName
+      ? (isTriage ? 'Triage' : (isAlreadyInitials ? feName.toUpperCase() : getInitialsFromName(feName)))
+      : null;
+    const canReassignFe = Boolean(onFeeEarnerReassign && teamData?.length);
+    const showFeBadge = Boolean(feInitials || canReassignFe);
+    
+    // V2 pipeline stages for matters
+    const transferDocsStatus: PipelineStatus = hasMatter ? ((inst as any)?.TransferDocsComplete ? 'complete' : 'pending') : 'pending';
+    const cclStatus: PipelineStatus = hasMatter ? ((inst as any)?.CCL_date ? 'complete' : 'pending') : 'pending';
     
     return (
       <div style={{ 
@@ -572,59 +812,132 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
         alignItems: 'center',
         gap: '0',
         justifyContent: 'flex-start',
+        overflow: 'visible',
       }}>
-        {/* Deal selector - fixed width area */}
+        {/* Context: ref + fee earner */}
         <div style={{
-          width: 130,
-          minWidth: 130,
+          width: 120,
+          minWidth: 120,
+          maxWidth: 120,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'flex-start',
+          overflow: 'hidden',
         }}>
-          {instructionRef ? (
+          {displayRef ? (
             <button
-              title={hasMultipleDeals ? "Select deal" : instructionRef}
+              title={isShowingMatter 
+                ? `Matter: ${matterRef}${canToggle ? ' (click to show instruction)' : ''}` 
+                : `Instruction: ${instructionRef}${canToggle ? ' (click to show matter)' : ''}`}
+              type="button"
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
+                display: 'block',
                 padding: '4px 8px',
                 borderRadius: 0,
-                background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
-                border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`,
+                width: '100%',
+                background: isShowingMatter 
+                  ? (isDarkMode ? 'rgba(115, 171, 96, 0.15)' : 'rgba(115, 171, 96, 0.1)')
+                  : (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)'),
+                border: isShowingMatter 
+                  ? `1px solid ${isDarkMode ? 'rgba(115, 171, 96, 0.4)' : 'rgba(115, 171, 96, 0.3)'}`
+                  : `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`,
                 fontSize: 10,
                 fontWeight: 600,
                 fontFamily: 'Monaco, Consolas, monospace',
-                color: colours.highlight,
-                cursor: hasMultipleDeals ? 'pointer' : 'default',
+                color: isShowingMatter ? colours.green : colours.highlight,
+                cursor: canToggle ? 'pointer' : 'default',
                 transition: 'all 0.15s ease',
                 whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                textAlign: 'center',
               }}
+              onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
-                if (!hasMultipleDeals) return;
-                // TODO: Open deal selector dropdown when multiple deals exist
-                console.log('Deal clicked:', instructionRef, item);
+                if (!canToggle) return;
+                setClientViewModes((prev) => {
+                  const newMap = new Map(prev);
+                  const current = prev.get(selectorKey);
+                  const nextMode = current?.viewMode === 'matter' ? 'instruction' : 'matter';
+                  newMap.set(selectorKey, { viewMode: nextMode, selectedDealIndex: 0 });
+                  return newMap;
+                });
               }}
               onMouseEnter={(e) => {
-                if (!hasMultipleDeals) return;
-                e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)';
-                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.5)' : 'rgba(54, 144, 206, 0.35)';
+                if (!canToggle) return;
+                if (isShowingMatter) {
+                  e.currentTarget.style.background = isDarkMode ? 'rgba(115, 171, 96, 0.25)' : 'rgba(115, 171, 96, 0.2)';
+                  e.currentTarget.style.borderColor = isDarkMode ? 'rgba(115, 171, 96, 0.6)' : 'rgba(115, 171, 96, 0.5)';
+                } else {
+                  e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)';
+                  e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.5)' : 'rgba(54, 144, 206, 0.35)';
+                }
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)';
-                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)';
+                if (isShowingMatter) {
+                  e.currentTarget.style.background = isDarkMode ? 'rgba(115, 171, 96, 0.15)' : 'rgba(115, 171, 96, 0.1)';
+                  e.currentTarget.style.borderColor = isDarkMode ? 'rgba(115, 171, 96, 0.4)' : 'rgba(115, 171, 96, 0.3)';
+                } else {
+                  e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)';
+                  e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)';
+                }
               }}
             >
-              <span>{instructionRef}</span>
-              {hasMultipleDeals && (
-                <Icon iconName="ChevronDown" styles={{ root: { fontSize: 7, color: colours.highlight, opacity: 0.7 } }} />
-              )}
+              {displayRef}
             </button>
           ) : (
             <span style={{ opacity: 0.3, fontSize: 10 }}>—</span>
           )}
         </div>
+
+        {showFeBadge && (
+          <button
+            type="button"
+            data-action-button
+            onClick={(e) => canReassignFe && handleFeClick(instructionRef, feName || '', e)}
+            disabled={!canReassignFe}
+            title={feName ? `${feName} - Click to reassign` : (canReassignFe ? 'Assign fee earner' : '')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+              padding: '4px 8px',
+              borderRadius: 0,
+              background: isTriage
+                ? (isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)')
+                : (isDarkMode ? 'rgba(148, 163, 184, 0.10)' : 'rgba(148, 163, 184, 0.08)'),
+              border: isTriage
+                ? `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.3)' : 'rgba(239, 68, 68, 0.25)'}`
+                : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.22)' : 'rgba(148, 163, 184, 0.2)'}`,
+              fontSize: 10,
+              fontWeight: 700,
+              color: isTriage ? (isDarkMode ? '#f87171' : '#ef4444') : (isDarkMode ? 'rgba(203, 213, 225, 0.85)' : 'rgba(71, 85, 105, 0.85)'),
+              cursor: canReassignFe ? 'pointer' : 'default',
+              opacity: feInitials ? 1 : 0.65,
+              transition: 'all 0.15s ease',
+              marginLeft: 8,
+              flex: '0 0 auto',
+            }}
+            onMouseEnter={(e) => {
+              if (!canReassignFe) return;
+              e.currentTarget.style.background = isTriage
+                ? (isDarkMode ? 'rgba(239, 68, 68, 0.25)' : 'rgba(239, 68, 68, 0.18)')
+                : (isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.14)');
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = isTriage
+                ? (isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)')
+                : (isDarkMode ? 'rgba(148, 163, 184, 0.10)' : 'rgba(148, 163, 184, 0.08)');
+            }}
+          >
+            <Icon iconName={isTriage ? 'Medical' : 'Contact'} styles={{ root: { fontSize: 10, color: 'inherit' } }} />
+            <span>{feInitials || '—'}</span>
+            {canReassignFe && (
+              <Icon iconName="ChevronDown" styles={{ root: { fontSize: 7, color: 'inherit', opacity: 0.6, marginLeft: -2 } }} />
+            )}
+          </button>
+        )}
         
         {/* Separator */}
         <div style={{ 
@@ -640,24 +953,39 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
           alignItems: 'center',
           gap: 0,
         }}>
-          {/* ID Stage */}
-          <StatusStage status={idStatus} label="ID" icon="ContactCard" stageKey="id" data={eids || eid} />
-          <StageConnector complete={idStatus === 'complete'} />
-          
-          {/* Payment Stage */}
-          <StatusStage status={paymentStatus === 'processing' ? 'processing' : paymentStatus === 'complete' ? 'complete' : 'pending'} label="Pay" icon="Money" stageKey="payment" data={payments} />
-          <StageConnector complete={paymentStatus === 'complete'} />
-          
-          {/* Risk Stage */}
-          <StatusStage status={riskStatus} label="Risk" icon="Shield" stageKey="risk" data={risk} />
-          <StageConnector complete={riskStatus === 'complete'} />
-          
-          {/* Matter Stage */}
-          <StatusStage status={matterStatus === 'complete' ? 'complete' : 'pending'} label="Matter" icon="DocumentSet" stageKey="matter" data={inst?.MatterId} />
-          <StageConnector complete={matterStatus === 'complete'} />
-          
-          {/* Docs Stage */}
-          <StatusStage status={docStatus === 'complete' ? 'complete' : 'neutral'} label="Docs" icon="Page" stageKey="documents" data={documents} />
+          {isShowingMatter ? (
+            // V2 Pipeline for matters
+            <>
+              {/* Transfer Documents Stage */}
+              <StatusStage status={transferDocsStatus} label="Docs" icon="CloudUpload" stageKey="transfer-docs" data={inst} />
+              <StageConnector complete={transferDocsStatus === 'complete'} />
+              
+              {/* CCL Stage */}
+              <StatusStage status={cclStatus} label="CCL" icon="CheckMark" stageKey="ccl" data={(inst as any)?.CCL_date} />
+            </>
+          ) : (
+            // V1 Pipeline for instructions without matters
+            <>
+              {/* ID Stage */}
+              <StatusStage status={idStatus} label="ID" icon="ContactCard" stageKey="id" data={eids || eid} />
+              <StageConnector complete={idStatus === 'complete'} />
+              
+              {/* Payment Stage */}
+              <StatusStage status={paymentStatus === 'processing' ? 'processing' : paymentStatus === 'complete' ? 'complete' : 'pending'} label="Pay" icon="Money" stageKey="payment" data={payments} />
+              <StageConnector complete={paymentStatus === 'complete'} />
+              
+              {/* Risk Stage */}
+              <StatusStage status={riskStatus} label="Risk" icon="Shield" stageKey="risk" data={risk} />
+              <StageConnector complete={riskStatus === 'complete'} />
+              
+              {/* Matter Stage */}
+              <StatusStage status={matterStatus === 'complete' ? 'complete' : 'pending'} label="Matter" icon="DocumentSet" stageKey="matter" data={inst?.MatterId} />
+              <StageConnector complete={matterStatus === 'complete'} />
+              
+              {/* Docs Stage */}
+              <StatusStage status={docStatus === 'complete' ? 'complete' : 'neutral'} label="Docs" icon="Page" stageKey="documents" data={documents} />
+            </>
+          )}
         </div>
       </div>
     );
@@ -770,13 +1098,16 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
   // Actions renderer
   const renderActions = (item: any) => {    
     return (
-      <div style={{ 
-        display: 'flex', 
-        gap: '4px', 
-        justifyContent: 'flex-end',
-        alignItems: 'center',
-        width: '100%'
-      }}>
+      <div 
+        data-action-button="true"
+        style={{ 
+          display: 'flex', 
+          gap: '4px', 
+          justifyContent: 'flex-end',
+          alignItems: 'center',
+          width: '100%'
+        }}
+      >
         <div 
           title="Show notes" 
           style={{
@@ -946,146 +1277,6 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
         tooltip: 'Sort by client name'
       },
       {
-        key: 'feeEarner',
-        header: 'FE',
-        width: '0.8fr',
-        sortable: true,
-        render: (item) => {
-          const feName = item.feeEarner;
-          const isTriage = feName?.toLowerCase() === 'triage';
-          // If it's already short (like initials), use as-is; otherwise extract initials
-          const isAlreadyInitials = feName && feName.length <= 4 && !feName.includes(' ');
-          const initials = feName 
-            ? (isTriage ? 'Triage' : (isAlreadyInitials ? feName.toUpperCase() : getInitialsFromName(feName))) 
-            : null;
-          const instructionRef = item.reference || item.rawData?.instruction?.InstructionRef;
-          const canReassign = Boolean(onFeeEarnerReassign && teamData?.length);
-          
-          if (!feName) {
-            return (
-              <button
-                onClick={(e) => canReassign && handleFeClick(instructionRef, '', e)}
-                disabled={!canReassign}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
-                  padding: '3px 8px',
-                  borderRadius: 0,
-                  background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)',
-                  border: `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
-                  fontSize: 10,
-                  fontWeight: 500,
-                  color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)',
-                  cursor: canReassign ? 'pointer' : 'default',
-                  transition: 'all 0.15s ease',
-                }}
-                onMouseEnter={(e) => {
-                  if (canReassign) {
-                    e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)';
-                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.3)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)';
-                  e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)';
-                }}
-              >
-                <span style={{ fontSize: 9 }}>—</span>
-                {canReassign && (
-                  <Icon iconName="ChevronDown" styles={{ root: { fontSize: 7, color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.4)' } }} />
-                )}
-              </button>
-            );
-          }
-          
-          // Triage badge - special styling
-          if (isTriage) {
-            return (
-              <button
-                onClick={(e) => canReassign && handleFeClick(instructionRef, feName, e)}
-                title="Triage - Click to reassign"
-                disabled={!canReassign}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  padding: '3px 8px',
-                  borderRadius: 0,
-                  background: isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)',
-                  border: `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.3)' : 'rgba(239, 68, 68, 0.25)'}`,
-                  fontSize: 10,
-                  fontWeight: 600,
-                  color: isDarkMode ? '#f87171' : '#ef4444',
-                  cursor: canReassign ? 'pointer' : 'default',
-                  transition: 'all 0.15s ease',
-                }}
-                onMouseEnter={(e) => {
-                  if (canReassign) {
-                    e.currentTarget.style.background = isDarkMode ? 'rgba(239, 68, 68, 0.25)' : 'rgba(239, 68, 68, 0.18)';
-                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(239, 68, 68, 0.5)' : 'rgba(239, 68, 68, 0.4)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)';
-                  e.currentTarget.style.borderColor = isDarkMode ? 'rgba(239, 68, 68, 0.3)' : 'rgba(239, 68, 68, 0.25)';
-                }}
-              >
-                <Icon
-                  iconName="Medical"
-                  styles={{ root: { fontSize: 10, color: isDarkMode ? '#f87171' : '#ef4444' } }}
-                />
-                <span>{initials}</span>
-                {canReassign && (
-                  <Icon iconName="ChevronDown" styles={{ root: { fontSize: 7, color: isDarkMode ? 'rgba(239, 68, 68, 0.6)' : 'rgba(239, 68, 68, 0.5)', marginLeft: -2 } }} />
-                )}
-              </button>
-            );
-          }
-          
-          return (
-            <button
-              onClick={(e) => canReassign && handleFeClick(instructionRef, feName, e)}
-              title={`${feName} - Click to reassign`}
-              disabled={!canReassign}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-                padding: '3px 8px',
-                borderRadius: 0,
-                background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)',
-                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'}`,
-                fontSize: 10,
-                fontWeight: 600,
-                color: isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)',
-                cursor: canReassign ? 'pointer' : 'default',
-                transition: 'all 0.15s ease',
-              }}
-              onMouseEnter={(e) => {
-                if (canReassign) {
-                  e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)';
-                  e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(148, 163, 184, 0.4)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)';
-                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)';
-              }}
-            >
-              <Icon
-                iconName="Contact"
-                styles={{ root: { fontSize: 10, color: isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)' } }}
-              />
-              <span>{initials}</span>
-              {canReassign && (
-                <Icon iconName="ChevronDown" styles={{ root: { fontSize: 7, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.5)', marginLeft: -2 } }} />
-              )}
-            </button>
-          );
-        }
-      },
-      {
         key: 'status',
         header: 'Instruction | Pipeline',
         width: '2.2fr',
@@ -1139,6 +1330,20 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
       return next;
     });
   };
+
+  // Toggle client group expansion within a specific day
+  const toggleClientExpansion = useCallback((dayKey: string, clientKey: string) => {
+    const fullKey = `${dayKey}-${clientKey}`;
+    setExpandedClientsInTable(prev => {
+      const next = new Set(prev);
+      if (next.has(fullKey)) {
+        next.delete(fullKey);
+      } else {
+        next.add(fullKey);
+      }
+      return next;
+    });
+  }, []);
 
   return (
     <div style={{ margin: '16px' }}>
@@ -1521,8 +1726,8 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                 )}
               </div>
             ) : (
-            /* Grouped rows with day separators + timeline */
-            groupedData.map((group) => (
+            /* Grouped rows with day separators + client sub-groups + timeline */
+            processedGroupedData.map((group) => (
               <React.Fragment key={group.date}>
                 {/* Day separator - hidden when showing flat sorted list */}
                 {group.date !== 'all' && (
@@ -1670,8 +1875,428 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                 </div>
                 )}
 
-                {!group.collapsed &&
-                  group.items.map((item: any, idx: number) => {
+                {!group.collapsed && (() => {
+                  // If this day has client groups, render them with expansion
+                  if (group.clientGroups) {
+                    return group.clientGroups.map((clientGroup) => {
+                      // If client has multiple instructions, show as expandable group
+                      if (clientGroup.items.length > 1) {
+                        return (
+                          <React.Fragment key={`client-${group.date}-${clientGroup.clientKey}`}>
+                            {/* Client group header row */}
+                            <div
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns: tableConfig.showTimeline && tableConfig.groupByDate 
+                                  ? `32px ${gridTemplateColumns}` 
+                                  : gridTemplateColumns,
+                                gap: '12px',
+                                padding: '10px 16px',
+                                alignItems: 'center',
+                                borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)'}`,
+                                fontSize: '13px',
+                                color: isDarkMode ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0, 0, 0, 0.9)',
+                                background: isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(54, 144, 206, 0.03)',
+                                cursor: 'pointer',
+                                transition: 'background-color 0.15s ease',
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleClientExpansion(group.date, clientGroup.clientKey);
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(54, 144, 206, 0.03)';
+                              }}
+                            >
+                              {/* Timeline cell - empty for group headers */}
+                              {tableConfig.showTimeline && tableConfig.groupByDate && (
+                                <div style={{ position: 'relative', height: '100%' }}>
+                                  <div style={{
+                                    position: 'absolute',
+                                    left: '50%',
+                                    top: 0,
+                                    bottom: 0,
+                                    width: '1px',
+                                    transform: 'translateX(-50%)',
+                                    background: isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)',
+                                  }} />
+                                </div>
+                              )}
+
+                              {/* Render columns properly using tableConfig.columns structure */}
+                              {tableConfig.columns.map((col, colIdx) => {
+                                if (col.key === 'date') {
+                                  return <div key={col.key}>{renderDate(clientGroup.latestItem)}</div>;
+                                } else if (col.key === 'area') {
+                                  return <div key={col.key}>{renderArea(clientGroup.latestItem)}</div>;
+                                } else if (col.key === 'reference') {
+                                  const totalValue = clientGroup.items.reduce((sum, item) => sum + (item.amount || 0), 0);
+                                  const uniqueIds = clientGroup.items.map(item => item.id).filter(Boolean);
+                                  const displayId = uniqueIds.length > 0 ? uniqueIds[0] : 'No ID';
+                                  
+                                  return (
+                                    <div key={col.key} style={{
+                                      display: 'flex',
+                                      flexDirection: 'column',
+                                      gap: '2px',
+                                      lineHeight: 1.3,
+                                      justifyContent: 'center'
+                                    }}>
+                                      {/* ID with count indicator */}
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        <span style={{
+                                          fontFamily: 'Monaco, Consolas, monospace',
+                                          fontSize: '10px',
+                                          fontWeight: '600',
+                                          color: colours.highlight,
+                                        }}>
+                                          {displayId}
+                                        </span>
+                                        {clientGroup.items.length > 1 && (
+                                          <span style={{
+                                            fontSize: '8px',
+                                            background: colours.blue,
+                                            color: 'white',
+                                            padding: '1px 3px',
+                                            borderRadius: 2,
+                                            fontWeight: 600
+                                          }}>
+                                            +{clientGroup.items.length - 1}
+                                          </span>
+                                        )}
+                                      </div>
+                                      {/* Combined Value */}
+                                      {totalValue > 0 && (
+                                        <span style={{
+                                          fontSize: '10px',
+                                          fontWeight: '600',
+                                          color: '#22c55e',
+                                        }}>
+                                          £{totalValue.toLocaleString()}
+                                        </span>
+                                      )}
+                                    </div>
+                                  );
+                                } else if (col.key === 'clientName') {
+                                  const latestItem = clientGroup.latestItem;
+                                  const clientName = latestItem.clientName || 'Unknown Client';
+                                  const clientEmail = latestItem.clientEmail || latestItem.rawData?.instruction?.ClientEmail || latestItem.rawData?.instruction?.Email;
+                                  
+                                  return (
+                                    <div key={col.key} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', minWidth: 0, flex: 1 }}>
+                                        <div style={{ 
+                                          fontWeight: 600, 
+                                          fontSize: '12px', 
+                                          color: isDarkMode ? '#E5E7EB' : '#1F2937',
+                                          marginBottom: '2px',
+                                          overflow: 'hidden',
+                                          textOverflow: 'ellipsis',
+                                          whiteSpace: 'nowrap'
+                                        }}>
+                                          {clientName}
+                                        </div>
+                                        {clientEmail && (
+                                          <div style={{ 
+                                            fontSize: '10px', 
+                                            opacity: 0.7,
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            whiteSpace: 'nowrap',
+                                            color: isDarkMode ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)'
+                                          }}>
+                                            {clientEmail}
+                                          </div>
+                                        )}
+                                        {/* Show count of different clients if there are multiple with different names */}
+                                        {(() => {
+                                          const uniqueClientNames = new Set(clientGroup.items.map(item => item.clientName).filter(Boolean));
+                                          return uniqueClientNames.size > 1 ? (
+                                            <div style={{
+                                              fontSize: '9px',
+                                              color: colours.blue,
+                                              fontWeight: 500,
+                                              opacity: 0.8
+                                            }}>
+                                              +{uniqueClientNames.size - 1} other name{uniqueClientNames.size > 2 ? 's' : ''}
+                                            </div>
+                                          ) : null;
+                                        })()}
+                                      </div>
+                                    </div>
+                                  );
+                                } else if (col.key === 'status') {
+                                  // Don't show pipeline for grouped items - not clear which instruction it applies to
+                                  return (
+                                    <div key={col.key} style={{ 
+                                      display: 'flex', 
+                                      alignItems: 'center', 
+                                      justifyContent: 'center',
+                                      color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.4)',
+                                      fontSize: 10,
+                                      fontStyle: 'italic',
+                                    }}>
+                                      Select to view
+                                    </div>
+                                  );
+                                } else if (col.key === 'actions') {
+                                  return (
+                                    <div key={col.key} style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                      <InlineExpansionChevron
+                                        isExpanded={clientGroup.isExpanded || false}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          toggleClientExpansion(group.date, clientGroup.clientKey);
+                                        }}
+                                        isDarkMode={isDarkMode}
+                                        count={clientGroup.items.length}
+                                        itemType="client"
+                                      />
+                                    </div>
+                                  );
+                                } else {
+                                  return <div key={String(col.key)}></div>; // Empty for other columns
+                                }
+                              })}
+                            </div>
+                            
+                            {/* Expanded client instructions */}
+                            {clientGroup.isExpanded && clientGroup.items.map((item: any, idx: number) => {
+                              const notesKey = item.id || item.reference || '';
+                              const isExpanded = expandedNotes.has(notesKey);
+                              const rawData = item.rawData;
+                              const inst = rawData?.instruction;
+                              const deal = rawData?.deal;
+                              const description = inst?.Notes || deal?.ServiceDescription || inst?.Description || inst?.description || deal?.description;
+
+                              return (
+                                <div key={`client-child-${notesKey}`}>
+                                  <div
+                                    style={{
+                                      display: 'grid',
+                                      gridTemplateColumns: tableConfig.showTimeline && tableConfig.groupByDate 
+                                        ? `32px ${gridTemplateColumns}` 
+                                        : gridTemplateColumns,
+                                      gap: '12px',
+                                      padding: '10px 16px 10px 32px', // Indent child items
+                                      alignItems: 'center',
+                                      borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.02)'}`,
+                                      fontSize: '13px',
+                                      color: isDarkMode ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.85)',
+                                      background: isDarkMode ? 'rgba(255, 255, 255, 0.01)' : 'rgba(0, 0, 0, 0.005)',
+                                      cursor: 'pointer',
+                                      transition: 'background-color 0.15s ease',
+                                    }}
+                                    onClick={(e) => {
+                                      // Check if clicking on action buttons
+                                      const target = e.target as HTMLElement;
+                                      if (target.closest('[data-action-button]')) {
+                                        return; // Let action buttons handle their own clicks
+                                      }
+                                      // Toggle notes expansion on row click
+                                      console.log('Child item clicked, notesKey:', notesKey, 'currently expanded:', expandedNotes.has(notesKey));
+                                      const newSet = new Set(expandedNotes);
+                                      if (expandedNotes.has(notesKey)) {
+                                        newSet.delete(notesKey);
+                                      } else {
+                                        newSet.add(notesKey);
+                                      }
+                                      console.log('New expandedNotes will be:', newSet);
+                                      setExpandedNotes(newSet);
+                                    }}
+                                    onMouseEnter={(e) => {
+                                      e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.02)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(255, 255, 255, 0.01)' : 'rgba(0, 0, 0, 0.005)';
+                                    }}
+                                  >
+                                    {/* Timeline cell - connector to parent */}
+                                    {tableConfig.showTimeline && tableConfig.groupByDate && (
+                                      <div style={{ position: 'relative', height: '100%', display: 'flex', alignItems: 'center' }}>
+                                        {/* Connection line to parent */}
+                                        <div style={{
+                                          position: 'absolute',
+                                          left: '50%',
+                                          top: 0,
+                                          bottom: 0,
+                                          width: '1px',
+                                          transform: 'translateX(-50%)',
+                                          background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.15)',
+                                        }} />
+                                        {/* Horizontal connector */}
+                                        <div style={{
+                                          position: 'absolute',
+                                          left: '50%',
+                                          top: '50%',
+                                          width: '12px',
+                                          height: '1px',
+                                          background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.15)',
+                                        }} />
+                                      </div>
+                                    )}
+                                    
+                                    {/* Render all other columns using existing renderers with proper structure */}
+                                    {tableConfig.columns.map((col) => (
+                                      <div
+                                        key={String(col.key)}
+                                        style={{ 
+                                          display: 'flex', 
+                                          alignItems: 'center', 
+                                          justifyContent: col.key === 'area' ? 'center' : (col.key === 'actions' ? 'flex-end' : 'flex-start'),
+                                          minWidth: 0, 
+                                          overflow: 'hidden' 
+                                        }}
+                                      >
+                                        {col.render ? col.render(item, idx) : String((item as any)[col.key] ?? '—')}
+                                      </div>
+                                    ))}
+                                  </div>
+                                  
+                                  {/* Inline Workbench for child items */}
+                                  {isExpanded && (
+                                    <InlineWorkbench
+                                      item={rawData}
+                                      isDarkMode={isDarkMode}
+                                      teamData={teamData}
+                                      initialTab={initialWorkbenchTabs.get(notesKey)}
+                                      stageStatuses={getStageStatuses(item)}
+                                      onDocumentPreview={onDocumentPreview}
+                                      onTriggerEID={onTriggerEID}
+                                      onOpenIdReview={onOpenIdReview}
+                                      onOpenMatter={onOpenMatter}
+                                      onOpenRiskAssessment={onOpenRiskAssessment}
+                                      onClose={() => {
+                                        const newSet = new Set(expandedNotes);
+                                        newSet.delete(notesKey);
+                                        setExpandedNotes(newSet);
+                                      }}
+                                    />
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </React.Fragment>
+                        );
+                      } else {
+                        // Single instruction from this client - render normally
+                        const item = clientGroup.items[0];
+                        const notesKey = item.id || item.reference || '';
+                        const isExpanded = expandedNotes.has(notesKey);
+                        const rawData = item.rawData;
+                        const inst = rawData?.instruction;
+                        const deal = rawData?.deal;
+                        const description = inst?.Notes || deal?.ServiceDescription || inst?.Description || inst?.description || deal?.description;
+
+                        return (
+                          <div key={`single-${notesKey}`}>
+                            <div
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns: tableConfig.showTimeline && tableConfig.groupByDate 
+                                  ? `32px ${gridTemplateColumns}` 
+                                  : gridTemplateColumns,
+                                gap: '12px',
+                                padding: '10px 16px',
+                                alignItems: 'center',
+                                borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)'}`,
+                                fontSize: '13px',
+                                color: isDarkMode ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0, 0, 0, 0.9)',
+                                background: 'transparent',
+                                cursor: 'pointer',
+                                transition: 'background-color 0.15s ease',
+                                position: 'relative',
+                              }}
+                              onClick={(e) => {
+                                // Check if clicking on action buttons
+                                const target = e.target as HTMLElement;
+                                if (target.closest('[data-action-button]')) {
+                                  return;
+                                }
+                                // Toggle inline workbench expansion
+                                const newSet = new Set(expandedNotes);
+                                if (expandedNotes.has(notesKey)) {
+                                  newSet.delete(notesKey);
+                                } else {
+                                  newSet.add(notesKey);
+                                }
+                                setExpandedNotes(newSet);
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)';
+                                setHoveredDayKey(group.date);
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.backgroundColor = 'transparent';
+                                setHoveredDayKey((prev) => (prev === group.date ? null : prev));
+                              }}
+                            >
+                              {/* Timeline cell */}
+                              {tableConfig.showTimeline && tableConfig.groupByDate && (
+                                <div style={{ position: 'relative', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                  <div style={{
+                                    position: 'absolute',
+                                    left: '50%',
+                                    top: 0,
+                                    bottom: 0,
+                                    width: '1px',
+                                    transform: 'translateX(-50%)',
+                                    background: hoveredDayKey === group.date
+                                      ? (isDarkMode ? colours.accent : colours.highlight)
+                                      : (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'),
+                                    opacity: hoveredDayKey === group.date ? 0.9 : 1,
+                                    transition: 'background 0.15s ease, opacity 0.15s ease',
+                                  }} />
+                                </div>
+                              )}
+                              
+                              {/* Render all columns using tableConfig.columns structure for proper alignment */}
+                              {tableConfig.columns.map((col) => (
+                                <div
+                                  key={String(col.key)}
+                                  style={{ 
+                                    display: 'flex', 
+                                    alignItems: 'center', 
+                                    justifyContent: col.key === 'area' ? 'center' : (col.key === 'actions' ? 'flex-end' : 'flex-start'),
+                                    minWidth: 0, 
+                                    overflow: 'hidden' 
+                                  }}
+                                >
+                                  {col.render ? col.render(item, 0) : String((item as any)[col.key] ?? '—')}
+                                </div>
+                              ))}
+                            </div>
+                            
+                            {/* Inline Workbench for single client instructions */}
+                            {isExpanded && (
+                              <InlineWorkbench
+                                item={rawData}
+                                isDarkMode={isDarkMode}
+                                teamData={teamData}
+                                initialTab={initialWorkbenchTabs.get(notesKey)}
+                                stageStatuses={getStageStatuses(item)}
+                                onDocumentPreview={onDocumentPreview}
+                                onTriggerEID={onTriggerEID}
+                                onOpenIdReview={onOpenIdReview}
+                                onOpenMatter={onOpenMatter}
+                                onOpenRiskAssessment={onOpenRiskAssessment}
+                                onClose={() => {
+                                  const newSet = new Set(expandedNotes);
+                                  newSet.delete(notesKey);
+                                  setExpandedNotes(newSet);
+                                }}
+                              />
+                            )}
+                          </div>
+                        );
+                      }
+                    });
+                  } else {
+                    // No client groups - render items normally (fallback to original logic)
+                    return group.items.map((item: any, idx: number) => {
                     const notesKey = item.id || item.reference || '';
                     const isExpanded = expandedNotes.has(notesKey);
 
@@ -1707,7 +2332,21 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                             transition: 'background-color 0.15s ease',
                             position: 'relative',
                           }}
-                          onClick={() => onRowClick?.(item.rawData)}
+                          onClick={(e) => {
+                            // Check if clicking on action buttons
+                            const target = e.target as HTMLElement;
+                            if (target.closest('[data-action-button]')) {
+                              return;
+                            }
+                            // Toggle inline workbench expansion
+                            const newSet = new Set(expandedNotes);
+                            if (expandedNotes.has(notesKey)) {
+                              newSet.delete(notesKey);
+                            } else {
+                              newSet.add(notesKey);
+                            }
+                            setExpandedNotes(newSet);
+                          }}
                           onMouseEnter={(e) => {
                             e.currentTarget.style.backgroundColor = isDarkMode
                               ? 'rgba(255, 255, 255, 0.05)'
@@ -1767,26 +2406,30 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                           ))}
                         </div>
 
-                        {isExpanded && description && (
-                          <div
-                            style={{
-                              padding: '12px 20px 12px 52px',
-                              backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.015)' : 'rgba(0, 0, 0, 0.008)',
-                              borderTop: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)'}`,
-                              borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)'}`,
-                              fontSize: '13px',
-                              lineHeight: '1.5',
-                              color: isDarkMode ? 'rgba(203, 213, 225, 0.85)' : 'rgba(71, 85, 105, 0.85)',
-                              whiteSpace: 'pre-wrap',
-                              wordBreak: 'break-word',
+                        {/* Inline Workbench for fallback items */}
+                        {isExpanded && (
+                          <InlineWorkbench
+                            item={rawData}
+                            isDarkMode={isDarkMode}
+                            teamData={teamData}
+                            initialTab={initialWorkbenchTabs.get(notesKey)}
+                            stageStatuses={getStageStatuses(item)}
+                            onDocumentPreview={onDocumentPreview}
+                            onTriggerEID={onTriggerEID}
+                            onOpenIdReview={onOpenIdReview}
+                            onOpenMatter={onOpenMatter}
+                            onOpenRiskAssessment={onOpenRiskAssessment}
+                            onClose={() => {
+                              const newSet = new Set(expandedNotes);
+                              newSet.delete(notesKey);
+                              setExpandedNotes(newSet);
                             }}
-                          >
-                            {description}
-                          </div>
+                          />
                         )}
                       </div>
                     );
                   })}
+                })()}
               </React.Fragment>
             ))
             )}

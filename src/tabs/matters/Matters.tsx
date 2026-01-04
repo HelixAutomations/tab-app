@@ -15,6 +15,7 @@ import {
 import { isAdminUser } from '../../app/admin';
 import MatterLineItem from './MatterLineItem';
 import MatterOverview from './MatterOverview';
+import MatterTableView from './MatterTableView';
 import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { useNavigatorActions } from '../../app/functionality/NavigatorContext';
@@ -39,6 +40,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
   // Scope & dataset selection
   const [scope, setScope] = useState<'mine' | 'all'>('mine');
   const [useNewData, setUseNewData] = useState<boolean>(false); // Admin-only toggle to view VNet (new) data
+  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
   const [twoColumn, setTwoColumn] = useState<boolean>(false);
 
   const userFullName = userData?.[0]?.FullName?.toLowerCase();
@@ -267,10 +269,10 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
               ]}
             />
 
-            {/* Layout toggle with icons */}
+            {/* View Mode Toggle: Cards vs Table */}
             <div 
               role="group" 
-              aria-label="Layout: choose 1 or 2 columns"
+              aria-label="View mode: cards or table"
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -284,23 +286,23 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
             >
               <button
                 type="button"
-                title="Single column layout"
-                aria-label="Single column layout"
-                aria-pressed={!twoColumn}
-                onClick={() => setTwoColumn(false)}
+                title="Card view"
+                aria-label="Card view"
+                aria-pressed={viewMode === 'cards'}
+                onClick={() => setViewMode('cards')}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   width: 22,
                   height: 22,
-                  background: !twoColumn ? '#FFFFFF' : 'transparent',
+                  background: viewMode === 'cards' ? '#FFFFFF' : 'transparent',
                   border: 'none',
                   borderRadius: 11,
                   cursor: 'pointer',
                   transition: 'all 200ms ease',
-                  opacity: !twoColumn ? 1 : 0.6,
-                  boxShadow: !twoColumn 
+                  opacity: viewMode === 'cards' ? 1 : 0.6,
+                  boxShadow: viewMode === 'cards' 
                     ? (isDarkMode
                         ? '0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.24)'
                         : '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)')
@@ -308,10 +310,10 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
                 }}
               >
                 <Icon
-                  iconName="SingleColumn"
+                  iconName="GridViewMedium"
                   style={{
                     fontSize: 10,
-                    color: !twoColumn 
+                    color: viewMode === 'cards' 
                       ? (isDarkMode ? '#1f2937' : '#1f2937')
                       : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
                   }}
@@ -319,23 +321,23 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
               </button>
               <button
                 type="button"
-                title="Two column layout"
-                aria-label="Two column layout"
-                aria-pressed={twoColumn}
-                onClick={() => setTwoColumn(true)}
+                title="Table view"
+                aria-label="Table view"
+                aria-pressed={viewMode === 'table'}
+                onClick={() => setViewMode('table')}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   width: 22,
                   height: 22,
-                  background: twoColumn ? '#FFFFFF' : 'transparent',
+                  background: viewMode === 'table' ? '#FFFFFF' : 'transparent',
                   border: 'none',
                   borderRadius: 11,
                   cursor: 'pointer',
                   transition: 'all 200ms ease',
-                  opacity: twoColumn ? 1 : 0.6,
-                  boxShadow: twoColumn 
+                  opacity: viewMode === 'table' ? 1 : 0.6,
+                  boxShadow: viewMode === 'table' 
                     ? (isDarkMode
                         ? '0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.24)'
                         : '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)')
@@ -343,16 +345,105 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
                 }}
               >
                 <Icon
-                  iconName="DoubleColumn"
+                  iconName="BulletedList"
                   style={{
                     fontSize: 10,
-                    color: twoColumn 
+                    color: viewMode === 'table' 
                       ? (isDarkMode ? '#1f2937' : '#1f2937')
                       : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
                   }}
                 />
               </button>
             </div>
+
+            {/* Layout toggle with icons (only for card view) */}
+            {viewMode === 'cards' && (
+              <div 
+                role="group" 
+                aria-label="Layout: choose 1 or 2 columns"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  height: 28,
+                  padding: '2px 4px',
+                  background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                  borderRadius: 14,
+                  fontFamily: 'Raleway, sans-serif',
+                }}
+              >
+                <button
+                  type="button"
+                  title="Single column layout"
+                  aria-label="Single column layout"
+                  aria-pressed={!twoColumn}
+                  onClick={() => setTwoColumn(false)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: 22,
+                    height: 22,
+                    background: !twoColumn ? '#FFFFFF' : 'transparent',
+                    border: 'none',
+                    borderRadius: 11,
+                    cursor: 'pointer',
+                    transition: 'all 200ms ease',
+                    opacity: !twoColumn ? 1 : 0.6,
+                    boxShadow: !twoColumn 
+                      ? (isDarkMode
+                          ? '0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.24)'
+                          : '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)')
+                      : 'none',
+                  }}
+                >
+                  <Icon
+                    iconName="SingleColumn"
+                    style={{
+                      fontSize: 10,
+                      color: !twoColumn 
+                        ? (isDarkMode ? '#1f2937' : '#1f2937')
+                        : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
+                    }}
+                  />
+                </button>
+                <button
+                  type="button"
+                  title="Two column layout"
+                  aria-label="Two column layout"
+                  aria-pressed={twoColumn}
+                  onClick={() => setTwoColumn(true)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: 22,
+                    height: 22,
+                    background: twoColumn ? '#FFFFFF' : 'transparent',
+                    border: 'none',
+                    borderRadius: 11,
+                    cursor: 'pointer',
+                    transition: 'all 200ms ease',
+                    opacity: twoColumn ? 1 : 0.6,
+                    boxShadow: twoColumn 
+                      ? (isDarkMode
+                          ? '0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.24)'
+                          : '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)')
+                      : 'none',
+                  }}
+                >
+                  <Icon
+                    iconName="DoubleColumn"
+                    style={{
+                      fontSize: 10,
+                      color: twoColumn 
+                        ? (isDarkMode ? '#1f2937' : '#1f2937')
+                        : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
+                    }}
+                  />
+                </button>
+              </div>
+            )}
 
             {/* Admin data toggle */}
             {(isAdmin || isLocalhost) && (
@@ -538,37 +629,49 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
 
   return (
     <div className={containerStyle(isDarkMode)}>
-      <section className="page-section">
-        <Stack
-          tokens={{ childrenGap: 0 }}
-          styles={{
-            root: {
-              backgroundColor: isDarkMode 
-                ? colours.dark.sectionBackground 
-                : colours.light.sectionBackground,
-              padding: '16px',
-              borderRadius: 0,
-              boxShadow: isDarkMode
-                ? `0 4px 12px ${colours.dark.border}`
-                : `0 4px 12px ${colours.light.border}`,
-              width: '100%',
-              fontFamily: 'Raleway, sans-serif',
-            },
-          }}
-        >
-          {/* Table-style matter list */}
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '0px',
-              padding: 0,
-              margin: 0,
-              backgroundColor: 'transparent',
-              width: '100%',
+      {/* Table view */}
+      {viewMode === 'table' && (
+        <MatterTableView
+          matters={filtered}
+          isDarkMode={isDarkMode}
+          onRowClick={(matter) => setSelected(matter)}
+          loading={isLoading}
+        />
+      )}
+
+      {/* Card view */}
+      {viewMode === 'cards' && (
+        <section className="page-section">
+          <Stack
+            tokens={{ childrenGap: 0 }}
+            styles={{
+              root: {
+                backgroundColor: isDarkMode 
+                  ? colours.dark.sectionBackground 
+                  : colours.light.sectionBackground,
+                padding: '16px',
+                borderRadius: 0,
+                boxShadow: isDarkMode
+                  ? `0 4px 12px ${colours.dark.border}`
+                  : `0 4px 12px ${colours.light.border}`,
+                width: '100%',
+                fontFamily: 'Raleway, sans-serif',
+              },
             }}
           >
-            {filtered.map((matter, idx) => (
+            {/* Table-style matter list */}
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0px',
+                padding: 0,
+                margin: 0,
+                backgroundColor: 'transparent',
+                width: '100%',
+              }}
+            >
+              {filtered.map((matter, idx) => (
               <div
                 key={matter.matterId || idx}
                 style={{
@@ -739,6 +842,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
           </div>
         </Stack>
       </section>
+      )}
     </div>
   );
 

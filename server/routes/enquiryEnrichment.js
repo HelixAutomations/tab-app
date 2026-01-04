@@ -7,8 +7,10 @@ const log = loggers.enquiries.child('Enrichment');
 
 // Unified enrichment endpoint - combines Teams and pitch data for enquiries
 router.get('/', async (req, res) => {
-  const connectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING || process.env.SQL_CONNECTION_STRING;
-  if (!connectionString) {
+  const instructionsConnStr = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+  const legacyConnStr = process.env.SQL_CONNECTION_STRING;
+  
+  if (!instructionsConnStr) {
     return res.status(500).json({ error: 'Instructions SQL connection string not configured' });
   }
 
@@ -23,7 +25,7 @@ router.get('/', async (req, res) => {
     const ids = enquiryIds ? enquiryIds.split(',').map(id => id.trim()).filter(Boolean) : [];
     const emails = enquiryEmails ? enquiryEmails.split(',').map(email => email.trim().toLowerCase()).filter(Boolean) : [];
 
-    const enrichmentData = await withRequest(connectionString, async (request) => {
+    const enrichmentData = await withRequest(instructionsConnStr, async (request) => {
       const sql = require('mssql');
       const results = {};
 
@@ -101,6 +103,7 @@ router.get('/', async (req, res) => {
 
         const emailPlaceholders = emails.map((_, index) => `@pitchEmail${index}`).join(', ');
 
+        // Query pitch data from instructions database (no cross-server JOIN)
         const pitchResult = await request.query(`
           SELECT 
             d.DealId,
@@ -116,13 +119,49 @@ router.get('/', async (req, res) => {
             d.CloseTime,
             d.InstructionRef,
             p.ScenarioId,
-            d.PitchContent
+            d.PitchContent,
+            inst_m.MatterID
           FROM [instructions].[dbo].[Deals] d
           LEFT JOIN [instructions].[dbo].[PitchContent] p ON d.DealId = p.DealId
+          LEFT JOIN [instructions].[dbo].[Matters] inst_m ON d.InstructionRef = inst_m.InstructionRef
           WHERE LOWER(d.LeadClientEmail) IN (${emailPlaceholders})
             AND d.Status IS NOT NULL
           ORDER BY d.PitchedDate DESC, d.PitchedTime DESC
         `);
+
+        // Collect MatterIDs to look up DisplayNumbers from legacy database
+        const matterIds = [...new Set(
+          pitchResult.recordset
+            .map(r => r.MatterID)
+            .filter(Boolean)
+        )];
+
+        // Fetch DisplayNumbers from legacy database if we have MatterIDs
+        let displayNumberMap = new Map();
+        if (matterIds.length > 0 && legacyConnStr) {
+          try {
+            displayNumberMap = await withRequest(legacyConnStr, async (legacyRequest) => {
+              matterIds.forEach((id, index) => {
+                legacyRequest.input(`matterId${index}`, sql.NVarChar, id);
+              });
+              const matterPlaceholders = matterIds.map((_, index) => `@matterId${index}`).join(', ');
+              
+              const legacyResult = await legacyRequest.query(`
+                SELECT [Unique ID], [Display Number]
+                FROM [dbo].[matters]
+                WHERE [Unique ID] IN (${matterPlaceholders})
+              `);
+              
+              const map = new Map();
+              legacyResult.recordset.forEach(row => {
+                map.set(row['Unique ID'], row['Display Number']);
+              });
+              return map;
+            }, 2);
+          } catch (legacyErr) {
+            log.warn('Failed to fetch legacy DisplayNumbers', { error: legacyErr.message });
+          }
+        }
 
         // Process pitch data and create email → pitch mapping
         const pitchByEmail = new Map();
@@ -153,6 +192,7 @@ router.get('/', async (req, res) => {
               closeDate: row.CloseDate,
               closeTime: row.CloseTime,
               instructionRef: row.InstructionRef,
+              displayNumber: row.MatterID ? displayNumberMap.get(row.MatterID) || null : null,
               pitchContent: row.PitchContent,
               scenarioId: row.ScenarioId || (() => {
                 // Try to extract scenarioId from PitchContent JSON if not in separate column

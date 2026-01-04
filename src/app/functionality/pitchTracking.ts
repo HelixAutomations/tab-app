@@ -13,6 +13,8 @@ export interface PitchData {
   pitchedTime?: string;
   closeDate?: string;
   closeTime?: string;
+  instructionRef?: string;
+  displayNumber?: string;
   pitchContent?: string;
   scenarioDisplay?: string;
 }

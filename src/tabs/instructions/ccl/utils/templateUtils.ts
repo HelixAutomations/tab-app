@@ -25,7 +25,7 @@ export function generateTemplateContent(
     content = content.replace(/\{\{costs_section_choice\}\}/g, costsText);
 
     const chargesText = chargesChoice === 'hourly_rate'
-        ? `Our fees are calculated on the basis of an hourly rate. My rate is £395 per hour. Other Partners/senior solicitors are charged at £395, Associate solicitors at £325, Solicitors at £285 and trainees and paralegals are charged at £195. All hourly rates will be subject to the addition of VAT.
+        ? `Our fees are calculated on the basis of an hourly rate. My rate is £475 per hour. Other Senior Partners are charged at £475, Partners at £425, Associate solicitors at £350, Solicitors at £310 and trainees and paralegals are charged at £210. All hourly rates will be subject to the addition of VAT.
 
 Short incoming and outgoing letters, messages, emails and routine phone calls are charged at 1/10 of an hour. All other work is timed in six minute units and charged at the relevant hourly rate. Please note that lots of small emails or telephone calls may unnecessarily increase the costs to you.
 

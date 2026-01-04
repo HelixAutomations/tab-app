@@ -4,6 +4,24 @@ Substantial tasks only.
 
 ---
 
+- 2026-01-04 / Instructions tab backtrack links: AC & Teams origin / Added subtle visual "backtrack" indicators to the avatar card—two mini circular badges (AC & T) that link to the Active Campaign record and original Teams card where the instruction originated. Purple badge for AC, blue badge for Teams. Positioned subtly at bottom-right of avatar to show the instruction is connected to these origin sources without cluttering the main interface. Hovers highlight the links. (~ src/tabs/instructions/InlineWorkbench.tsx)
+
+- 2026-01-04 / Instructions tab redesign: comprehensive client overview / Transformed identity tab into full "Instructions" client workspace. Added prominent header with person/company avatar, primary name/company name & number, and quick contact details (email/phone/ref). Below: key details grid (DOB, Nationality, City, Postcode), full address card with copy, then ID verification section (passport/license only, removed false "national ID"), EID results, and business details. Space now shows complete instruction/client picture—not just ID verification, but full checkpoint for all client details and verification status. (~ src/tabs/instructions/InlineWorkbench.tsx)
+
+- 2026-01-04 / Workbench visual clarity: ID documents & payments / Enhanced ID document section to visually show which document was used (passport/license/national ID) with green highlight and indicator dot, grayed-out alternatives, and properly formatted date of birth (no timestamp). Similarly added payment method selector showing card vs bank transfer with visual status indicators. Space now speaks for itself—clearly shows situation, position, and alternatives. (~ src/tabs/instructions/InlineWorkbench.tsx)
+
+- 2026-01-04 / Inline workbench per instruction row / Moved workbench from page-level global component to inline expansion within each instruction row. Created InlineWorkbench.tsx component with tabbed sections (ID, PAY, DOCS, RISK, MATTER). Click row to toggle workbench. Includes header with instruction ref, notes/description, and all pipeline action buttons. Removed page-level workbench visibility triggers from onRowClick. (+ src/tabs/instructions/InlineWorkbench.tsx, ~ src/tabs/instructions/InstructionTableView.tsx, ~ src/tabs/instructions/Instructions.tsx)
+
+- 2026-01-04 / Instructions table ref selector not opening / Replaced inline absolute dropdown with Fluent UI Callout anchored to the reference chip (avoids overflow clipping) and keyed view-mode state by a stable selector key (email/ref fallback). (~ src/tabs/instructions/InstructionTableView.tsx)
+
+- 2026-01-04 / Instructions table ref cue + linking / Added an explicit multi-ref count badge and a stacked secondary ref line to visually link matter + instruction in the same chip area (and removed debug console spam). (~ src/tabs/instructions/InstructionTableView.tsx)
+
+- 2026-01-04 / Instructions table chip compactness / Reverted ref chip to single-line height; replaced badge with subtle dot cue; show matter↔instruction linkage only inside the open selector. (~ src/tabs/instructions/InstructionTableView.tsx)
+
+- 2026-01-04 / Instructions table chip overlap / Constrained ref chip to its fixed-width cell (clip overflow) so it doesn't overlap the pipeline connector line. (~ src/tabs/instructions/InstructionTableView.tsx)
+
+- 2026-01-02 / Workbench UI consistency redesign / Redesigned Matter Opening Workbench (ID/PAY/DOCS/RISK/MATTER tabs) for better consistency with app design patterns. Simplified header styling, removed complex gradients/shadows, aligned tab design with app conventions, improved color consistency using established theme system. Cleaner visual hierarchy, consistent spacing, and reduced visual noise while maintaining full functionality. (~ src/tabs/instructions/Instructions.tsx)
+
 - 2026-01-02 / Enquiries ID column shows instruction reference / Added instruction reference display beneath enquiry ID when a pitch/deal exists with an InstructionRef. Matches Instructions table pattern (ID + Reference stacked). Updated backend SQL to include InstructionRef, added field to pitchEntry object and TypeScript interface. (~ server/routes/enquiryEnrichment.js, src/app/functionality/enquiryEnrichment.ts, src/tabs/enquiries/Enquiries.tsx)
 
 - 2026-01-02 / Pitch builder caret jumps to start while typing / Fixed body sync effect to treat focus within editor children (e.g. placeholder spans) as focused, preventing innerHTML rewrites during typing. (~ src/tabs/enquiries/PitchBuilder.tsx)

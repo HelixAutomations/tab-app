@@ -1,7 +1,5 @@
 import React, { useState } from 'react';
-// invisible change 2.1
-//
-import { Dialog, DialogType, DialogFooter, DefaultButton, PrimaryButton, Spinner, SpinnerSize } from '@fluentui/react';
+import { Spinner, SpinnerSize, Icon } from '@fluentui/react';
 import OperationStatusToast from '../enquiries/pitch-builder/OperationStatusToast';
 import RiskAssessment, { RiskCore } from '../../components/RiskAssessment';
 import { useTheme } from '../../app/functionality/ThemeContext';
@@ -9,7 +7,6 @@ import { colours } from '../../app/styles/colours';
 import '../../app/styles/NewMatters.css';
 import '../../app/styles/MatterOpeningCard.css';
 import '../../app/styles/RiskAssessmentPage.css';
-import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from '../../app/styles/ButtonStyles';
 
 interface RiskAssessmentPageProps {
     onBack: () => void;
@@ -263,13 +260,29 @@ const RiskAssessmentPage: React.FC<RiskAssessmentPageProps> = ({ onBack, instruc
                 borderBottom: `1px solid ${isDarkMode ? colours.dark.border : '#e1dfdd'}`,
                 background: isDarkMode ? colours.dark.sectionBackground : '#fff',
                 color: isDarkMode ? colours.dark.text : undefined,
-                borderRadius: '8px 8px 0 0',
+                borderRadius: 0,
                 marginBottom: '0',
                 gap: 8
             }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, letterSpacing: '-0.01em', minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, letterSpacing: '-0.01em', minWidth: 0 }}>
                     <i className="ms-Icon ms-Icon--DocumentSearch" style={{ fontSize: 14, opacity: 0.9, flexShrink: 0 }} />
                     <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Risk Assessment</span>
+                    {/* Instruction Ref Chip */}
+                    {instructionRef && (
+                        <span style={{
+                            padding: '3px 8px',
+                            borderRadius: 0,
+                            background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
+                            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`,
+                            fontSize: 10,
+                            fontWeight: 600,
+                            fontFamily: 'Monaco, Consolas, monospace',
+                            color: colours.highlight,
+                            whiteSpace: 'nowrap',
+                        }}>
+                            {instructionRef}
+                        </span>
+                    )}
                 </div>
 
                 {/* Right side controls - minimal spacing */}
@@ -364,7 +377,7 @@ const RiskAssessmentPage: React.FC<RiskAssessmentPageProps> = ({ onBack, instruc
                 background: isDarkMode 
                     ? 'linear-gradient(135deg, #111827 0%, #1f2937 50%, #111827 100%)'
                     : 'linear-gradient(135deg, #fafbfc 0%, #f3f4f6 50%, #fafbfc 100%)',
-                borderRadius: '0 0 8px 8px',
+                borderRadius: 0,
                 minHeight: '500px',
                 overflow: 'auto',
                 transition: 'opacity 0.3s ease',
@@ -382,7 +395,7 @@ const RiskAssessmentPage: React.FC<RiskAssessmentPageProps> = ({ onBack, instruc
                             radial-gradient(circle at 80% 80%, rgba(34, 160, 107, 0.05) 0%, transparent 50%)
                         `,
                         pointerEvents: 'none',
-                        borderRadius: '0 0 8px 8px'
+                        borderRadius: 0
                     }} />
                 )}
                 <div style={{ position: 'relative', zIndex: 1 }}>
@@ -410,32 +423,119 @@ const RiskAssessmentPage: React.FC<RiskAssessmentPageProps> = ({ onBack, instruc
                 </div>
             </div>
 
-            {/* Clear All Confirmation Dialog */}
-            <Dialog
-                hidden={!isClearDialogOpen}
-                onDismiss={() => setIsClearDialogOpen(false)}
-                dialogContentProps={{
-                    type: DialogType.normal,
-                    title: 'Clear All Data',
-                    subText: 'Are you sure you want to clear all form data? This action cannot be undone.'
-                }}
-                modalProps={{
-                    isBlocking: true
-                }}
-            >
-                <DialogFooter>
-                    <PrimaryButton 
-                        onClick={doClearAll} 
-                        text="Yes, clear all"
-                        styles={sharedPrimaryButtonStyles}
-                    />
-                    <DefaultButton 
-                        onClick={() => setIsClearDialogOpen(false)} 
-                        text="Cancel"
-                        styles={sharedDefaultButtonStyles}
-                    />
-                </DialogFooter>
-            </Dialog>
+            {/* Clear All Confirmation Dialog - Custom styled for dark mode */}
+            {isClearDialogOpen && (
+                <div 
+                    style={{
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        background: 'rgba(0, 0, 0, 0.5)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 1000000,
+                    }}
+                    onClick={() => setIsClearDialogOpen(false)}
+                >
+                    <div 
+                        style={{
+                            background: isDarkMode ? '#1e293b' : '#ffffff',
+                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+                            borderRadius: 0,
+                            padding: '24px',
+                            maxWidth: 360,
+                            width: '90%',
+                            boxShadow: isDarkMode 
+                                ? '0 25px 50px rgba(0, 0, 0, 0.5)' 
+                                : '0 25px 50px rgba(0, 0, 0, 0.15)',
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 12,
+                            marginBottom: 16,
+                        }}>
+                            <Icon 
+                                iconName="Warning" 
+                                style={{ 
+                                    fontSize: 20, 
+                                    color: colours.cta,
+                                }} 
+                            />
+                            <span style={{
+                                fontSize: 16,
+                                fontWeight: 600,
+                                color: isDarkMode ? '#f1f5f9' : '#1e293b',
+                            }}>
+                                Clear All Data
+                            </span>
+                        </div>
+                        <p style={{
+                            fontSize: 13,
+                            color: isDarkMode ? '#94a3b8' : '#64748b',
+                            margin: '0 0 20px 0',
+                            lineHeight: 1.5,
+                        }}>
+                            Are you sure you want to clear all form data? This action cannot be undone.
+                        </p>
+                        <div style={{
+                            display: 'flex',
+                            justifyContent: 'flex-end',
+                            gap: 10,
+                        }}>
+                            <button
+                                type="button"
+                                onClick={doClearAll}
+                                style={{
+                                    background: colours.cta,
+                                    border: 'none',
+                                    borderRadius: 0,
+                                    padding: '10px 18px',
+                                    fontSize: 13,
+                                    fontWeight: 600,
+                                    color: '#ffffff',
+                                    cursor: 'pointer',
+                                    transition: 'background 0.15s ease',
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = '#c44a36'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = colours.cta}
+                            >
+                                Yes, clear all
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setIsClearDialogOpen(false)}
+                                style={{
+                                    background: 'transparent',
+                                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(0, 0, 0, 0.15)'}`,
+                                    borderRadius: 0,
+                                    padding: '10px 18px',
+                                    fontSize: 13,
+                                    fontWeight: 600,
+                                    color: isDarkMode ? '#e2e8f0' : '#374151',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.15s ease',
+                                }}
+                                onMouseEnter={(e) => {
+                                    e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.04)';
+                                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(0, 0, 0, 0.2)';
+                                }}
+                                onMouseLeave={(e) => {
+                                    e.currentTarget.style.background = 'transparent';
+                                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(0, 0, 0, 0.15)';
+                                }}
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* CSS animations for completion ticks, checkmark, and smooth transitions */}
             <style>{`
