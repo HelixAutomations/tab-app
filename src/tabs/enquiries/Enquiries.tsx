@@ -318,6 +318,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [isLoadingAllData, setIsLoadingAllData] = useState<boolean>(false);
   // Track if we've already fetched all data to prevent duplicate calls
   const hasFetchedAllData = useRef<boolean>(false);
+  // Guard against render-loop fetches when shared IDs need team-wide history
+  const hasTriggeredSharedHistoryFetch = useRef<boolean>(false);
+
+  // Debug: track why we fetched team-wide data (avoid PII in logs)
+  const lastTeamWideFetchReasonRef = useRef<string>('');
 
   // Debug logging
 
@@ -440,6 +445,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       return;
     }
     
+    console.info('[Enquiries] fetchAllEnquiries:start', {
+      reason: lastTeamWideFetchReasonRef.current || 'unknown',
+      hasFetchedAllData: hasFetchedAllData.current,
+    });
     debugLog('🔄 Attempting to fetch all enquiries, hasFetched:', hasFetchedAllData.current);
     
     try {
@@ -561,14 +570,24 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       // This prevents Mine view from briefly switching to team-wide dataset and dropping claimed items.
       setTeamWideEnquiries(normalizedEnquiries);
       
+      console.info('[Enquiries] fetchAllEnquiries:success', {
+        reason: lastTeamWideFetchReasonRef.current || 'unknown',
+        count: normalizedEnquiries.length,
+      });
       debugLog('✅ Team-wide enquiries loaded; preserved per-user allEnquiries');
       
       return normalizedEnquiries;
     } catch (error) {
       console.error('❌ Failed to fetch all enquiries:', error);
+      console.warn('[Enquiries] fetchAllEnquiries:error', {
+        reason: lastTeamWideFetchReasonRef.current || 'unknown',
+      });
       return [];
     } finally {
       setIsLoadingAllData(false);
+      console.info('[Enquiries] fetchAllEnquiries:end', {
+        reason: lastTeamWideFetchReasonRef.current || 'unknown',
+      });
     }
   }, [isLoadingAllData]);
 
@@ -677,6 +696,126 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const handleManualRefreshRef = useRef<(() => Promise<void>) | null>(null);
   // Track recent updates to prevent overwriting with stale prop data
   const recentUpdatesRef = useRef<Map<string, { field: string; value: any; timestamp: number }>>(new Map());
+
+  // Realtime: subscribe to lightweight SSE events.
+  // Goal: apply local patches immediately (no stale UI), with a slower backstop refresh.
+  // Compute-respectful: only active tab subscribes; refreshes are coalesced.
+  const refreshRef = useRef(onRefreshEnquiries);
+  const refreshTimerRef = useRef<number | null>(null);
+  const esRef = useRef<EventSource | null>(null);
+
+  useEffect(() => {
+    refreshRef.current = onRefreshEnquiries;
+  }, [onRefreshEnquiries]);
+
+  const applyRealtimeClaimPatch = useCallback((enquiryId: string, claimedByEmail: string, claimedAt?: string | null) => {
+    if (!enquiryId) return false;
+    const nextPoc = (claimedByEmail || '').trim() || 'team@helix-law.com';
+
+    // Preserve for a short window so props normalisation doesn't overwrite the patch.
+    recentUpdatesRef.current.set(enquiryId, {
+      field: 'Point_of_Contact',
+      value: nextPoc,
+      timestamp: Date.now(),
+    });
+    window.setTimeout(() => {
+      recentUpdatesRef.current.delete(enquiryId);
+    }, 5000);
+
+    const claimIso = (claimedAt && !Number.isNaN(new Date(claimedAt).getTime()))
+      ? String(claimedAt)
+      : new Date().toISOString();
+
+    const updateEnquiry = (enquiry: Enquiry & { __sourceType: 'new' | 'legacy' }): Enquiry & { __sourceType: 'new' | 'legacy' } => {
+      if (String(enquiry.ID) !== String(enquiryId)) return enquiry;
+      const next: any = { ...enquiry, Point_of_Contact: nextPoc, poc: nextPoc };
+      // Only v2/instructions enquiries display claim timing.
+      if ((enquiry as any).__sourceType === 'new') {
+        // If unclaimed, clear claim time; otherwise set if missing.
+        const isUnclaimed = nextPoc.toLowerCase() === 'team@helix-law.com';
+        next.claim = isUnclaimed ? null : ((enquiry as any).claim ?? claimIso);
+      }
+      return next;
+    };
+
+    // Update local state immediately so filters + counts react instantly.
+    setAllEnquiries(prev => prev.map(updateEnquiry));
+    setDisplayEnquiries(prev => prev.map(updateEnquiry));
+    setTeamWideEnquiries(prev => prev.map(updateEnquiry));
+    return true;
+  }, []);
+
+  useEffect(() => {
+    // Only stream when Enquiries tab is active and we have a refresh handler.
+    if (!isActive || !refreshRef.current) {
+      if (esRef.current) {
+        try { esRef.current.close(); } catch { /* ignore */ }
+        esRef.current = null;
+      }
+      if (refreshTimerRef.current) {
+        window.clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = null;
+      }
+      return;
+    }
+
+    const es = new EventSource('/api/enquiries-unified/stream');
+    esRef.current = es;
+
+    console.info('[Enquiries] stream:open', { isActive });
+
+    const scheduleRefresh = (delayMs = 900) => {
+      if (!refreshRef.current) return;
+      if (refreshTimerRef.current) {
+        window.clearTimeout(refreshTimerRef.current);
+      }
+      refreshTimerRef.current = window.setTimeout(() => {
+        refreshTimerRef.current = null;
+        console.info('[Enquiries] stream:refresh', { via: 'enquiries.changed' });
+        refreshRef.current?.().catch(() => { /* ignore */ });
+      }, delayMs);
+    };
+
+    const onChangedEvent = (ev: any) => {
+      // Payload is small; do not log any user identifiers.
+      let data: any;
+      try {
+        data = typeof ev?.data === 'string' ? JSON.parse(ev.data) : undefined;
+        console.info('[Enquiries] stream:event', { type: data?.changeType || 'changed' });
+      } catch {
+        console.info('[Enquiries] stream:event', { type: 'changed' });
+      }
+
+      const didPatch = (
+        data?.changeType === 'claim' &&
+        typeof data?.enquiryId === 'string' &&
+        typeof data?.claimedBy === 'string' &&
+        applyRealtimeClaimPatch(data.enquiryId, data.claimedBy, data.claimedAt)
+      );
+
+      // If we successfully patched locally, push the backstop refresh out a bit.
+      scheduleRefresh(didPatch ? 5000 : 900);
+    };
+
+    es.addEventListener('enquiries.changed', onChangedEvent);
+    // Only listen to explicit 'enquiries.changed' events; do NOT use onmessage
+    // as that would fire on connection/heartbeat and cause refresh loops.
+    es.onerror = () => {
+      console.warn('[Enquiries] stream:error');
+      // Let EventSource handle retries; do not spam refresh.
+    };
+
+    return () => {
+      try { es.removeEventListener('enquiries.changed', onChangedEvent); } catch { /* ignore */ }
+      try { es.close(); } catch { /* ignore */ }
+      console.info('[Enquiries] stream:close');
+      if (esRef.current === es) esRef.current = null;
+      if (refreshTimerRef.current) {
+        window.clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = null;
+      }
+    };
+  }, [isActive, applyRealtimeClaimPatch]);
   // Admin check (match Matters logic) – be robust to spaced keys and fallbacks
   const userRec: any = (userData && userData[0]) ? userData[0] : {};
   const userRole: string = (userRec.Role || userRec.role || '').toString();
@@ -728,6 +867,20 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   
   // Navigation state variables  
   const [activeState, setActiveState] = useState<string>('Claimed');
+
+  const triggerFetchAllEnquiries = useCallback((reason: string) => {
+    lastTeamWideFetchReasonRef.current = reason;
+    console.info('[Enquiries] fetchAllEnquiries:trigger', {
+      reason,
+      showMineOnly,
+      activeState,
+      isLoadingAllData,
+      hasFetchedAllData: hasFetchedAllData.current,
+      teamWideCount: teamWideEnquiries.length,
+      allEnquiriesCount: allEnquiries.length,
+    });
+    fetchAllEnquiries();
+  }, [showMineOnly, activeState, isLoadingAllData, teamWideEnquiries.length, allEnquiries.length, fetchAllEnquiries]);
   const [searchTerm, setSearchTerm] = useState<string>('');
   
   // Debounced search handler - prevents lag while typing
@@ -1695,9 +1848,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     // 2. User is in Mine+Claimed mode (needs full dataset to find all claimed enquiries)
     if (needsFullDataset && !hasFetchedAllData.current) {
       debugLog('🔄 Fetching complete dataset for:', showMineOnly ? 'Mine+Claimed mode' : 'All mode');
-      fetchAllEnquiries();
+      triggerFetchAllEnquiries(showMineOnly ? 'mode:mine+claimed' : 'mode:all');
     }
-  }, [showMineOnly, activeState, userEmail, fetchAllEnquiries, isAdmin]); // Simplified dependencies
+  }, [showMineOnly, activeState, userEmail, triggerFetchAllEnquiries, isAdmin]); // Simplified dependencies
 
   const [currentSliderStart, setCurrentSliderStart] = useState<number>(0);
   const [currentSliderEnd, setCurrentSliderEnd] = useState<number>(0);
@@ -2955,10 +3108,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     const hasSharedIds = allEnquiries.some(record => shouldAlwaysShowProspectHistory(record));
     
     // If we have shared IDs but no team-wide data, trigger fetch
-    if (hasSharedIds && teamWideEnquiries.length === 0 && !isLoadingAllData) {
+    if (hasSharedIds && teamWideEnquiries.length === 0 && !isLoadingAllData && !hasTriggeredSharedHistoryFetch.current) {
       debugLog('🔍 Shared IDs detected, need team-wide data for complete history');
+      hasTriggeredSharedHistoryFetch.current = true;
       // Trigger fetch asynchronously
-      setTimeout(() => fetchAllEnquiries(), 0);
+      setTimeout(() => triggerFetchAllEnquiries('shared-history:missing-teamwide'), 0);
     }
     
     const dataset = teamWideEnquiries.length > 0 ? teamWideEnquiries : allEnquiries;
@@ -2983,7 +3137,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     });
 
     return map;
-  }, [teamWideEnquiries, allEnquiries, isLoadingAllData, fetchAllEnquiries]);
+  }, [teamWideEnquiries, allEnquiries, isLoadingAllData, triggerFetchAllEnquiries]);
 
   const filteredEnquiriesWithSharedHistory = useMemo(() => {
     if (!filteredEnquiries.length || sharedProspectHistoryMap.size === 0) {

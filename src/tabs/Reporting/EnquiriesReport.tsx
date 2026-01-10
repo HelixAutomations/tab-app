@@ -146,6 +146,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 const ROLE_OPTIONS = [
   { key: 'Partner', label: 'Partner' },
+  { key: 'Senior Partner', label: 'Senior Partner' },
   { key: 'Associate Solicitor', label: 'Associate' },
   { key: 'Solicitor', label: 'Solicitor' },
   { key: 'Paralegal', label: 'Paralegal' },
@@ -1433,9 +1434,11 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
 
       if (selectedRoles.size > 0) {
         const memberRole = member?.role?.trim();
-        if (!memberRole || !selectedRoles.has(memberRole)) {
-          return false;
-        }
+        if (!memberRole) return false;
+        const matchesSelectedRole =
+          selectedRoles.has(memberRole)
+          || (memberRole === 'Senior Partner' && selectedRoles.has('Partner'));
+        if (!matchesSelectedRole) return false;
       }
 
       // Source filter

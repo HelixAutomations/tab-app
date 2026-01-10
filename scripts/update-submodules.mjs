@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // scripts/update-submodules.mjs
-// Fetches latest from all submodules and reports their state.
+// Submodules are read-only in this repo.
+// This script DOES NOT fetch/pull/update submodules. It only reports status.
 
 import { execSync } from 'child_process';
 import fs from 'fs';
@@ -45,18 +46,21 @@ function updateSubmodule(sub) {
   const branch = run('git branch --show-current', fullPath);
   const hash = run('git rev-parse HEAD', fullPath);
   const status = run('git status --porcelain', fullPath);
-  const uncommitted = status ? status.split('\n').filter(l => l.trim()).length : 0;
+  const lines = status ? status.split('\n').filter(l => l.trim()) : [];
+  const untracked = lines.filter(l => l.startsWith('??')).length;
+  const modified = lines.length - untracked;
   
   return {
     name: sub.name,
     branch,
-    uncommitted,
+    untracked,
+    modified,
     hash: hash?.slice(0, 7)
   };
 }
 
 function main() {
-  console.log('Updating submodules...\n');
+  console.log('Submodule status (read-only)...\n');
   
   const submodules = getSubmodules();
   if (submodules.length === 0) {
@@ -75,11 +79,19 @@ function main() {
   
   for (const r of results) {
     let status = '✓ Clean';
-    if (r.uncommitted > 0) status = `● ${r.uncommitted} uncommitted`;
+    if (r.modified > 0 && r.untracked > 0) status = `● ${r.modified} modified, ${r.untracked} untracked`;
+    else if (r.modified > 0) status = `● ${r.modified} modified`;
+    else if (r.untracked > 0) status = `● ${r.untracked} untracked`;
     
     console.log(`  ${r.name}`);
     console.log(`    Branch: ${r.branch || 'detached'} @ ${r.hash}`);
     console.log(`    Status: ${status}`);
+  }
+
+  const anyUntracked = results.some(r => r.untracked > 0);
+  if (anyUntracked) {
+    console.log('\nTip: hide noisy untracked files in submodules (recommended):');
+    console.log('  git config submodule.ignore untracked');
   }
   
   // Regenerate context

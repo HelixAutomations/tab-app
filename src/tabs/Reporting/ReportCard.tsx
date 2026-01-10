@@ -24,7 +24,10 @@ const cardStyle = (isDarkMode: boolean, isReady: boolean) =>
   mergeStyles(
     reportCardClass,
     {
-      backgroundColor: isDarkMode ? colours.dark.cardBackground : '#ffffff',
+      background: isDarkMode
+        ? `linear-gradient(90deg, ${colours.dark.sectionBackground} 0%, ${colours.dark.cardBackground} 100%)`
+        : `linear-gradient(90deg, ${colours.light.sectionBackground} 0%, ${colours.grey} 140%)`,
+      border: `1px solid ${isDarkMode ? `${colours.highlight}2B` : `${colours.highlight}1A`}`,
       transition: 'box-shadow 0.3s ease, transform 0.3s ease, filter 0.3s ease, opacity 0.3s ease',
       cursor: isReady ? 'pointer' : 'not-allowed',
       display: 'flex',
@@ -32,14 +35,15 @@ const cardStyle = (isDarkMode: boolean, isReady: boolean) =>
       justifyContent: 'space-between',
       height: '180px',
       width: '100%',
-      border: 'none',
       filter: isReady ? 'none' : 'grayscale(100%)',
       opacity: isReady ? 1 : 0.6,
       position: 'relative',
       overflow: 'hidden',
       ':hover': isReady
         ? {
-            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+            boxShadow: isDarkMode
+              ? `0 10px 28px ${colours.dark.background}CC`
+              : '0 10px 28px rgba(15, 23, 42, 0.10)',
             transform: 'translateY(-3px)',
           }
         : {},
@@ -63,18 +67,18 @@ const titleRowStyle = (isDarkMode: boolean) =>
     gap: '12px',
   });
 
-const titleStyle = (isReady: boolean) =>
+const titleStyle = (isDarkMode: boolean, isReady: boolean) =>
   mergeStyles({
     fontSize: '20px',
     fontWeight: '600',
-    color: isReady ? '#1b2526' : '#999',
+    color: isReady ? (isDarkMode ? colours.dark.text : colours.light.text) : (isDarkMode ? `${colours.dark.text}80` : '#999'),
     margin: '0',
   });
 
-const descriptionStyle = (isReady: boolean) =>
+const descriptionStyle = (isDarkMode: boolean, isReady: boolean) =>
   mergeStyles({
     fontSize: '14px',
-    color: isReady ? '#4b5354' : '#999',
+    color: isReady ? (isDarkMode ? `${colours.dark.text}B3` : '#4b5354') : (isDarkMode ? `${colours.dark.text}80` : '#999'),
     margin: '0',
     lineHeight: '1.4',
   });
@@ -82,7 +86,7 @@ const descriptionStyle = (isReady: boolean) =>
 const launchLinkStyle = (isReady: boolean) =>
   mergeStyles({
     fontSize: '14px',
-    color: isReady ? '#3690CE' : '#999',
+    color: isReady ? colours.highlight : '#999',
     textDecoration: 'none',
     fontWeight: '500',
     cursor: isReady ? 'pointer' : 'not-allowed',
@@ -91,12 +95,12 @@ const launchLinkStyle = (isReady: boolean) =>
     } : {},
   });
 
-const backdropIconStyle = mergeStyles({
+const backdropIconStyle = (isDarkMode: boolean) => mergeStyles({
   position: 'absolute',
   bottom: '10px',
   right: '10px',
   fontSize: '80px',
-  color: colours.grey,
+  color: isDarkMode ? colours.dark.borderColor : colours.grey,
   opacity: 0.3,
   transition: 'opacity 0.3s ease',
   zIndex: 0,
@@ -123,7 +127,7 @@ const ReportCard: React.FC<ReportCardProps> = React.memo(({ report, onGoTo, anim
         {/* Backdrop Icon */}
         <Icon
           iconName={report.icon}
-          className={backdropIconStyle}
+          className={backdropIconStyle(isDarkMode)}
         />
 
         {/* Foreground Content */}
@@ -133,12 +137,12 @@ const ReportCard: React.FC<ReportCardProps> = React.memo(({ report, onGoTo, anim
               iconName={report.icon}
               style={{
                 fontSize: '24px',
-                color: report.isReady ? '#3690CE' : '#999',
+                color: report.isReady ? colours.highlight : '#999',
               }}
             />
-            <Text className={titleStyle(report.isReady)}>{report.title}</Text>
+            <Text className={titleStyle(isDarkMode, report.isReady)}>{report.title}</Text>
           </div>
-          <Text className={descriptionStyle(report.isReady)}>{report.description}</Text>
+          <Text className={descriptionStyle(isDarkMode, report.isReady)}>{report.description}</Text>
         </div>
 
         <div>

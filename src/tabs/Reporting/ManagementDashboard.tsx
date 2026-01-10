@@ -14,6 +14,7 @@ import {
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 import type { Enquiry, Matter, POID, TeamData, UserData } from '../../app/functionality/types';
+import { useToast } from '../../components/feedback/ToastProvider';
 import type { AnnualLeaveRecord } from './AnnualLeaveReport';
 import { debugLog, debugWarn } from '../../utils/debug';
 import './ManagementDashboard.css';
@@ -221,7 +222,7 @@ const getRangeButtonStyles = (isDarkMode: boolean, active: boolean, disabled: bo
   };
 };
 
-const getTeamButtonStyles = (isDarkMode: boolean, active: boolean, hasWorked: boolean = true): IButtonStyles => {
+const getTeamButtonStyles = (isDarkMode: boolean, active: boolean, hasWorked: boolean, isInactive?: boolean): IButtonStyles => {
   const activeBackground = active 
     ? `linear-gradient(135deg, ${colours.highlight} 0%, #2f7cb3 100%)`
     : (isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'transparent');
@@ -233,9 +234,11 @@ const getTeamButtonStyles = (isDarkMode: boolean, active: boolean, hasWorked: bo
   // Greyed out styling when member hasn't worked
   const greyedOut = !hasWorked;
   const opacity = greyedOut ? 0.4 : 1;
-  const textColor = active ? '#ffffff' : 
-    greyedOut ? (isDarkMode ? '#64748B' : '#94A3B8') :
-    (isDarkMode ? '#E2E8F0' : colours.missedBlue);
+  const textColor = active
+    ? '#ffffff'
+    : greyedOut
+      ? (isDarkMode ? '#64748B' : '#94A3B8')
+      : (isDarkMode ? '#E2E8F0' : colours.missedBlue);
 
   return {
     root: {
@@ -246,13 +249,15 @@ const getTeamButtonStyles = (isDarkMode: boolean, active: boolean, hasWorked: bo
       fontWeight: active ? 700 : 600,
       fontSize: 12,
       border: activeBorder,
+      borderStyle: isInactive ? 'dashed' : undefined,
       background: activeBackground,
       color: textColor,
-      opacity,
+      opacity: isInactive ? opacity * 0.78 : opacity,
       boxShadow: active 
         ? (isDarkMode ? '0 2px 8px rgba(54, 144, 206, 0.3)' : '0 2px 8px rgba(54, 144, 206, 0.25)')
         : 'none',
       fontFamily: 'Raleway, sans-serif',
+      fontStyle: isInactive ? 'italic' : 'normal',
       transform: active ? 'translateY(-1px)' : 'none',
       transition: 'all 0.2s ease',
     },
@@ -327,13 +332,23 @@ const summaryChipStyle = (isDarkMode: boolean): CSSProperties => ({
   justifyContent: 'center',
   alignItems: 'center',
   padding: '12px 16px',
-  borderRadius: 10,
+  borderRadius: 0,
   background: isDarkMode ? 'rgba(15, 23, 42, 0.72)' : '#ffffff',
   border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : '#e2e8f0'}`,
   boxShadow: isDarkMode ? '0 4px 6px rgba(0, 0, 0, 0.3)' : '0 4px 6px rgba(0, 0, 0, 0.07)',
   textAlign: 'center' as const,
   rowGap: 6,
   width: '100%',
+  transition: 'all 0.25s ease',
+  cursor: 'default',
+});
+
+const summaryChipLabelStyle = (): CSSProperties => ({
+  fontSize: 9,
+  fontWeight: 700,
+  textTransform: 'uppercase',
+  letterSpacing: '0.5px',
+  opacity: 0.65,
 });
 
 const dateStampButtonStyle = (isDarkMode: boolean): CSSProperties => ({
@@ -342,7 +357,7 @@ const dateStampButtonStyle = (isDarkMode: boolean): CSSProperties => ({
   alignItems: 'flex-start',
   justifyContent: 'center',
   padding: '6px 12px',
-  borderRadius: 10,
+  borderRadius: 0,
   border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.28)' : 'rgba(13, 47, 96, 0.14)'}`,
   background: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.95)',
   color: isDarkMode ? '#e2e8f0' : '#0d2f60',
@@ -361,7 +376,7 @@ const clearAllTimeButtonStyle = (isDarkMode: boolean): CSSProperties => ({
   justifyContent: 'center',
   padding: '0 14px',
   height: 58,
-  borderRadius: 10,
+  borderRadius: 0,
   border: `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.4)' : 'rgba(239, 68, 68, 0.3)'}`,
   background: isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(254, 242, 242, 0.9)',
   color: isDarkMode ? '#fca5a5' : '#dc2626',
@@ -380,7 +395,7 @@ const clearFilterButtonStyle = (isDarkMode: boolean): CSSProperties => ({
   justifyContent: 'center',
   padding: '0 12px',
   height: 32,
-  borderRadius: 8,
+  borderRadius: 0,
   border: `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.35)' : 'rgba(239, 68, 68, 0.25)'}`,
   background: isDarkMode ? 'rgba(239, 68, 68, 0.12)' : 'rgba(254, 242, 242, 0.85)',
   color: isDarkMode ? '#fca5a5' : '#dc2626',
@@ -894,11 +909,18 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   }, []);
 
   const { isDarkMode } = useTheme();
+  const { showToast } = useToast();
   const [{ start: rangeStart, end: rangeEnd }, setRangeState] = useState(() => computeRange('all'));
   const [rangeKey, setRangeKey] = useState<RangeKey>('all');
   const [startDate, setStartDate] = useState<Date | undefined>(undefined);
   const [endDate, setEndDate] = useState<Date | undefined>(undefined);
   const [hoveredMetric, setHoveredMetric] = useState<{ type: string; x: number; y: number } | null>(null);
+  const [processingModal, setProcessingModal] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    progress?: number;
+  }>({ visible: false, title: '', message: '' });
   const [hoveredMember, setHoveredMember] = useState<{ 
     member: MemberMetrics; 
     previousData?: any; 
@@ -965,6 +987,16 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
       setTimeElapsed(0);
     }
   }, [lastRefreshTimestamp]);
+
+  // Show success toast when refresh completes
+  const prevIsFetchingRef = React.useRef(isFetching);
+  useEffect(() => {
+    if (prevIsFetchingRef.current && !isFetching) {
+      setProcessingModal({ visible: false, title: '', message: '' });
+      showToast({ type: 'success', message: 'Dashboard data refreshed' });
+    }
+    prevIsFetchingRef.current = isFetching;
+  }, [isFetching, showToast]);
 
   // Calculate color based on elapsed time (green → blue over 15 minutes)
   const getRefreshIndicatorColor = () => {
@@ -1079,6 +1111,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   // "Inactive" includes all inactive team members
   const ROLE_OPTIONS = [
     { key: 'Partner', label: 'Partner' },
+    { key: 'Senior Partner', label: 'Senior Partner' },
     { key: 'Associate Solicitor', label: 'Associate' },
     { key: 'Solicitor', label: 'Solicitor' },
     { key: 'Paralegal', label: 'Paralegal' },
@@ -1089,6 +1122,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   const [selectedTeams, setSelectedTeams] = useState<string[]>([]);
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
   const [showRoleFilter, setShowRoleFilter] = useState<boolean>(false);
+  const [includeDisbursements, setIncludeDisbursements] = useState<boolean>(false);
   const [sortColumn, setSortColumn] = useState<SortColumn>('displayName');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
@@ -1204,17 +1238,33 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     return filtered;
   }, [wip, activeStart, activeEnd, rangeKey]);
 
-  const filteredFees = useMemo(() => (
-    fees.filter((entry) => {
-      // Exclude disbursements (kind = 'Expense') - only count actual fees
-      // If kind is 'Expense' or 'Product', exclude it
-      // If kind is 'Service' or missing (legacy data), include it
-      if (entry.kind === 'Expense' || entry.kind === 'Product') {
-        return false;
+  const filteredFees = useMemo(() => {
+    // Debug: log what we're filtering - show actual sample dates
+    const sampleDates = fees.slice(0, 10).map(f => f.payment_date);
+    console.log('💰 Fees filtering:', {
+      totalFees: fees.length,
+      activeStart: activeStart?.toISOString(),
+      activeEnd: activeEnd?.toISOString(),
+      latestPaymentDates: sampleDates,
+      hasDataForToday: sampleDates.some(d => d === '2026-01-08'),
+      includeDisbursements,
+    });
+    
+    const filtered = fees.filter((entry) => {
+      if (!includeDisbursements) {
+        // Exclude disbursements - only count actual fees
+        // If kind is 'Expense' or 'Product', exclude it
+        // If kind is 'Service' or missing (legacy data), include it
+        if (entry.kind === 'Expense' || entry.kind === 'Product') {
+          return false;
+        }
       }
       return withinRange(parseDateValue(entry.payment_date));
-    })
-  ), [fees, activeStart, activeEnd]);
+    });
+    
+    console.log('💰 Fees after filter:', filtered.length);
+    return filtered;
+  }, [fees, activeStart, activeEnd, includeDisbursements]);
 
   const teamMembers = useMemo(() => (
     team
@@ -1277,13 +1327,18 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
       if (member.role === 'Ops' && showOps) {
         return true;
       }
-      // Show Inactive only if Inactive filter is active
-      if (member.role === 'Inactive' && showInactive) {
+      // Show Inactive if Inactive role is enabled OR the specific inactive person is selected
+      if (member.role === 'Inactive' && (showInactive || selectedTeams.includes(member.initials))) {
         return true;
       }
       return false;
     });
-  }, [teamMembers, selectedRoles]);
+  }, [teamMembers, selectedRoles, selectedTeams]);
+
+  const inactiveTeamMembers = useMemo(
+    () => teamMembers.filter((member) => member.role === 'Inactive'),
+    [teamMembers]
+  );
 
   const visibleMembers = useMemo(() => {
     // Start with displayable members (excludes Ops and Inactive unless their filters are active)
@@ -1296,7 +1351,12 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     
     // Filter by selected roles
     if (selectedRoles.length > 0) {
-      filtered = filtered.filter((member) => selectedRoles.includes(member.role ?? ''));
+      filtered = filtered.filter((member) => {
+        const role = member.role ?? '';
+        if (selectedRoles.includes(role)) return true;
+        if (role === 'Senior Partner' && selectedRoles.includes('Partner')) return true;
+        return false;
+      });
     }
     
     return filtered;
@@ -1337,6 +1397,58 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     });
     return index;
   }, [filteredFees]);
+
+  const disbursementStats = useMemo(() => {
+    const visibleIds = new Set<string>();
+    visibleMembers.forEach((m) => {
+      if (m.clioId) visibleIds.add(String(m.clioId));
+    });
+
+    let inRangeAllCount = 0;
+    let inRangeAllTotal = 0;
+    let inRangeVisibleCount = 0;
+    let inRangeVisibleTotal = 0;
+
+    for (const record of fees) {
+      if (record.kind !== 'Expense' && record.kind !== 'Product') continue;
+      if (!withinRange(parseDateValue(record.payment_date))) continue;
+
+      const amount = safeNumber(record.payment_allocated);
+      inRangeAllCount += 1;
+      inRangeAllTotal += amount;
+
+      const userId = record.user_id != null ? String(record.user_id) : '';
+      if (userId && visibleIds.has(userId)) {
+        inRangeVisibleCount += 1;
+        inRangeVisibleTotal += amount;
+      }
+    }
+
+    return {
+      inRangeAllCount,
+      inRangeAllTotal,
+      inRangeVisibleCount,
+      inRangeVisibleTotal,
+    };
+  }, [fees, visibleMembers, activeStart, activeEnd]);
+
+  const collectedTooltipDetails = useMemo(() => {
+    const showOps = selectedRoles.includes('Ops');
+    const showInactive = selectedRoles.includes('Inactive');
+    const hiddenOpsCount = teamMembers.filter((m) => m.role === 'Ops' && !showOps).length;
+    const hiddenInactiveCount = teamMembers.filter((m) => m.role === 'Inactive' && !showInactive).length;
+
+    return {
+      selectedTeamsLabel: selectedTeams.length > 0 ? selectedTeams.join(', ') : 'All',
+      selectedRolesLabel: selectedRoles.length > 0 ? selectedRoles.join(', ') : 'All',
+      showOps,
+      showInactive,
+      hiddenOpsCount,
+      hiddenInactiveCount,
+      totalTeamMembers: teamMembers.length,
+      visibleMembers: visibleMembers.length,
+    };
+  }, [selectedTeams, selectedRoles, teamMembers, visibleMembers]);
 
   // Index Enquiries by email and initials (1172 enquiries)
   const enquiriesByContact = useMemo(() => {
@@ -1594,6 +1706,9 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     }) || [];
 
     const prevFees = rawFees?.filter((f: any) => {
+      if (!includeDisbursements && (f.kind === 'Expense' || f.kind === 'Product')) {
+        return false;
+      }
       const date = parseDateValue(f.payment_date);
       return date && date >= previousRange.start && date <= previousRange.end;
     }) || [];
@@ -1605,7 +1720,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
       wipValue: prevWip.reduce((total: number, record: any) => total + safeNumber(record.total), 0),
       collected: prevFees.reduce((total: number, record: any) => total + safeNumber(record.payment_allocated), 0),
     };
-  }, [previousRange, rawEnquiries, rawMatters, rawWip, rawFees]);
+  }, [previousRange, rawEnquiries, rawMatters, rawWip, rawFees, includeDisbursements]);
 
   // Calculate previous period metrics for individual team members
   const previousMemberMetrics = useMemo(() => {
@@ -1631,6 +1746,9 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     }) || [];
 
     const prevFees = rawFees?.filter((f: any) => {
+      if (!includeDisbursements && (f.kind === 'Expense' || f.kind === 'Product')) {
+        return false;
+      }
       const date = parseDateValue(f.payment_date);
       return date && date >= previousRange.start && date <= previousRange.end;
     }) || [];
@@ -1696,7 +1814,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     });
 
     return memberMap;
-  }, [previousRange, rawEnquiries, rawMatters, rawWip, rawFees, teamMembers]);
+  }, [previousRange, rawEnquiries, rawMatters, rawWip, rawFees, teamMembers, includeDisbursements]);
 
   // Helper function to calculate percentage change
   const calculateChange = (current: number, previous: number): { percentage: number; direction: 'up' | 'down' | 'neutral' } => {
@@ -1858,8 +1976,32 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     ));
   };
 
+  const toggleInactiveTeamSelection = (initials: string) => {
+    setSelectedTeams((prev) => {
+      const baseSelection = prev.length === 0
+        ? displayableTeamMembers.map((m) => m.initials)
+        : prev;
+
+      return baseSelection.includes(initials)
+        ? baseSelection.filter((item) => item !== initials)
+        : [...baseSelection, initials];
+    });
+  };
+
   const toggleRoleSelection = (role: string) => {
     const isRoleCurrentlySelected = selectedRoles.includes(role);
+
+    const roleGroup = (roleKey: string): string[] => {
+      if (roleKey === 'Partner') return ['Partner', 'Senior Partner'];
+      return [roleKey];
+    };
+
+    const roleMatchesSelection = (memberRole: string | undefined, roles: string[]): boolean => {
+      if (!memberRole) return false;
+      if (roles.includes(memberRole)) return true;
+      if (memberRole === 'Senior Partner' && roles.includes('Partner')) return true;
+      return false;
+    };
     
     // Update role selection
     setSelectedRoles((prev) => (
@@ -1872,7 +2014,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     if (!isRoleCurrentlySelected) {
       // Adding role - select all members with this role
       const membersWithRole = teamMembers
-        .filter(member => member.role === role)
+        .filter(member => roleGroup(role).includes(member.role ?? ''))
         .map(member => member.initials);
       
       setSelectedTeams(prev => {
@@ -1889,13 +2031,13 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         setSelectedTeams(prev => 
           prev.filter(initials => {
             const member = teamMembers.find(m => m.initials === initials);
-            return member && remainingRoles.includes(member.role ?? '');
+            return member && roleMatchesSelection(member.role, remainingRoles);
           })
         );
       } else {
         // No other roles selected, clear team selection
         const membersWithRole = teamMembers
-          .filter(member => member.role === role)
+          .filter(member => roleGroup(role).includes(member.role ?? ''))
           .map(member => member.initials);
         
         setSelectedTeams(prev => prev.filter(initials => !membersWithRole.includes(initials)));
@@ -2092,10 +2234,45 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               )}
             </div>
 
+            <DefaultButton
+              text={includeDisbursements ? 'Disbursements: Included' : 'Disbursements: Excluded'}
+              onClick={() => setIncludeDisbursements((v) => !v)}
+              styles={{
+                root: {
+                  height: 36,
+                  borderRadius: 10,
+                  padding: '0 12px',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.28)' : 'rgba(13, 47, 96, 0.18)'}`,
+                  background: isDarkMode ? 'rgba(15, 23, 42, 0.35)' : 'rgba(255, 255, 255, 0.6)',
+                  color: isDarkMode ? '#e2e8f0' : '#0f172a',
+                },
+                rootHovered: {
+                  background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : 'rgba(255, 255, 255, 0.8)',
+                  border: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.4)' : 'rgba(54, 144, 206, 0.35)'}`,
+                },
+                rootPressed: {
+                  background: isDarkMode ? 'rgba(15, 23, 42, 0.55)' : 'rgba(248, 250, 252, 1)',
+                },
+              }}
+              title={
+                includeDisbursements
+                  ? 'Currently including disbursements in Collected totals'
+                  : 'Currently excluding disbursements from Collected totals'
+              }
+            />
+
             {triggerRefresh && (
               <button
                 type="button"
                 onClick={() => {
+                  setProcessingModal({
+                    visible: true,
+                    title: 'Refreshing',
+                    message: 'Fetching latest data from all sources…',
+                  });
+                  showToast({ type: 'loading', message: 'Refreshing dashboard data…' });
                   triggerRefresh();
                   setTimeElapsed(0); // Reset timer on manual refresh
                 }}
@@ -2279,7 +2456,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                   text={member.initials}
                   onClick={() => toggleTeamSelection(member.initials)}
                   title={memberHasWorked(member.initials) ? undefined : `${member.display || member.initials} has no WIP hours in this period`}
-                  styles={getTeamButtonStyles(isDarkMode, selectedTeams.includes(member.initials), memberHasWorked(member.initials))}
+                  styles={getTeamButtonStyles(isDarkMode, selectedTeams.includes(member.initials), memberHasWorked(member.initials), member.role === 'Inactive')}
                 />
               ))}
               {!allTeamsSelected && (
@@ -2319,6 +2496,35 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                   </button>
                 )}
               </div>
+
+                {inactiveTeamMembers.length > 0 && (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      opacity: 0.75,
+                      marginBottom: 6,
+                    }}>
+                      Inactive people
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {inactiveTeamMembers.map((member) => (
+                        <DefaultButton
+                          key={`inactive-${member.initials}`}
+                          text={member.initials}
+                          onClick={() => toggleInactiveTeamSelection(member.initials)}
+                          title={`${member.display || member.initials} (Inactive)`}
+                          styles={getTeamButtonStyles(
+                            isDarkMode,
+                            selectedTeams.includes(member.initials),
+                            memberHasWorked(member.initials),
+                            true
+                          )}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
             </div>
           </div>
         )}
@@ -2327,28 +2533,28 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
         <div style={summaryChipStyle(isDarkMode)}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
-            <span style={{ fontSize: 12, opacity: 0.65 }}>Enquiries</span>
+            <span style={summaryChipLabelStyle()}>Enquiries</span>
             {renderTrendIndicator(summaryTotals.enquiries, previousMetrics?.enquiries, 'count', 'enquiries')}
           </div>
           <span style={{ fontSize: 20, fontWeight: 700 }}>{summaryTotals.enquiries.toLocaleString('en-GB')}</span>
         </div>
         <div style={summaryChipStyle(isDarkMode)}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
-            <span style={{ fontSize: 12, opacity: 0.65 }}>Matters</span>
+            <span style={summaryChipLabelStyle()}>Matters</span>
             {renderTrendIndicator(summaryTotals.matters, previousMetrics?.matters, 'count', 'matters')}
           </div>
           <span style={{ fontSize: 20, fontWeight: 700 }}>{summaryTotals.matters.toLocaleString('en-GB')}</span>
         </div>
         <div style={summaryChipStyle(isDarkMode)}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
-            <span style={{ fontSize: 12, opacity: 0.65 }}>WIP Hours</span>
+            <span style={summaryChipLabelStyle()}>WIP Hours</span>
             {renderTrendIndicator(summaryTotals.wipHours, previousMetrics?.wipHours, 'hours', 'wipHours')}
           </div>
           <span style={{ fontSize: 20, fontWeight: 700 }}>{formatHours(summaryTotals.wipHours)}</span>
         </div>
         <div style={summaryChipStyle(isDarkMode)}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
-            <span style={{ fontSize: 12, opacity: 0.65 }}>WIP (£)</span>
+            <span style={summaryChipLabelStyle()}>WIP (£)</span>
             {renderTrendIndicator(summaryTotals.wipValue, previousMetrics?.wipValue, 'currency', 'wipValue')}
           </div>
           <span style={{ fontSize: 20, fontWeight: 700 }}>{formatCurrency(summaryTotals.wipValue)}</span>
@@ -2358,73 +2564,112 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
             ...summaryChipStyle(isDarkMode),
             position: 'relative',
           }}
-          onMouseEnter={() => setShowCollectedInfo(true)}
-          onMouseLeave={() => setShowCollectedInfo(false)}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ fontSize: 12, opacity: 0.65 }}>Collected</span>
-              <Icon 
-                iconName="Info" 
-                style={{ 
-                  fontSize: 10, 
-                  opacity: 0.4,
-                  cursor: 'help'
-                }} 
-              />
+              <span style={summaryChipLabelStyle()}>Collected</span>
+              <span
+                onMouseEnter={() => setShowCollectedInfo(true)}
+                onMouseLeave={() => setShowCollectedInfo(false)}
+                style={{ display: 'inline-flex', alignItems: 'center' }}
+              >
+                <Icon 
+                  iconName="Info" 
+                  style={{ 
+                    fontSize: 10, 
+                    opacity: 0.35,
+                    cursor: 'help'
+                  }} 
+                />
+              </span>
             </div>
             {renderTrendIndicator(summaryTotals.collected, previousMetrics?.collected, 'currency', 'collected')}
           </div>
           <span style={{ fontSize: 20, fontWeight: 700 }}>{formatCurrency(summaryTotals.collected)}</span>
           
           {showCollectedInfo && (
-            <div style={{
-              position: 'absolute',
-              top: '100%',
-              right: 0,
-              marginTop: 8,
-              padding: '10px 12px',
-              background: isDarkMode ? 'rgba(15, 23, 42, 0.98)' : 'rgba(255, 255, 255, 0.98)',
-              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'}`,
-              borderRadius: 8,
-              boxShadow: isDarkMode ? '0 8px 16px rgba(0, 0, 0, 0.4)' : '0 4px 12px rgba(0, 0, 0, 0.15)',
-              fontSize: 11,
-              lineHeight: 1.5,
-              width: 240,
-              zIndex: 1000,
-              color: isDarkMode ? '#e2e8f0' : '#334155',
-              textAlign: 'left',
-            }}>
-              <div style={{ fontWeight: 700, marginBottom: 6, fontSize: 12, textAlign: 'left' }}>
-                Total Fees Collected
+            <div
+              style={{
+                position: 'absolute',
+                top: '100%',
+                right: 0,
+                marginTop: 8,
+                padding: '10px 12px',
+                background: isDarkMode ? 'rgba(15, 23, 42, 0.98)' : 'rgba(255, 255, 255, 0.98)',
+                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'}`,
+                borderRadius: 8,
+                boxShadow: isDarkMode ? '0 8px 16px rgba(0, 0, 0, 0.4)' : '0 4px 12px rgba(0, 0, 0, 0.15)',
+                fontSize: 11,
+                lineHeight: 1.5,
+                width: 280,
+                zIndex: 1000,
+                color: isDarkMode ? '#e2e8f0' : '#334155',
+                textAlign: 'left',
+              }}
+            >
+              <div style={{ fontWeight: 800, marginBottom: 8, fontSize: 12 }}>
+                Collected totals (current view)
               </div>
-              <div style={{ opacity: 0.85, textAlign: 'left' }}>
-                Includes all fee earners (active, Ops, and inactive).
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                <span style={{ opacity: 0.75 }}>Top card (all fee entries)</span>
+                <span style={{ fontWeight: 700 }}>{formatCurrency(summaryTotals.collected)}</span>
               </div>
-              <div style={{ marginTop: 6, opacity: 0.85, textAlign: 'left' }}>
-                Table below shows only active solicitors and selected filters.
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 4 }}>
+                <span style={{ opacity: 0.75 }}>Table Total (visible members)</span>
+                <span style={{ fontWeight: 700 }}>{formatCurrency(totals.collected)}</span>
               </div>
-              <div style={{ 
-                marginTop: 8, 
-                paddingTop: 6, 
-                borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.25)'}`,
-                fontSize: 10,
-                opacity: 0.65,
-                fontStyle: 'italic',
-                textAlign: 'left'
-              }}>
-                Excludes disbursements
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 4 }}>
+                <span style={{ opacity: 0.75 }}>Difference (top − table)</span>
+                <span style={{ fontWeight: 800 }}>{formatCurrency(summaryTotals.collected - totals.collected)}</span>
+              </div>
+
+              <div
+                style={{
+                  marginTop: 8,
+                  paddingTop: 8,
+                  borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.25)'}`,
+                }}
+              >
+                <div style={{ fontWeight: 700, fontSize: 11, marginBottom: 4, opacity: 0.9 }}>
+                  Active filters
+                </div>
+                <div style={{ opacity: 0.8 }}>
+                  Teams: <span style={{ fontWeight: 600 }}>{collectedTooltipDetails.selectedTeamsLabel}</span>
+                </div>
+                <div style={{ opacity: 0.8 }}>
+                  Roles: <span style={{ fontWeight: 600 }}>{collectedTooltipDetails.selectedRolesLabel}</span>
+                </div>
+                <div style={{ opacity: 0.8 }}>
+                  Visible members: <span style={{ fontWeight: 600 }}>{collectedTooltipDetails.visibleMembers.toLocaleString('en-GB')}</span>
+                  {' '} / {collectedTooltipDetails.totalTeamMembers.toLocaleString('en-GB')}
+                </div>
+                <div style={{ opacity: 0.75, marginTop: 4, fontSize: 10 }}>
+                  Ops shown: {collectedTooltipDetails.showOps ? 'Yes' : 'No'}
+                  {collectedTooltipDetails.hiddenOpsCount > 0 ? ` (${collectedTooltipDetails.hiddenOpsCount} hidden)` : ''}
+                  {' · '}Inactive shown: {collectedTooltipDetails.showInactive ? 'Yes' : 'No'}
+                  {collectedTooltipDetails.hiddenInactiveCount > 0 ? ` (${collectedTooltipDetails.hiddenInactiveCount} hidden)` : ''}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  marginTop: 8,
+                  paddingTop: 8,
+                  borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.25)'}`,
+                  fontSize: 10,
+                  opacity: 0.75,
+                }}
+              >
+                Disbursements: {includeDisbursements ? 'Included' : 'Excluded'}
+                {disbursementStats.inRangeAllCount > 0
+                  ? ` · In range: ${formatCurrency(disbursementStats.inRangeAllTotal)} (visible members: ${formatCurrency(disbursementStats.inRangeVisibleTotal)})`
+                  : ''}
               </div>
             </div>
           )}
         </div>
       </div>
-
-      {isFetching && (
-  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Spinner label="Refreshing data" />
-        </div>
-      )}
 
       <div className="metrics-table">
         <div className="metrics-table-header">
@@ -2748,6 +2993,87 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               <span>{formatDateRange(startDate || rangeStart, endDate || rangeEnd)}</span>
               <span>{formatDateRange(previousRange.start, previousRange.end)}</span>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Processing Modal Overlay */}
+      {processingModal.visible && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.6)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10001,
+            animation: 'fadeIn 0.2s ease-out',
+          }}
+        >
+          <div
+            style={{
+              background: isDarkMode
+                ? 'linear-gradient(145deg, rgba(15, 23, 42, 0.98), rgba(30, 41, 59, 0.98))'
+                : 'linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.98))',
+              borderRadius: 0,
+              padding: '32px 40px',
+              minWidth: 300,
+              maxWidth: 400,
+              boxShadow: isDarkMode
+                ? '0 25px 50px -12px rgba(0, 0, 0, 0.5)'
+                : '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 16,
+              animation: 'scaleIn 0.25s ease-out',
+            }}
+          >
+            <Spinner size={2} />
+            <div
+              style={{
+                fontSize: 9,
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+                color: isDarkMode ? '#94a3b8' : '#64748b',
+              }}
+            >
+              {processingModal.title}
+            </div>
+            <div
+              style={{
+                fontSize: 13,
+                color: isDarkMode ? '#e2e8f0' : '#475569',
+                textAlign: 'center',
+              }}
+            >
+              {processingModal.message}
+            </div>
+            {typeof processingModal.progress === 'number' && (
+              <div
+                style={{
+                  width: '100%',
+                  height: 4,
+                  background: isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.25)',
+                  borderRadius: 2,
+                  overflow: 'hidden',
+                  marginTop: 8,
+                }}
+              >
+                <div
+                  style={{
+                    width: `${processingModal.progress}%`,
+                    height: '100%',
+                    background: colours.highlight,
+                    transition: 'width 0.3s ease-out',
+                  }}
+                />
+              </div>
+            )}
           </div>
         </div>
       )}

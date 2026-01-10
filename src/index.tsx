@@ -4,7 +4,7 @@ import "./app/styles/index.css";
 import App from "./app/App";
 import { createTheme, ThemeProvider } from "@fluentui/react";
 import { colours } from "./app/styles/colours";
-import { app, pages } from "@microsoft/teams-js";
+import { app } from "@microsoft/teams-js";
 import { isInTeams } from "./app/functionality/isInTeams";
 import { Matter, UserData, Enquiry, TeamData, NormalizedMatter } from "./app/functionality/types";
 import { mergeMattersFromSources } from "./utils/matterNormalization";
@@ -12,7 +12,6 @@ import { getCachedData, setCachedData, cleanupOldCache } from "./utils/storageHe
 import { debugLog } from "./utils/debug";
 
 import "./utils/callLogger";
-import { getProxyBaseUrl } from "./utils/getProxyBaseUrl";
 import { initializeIcons } from "@fluentui/react";
 import Loading from "./app/styles/Loading";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -49,8 +48,6 @@ const customTheme = createTheme({
   },
 });
 
-const proxyBaseUrl = getProxyBaseUrl();
-
 // Detect local development by hostname
 const isLocalDevEnv = typeof window !== 'undefined' &&
   (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
@@ -83,11 +80,56 @@ const useLocalData =
 if (typeof window !== "undefined") {
   if (!(window as any).__unhandledRejectionHandlerAdded) {
     (window as any).__unhandledRejectionHandlerAdded = true;
+
+    const hasChunkReloadedKey = '__helix_chunk_reload_once__';
+    const isChunkLoadError = (reason: unknown) => {
+      const anyReason = reason as any;
+      const name = typeof anyReason?.name === 'string' ? anyReason.name : '';
+      const message = typeof anyReason?.message === 'string' ? anyReason.message : '';
+      const text = `${name} ${message}`.toLowerCase();
+      return (
+        text.includes('chunkloaderror') ||
+        (text.includes('loading chunk') && text.includes('failed')) ||
+        text.includes('css chunk load failed')
+      );
+    };
+
+    const reloadOnceForChunkError = (source: 'unhandledrejection' | 'error', reason: unknown) => {
+      try {
+        if (sessionStorage.getItem(hasChunkReloadedKey) === 'true') {
+          console.error('[ChunkLoadError] reload already attempted; staying put', { source });
+          return;
+        }
+        sessionStorage.setItem(hasChunkReloadedKey, 'true');
+      } catch {
+        // If sessionStorage is unavailable, still attempt a reload once.
+      }
+
+      console.warn('[ChunkLoadError] forcing reload to recover', { source });
+      // Hard reload is the most reliable way to pick up new chunk filenames.
+      window.location.reload();
+    };
+
     window.addEventListener("unhandledrejection", (event) => {
+      if (isChunkLoadError(event.reason)) {
+        reloadOnceForChunkError('unhandledrejection', event.reason);
+        event.preventDefault();
+        return;
+      }
+
       console.error("Unhandled promise rejection:", event.reason);
       event.preventDefault();
       // Don't use alert() in Teams - it can crash the embedded app
       // Just log and continue - user will see error in console if needed
+    });
+
+    // Some chunk load failures surface as window 'error' events rather than promise rejections.
+    window.addEventListener('error', (event) => {
+      const anyEvent = event as any;
+      const reason = anyEvent?.error ?? anyEvent?.message;
+      if (isChunkLoadError(reason)) {
+        reloadOnceForChunkError('error', reason);
+      }
     });
   }
 }
@@ -347,7 +389,7 @@ async function fetchEnquiries(
       enquiries = [...legacyEnquiries];
 
     } else {
-      const errorText = await legacyResponse.text().catch(() => 'Could not read error response');
+      await legacyResponse.text().catch(() => undefined);
     }
     }
   } catch (error) {
@@ -475,71 +517,11 @@ const mapLegacyMatters = (items: any[]): Matter[] => {
   }));
 };
 
-const mapNewMatters = (items: any[]): Matter[] => {
-  return items.map((item) => ({
-    MatterID: item.MatterID || item.matter_id || "",
-    InstructionRef: item.InstructionRef || item.instruction_ref || "",
-    DisplayNumber: item.DisplayNumber || item.display_number || "",
-    OpenDate: item.OpenDate || item.open_date || "",
-    MonthYear: item.MonthYear || item.month_year || "",
-    YearMonthNumeric: item.YearMonthNumeric || item.year_month_numeric || 0,
-    ClientID: item.ClientID || item.client_id || "",
-    ClientName: item.ClientName || item.client_name || "",
-    ClientPhone: item.ClientPhone || item.client_phone || "",
-    ClientEmail: item.ClientEmail || item.client_email || "",
-    Status: item.Status || item.status || "",
-    UniqueID: item.UniqueID || item.unique_id || "",
-    Description: item.Description || item.description || "",
-    PracticeArea: item.PracticeArea || item.practice_area || "",
-    Source: item.Source || item.source || "",
-    Referrer: item.Referrer || item.referrer || "",
-    ResponsibleSolicitor: item.ResponsibleSolicitor || item.responsible_solicitor || "",
-    OriginatingSolicitor: item.OriginatingSolicitor || item.originating_solicitor || "",
-    SupervisingPartner: item.SupervisingPartner || item.supervising_partner || "",
-    Opponent: item.Opponent || item.opponent || "",
-    OpponentSolicitor: item.OpponentSolicitor || item.opponent_solicitor || "",
-    CloseDate: item.CloseDate || item.close_date || "",
-    ApproxValue: item.ApproxValue || item.approx_value || "",
-    mod_stamp: item.mod_stamp || '',
-    method_of_contact: item.method_of_contact || '',
-    CCL_date: item.CCL_date || null,
-    Rating: item.Rating as "Good" | "Neutral" | "Poor" | undefined,
-  }));
-};
-
 async function fetchAllMatters(): Promise<Matter[]> {
-  const cacheKey = 'allMatters';
-  const cached = getCachedData<Matter[]>(cacheKey);
-  if (cached) return cached;
-
-  const isLocalDev = typeof window !== 'undefined' &&
-    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-  
-  let allMatters: any[] = [];
-
-  try {
-    const getAllMattersCode = process.env.REACT_APP_GET_ALL_MATTERS_CODE;
-    // Use Express server proxy when developing, same pattern as getEnquiries
-    const getAllMattersUrl = isLocalDev 
-      ? `http://localhost:8080/api/getAllMatters${getAllMattersCode ? `?code=${getAllMattersCode}` : ''}` 
-      : `${proxyBaseUrl}/${process.env.REACT_APP_GET_ALL_MATTERS_PATH}?code=${getAllMattersCode}`;
-    
-    const response = await fetch(getAllMattersUrl, {
-      method: "GET",
-      headers: { "Content-Type": "application/json" },
-    });
-    
-    if (response.ok) {
-      const data = await response.json();
-      allMatters = Array.isArray(data) ? data : data.matters || [];
-    }
-  } catch (err) {
-    // All matters fetch error is non-blocking
-  }
-
-  const mappedMatters = mapLegacyMatters(allMatters);
-  setCachedData(cacheKey, mappedMatters);
-  return mappedMatters;
+  // Deprecated: the local Express server intentionally returns 410 for `/api/getAllMatters`
+  // (it was removed in favour of `/api/matters-unified`).
+  // Keeping this function as a safe no-op avoids noisy 410 network errors in devtools.
+  return [];
 }
 
 async function fetchMatters(fullName: string): Promise<Matter[]> {
@@ -547,8 +529,6 @@ async function fetchMatters(fullName: string): Promise<Matter[]> {
   const cached = getCachedData<Matter[]>(cacheKey);
   if (cached) return cached;
 
-  const isLocalDev = typeof window !== 'undefined' &&
-    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
   // IMPORTANT: We previously pointed local dev legacy fetch to /api/getMatters which
   // is now reserved for the NEW (VNet) dataset (decoupled fetchMattersData function).
   // That caused the "legacy" path to return new data and starve the actual new dataset
@@ -632,9 +612,51 @@ async function fetchVNetMatters(fullName?: string): Promise<any[]> {
       return cached;
     }
 
+    const isLocalDev = typeof window !== 'undefined' &&
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+    // Local dev: /api/matters-unified can be cold-start slow because it performs full-table
+    // reads across two databases under tighter SQL request timeouts. Use the proven two-call
+    // path to keep startup snappy and avoid 504/abort loops.
+    if (isLocalDev) {
+      try {
+        // `/api/getAllMatters` is deprecated (410), so use per-user legacy matters instead.
+        const [legacyUserMatters, vnetUserMatters] = await Promise.all([
+          fetchMatters(fullName),
+          fetchVNetMatters(fullName),
+        ]);
+
+        const normalizedMatters = mergeMattersFromSources(
+          legacyUserMatters,
+          [],
+          vnetUserMatters,
+          fullName,
+        );
+
+        setMemoryCachedData(cacheKey, normalizedMatters);
+        return normalizedMatters;
+      } catch {
+        return [];
+      }
+    }
+
     try {
       const query = fullName ? `?fullName=${encodeURIComponent(fullName)}` : '';
-      const res = await fetch(`/api/matters-unified${query}`);
+      const url = `/api/matters-unified${query}`;
+      const controller = new AbortController();
+      const warnId = window.setTimeout(() => {
+        // eslint-disable-next-line no-console
+        console.warn('[Matters] /api/matters-unified still pending…');
+      }, 10_000);
+      const timeoutId = window.setTimeout(() => controller.abort(), 45_000);
+
+      // eslint-disable-next-line no-console
+      console.info('[Matters] fetching unified…');
+
+      const res = await fetch(url, { signal: controller.signal });
+      window.clearTimeout(warnId);
+      window.clearTimeout(timeoutId);
+
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const legacyAll = Array.isArray(data.legacyAll) ? data.legacyAll : [];
@@ -652,6 +674,8 @@ async function fetchVNetMatters(fullName?: string): Promise<any[]> {
       
       return normalizedMatters;
     } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('[Matters] unified fetch failed', err);
       // Fallback: call previous two-source path
       try {
         const [allMatters, vnetAllMatters] = await Promise.all([
@@ -732,6 +756,9 @@ const AppWithContext: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [showUserSelection, setShowUserSelection] = useState(false);
   const [showPasscode, setShowPasscode] = useState(false);
+
+  // Avoid over-flushing server cache during rapid refresh bursts (e.g. SSE-driven refresh).
+  const lastEnquiriesCacheFlushAtRef = React.useRef<number>(0);
   
   // Local development state for area selection
   const [localSelectedAreas, setLocalSelectedAreas] = useState<string[]>(['Commercial', 'Construction', 'Property']);
@@ -743,11 +770,16 @@ const AppWithContext: React.FC = () => {
     try {
       // Flush server-side enquiries cache before fetching fresh data
       try {
-        await fetch('/api/cache/clear-cache', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ scope: 'enquiries' })
-        });
+        const now = Date.now();
+        const shouldFlush = now - lastEnquiriesCacheFlushAtRef.current > 15000;
+        if (shouldFlush) {
+          lastEnquiriesCacheFlushAtRef.current = now;
+          await fetch('/api/cache/clear-cache', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ scope: 'enquiries' })
+          });
+        }
       } catch (flushErr) {
         console.warn('Cache flush failed (non-blocking):', flushErr);
       }

@@ -45,6 +45,8 @@ interface CustomTabsProps {
   onFeatureToggle?: (feature: string, enabled: boolean) => void;
   featureToggles?: Record<string, boolean>;
   onShowTestEnquiry?: () => void;
+  demoModeEnabled?: boolean;
+  onToggleDemoMode?: (enabled: boolean) => void;
 }
 
 const customPivotStyles = (isDarkMode: boolean): Partial<IPivotStyles> => ({
@@ -95,6 +97,8 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
   onFeatureToggle,
   featureToggles = {},
   onShowTestEnquiry,
+  demoModeEnabled,
+  onToggleDemoMode,
 }) => {
   const { isDarkMode } = useTheme();
   const pivotWrapRef = React.useRef<HTMLDivElement | null>(null);
@@ -179,23 +183,24 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
     <div
       className={`customTabsContainer ${iconOnly ? 'iconOnlyTabs' : ''}`}
       style={{
+        // Ops dashboard: horizontal gradient left-to-right
         background: isDarkMode
-          ? colours.darkBlue
-          : '#FFFFFF',
+          ? 'linear-gradient(90deg, rgba(8, 14, 28, 0.98) 0%, rgba(14, 24, 42, 0.98) 50%, rgba(10, 18, 34, 0.98) 100%)'
+          : '#f8fafc',
         display: 'flex',
         alignItems: 'center',
         padding: '0 24px',
         height: 48,
         borderBottom: isDarkMode 
-          ? '1px solid rgba(54, 144, 206, 0.25)' 
-          : '1px solid rgba(0, 0, 0, 0.06)',
+          ? '1px solid rgba(54, 144, 206, 0.18)' 
+          : '1px solid rgba(148, 163, 184, 0.12)',
         boxShadow: isDarkMode
-          ? '0 2px 8px rgba(0, 0, 0, 0.4)'
-          : '0 2px 8px rgba(0, 0, 0, 0.08)',
+          ? '0 2px 16px rgba(0, 0, 0, 0.4)'
+          : '0 2px 8px rgba(0, 0, 0, 0.04)',
         position: 'sticky',
         top: 0,
-        zIndex: 2000, // Keep tab bar above downstream sticky navigator content
-        transition: 'all 0.2s ease',
+        zIndex: 2000,
+        transition: 'all 0.12s ease',
       }}
     >
       <div
@@ -245,7 +250,7 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
         style={{
           width: '1px',
           height: '24px',
-          backgroundColor: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(0, 0, 0, 0.08)',
+          backgroundColor: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)',
           marginRight: '12px',
           flexShrink: 0,
         }}
@@ -320,6 +325,8 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
           onFeatureToggle={onFeatureToggle}
           featureToggles={featureToggles}
           onShowTestEnquiry={onShowTestEnquiry}
+          demoModeEnabled={demoModeEnabled}
+          onToggleDemoMode={onToggleDemoMode}
         />
       )}
     </div>

@@ -462,7 +462,10 @@ const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
 
     const partnerOptionsList = useMemo(() => {
         const partnersFirst = activeTeam
-            .filter((t: any) => String(t?.Role || '').toLowerCase() === 'partner')
+            .filter((t: any) => {
+                const role = String(t?.Role || '').toLowerCase();
+                return role === 'partner' || role === 'senior partner';
+            })
             .map(getFirstName)
             .filter(Boolean);
         if (partnersFirst.length) return partnersFirst;
@@ -968,6 +971,24 @@ const handleClearAll = () => {
   }
 };
 
+    // Compute client display name for ConflictConfirmationCard
+    const clientDisplayName = useMemo(() => {
+        if (selectedPoidIds.length > 0) {
+            const poid = effectivePoidData.find(p => p.poid_id === selectedPoidIds[0]);
+            if (poid) {
+                if (poid.company_name) {
+                    return poid.company_name;
+                }
+                const fullName = `${poid.first || ''} ${poid.last || ''}`.trim();
+                if (fullName) return fullName;
+            }
+        }
+        if (clientAsOnFile && clientAsOnFile.trim()) {
+            return clientAsOnFile.trim();
+        }
+        return 'Client';
+    }, [selectedPoidIds, effectivePoidData, clientAsOnFile]);
+
     // Helper to get nickname from localUserData
     function getLocalUserNickname(userInitials: string): string {
         if (!userInitials) return '';
@@ -990,7 +1011,7 @@ const handleClearAll = () => {
     function getPartnerInitials(teamData: any[]): string[] {
         if (!teamData) return [];
         return teamData
-            .filter((member: any) => member.Role === 'Partner')
+            .filter((member: any) => member.Role === 'Partner' || member.Role === 'Senior Partner')
             .map((member: any) => member.Initials || member['Initials'] || '')
             .filter(Boolean);
     }
@@ -2610,6 +2631,8 @@ ${JSON.stringify(debugInfo, null, 2)}
                                             setSolicitorCompanyNumber={setSolicitorCompanyNumber}
                                             opponentChoiceMade={opponentChoiceMade}
                                             setOpponentChoiceMade={setOpponentChoiceMade}
+                                            clientName={clientDisplayName}
+                                            matterDescription={description}
                                         />
                                     </div>
                                 )}

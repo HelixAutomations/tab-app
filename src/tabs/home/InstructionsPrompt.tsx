@@ -64,11 +64,6 @@ export const getActionableInstructions = (
             verifyIdStatus = 'review';
         }
         
-        // Documents are optional and typically arrive with payment. Once paid, don't block on docs.
-        const documentStatus = instruction.DocumentsReceived
-            ? 'complete'
-            : (paymentStatus === 'complete' ? 'complete' : 'pending');
-        
         const risk = item.riskAssessments && item.riskAssessments[0];
         const riskResultRaw = risk?.RiskAssessmentResult?.toString().toLowerCase() ?? "";
         const riskStatus = riskResultRaw

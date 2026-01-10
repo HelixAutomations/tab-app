@@ -186,6 +186,10 @@ export default function TechTicketsLedger(props: TechTicketsLedgerProps) {
               '.ms-DetailsRow-cell': {
                 paddingTop: '10px',
                 paddingBottom: '10px',
+                color: isDarkMode ? 'rgba(226, 232, 240, 0.92)' : 'rgba(15, 23, 42, 0.85)',
+              },
+              '.ms-DetailsRow-cell .ms-Text': {
+                color: isDarkMode ? 'rgba(226, 232, 240, 0.92)' : 'rgba(15, 23, 42, 0.85)',
               },
             },
             headerWrapper: {

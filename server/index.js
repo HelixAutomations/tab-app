@@ -79,6 +79,7 @@ const teamDataRouter = require('./routes/teamData');
 const pitchTeamRouter = require('./routes/pitchTeam');
 const proxyToAzureFunctionsRouter = require('./routes/proxyToAzureFunctions');
 const fileMapRouter = require('./routes/fileMap');
+const paymentLinkRouter = require('./routes/paymentLink');
 const opsRouter = require('./routes/ops');
 const sendEmailRouter = require('./routes/sendEmail');
 const forwardEmailRouter = require('./routes/forwardEmail');
@@ -88,6 +89,8 @@ const attendanceRouter = require('./routes/attendance');
 const reportingRouter = require('./routes/reporting');
 const reportingStreamRouter = require('./routes/reporting-stream');
 const homeMetricsStreamRouter = require('./routes/home-metrics-stream');
+const homeWipRouter = require('./routes/home-wip');
+const homeEnquiriesRouter = require('./routes/home-enquiries');
 const poidRouter = require('./routes/poid');
 const futureBookingsRouter = require('./routes/futureBookings');
 const outstandingBalancesRouter = require('./routes/outstandingBalances');
@@ -115,7 +118,7 @@ const app = express();
 if (compression) {
     app.use((req, res, next) => {
         // Skip compression for Server-Sent Events to avoid buffering
-        if (req.path.startsWith('/api/reporting-stream') || req.path.startsWith('/api/home-metrics') || req.path.startsWith('/api/logs/stream') || req.path.startsWith('/api/ccl-date')) {
+        if (req.path.startsWith('/api/reporting-stream') || req.path.startsWith('/api/home-metrics') || req.path.startsWith('/api/logs/stream') || req.path.startsWith('/api/ccl-date') || req.path.startsWith('/api/enquiries-unified/stream')) {
             res.setHeader('Cache-Control', 'no-cache, no-transform');
             return next();
         }
@@ -136,29 +139,50 @@ app.use((req, res, next) => {
     next();
 });
 
-// Enable CORS: allow localhost in dev; restrict in production
+// Enable CORS: allow localhost in dev; restrict in production.
+// IMPORTANT: SSE endpoints (e.g. /api/logs/stream) must work reliably behind proxies.
+// Some browsers include an Origin header even for same-origin EventSource requests.
 const isProd = process.env.NODE_ENV === 'production';
 const allowedOrigins = isProd
-    ? (process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : [])
+    ? (process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean) : [])
     : ['http://localhost:3000', 'http://127.0.0.1:3000'];
 
-app.use(cors({
-    origin: (origin, callback) => {
-        if (!origin) return callback(null, true); // allow same-origin/no-origin (curl, server-side)
-        if (allowedOrigins.length === 0 && isProd) return callback(new Error('CORS blocked: no origins configured'));
-        if (allowedOrigins.includes(origin)) return callback(null, true);
-        return callback(new Error('CORS blocked'));
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+const isSameOriginRequest = (req, origin) => {
+    if (!origin) return true;
+    const forwardedHost = req.headers['x-forwarded-host'];
+    const rawHost = forwardedHost || req.headers.host;
+    if (!rawHost) return false;
+    const host = String(rawHost).split(',')[0].trim();
+    const forwardedProto = req.headers['x-forwarded-proto'];
+    const proto = (forwardedProto ? String(forwardedProto).split(',')[0].trim() : req.protocol) || 'https';
+    const expected = `${proto}://${host}`;
+    return origin === expected;
+};
+
+app.use(cors((req, callback) => {
+    const origin = req.header('Origin');
+    const allow = !origin || allowedOrigins.includes(origin) || isSameOriginRequest(req, origin);
+
+    // If Origin is missing, let the request through without forcing CORS headers.
+    // If Origin is present and allowed, reflect it (required when credentials are used).
+    const corsOptions = {
+        origin: origin ? (allow ? origin : false) : true,
+        credentials: true,
+        methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+        // EventSource reconnects may include Last-Event-ID; some environments add Cache-Control.
+        allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Last-Event-ID'],
+    };
+
+    return callback(null, corsOptions);
 }));
 
 // Reduce logging noise in production
 if (process.env.NODE_ENV !== 'production') {
     app.use(morgan('dev'));
 }
-app.use(express.json());
+// Financial forms can include base64 file uploads; default 100kb limit is too small.
+app.use(express.json({ limit: '20mb' }));
+app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
 // User context middleware - enriches requests with user info and logs sessions
 app.use(userContextMiddleware);
@@ -187,6 +211,8 @@ app.use('/api/getAllMatters', (req, res) => {
 });
 app.use('/api/ccl', cclRouter);
 app.use('/api/enquiries-unified', enquiriesUnifiedRouter);
+app.use('/api/home-wip', homeWipRouter);
+app.use('/api/home-enquiries', homeEnquiriesRouter);
 app.use('/api/updateEnquiryPOC', updateEnquiryPOCRouter);
 app.use('/api/claimEnquiry', claimEnquiryRouter);
 app.use('/api/matters-unified', mattersUnifiedRouter);
@@ -220,6 +246,7 @@ app.use('/api/team-lookup', teamLookupRouter);
 app.use('/api/team-data', teamDataRouter);
 app.use('/api/pitch-team', pitchTeamRouter);
 app.use('/api/file-map', fileMapRouter);
+app.use('/api/payment-link', paymentLinkRouter);
 app.use('/api/reporting', reportingRouter);
 app.use('/api/reporting-stream', reportingStreamRouter);
 app.use('/api/home-metrics', homeMetricsStreamRouter);
@@ -325,6 +352,45 @@ if (fs.existsSync(buildPath)) {
         res.status(404).json({ error: 'Static files not available' });
     });
 }
+
+// Error handling middleware (must be after all routes)
+// Ensures API callers get JSON rather than IIS/HTML error pages.
+app.use((error, req, res, next) => {
+    const arrLogId = req.get('x-arr-log-id');
+    const status = typeof error?.status === 'number' ? error.status : 500;
+
+    // Common body-parser errors
+    const isTooLarge =
+        error?.type === 'entity.too.large' ||
+        error?.name === 'PayloadTooLargeError' ||
+        error?.statusCode === 413;
+
+    const safeStatus = isTooLarge ? 413 : status;
+    const message = isTooLarge
+        ? 'Request body too large'
+        : (error?.message || 'Internal server error');
+
+    console.error('[server] Error:', {
+        method: req.method,
+        path: req.originalUrl,
+        status: safeStatus,
+        arrLogId,
+        name: error?.name,
+        type: error?.type,
+        message,
+    });
+
+    if (req.originalUrl?.startsWith('/api/')) {
+        return res.status(safeStatus).json({
+            error: isTooLarge ? 'payload_too_large' : 'internal_error',
+            message,
+            arrLogId,
+            timestamp: new Date().toISOString(),
+        });
+    }
+
+    return res.status(safeStatus).send(message);
+});
 
 app.listen(PORT, () => {
     // Server started

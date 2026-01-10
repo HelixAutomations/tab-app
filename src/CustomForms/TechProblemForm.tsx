@@ -70,6 +70,13 @@ const TechProblemFormContent: React.FC<TechProblemFormProps> = ({
   onSubmitError,
 }) => {
   const { isDarkMode } = useTheme();
+
+  const mapUrgency = (value: string): 'Blocking' | 'Annoying' | 'Minor' => {
+    const v = (value || '').toLowerCase();
+    if (v === 'critical' || v === 'high') return 'Blocking';
+    if (v === 'low') return 'Minor';
+    return 'Annoying';
+  };
   
   const [formData, setFormData] = useState<FormData>({
     title: '',
@@ -107,7 +114,18 @@ const TechProblemFormContent: React.FC<TechProblemFormProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...formData,
+          // Backend contract (server/routes/techTickets.js)
+          system: 'Hub',
+          summary: formData.title,
+          stepsToReproduce: formData.steps_to_reproduce,
+          expectedVsActual: [
+            formData.expected_behavior?.trim() ? `Expected:\n${formData.expected_behavior.trim()}` : null,
+            formData.description?.trim() ? `Actual/Issue:\n${formData.description.trim()}` : null,
+          ].filter(Boolean).join('\n\n'),
+          urgency: mapUrgency(formData.urgency),
+          submittedBy: currentUser?.Initials || '',
+
+          // Legacy payload fields (kept for backwards compatibility / debugging)
           submitted_by: currentUser?.FullName || 'Unknown',
           submitted_by_initials: currentUser?.Initials || '',
         }),

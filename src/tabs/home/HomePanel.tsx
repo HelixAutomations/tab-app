@@ -12,14 +12,12 @@ import {
   DefaultButton,
   MessageBar,
   MessageBarType,
-  Icon,
   TextField,
 } from '@fluentui/react';
 import { colours } from '../../app/styles/colours';
 import { mergeStyles } from '@fluentui/react';
 import loaderIcon from '../../assets/grey helix mark.png';
 import BespokeForm from '../../CustomForms/BespokeForms';
-import { FormItem } from '../../app/functionality/types';
 import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from '../../app/styles/ButtonStyles';
 
 interface HomePanelProps {

@@ -49,7 +49,8 @@ interface UseRateChangeDataResult {
 export function useRateChangeData(
     year: number,
     userFullName: string,
-    enabled: boolean = true
+    enabled: boolean = true,
+    options?: { includeOpenedFromYear?: boolean }
 ): UseRateChangeDataResult {
     const [clients, setClients] = useState<RateChangeClient[]>([]);
     const [stats, setStats] = useState<RateChangeStats>({ total: 0, pending: 0, sent: 0, not_applicable: 0 });
@@ -63,7 +64,12 @@ export function useRateChangeData(
         setError(null);
         
         try {
-            const response = await fetch(`/api/rate-changes/${year}`);
+            const includeOpenedFromYear = Boolean(options?.includeOpenedFromYear);
+            const url = includeOpenedFromYear
+                ? `/api/rate-changes/${year}?includeOpenedFromYear=1`
+                : `/api/rate-changes/${year}`;
+
+            const response = await fetch(url);
             
             if (!response.ok) {
                 throw new Error(`Failed to fetch rate change data: ${response.statusText}`);
@@ -78,7 +84,7 @@ export function useRateChangeData(
         } finally {
             setIsLoading(false);
         }
-    }, [year, enabled]);
+    }, [year, enabled, options?.includeOpenedFromYear]);
 
     useEffect(() => {
         fetchData();

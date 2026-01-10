@@ -2,18 +2,14 @@ import React from 'react';
 import {
   FaRegCheckSquare,
   FaCheckSquare,
-  FaRegClock,
-  FaClock,
   FaRegBuilding,
   FaBuilding,
-  FaPhone,
   FaRegUser,
   FaUser,
   FaRegFolder,
   FaFolder,
   FaRegIdBadge,
   FaIdBadge,
-  FaUserCheck,
   FaMobileAlt,
   FaUmbrellaBeach,
 } from 'react-icons/fa';
@@ -24,8 +20,6 @@ import {
 import {
   MdOutlineEventSeat,
   MdEventSeat,
-  MdPhone,
-  MdCall,
   MdOutlineAssessment,
   MdAssessment,
   MdOutlineArticle,
@@ -37,6 +31,8 @@ import {
   MdSmartphone,
   MdOutlineSlideshow,
   MdSlideshow,
+  MdOutlineLocationOn,
+  MdLocationOn,
 } from 'react-icons/md';
 import { Icon } from '@fluentui/react';
 import { colours } from '../../app/styles/colours';
@@ -62,11 +58,11 @@ interface QuickActionsCardProps {
 // Icon mapping with outline/filled pairs
 type IconComponent = React.ComponentType<{ style?: React.CSSProperties; className?: string }>;
 
-const CalendarDayIcon: IconComponent = (props) => {
-  const safeProps = props ?? {};
-  const { style, className } = safeProps;
-  return <Icon iconName="CalendarDay" style={style} className={className} />;
-};
+// Wrapper for Fluent UI Icon to match React Icons signature
+const CalendarDayIcon = React.forwardRef<HTMLElement, { style?: React.CSSProperties; className?: string }>((props, ref) => {
+  return <Icon iconName="CalendarDay" style={props.style} className={props.className} />;
+});
+CalendarDayIcon.displayName = 'CalendarDayIcon';
 
 const iconMap: Record<string, { outline: IconComponent; filled: IconComponent }> = {
   Accept: { outline: FaRegCheckSquare, filled: FaCheckSquare },
@@ -87,30 +83,22 @@ const iconMap: Record<string, { outline: IconComponent; filled: IconComponent }>
   CityNext: { outline: MdOutlineLocationCity, filled: MdLocationCity },
   ConstructionCone: { outline: MdOutlineConstruction, filled: MdConstruction },
   Presentation: { outline: MdOutlineSlideshow, filled: MdSlideshow },
+  Attendance: { outline: MdOutlineLocationOn, filled: MdLocationOn },
 };
 
 // Export function to get filled icon for panel headers
 export const getQuickActionIcon = (iconName: string): React.ComponentType<any> | null => {
   const mapping = iconMap[iconName];
   if (!mapping) {
+    console.warn(`No icon mapping found for: ${iconName}`);
     return null;
   }
   
   const IconComponent = mapping.filled;
   
-  // React Icons are functions, but might be wrapped differently in different environments
-  if (typeof IconComponent === 'function') {
-    return IconComponent;
-  }
-  
-  // Try to get the default export if it's an object
-  if (IconComponent && typeof IconComponent === 'object' && (IconComponent as any).default) {
-    const defaultIcon = (IconComponent as any).default;
-    return defaultIcon;
-  }
-  
-  // If still not a function, return null
-  return null;
+  // Directly return the component - React Icons and our custom components are all valid
+  // No need for additional checks as they're all defined correctly above
+  return IconComponent;
 };
 
 const QuickActionsCard: React.FC<QuickActionsCardProps> = ({

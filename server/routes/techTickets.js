@@ -530,6 +530,19 @@ router.post('/idea', async (req, res) => {
         code: asanaErr?.code,
         message: asanaErr?.message,
       });
+
+      // Local/dev should still accept submissions even if Asana isn't configured.
+      if (asanaErr?.code === 'ASANA_NOT_CONFIGURED') {
+        return res.status(201).json({
+          success: true,
+          taskId: null,
+          taskUrl: null,
+          recordId: ideaRecord?.id ?? null,
+          warning: 'Idea recorded but Asana integration is not configured on this environment.',
+          code: 'ASANA_NOT_CONFIGURED',
+        });
+      }
+
       throw asanaErr;
     }
 
@@ -654,6 +667,19 @@ router.post('/problem', async (req, res) => {
         code: asanaErr?.code,
         message: asanaErr?.message,
       });
+
+      // Local/dev should still accept submissions even if Asana isn't configured.
+      if (asanaErr?.code === 'ASANA_NOT_CONFIGURED') {
+        return res.status(201).json({
+          success: true,
+          taskId: null,
+          taskUrl: null,
+          recordId: problemRecord?.id ?? null,
+          warning: 'Problem recorded but Asana integration is not configured on this environment.',
+          code: 'ASANA_NOT_CONFIGURED',
+        });
+      }
+
       throw asanaErr;
     }
 

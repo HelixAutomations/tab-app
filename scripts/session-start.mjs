@@ -28,7 +28,7 @@ function main() {
   run('node scripts/sync-context.mjs');
   
   // 2. Check submodules
-  console.log('\n2. Checking submodules...');
+  console.log('\n2. Checking submodules (read-only)...');
   run('node scripts/update-submodules.mjs');
   
   // 3. Validate instructions

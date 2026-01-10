@@ -646,6 +646,25 @@ router.get('/pending-actions', async (req, res) => {
       message: err?.message,
     });
 
+    const maybeStatusCode = err?.statusCode || err?.details?.statusCode || err?.response?.status;
+    const msg = typeof err?.message === 'string' ? err.message : '';
+    const isAuthError =
+      maybeStatusCode === 401 ||
+      maybeStatusCode === 403 ||
+      msg.includes('not authorized') ||
+      msg.includes('not authorised') ||
+      msg.includes('Authorization') ||
+      msg.includes('permission');
+
+    // In local dev, blob access often isn’t configured. Don’t fail the whole page.
+    if (isAuthError) {
+      return res.status(200).json({
+        pendingActions: [],
+        total: 0,
+        unauthorised: true,
+      });
+    }
+
     return res.status(500).json({
       error: 'Failed to check pending actions',
       pendingActions: [],

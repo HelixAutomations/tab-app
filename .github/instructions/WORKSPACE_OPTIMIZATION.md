@@ -9,6 +9,8 @@ This project has evolved organically. New code should follow these principles:
 3. **Automated hygiene** - Scripts handle repetitive cleanup
 4. **Progressive cleanup** - Each session leaves codebase better
 
+Operating constraint (prevents clutter): deliver the user request first; only do cleanup/hygiene work when it is directly adjacent and low-risk. Anything else goes in `ROADMAP.md`.
+
 ---
 
 ## Directory Structure Intent

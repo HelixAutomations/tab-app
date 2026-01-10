@@ -171,8 +171,24 @@ function sanitizeDataForTask(data) {
 // POST /api/financial-task - Create financial task in Asana with OneDrive attachment
 router.post('/', async (req, res) => {
   const { formType, data, initials } = req.body;
+
+  const startedAt = Date.now();
+  const arrLogId = req.get('x-arr-log-id');
+  const contentLength = req.get('content-length');
+  const dataKeys = data && typeof data === 'object' ? Object.keys(data) : [];
+
+  // Trace (do not log values; may include sensitive financial data)
+  console.log('[financial-task] Incoming request', {
+    formType,
+    initials,
+    keys: dataKeys,
+    keyCount: dataKeys.length,
+    contentLength,
+    arrLogId,
+  });
   
   if (!formType || !data || !initials) {
+    console.warn('[financial-task] Bad request (missing fields)', { formType, hasData: !!data, initials, arrLogId });
     return res.status(400).json({ error: "Missing formType, data, or initials in request body." });
   }
   
@@ -180,6 +196,7 @@ router.post('/', async (req, res) => {
     // Get Asana credentials
     const asanaCredentials = await getAsanaCredentials(initials);
     if (!asanaCredentials) {
+      console.warn('[financial-task] No Asana credentials for initials', { initials, arrLogId });
       return res.status(400).json({ error: "ASANA credentials not found for the provided initials." });
     }
     
@@ -191,7 +208,12 @@ router.post('/', async (req, res) => {
     let description = formatDescription(sanitisedData);
     
     // Add special notes
-    if (formType === "Payment Requests" && data["Is the amount you are sending over £50k"] === true) {
+    const isOver50k =
+      data["Is the amount you are sending over £50,000?"] === true ||
+      data["Is the amount you are sending over £50,000"] === true ||
+      data["Is the amount you are sending over £50k"] === true;
+
+    if (formType === "Payment Requests" && isOver50k) {
       description += "\n\nPlease note we will need to perform an extra verification check. Accounts will send a small random amount and a random reference to the payee. You will need to ask them to confirm the amount and reference used before accounts can make the remaining balancing payment.";
     }
     
@@ -202,6 +224,13 @@ router.post('/', async (req, res) => {
     // Handle file upload to OneDrive
     const targetFolderId = FORM_FOLDER_MAPPING[formType];
     const fileFieldName = FILE_FIELD_MAPPING[formType];
+
+    console.log('[financial-task] Attachment check', {
+      formType,
+      fileFieldName: fileFieldName || null,
+      hasFilePayload: !!(fileFieldName && data && data[fileFieldName]),
+      arrLogId,
+    });
     
     if (targetFolderId && fileFieldName && data[fileFieldName]) {
       const fileData = data[fileFieldName];
@@ -217,6 +246,12 @@ router.post('/', async (req, res) => {
             if (sharingLink) {
               description += `\nUploaded File: ${uploadResult.name}\nLink: ${sharingLink}`;
             }
+
+            console.log('[financial-task] OneDrive upload ok', {
+              itemId: uploadResult.id,
+              name: uploadResult.name,
+              arrLogId,
+            });
           }
         } catch (uploadError) {
           console.warn(`[financial-task] File upload failed: ${uploadError.message}`);
@@ -268,7 +303,10 @@ router.post('/', async (req, res) => {
     }
     
     const asanaResult = await asanaResponse.json();
-    console.log(`[financial-task] Created Asana task: ${asanaResult.data?.gid}`);
+    console.log(`[financial-task] Created Asana task: ${asanaResult.data?.gid}`, {
+      arrLogId,
+      ms: Date.now() - startedAt,
+    });
     
     res.json({
       message: "Task created and OneDrive upload completed (if applicable).",
@@ -276,7 +314,12 @@ router.post('/', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('[financial-task] Error:', error);
+    console.error('[financial-task] Error:', {
+      message: error?.message,
+      name: error?.name,
+      arrLogId,
+      ms: Date.now() - startedAt,
+    });
     res.status(500).json({ error: error.message || "Unknown error occurred." });
   }
 });

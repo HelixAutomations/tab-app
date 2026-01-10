@@ -20,8 +20,10 @@ const enter = keyframes({
 });
 
 const cardClass = (dark: boolean, variant: string, delay: number) => mergeStyles({
-  background: dark ? colours.dark.sectionBackground : colours.light.sectionBackground,
-  border: `1px solid ${dark ? colours.dark.border : colours.light.border}`,
+  background: dark
+    ? `linear-gradient(90deg, ${colours.dark.sectionBackground} 0%, ${colours.dark.cardBackground} 100%)`
+    : `linear-gradient(90deg, ${colours.light.sectionBackground} 0%, ${colours.grey} 140%)`,
+  border: `1px solid ${dark ? `${colours.highlight}2B` : `${colours.highlight}1A`}`,
   borderRadius: 8,
   padding: variant === 'minimal' ? '12px' : '16px',
   boxShadow: dark

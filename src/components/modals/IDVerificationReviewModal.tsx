@@ -34,6 +34,7 @@ interface IDVerificationReviewModalProps {
   onApprove: (instructionRef: string) => Promise<void>;
   onRequestDocuments?: (instructionRef: string) => Promise<void>; // New action
   onOverride?: (instructionRef: string) => Promise<void>; // New action
+  variant?: 'modal' | 'tray';
 }
 
 const IDVerificationReviewModal: React.FC<IDVerificationReviewModalProps> = ({
@@ -42,7 +43,8 @@ const IDVerificationReviewModal: React.FC<IDVerificationReviewModalProps> = ({
   onClose,
   onApprove,
   onRequestDocuments,
-  onOverride
+  onOverride,
+  variant = 'modal'
 }) => {
   const { isDarkMode } = useTheme();
   const [isProcessing, setIsProcessing] = useState(false);
@@ -282,37 +284,52 @@ const IDVerificationReviewModal: React.FC<IDVerificationReviewModalProps> = ({
     }
   };
 
-  return (
-    <div style={{
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      backgroundColor: 'rgba(0, 0, 0, 0.6)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      zIndex: 10000,
-      padding: '20px',
-      backdropFilter: 'blur(4px)'
-    }}>
-      <div style={{
-        background: isDarkMode 
-          ? 'linear-gradient(135deg, #2e2e2e 0%, #3a3a3a 100%)'
-          : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-        borderRadius: '12px',
-        padding: '32px',
-        maxWidth: '650px',
-        width: '100%',
-        maxHeight: '85vh',
-        overflowY: 'auto',
-        boxShadow: isDarkMode 
-          ? '0 20px 40px rgba(0, 0, 0, 0.4), 0 4px 6px rgba(0, 0, 0, 0.3)' 
+  const outerStyle: React.CSSProperties =
+    variant === 'tray'
+      ? {
+          position: 'relative',
+          backgroundColor: 'transparent',
+          display: 'block',
+          padding: 0,
+        }
+      : {
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.6)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10000,
+          padding: '20px',
+          backdropFilter: 'blur(4px)'
+        };
+
+  const innerStyle: React.CSSProperties = {
+    background: isDarkMode
+      ? 'linear-gradient(135deg, #2e2e2e 0%, #3a3a3a 100%)'
+      : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
+    borderRadius: variant === 'tray' ? '0px' : '12px',
+    padding: '32px',
+    maxWidth: variant === 'tray' ? '100%' : '650px',
+    width: '100%',
+    maxHeight: variant === 'tray' ? '60vh' : '85vh',
+    overflowY: 'auto',
+    boxShadow:
+      variant === 'tray'
+        ? 'none'
+        : isDarkMode
+          ? '0 20px 40px rgba(0, 0, 0, 0.4), 0 4px 6px rgba(0, 0, 0, 0.3)'
           : '0 20px 40px rgba(0, 0, 0, 0.15), 0 4px 6px rgba(0, 0, 0, 0.07)',
-        position: 'relative',
-        border: isDarkMode ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.05)'
-      }}>
+    position: 'relative',
+    border: isDarkMode ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.05)'
+  };
+
+  return (
+    <div style={outerStyle}>
+      <div style={innerStyle}>
         {/* Header */}
         <div style={{
           display: 'flex',
@@ -354,20 +371,22 @@ const IDVerificationReviewModal: React.FC<IDVerificationReviewModalProps> = ({
               padding: '10px',
               borderRadius: '8px',
               transition: 'all 0.2s ease',
-              boxShadow: isDarkMode 
-                ? '0 2px 4px rgba(0, 0, 0, 0.3)' 
+              boxShadow: isDarkMode
+                ? '0 2px 4px rgba(0, 0, 0, 0.3)'
                 : '0 2px 4px rgba(0, 0, 0, 0.07)'
             }}
             onMouseEnter={(e) => {
+              if (variant === 'tray') return;
               e.currentTarget.style.transform = 'translateY(-1px)';
-              e.currentTarget.style.boxShadow = isDarkMode 
-                ? '0 4px 8px rgba(0, 0, 0, 0.4)' 
+              e.currentTarget.style.boxShadow = isDarkMode
+                ? '0 4px 8px rgba(0, 0, 0, 0.4)'
                 : '0 4px 8px rgba(0, 0, 0, 0.12)';
             }}
             onMouseLeave={(e) => {
+              if (variant === 'tray') return;
               e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = isDarkMode 
-                ? '0 2px 4px rgba(0, 0, 0, 0.3)' 
+              e.currentTarget.style.boxShadow = isDarkMode
+                ? '0 2px 4px rgba(0, 0, 0, 0.3)'
                 : '0 2px 4px rgba(0, 0, 0, 0.07)';
             }}
           >
@@ -379,25 +398,13 @@ const IDVerificationReviewModal: React.FC<IDVerificationReviewModalProps> = ({
         <div style={{
           fontSize: '13px',
           color: isDarkMode ? colours.dark.subText : colours.light.subText,
-          textAlign: 'center',
-          fontWeight: '500',
-          marginBottom: '20px',
-          paddingBottom: '18px',
-          borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)'}`,
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'center',
-          gap: '6px'
+          gap: '8px',
+          marginBottom: '18px'
         }}>
-          Verified on {new Date(details.checkedDate).toLocaleDateString('en-GB', { 
-            day: '2-digit', 
-            month: '2-digit', 
-            year: 'numeric' 
-          })} at {new Date(details.checkedDate).toLocaleTimeString('en-GB', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false
-          })}
+          <MdAccessTime />
+          Checked: <strong style={{ color: isDarkMode ? colours.dark.text : colours.darkBlue }}>{details.checkedDate}</strong>
         </div>
 
         {/* Action Items - Moved to top for importance */}
@@ -458,7 +465,7 @@ const IDVerificationReviewModal: React.FC<IDVerificationReviewModalProps> = ({
                 borderRadius: '6px',
                 backgroundColor: `${getResultColor(details.overallResult)}15`
               }}>
-                {details.overallResult?.toUpperCase()}
+                {details.overallResult}
               </div>
               
               {/* Development Controls - Subtle Dropdown */}
@@ -945,7 +952,7 @@ const IDVerificationReviewModal: React.FC<IDVerificationReviewModalProps> = ({
                 borderRadius: '6px',
                 backgroundColor: `${getResultColor(details.pepResult)}15`
               }}>
-                {details.pepResult?.toUpperCase()}
+                {details.pepResult}
               </div>
             </div>
 
@@ -990,7 +997,7 @@ const IDVerificationReviewModal: React.FC<IDVerificationReviewModalProps> = ({
                 borderRadius: '6px',
                 backgroundColor: `${getResultColor(details.addressResult)}15`
               }}>
-                {details.addressResult?.toUpperCase()}
+                {details.addressResult}
               </div>
             </div>
           </div>

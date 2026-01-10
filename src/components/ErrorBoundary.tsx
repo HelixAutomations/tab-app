@@ -1,4 +1,5 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { ErrorCollector } from './ErrorTracker';
 
 interface Props {
   children: ReactNode;
@@ -44,7 +45,52 @@ class ErrorBoundary extends Component<Props, State> {
     const errorCode = `HUB-${Date.now().toString(36).toUpperCase()}`;
     const errorTimestamp = new Date().toISOString();
 
+    const maybeAutoReloadForChunkError = () => {
+      const name = typeof (error as any)?.name === 'string' ? (error as any).name : '';
+      const message = typeof (error as any)?.message === 'string' ? (error as any).message : '';
+      const text = `${name} ${message}`.toLowerCase();
+      const isChunkLoadError =
+        text.includes('chunkloaderror') ||
+        (text.includes('loading chunk') && text.includes('failed')) ||
+        text.includes('css chunk load failed') ||
+        text.includes('timeout:') && text.includes('.chunk.');
+
+      if (!isChunkLoadError) return false;
+
+      const hasChunkReloadedKey = '__helix_chunk_reload_once__';
+      try {
+        if (sessionStorage.getItem(hasChunkReloadedKey) === 'true') {
+          return false;
+        }
+        sessionStorage.setItem(hasChunkReloadedKey, 'true');
+      } catch {
+        // If sessionStorage isn't available, still attempt a single reload.
+      }
+
+      // Hard reload is the most reliable way to pick up new chunk filenames.
+      window.location.reload();
+      return true;
+    };
+
+    // ChunkLoadError can be caught by React (e.g. lazy chunk timeout), which means
+    // window 'unhandledrejection' may never fire. Auto-reload once to recover.
+    if (maybeAutoReloadForChunkError()) {
+      return;
+    }
+
     console.error('ErrorBoundary caught an error:', error, errorInfo, { errorCode, errorTimestamp });
+
+    // Track error in dev error tracker
+    try {
+      ErrorCollector.getInstance().addError({
+        message: error.message,
+        stack: error.stack,
+        componentStack: errorInfo.componentStack ?? undefined,
+        type: 'boundary'
+      });
+    } catch (e) {
+      // Silently fail if tracker not available
+    }
 
     this.setState({
       error,

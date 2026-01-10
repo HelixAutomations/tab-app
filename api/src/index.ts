@@ -45,6 +45,7 @@ import "./functions/insertRiskAssessment";
 // import "./functions/insertRoadmap";
 // postFinancialTask migrated to Express server route /api/financial-task
 // import "./functions/postFinancialTask";
+import "./functions/createPaymentLink";
 import "./functions/sendEmail";
 import "./functions/submitSnippetEdit";
 import "./functions/updateAnnualLeave";

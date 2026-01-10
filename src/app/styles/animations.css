@@ -236,3 +236,21 @@
     background-size: 200% 100%;
     animation: shimmer 1.5s ease-in-out infinite;
 }
+
+/* Skeleton cascade animation */
+@keyframes skeletonCascadeIn {
+    0% {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.skeleton-cascade {
+    opacity: 0;
+    animation: skeletonCascadeIn 0.35s ease-out forwards;
+    animation-delay: var(--cascade-delay, 0ms);
+}

@@ -19,41 +19,43 @@
   flex: 0 0 auto; /* prevent stretch/grow on small screens */
   height: 32px;
   min-height: 32px;
-  border-radius: 7px;
+  border-radius: 2px;
   cursor: pointer;
-  padding: 0 12px;
+  padding: 0 14px;
   gap: 6px;
   overflow: hidden;
-  background-color: var(--qa-fill-base, transparent);
+  background: var(--qa-fill-base, transparent);
   border: 1px solid var(--qa-border-base, transparent);
   color: var(--qa-text-base, inherit);
   box-shadow: none;
-  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, opacity 150ms ease;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  transition: all 120ms ease;
   width: auto;
   min-width: 0;
 }
 
 
 .quickActionCard.light-mode {
-  --qa-text-base: rgba(15, 23, 42, 0.86);
-  --qa-text-strong: rgba(15, 23, 42, 0.92);
-  --qa-icon-passive: rgba(100, 116, 139, 0.72);
-  --qa-border-base: rgba(148, 163, 184, 0.22);
-  --qa-border-hover: rgba(100, 116, 139, 0.3);
-  --qa-fill-base: rgba(148, 163, 184, 0.08);
-  --qa-fill-hover: rgba(148, 163, 184, 0.14);
-  --qa-fill-active: rgba(148, 163, 184, 0.2);
+  --qa-text-base: rgba(15, 23, 42, 0.88);
+  --qa-text-strong: rgba(15, 23, 42, 0.95);
+  --qa-icon-passive: rgba(100, 116, 139, 0.7);
+  --qa-border-base: rgba(148, 163, 184, 0.18);
+  --qa-border-hover: rgba(54, 144, 206, 0.3);
+  --qa-fill-base: rgba(255, 255, 255, 0.85);
+  --qa-fill-hover: linear-gradient(135deg, rgba(54, 144, 206, 0.1) 0%, rgba(135, 243, 243, 0.05) 100%);
+  --qa-fill-active: rgba(54, 144, 206, 0.12);
 }
 
 .quickActionCard.dark-mode {
-  --qa-text-base: rgba(229, 231, 235, 0.85);
-  --qa-text-strong: rgba(243, 244, 246, 0.95);
-  --qa-icon-passive: rgba(209, 213, 219, 0.7);
-  --qa-border-base: rgba(148, 163, 184, 0.26);
-  --qa-border-hover: rgba(191, 219, 254, 0.36);
-  --qa-fill-base: rgba(30, 41, 59, 0.32);
-  --qa-fill-hover: rgba(51, 65, 85, 0.46);
-  --qa-fill-active: rgba(71, 85, 105, 0.54);
+  --qa-text-base: rgba(241, 245, 249, 0.9);
+  --qa-text-strong: rgba(248, 250, 252, 0.98);
+  --qa-icon-passive: rgba(148, 163, 184, 0.75);
+  --qa-border-base: rgba(54, 144, 206, 0.2);
+  --qa-border-hover: rgba(54, 144, 206, 0.35);
+  --qa-fill-base: linear-gradient(90deg, rgba(18, 28, 48, 0.95) 0%, rgba(28, 40, 60, 0.92) 100%);
+  --qa-fill-hover: linear-gradient(90deg, rgba(24, 36, 58, 0.98) 0%, rgba(34, 48, 70, 0.95) 100%);
+  --qa-fill-active: rgba(54, 144, 206, 0.18);
 }
 
 .quickActionCard.light-mode .quick-action-label {

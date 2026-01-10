@@ -79,7 +79,7 @@ const DocumentEditorPage: React.FC<DocumentEditorPageProps> = ({
     const [editMode, setEditMode] = useState<'content' | 'ccl'>('content');
 
     const currentUser: UserData | undefined = (localUserData as UserData[])[0];
-    const canGenerate = currentUser?.Role === 'Partner';
+    const canGenerate = currentUser?.Role === 'Partner' || currentUser?.Role === 'Senior Partner';
 
     // Extract placeholders from content
     const placeholders = useMemo(

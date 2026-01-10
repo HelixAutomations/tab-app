@@ -45,7 +45,12 @@ const startHealthCheck = () => {
 };
 
 // Start health check on first use
-setTimeout(() => startHealthCheck(), 5000);
+const healthCheckStartTimer = setTimeout(() => startHealthCheck(), 5000);
+
+// Don't block Node.js exit (important for tests)
+if (healthCheckStartTimer.unref) {
+  healthCheckStartTimer.unref();
+}
 
 // Increase default concurrent requests for production scale
 const parsedMaxConcurrent = Number(process.env.SQL_MAX_CONCURRENT_REQUESTS);

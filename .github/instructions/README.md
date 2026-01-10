@@ -53,6 +53,12 @@ These documents are **living documentation** - update them when:
 - Architecture patterns evolve
 - Redundant code is removed
 
+To keep the system from getting cluttered:
+- Prefer updating existing instruction files over creating new ones.
+- If a doc is stale and not used, delete it rather than polishing it.
+- If you discover a non-adjacent improvement, add it to `ROADMAP.md` instead of doing it mid-task.
+- Behavioural rules for agents belong in `.github/copilot-instructions.md`.
+
 **Location**: `.github/instructions/`  
 **Format**: Markdown with clear headings for easy navigation
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { mergeStyles, Stack, Text, keyframes } from '@fluentui/react';
+import { mergeStyles, Stack, keyframes } from '@fluentui/react';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 
@@ -30,40 +30,43 @@ const slideUpFade = keyframes({
 });
 
 const baseClass = (isDark: boolean, variant: string, animationDelay: number) => mergeStyles({
-  // Use a vibrant dark gradient for default/elevated variants in dark mode; keep minimal flat
+  // Operations dashboard aesthetic: deep dark gradient backgrounds
   background: isDark
     ? (variant === 'minimal'
-      ? colours.dark.sectionBackground
-      : 'linear-gradient(135deg, rgba(7, 16, 32, 0.94) 0%, rgba(11, 30, 55, 0.86) 100%)')
-    : undefined,
-  backgroundColor: isDark ? undefined : colours.light.sectionBackground,
-  padding: variant === 'minimal' ? '12px' : '16px',
+      ? 'linear-gradient(90deg, rgba(10, 16, 30, 0.95) 0%, rgba(18, 26, 42, 0.92) 100%)'
+      : 'linear-gradient(90deg, rgba(10, 16, 30, 0.98) 0%, rgba(18, 26, 42, 0.95) 100%)')
+    : (variant === 'minimal'
+      ? 'rgba(255, 255, 255, 0.95)'
+      : 'rgba(255, 255, 255, 0.98)'),
+  backdropFilter: 'blur(20px)',
+  WebkitBackdropFilter: 'blur(20px)',
+  padding: variant === 'minimal' ? '12px' : '18px',
   borderRadius: '2px',
-  border: `1px solid ${isDark ? 'rgba(125, 211, 252, 0.24)' : colours.light.border}`,
+  border: `1px solid ${isDark ? 'rgba(54, 144, 206, 0.15)' : 'rgba(148, 163, 184, 0.15)'}`,
   boxShadow: variant === 'elevated' 
     ? isDark 
-      ? '0 4px 16px rgba(0,0,0,0.2), 0 1px 4px rgba(0,0,0,0.1)' 
-      : '0 4px 16px rgba(0,0,0,0.04), 0 1px 4px rgba(0,0,0,0.02)'
+      ? '0 4px 20px rgba(0,0,0,0.35), 0 1px 6px rgba(0,0,0,0.2)' 
+      : '0 4px 20px rgba(0,0,0,0.06), 0 1px 6px rgba(0,0,0,0.03)'
     : isDark
-      ? '0 2px 8px rgba(0,0,0,0.15), 0 1px 2px rgba(0,0,0,0.08)'
-      : '0 2px 8px rgba(0,0,0,0.03), 0 1px 2px rgba(0,0,0,0.01)',
+      ? '0 2px 12px rgba(0,0,0,0.25), 0 1px 4px rgba(0,0,0,0.15)'
+      : '0 2px 12px rgba(0,0,0,0.04), 0 1px 4px rgba(0,0,0,0.02)',
   width: '100%',
   display: 'flex',
   flexDirection: 'column',
   gap: variant === 'minimal' ? '8px' : '12px',
   position: 'relative',
-  transition: 'all 0.2s ease',
+  transition: 'all 0.15s ease',
   animation: `${slideUpFade} 0.4s ease ${animationDelay}s both`,
   overflow: 'hidden',
   '&:hover': {
-    transform: 'translateY(-1px)',
+    borderColor: isDark ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
     boxShadow: variant === 'elevated'
       ? isDark
-        ? '0 6px 24px rgba(0,0,0,0.25), 0 2px 8px rgba(0,0,0,0.15)'
-        : '0 6px 24px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)'
+        ? '0 8px 32px rgba(0,0,0,0.35), 0 2px 12px rgba(0,0,0,0.2)'
+        : '0 8px 32px rgba(0,0,0,0.08), 0 2px 12px rgba(0,0,0,0.04)'
       : isDark
-        ? '0 4px 16px rgba(0,0,0,0.2), 0 2px 4px rgba(0,0,0,0.1)'
-        : '0 4px 16px rgba(0,0,0,0.04), 0 2px 4px rgba(0,0,0,0.02)',
+        ? '0 4px 20px rgba(0,0,0,0.25), 0 2px 8px rgba(0,0,0,0.15)'
+        : '0 4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.03)',
   },
 });
 

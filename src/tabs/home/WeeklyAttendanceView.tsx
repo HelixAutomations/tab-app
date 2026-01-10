@@ -232,6 +232,8 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
   const adminLevels = new Set([
     'director',
     'partner',
+    'senior partner',
+    'seniorpartner',
     'admin',
     'manager',
     'team lead',
@@ -799,7 +801,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
       const nextWeekRecord = attendanceRecords.find(
         (rec) => rec.Initials === member.Initials && normalizeDate(rec.Week_Start) === nextWeekStart
       );
-
+      
       // For current week: prefer optimistic, then record, then fallback
       const attendanceDays = optimisticAttendance[member.Initials]
         || currentWeekRecord?.Attendance_Days 
@@ -843,8 +845,9 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
         attendanceDays,
         nextWeekAttendanceDays,
         isConfirmed: Boolean(currentWeekRecord?.Confirmed_At),
-        isConfirmedCurrentWeek: Boolean(currentWeekRecord?.Confirmed_At),
-        isConfirmedNextWeek: Boolean(nextWeekRecord?.Confirmed_At),
+        // Show if confirmed OR has attendance data (Attendance_Days/Status)
+        isConfirmedCurrentWeek: Boolean(currentWeekRecord?.Confirmed_At || currentWeekRecord?.Attendance_Days || currentWeekRecord?.Status),
+        isConfirmedNextWeek: Boolean(nextWeekRecord?.Confirmed_At || nextWeekRecord?.Attendance_Days || nextWeekRecord?.Status),
         isUser: isCurrentUser,
         isOnLeaveCurrentWeek: Boolean(leaveStatusCurrentWeek),
         isOnLeaveNextWeek: Boolean(leaveStatusNextWeek),
@@ -1008,8 +1011,8 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
     justifyContent: 'center',
     boxShadow: isActive
       ? (isDarkMode
-        ? '0 6px 14px rgba(135,243,243,0.20)'
-        : '0 6px 14px rgba(54,144,206,0.20)')
+        ? '0 6px 14px rgba(135,243,243,0.08)'
+        : '0 6px 14px rgba(54,144,206,0.08)')
       : 'none',
     '&:hover': {
       background: isActive
@@ -1535,10 +1538,10 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
           marginBottom: '12px',
           padding: '10px 14px',
           background: isDarkMode
-            ? 'linear-gradient(135deg, rgba(30,41,59,0.45) 0%, rgba(15,23,42,0.45) 100%)'
-            : 'linear-gradient(135deg, rgba(248,250,252,0.9) 0%, rgba(241,245,249,0.9) 100%)',
+            ? 'linear-gradient(90deg, rgba(10, 16, 30, 0.92) 0%, rgba(18, 26, 42, 0.88) 100%)'
+            : 'rgba(248, 250, 252, 0.95)',
           borderRadius: '2px',
-          border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.12)' : 'rgba(6,23,51,0.06)'}`,
+          border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.18)' : 'rgba(6,23,51,0.06)'}`,
           flexWrap: 'wrap'
         }}>
           {(() => {
@@ -1554,7 +1557,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
               { status: 'wfh', label: 'WFH', color: colours.green },
               { status: 'away', label: 'Away', color: colours.subtleGrey },
               { status: 'off-sick', label: 'Sick', color: colours.cta },
-              { status: 'out-of-office', label: 'OOO', color: colours.orange }
+              { status: 'out-of-office', label: 'OOO', color: colours.cta }
             ].filter(item => statusCounts[item.status] > 0);
 
             // Find current user's status
@@ -1578,10 +1581,10 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                     gap: '6px',
                     padding: '4px 10px',
                     background: isDarkMode
-                      ? `linear-gradient(135deg, ${getDayColor(userStatus as any)}25 0%, ${getDayColor(userStatus as any)}15 100%)`
-                      : `linear-gradient(135deg, ${getDayColor(userStatus as any)}18 0%, ${getDayColor(userStatus as any)}08 100%)`,
+                      ? `rgba(15, 23, 42, 0.7)`
+                      : `rgba(255, 255, 255, 0.8)`,
                     borderRadius: '2px',
-                    border: `1px solid ${getDayColor(userStatus as any)}50`,
+                    border: `1px solid ${getDayColor(userStatus as any)}40`,
                   }}>
                     <span style={{
                       fontSize: '11px',
@@ -1703,8 +1706,8 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                     // Get subtle tinted background for each status
                     const statusColor = getDayColor(status as 'office' | 'wfh' | 'away' | 'off-sick' | 'out-of-office');
                     const tintedBackground = isDarkMode
-                      ? `linear-gradient(135deg, ${statusColor}08 0%, rgba(15,23,42,0.70) 100%)`
-                      : `linear-gradient(135deg, ${statusColor}06 0%, ${colours.light.cardBackground} 100%)`;
+                      ? `linear-gradient(90deg, rgba(10, 16, 30, 0.92) 0%, rgba(18, 26, 42, 0.88) 100%)`
+                      : `rgba(255, 255, 255, 0.95)`;
                     
                     // Sort members to put current user first
                     const membersForStatus = statusGroups[status] || [];
@@ -1733,12 +1736,12 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                       style={{
                         background: isDropTarget && isValidDropTarget
                           ? (isDarkMode 
-                              ? `linear-gradient(135deg, ${statusColor}25 0%, rgba(15,23,42,0.85) 100%)`
-                              : `linear-gradient(135deg, ${statusColor}20 0%, ${colours.light.cardBackground} 100%)`)
+                              ? `rgba(20, 32, 48, 0.95)`
+                              : `rgba(248, 250, 252, 0.98)`)
                           : tintedBackground,
                         border: isDropTarget && isValidDropTarget
                           ? `2px dashed ${statusColor}`
-                          : `1px solid ${isDarkMode ? `${statusColor}20` : `${statusColor}15`}`,
+                          : `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(148, 163, 184, 0.18)'}`,
                         borderRadius: '2px',
                         padding: '16px',
                         minWidth: '280px',
@@ -2305,12 +2308,37 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
 
       {filteredData.length === 0 ? (
         <div style={{
-          textAlign: 'center',
-          padding: '40px',
-          color: isDarkMode ? colours.dark.subText : colours.light.subText
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '48px 24px',
+          background: isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(148, 163, 184, 0.06)',
+          borderRadius: '2px',
+          border: `1px dashed ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(148, 163, 184, 0.3)'}`,
         }}>
-          <Icon iconName="Search" style={{ fontSize: '24px', marginBottom: '8px' }} />
-          <Text>No team members match the selected filters</Text>
+          <Icon 
+            iconName="FilterSolid" 
+            style={{ 
+              fontSize: '28px', 
+              marginBottom: '12px',
+              color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.4)',
+            }} 
+          />
+          <Text style={{
+            fontSize: '14px',
+            fontWeight: 500,
+            color: isDarkMode ? colours.dark.subText : colours.light.subText,
+            marginBottom: '4px',
+          }}>
+            No team members match filters
+          </Text>
+          <Text style={{
+            fontSize: '12px',
+            color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)',
+          }}>
+            Try adjusting your filter selection
+          </Text>
         </div>
       ) : null}
     </div>

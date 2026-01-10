@@ -17,7 +17,7 @@ interface BespokePanelProps {
   offsetTop?: number;
   isDarkMode?: boolean;
   variant?: 'side' | 'modal';
-  icon?: React.ComponentType<any>;
+  icon?: React.ComponentType<any> | null | undefined;
 }
 
 // Simple, clean overlay (avoid 100vw/100vh to prevent scrollbar width shifts)
@@ -81,13 +81,15 @@ const getHeaderStyle = (isDarkMode: boolean, variant: 'side' | 'modal') =>
     background: variant === 'modal'
       ? (isDarkMode 
           ? 'linear-gradient(135deg, rgba(17, 24, 39, 0.95) 0%, rgba(30, 41, 59, 0.9) 100%)'
-          : 'linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.95) 100%)')
+          : 'linear-gradient(135deg, rgba(248, 250, 252, 0.98) 0%, rgba(241, 245, 249, 0.95) 100%)')
       : (isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground),
-    borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(15, 23, 42, 0.08)'}`,
+    borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)'}`,
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
     flexShrink: 0,
+    backdropFilter: variant === 'modal' ? 'blur(10px)' : undefined,
+    WebkitBackdropFilter: variant === 'modal' ? 'blur(10px)' : undefined,
   });
 
 // Clean content area
@@ -197,34 +199,35 @@ const BespokePanel: React.FC<BespokePanelProps> = ({
         onClick={(e) => e.stopPropagation()}
       >
         <div className={getHeaderStyle(isDarkMode, variant)}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             {IconComponent && typeof IconComponent === 'function' && (
               <div
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  width: 20,
-                  height: 20,
-                  marginTop: 2,
+                  flexShrink: 0,
                 }}
               >
-                {React.createElement(IconComponent, {
-                  style: {
-                    fontSize: 20,
-                    color: isDarkMode ? colours.dark.text : colours.light.text,
-                  },
-                })}
+                <IconComponent
+                  style={{
+                    fontSize: description ? 36 : 24,
+                    color: isDarkMode ? colours.accent : colours.highlight,
+                    opacity: 0.75,
+                  }}
+                />
               </div>
             )}
             <div style={{ flex: 1 }}>
               <Text
-                variant="large"
                 styles={{
                   root: {
-                    fontWeight: 600,
-                    color: isDarkMode ? colours.dark.text : colours.light.text,
+                    fontSize: '16px',
+                    fontWeight: 700,
+                    color: isDarkMode ? '#f3f4f6' : colours.darkBlue,
                     marginBottom: description ? '4px' : '0',
+                    letterSpacing: '-0.02em',
+                    display: 'block',
                   },
                 }}
               >
@@ -232,12 +235,11 @@ const BespokePanel: React.FC<BespokePanelProps> = ({
               </Text>
               {description && (
                 <Text
-                  variant="medium"
                   styles={{
                     root: {
-                      fontWeight: 400,
-                      color: isDarkMode ? colours.dark.subText : colours.light.subText,
                       fontSize: '12px',
+                      fontWeight: 400,
+                      color: isDarkMode ? 'rgba(243, 244, 246, 0.75)' : 'rgba(6, 23, 51, 0.65)',
                       lineHeight: '1.4',
                       display: 'block',
                     },

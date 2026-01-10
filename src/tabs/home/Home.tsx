@@ -51,6 +51,7 @@ import './EnhancedHome.css';
 import { dashboardTokens, cardTokens, cardStyles } from '../instructions/componentTokens';
 import { componentTokens } from '../../app/styles/componentTokens';
 import ThemedSpinner from '../../components/ThemedSpinner';
+import { ModalSkeleton } from '../../components/ModalSkeleton';
 import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
 import OperationStatusToast from '../enquiries/pitch-builder/OperationStatusToast';
 
@@ -87,6 +88,7 @@ import localPrevRecovered from '../../localData/localPrevRecovered.json';
 import localSnippetEdits from '../../localData/localSnippetEdits.json';
 import localV3Blocks from '../../localData/localV3Blocks.json';
 import { checkIsLocalDev } from '../../utils/useIsLocalDev';
+import { isAdminUser } from '../../app/admin';
 
 // Enhanced components
 import SectionCard from './SectionCard';
@@ -106,6 +108,7 @@ import EnhancedAttendance from './EnhancedAttendanceNew';
 import PersonalAttendanceConfirm from './PersonalAttendanceConfirm';
 import RateChangeModal from './RateChangeModal';
 import { useRateChangeData } from './useRateChangeData';
+import ChangelogModal from '../../components/ChangelogModal';
 
 import TransactionCard from '../transactions/TransactionCard';
 import TransactionApprovalPopup from '../transactions/TransactionApprovalPopup';
@@ -146,11 +149,11 @@ export function getLiveLocalEnquiries(currentUserEmail?: string) {
 // Lazy-loaded form components
 const Tasking = lazy(() => import('../../CustomForms/Tasking'));
 const TelephoneAttendance = lazy(() => import('../../CustomForms/TelephoneAttendance'));
-const AnnualLeaveForm = lazy(() => import('../../CustomForms/AnnualLeaveForm'));
+const AnnualLeaveModal = lazy(() => import('../../CustomForms/AnnualLeaveModal').then(m => ({ default: m.AnnualLeaveModal })));
 // NEW: Import placeholders for approvals & bookings
-const AnnualLeaveApprovals = lazy(() => import('../../CustomForms/AnnualLeaveApprovals'));
-const AnnualLeaveBookings = lazy(() => import('../../CustomForms/AnnualLeaveBookings'));
-const BookSpaceForm = lazy(() => import('../../CustomForms/BookSpaceForm'));
+const AnnualLeaveApprovals = lazy(() => import('../../CustomForms/AnnualLeaveApprovals').then(m => ({ default: m.default || m })));
+const AnnualLeaveBookings = lazy(() => import('../../CustomForms/AnnualLeaveBookings').then(m => ({ default: m.default || m })));
+const BookSpaceForm = lazy(() => import('../../CustomForms/BookSpaceForm').then(m => ({ default: m.default || m })));
 const SnippetEditsApproval = lazy(() => import('../../CustomForms/SnippetEditsApproval'));
 
 // Icons initialized in index.tsx
@@ -233,6 +236,7 @@ interface HomeProps {
   onImmediateActionsChange?: (hasActions: boolean) => void;
   originalAdminUser?: any; // For admin user switching context
   featureToggles?: Record<string, boolean>;
+  demoModeEnabled?: boolean;
 }
 
 interface QuickLink {
@@ -318,7 +322,7 @@ const quickActionOrder: Record<string, number> = {
 //////////////////////
 
 const quickActions: QuickLink[] = [
-  { title: 'Update Attendance', icon: 'Calendar' },
+  { title: 'Update Attendance', icon: 'Attendance' },
   { title: 'Create a Task', icon: 'Checklist' },
   { title: 'Save Telephone Note', icon: 'Comment' },
   { title: 'Request Annual Leave', icon: 'PalmTree' }, // Icon resolved to umbrella for consistency
@@ -345,22 +349,18 @@ const helixWatermarkSvg = (dark: boolean) => {
 
 const containerStyle = (isDarkMode: boolean) =>
   mergeStyles({
-    // Model the Immediate Actions banner surface, but keep it subtly distinct
-    // Light: softly frosted light surface; Dark: translucent slate surface
+    // Operations dashboard aesthetic: deep dark backgrounds with subtle brand gradients
     background: isDarkMode
-      ? 'linear-gradient(135deg, #0b1220 0%, #111827 45%, #0f1c32 100%)'
-      : colours.light.background,
-    backdropFilter: 'none',
-    WebkitBackdropFilter: 'none',
-    color: isDarkMode ? '#f3f4f6' : '#061733',
+      ? '#0a0e1a'
+      : '#f8fafc',
+    backgroundImage: isDarkMode
+      ? 'radial-gradient(ellipse at top, rgba(13, 47, 96, 0.15) 0%, transparent 50%), radial-gradient(ellipse at bottom right, rgba(54, 144, 206, 0.08) 0%, transparent 50%)'
+      : 'radial-gradient(ellipse at top, rgba(54, 144, 206, 0.06) 0%, transparent 50%), radial-gradient(ellipse at bottom right, rgba(135, 243, 243, 0.04) 0%, transparent 50%)',
+    backgroundAttachment: 'fixed',
+    color: isDarkMode ? '#f1f5f9' : '#1e293b',
     minHeight: '100vh',
     boxSizing: 'border-box',
     position: 'relative',
-    // Subtle separation so it doesn't visually merge with the Immediate Actions banner
-    borderTop: isDarkMode ? '1px solid rgba(148,163,184,0.12)' : '1px solid rgba(148,163,184,0.10)',
-    boxShadow: isDarkMode
-      ? 'inset 0 1px 0 rgba(255,255,255,0.04), 0 10px 30px rgba(0,0,0,0.20)'
-      : 'inset 0 1px 0 rgba(255,255,255,0.65), 0 10px 30px rgba(6,23,51,0.08)',
     '&::before': {
       content: '""',
       position: 'fixed',
@@ -368,8 +368,6 @@ const containerStyle = (isDarkMode: boolean) =>
       left: 0,
       right: 0,
       bottom: 0,
-      // Keep the Helix watermark beneath to give the glass something to refract
-      background: 'none',
       backgroundImage: helixWatermarkSvg(isDarkMode),
       backgroundRepeat: 'no-repeat',
       backgroundPosition: isDarkMode ? 'right -120px top -80px' : 'right -140px top -100px',
@@ -773,7 +771,7 @@ const CognitoForm: React.FC<{ dataKey: string; dataForm: string }> = ({ dataKey,
 // Home Component
 //////////////////////
 
-const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: providedMatters, instructionData: propInstructionData, onAllMattersFetched, onOutstandingBalancesFetched, onPOID6YearsFetched, onTransactionsFetched, teamData, onBoardroomBookingsFetched, onSoundproofBookingsFetched, isInMatterOpeningWorkflow = false, onImmediateActionsChange, originalAdminUser, featureToggles = {} }) => {
+const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: providedMatters, instructionData: propInstructionData, onAllMattersFetched, onOutstandingBalancesFetched, onPOID6YearsFetched, onTransactionsFetched, teamData, onBoardroomBookingsFetched, onSoundproofBookingsFetched, isInMatterOpeningWorkflow = false, onImmediateActionsChange, originalAdminUser, featureToggles = {}, demoModeEnabled = false }) => {
   const { isDarkMode, toggleTheme } = useTheme();
   const { setContent } = useNavigatorActions();
   const inTeams = isInTeams();
@@ -812,6 +810,22 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
         holiday_entitlement: entitlementByInitials.get(String(member.Initials ?? '').trim().toUpperCase()),
       }));
   }, [teamData, attendanceTeam, annualLeaveTeam]);
+
+  // Enrich userData with holiday_entitlement from annualLeaveTeam
+  const enrichedUserData = useMemo(() => {
+    if (!userData?.[0]) return userData;
+    const userInitials = String(userData[0]?.Initials || '').trim().toUpperCase();
+    const teamEntry = annualLeaveTeam?.find(
+      (t: any) => String(t?.Initials || '').trim().toUpperCase() === userInitials
+    );
+    if (teamEntry?.holiday_entitlement != null && userData[0]?.holiday_entitlement == null) {
+      return [{
+        ...userData[0],
+        holiday_entitlement: Number(teamEntry.holiday_entitlement),
+      }];
+    }
+    return userData;
+  }, [userData, annualLeaveTeam]);
 
   const renderContextsPanelContent = () => (
     <Stack tokens={dashboardTokens} styles={cardStyles}>
@@ -897,6 +911,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
   const [enquiriesToday, setEnquiriesToday] = useState<number>(0);
   const [enquiriesWeekToDate, setEnquiriesWeekToDate] = useState<number>(0);
   const [enquiriesMonthToDate, setEnquiriesMonthToDate] = useState<number>(0);
+  const [enquiryMetricsBreakdown, setEnquiryMetricsBreakdown] = useState<unknown>(null);
   const [todaysTasks, setTodaysTasks] = useState<number>(10);
   const [tasksDueThisWeek, setTasksDueThisWeek] = useState<number>(20);
   const [completedThisWeek, setCompletedThisWeek] = useState<number>(15);
@@ -923,7 +938,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
   const [bespokePanelContent, setBespokePanelContent] = useState<ReactNode>(null);
   const [bespokePanelTitle, setBespokePanelTitle] = useState<string>('');
   const [bespokePanelDescription, setBespokePanelDescription] = useState<string>('');
-  const [bespokePanelIcon, setBespokePanelIcon] = useState<React.ComponentType<any> | null>(null);
+  const [bespokePanelIcon, setBespokePanelIcon] = useState<string | null>(null);
   const [isContextPanelOpen, setIsContextPanelOpen] = useState<boolean>(false);
   const [bankHolidays, setBankHolidays] = useState<Set<string>>(new Set());
 
@@ -942,11 +957,13 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [recoveredError, setRecoveredError] = useState<string | null>(null);
   const [prevRecoveredError, setPrevRecoveredError] = useState<string | null>(null);
-  const [isLoadingWipClio, setIsLoadingWipClio] = useState<boolean>(false);
-  const [isLoadingRecovered, setIsLoadingRecovered] = useState<boolean>(false);
+  const [isLoadingWipClio, setIsLoadingWipClio] = useState<boolean>(true);
+  const [isLoadingRecovered, setIsLoadingRecovered] = useState<boolean>(true);
+  const [isLoadingEnquiryMetrics, setIsLoadingEnquiryMetrics] = useState<boolean>(true);
   const [futureLeaveRecords, setFutureLeaveRecords] = useState<AnnualLeaveRecord[]>([]);
   const [annualLeaveTotals, setAnnualLeaveTotals] = useState<any>(null);
   const [isActionsLoading, setIsActionsLoading] = useState<boolean>(true);
+  const [hasStartedParallelFetch, setHasStartedParallelFetch] = useState<boolean>(false);
 
   const [allMatters, setAllMatters] = useState<Matter[] | null>(null);
   const [allMattersError, setAllMattersError] = useState<string | null>(null);
@@ -954,6 +971,24 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
 
   // State for refreshing time metrics
   const [isRefreshingTimeMetrics, setIsRefreshingTimeMetrics] = useState<boolean>(false);
+
+  // Dev-only diagnostics for Time Metrics (WIP daily totals)
+  const lastTimeMetricsLogRef = useRef<string>('');
+  const devLogTimeMetrics = useCallback((label: string, data?: unknown) => {
+    if (process.env.NODE_ENV === 'production') return;
+    // eslint-disable-next-line no-console
+    console.log(`[TimeMetrics] ${label}`, data ?? '');
+  }, []);
+
+  // Prevent overlapping WIP fetches and allow safe retries.
+  const wipFetchAbortRef = useRef<AbortController | null>(null);
+  const wipFetchAttemptRef = useRef<number>(0);
+  const wipFetchKeyRef = useRef<string>('');
+  const wipFetchRetryTimerRef = useRef<number | null>(null);
+
+  // Dedupe parallel fetch to prevent stale overwrites
+  const parallelFetchKeyRef = useRef<string>('');
+  const fetchRunIdRef = useRef<number>(0); // Tracks latest parallel fetch run to ignore stale completions
 
   // Reset ref for QuickActionsBar to clear selection when panels close
   const resetQuickActionsSelectionRef = useRef<(() => void) | null>(null);
@@ -965,9 +1000,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
   const [isLoadingPOID6Years, setIsLoadingPOID6Years] = useState<boolean>(false);
   const [poid6YearsError, setPoid6YearsError] = useState<string | null>(null);
 
-  // Consider immediate actions 'ready' once attendance & annual leave calls complete;
-  // don't let auxiliary isActionsLoading flag (which may flicker) block UI rendering.
-  const immediateActionsReady = !isLoadingAttendance && !isLoadingAnnualLeave;
+  // Consider immediate actions 'ready' only after we've actually started the parallel fetch.
+  // This avoids an initial "All caught up" flash before attendance-derived actions appear.
+  const immediateActionsReady = hasStartedParallelFetch && !isLoadingAttendance && !isLoadingAnnualLeave;
 
   // SAFETY: In rare error paths isActionsLoading might never be cleared; ensure it flips off
   React.useEffect(() => {
@@ -1048,6 +1083,19 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
 
   // Rate change notification modal state
   const [showRateChangeModal, setShowRateChangeModal] = useState<boolean>(false);
+
+  // Changelog modal state (localhost only)
+  const [showChangelogModal, setShowChangelogModal] = useState<boolean>(false);
+
+  // Listen for rate change modal open event (from UserBubble in prod)
+  useEffect(() => {
+    const handleOpenRateChange = () => setShowRateChangeModal(true);
+    window.addEventListener('openRateChangeModal', handleOpenRateChange);
+    return () => window.removeEventListener('openRateChangeModal', handleOpenRateChange);
+  }, []);
+
+  // Session changes from changelog (localhost only) - state here, effect after isLocalhost is declared
+  const [sessionChanges, setSessionChanges] = useState<string[]>([]);
 
   // Toast notification state for attendance saves and other actions
   const [toastVisible, setToastVisible] = useState<boolean>(false);
@@ -1193,6 +1241,10 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
     cachedRecoveredError = null;
     cachedPrevRecovered = null;
     cachedPrevRecoveredError = null;
+    recoveredFeesInitialized.current = false; // Reset so new user can fetch
+    parallelFetchKeyRef.current = ''; // Reset so parallel fetch runs for new user
+    zeroWipFallbackRef.current = false; // Reset fallback flag for new user
+    setHasStartedParallelFetch(false);
     setWipClioData(null);
     setRecoveredData(null);
     setPrevRecoveredData(null);
@@ -1206,14 +1258,21 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
       if (!userData?.[0]) return;
 
       const currentUserData = userData[0];
-      const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-      const isLuke = currentUserData?.Email?.toLowerCase().includes('luke') || currentUserData?.Initials === 'LW';
-      const isLZ = currentUserData?.Initials === 'LZ';
+      console.log('🔍 Recovered fees - checking user:', {
+        initials: currentUserData?.Initials,
+        clioId: currentUserData?.['Clio ID'],
+        entraId: currentUserData?.['Entra ID'] || currentUserData?.EntraID
+      });
 
       let userClioId = currentUserData?.['Clio ID'] ? String(currentUserData['Clio ID']) : null;
-      let userEntraId = currentUserData?.EntraID ? String(currentUserData.EntraID) : null;
+      let userEntraId = currentUserData?.['Entra ID'] || currentUserData?.EntraID 
+        ? String(currentUserData['Entra ID'] || currentUserData.EntraID) 
+        : null;
 
-      if ((isLocalhost || isLuke || isLZ) && teamData) {
+      const isLZ = currentUserData?.Initials === 'LZ';
+      
+      // Use Alex fallback for LZ (dev user with no time data) or users genuinely missing IDs
+      if ((isLZ || !userClioId && !userEntraId) && teamData) {
         const alex = teamData.find((t: any) => t.Initials === 'AC' || t.First === 'Alex');
         if (alex) {
           if (alex['Clio ID']) {
@@ -1223,10 +1282,11 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
             userEntraId = String(alex['Entra ID']);
           }
         }
-      }
-
-      if (!userClioId && !userEntraId) {
-        return;
+        
+        if (!userClioId && !userEntraId) {
+          console.warn('⚠️ No Clio ID or Entra ID available for recovered fees (even after Alex fallback)');
+          return;
+        }
       }
 
       try {
@@ -1281,6 +1341,10 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
 
   // Refresh time metrics callback - clears cache and re-fetches WIP and recovered fees
   const handleRefreshTimeMetrics = useCallback(async () => {
+    if (demoModeEnabled) {
+      setIsRefreshingTimeMetrics(false);
+      return;
+    }
     if (!userData?.[0]) return;
     
     setIsRefreshingTimeMetrics(true);
@@ -1300,46 +1364,53 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
     recoveredFeesInitialized.current = false;
     
     try {
-      // Fetch WIP data
-      let entraId = currentUserData?.EntraID ?? currentUserData?.['Entra ID'];
       let userClioId = currentUserData?.['Clio ID'] ? String(currentUserData['Clio ID']) : null;
-      let userEntraId = currentUserData?.EntraID ? String(currentUserData.EntraID) : null;
+      let userEntraId = currentUserData?.EntraID ?? currentUserData?.['Entra ID'] 
+        ? String(currentUserData.EntraID ?? currentUserData?.['Entra ID']) 
+        : null;
       
-      // Fallback for local development or Luke/LZ: use Alex's (AC) data
-      if ((isLocalhostEnv || isLukeUser || isLZUser) && teamData) {
-        const alex = teamData.find((t: any) => t.Initials === 'AC' || t.First === 'Alex' || t.Email?.toLowerCase().includes('alex'));
+      const isLZ = currentUserData?.Initials === 'LZ';
+      
+      // Use Alex fallback for LZ (dev user with no time data) or users genuinely missing IDs
+      if ((isLZ || !userClioId && !userEntraId) && teamData) {
+        const alex = teamData.find((t: any) => t.Initials === 'AC' || t.First === 'Alex');
         if (alex) {
-          if (alex['Entra ID']) {
-            entraId = alex['Entra ID'];
-            userEntraId = String(alex['Entra ID']);
-          }
           if (alex['Clio ID']) {
             userClioId = String(alex['Clio ID']);
+          }
+          if (alex['Entra ID']) {
+            userEntraId = String(alex['Entra ID']);
           }
         }
       }
       
       // Parallel fetch of WIP and recovered fees
-      const [wipResult, recoveredResult] = await Promise.all([
-        // Fetch WIP
+      await Promise.all([
+        // Fetch WIP using same endpoint as parallel fetch
         (async () => {
-          const url = new URL('/api/reporting/management-datasets', window.location.origin);
-          url.searchParams.set('datasets', 'wipClioCurrentWeek');
-          if (entraId) url.searchParams.set('entraId', entraId);
-          
-          const resp = await fetch(url.toString(), { method: 'GET', credentials: 'include', headers: { Accept: 'application/json' } });
-          if (resp.ok && (resp.headers.get('content-type') || '').toLowerCase().includes('application/json')) {
-            const data = await resp.json();
-            const merged = data.wipClioCurrentWeek;
-            if (merged && merged.current_week && merged.last_week) {
-              cachedWipClio = merged;
-              setWipClioData(merged);
-              setWipClioError(null);
+          try {
+            if (!userEntraId) return;
+            const resp = await fetch(`/api/home-wip?entraId=${encodeURIComponent(userEntraId)}`, {
+              credentials: 'include',
+              headers: { Accept: 'application/json' }
+            });
+            
+            if (resp.ok) {
+              const data = await resp.json();
+              if (data && typeof data === 'object' && !('error' in data)) {
+                cachedWipClio = data;
+                setWipClioData(data);
+                setWipClioError(null);
+                setIsLoadingWipClio(false);
+              }
             }
+          } catch (err) {
+            console.warn('[handleRefreshTimeMetrics] WIP fetch failed:', err instanceof Error ? err.message : String(err));
           }
         })(),
         // Fetch recovered fees
         (async () => {
+          try {
           if (!userClioId && !userEntraId) return;
           
           const url = new URL('/api/reporting/management-datasets', window.location.origin);
@@ -1348,6 +1419,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
           if (userEntraId) url.searchParams.set('entraId', userEntraId);
           
           const resp = await fetch(url.toString(), { method: 'GET', credentials: 'include', headers: { Accept: 'application/json' } });
+          
           if (resp.ok) {
             const data = await resp.json();
             const summary = data.recoveredFeesSummary;
@@ -1361,6 +1433,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
               recoveredFeesInitialized.current = true;
             }
           }
+          } catch (err) {
+            console.warn('[handleRefreshTimeMetrics] Recovered fees fetch failed:', err instanceof Error ? err.message : String(err));
+          }
         })(),
       ]);
       
@@ -1369,6 +1444,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
       debugWarn('❌ Error refreshing time metrics:', error);
     } finally {
       setIsRefreshingTimeMetrics(false);
+      setIsLoadingWipClio(false);
     }
   }, [userData, teamData]);
 
@@ -1451,6 +1527,9 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
   // Now anywhere we used userInitials, we can do:
   const userInitials = storedUserInitials.current || rawUserInitials;
 
+  // Quick Actions bar ready state - show skeletons until user data is available
+  const quickActionsReady = hasStartedParallelFetch && Boolean(userInitials);
+
   // Rate change notification data hook - for Jan 2026 hourly rate increase
   const rateChangeYear = 2026;
   const { 
@@ -1466,6 +1545,11 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
     undoStreaming: undoRateChangeStreaming,
     pendingCountForUser: rateChangePendingCount,
   } = useRateChangeData(rateChangeYear, currentUserName, true);
+
+  // Migrate tab: include matters opened in the rate-change year (migration source-of-truth)
+  const {
+    clients: rateChangeMigrateClients,
+  } = useRateChangeData(rateChangeYear, currentUserName, showRateChangeModal, { includeOpenedFromYear: true });
 
   useEffect(() => {
     const fetchBankHolidays = async () => {
@@ -1641,6 +1725,264 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
     }
   }, [enquiries, currentUserEmail, userInitials]);
 
+  // ═════════════════════════════════════════════════════════════════════════════
+  // PARALLEL DATA FETCH - Combines attendance, annual leave, WIP, and enquiries
+  // Fires all requests simultaneously to reduce waterfall delay by ~600-800ms
+  // ═════════════════════════════════════════════════════════════════════════════
+  useEffect(() => {
+    console.log('[parallel-fetch] Effect triggered', { useLocalData, hasUserData: !!userData?.[0] });
+    
+    if (useLocalData) {
+      // Local data mode - skip all fetches
+      console.log('[parallel-fetch] Skipping - local data mode');
+      setHasStartedParallelFetch(true);
+      setIsLoadingAttendance(false);
+      setIsLoadingAnnualLeave(false);
+      setIsLoadingWipClio(false);
+      setIsLoadingEnquiryMetrics(false);
+      setIsActionsLoading(false);
+      return;
+    }
+
+    // Wait for user data before fetching
+    if (!userData?.[0]) {
+      console.log('[parallel-fetch] Waiting for userData');
+      return;
+    }
+
+    // Read directly from userData to avoid stale state during user switches
+    const email = (userData[0]?.Email || '').toLowerCase().trim();
+    const initials = (userData[0]?.Initials || '').toUpperCase().trim();
+    let entraId = userData?.[0]?.EntraID || userData?.[0]?.['Entra ID'] || '';
+    
+    // Use Alex fallback for LZ (dev user with no time data)
+    const isLZ = initials === 'LZ';
+    if (isLZ && teamData) {
+      const alex = teamData.find((t: any) => t.Initials === 'AC' || t.First === 'Alex');
+      if (alex?.['Entra ID']) {
+        entraId = String(alex['Entra ID']);
+      }
+    }
+    
+    // Dedupe: skip if same request already in progress
+    const requestKey = `parallel:${email}:${initials}:${entraId}`;
+    if (parallelFetchKeyRef.current === requestKey) {
+      console.log('[parallel-fetch] Skipping duplicate request', { requestKey });
+      setHasStartedParallelFetch(true);
+      return;
+    }
+    parallelFetchKeyRef.current = requestKey;
+
+    console.log('[parallel-fetch] Starting parallel fetch', { email, initials, entraId, requestKey });
+
+    const runId = Date.now();
+    fetchRunIdRef.current = runId;
+
+    const fetchAllData = async () => {
+      try {
+        setHasStartedParallelFetch(true);
+        setIsLoadingAttendance(true);
+        setIsLoadingAnnualLeave(true);
+        setIsActionsLoading(true);
+        console.log('[parallel-fetch] Firing Promise.all...');
+        // Start all requests in parallel
+        const [attendanceRes, annualLeaveRes, wipRes, enquiriesRes] = await Promise.all([
+          fetch('/api/attendance/getAttendance', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+          }),
+          fetch('/api/attendance/getAnnualLeave', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userInitials: initials })
+          }),
+          entraId
+            ? fetch(`/api/home-wip?entraId=${encodeURIComponent(entraId)}`, {
+                credentials: 'include',
+                headers: { Accept: 'application/json' }
+              })
+            : Promise.resolve(null),
+          email || initials
+            ? fetch('/api/home-enquiries?' + (email ? 'email=' + encodeURIComponent(email) : '') + '&' + (initials ? 'initials=' + encodeURIComponent(initials) : ''), {
+                headers: { Accept: 'application/json' }
+              })
+            : Promise.resolve(null)
+        ]);
+
+        console.log('[parallel-fetch] All requests completed', {
+          attendance: attendanceRes.ok,
+          annualLeave: annualLeaveRes.ok,
+          wip: wipRes ? wipRes.ok : 'skipped',
+          enquiries: enquiriesRes ? enquiriesRes.ok : 'skipped',
+          runId,
+          activeRunId: fetchRunIdRef.current,
+        });
+
+        if (fetchRunIdRef.current !== runId) {
+          console.log('[parallel-fetch] Stale fetch result, ignoring', { runId, activeRunId: fetchRunIdRef.current });
+          return;
+        }
+
+        // Process attendance
+        if (attendanceRes.ok) {
+          const data = await attendanceRes.json();
+          if (data.success && data.attendance) {
+            const transformedAttendance = data.attendance.map((member: any) => ({
+              Attendance_ID: 0,
+              Entry_ID: 0,
+              First_Name: member.First || member.name || '',
+              Initials: member.Initials || '',
+              Nickname: member.Nickname || member.First || '',
+              Level: member.Level || '',
+              Week_Start: member.Week_Start ? new Date(member.Week_Start).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+              Week_End: member.Week_End ? new Date(member.Week_End).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+              ISO_Week: typeof member.iso === 'number' ? member.iso : 0,
+              Attendance_Days: member.Status || '',
+              weeks: member.weeks || {},
+            }));
+            cachedAttendance = { attendance: transformedAttendance, team: data.team || [] };
+            setAttendanceRecords(transformedAttendance);
+            setAttendanceTeam(data.team || []);
+            console.log('[parallel-fetch] Attendance data set', { recordCount: transformedAttendance.length, teamCount: data.team?.length || 0 });
+          }
+        }
+        setIsLoadingAttendance(false);
+
+        // Process annual leave
+        if (annualLeaveRes.ok) {
+          const data = await annualLeaveRes.json();
+          if (data.annual_leave) {
+            const mappedAnnualLeave: AnnualLeaveRecord[] = data.annual_leave.map((rec: any) => {
+              const leaveType = rec.leave_type ?? rec.leaveType;
+              return {
+                id: String(rec.request_id ?? rec.id ?? rec.ID ?? ''),
+                person: String(rec.person ?? rec.fe ?? rec.initials ?? rec.user_initials ?? rec.userInitials ?? '').trim(),
+                start_date: rec.start_date ?? rec.Start_Date ?? rec.startDate ?? '',
+                end_date: rec.end_date ?? rec.End_Date ?? rec.endDate ?? '',
+                reason: rec.reason ?? rec.Reason ?? rec.notes ?? '',
+                status: rec.status ?? '',
+                days_taken: rec.days_taken ?? rec.total_days ?? rec.totalDays,
+                leave_type: typeof leaveType === 'string' ? leaveType : undefined,
+                rejection_notes: rec.rejection_notes ?? rec.rejectionNotes ?? undefined,
+                approvers: Array.isArray(rec.approvers) ? rec.approvers : [],
+                hearing_confirmation: rec.hearing_confirmation ?? rec.hearingConfirmation,
+                hearing_details: rec.hearing_details ?? rec.hearingDetails,
+              };
+            });
+            cachedAnnualLeave = mappedAnnualLeave;
+            setAnnualLeaveRecords(mappedAnnualLeave);
+          }
+          if (data.future_leave) {
+            const mappedFutureLeave: AnnualLeaveRecord[] = data.future_leave.map((rec: any) => {
+              const leaveType = rec.leave_type ?? rec.leaveType;
+              return {
+                id: String(rec.request_id ?? rec.id ?? rec.ID ?? ''),
+                person: String(rec.person ?? rec.fe ?? rec.initials ?? rec.user_initials ?? rec.userInitials ?? '').trim(),
+                start_date: rec.start_date ?? rec.Start_Date ?? rec.startDate ?? '',
+                end_date: rec.end_date ?? rec.End_Date ?? rec.endDate ?? '',
+                reason: rec.reason ?? rec.Reason ?? rec.notes ?? '',
+                status: rec.status ?? '',
+                days_taken: rec.days_taken ?? rec.total_days ?? rec.totalDays,
+                leave_type: typeof leaveType === 'string' ? leaveType : undefined,
+                rejection_notes: rec.rejection_notes ?? rec.rejectionNotes ?? undefined,
+                approvers: Array.isArray(rec.approvers) ? rec.approvers : [],
+                hearing_confirmation: rec.hearing_confirmation ?? rec.hearingConfirmation,
+                hearing_details: rec.hearing_details ?? rec.hearingDetails,
+              };
+            });
+            cachedFutureLeaveRecords = mappedFutureLeave;
+            setFutureLeaveRecords(mappedFutureLeave);
+          }
+          if (data.user_details?.totals) {
+            setAnnualLeaveTotals(data.user_details.totals);
+          }
+          if (data.all_data) {
+            setAnnualLeaveAllData(data.all_data);
+          }
+          if (Array.isArray(data.team)) {
+            setAnnualLeaveTeam(data.team);
+          }
+        }
+        setIsLoadingAnnualLeave(false);
+        setIsActionsLoading(false);
+
+        // Process WIP
+        if (wipRes && wipRes.ok) {
+          const data = await wipRes.json();
+          console.log('[parallel-fetch] WIP data received', { hasCurrentWeek: !!data.current_week, hasError: !!data.error });
+          if (data && typeof data === 'object' && 'error' in data && (data as any).error) {
+            setWipClioError(String((data as any).error));
+          } else {
+            const daily = (data as any)?.current_week?.daily_data || {};
+            const hasHours = Object.values(daily).some((d: any) => (Number(d?.total_hours) || 0) > 0);
+            const hasAmount = Object.values(daily).some((d: any) => (Number(d?.total_amount) || 0) > 0);
+            const dailyKeys = Object.keys(daily);
+
+            if (!hasHours && !hasAmount && dailyKeys.length > 0) {
+              console.log('[parallel-fetch] Fetching from reporting endpoint');
+              setIsLoadingWipClio(false); // End loading for lightweight endpoint
+              if (!zeroWipFallbackRef.current) {
+                zeroWipFallbackRef.current = true;
+                  handleRefreshTimeMetrics?.(); // Fallback manages isRefreshingTimeMetrics
+              }
+            } else if (dailyKeys.length === 0) {
+              console.error('[parallel-fetch] WIP endpoint returned no daily_data structure - possible API issue');
+              setIsLoadingWipClio(false);
+              setWipClioError('No time data available');
+            } else {
+              cachedWipClio = data as any;
+              setWipClioData(cachedWipClio);
+              setWipClioError(null);
+              const keys = Object.keys(cachedWipClio?.current_week?.daily_data || {});
+              console.log('[parallel-fetch] WIP state updated', { runId, keys, today: cachedWipClio?.current_week?.daily_data?.[formatDateLocal(new Date())] });
+              setIsLoadingWipClio(false);
+            }
+          }
+        }
+        if (wipClioData && !isLoadingWipClio) {
+          setIsLoadingWipClio(false);
+        }
+
+        // Process enquiries
+        if (enquiriesRes && enquiriesRes.ok) {
+          const data = await enquiriesRes.json();
+          console.log('[parallel-fetch] Enquiries data received', data);
+          setEnquiriesToday(data.enquiriesToday ?? 0);
+          setEnquiriesWeekToDate(data.enquiriesWeekToDate ?? 0);
+          setEnquiriesMonthToDate(data.enquiriesMonthToDate ?? 0);
+          setPrevEnquiriesToday(data.prevEnquiriesToday ?? 0);
+          setPrevEnquiriesWeekToDate(data.prevEnquiriesWeekToDate ?? 0);
+          setPrevEnquiriesMonthToDate(data.prevEnquiriesMonthToDate ?? 0);
+          setEnquiryMetricsBreakdown((data as any)?.breakdown ?? null);
+        }
+        setIsLoadingEnquiryMetrics(false);
+
+        console.log('[parallel-fetch] All state updates complete');
+
+      } catch (error: any) {
+        console.error('[parallel-fetch] Error:', error);
+        // Set all loading states to false on error
+        setIsLoadingAttendance(false);
+        setIsLoadingAnnualLeave(false);
+        setIsLoadingWipClio(false);
+        setIsLoadingEnquiryMetrics(false);
+        setIsActionsLoading(false);
+      }
+    };
+
+    fetchAllData();
+
+    return () => {
+      // Allow the effect to rerun after Strict Mode cleanup or user switches
+      parallelFetchKeyRef.current = '';
+    };
+  }, [userData?.[0]?.EntraID, userData?.[0]?.['Entra ID'], userData?.[0]?.Email, useLocalData, teamData]);
+
+  // ═════════════════════════════════════════════════════════════════════════════
+  // LEGACY EFFECTS BELOW - Now skipped when parallel fetch completes
+  // TODO: Remove after confirming parallel fetch works correctly
+  // ═════════════════════════════════════════════════════════════════════════════
+
   useEffect(() => {
     // Always restore from cache on mount if available
     if (cachedAttendance) {
@@ -1669,6 +2011,28 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
     }
 
     if (useLocalData) {
+      const deriveApproversForPerson = (personRaw: unknown): string[] => {
+        const person = String(personRaw ?? '').trim();
+        const initials = person.toUpperCase();
+
+        const teamRows: any[] = Array.isArray(teamData)
+          ? (teamData as any[])
+          : Array.isArray(annualLeaveTeam)
+            ? (annualLeaveTeam as any[])
+            : [];
+
+        const match = teamRows.find((t) => String(t?.Initials ?? '').trim().toUpperCase() === initials);
+        const aowRaw = String(match?.AOW ?? '').toLowerCase();
+
+        const aowList = aowRaw
+          .split(',')
+          .map((x) => x.trim())
+          .filter(Boolean);
+
+        const secondaryApprover = aowList.includes('construction') ? 'JW' : 'AC';
+        return ['LZ', secondaryApprover];
+      };
+
       const currentMonday = getMondayOfCurrentWeek();
       const nextMonday = new Date(currentMonday);
       nextMonday.setDate(currentMonday.getDate() + 7);
@@ -1700,8 +2064,18 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
 
       setAttendanceRecords(localCopy.attendance || []);
       setAttendanceTeam(localCopy.team || []);
-      setAnnualLeaveRecords((localAnnualLeave as any).annual_leave || []);
-      setFutureLeaveRecords((localAnnualLeave as any).future_leave || []);
+      setAnnualLeaveRecords(
+        ((localAnnualLeave as any).annual_leave || []).map((rec: any) => ({
+          ...rec,
+          approvers: deriveApproversForPerson(rec?.person),
+        }))
+      );
+      setFutureLeaveRecords(
+        ((localAnnualLeave as any).future_leave || []).map((rec: any) => ({
+          ...rec,
+          approvers: deriveApproversForPerson(rec?.person),
+        }))
+      );
       setAnnualLeaveAllData((localAnnualLeave as any).all_data || []);
       setAnnualLeaveTeam((localAnnualLeave as any).team || []);
       if ((localAnnualLeave as any).user_details?.totals) {
@@ -1712,7 +2086,17 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
       setIsActionsLoading(false);
       return;
     }
+    // Parallel fetch effect now handles all live data fetching
+    // This effect only restores cache and handles local data
     // Only fetch if no cached data exists
+    if (!cachedAttendance && !cachedAttendanceError && !userData?.[0]) {
+      // Skipping fetch - parallel effect will handle it
+      return;
+    }
+    if (cachedAttendance || userData?.[0]) {
+      // Cache already loaded or parallel fetch in progress
+      return;
+    }
     if (!cachedAttendance && !cachedAttendanceError) {
       const fetchData = async () => {
         try {
@@ -1876,80 +2260,15 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
     }
   }, [userData]);
 
-  // Prefer reporting route for current-week WIP (backend merges DB and Clio); do not call Clio from client
+  // Dedicated /api/home-wip route for Home time metrics (isolated from heavy reporting route)
+  // NOTE: Now handled by parallel fetch effect above - this only restores cache
   useEffect(() => {
+    // Parallel fetch handles all live data - this only manages cache
     if (!userData?.[0]) {
-      debugLog('⏸️ Skipping WIP fetch until user data is available');
       return;
     }
-    const effectiveEntraId = userData?.[0]?.EntraID ?? userData?.[0]?.['Entra ID'] ?? null;
-    debugLog('🎯 WIP useEffect triggered', { 
-      entraId: effectiveEntraId, 
-      clioId: userData?.[0]?.['Clio ID'],
-      hasCachedWip: !!cachedWipClio,
-      useLocalData
-    });
-    
-    const loadFromReporting = async () => {
-      debugLog('🔄 loadFromReporting called');
-      try {
-        setIsLoadingWipClio(true);
-  // Fetch only the current-week WIP dataset; recovered fees handled separately
-        const url = new URL('/api/reporting/management-datasets', window.location.origin);
-  url.searchParams.set('datasets', 'wipClioCurrentWeek');
-        debugLog('📡 Fetching URL:', url.toString());
-        
-        // Pass current user's Entra ID for user-specific Clio data fetching
-        const currentUserData = userData?.[0];
-  let entraId = currentUserData?.EntraID ?? currentUserData?.['Entra ID'];
-        
-        // Fallback for local development or Luke/LZ: use Alex's (AC) data for visible metrics
-        const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-        const isLuke = currentUserData?.Email?.toLowerCase().includes('luke') || currentUserData?.Initials === 'LW';
-        const isLZ = currentUserData?.Initials === 'LZ';
-        
-        if ((isLocalhost || isLuke || isLZ) && teamData) {
-          const alex = teamData.find((t: any) => t.Initials === 'AC' || t.First === 'Alex' || t.Email?.toLowerCase().includes('alex'));
-          if (alex && alex['Entra ID']) {
-            entraId = alex['Entra ID'];
-            debugLog('🔧 Dev mode: Using Alex\'s data for visible metrics', { originalUser: currentUserData?.Email, fallbackTo: alex.Email });
-          }
-        }
-        
-        if (entraId) {
-          url.searchParams.set('entraId', entraId);
-          debugLog('🔍 Requesting WIP data for user:', { entraId, email: currentUserData?.Email });
-        }
-        const resp = await fetch(url.toString(), { method: 'GET', credentials: 'include', headers: { Accept: 'application/json' } });
-        if (resp.ok && (resp.headers.get('content-type') || '').toLowerCase().includes('application/json')) {
-          const data = await resp.json();
-          // Debug the actual response structure
-          debugLog('🔍 API Response:', { 
-            hasWipClio: !!data.wipClioCurrentWeek,
-            dataKeys: Object.keys(data)
-          });
-          
-          // Extract the wipClioCurrentWeek data directly
-          const merged = data.wipClioCurrentWeek;
-          if (merged && merged.current_week && merged.last_week) {
-            cachedWipClio = merged as any;
-            setWipClioData(cachedWipClio);
-            setWipClioError(null);
-            setIsLoadingWipClio(false);
-            debugLog('✅ WIP data loaded successfully');
-          } else {
-            debugWarn('⚠️ WIP data structure invalid:', { merged, hasCurrentWeek: !!merged?.current_week, hasLastWeek: !!merged?.last_week });
-          }
-          
-        }
-      } catch (e) {
-        debugWarn('❌ Error loading WIP data:', e);
-      }
-      // If no data returned, ensure we clear loading state to let UI render placeholders
-      setIsLoadingWipClio(false);
-    };
 
-    // Use cache if already set
+    // Use cache if already set (from parallel fetch or previous load)
     if (cachedWipClio || cachedWipClioError) {
       debugLog('📦 Using cached WIP data');
       setWipClioData(cachedWipClio);
@@ -1961,22 +2280,70 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
         setRecoveredData(cachedRecovered);
         setPrevRecoveredData(cachedPrevRecovered ?? 0);
       }
-    } else if (useLocalData) {
+      return;
+    }
+
+    if (useLocalData) {
       debugLog('📂 Using local WIP data');
       cachedWipClio = localWipClio as any;
       setWipClioData(cachedWipClio);
       setIsLoadingWipClio(false);
-    } else {
-      debugLog('🌐 Fetching fresh WIP data from server');
-      // Add a hard timeout to avoid blocking TimeMetricsV2 if backend is slow
-      const timeout = setTimeout(() => {
-        if (isLoadingWipClio && !cachedWipClio) {
-          setIsLoadingWipClio(false);
-        }
-      }, 8000);
-      loadFromReporting().finally(() => clearTimeout(timeout));
+      return;
     }
-  }, [userData?.[0]?.EntraID, userData?.[0]?.['Entra ID'], userData?.[0]?.['Clio ID']]);
+
+    // Parallel fetch handles all new data - skip fetching here
+    return;
+
+    /* ═══ LEGACY WIP FETCH CODE - All disabled, parallel fetch handles this ═══
+    (entire legacy effect body removed to prevent TypeScript errors)
+    */
+  }, [userData?.[0]?.EntraID, userData?.[0]?.['Entra ID'], userData?.[0]?.['Clio ID'], teamData?.length, useLocalData, devLogTimeMetrics]);
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Fetch enquiry & conversion metrics from dedicated lightweight endpoint
+  // NOTE: Now handled by parallel fetch effect - this is disabled
+  // ─────────────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    // Parallel fetch handles all data - skip here
+    if (useLocalData) {
+      setIsLoadingEnquiryMetrics(false);
+      return;
+    }
+
+    const email = currentUserEmail || '';
+    const initials = userInitials || '';
+    if (!email && !initials) {
+      setIsLoadingEnquiryMetrics(false);
+      return;
+    }
+
+    // Parallel fetch handles this now
+    return;
+
+    /* ═══ LEGACY ENQUIRY FETCH CODE - All disabled, parallel fetch handles this ═══
+    (entire legacy effect body removed to prevent TypeScript errors)
+    */
+  }, [currentUserEmail, userInitials, useLocalData]);
+
+  // Dev-only: log derived values whenever the WIP payload changes (helps diagnose "0 on load")
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'production') return;
+    const clioData: any = wipClioData ?? {};
+    const daily = clioData?.current_week?.daily_data || {};
+    const d = new Date();
+    const todayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const snapshot = JSON.stringify({
+      todayKey,
+      keys: Object.keys(daily),
+      today: daily[todayKey] || null,
+      loading: isLoadingWipClio,
+      err: wipClioError,
+    });
+    if (snapshot === lastTimeMetricsLogRef.current) return;
+    lastTimeMetricsLogRef.current = snapshot;
+    // eslint-disable-next-line no-console
+    console.log('[TimeMetrics] WIP state changed', JSON.parse(snapshot));
+  }, [wipClioData, isLoadingWipClio, wipClioError]);
 
   // Home no longer fetches matters itself; it receives normalized matters from App.
   // Keep the effect boundary to clear local cache if that logic remains elsewhere.
@@ -2044,7 +2411,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
 
   // Stream Home metrics progressively; update state as each arrives
   useHomeMetricsStream({
-    autoStart: true,
+    autoStart: !demoModeEnabled,
     metrics: ['transactions', 'futureBookings', 'outstandingBalances', 'poid6Years'],
     bypassCache: false,
     onMetric: (name, data) => {
@@ -2089,23 +2456,63 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
   }, [useLocalData]);
   
 
-  // Outstanding Balances: Only load from localStorage/local data (stream handles live fetch)
+  // Outstanding Balances: Fetch user balances first (fast), then firm-wide in background
   useEffect(() => {
-    // Load from localStorage for instant display while stream fetches fresh
-    const storedData = safeGetItem('outstandingBalancesData');
-    if (storedData) {
-      const parsedData = JSON.parse(storedData);
-      onOutstandingBalancesFetched?.(parsedData);
-      setOutstandingBalancesData(parsedData);
+    if (demoModeEnabled || useLocalData) {
+      if (useLocalData) {
+        const data = localOutstandingBalances as any;
+        cachedOutstandingBalances = data;
+        onOutstandingBalancesFetched?.(data);
+        setOutstandingBalancesData(data);
+      }
+      return;
     }
 
-    if (useLocalData) {
-      const data = localOutstandingBalances as any;
-      cachedOutstandingBalances = data;
-      onOutstandingBalancesFetched?.(data);
-      setOutstandingBalancesData(data);
-    }
-  }, [useLocalData]);  
+    const userEntraId = userData?.[0]?.EntraID || userData?.[0]?.['Entra ID'];
+    if (!userEntraId) return;
+
+    let cancelled = false;
+
+    const fetchBalances = async () => {
+      try {
+        // 1. Fetch user balances first (fast - only your matters)
+        console.log('[OutstandingBalances] Fetching user balances first...');
+        const userResponse = await fetch(`/api/outstanding-balances/user/${userEntraId}`, {
+          credentials: 'include',
+          headers: { Accept: 'application/json' }
+        });
+
+        if (userResponse.ok && !cancelled) {
+          const userData = await userResponse.json();
+          console.log(`[OutstandingBalances] User balances loaded: ${userData.data?.length || 0} records`);
+          setOutstandingBalancesData(userData);
+          onOutstandingBalancesFetched?.(userData);
+        }
+
+        // 2. Then fetch full firm balances in background (slower - all 127 records)
+        // Note: Stream might handle this instead, commenting out for now
+        // setTimeout(async () => {
+        //   if (cancelled) return;
+        //   const firmResponse = await fetch('/api/outstanding-balances', {
+        //     credentials: 'include',
+        //     headers: { Accept: 'application/json' }
+        //   });
+        //   if (firmResponse.ok && !cancelled) {
+        //     const firmData = await firmResponse.json();
+        //     cachedOutstandingBalances = firmData;
+        //     setOutstandingBalancesData(firmData);
+        //   }
+        // }, 2000);
+
+      } catch (error) {
+        console.error('[OutstandingBalances] Error fetching balances:', error);
+      }
+    };
+
+    fetchBalances();
+
+    return () => { cancelled = true; };
+  }, [useLocalData, demoModeEnabled, userData?.[0]?.EntraID, userData?.[0]?.['Entra ID']]);  
 
   const columns = useMemo(() => createColumnsFunction(isDarkMode), [isDarkMode]);
 
@@ -2243,12 +2650,12 @@ const handleAttendanceUpdated = (updatedRecords: AttendanceRecord[]) => {
 
 // Wrapper used by top-level AttendanceConfirmPanel to save attendance for the current user.
 // Note: Toast notification is triggered by the caller (PersonalAttendanceConfirm) after all saves complete
-  const saveAttendance = async (weekStart: string, attendanceDays: string): Promise<void> => {
-  debugLog('saveAttendance', weekStart, attendanceDays);
+  const saveAttendance = async (weekStart: string, attendanceDays: string, overrideInitials?: string): Promise<void> => {
+  debugLog('saveAttendance', weekStart, attendanceDays, overrideInitials ? `(for ${overrideInitials})` : '(self)');
   // Force endpoint testing - set to false to test real endpoint
   const useLocalData = false; // Changed from: process.env.REACT_APP_USE_LOCAL_DATA === 'true' || window.location.hostname === 'localhost';
   debugLog('useLocalData:', useLocalData);
-  const initials = userInitials || (userData?.[0]?.Initials || '');
+  const initials = overrideInitials || userInitials || (userData?.[0]?.Initials || '');
   const firstName = (transformedTeamData.find((t) => t.Initials === initials)?.First) || '';
   debugLog('user initials/name:', initials, firstName);
 
@@ -2339,16 +2746,69 @@ const handleAttendanceUpdated = (updatedRecords: AttendanceRecord[]) => {
 // Decide which week we consider "the relevant week"
   const relevantWeekKey = isThursdayAfterMidday ? nextKey : currentKey;
 
-// Does the user have an object at all for that week?
   // Use checkIsLocalDev - respects "View as Production" toggle
   const isLocalhost = checkIsLocalDev(featureToggles);
 
-  // Does the user have an object at all for that week?
-  // If currentUserRecord is not found (user not in attendance data), treat as confirmed to avoid nagging  
-  // Check if the user has confirmed their attendance (has a Confirmed_At timestamp)
-  const currentUserConfirmed = isLocalhost || !currentUserRecord || !!currentUserRecord?.Confirmed_At;
+  // Session changes effect - fetch changelog and parse today's entries
+  useEffect(() => {
+    if (!isLocalhost) return;
+    fetch('/logs/changelog.md')
+      .then(res => res.ok ? res.text() : '')
+      .then(text => {
+        if (!text) return;
+        const today = new Date().toISOString().split('T')[0]; // e.g., "2026-01-10"
+        const lines = text.split('\n');
+        const todaysChanges: string[] = [];
+        for (const line of lines) {
+          const match = line.match(/^[-\s]*(\d{4}-\d{2}-\d{2})\s*\/\s*([^/]+)/);
+          if (match && match[1] === today) {
+            todaysChanges.push(match[2].trim());
+          }
+        }
+        setSessionChanges(todaysChanges);
+      })
+      .catch(() => {});
+  }, [isLocalhost]);
 
-  // Debug logging for instructionData changes
+  const normalizeDate = (dateStr: string | null | undefined): string => {
+    if (!dateStr) return '';
+    return dateStr.substring(0, 10);
+  };
+
+  const toIsoDate = (d: Date): string => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const relevantMonday = (() => {
+    const monday = getMondayOfCurrentWeek();
+    if (isThursdayAfterMidday) monday.setDate(monday.getDate() + 7);
+    return monday;
+  })();
+
+  // If currentUserRecord is not found (user not in attendance data), treat as confirmed to avoid nagging.
+  // We consider the week "confirmed" if:
+  // - there's an explicit Confirmed_At timestamp (e.g. updateAttendance response), OR
+  // - getAttendance returned a week entry for the relevant week key.
+  const hasConfirmedWeekEntry = Boolean(
+    (currentUserRecord as any)?.Confirmed_At ||
+    (currentUserRecord as any)?.weeks?.[relevantWeekKey]?.attendance?.trim()
+  );
+
+  // Also support the "week row" format inserted by saveAttendance (Initials + Week_Start).
+  const relevantWeekStartIso = toIsoDate(relevantMonday);
+  const hasConfirmedWeekRow = attendanceRecords.some((rec: any) => {
+    const initials = (rec?.Initials || '').toLowerCase();
+    const weekStart = normalizeDate(rec?.Week_Start);
+    if (!initials || !weekStart) return false;
+    if (initials !== userInitials.toLowerCase()) return false;
+    if (weekStart !== relevantWeekStartIso) return false;
+    return Boolean(rec?.Confirmed_At || rec?.Attendance_Days);
+  });
+
+  const currentUserConfirmed = isLocalhost || !currentUserRecord || hasConfirmedWeekEntry || hasConfirmedWeekRow;
   // Calculate actionable instruction summaries (needs isLocalhost)
   const actionableSummaries = useMemo(() => {
     const result = getActionableInstructions(instructionData, isLocalhost);
@@ -2450,7 +2910,7 @@ const officeAttendanceButtonText = currentUserConfirmed
   const myOutstandingBalances = useMemo(() => {
     if (!outstandingBalancesData?.data || userMatterIDs.length === 0) return [];
     return outstandingBalancesData.data.filter((bal: any) =>
-      bal.associated_matter_ids.some((id: number | string) => userMatterIDs.includes(Number(id)))
+      bal.associated_matter_ids?.some((id: number | string) => userMatterIDs.includes(Number(id)))
     );
   }, [outstandingBalancesData, userMatterIDs]);
 
@@ -2501,7 +2961,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
   }));
   if (showOnlyMine && userMatterIDs.length > 0) {
     return allBalances.filter((balance) =>
-  balance.associated_matter_ids.some((id: number | string) => userMatterIDs.includes(Number(id)))
+  balance.associated_matter_ids?.some((id: number | string) => userMatterIDs.includes(Number(id)))
     );
   }
   return allBalances;
@@ -2530,192 +2990,77 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       );
     }, [outstandingBalancesData]);
 
+    const { currentMonth, currentYear } = useMemo(() => {
+      const now = new Date();
+      return { currentMonth: now.getMonth(), currentYear: now.getFullYear() };
+    }, []);
+
+    const mattersOpenedCount = useMemo(() => {
+      if (!normalizedMatters) return 0;
+      return normalizedMatters.filter((m) => {
+        const openDate = parseOpenDate((m as any).openDate);
+        if (!openDate) return false;
+        const isCurrentMonth = openDate.getMonth() === currentMonth && openDate.getFullYear() === currentYear;
+        if (!isCurrentMonth) return false;
+        const role = (m as any).role;
+        return role === 'responsible' || role === 'both';
+      }).length;
+    }, [normalizedMatters, currentMonth, currentYear]);
+
+    const firmMattersOpenedCount = useMemo(() => {
+      if (!normalizedMatters) return 0;
+      return normalizedMatters.filter((m) => {
+        const openDate = parseOpenDate((m as any).openDate);
+        if (!openDate) return false;
+        return openDate.getMonth() === currentMonth && openDate.getFullYear() === currentYear;
+      }).length;
+    }, [normalizedMatters, currentMonth, currentYear]);
+
   // Removed no-op effect that could trigger unnecessary renders
   // useEffect(() => {}, [userMatterIDs, outstandingBalancesData]);
 
   const metricsData = useMemo(() => {
-    const currentDate = new Date();
-    const currentMonth = currentDate.getMonth();
-    const currentYear = currentDate.getFullYear();
-  
-    // Define user details only once
-    const userFirstName = userData?.[0]?.First?.trim().toLowerCase() || '';
-    const userLastName = userData?.[0]?.Last?.trim().toLowerCase() || '';
-    const userFullName =
-      userData?.[0]?.FullName?.trim().toLowerCase() || `${userFirstName} ${userLastName}`;
     const userInitials = userData?.[0]?.Initials?.trim().toLowerCase() || '';
-    const memberForInitials = transformedTeamData.find(
-      (t) => (t.Initials || '').toLowerCase() === userInitials
-    );
-    const userNickname = memberForInitials?.Nickname?.trim().toLowerCase() || '';
-  
-    // Helper function to normalize names
-    const normalizeName = (name: string | null | undefined): string => {
-      if (!name) return '';
-      let normalized = String(name).trim().toLowerCase();
-      // Handle "Last, First" -> "first last"
-      if (normalized.includes(',')) {
-        const [last, first] = normalized.split(',').map(p => p.trim());
-        if (first && last) normalized = `${first} ${last}`;
-      }
-  // Remove periods often used in initials like "r. chapman"
-  normalized = normalized.replace(/\./g, '');
-  // Strip parenthetical content e.g., "richard chapman (rc)" -> "richard chapman"
-  normalized = normalized.replace(/\s*\([^)]*\)\s*/g, ' ');
-  // Remove trailing decorations after separators like " - ", " / ", or " | "
-  normalized = normalized.replace(/\s[-/|].*$/, '');
-      // Known alias fixes
-      if (normalized === 'bianca odonnell') normalized = "bianca o'donnell";
-      if (normalized === 'samuel packwood') normalized = 'sam packwood';
-      return normalized.replace(/\s+/g, ' ');
-    };
-  
-  // Calculate matters opened count for conversion metrics
-  // Always use the currently selected user; do not force a different user in local dev
-  const targetFirst = userFirstName;
-  const targetLast = userLastName;
-  const targetFull = userFullName;
-  const targetInitials = userInitials;
 
-  // Build a rich alias set for the selected user covering common variants seen in data
-  const buildUserAliasSet = (): Set<string> => {
-    const aliases: string[] = [];
-    const first = (targetFirst || '').trim();
-    const last = (targetLast || '').trim();
-    const full = (targetFull || '').trim();
-    const initials = (targetInitials || '').trim();
-    const nickname = (userNickname || '').trim();
+    const clioData = wipClioData ?? {};
+    const currentWeekData = clioData.current_week ?? {};
+    const lastWeekData = clioData.last_week ?? {};
 
-    // Full forms
-    if (full) aliases.push(full);
-    if (first && last) aliases.push(`${first} ${last}`);
-    if (nickname && last) aliases.push(`${nickname} ${last}`);
-
-    // Initials only (already checked separately but include here for uniformity)
-    if (initials) aliases.push(initials);
-
-    // First initial + last (e.g., "r chapman")
-    if (first && last) aliases.push(`${first[0]} ${last}`);
-
-    // Initial with dot + last (e.g., "r. chapman")
-    if (first && last) aliases.push(`${first[0]}. ${last}`);
-
-    // Normalize and dedupe
-    return new Set(aliases.map(a => normalizeName(a)));
-  };
-
-  const targetNamesSet = buildUserAliasSet();
-
-    // Compute per-user matters opened from normalizedMatters using role-aware logic
-    const mattersOpenedCount = (normalizedMatters || []).filter((m) => {
-      const openDate = parseOpenDate((m as any).openDate);
-      if (!openDate) return false;
-      const isCurrentMonth = openDate.getMonth() === currentMonth && openDate.getFullYear() === currentYear;
-      if (!isCurrentMonth) return false;
-      // Count only where current user is responsible (or both)
-      const role = (m as any).role;
-      const isRoleMatch = role === 'responsible' || role === 'both';
-      
-      return isRoleMatch;
-    }).length;
-
-    // Firm-wide matters opened this month (secondary metric)
-    const firmMattersOpenedCount = (normalizedMatters || []).filter((m) => {
-      const openDate = parseOpenDate((m as any).openDate);
-      if (!openDate) return false;
-      return openDate.getMonth() === currentMonth && openDate.getFullYear() === currentYear;
-    }).length;
-
-    if (!wipClioData) {
-        return [
-          { title: 'Time Today', isTimeMoney: true, money: 0, hours: 0, prevMoney: 0, prevHours: 0, showDial: true, dialTarget: 6 },
-          { title: 'Av. Time This Week', isTimeMoney: true, money: 0, hours: 0, prevMoney: 0, prevHours: 0, showDial: true, dialTarget: 6 },
-          { title: 'Time This Week', isTimeMoney: true, money: 0, hours: 0, prevMoney: 0, prevHours: 0, showDial: true, dialTarget: 30 },
-          { title: 'Fees Recovered This Month', isMoneyOnly: true, money: recoveredData ?? 0, prevMoney: prevRecoveredData ?? 0 },
-      // Use computed outstandingTotal with firm total as secondary
-      { title: 'Outstanding Office Balances', isMoneyOnly: true, money: outstandingTotal ?? 0, secondary: firmOutstandingTotal ?? 0 },
-          { title: 'Enquiries Today', isTimeMoney: false, count: enquiriesToday, prevCount: prevEnquiriesToday },
-          { title: 'Enquiries This Week', isTimeMoney: false, count: enquiriesWeekToDate, prevCount: prevEnquiriesWeekToDate },
-          { title: 'Matters Opened', isTimeMoney: false, count: mattersOpenedCount, prevCount: 0, secondary: firmMattersOpenedCount },
-        ];
-      }
-      
-  const currentWeekData = wipClioData.current_week?.daily_data?.[formattedToday];
-    const lastWeekDate = new Date(today);
-    lastWeekDate.setDate(today.getDate() - 7);
-    const formattedLastWeekDate = formatDateLocal(lastWeekDate);
-  const lastWeekData = wipClioData.last_week?.daily_data?.[formattedLastWeekDate];
-    const startOfCurrentWeek = new Date(today);
-    startOfCurrentWeek.setDate(today.getDate() - today.getDay() + (today.getDay() === 0 ? -6 : 1));
-    startOfCurrentWeek.setHours(0, 0, 0, 0);
-    const startOfLastWeek = new Date(startOfCurrentWeek);
-    startOfLastWeek.setDate(getMondayOfCurrentWeek().getDate() - 7);
-
-    const computeAverageUpTo = (
-      dailyData: Record<string, { total_hours: number; total_amount: number }>,
-      start: Date,
-      end: Date
-    ) => {
-      let hours = 0;
-      let amount = 0;
-      let count = 0;
-      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        const dateStr = formatDateLocal(d);
-        const data = dailyData[dateStr];
-        if (data) {
-          hours += data.total_hours;
-          amount += data.total_amount;
-        }
-        const day = d.getDay();
-        if (day >= 1 && day <= 5 && data) count += 1; // count weekday only when hours exist
-      }
-      return {
-        avgHours: count ? parseFloat((hours / count).toFixed(2)) : 0,
-        avgAmount: count ? parseFloat((amount / count).toFixed(2)) : 0,
-      };
+    const getDailyTotals = (week: any): Record<string, { total_hours?: number; total_amount?: number }> => {
+      const daily = week?.daily_data;
+      if (!daily || typeof daily !== 'object') return {};
+      return daily as Record<string, { total_hours?: number; total_amount?: number }>;
     };
 
-    const currentAvg = computeAverageUpTo(
-      wipClioData.current_week?.daily_data ?? {},
-      startOfCurrentWeek,
-      today
-    );
-    const prevAvg = computeAverageUpTo(
-      wipClioData.last_week?.daily_data ?? {},
-      startOfLastWeek,
-      lastWeekDate
-    );
+    const currentDaily = getDailyTotals(currentWeekData);
+    const lastDaily = getDailyTotals(lastWeekData);
 
-    debugLog('📊 Average calculations:', {
-      currentAvg,
-      prevAvg,
-      startOfCurrentWeek: startOfCurrentWeek.toISOString(),
-      today: today.toISOString(),
-      formattedToday,
-      currentWeekDataKeys: Object.keys(wipClioData.current_week?.daily_data || {}),
-      todayData: wipClioData.current_week?.daily_data?.[formattedToday]
-    });
+    const todayKey = formatDateLocal(new Date());
+    const yesterdayKey = formatDateLocal(new Date(Date.now() - 24 * 60 * 60 * 1000));
+    const lastWeekSameDayKey = formatDateLocal(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
 
+    const todayTotals = currentDaily[todayKey] || {};
+    const dayOfWeek = new Date().getDay();
+    const isMonday = dayOfWeek === 1;
+    const yesterdayTotals = currentDaily[yesterdayKey] || {};
+    const lastWeekSameDayTotals = lastDaily[lastWeekSameDayKey] || {};
+    // For "Time Today" comparison (used by the Previous toggle):
+    // - Primary: same weekday last week
+    // - Secondary (shown explicitly as 'Yesterday' when available): yesterday, except Monday
+    const prevTodayTotals = lastWeekSameDayTotals;
+    const showYesterdayTotals = !isMonday && ((Number(yesterdayTotals?.total_hours) || 0) > 0 || (Number(yesterdayTotals?.total_amount) || 0) > 0);
 
     let totalTimeThisWeek = 0;
-    if (wipClioData.current_week && wipClioData.current_week.daily_data) {
-      Object.values(wipClioData.current_week.daily_data).forEach((dayData: any) => {
-        totalTimeThisWeek += dayData.total_hours || 0;
-      });
-      debugLog('📊 Current week time calculation:', {
-        dailyDataKeys: Object.keys(wipClioData.current_week.daily_data),
-        dailyDataSample: Object.entries(wipClioData.current_week.daily_data).slice(0, 3),
-        totalTimeThisWeek
+    if (currentWeekData.daily_data) {
+      Object.values(currentWeekData.daily_data).forEach((day: any) => {
+        totalTimeThisWeek += day?.total_hours ?? 0;
       });
     }
+
     let totalTimeLastWeek = 0;
-    if (wipClioData.last_week && wipClioData.last_week.daily_data) {
-      Object.values(wipClioData.last_week.daily_data).forEach((dayData: any) => {
-        totalTimeLastWeek += dayData.total_hours || 0;
-      });
-      debugLog('📊 Last week time calculation:', {
-        dailyDataKeys: Object.keys(wipClioData.last_week.daily_data),
-        totalTimeLastWeek
+    if (lastWeekData.daily_data) {
+      Object.values(lastWeekData.daily_data).forEach((day: any) => {
+        totalTimeLastWeek += day?.total_hours ?? 0;
       });
     }
 
@@ -2733,7 +3078,42 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       }
       return days;
     };
+
     const workWeekDays = getWorkWeekDays();
+
+    // Week-to-date (Mon..today) totals/averages for the dial-style metric (target = 6h/day).
+    // Use only elapsed working days so far; exclude booked leave days from the denominator.
+    const todayKeyForAvg = formatDateLocal(new Date());
+    const elapsedWorkWeekDays = workWeekDays.filter((d) => {
+      // Compare by date-only key so "today" counts immediately (not only after 23:59)
+      return formatDateLocal(d) <= todayKeyForAvg;
+    });
+
+    // Build the equivalent set of elapsed workdays for last week (Mon..same weekday as today)
+    const elapsedWorkWeekDaysLastWeek = elapsedWorkWeekDays.map((d) => {
+      const lw = new Date(d);
+      lw.setDate(lw.getDate() - 7);
+      return lw;
+    });
+
+    let weekToDateHours = 0;
+    let weekToDateAmount = 0;
+    for (const day of elapsedWorkWeekDays) {
+      const key = formatDateLocal(day);
+      const totals = currentDaily[key];
+      weekToDateHours += Number(totals?.total_hours) || 0;
+      weekToDateAmount += Number(totals?.total_amount) || 0;
+    }
+
+    let lastWeekToDateHours = 0;
+    let lastWeekToDateAmount = 0;
+    for (const day of elapsedWorkWeekDaysLastWeek) {
+      const key = formatDateLocal(day);
+      const totals = lastDaily[key];
+      lastWeekToDateHours += Number(totals?.total_hours) || 0;
+      lastWeekToDateAmount += Number(totals?.total_amount) || 0;
+    }
+
     let leaveDays = 0;
     workWeekDays.forEach((day) => {
       const dayString = formatDateLocal(day);
@@ -2749,26 +3129,67 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         leaveDays++;
       }
     });
+
+    let leaveDaysSoFar = 0;
+    elapsedWorkWeekDays.forEach((day) => {
+      const dayString = formatDateLocal(day);
+      if (
+        annualLeaveRecords.some(
+          (rec) =>
+            rec.status === 'booked' &&
+            (rec.person || '').toLowerCase() === (userInitials || '').toLowerCase() &&
+            dayString >= rec.start_date &&
+            dayString <= rec.end_date
+        )
+      ) {
+        leaveDaysSoFar++;
+      }
+    });
+
+    let leaveDaysSoFarLastWeek = 0;
+    elapsedWorkWeekDaysLastWeek.forEach((day) => {
+      const dayString = formatDateLocal(day);
+      if (
+        annualLeaveRecords.some(
+          (rec) =>
+            rec.status === 'booked' &&
+            (rec.person || '').toLowerCase() === (userInitials || '').toLowerCase() &&
+            dayString >= rec.start_date &&
+            dayString <= rec.end_date
+        )
+      ) {
+        leaveDaysSoFarLastWeek++;
+      }
+    });
+
+    const effectiveDaysSoFar = Math.max(1, elapsedWorkWeekDays.length - leaveDaysSoFar);
+    const avgHoursThisWeek = weekToDateHours / effectiveDaysSoFar;
+    const avgAmountThisWeek = weekToDateAmount / effectiveDaysSoFar;
+    const effectiveDaysSoFarLastWeek = Math.max(1, elapsedWorkWeekDaysLastWeek.length - leaveDaysSoFarLastWeek);
+    const avgHoursLastWeekToDate = lastWeekToDateHours / effectiveDaysSoFarLastWeek;
+    const avgAmountLastWeekToDate = lastWeekToDateAmount / effectiveDaysSoFarLastWeek;
     const adjustedTarget = (5 - leaveDays) * 6;
 
     return [
       {
         title: 'Time Today',
         isTimeMoney: true,
-        money: currentWeekData ? currentWeekData.total_amount : 0,
-        hours: currentWeekData ? currentWeekData.total_hours : 0,
-        prevMoney: lastWeekData ? lastWeekData.total_amount : 0,
-        prevHours: lastWeekData ? lastWeekData.total_hours : 0,
+        money: Number(todayTotals.total_amount) || 0,
+        hours: Number(todayTotals.total_hours) || 0,
+        prevMoney: Number(prevTodayTotals.total_amount) || 0,
+        prevHours: Number(prevTodayTotals.total_hours) || 0,
+        yesterdayMoney: showYesterdayTotals ? (Number(yesterdayTotals.total_amount) || 0) : 0,
+        yesterdayHours: showYesterdayTotals ? (Number(yesterdayTotals.total_hours) || 0) : 0,
         showDial: true,
         dialTarget: 6,
       },
       {
         title: 'Av. Time This Week',
         isTimeMoney: true,
-        money: currentAvg.avgAmount,
-        hours: currentAvg.avgHours,
-        prevMoney: prevAvg.avgAmount,
-        prevHours: prevAvg.avgHours,
+        money: avgAmountThisWeek,
+        hours: avgHoursThisWeek,
+        prevMoney: avgAmountLastWeekToDate,
+        prevHours: avgHoursLastWeekToDate,
         showDial: true,
         dialTarget: 6,
       },
@@ -2778,7 +3199,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         money: 0,
         hours: totalTimeThisWeek,
         prevMoney: 0,
-        prevHours: totalTimeLastWeek,
+        prevHours: lastWeekToDateHours,
         showDial: true,
         dialTarget: adjustedTarget,
       },
@@ -2793,7 +3214,6 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         isMoneyOnly: true,
         money: outstandingTotal ?? 0,
         secondary: firmOutstandingTotal ?? 0,
-        // No prevMoney - this is a current snapshot with firm total as secondary
       },
       {
         title: 'Enquiries Today',
@@ -2820,12 +3240,11 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         prevCount: 0,
         secondary: firmMattersOpenedCount,
       },
-    ];    
+    ];
   }, [
     wipClioData,
     recoveredData,
     prevRecoveredData,
-    formattedToday,
     enquiriesToday,
     prevEnquiriesToday,
     enquiriesWeekToDate,
@@ -2834,16 +3253,104 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     prevEnquiriesMonthToDate,
     annualLeaveRecords,
     userData,
-    currentUserEmail, // ADDED: Fix race condition where userData changes but currentUserEmail hasn't updated yet
     normalizedMatters,
-    userInitials, // ADDED so we recalc if userInitials changes
-    transformedTeamData,
-    outstandingBalancesData, // ADDED
-    userMatterIDs,           // ADDED
+    outstandingBalancesData,
+    userMatterIDs,
+    mattersOpenedCount,
+    firmMattersOpenedCount,
   ]);
   
   const timeMetrics = metricsData.slice(0, 5);
   // Removed enquiryMetrics; conversion summary now handled by TimeMetricsV2 props
+
+  const demoTimeMetrics = useMemo(
+    () => [
+      {
+        title: 'Time Today',
+        isTimeMoney: true,
+        money: 780,
+        hours: 6.5,
+        prevMoney: 640,
+        prevHours: 5.2,
+        showDial: true,
+        dialTarget: 6,
+      },
+      {
+        title: 'Av. Time This Week',
+        isTimeMoney: true,
+        money: 5200,
+        hours: 32,
+        prevMoney: 4800,
+        prevHours: 30,
+        showDial: true,
+        dialTarget: 6,
+      },
+      {
+        title: 'Time This Week',
+        isTimeMoney: true,
+        money: 0,
+        hours: 32,
+        prevMoney: 0,
+        prevHours: 29,
+        showDial: true,
+        dialTarget: 30,
+      },
+      {
+        title: 'Fees Recovered This Month',
+        isMoneyOnly: true,
+        money: 14500,
+        prevMoney: 13200,
+      },
+      {
+        title: 'Outstanding Office Balances',
+        isMoneyOnly: true,
+        money: 1800,
+        secondary: 12400,
+      },
+    ],
+    []
+  );
+
+  const demoEnquiryMetrics = useMemo(
+    () => ({
+      today: 6,
+      prevToday: 5,
+      week: 18,
+      prevWeek: 16,
+      month: 72,
+      prevMonth: 68,
+      mattersOpened: 14,
+    }),
+    []
+  );
+
+  const displayTimeMetrics = demoModeEnabled ? demoTimeMetrics : timeMetrics;
+  const displayEnquiriesToday = demoModeEnabled ? demoEnquiryMetrics.today : enquiriesToday;
+  const displayPrevEnquiriesToday = demoModeEnabled ? demoEnquiryMetrics.prevToday : prevEnquiriesToday;
+  const displayEnquiriesWeekToDate = demoModeEnabled ? demoEnquiryMetrics.week : enquiriesWeekToDate;
+  const displayPrevEnquiriesWeekToDate = demoModeEnabled ? demoEnquiryMetrics.prevWeek : prevEnquiriesWeekToDate;
+  const displayEnquiriesMonthToDate = demoModeEnabled ? demoEnquiryMetrics.month : enquiriesMonthToDate;
+  const displayPrevEnquiriesMonthToDate = demoModeEnabled ? demoEnquiryMetrics.prevMonth : prevEnquiriesMonthToDate;
+  const displayMattersOpenedCount = demoModeEnabled ? demoEnquiryMetrics.mattersOpened : mattersOpenedCount;
+
+  // Fallback: if lightweight home-wip endpoint returns zeroes, trigger the heavier reporting fetch once.
+  const zeroWipFallbackRef = useRef(false);
+  useEffect(() => {
+    if (useLocalData || demoModeEnabled) return;
+    if (isLoadingWipClio) return;
+    if (zeroWipFallbackRef.current) return;
+    const daily = wipClioData?.current_week?.daily_data;
+    if (!daily) return;
+
+    const hasHours = Object.values(daily).some((d: any) => (Number(d?.total_hours) || 0) > 0);
+    const hasAmount = Object.values(daily).some((d: any) => (Number(d?.total_amount) || 0) > 0);
+
+    if (!hasHours && !hasAmount) {
+      zeroWipFallbackRef.current = true;
+      console.log('[wip-fallback] home-wip returned zeroes, invoking reporting refresh');
+      handleRefreshTimeMetrics?.();
+    }
+  }, [wipClioData, isLoadingWipClio, useLocalData, demoModeEnabled, handleRefreshTimeMetrics]);
 
   // Combine annualLeaveRecords and futureLeaveRecords for approval filtering
   const combinedLeaveRecords = useMemo(() => {
@@ -2926,7 +3433,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
   const handleApproveLeaveClick = () => {
     if (approvalsNeeded.length > 0) {
       setBespokePanelContent(
-        <Suspense fallback={<ThemedSpinner size={SpinnerSize.small} />}>
+        <Suspense fallback={<ModalSkeleton variant="annual-leave" />}>
           <AnnualLeaveApprovals
             approvals={approvalsNeeded.map((item) => ({
               id: item.id,
@@ -2995,7 +3502,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     ];
 
     setBespokePanelContent(
-      <Suspense fallback={<ThemedSpinner size={SpinnerSize.small} />}>
+      <Suspense fallback={<ModalSkeleton variant="annual-leave" />}>
         <AnnualLeaveApprovals
           approvals={testApprovals}
           futureLeave={futureLeaveRecords.map((item) => ({
@@ -3031,15 +3538,20 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         return;
       }
 
+      const icon = 'Leave';
+
       setBespokePanelContent(
-        <Suspense fallback={<ThemedSpinner size={SpinnerSize.small} />}>
+        <Suspense fallback={<ModalSkeleton variant="annual-leave" />}>
           <AnnualLeaveBookings
             bookings={entries.map((item) => ({
               id: item.id,
+              request_id: parseInt(item.id, 10) || undefined,
               person: item.person,
               start_date: item.start_date,
               end_date: item.end_date,
               status: item.status,
+              days_taken: item.days_taken,
+              reason: item.reason,
               rejection_notes: item.rejection_notes,
             }))}
             onClose={() => {
@@ -3050,10 +3562,12 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           />
         </Suspense>
       );
-      setBespokePanelTitle('Book Requested Leave');
+      setBespokePanelTitle('Book Leave');
+      setBespokePanelDescription('Submit a request for annual leave or time off');
+      setBespokePanelIcon(icon);
       setIsBespokePanelOpen(true);
     },
-    [setBespokePanelContent, setBespokePanelTitle, setIsBespokePanelOpen, transformedTeamData]
+    [setBespokePanelContent, setBespokePanelTitle, setBespokePanelDescription, setBespokePanelIcon, setIsBespokePanelOpen, transformedTeamData]
   );
 
   const handleBookLeaveClick = React.useCallback(() => {
@@ -3103,7 +3617,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
   const handleSnippetApprovalClick = () => {
     if (snippetApprovalsNeeded.length > 0) {
       setBespokePanelContent(
-        <Suspense fallback={<ThemedSpinner size={SpinnerSize.small} />}>
+        <Suspense fallback={<ModalSkeleton variant="generic" />}>
           <SnippetEditsApproval
             edits={snippetApprovalsNeeded}
             onApprove={(id) => approveSnippet(id, true)}
@@ -3122,6 +3636,25 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
 
   const immediateALActions = useMemo(() => {
     const actions: Array<{ title: string; subtitle?: string; onClick: () => void; icon?: string; category?: ImmediateActionCategory; count?: number }> = [];
+
+    // Demo mode: always show demo annual leave cards (hide live approvals/bookings)
+    if (demoModeEnabled) {
+      actions.push({
+        title: 'Approve Annual Leave (Demo)',
+        subtitle: 'Demo approval flow',
+        onClick: handleTestApproveLeaveClick,
+        icon: 'PalmTree',
+        category: 'critical',
+      });
+      actions.push({
+        title: 'Book Requested Leave (Demo)',
+        subtitle: 'Demo booking flow',
+        onClick: handleBookLeavePreviewClick,
+        icon: 'Accept',
+        category: 'success',
+      });
+      return actions;
+    }
     
     // Add test annual leave approval for localhost (only if no real approvals exist and toggle enabled)
     if (isLocalhost && approvalsNeeded.length === 0 && featureToggles.annualLeaveTestCards) {
@@ -3165,17 +3698,33 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       });
     }
     if (bookingsNeeded.length > 0) {
-      // Show first booking's date range
+      // Format date nicely (e.g., "15 Jan")
+      const formatShortDate = (dateStr: string) => {
+        if (!dateStr) return '';
+        const d = new Date(dateStr);
+        return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+      };
+      
+      // Count approved items
+      const approvedCount = bookingsNeeded.filter(b => b.status === 'approved').length;
       const first = bookingsNeeded[0];
-      const subtitle = bookingsNeeded.length > 1 
-        ? `${first?.start_date || ''} +${bookingsNeeded.length - 1} more`
-        : `${first?.start_date || ''} - ${first?.end_date || ''}`;
+      const startFormatted = formatShortDate(first?.start_date || '');
+      const endFormatted = formatShortDate(first?.end_date || '');
+      
+      // Build subtitle: "Approved · 15 Jan - 18 Jan" or "2 approved · 15 Jan +1 more"
+      const statusLabel = approvedCount > 0 
+        ? (approvedCount === bookingsNeeded.length ? 'Approved' : `${approvedCount} approved`)
+        : 'Pending';
+      const dateRange = bookingsNeeded.length > 1
+        ? `${startFormatted} +${bookingsNeeded.length - 1} more`
+        : (startFormatted === endFormatted ? startFormatted : `${startFormatted} – ${endFormatted}`);
+      const subtitle = `${statusLabel} · ${dateRange}`;
       actions.push({
         title: 'Book Requested Leave',
         subtitle,
         onClick: handleBookLeaveClick,
-        icon: 'Accept',
-        category: 'success',
+        icon: 'Timer',
+        category: 'standard',
         count: bookingsNeeded.length,
       });
     }
@@ -3184,8 +3733,8 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         title: 'Book Requested Leave',
         subtitle: 'Test booking flow',
         onClick: handleBookLeavePreviewClick,
-        icon: 'Accept',
-        category: 'success',
+        icon: 'Timer',
+        category: 'standard',
       });
     }
     return actions;
@@ -3201,6 +3750,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     handleBookLeavePreviewClick,
     isLocalhost,
     featureToggles.annualLeaveTestCards,
+    demoModeEnabled,
   ]);
 
   // Build immediate actions list
@@ -3217,13 +3767,18 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     let titleText = action.title;
     let descriptionText = '';
 
+    const saveAttendanceDemo = async (_weekStart: string, _days: string, _initials?: string) => {
+      // Demo mode: do not write attendance changes.
+      return;
+    };
+
     // Map full titles to short titles and descriptions
     const titleMap: Record<string, { shortTitle: string; description: string }> = {
       'Create a Task': { shortTitle: 'New Task', description: 'Create and assign a new task or reminder' },
       'Save Telephone Note': { shortTitle: 'Attendance Note', description: 'Record details from a phone conversation' },
       'Request Annual Leave': { shortTitle: 'Book Leave', description: 'Submit a request for annual leave or time off' },
-      'Update Attendance': { shortTitle: 'Confirm Your Attendance', description: '' },
-      'Confirm Attendance': { shortTitle: 'Confirm Attendance', description: '' },
+      'Update Attendance': { shortTitle: 'Confirm Your Attendance', description: 'Plan your 14-day schedule' },
+      'Confirm Attendance': { shortTitle: 'Confirm Attendance', description: 'Plan your 14-day schedule' },
       'Book Space': { shortTitle: 'Book Room', description: 'Reserve a meeting room or workspace' },
     };
 
@@ -3239,11 +3794,14 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         content = (
           <PersonalAttendanceConfirm
             isDarkMode={isDarkMode}
+            demoModeEnabled={demoModeEnabled}
+            isAdmin={isAdminUser(userData?.[0])}
             attendanceRecords={transformedAttendanceRecords}
             annualLeaveRecords={annualLeaveRecords}
             futureLeaveRecords={futureLeaveRecords}
             userData={userData}
-            onSave={saveAttendance}
+            teamData={transformedTeamData}
+            onSave={demoModeEnabled ? saveAttendanceDemo : saveAttendance}
             onShowToast={showToast}
             onClose={() => {
               setBespokePanelContent(null);
@@ -3258,11 +3816,14 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         content = (
           <PersonalAttendanceConfirm
             isDarkMode={isDarkMode}
+            demoModeEnabled={demoModeEnabled}
+            isAdmin={isAdminUser(userData?.[0])}
             attendanceRecords={transformedAttendanceRecords}
             annualLeaveRecords={annualLeaveRecords}
             futureLeaveRecords={futureLeaveRecords}
             userData={userData}
-            onSave={saveAttendance}
+            teamData={transformedTeamData}
+            onSave={demoModeEnabled ? saveAttendanceDemo : saveAttendance}
             onShowToast={showToast}
             onClose={() => {
               setBespokePanelContent(null);
@@ -3274,7 +3835,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         break;
       case 'Create a Task':
         content = (
-          <Suspense fallback={<ThemedSpinner size={SpinnerSize.small} />}>
+          <Suspense fallback={<ModalSkeleton variant="task" />}>
             <Tasking />
           </Suspense>
         );
@@ -3284,7 +3845,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         break;
       case 'Save Telephone Note':
         content = (
-          <Suspense fallback={<ThemedSpinner size={SpinnerSize.small} />}>
+          <Suspense fallback={<ModalSkeleton variant="attendance" />}>
             <TelephoneAttendance />
           </Suspense>
         );
@@ -3299,15 +3860,42 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="9" />;
         break;
       case 'Request Annual Leave':
+        console.log('[Home] Rendering AnnualLeaveModal with:', {
+          annualLeaveAllDataLength: annualLeaveAllData?.length,
+          futureLeaveRecordsLength: futureLeaveRecords?.length,
+          sampleAllData: annualLeaveAllData?.slice(0, 2),
+          isAdmin: isAdminUser(userData?.[0])
+        });
         content = (
-          <Suspense fallback={<ThemedSpinner size={SpinnerSize.small} />}>
-            <AnnualLeaveForm
-              futureLeave={futureLeaveRecords}
-              team={transformedTeamData}
-              userData={userData}
+          <Suspense fallback={<ModalSkeleton variant="annual-leave" />}>
+            <AnnualLeaveModal
+              userData={enrichedUserData}
               totals={annualLeaveTotals}
               bankHolidays={bankHolidays}
-              allLeaveRecords={annualLeaveAllData} // Added this prop
+              futureLeave={futureLeaveRecords}
+              allLeave={annualLeaveAllData}
+              team={transformedTeamData}
+              isAdmin={isAdminUser(userData?.[0])}
+              onSubmitSuccess={async () => {
+                // Refresh annual leave data after successful submission
+                try {
+                  const response = await fetch('/api/attendance/getAnnualLeave', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userInitials: userData[0].Initials })
+                  });
+                  if (response.ok) {
+                    const data = await response.json();
+                    setFutureLeaveRecords(data.future_leave || []);
+                    setAnnualLeaveTotals(data.user_details?.totals || { standard: 0, unpaid: 0, sale: 0 });
+                    setAnnualLeaveAllData(data.all_data || []);
+                  }
+                } catch (error) {
+                  console.warn('Failed to refresh annual leave data:', error);
+                }
+                setIsBespokePanelOpen(false);
+                resetQuickActionsSelection();
+              }}
             />
           </Suspense>
         );
@@ -3321,8 +3909,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           console.error('Failed to dispatch navigation event:', error);
         }
         return; // Navigate without opening panel
-        break;
-  case 'Open Matter':
+      case 'Open Matter':
         // Navigate directly to Instructions tab and trigger matter opening
         safeSetItem('openMatterOpening', 'true');
         // Use a custom event to signal the navigation
@@ -3332,7 +3919,6 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           console.error('Failed to dispatch navigation event:', error);
         }
         return; // Exit early, no panel needed
-        break;
       case 'Resume Pitch':
         safeSetItem('resumePitchBuilder', 'true');
         try {
@@ -3343,7 +3929,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         break;
       case 'Book Space':
         content = (
-          <Suspense fallback={<ThemedSpinner size={SpinnerSize.small} />}>
+          <Suspense fallback={<ModalSkeleton variant="generic" />}>
             <BookSpaceForm
               feeEarner={userData[0].Initials}
               onCancel={() => {
@@ -3386,7 +3972,6 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           console.error('Failed to dispatch navigation event:', error);
         }
         return; // Navigate without opening panel
-        break;
       case 'Assess Risk':
         content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="70" />; // Risk Assessment form
         break;
@@ -3412,9 +3997,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     setBespokePanelContent(content);
     setBespokePanelTitle(titleText);
     setBespokePanelDescription(descriptionText);
-    const iconComponent = getQuickActionIcon(action.icon);
-    debugLog('Setting panel icon for action:', action, 'icon component:', iconComponent);
-    setBespokePanelIcon(iconComponent);
+    setBespokePanelIcon(action.icon ?? null);
     setIsBespokePanelOpen(true);
   }, [
     attendanceRef,
@@ -3431,6 +4014,8 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     transformedAttendanceRecords,
     annualLeaveRecords,
     saveAttendance,
+    demoModeEnabled,
+    showToast,
     actionableInstructionIds,
     resetQuickActionsSelection,
     setReviewedInstructionIds,
@@ -3468,14 +4053,14 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
   }, [actionableSummaries]);
   const immediateActionsList: Action[] = useMemo(() => {
     const actions: Action[] = [];
-    if (!isLoadingAttendance && !currentUserConfirmed) {
+    if (!isLoadingAttendance && (demoModeEnabled || !currentUserConfirmed)) {
       // Show today's date as the detail
       const todayFormatted = new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
       actions.push({
         title: 'Confirm Attendance',
         subtitle: todayFormatted,
-        icon: 'Calendar',
-        onClick: () => handleActionClick({ title: 'Confirm Attendance', icon: 'Calendar' }),
+        icon: 'Attendance',
+        onClick: () => handleActionClick({ title: 'Confirm Attendance', icon: 'Attendance' }),
         category: 'critical',
       });
     }
@@ -3519,27 +4104,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       }))
     );
 
-    // Add rate change notification action if enabled in user settings and there are clients to track
-    // All users can view the tracker; non-admins see All view as read-only
-    if (featureToggles.rateChangeTracker && (rateChangeStats.total > 0 || rateChangeStats.pending > 0)) {
-      // Show clear subtitle: "X yours · Y firm pending" or just firm total
-      let pendingDetail: string;
-      if (rateChangePendingCount > 0 && rateChangeStats.pending > 0) {
-        pendingDetail = `${rateChangePendingCount} yours · ${rateChangeStats.pending} firm pending`;
-      } else if (rateChangeStats.pending > 0) {
-        pendingDetail = `${rateChangeStats.pending} firm pending`;
-      } else {
-        pendingDetail = `${rateChangeStats.total} tracked`;
-      }
-      actions.push({
-        title: 'Rate Change Notices',
-        subtitle: pendingDetail,
-        icon: 'Money',
-        onClick: () => setShowRateChangeModal(true),
-        category: 'standard' as ImmediateActionCategory,
-        count: rateChangePendingCount > 0 ? rateChangePendingCount : undefined, // Only show badge if user has pending
-      });
-    }
+    // Rate Change Notices removed from immediate actions - now only accessible via UserBubble (localhost only)
 
     // Add pending document allocation actions (files in Holding)
     if (pendingDocActions.length > 0) {
@@ -3584,6 +4149,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
   }, [
     isLoadingAttendance,
     currentUserConfirmed,
+    demoModeEnabled,
     hasActiveMatter,
     instructionData,
     groupedInstructionActions,
@@ -3593,10 +4159,6 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     hasActivePitch,
     userInitials,
     isLocalhost,
-    rateChangeStats.total,
-    rateChangeStats.pending,
-    rateChangePendingCount,
-    featureToggles.rateChangeTracker,
     pendingDocActions,
     enquiries,
   ]);
@@ -3643,6 +4205,10 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         userDisplayName={currentUserName}
         userIdentifier={currentUserEmail}
         onToggleTheme={toggleTheme}
+        loading={!quickActionsReady}
+        showSessionLog={isLocalhost && featureToggles.showSessionLog}
+        sessionChanges={sessionChanges}
+        onShowChangelog={() => setShowChangelogModal(true)}
       />
     );
     setContent(content);
@@ -3653,6 +4219,10 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     currentUserName,
     currentUserEmail,
     toggleTheme,
+    quickActionsReady,
+    isLocalhost,
+    featureToggles.showSessionLog,
+    sessionChanges,
   ]);
 
   // Returns a narrow weekday (e.g. "M" for Monday, "T" for Tuesday)
@@ -3660,7 +4230,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     date.toLocaleDateString('en-GB', { weekday: 'narrow' });
 
   // Optionally, if you want to include the date as well (e.g. "M 10")
-  const getShortDayAndDateLabel = (date: Date): string => {
+  const _getShortDayAndDateLabel = (date: Date): string => {
     const shortDay = getShortDayLabel(date);
     const dayOfMonth = date.getDate();
     return `${shortDay} ${dayOfMonth}`;
@@ -3672,7 +4242,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
   const todayStr = formatDateLocal(new Date());
 
   // Example usage in attendancePersons:
-  const attendancePersons = useMemo(() => {
+  const _attendancePersons = useMemo(() => {
     return transformedTeamData
       .map((member) => {
         const record = attendanceRecords.find(
@@ -3715,7 +4285,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     return 'wfh';
   };
 
-  const AttendanceCell: React.FC<{ status: 'in' | 'wfh' | 'out'; highlight?: boolean }> = ({
+  const _AttendanceCell: React.FC<{ status: 'in' | 'wfh' | 'out'; highlight?: boolean }> = ({
     status,
     highlight = false,
   }) => {
@@ -3735,7 +4305,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     );
   };
 
-  const AttendancePersonaHeader: React.FC<{ person: { name: string; initials: string; nickname: string; attendance: string } }> = ({ person }) => {
+  const _AttendancePersonaHeader: React.FC<{ person: { name: string; initials: string; nickname: string; attendance: string } }> = ({ person }) => {
     // Determine today's weekday (default to Monday if out of range)
     const todayDate = new Date();
     const diffDays = Math.floor((todayDate.getTime() - currentWeekMonday.getTime()) / (1000 * 3600 * 24));
@@ -3778,53 +4348,9 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     );
   };  
 
-// Define the fadeIn keyframes
-const fadeInKeyframes = keyframes({
-  from: { opacity: 0, transform: 'translateY(5px)' },
-  to: { opacity: 1, transform: 'translateY(0)' },
-});
-
-  // Define the tickPop keyframes for the completion icon
-  const tickPopKeyframes = keyframes({
-    '0%': { transform: 'scale(0)', opacity: 0 },
-    '70%': { transform: 'scale(1.3)', opacity: 1 },
-    '100%': { transform: 'scale(1)', opacity: 1 },
-  });
-
-  // Style for the "No actions" container
-const noActionsClass = mergeStyles({
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  animation: `${fadeInKeyframes} 0.3s ease`,
-});
-
-  // Style for the animated tick icon container
-  const noActionsIconClass = mergeStyles({
-    width: '24px',
-    height: '24px',
-    borderRadius: '50%',
-    background: colours.highlight,
-    color: '#fff',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '12px',
-    animation: `${tickPopKeyframes} 0.3s ease`,
-  });
-
-// Extract matters opened dynamically from metricsData to avoid stale index assumptions
-const mattersOpenedCount = React.useMemo(() => {
-  const item = (metricsData as any[]).find((m: any) => m.title?.toLowerCase().startsWith('matters opened'));
-  return item && typeof item.count === 'number' ? item.count : 0;
-}, [metricsData]);
-const conversionRate = enquiriesMonthToDate
-  ? Number(((mattersOpenedCount / enquiriesMonthToDate) * 100).toFixed(2))
+const conversionRate = displayEnquiriesMonthToDate
+  ? Number(((displayMattersOpenedCount / displayEnquiriesMonthToDate) * 100).toFixed(2))
   : 0;
-  
-  const inHighlight = 'rgba(16,124,16,0.15)'; // subtle green tint
-  const wfhHighlight = 'rgba(54,144,206,0.15)'; // subtle blue tint
-  const outHighlight = 'rgba(214,85,65,0.15)'; // subtle red tint
 
   // Portal for app-level immediate actions
   const appLevelImmediateActions = (
@@ -3847,21 +4373,25 @@ const conversionRate = enquiriesMonthToDate
       {/* Modern Time Metrics V2 - directly on page background */}
       <div style={{ paddingTop: '16px' }}>
         <TimeMetricsV2 
-          metrics={timeMetrics}
+          metrics={displayTimeMetrics}
           enquiryMetrics={[
-          { title: 'Enquiries Today', count: enquiriesToday, prevCount: prevEnquiriesToday },
-          { title: 'Enquiries This Week', count: enquiriesWeekToDate, prevCount: prevEnquiriesWeekToDate },
-          { title: 'Enquiries This Month', count: enquiriesMonthToDate, prevCount: prevEnquiriesMonthToDate },
-          { title: 'Matters Opened This Month', count: mattersOpenedCount },
+          { title: 'Enquiries Today', count: displayEnquiriesToday, prevCount: displayPrevEnquiriesToday },
+          { title: 'Enquiries This Week', count: displayEnquiriesWeekToDate, prevCount: displayPrevEnquiriesWeekToDate },
+          { title: 'Enquiries This Month', count: displayEnquiriesMonthToDate, prevCount: displayPrevEnquiriesMonthToDate },
+          { title: 'Matters Opened This Month', count: displayMattersOpenedCount },
           { 
             title: 'Conversion Rate', 
-            percentage: enquiriesMonthToDate ? Number(((mattersOpenedCount / enquiriesMonthToDate) * 100).toFixed(2)) : 0, 
+            percentage: conversionRate, 
             isPercentage: true 
           }
         ]}
+        enquiryMetricsBreakdown={enquiryMetricsBreakdown}
         isDarkMode={isDarkMode}
         onRefresh={handleRefreshTimeMetrics}
         isRefreshing={isRefreshingTimeMetrics}
+        isLoading={isLoadingWipClio}
+        isLoadingEnquiryMetrics={isLoadingEnquiryMetrics}
+        viewAsProd={featureToggles.viewAsProd}
       />
       </div>
 
@@ -3889,7 +4419,7 @@ const conversionRate = enquiriesMonthToDate
               userData={userData}
               onAttendanceUpdated={handleAttendanceUpdated}
               currentUserConfirmed={currentUserConfirmed}
-              onConfirmAttendance={() => handleActionClick({ title: 'Confirm Attendance', icon: 'Calendar' })}
+              onConfirmAttendance={() => handleActionClick({ title: 'Confirm Attendance', icon: 'Attendance' })}
             />
           </SectionCard>
         </div>
@@ -3969,6 +4499,7 @@ const conversionRate = enquiriesMonthToDate
         isOpen={isBespokePanelOpen}
         onClose={() => {
           setIsBespokePanelOpen(false);
+          setBespokePanelIcon(null);
           resetQuickActionsSelection();
         }}
         title={bespokePanelTitle}
@@ -3976,7 +4507,7 @@ const conversionRate = enquiriesMonthToDate
         width="85%"
         isDarkMode={isDarkMode}
         variant="modal"
-        icon={bespokePanelIcon || undefined}
+        icon={bespokePanelIcon ? getQuickActionIcon(bespokePanelIcon) || undefined : undefined}
       >
         {bespokePanelContent}
       </BespokePanel>
@@ -4036,6 +4567,7 @@ const conversionRate = enquiriesMonthToDate
         onClose={() => setShowRateChangeModal(false)}
         year={rateChangeYear}
         clients={rateChangeClients}
+        migrateSourceClients={rateChangeMigrateClients}
         stats={rateChangeStats}
         isLoading={isLoadingRateChanges}
         onRefresh={refetchRateChanges}
@@ -4050,6 +4582,15 @@ const conversionRate = enquiriesMonthToDate
         teamData={teamData}
         isDarkMode={isDarkMode}
       />
+
+      {/* Changelog Modal (localhost only) */}
+      {isLocalhost && (
+        <ChangelogModal
+          isOpen={showChangelogModal}
+          onClose={() => setShowChangelogModal(false)}
+          isDarkMode={isDarkMode}
+        />
+      )}
 
       {/* Toast notifications for attendance and other actions */}
       <OperationStatusToast

@@ -1772,6 +1772,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
 
     const ROLE_OPTIONS = [
         { key: 'Partner', label: 'Partner' },
+        { key: 'Senior Partner', label: 'Senior Partner' },
         { key: 'Associate Solicitor', label: 'Associate' },
         { key: 'Solicitor', label: 'Solicitor' },
         { key: 'Paralegal', label: 'Paralegal' },
@@ -2141,6 +2142,18 @@ const MattersReport: React.FC<MattersReportProps> = ({
 
     const toggleRoleSelection = (role: string) => {
         const isRoleCurrentlySelected = selectedRoles.includes(role);
+
+        const roleGroup = (roleKey: string): string[] => {
+            if (roleKey === 'Partner') return ['Partner', 'Senior Partner'];
+            return [roleKey];
+        };
+
+        const roleMatchesSelection = (memberRole: string | undefined, roles: string[]): boolean => {
+            if (!memberRole) return false;
+            if (roles.includes(memberRole)) return true;
+            if (memberRole === 'Senior Partner' && roles.includes('Partner')) return true;
+            return false;
+        };
         
         // Update role selection
         setSelectedRoles((prev) => (
@@ -2152,7 +2165,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
         // Auto-select team members with this role
         if (!isRoleCurrentlySelected) {
             const membersWithRole = teamMembers
-                .filter(member => member.role === role)
+                .filter(member => roleGroup(role).includes(member.role ?? ''))
                 .map(member => member.initials);
             
             setSelectedTeams(prev => {
@@ -2166,12 +2179,12 @@ const MattersReport: React.FC<MattersReportProps> = ({
                 setSelectedTeams(prev => 
                     prev.filter(initials => {
                         const member = teamMembers.find(m => m.initials === initials);
-                        return member && remainingRoles.includes(member.role ?? '');
+                        return member && roleMatchesSelection(member.role, remainingRoles);
                     })
                 );
             } else {
                 const membersWithRole = teamMembers
-                    .filter(member => member.role === role)
+                    .filter(member => roleGroup(role).includes(member.role ?? ''))
                     .map(member => member.initials);
                 
                 setSelectedTeams(prev => prev.filter(initials => !membersWithRole.includes(initials)));

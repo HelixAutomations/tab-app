@@ -1,5 +1,40 @@
 # Database Schema Reference
 
+## CRITICAL: Database Connection Patterns
+
+### Instructions Database (Primary)
+```javascript
+// ALWAYS use .env for credentials
+import { config } from 'dotenv';
+import sql from 'mssql';
+config();
+
+// Connection string from .env (INSTRUCTIONS_SQL_CONNECTION_STRING)
+const connectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+const pool = await sql.connect(connectionString);
+```
+
+### Helix Core Data Database (Enquiries/Matters)
+```javascript
+// Connection string from .env (SQL_CONNECTION_STRING)  
+const connectionString = process.env.SQL_CONNECTION_STRING;
+const pool = await sql.connect(connectionString);
+```
+
+### Common Query Patterns
+```javascript
+// Instructions table lookup by passcode
+const dealQuery = `SELECT * FROM Deals WHERE Passcode = '${passcode}'`;
+
+// Enquiries lookup by ID (ProspectId)
+const enquiryQuery = `SELECT First_Name, Last_Name, Email FROM enquiries WHERE ID = ${prospectId}`;
+
+// Always use pool.request().query() format:
+const result = await pool.request().query(queryString);
+```
+
+---
+
 ## Overview
 This document describes the key database tables, their relationships, and important schema patterns discovered through investigation. Use this as a reference for understanding data flows between the frontend, backend, and Clio API.
 
@@ -7,9 +42,9 @@ This document describes the key database tables, their relationships, and import
 
 ## Database Connection
 
-**Server**: `instructions.database.windows.net`  
-**Database**: `instructions`  
-**Authentication**: Azure SQL authentication (credentials from environment variables)
+**Instructions DB**: `instructions.database.windows.net/instructions`  
+**Core Data DB**: `helix-database-server.database.windows.net/helix-core-data`  
+**Authentication**: Azure SQL (credentials in .env)
 
 **Tools Available**:
 - MSSQL extension in VS Code (use `mssql_*` tools)

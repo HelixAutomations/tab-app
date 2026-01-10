@@ -18,6 +18,7 @@ import {
   OpponentDataSheet
 } from "../../../utils/opponentDataTracker";
 import { colours } from "../../../app/styles/colours";
+import ConflictConfirmationCard from './ConflictConfirmationCard';
 
 // Local persistence helper mirroring FlatMatterOpening behaviour
 function useDraftedState<T>(key: string, initialValue: T): [T, React.Dispatch<React.SetStateAction<T>>] {
@@ -106,6 +107,9 @@ interface OpponentDetailsStepProps {
   opponentChoiceMade?: boolean;
   setOpponentChoiceMade?: (v: boolean) => void;
   onContinue?: () => void; // <-- Add this line
+  // Context for ConflictConfirmationCard
+  clientName?: string;
+  matterDescription?: string;
 }
 
 const titleOptions: IDropdownOption[] = [
@@ -319,6 +323,9 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
   opponentChoiceMade,
   setOpponentChoiceMade,
   onContinue, // <-- Add this line
+  // Context for ConflictConfirmationCard
+  clientName = '',
+  matterDescription = '',
 }) => {
   // Local state for new fields if not provided by parent
   const [localOpponentTitle, setLocalOpponentTitle] = React.useState("");
@@ -812,6 +819,24 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
   const [opponentType, setOpponentType] = useDraftedState<string>('opponentType', "");
   // removed address paste helpers (opponent & solicitor) per spec
 
+  // Reduce noise: once opponent type is chosen, default to entering details and open the minimum section.
+  React.useEffect(() => {
+    if (!opponentType) return;
+    if (enterOpponentNow !== null) return;
+    setEnterOpponentNow(true);
+    setShowSummary(false);
+    setVisibleSections({
+      opponent: {
+        name: opponentType === 'Individual',
+        company: opponentType === 'Company',
+        contact: false,
+        address: false,
+      },
+      solicitor: { name: false, contact: false, address: false, company: false },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [opponentType]);
+
   // Skip details and show summary (user can return to edit later)
   const skipAndShowSummary = () => {
     setShowSummary(true);
@@ -1010,41 +1035,23 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
       boxSizing: 'border-box'
     }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        {/* Conflict of Interest Section */}
-        <div>
-          <div style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: 8, 
-            marginBottom: 12 
-          }}>
-            <i className="ms-Icon ms-Icon--ShieldAlert" style={{ 
-              fontSize: 16, 
-              color: isDarkMode ? '#9CA3AF' : '#3690CE'
-            }} />
-            <span style={{ 
-              fontSize: 16, 
-              fontWeight: 600, 
-              color: isDarkMode ? '#E5E7EB' : '#0F172A'
-            }}>
-              Confirm No Conflict of Interest
-            </span>
-          </div>
-          <ModernMultiSelect
-            label=""
-            options={[
-              { key: 'true', text: 'Confirmed - No Conflict' },
-              { key: 'false', text: 'Not Confirmed' }
-            ]}
-            selectedValue={noConflict ? 'true' : 'false'}
-            onSelectionChange={(value) => setNoConflict(value === 'true')}
-            variant="binary"
-          />
-        </div>
+        {/* Conflict of Interest Section - Using enhanced ConflictConfirmationCard */}
+        <ConflictConfirmationCard
+          clientName={clientName || 'Client'}
+          matterDescription={matterDescription}
+          opponentName={opponentFirst && opponentLast 
+            ? `${opponentFirst} ${opponentLast}`.trim()
+            : opponentName}
+          opponentSolicitor={solicitorFirst && solicitorLast
+            ? `${solicitorFirst} ${solicitorLast}`.trim()
+            : opponentSolicitorName}
+          noConflict={noConflict}
+          onConflictStatusChange={setNoConflict}
+          showOpponentSection={true}
+        />
 
-        {/* Only show opponent/solicitor details if noConflict is confirmed */}
-        {noConflict && (
-          <>
+        {/* Opponent/solicitor details (Continue remains gated by conflict confirmation) */}
+        <>
             {/* Opponent Type Selection */}
             <div>
               <div style={{ 
@@ -1062,8 +1069,16 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                   fontWeight: 600, 
                   color: isDarkMode ? '#E5E7EB' : '#0F172A'
                 }}>
-                  What type of opponent is this matter against?
+                  Opponent type
                 </span>
+              </div>
+
+              <div style={{
+                fontSize: 12.5,
+                color: isDarkMode ? '#9CA3AF' : '#64748B',
+                marginBottom: 10,
+              }}>
+                Choose the simplest match — you can add more later.
               </div>
               
               <div style={{ 
@@ -1083,7 +1098,17 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                       type="button"
                       onClick={() => {
                         setOpponentType(type);
+                        setEnterOpponentNow(true);
                         setShowSummary(false);
+                        setVisibleSections({
+                          opponent: {
+                            name: type === 'Individual',
+                            company: type === 'Company',
+                            contact: false,
+                            address: false,
+                          },
+                          solicitor: { name: false, contact: false, address: false, company: false },
+                        });
                       }}
                       style={{
                         position: 'relative',
@@ -1280,47 +1305,62 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                     }
                 }
             `}</style>
-          
-          {/* Only show option to delay details entry if opponent type is selected */}
+
           {opponentType && (
-            <div style={{ 
-              display: "flex", 
-              flexDirection: "column", 
-              alignItems: "stretch", 
-              width: "100%",
-              margin: "0 0 16px 0",
-              animation: 'slideInFromTop 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards',
-              animationDelay: '0ms',
-              opacity: 0,
-              transform: 'translateY(20px)'
+            <div style={{
+              display: 'flex',
+              justifyContent: 'flex-end',
+              margin: '0 0 12px 0',
             }}>
-              <ModernMultiSelect
-                label="Opponent Details"
-                options={[
-                  { key: 'true', text: 'I have Opponent Details to enter' },
-                  { key: 'false', text: "I'll enter opponent details later" }
-                ]}
-                selectedValue={enterOpponentNow === null ? null : (enterOpponentNow ? 'true' : 'false')}
-                onSelectionChange={(value) => {
-                  const willEnter = value === 'true';
-                  setEnterOpponentNow(willEnter);
-                  if (willEnter) {
-                    setShowSummary(false);
-                    // Clear any placeholder data so user starts fresh
-                    clearPlaceholderData();
-                    // Reset to folded state (all sections unchecked) when starting entry
-                    setVisibleSections({
-                      opponent: { name: false, contact: false, address: false, company: false },
-                      solicitor: { name: false, contact: false, address: false, company: false }
-                    });
-                  } else {
-                    setShowSummary(true);
-                    fillDummyData();
-                  }
-                  if (setOpponentChoiceMade) setOpponentChoiceMade(true);
-                }}
-                variant="binary"
-              />
+              {enterOpponentNow === true ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEnterOpponentNow(false);
+                    if (setOpponentChoiceMade) setOpponentChoiceMade(true);
+                  }}
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    padding: 0,
+                    cursor: 'pointer',
+                    fontSize: 12.5,
+                    fontWeight: 600,
+                    color: isDarkMode ? '#9CA3AF' : '#64748B',
+                    textDecoration: 'underline',
+                  }}
+                >
+                  I’ll add details later
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEnterOpponentNow(true);
+                    setVisibleSections(prev => ({
+                      opponent: {
+                        ...prev.opponent,
+                        name: opponentType === 'Individual',
+                        company: opponentType === 'Company',
+                      },
+                      solicitor: prev.solicitor,
+                    }));
+                    if (setOpponentChoiceMade) setOpponentChoiceMade(true);
+                  }}
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    padding: 0,
+                    cursor: 'pointer',
+                    fontSize: 12.5,
+                    fontWeight: 600,
+                    color: isDarkMode ? '#E5E7EB' : '#0F172A',
+                    textDecoration: 'underline',
+                  }}
+                >
+                  Add opponent details
+                </button>
+              )}
             </div>
           )}
           
@@ -2462,60 +2502,24 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
             </div>
           </div>
         ) : enterOpponentNow === false ? (
-          <>
-            {/* Animated placeholder banner */}
-            <div style={{
-                animation: 'slideInFromTop 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards',
-                opacity: 0,
-                transform: 'translateY(20px)',
-                marginBottom: 16
-              }}>
-                <div className="question-banner" style={{
-                  background: '#fffbe6',
-                  border: '2px solid #FFB900',
-                  borderRadius: 0,
-                  padding: '12px 16px',
-                  color: '#b88600',
-                  fontSize: 14,
-                  fontWeight: 500,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  position: 'relative',
-                  overflow: 'hidden'
-                }}>
-                  <span style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'center', 
-                    width: 20, 
-                    height: 20, 
-                    background: '#FFB900', 
-                    borderRadius: '50%',
-                    color: 'white',
-                    fontSize: 12,
-                    fontWeight: 'bold'
-                  }}>
-                    i
-                  </span>
-                  Using placeholder values for opponent details. You'll be prompted to update these later.
-                  {/* Subtle shimmer effect */}
-                  <div style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: '-100%',
-                    width: '100%',
-                    height: '100%',
-                    background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)',
-                    animation: 'shimmerPass 2s ease-in-out',
-                    pointerEvents: 'none'
-                  }} />
-                </div>
-              </div>
-          </>
+          <div
+            style={{
+              background: isDarkMode ? 'rgba(15, 23, 42, 0.35)' : 'rgba(248, 250, 252, 0.9)',
+              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.22)' : 'rgba(0, 0, 0, 0.08)'}`,
+              borderRadius: 8,
+              padding: '12px 14px',
+              marginBottom: 16,
+              color: isDarkMode ? '#E5E7EB' : '#0F172A',
+              fontSize: 13,
+            }}
+          >
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>Opponent details</div>
+            <div style={{ color: isDarkMode ? '#9CA3AF' : '#64748B' }}>
+              You can leave this blank for now and add it later.
+            </div>
+          </div>
         ) : null}
         </>
-      )}
 
         {onContinue && (
           <PrimaryButton

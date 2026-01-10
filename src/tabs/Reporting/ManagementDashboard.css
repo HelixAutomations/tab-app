@@ -1,10 +1,10 @@
 /* Shared Glass Container - Used across all reports */
 .glass-report-container {
   background: rgba(255, 255, 255, 0.02);
-  backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 12px;
+  border-radius: 0;
   box-shadow: 
     0 8px 32px rgba(0, 0, 0, 0.12),
     0 2px 8px rgba(0, 0, 0, 0.08),
@@ -14,6 +14,80 @@
   transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
   position: relative;
   overflow: hidden;
+}
+
+/* fadeInUp animation for staggered row entry */
+@keyframes fadeInUp {
+  0% {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* shimmer animation for skeleton loaders */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* pulse animation for loading states */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* scaleIn for modals */
+@keyframes scaleIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* slideInRight for panel content */
+@keyframes slideInRight {
+  0% {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Skeleton shimmer utility class */
+.skeleton-shimmer {
+  background: linear-gradient(90deg, 
+    rgba(148, 163, 184, 0.08) 0%, 
+    rgba(148, 163, 184, 0.15) 50%, 
+    rgba(148, 163, 184, 0.08) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite ease-in-out;
+}
+
+.dark-theme .skeleton-shimmer {
+  background: linear-gradient(90deg, 
+    rgba(54, 144, 206, 0.05) 0%, 
+    rgba(54, 144, 206, 0.12) 50%, 
+    rgba(54, 144, 206, 0.05) 100%);
+  background-size: 200% 100%;
 }
 
 .glass-report-container::before {
@@ -60,7 +134,7 @@
 .glass-report-container.dark-theme::before {
   background: linear-gradient(90deg, 
     transparent 0%, 
-    rgba(135, 206, 235, 0.15) 50%, 
+    rgba(54, 144, 206, 0.15) 50%, 
     transparent 100%);
 }
 
@@ -84,7 +158,7 @@
     0 6px 32px rgba(0, 0, 0, 0.25),
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
     inset 0 -1px 0 rgba(0, 0, 0, 0.3);
-  border-color: rgba(135, 206, 235, 0.15);
+  border-color: rgba(54, 144, 206, 0.2);
 }
 
 /* Subtle shimmer effect on hover */
@@ -476,16 +550,16 @@
 .date-stamp-button {
   border: none;
   background: none;
-  appearance: none;
   -webkit-appearance: none;
+  appearance: none;
   text-align: left;
 }
 
 .clear-all-time-button {
   border: none;
   background: none;
-  appearance: none;
   -webkit-appearance: none;
+  appearance: none;
 }
 
 .filter-group-container {
@@ -579,8 +653,8 @@
 
 /* Metrics Table Section */
 .metrics-table {
-  border-radius: 10px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07);
+  border-radius: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   overflow: hidden;
   width: 100%;
   transition: background 0.3s ease, box-shadow 0.3s ease;
@@ -588,26 +662,28 @@
 
 .management-dashboard-container.light-theme .metrics-table {
   background: #ffffff;
+  border: 1px solid rgba(148, 163, 184, 0.15);
 }
 
 .management-dashboard-container.dark-theme .metrics-table {
   background: rgba(15, 23, 42, 0.88);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(148, 163, 184, 0.1);
 }
 
 .metrics-table-header {
   display: grid;
   grid-template-columns: 160px repeat(5, 1fr);
-  padding: 6px 8px;
-  font-size: 12px;
-  font-weight: 600;
+  padding: 10px 12px;
+  font-size: 9px;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.35px;
+  letter-spacing: 0.5px;
 }
 
 .metrics-table-header span {
-  transition: all 0.2s ease;
-  border-radius: 6px;
+  transition: all 0.15s ease;
+  border-radius: 0;
   padding: 4px 8px;
   display: inline-flex;
   align-items: center;
@@ -618,85 +694,78 @@
 
 .metrics-table-header span:hover {
   opacity: 1;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 
 .management-dashboard-container.light-theme .metrics-table-header span:hover {
-  background: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.15);
   color: #ffffff;
 }
 
 .management-dashboard-container.dark-theme .metrics-table-header span:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.1);
   color: #f8fafc;
 }
 
 .management-dashboard-container.light-theme .metrics-table-header {
-  background: linear-gradient(135deg, #061733 0%, #0d2f60 100%);
-  color: #ffffff;
+  background: rgba(6, 23, 51, 0.95);
+  color: rgba(226, 232, 240, 0.85);
 }
 
 .management-dashboard-container.dark-theme .metrics-table-header {
   background: rgba(6, 23, 51, 0.85);
-  color: #e2e8f0;
+  color: rgba(148, 163, 184, 0.75);
 }
 
 .metrics-table-row {
   display: grid;
   grid-template-columns: 160px repeat(5, 1fr);
-  padding: 6px 8px;
+  padding: 10px 12px;
   font-size: 13px;
-  transition: background 0.3s ease, color 0.3s ease;
+  transition: all 0.15s ease;
   opacity: 0;
-  border-bottom: 1px solid rgba(226, 232, 240, 0.85);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+  cursor: default;
 }
 
 .management-dashboard-container.light-theme .metrics-table-row {
-  background: rgba(255, 255, 255, 0.9);
+  background: transparent;
   color: #1f2937;
 }
 
 .management-dashboard-container.light-theme .metrics-table-row:hover {
-  background: rgba(237, 242, 247, 0.8);
-  transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.1);
-  transition: all 0.2s ease;
+  background: rgba(54, 144, 206, 0.06);
 }
 
 .management-dashboard-container.dark-theme .metrics-table-row {
-  background: rgba(30, 41, 59, 0.75);
+  background: transparent;
   color: #e2e8f0;
-  border-bottom: 1px solid rgba(15, 23, 42, 0.9);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.06);
 }
 
 .management-dashboard-container.dark-theme .metrics-table-row:hover {
-  background: rgba(30, 41, 59, 0.85);
-  transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-  transition: all 0.2s ease;
+  background: rgba(54, 144, 206, 0.08);
 }
 
 .management-dashboard-container.light-theme .metrics-table-row:last-child {
   border-bottom: none;
-  background: linear-gradient(135deg, #f8f9fa 0%, #edf1f7 100%);
+  background: rgba(6, 23, 51, 0.03);
   font-weight: 700;
   color: #111827;
 }
 
 .management-dashboard-container.dark-theme .metrics-table-row:last-child {
   border-bottom: none;
-  background: rgba(15, 23, 42, 0.92);
+  background: rgba(6, 23, 51, 0.5);
   font-weight: 700;
   color: #ffffff;
 }
 
 .management-dashboard-container.light-theme .metrics-table-row:last-child:hover {
-  background: linear-gradient(135deg, #edf1f7 0%, #e4ebf5 100%);
+  background: rgba(6, 23, 51, 0.05);
 }
 
 .management-dashboard-container.dark-theme .metrics-table-row:last-child:hover {
-  background: rgba(15, 23, 42, 0.92);
+  background: rgba(6, 23, 51, 0.55);
 }
 
 .metrics-table-row span {
@@ -751,6 +820,37 @@
 .metrics-table-row:nth-child(19) { animation-delay: 0.9s; }
 
 /* Keyframe Animations */
+@keyframes fadeIn {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes slideInFromLeft {
+  0% {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Processing modal animations */
+@keyframes scaleIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
 
 /* CSS Variables */
 :root {

@@ -96,6 +96,7 @@ export interface RateChangeMatter {
     practice_area?: string;
     status?: string;
     open_date?: string;
+    close_date?: string;
     ccl_date?: string | null;
 }
 
@@ -136,6 +137,7 @@ interface RateChangeModalProps {
     onClose: () => void;
     year: number;
     clients: RateChangeClient[];
+    migrateSourceClients?: RateChangeClient[];
     stats: { total: number; pending: number; sent: number; not_applicable: number };
     currentUserName: string;
     userData?: UserData | null;
@@ -173,6 +175,7 @@ const NA_REASONS = [
 const RateChangeModal: React.FC<RateChangeModalProps> = ({
     isOpen, onClose, year, clients, stats, currentUserName, userData, teamData,
     onMarkSent, onMarkNA, onMarkSentStreaming, onMarkNAStreaming, onUndo, onUndoStreaming, onRefresh, isLoading, isDarkMode,
+    migrateSourceClients,
 }) => {
     const isAdmin = isAdminUser(userData);
     const [viewMode, setViewMode] = useState<'mine' | 'all' | 'inactive'>('mine');
@@ -684,7 +687,7 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
 
     // Get unique years from open matters for filter dropdown
     const availableYears = useMemo(() => {
-        const sourceClients = filter === 'migrate' ? clients : currentClients;
+        const sourceClients = filter === 'migrate' ? (migrateSourceClients || clients) : currentClients;
         const years = new Set<number>();
         sourceClients.forEach(c => {
             c.open_matters.forEach(m => {
@@ -695,7 +698,7 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
             });
         });
         return Array.from(years).sort((a, b) => b - a); // Most recent first
-    }, [clients, currentClients, filter]);
+    }, [clients, currentClients, filter, migrateSourceClients]);
 
     // Get unique responsible solicitors for filter dropdown - from ALL clients so filters work across views
     const availableResponsibleSolicitors = useMemo(() => {
@@ -725,7 +728,7 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
         // - otherwise: filter by selected status and mine/all view
         let result =
             filter === 'migrate'
-                ? clients.filter(c => c.status === 'sent' || c.status === 'not_applicable')
+                ? (migrateSourceClients || clients).filter(c => c.status === 'sent' || c.status === 'not_applicable')
                 : currentClients.filter(c => c.status === filter);
         
         // Filter by open date year
@@ -790,7 +793,7 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
         });
         
         return result;
-    }, [clients, currentClients, filter, searchTerm, openDateFilter, responsibleFilter, originatingFilter, sortField, sortDir]);
+    }, [clients, currentClients, filter, migrateSourceClients, searchTerm, openDateFilter, responsibleFilter, originatingFilter, sortField, sortDir]);
 
     // Verify matter against Clio to check for responsible/originating mismatches
     const verifyMatterAgainstClio = useCallback(async (displayNumber: string, sqlResponsible?: string, sqlOriginating?: string) => {
@@ -812,6 +815,20 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
             }
             
             const data = await response.json();
+            if (data?.rate_limited) {
+                // Clio rate limited; treat as a non-blocking verification skip.
+                setClioVerificationCache(prev => ({
+                    ...prev,
+                    [displayNumber]: {
+                        verified: true,
+                        loading: false,
+                        mismatch: false,
+                        sqlResponsible,
+                        sqlOriginating,
+                    }
+                }));
+                return;
+            }
             const clioResponsible = data.responsible_attorney?.name || '';
             const clioOriginating = data.originating_attorney?.name || '';
             
@@ -1451,25 +1468,49 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
             : (confirmAction === 'ccl-date' ? `${confirmMatterCount} matters` : `all ${confirmMatterCount} matters`);
 
     // Helper to render verification status indicator for a matter
-    const renderVerificationIndicator = useCallback((displayNumber: string, matter: RateChangeMatter) => {
+    const renderVerificationIndicator = useCallback((displayNumber: string, matter: RateChangeMatter, allowSync: boolean) => {
         const verification = clioVerificationCache[displayNumber];
         
         if (!verification) {
             // Not yet verified - show placeholder that will trigger verification when visible
             return (
-                <span
-                    ref={(el) => {
-                        if (el) {
-                            rowRefs.current.set(displayNumber, el as any);
-                            observerRef.current?.observe(el);
-                        }
-                    }}
-                    data-display-number={displayNumber}
-                    data-sql-responsible={matter.responsible_solicitor || ''}
-                    data-sql-originating={matter.originating_solicitor || ''}
-                    style={{ display: 'inline-block', width: 14, height: 14, marginLeft: 4, verticalAlign: 'middle' }}
-                    title="Click to verify against Clio"
-                />
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 4, verticalAlign: 'middle' }}>
+                    <span
+                        ref={(el) => {
+                            if (el) {
+                                rowRefs.current.set(displayNumber, el as any);
+                                observerRef.current?.observe(el);
+                            }
+                        }}
+                        data-display-number={displayNumber}
+                        data-sql-responsible={matter.responsible_solicitor || ''}
+                        data-sql-originating={matter.originating_solicitor || ''}
+                        style={{ display: 'inline-block', width: 14, height: 14 }}
+                        title="Click to verify against Clio"
+                    />
+                    {allowSync && (
+                        <button
+                            onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                syncMatterFromClio(displayNumber);
+                            }}
+                            style={{
+                                background: 'transparent',
+                                border: 'none',
+                                padding: '0 2px',
+                                cursor: 'pointer',
+                                color: colours.highlight,
+                                fontSize: 9,
+                                fontWeight: 600,
+                                textDecoration: 'underline',
+                            }}
+                            title="Sync this matter from Clio"
+                        >
+                            Sync
+                        </button>
+                    )}
+                </span>
             );
         }
         
@@ -1555,18 +1596,41 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
             );
         }
         
-        // Verified and no mismatch - show subtle checkmark
+        // Verified and no mismatch
         return (
-            <Icon
-                iconName="CheckMark"
-                style={{
-                    marginLeft: 4,
-                    fontSize: 10,
-                    color: colours.green,
-                    opacity: 0.6,
-                }}
-                title="Verified: SQL matches Clio"
-            />
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 4 }}>
+                <Icon
+                    iconName="CheckMark"
+                    style={{
+                        fontSize: 10,
+                        color: colours.green,
+                        opacity: 0.6,
+                    }}
+                    title="Verified: SQL matches Clio"
+                />
+                {allowSync && (
+                    <button
+                        onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            syncMatterFromClio(displayNumber);
+                        }}
+                        style={{
+                            background: 'transparent',
+                            border: 'none',
+                            padding: '0 2px',
+                            cursor: 'pointer',
+                            color: colours.highlight,
+                            fontSize: 9,
+                            fontWeight: 600,
+                            textDecoration: 'underline',
+                        }}
+                        title="Sync this matter from Clio"
+                    >
+                        Sync
+                    </button>
+                )}
+            </span>
         );
     }, [clioVerificationCache, isDarkMode, syncMatterFromClio]);
 
@@ -1684,50 +1748,7 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                         </div>
                     </div>
 
-                    {/* Urgency Banner - prompts action before year-end */}
-                    {showUrgencyBanner && filter === 'pending' && currentStats.pending > 0 && (
-                        <div
-                            className="rc-urgency-banner"
-                            style={{
-                                marginTop: 12,
-                                padding: '10px 14px',
-                                background: isDarkMode 
-                                    ? 'linear-gradient(90deg, rgba(239, 68, 68, 0.12) 0%, rgba(245, 158, 11, 0.08) 100%)'
-                                    : 'linear-gradient(90deg, rgba(239, 68, 68, 0.08) 0%, rgba(245, 158, 11, 0.05) 100%)',
-                                border: `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.2)' : 'rgba(239, 68, 68, 0.15)'}`,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                gap: 12,
-                                position: 'relative',
-                            }}
-                        >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                <span className="rc-urgency-icon" style={{ fontSize: 14 }}>⏰</span>
-                                <span style={{ fontSize: 12, color: textPrimary }}>
-                                    <strong style={{ color: colours.cta }}>Year-end deadline:</strong>
-                                    {' '}Please action these rate change notices before 1st January
-                                </span>
-                            </div>
-                            <button
-                                className="rc-urgency-dismiss"
-                                onClick={() => setShowUrgencyBanner(false)}
-                                style={{
-                                    background: 'transparent',
-                                    border: 'none',
-                                    padding: '2px 6px',
-                                    cursor: 'pointer',
-                                    color: textMuted,
-                                    fontSize: 10,
-                                    fontWeight: 500,
-                                    letterSpacing: '0.02em',
-                                }}
-                                title="Dismiss"
-                            >
-                                ✕
-                            </button>
-                        </div>
-                    )}
+                    {/* Urgency banner removed (year-end copy no longer needed) */}
 
                     {/* Template panel (collapsible) */}
                     {showTemplate && (
@@ -2516,7 +2537,7 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                                     </div>
                                                 </td>
                                                 <td style={{ padding: '12px', color: textSecondary }}>
-                                                    {client.open_matters.length === 1 && client.closed_matters.length === 0
+                                                    {client.open_matters.length === 1
                                                         ? (
                                                             <div style={{ display: 'flex', alignItems: 'center' }}>
                                                                 <a 
@@ -2533,7 +2554,7 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                                                 >
                                                                     {client.open_matters[0].display_number}
                                                                 </a>
-                                                                {renderVerificationIndicator(client.open_matters[0].display_number, client.open_matters[0])}
+                                                                {renderVerificationIndicator(client.open_matters[0].display_number, client.open_matters[0], client.status === 'pending')}
                                                             </div>
                                                         )
                                                         : (
@@ -2553,30 +2574,12 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                                                         >
                                                                             {m.display_number}
                                                                         </a>
-                                                                        {renderVerificationIndicator(m.display_number, m)}
+                                                                        {renderVerificationIndicator(m.display_number, m, client.status === 'pending')}
                                                                         {m.open_date && (
                                                                             <span style={{ fontSize: 9, color: textMuted }}>
                                                                                 ({new Date(m.open_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' })})
                                                                             </span>
                                                                         )}
-                                                                    </div>
-                                                                ))}
-                                                                {client.closed_matters.map((m, i) => (
-                                                                    <div key={`closed-${i}`} style={{ fontSize: 11, opacity: 0.5 }}>
-                                                                        <a 
-                                                                            href={`https://app.clio.com/nc/#/matters/${m.matter_id}`}
-                                                                            target="_blank"
-                                                                            rel="noopener noreferrer"
-                                                                            style={{ 
-                                                                                color: textMuted, 
-                                                                                textDecoration: 'none',
-                                                                            }}
-                                                                            onMouseEnter={(e) => (e.currentTarget.style.textDecoration = 'underline')}
-                                                                            onMouseLeave={(e) => (e.currentTarget.style.textDecoration = 'none')}
-                                                                        >
-                                                                            {m.display_number}
-                                                                        </a>
-                                                                        <span style={{ fontSize: 9, color: textMuted }}> (closed)</span>
                                                                     </div>
                                                                 ))}
                                                             </div>

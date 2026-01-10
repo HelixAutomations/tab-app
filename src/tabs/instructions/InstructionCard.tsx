@@ -1334,21 +1334,11 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
     }
   };
 
-  const handleKey = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      handleCardClick((e as unknown) as React.MouseEvent);
-    }
-  };
-
   return (
     <div
       className={cardClass}
       style={style_}
       onClick={handleCardClick}
-      onKeyDown={handleKey}
-      role="button"
-      tabIndex={0}
       ref={innerRef}
       onMouseEnter={() => { setIsHovered(true); setShowDetails(true); }}
       onMouseLeave={() => { setIsHovered(false); if (!selected && !clickedForActions) setShowDetails(false); }}

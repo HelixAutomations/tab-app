@@ -104,6 +104,32 @@ const AttendanceConfirmPanel = forwardRef<
 }, ref) => {
     const weekDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
+    const safeAttendanceRecords: AttendanceRecord[] = Array.isArray(attendanceRecords) ? attendanceRecords : [];
+    const safeTeamData: any[] = Array.isArray(teamData) ? teamData : [];
+    const safeAnnualLeaveRecords: AnnualLeaveRecord[] = Array.isArray(annualLeaveRecords) ? annualLeaveRecords : [];
+    const safeFutureLeaveRecords: AnnualLeaveRecord[] = Array.isArray(futureLeaveRecords) ? futureLeaveRecords : [];
+
+    const toIsoDate = (value: unknown): string | null => {
+        if (!value) return null;
+        if (value instanceof Date) {
+            if (Number.isNaN(value.getTime())) return null;
+            return value.toISOString().slice(0, 10);
+        }
+        if (typeof value === 'string') {
+            const trimmed = value.trim();
+            if (!trimmed) return null;
+            if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return trimmed.slice(0, 10);
+            const parsed = new Date(trimmed);
+            if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+            return null;
+        }
+        const coerced = String(value);
+        if (/^\d{4}-\d{2}-\d{2}/.test(coerced)) return coerced.slice(0, 10);
+        const parsed = new Date(coerced);
+        if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+        return null;
+    };
+
     const getMondayOfCurrentWeek = (): Date => {
         const now = new Date();
         const day = now.getDay();
@@ -125,7 +151,7 @@ const AttendanceConfirmPanel = forwardRef<
 
     const userInitials = userData?.[0]?.Initials || '';
 
-    const combinedLeaveRecords = useMemo(() => [...annualLeaveRecords, ...futureLeaveRecords], [annualLeaveRecords, futureLeaveRecords]);
+    const combinedLeaveRecords = useMemo(() => [...safeAnnualLeaveRecords, ...safeFutureLeaveRecords], [safeAnnualLeaveRecords, safeFutureLeaveRecords]);
 
     const initialState: Record<string, string[]> = useMemo(() => {
         const state: Record<string, string[]> = {
@@ -141,15 +167,16 @@ const AttendanceConfirmPanel = forwardRef<
             Sat: 'Saturday',
             Sun: 'Sunday',
         };
-        attendanceRecords
+        safeAttendanceRecords
             .filter((r) => r.Initials === userInitials)
             .forEach((rec) => {
-                state[rec.Week_Start] = rec.Attendance_Days
+                const weekKey = toIsoDate(rec.Week_Start) ?? String(rec.Week_Start ?? '');
+                state[weekKey] = rec.Attendance_Days
                     ? rec.Attendance_Days.split(',').map((d) => dayMap[d.trim()] || d.trim())
                     : [];
             });
         return state;
-    }, [attendanceRecords, userInitials, currentWeekStart, nextWeekStart]);
+    }, [safeAttendanceRecords, userInitials, currentWeekStart, nextWeekStart]);
 
     const [localAttendance, setLocalAttendance] = useState<Record<string, string[]>>(initialState);
     const [saving, setSaving] = useState(false);
@@ -165,19 +192,25 @@ const AttendanceConfirmPanel = forwardRef<
     const weekStartToUse = useNextWeek ? nextWeekStart : currentWeekStart;
 
     const getMemberWeek = (initials: string): string => {
-        const records = attendanceRecords.filter(
-            (rec) => rec.Initials === initials && rec.Week_Start === weekStartToUse
+        const records = safeAttendanceRecords.filter(
+            (rec) =>
+                rec.Initials === initials &&
+                (toIsoDate(rec.Week_Start) ?? String(rec.Week_Start ?? '')) === weekStartToUse
         );
         return records.map((rec) => rec.Attendance_Days || '').filter(Boolean).join(',');
     };
 
     const getStatus = (personAttendance: string, initials: string): 'office' | 'home' | 'away' => {
         const isOnLeave = combinedLeaveRecords.some(
-            (leave) =>
-                leave.status === 'booked' &&
-                leave.person.trim().toLowerCase() === initials.trim().toLowerCase() &&
-                targetDayStr >= leave.start_date &&
-                targetDayStr <= leave.end_date
+            (leave) => {
+                if (leave.status !== 'booked') return false;
+                const person = String((leave as any)?.person ?? '').trim().toLowerCase();
+                if (!person) return false;
+                const start = String((leave as any)?.start_date ?? '').trim();
+                const end = String((leave as any)?.end_date ?? '').trim();
+                if (!start || !end) return false;
+                return person === initials.trim().toLowerCase() && targetDayStr >= start && targetDayStr <= end;
+            }
         );
         if (isOnLeave) return 'away';
         const dayMap: Record<string, string> = {
@@ -197,7 +230,7 @@ const AttendanceConfirmPanel = forwardRef<
 
     const groups = useMemo(() => {
         const group = { office: [] as any[], home: [] as any[], away: [] as any[] };
-        teamData.forEach((teamMember) => {
+        safeTeamData.forEach((teamMember) => {
             const attendance = getMemberWeek(teamMember.Initials);
             const status = getStatus(attendance, teamMember.Initials);
             if (status === 'office') group.office.push(teamMember);
@@ -205,7 +238,7 @@ const AttendanceConfirmPanel = forwardRef<
             else group.away.push(teamMember);
         });
         return group;
-    }, [attendanceRecords, teamData, combinedLeaveRecords, targetDayLabel, targetDayStr, weekStartToUse]);
+    }, [safeAttendanceRecords, safeTeamData, combinedLeaveRecords, targetDayLabel, targetDayStr, weekStartToUse]);
 
     useImperativeHandle(ref, () => ({
         setWeek: () => { },
@@ -272,7 +305,7 @@ const AttendanceConfirmPanel = forwardRef<
                             </tr>
                         </thead>
                         <tbody>
-                            {teamData.map((member) => (
+                            {safeTeamData.map((member) => (
                                 <tr key={member.Initials}>
                                     <td style={{ ...cellStyle, fontWeight: 600 }}>{member.Initials}</td>
                                     {weekDays.map((day, idx) => {

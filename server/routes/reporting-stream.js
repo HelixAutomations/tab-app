@@ -303,7 +303,29 @@ router.get('/stream-datasets', async (req, res) => {
       log.error(`❌ Dataset ${datasetName} failed after ${totalTime}ms:`, error.message);
       log.error('Full error:', error);
       
-      // Send error status to client
+      // Graceful degradation for Clio token errors - log but still send error status 
+      // so frontend can fallback to wipDbCurrentWeek
+      const isClioDataset = datasetName === 'wipClioCurrentWeek';
+      const isClioTokenError = error.message && (
+        error.message.includes('401') || 
+        error.message.includes('invalid_token') ||
+        error.message.includes('Failed to obtain Clio access token')
+      );
+      
+      if (isClioDataset && isClioTokenError) {
+        log.warn(`⚠️ Clio token issue for ${datasetName}, frontend will use wipDbCurrentWeek fallback`);
+        // Send error status so frontend knows to use DB fallback instead of empty data
+        writeSse({
+          type: 'dataset-error',
+          dataset: datasetName,
+          status: 'error',
+          error: 'Clio authentication issue - using DB fallback',
+          processingTimeMs: totalTime
+        });
+        return;
+      }
+      
+      // Send error status to client for non-Clio errors
       writeSse({
         type: 'dataset-error',
         dataset: datasetName,
@@ -528,6 +550,7 @@ async function fetchRecoveredFees({ connectionString, range }) {
     : getLast24MonthsRange();
   const { from, to } = resolvedRange;
   const rangeLabel = range ? 'custom' : 'default';
+  log.info(`🔍 Recovered Fees Query (${rangeLabel}): ${formatDateOnly(from)} → ${formatDateOnly(to)}`);
   log.debug(`🔍 Recovered Fees Query (${rangeLabel}, optimized paged): ${formatDateOnly(from)} → ${formatDateOnly(to)}`);
 
   // Optimize by using 3-month windows instead of monthly for better performance
@@ -623,12 +646,17 @@ async function fetchWipClioCurrentWeek({ connectionString, entraId }) {
   // Force team scope here regardless of entraId so we don't accidentally fetch only the current user.
   try {
     if (typeof fetchWipClioCurrentWeekDirect === 'function') {
-      return await fetchWipClioCurrentWeekDirect({ connectionString, entraId: null });
+      const result = await fetchWipClioCurrentWeekDirect({ connectionString, entraId: null });
+      const activityCount = result?.current_week?.activities?.length ?? 0;
+      log.info(`✅ wipClioCurrentWeek: fetched ${activityCount} activities from Clio API`);
+      return result;
     }
+    log.warn('wipClioCurrentWeek: fetchWipClioCurrentWeekDirect not available');
   } catch (e) {
     log.warn('Direct Clio current-week fetch failed in streaming route:', e.message);
   }
   // Safe empty struct on failure
+  log.warn('wipClioCurrentWeek: returning empty fallback');
   return { current_week: { daily_data: {}, activities: [] }, last_week: { daily_data: {}, activities: [] } };
 }
 
@@ -1192,7 +1220,9 @@ async function fetchWipDbCurrentWeek({ connectionString }) {
   endOfCurrentWeek.setDate(startOfCurrentWeek.getDate() + 6);
   endOfCurrentWeek.setHours(23, 59, 59, 999);
 
-  return withRequest(connectionString, async (request, sqlClient) => {
+  log.info(`📅 wipDbCurrentWeek: querying ${formatDateOnly(startOfCurrentWeek)} → ${formatDateOnly(endOfCurrentWeek)}`);
+
+  const rows = await withRequest(connectionString, async (request, sqlClient) => {
     request.input('dateFrom', sqlClient.Date, formatDateOnly(startOfCurrentWeek));
     request.input('dateTo', sqlClient.Date, formatDateOnly(endOfCurrentWeek));
     const result = await request.query(`
@@ -1204,8 +1234,8 @@ async function fetchWipDbCurrentWeek({ connectionString }) {
       FROM [dbo].[wip]
       WHERE created_at_date BETWEEN @dateFrom AND @dateTo
     `);
-    const rows = Array.isArray(result.recordset) ? result.recordset : [];
-    return rows.map((row) => {
+    const rowsArr = Array.isArray(result.recordset) ? result.recordset : [];
+    return rowsArr.map((row) => {
       if (row.quantity_in_hours != null) {
         const value = Number(row.quantity_in_hours);
         if (!Number.isNaN(value)) row.quantity_in_hours = Math.ceil(value * 10) / 10;
@@ -1213,4 +1243,7 @@ async function fetchWipDbCurrentWeek({ connectionString }) {
       return row;
     });
   });
+  
+  log.info(`✅ wipDbCurrentWeek: retrieved ${rows.length} rows from DB`);
+  return rows;
 }

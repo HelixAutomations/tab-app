@@ -70,6 +70,8 @@ const reportingStreamRouter = require('./routes/reporting-stream');
 const marketingMetricsRouter = require('./routes/marketing-metrics');
 const poidRouter = require('./routes/poid');
 const homeMetricsStreamRouter = require('./routes/home-metrics-stream');
+const homeWipRouter = require('./routes/home-wip');
+const homeEnquiriesRouter = require('./routes/home-enquiries');
 const transactionsRouter = require('./routes/transactions');
 const futureBookingsRouter = require('./routes/futureBookings');
 const outstandingBalancesRouter = require('./routes/outstandingBalances');
@@ -83,6 +85,7 @@ const expertsRouter = require('./routes/experts');
 const counselRouter = require('./routes/counsel');
 const techTicketsRouter = require('./routes/techTickets');
 const telemetryRouter = require('./routes/telemetry');
+const financialTaskRouter = require('./routes/financialTask');
 // const { router: cclRouter, CCL_DIR } = require('./routes/ccl');
 
 // Initialize ops log (loads recent entries and ensures log dir)
@@ -173,6 +176,8 @@ app.use('/api', searchInboxRouter);
 app.use('/api/reporting', reportingRouter);
 app.use('/api/reporting-stream', reportingStreamRouter);
 app.use('/api/home-metrics', homeMetricsStreamRouter);
+app.use('/api/home-wip', homeWipRouter);
+app.use('/api/home-enquiries', homeEnquiriesRouter);
 app.use('/api/marketing-metrics', marketingMetricsRouter);
 app.use('/api/transactions', transactionsRouter);
 app.use('/api/cache-preheater', cachePreheaterRouter);
@@ -198,6 +203,9 @@ app.use('/api/telemetry', telemetryRouter);
 // IMPORTANT: Attendance routes must come BEFORE proxy routes to avoid conflicts
 app.use('/api/attendance', attendanceRouter);
 app.use('/api/book-space', bookSpaceRouter);
+
+// Financial task route (Asana + optional OneDrive upload)
+app.use('/api/financial-task', financialTaskRouter);
 
 // Metrics routes (migrated from Azure Functions to fix cold start issues)
 app.use('/api/poid', poidRouter);

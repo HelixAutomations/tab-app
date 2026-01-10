@@ -29,6 +29,32 @@
   box-sizing: border-box;
 }
 
+/* Consistent focus states for keyboard navigation */
+:focus-visible {
+  outline: 2px solid var(--helix-highlight);
+  outline-offset: 2px;
+}
+
+button:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid var(--helix-highlight);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+a:focus-visible {
+  outline: 2px solid var(--helix-highlight);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--helix-highlight);
+  outline-offset: 0;
+}
+
 body {
   margin: 0;
   font-family: 'Raleway', -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
@@ -169,4 +195,106 @@ body.theme-dark .ms-Dropdown,
 body.theme-dark .ms-Dropdown-caretDown,
 .theme-dark .ms-Dropdown-caretDown {
   color: #94a3b8 !important;
+}
+
+/* =======================================================
+    HOVER MICRO-INTERACTIONS
+   ======================================================= */
+
+/* Interactive elements - subtle lift on hover */
+.interactive-lift {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.interactive-lift:hover {
+  transform: translateY(-1px);
+}
+
+.interactive-lift:active {
+  transform: translateY(0);
+}
+
+/* Icon buttons - scale and brighten */
+.icon-btn {
+  transition: transform 0.12s ease, opacity 0.12s ease, filter 0.12s ease;
+  opacity: 0.7;
+}
+
+.icon-btn:hover {
+  transform: scale(1.08);
+  opacity: 1;
+}
+
+.icon-btn:active {
+  transform: scale(0.95);
+}
+
+/* Cards - border glow effect */
+.card-hover {
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.card-hover:hover {
+  border-color: rgba(54, 144, 206, 0.25);
+}
+
+[data-theme="dark"] .card-hover:hover {
+  border-color: rgba(54, 144, 206, 0.35);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+}
+
+/* Clickable rows - background highlight */
+.row-hover {
+  transition: background-color 0.12s ease;
+}
+
+.row-hover:hover {
+  background-color: rgba(54, 144, 206, 0.06);
+}
+
+[data-theme="dark"] .row-hover:hover {
+  background-color: rgba(54, 144, 206, 0.08);
+}
+
+/* Buttons - subtle press effect */
+.btn-press {
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.btn-press:active {
+  transform: scale(0.97);
+}
+
+/* Links - underline animation */
+.link-animate {
+  position: relative;
+  text-decoration: none;
+}
+
+.link-animate::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  width: 0;
+  height: 1px;
+  background: currentColor;
+  transition: width 0.2s ease;
+}
+
+.link-animate:hover::after {
+  width: 100%;
+}
+
+/* Chip/badge - pop effect */
+.chip-pop {
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.chip-pop:hover {
+  transform: scale(1.02);
+}
+
+.chip-pop:active {
+  transform: scale(0.98);
 }

@@ -1192,6 +1192,110 @@ async function deleteClioCalendarEntry(accessToken, clioEntryId) {
   }
 }
 
+// PUT /api/attendance/admin/annual-leave - Admin endpoint to modify leave records (status, days_taken)
+router.put('/admin/annual-leave', async (req, res) => {
+  try {
+    const { id, newStatus, days_taken } = req.body;
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing 'id' in request body."
+      });
+    }
+
+    const parsedId = parseInt(id, 10);
+    if (isNaN(parsedId)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid ID format: '${id}'. Expected a numeric value.`
+      });
+    }
+
+    // Validate status if provided
+    const allowedStatuses = ['requested', 'approved', 'booked', 'rejected', 'acknowledged', 'discarded'];
+    if (newStatus && !allowedStatuses.includes(newStatus.toLowerCase())) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid 'newStatus'. Allowed statuses are: ${allowedStatuses.join(', ')}.`
+      });
+    }
+
+    const password = await getSqlPassword();
+    if (!password) {
+      return res.status(500).json({
+        success: false,
+        error: 'Could not retrieve database credentials'
+      });
+    }
+
+    const projectDataConnStr = `Server=tcp:helix-database-server.database.windows.net,1433;Initial Catalog=helix-project-data;Persist Security Info=False;User ID=helix-database-server;Password=${password};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;`;
+
+    // Build dynamic update query based on provided fields
+    const updates = [];
+    const inputs = [];
+
+    if (newStatus) {
+      updates.push('[status] = @newStatus');
+      inputs.push({ name: 'newStatus', type: sql.VarChar(50), value: newStatus });
+    }
+
+    if (days_taken !== undefined && days_taken !== null) {
+      updates.push('[days_taken] = @daysTaken');
+      inputs.push({ name: 'daysTaken', type: sql.Decimal(5, 1), value: parseFloat(days_taken) });
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No valid fields to update. Provide newStatus and/or days_taken.'
+      });
+    }
+
+    const updateResult = await attendanceQuery(projectDataConnStr, (reqSql, sqlTypes) => {
+      let request = reqSql.input('id', sqlTypes.Int, parsedId);
+      inputs.forEach(inp => {
+        request = request.input(inp.name, inp.type, inp.value);
+      });
+      return request.query(`
+        UPDATE [dbo].[annualLeave]
+           SET ${updates.join(', ')}
+         WHERE [request_id] = @id;
+      `);
+    });
+
+    if (updateResult.rowsAffected[0] === 0) {
+      return res.status(404).json({
+        success: false,
+        error: `No record found with ID ${id}.`
+      });
+    }
+
+    // Clear cache
+    const today = getTodayIso();
+    const cacheKey = generateCacheKey('attendance', 'annual-leave-general', today);
+    try {
+      await deleteCache(cacheKey);
+    } catch (cacheError) {
+      console.warn('Failed to clear annual leave cache:', cacheError);
+    }
+
+    console.log(`[Admin] Updated annual leave record ${id}: status=${newStatus || 'unchanged'}, days_taken=${days_taken ?? 'unchanged'}`);
+
+    res.json({
+      success: true,
+      message: `Successfully updated annual leave record ${id}.`
+    });
+
+  } catch (error) {
+    console.error('Error updating annual leave (admin):', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update annual leave record'
+    });
+  }
+});
+
 // DELETE /api/attendance/annual-leave/:id - Delete an annual leave record
 router.delete('/annual-leave/:id', async (req, res) => {
   try {

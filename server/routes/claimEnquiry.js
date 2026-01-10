@@ -1,6 +1,8 @@
 const express = require('express');
 const { getSecret } = require('../utils/getSecret');
 const { append, redact } = require('../utils/opLog');
+const { CACHE_CONFIG, deleteCachePattern } = require('../utils/redisClient');
+const { broadcastEnquiriesChanged } = require('../utils/enquiries-stream');
 
 const router = express.Router();
 
@@ -102,6 +104,27 @@ router.post('/', async (req, res) => {
             enquiryId,
             operations: result.operations
         });
+
+        // Ensure unified enquiries lists refresh correctly after claim.
+        // Claiming can happen via an external platform, so we invalidate our local unified cache.
+        try {
+            const deletedData = await deleteCachePattern(`${CACHE_CONFIG.PREFIXES.UNIFIED}:data:*`);
+            const deletedEnquiries = await deleteCachePattern(`${CACHE_CONFIG.PREFIXES.UNIFIED}:enquiries:*`);
+            console.log('claimEnquiry: Invalidated unified cache', { deletedData, deletedEnquiries });
+        } catch (cacheErr) {
+            console.warn('claimEnquiry: Cache invalidation failed (non-blocking)', cacheErr?.message);
+        }
+
+        // Notify connected clients (Enquiries tab).
+        // Include claimedAt so the UI can patch immediately without a full refetch.
+        try {
+            broadcastEnquiriesChanged({
+                changeType: 'claim',
+                enquiryId: String(enquiryId),
+                claimedBy: String(userEmail),
+                claimedAt: new Date().toISOString(),
+            });
+        } catch { /* non-blocking */ }
 
         res.json({
             success: true,

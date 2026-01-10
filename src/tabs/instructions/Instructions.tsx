@@ -21,6 +21,7 @@ import {
 } from "@fluentui/react";
 import DocumentPreviewModal from "../../components/DocumentPreviewModal";
 import { ActionFeedback } from "../../components/feedback/FeedbackComponents";
+import { useToast } from "../../components/feedback/ToastProvider";
 import {
   FaIdBadge,
   FaRegIdBadge,
@@ -102,6 +103,7 @@ const Instructions: React.FC<InstructionsProps> = ({
 }) => {
   const { isDarkMode } = useTheme();
   const { setContent } = useNavigatorActions();
+  const { showToast } = useToast();
   const [showNewMatterPage, setShowNewMatterPage] = useState<boolean>(false);
   const [showRiskPage, setShowRiskPage] = useState<boolean>(false);
   // Core selection + workflow state (restored after resume/new workflow removal)
@@ -134,12 +136,6 @@ const Instructions: React.FC<InstructionsProps> = ({
   const [isWorkbenchVisible, setIsWorkbenchVisible] = useState(false);
   const [workbenchHeight, setWorkbenchHeight] = useState(500); // Default height in pixels
   const [isResizing, setIsResizing] = useState(false);
-  // On-brand toast feedback
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-  const showToast = useCallback((message: string, type: 'success' | 'error' = 'success') => {
-    setToast({ message, type });
-    window.setTimeout(() => setToast(null), 3500);
-  }, []);
 
   // Navigator parity for detail state (Matter Opening): mirror enquiries (back + tabs)
   const [activeInstructionDetailTab, setActiveInstructionDetailTab] = useState<'Matter' | 'Timeline'>('Matter');
@@ -503,11 +499,11 @@ const Instructions: React.FC<InstructionsProps> = ({
         });
       }
 
-      setToast({ message: `${editingField.field} updated successfully`, type: 'success' });
+      showToast({ type: 'success', message: `${editingField.field} updated successfully` });
     } catch (error) {
       console.error('Failed to save field:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      setToast({ message: `Failed to update ${editingField.field}: ${errorMessage}`, type: 'error' });
+      showToast({ type: 'error', message: `Failed to update ${editingField.field}: ${errorMessage}` });
     } finally {
       setEditingField(null);
     }
@@ -1070,7 +1066,7 @@ const Instructions: React.FC<InstructionsProps> = ({
         }
       } else {
         console.error(`Failed to ${archive ? 'archive' : 'delete'} payment:`, await response.text());
-        alert(`Failed to ${archive ? 'archive' : 'delete'} payment. Please try again.`);
+        showToast({ type: 'error', message: `Failed to ${archive ? 'archive' : 'delete'} payment. Please try again.` });
         // Remove from removing set on error
         setRemovingPayments(prev => {
           const newSet = new Set(prev);
@@ -1080,7 +1076,7 @@ const Instructions: React.FC<InstructionsProps> = ({
       }
     } catch (error) {
       console.error(`Error ${archive ? 'archiving' : 'deleting'} payment:`, error);
-      alert(`Error ${archive ? 'archiving' : 'deleting'} payment. Please try again.`);
+      showToast({ type: 'error', message: `Error ${archive ? 'archiving' : 'deleting'} payment. Please try again.` });
       // Remove from removing set on error
       setRemovingPayments(prev => {
         const newSet = new Set(prev);
@@ -1111,6 +1107,14 @@ const Instructions: React.FC<InstructionsProps> = ({
       }
     }
   }, []); // Only run on mount
+
+  // Ensure the matter opening view starts at the top when invoked from instructions
+  useEffect(() => {
+    if (showNewMatterPage) {
+      // Schedule after render so layout is available
+      requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'auto' }));
+    }
+  }, [showNewMatterPage]);
 
   // Resolve the selected deal for the active instruction (used by Workbench)
   const selectedDeal = useMemo(() => {
@@ -3776,7 +3780,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
         setShowReviewModal(true);
       } catch (error) {
         console.error('Failed to fetch verification details:', error);
-        alert('Failed to load verification details. Please try again.');
+        showToast({ type: 'error', message: 'Failed to load verification details. Please try again.' });
       }
       return; // STOP HERE - no API call needed
     } 
@@ -3790,7 +3794,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
         setShowReviewModal(true);
       } catch (error) {
         console.error('Failed to fetch verification details:', error);
-        alert('Failed to load verification details. Please try again.');
+        showToast({ type: 'error', message: 'Failed to load verification details. Please try again.' });
       }
       return; // STOP HERE - no API call needed
     }
@@ -4092,10 +4096,10 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
         throw new Error(errorData.error || 'Failed to send email');
       }
       const result = await response.json();
-      showToast(`Document request email sent to ${result.recipient}`, 'success');
+      showToast({ type: 'success', message: `Document request email sent to ${result.recipient}` });
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);
-      showToast(`Failed to send document request: ${msg}`, 'error');
+      showToast({ type: 'error', message: `Failed to send document request: ${msg}` });
     }
   };
 
@@ -4366,38 +4370,6 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
 
   return (
     <React.Fragment>
-      {/* On-brand toast */}
-      {toast && (
-        <div
-          className={"toast-enter-active"}
-          style={{
-            position: 'fixed',
-            top: 16,
-            right: 16,
-            zIndex: 2000,
-            minWidth: 280,
-            maxWidth: 420,
-            padding: '10px 14px',
-            borderRadius: 8,
-            background: isDarkMode ? '#0B1222' : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-            color: isDarkMode ? colours.dark.text : '#061733',
-            border: `1px solid ${toast.type === 'success' ? '#34D399' : '#F87171'}`,
-            boxShadow: isDarkMode ? '0 4px 6px rgba(0,0,0,0.3)' : '0 4px 6px rgba(0,0,0,0.07)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10
-          }}
-        >
-          <div style={{
-            width: 8,
-            height: 8,
-            borderRadius: '50%',
-            background: toast.type === 'success' ? '#10B981' : '#EF4444'
-          }} />
-          <div style={{ fontSize: 12, fontWeight: 600 }}>{toast.message}</div>
-        </div>
-      )}
-      
       {/* Action feedback for errors and validation messages */}
       {actionFeedback && (
         <div style={{
@@ -5088,16 +5060,18 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                   setShowReviewModal(true);
                 } catch (error) {
                   console.error('Failed to fetch verification details:', error);
-                  alert('Failed to load verification details. Please try again.');
+                  showToast({ type: 'error', message: 'Failed to load verification details. Please try again.' });
                 }
               }}
               onOpenMatter={(instruction: any) => {
-                setSelectedInstruction({ instruction });
+                // Ensure downstream matter opening receives a direct instruction object (not nested)
+                setSelectedInstruction(instruction);
                 setPendingInstructionRef(instruction.InstructionRef || '');
                 setShowNewMatterPage(true);
               }}
               onOpenRiskAssessment={(instruction: any) => {
-                setSelectedInstruction({ instruction });
+                // Keep risk assessment flow consistent with instruction shape
+                setSelectedInstruction(instruction);
                 setPendingInstructionRef(instruction.InstructionRef || '');
                 setShowRiskPage(true);
               }}
@@ -8030,7 +8004,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
             <RiskAssessmentPage
               onBack={() => setShowRiskPage(false)}
               instructionRef={selectedInstruction.InstructionRef}
-              riskAssessor={(localUserData[0] as any)?.FullName || (localUserData[0] as any)?.["Full Name"] || 'Unknown'}
+              riskAssessor={currentUser?.FullName || 'Unknown'}
               existingRisk={selectedRisk}
               onSave={handleRiskAssessmentSave}
             />

@@ -1,12 +1,12 @@
 # Realtime Context
 
-Auto-generated: 2025-12-31T20:09:27.002Z
+Auto-generated: 2026-01-04T20:01:40.523Z
 
 ## Git State
 
 - **Branch**: main
-- **Uncommitted changes**: 130
-- **Last commit**: fc7ab66 rate change work
+- **Uncommitted changes**: 5
+- **Last commit**: d2e891d Ignore signature assets
 
 ## Submodules
 
@@ -20,7 +20,7 @@ Auto-generated: 2025-12-31T20:09:27.002Z
 
 | Port | Status |
 |------|--------|
-| 3000 | 🟢 Active |
+| 3000 | ⚫ Inactive |
 | 7071 | ⚫ Inactive |
 | 53000 | ⚫ Inactive |
 
@@ -29,23 +29,23 @@ Auto-generated: 2025-12-31T20:09:27.002Z
 - .github/copilot-instructions.md
 - .github/instructions/CLIO_API_REFERENCE.md
 - .github/instructions/DATABASE_SCHEMA_REFERENCE.md
+- .github/instructions/ENQUIRIES_TABLE_DESIGN_PATTERN.md
 - .github/instructions/README.md
+- .github/instructions/REALTIME_CONTEXT.md
+- .github/instructions/ROADMAP.md
+- .github/instructions/TEAM_DATA_REFERENCE.md
+- .github/instructions/WORKSPACE_OPTIMIZATION.md
 - .gitignore
-- .vscode/tasks.json
 - AzuriteConfig
 - api/src/functions/getRoadmap.ts
 - api/src/functions/insertBookSpace.ts
 - api/src/functions/insertRoadmap.ts
 - api/src/functions/postFinancialTask.ts
 - api/src/functions/updateEnquiryRating.ts
+- api/src/functions/updateInstructionStatus.ts
 - api/src/index.ts
 - app/instructions/instructions/apps/pitch/backend/email.js
 - app/instructions/instructions/apps/pitch/backend/server.js
-- app/instructions/instructions/apps/pitch/client/src/App.tsx
-- database/migrations/008_rate_change_escalations.sql
-- decoupled-functions/.funcignore
-- decoupled-functions/.gitignore
-- decoupled-functions/.vscode/extensions.json
 
 ---
 *Run `node scripts/sync-context.mjs` to refresh*

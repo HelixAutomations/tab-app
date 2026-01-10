@@ -1,27 +1,26 @@
-/* Immediate Actions Portal Styling */
+/* Immediate Actions Portal Styling - Operations Dashboard Aesthetic */
 
 .immediate-actions-portal {
-  /* Opaque surfaces to avoid stale translucency when theme toggles */
+  /* Clean, minimal surface matching ops dashboard */
   background: #f8fafc;
-  color: #061733;
+  color: #1e293b;
   padding: 12px 0;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
 }
 
 body.theme-dark .immediate-actions-portal,
 body[data-theme="dark"] .immediate-actions-portal,
 body.theme-contrast .immediate-actions-portal,
 body[data-theme="contrast"] .immediate-actions-portal {
-  background: linear-gradient(135deg, rgba(7, 16, 32, 0.98) 0%, rgba(11, 30, 55, 0.94) 100%);
-  border-bottom: 1px solid rgba(125, 211, 252, 0.15);
-  color: #f3f4f6;
+  background: #0a0e1a;
+  border-bottom: 1px solid rgba(54, 144, 206, 0.12);
+  color: #f1f5f9;
 }
 
 body.theme-light .immediate-actions-portal,
 body[data-theme="light"] .immediate-actions-portal {
   background: #f8fafc;
-  color: #061733;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  color: #1e293b;
 }
 
 .immediate-action-chip {

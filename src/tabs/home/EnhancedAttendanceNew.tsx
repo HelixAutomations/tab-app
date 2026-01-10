@@ -69,76 +69,6 @@ const EnhancedAttendance = forwardRef<EnhancedAttendanceRef, EnhancedAttendanceP
   const userInitials = userData?.displayName?.match(/\b\w/g)?.join('').toUpperCase() || 
                       userData?.mail?.substring(0, 2).toUpperCase() || 'UN';
 
-  // Quick update function for status changes
-  const quickUpdate = async (status: 'home' | 'office' | 'out-of-office') => {
-    try {
-      // Use Monday as start of week (consistent with Home.tsx and server)
-      const today = new Date();
-      const dayOfWeek = today.getDay();
-      const monday = new Date(today);
-      monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
-      const weekStartStr = monday.toISOString().split('T')[0];
-
-      const response = await fetch('/api/attendance/updateAttendance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          initials: userInitials,
-          weekStart: weekStartStr,
-          attendanceDays: status
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to update attendance');
-      }
-
-      // Show confirmation
-      setShowConfirmation(true);
-      setTimeout(() => setShowConfirmation(false), 2000);
-
-      // Refresh data by fetching updated attendance records
-      if (onAttendanceUpdated) {
-        try {
-          const attendanceResponse = await fetch('/api/attendance/getAttendance', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-          });
-          
-          if (attendanceResponse.ok) {
-            const attendanceResult = await attendanceResponse.json();
-            if (attendanceResult.success && attendanceResult.attendance) {
-              // Transform API response to AttendanceRecord shape expected by Home.handleAttendanceUpdated
-              const transformedRecords = attendanceResult.attendance.map((member: any) => ({
-                Attendance_ID: 0,
-                Entry_ID: 0,
-                First_Name: member.First,
-                Initials: member.Initials,
-                Level: member.Level || '',
-                Week_Start: member.Week_Start,
-                Week_End: member.Week_End,
-                ISO_Week: typeof member.iso === 'number' ? member.iso : 0,
-                Attendance_Days: member.Status || '',
-                Confirmed_At: member.Confirmed_At ?? null,
-                status: member.Status,
-                isConfirmed: Boolean(member.Confirmed_At),
-                isOnLeave: member.IsOnLeave
-              }));
-              onAttendanceUpdated(transformedRecords);
-            }
-          }
-        } catch (refreshError) {
-          console.error('Error refreshing attendance data:', refreshError);
-          // Fallback: still call with empty array if refresh fails
-          onAttendanceUpdated([]);
-        }
-      }
-    } catch (error) {
-      console.error('Error updating attendance:', error);
-      setSaveError(error instanceof Error ? error.message : 'Failed to update attendance');
-    }
-  };
-
   // Modal functions
   const openModal = () => {
     setIsModalOpen(true);
@@ -390,42 +320,63 @@ const EnhancedAttendance = forwardRef<EnhancedAttendanceRef, EnhancedAttendanceP
 
   return (
     <div style={{ position: 'relative' }}>
-      {/* Loading overlay */}
+      {/* Loading skeleton */}
       {isLoading && (
         <div
           style={{
             position: 'absolute',
             inset: 0,
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '10px',
+            flexDirection: 'column',
+            gap: '12px',
+            padding: '16px',
             background: isDarkMode 
-              ? 'rgba(15, 23, 42, 0.85)' 
-              : 'rgba(255, 255, 255, 0.9)',
-            backdropFilter: 'blur(2px)',
+              ? 'rgba(15, 23, 42, 0.98)' 
+              : 'rgba(255, 255, 255, 0.98)',
             borderRadius: '2px',
             zIndex: 10,
-            transition: 'opacity 0.3s ease',
           }}
         >
-          <Icon
-            iconName="Sync"
+          {/* Skeleton header bar */}
+          <div style={{ display: 'flex', gap: '8px' }}>
+            {[1, 2, 3].map(i => (
+              <div
+                key={i}
+                className="skeleton-shimmer"
+                style={{
+                  width: '80px',
+                  height: '32px',
+                  borderRadius: '2px',
+                  background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(148, 163, 184, 0.15)',
+                }}
+              />
+            ))}
+          </div>
+          {/* Skeleton summary bar */}
+          <div
+            className="skeleton-shimmer"
             style={{
-              fontSize: '18px',
-              color: colours.blue,
-              animation: 'spin 1s linear infinite',
+              width: '100%',
+              height: '44px',
+              borderRadius: '2px',
+              background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(148, 163, 184, 0.15)',
             }}
           />
-          <span
-            style={{
-              fontSize: '13px',
-              fontWeight: 500,
-              color: isDarkMode ? colours.dark.subText : colours.light.subText,
-            }}
-          >
-            Loading...
-          </span>
+          {/* Skeleton status cards */}
+          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+            {[1, 2, 3].map(i => (
+              <div
+                key={i}
+                className="skeleton-shimmer"
+                style={{
+                  flex: '1 1 280px',
+                  height: '120px',
+                  borderRadius: '2px',
+                  background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(148, 163, 184, 0.15)',
+                }}
+              />
+            ))}
+          </div>
         </div>
       )}
       

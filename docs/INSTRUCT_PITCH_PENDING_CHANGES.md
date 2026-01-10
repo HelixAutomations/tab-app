@@ -254,7 +254,7 @@ These new documentation files should be committed:
 
 ## Implementation Checklist
 
-- [ ] Checkout `workspace` branch: `git checkout workspace && git pull origin workspace`
+- [ ] (Upstream repo) Checkout `workspace` branch and pull latest (do not run `git pull` inside `submodules/` in helix-hub)
 - [ ] Apply Change 1: CC/BCC support in `sendEmail/index.js`
 - [ ] Apply Change 2: Payment fetch in `fetchInstructionData/index.js`
 - [ ] Apply Change 3: Update `decoupled-functions/host.json`
@@ -299,13 +299,14 @@ Verify that instructions returned include a `payments` array:
 
 ## After Pushing
 
-Once changes are pushed to `instruct-pitch` repo, update the submodule in helix-hub:
+In this repo, `submodules/` is read-only and used for reference only.
+
+- Do **not** run `git fetch`, `git pull`, `git reset`, or `git submodule update --remote` inside `submodules/`.
+- If helix-hub genuinely needs a newer submodule revision, update the submodule pointer deliberately in a dedicated change.
+
+If you only need to *check* whether the submodule is behind, prefer a status check like:
 
 ```bash
-cd "helix hub v1/submodules/instruct-pitch"
-git fetch origin
-git reset --hard origin/workspace
-cd ../..
-git add submodules/instruct-pitch
-git commit -m "chore: update instruct-pitch submodule"
+git -C submodules/instruct-pitch rev-parse HEAD
+git ls-remote origin workspace
 ```

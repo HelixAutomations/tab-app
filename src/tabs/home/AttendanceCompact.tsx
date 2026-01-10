@@ -7,7 +7,6 @@ import React, {
     useRef,
 } from 'react';
 import { Icon, TooltipHost, mergeStyles, DefaultButton } from '@fluentui/react';
-import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
 import { sharedDefaultButtonStyles } from '../../app/styles/ButtonStyles';
 import { colours } from '../../app/styles/colours';
 import { cardStyles } from '../instructions/componentTokens';
@@ -163,7 +162,6 @@ const AttendanceCompact = forwardRef<
         {
             isDarkMode,
             isLoadingAttendance,
-            isLoadingAnnualLeave,
             attendanceError,
             annualLeaveError,
             attendanceRecords,
@@ -223,7 +221,6 @@ const AttendanceCompact = forwardRef<
             );
 
         const currentConfirmed = isConfirmedForWeek(currentWeekStart);
-        const nextConfirmed = isConfirmedForWeek(nextWeekStart);
 
         const openConfirmationPanel = () => {
             setPanelOpen(true);
@@ -254,9 +251,6 @@ const AttendanceCompact = forwardRef<
 
         const saveAttendance = async (weekStart: string, attendanceDays: string) => {
             const firstName = teamData.find((t) => t.Initials === userInitials)?.First || 'Unknown';
-            const payload = [
-                { firstName, initials: userInitials, weekStart, attendanceDays },
-            ];
 
             if (useLocalData) {
                 const newRecord = {

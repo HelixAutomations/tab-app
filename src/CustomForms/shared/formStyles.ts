@@ -32,7 +32,7 @@ export const getFormCardStyle = (isDarkMode: boolean, accentColor?: string): Rea
   background: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#ffffff',
   border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(0, 0, 0, 0.06)'}`,
   borderLeft: accentColor ? `3px solid ${accentColor}` : undefined,
-  borderRadius: 0,
+  borderRadius: 4,
   overflow: 'hidden',
   maxWidth: '900px',
   margin: '0 auto',
@@ -78,7 +78,7 @@ export const getFormContentStyle = (isDarkMode: boolean): React.CSSProperties =>
 export const getFormSectionStyle = (isDarkMode: boolean, accentColor?: string): React.CSSProperties => ({
   background: isDarkMode ? 'rgba(30, 41, 59, 0.3)' : '#ffffff',
   border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
-  borderRadius: 0,
+  borderRadius: 4,
   padding: '1.25rem',
   marginBottom: '1.25rem',
 });
@@ -117,7 +117,7 @@ export const getInfoBoxStyle = (isDarkMode: boolean, variant: 'info' | 'warning'
       ? `rgba(${hexToRgb(color)}, 0.2)` 
       : `rgba(${hexToRgb(color)}, 0.15)`}`,
     borderLeft: `3px solid ${color}`,
-    borderRadius: 0,
+    borderRadius: 4,
     padding: '1rem',
     marginBottom: '1.25rem',
   };
@@ -135,7 +135,7 @@ export const getInfoBoxTextStyle = (isDarkMode: boolean): React.CSSProperties =>
 
 export const getInputStyles = (isDarkMode: boolean) => ({
   fieldGroup: {
-    borderRadius: 0,
+    borderRadius: 4,
     border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
     background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#ffffff',
     minHeight: '44px',
@@ -161,7 +161,7 @@ export const getInputStyles = (isDarkMode: boolean) => ({
 
 export const getDropdownStyles = (isDarkMode: boolean) => ({
   dropdown: {
-    borderRadius: 0,
+    borderRadius: 4,
     border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
     background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#ffffff',
     height: '44px',
@@ -173,7 +173,7 @@ export const getDropdownStyles = (isDarkMode: boolean) => ({
     fontSize: '14px',
     lineHeight: '42px',
     height: '42px',
-    borderRadius: 0,
+    borderRadius: 4,
     border: 'none',
   },
   caretDownWrapper: {
@@ -189,7 +189,7 @@ export const getDropdownStyles = (isDarkMode: boolean) => ({
     padding: 0,
   },
   callout: {
-    borderRadius: 0,
+    borderRadius: 4,
     border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
     background: isDarkMode ? '#1e293b' : '#ffffff',
     boxShadow: isDarkMode 
@@ -227,7 +227,7 @@ export const getFormPrimaryButtonStyles = (isDarkMode: boolean, accentColor?: st
   root: {
     backgroundColor: accentColor || colours.highlight,
     borderColor: accentColor || colours.highlight,
-    borderRadius: 0,
+    borderRadius: 4,
     minHeight: '40px',
     padding: '0 24px',
   },
@@ -259,7 +259,7 @@ export const getFormDefaultButtonStyles = (isDarkMode: boolean) => ({
     backgroundColor: 'transparent',
     borderColor: isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(0, 0, 0, 0.15)',
     color: isDarkMode ? '#e2e8f0' : '#374151',
-    borderRadius: 0,
+    borderRadius: 4,
     minHeight: '40px',
     padding: '0 24px',
   },
@@ -282,7 +282,7 @@ export const getFormDefaultButtonStyles = (isDarkMode: boolean) => ({
 export const getFormDecisionButtonStyles = (isDarkMode: boolean) => ({
   root: {
     padding: '0 16px',
-    borderRadius: 0,
+    borderRadius: 4,
     backgroundColor: colours.highlight,
     border: 'none',
     minHeight: '40px',
@@ -311,7 +311,7 @@ export const getFormDecisionButtonStyles = (isDarkMode: boolean) => ({
 export const getFormSelectionButtonStyles = (isDarkMode: boolean) => ({
   root: {
     padding: '16px 28px',
-    borderRadius: 0,
+    borderRadius: 4,
     backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.6)' : colours.grey,
     border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.08)'}`,
     height: '70px',
@@ -353,7 +353,7 @@ export const getFormApproveButtonStyles = (isDarkMode: boolean) => ({
     backgroundColor: isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)',
     borderColor: '#22c55e',
     color: '#22c55e',
-    borderRadius: 0,
+    borderRadius: 4,
     minHeight: '36px',
     padding: '0 16px',
     fontWeight: 600 as const,
@@ -380,7 +380,7 @@ export const getFormRejectButtonStyles = (isDarkMode: boolean) => ({
     backgroundColor: isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)',
     borderColor: '#ef4444',
     color: '#ef4444',
-    borderRadius: 0,
+    borderRadius: 4,
     minHeight: '36px',
     padding: '0 16px',
     fontWeight: 600 as const,
@@ -455,7 +455,7 @@ export const getChoiceGroupStyles = (isDarkMode: boolean) => ({
 
 export const getMessageBarStyle = (isDarkMode: boolean): React.CSSProperties => ({
   marginBottom: '1rem',
-  borderRadius: 0,
+  borderRadius: 4,
 });
 
 // ============================================================================
@@ -469,7 +469,7 @@ export const getFormAccentOutlineButtonStyles = (isDarkMode: boolean, width?: st
     color: isDarkMode ? colours.accent : colours.highlight,
     borderColor: isDarkMode ? colours.accent : colours.highlight,
     borderWidth: '1.5px',
-    borderRadius: 0,
+    borderRadius: 4,
     fontWeight: 600 as const,
     minHeight: '40px',
     padding: '0 20px',

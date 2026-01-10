@@ -515,17 +515,53 @@ async function getClioCredentialsCached() {
     return cached.data;
   }
   
-  const [refreshTokenSecret, clientSecret, clientIdSecret] = await Promise.all([
-    kvClient.getSecret('clio-pbi-refreshtoken'),
-    kvClient.getSecret('clio-pbi-secret'),
-    kvClient.getSecret('clio-pbi-clientid'),
-  ]);
+  // Try PBI credentials first, then fallback to user credentials if PBI unavailable
+  let credentials = null;
+  let source = 'unknown';
   
-  const credentials = {
-    refreshToken: refreshTokenSecret.value,
-    clientSecret: clientSecret.value,
-    clientId: clientIdSecret.value,
-  };
+  try {
+    const [refreshTokenSecret, clientSecret, clientIdSecret] = await Promise.all([
+      kvClient.getSecret('clio-pbi-refreshtoken'),
+      kvClient.getSecret('clio-pbi-secret'),
+      kvClient.getSecret('clio-pbi-clientid'),
+    ]);
+    
+    credentials = {
+      refreshToken: refreshTokenSecret.value,
+      clientSecret: clientSecret.value,
+      clientId: clientIdSecret.value,
+    };
+    source = 'clio-pbi';
+  } catch (pbiError) {
+    console.warn('PBI Clio credentials unavailable, trying user fallback:', pbiError.message);
+    
+    // Fallback to user credentials (try lz, jw, ac in order)
+    const fallbackUsers = ['lz', 'jw', 'ac'];
+    for (const initials of fallbackUsers) {
+      try {
+        const [refreshTokenSecret, clientSecret, clientIdSecret] = await Promise.all([
+          kvClient.getSecret(`${initials}-clio-v1-refreshtoken`),
+          kvClient.getSecret(`${initials}-clio-v1-clientsecret`),
+          kvClient.getSecret(`${initials}-clio-v1-clientid`),
+        ]);
+        
+        credentials = {
+          refreshToken: refreshTokenSecret.value,
+          clientSecret: clientSecret.value,
+          clientId: clientIdSecret.value,
+        };
+        source = `${initials}-clio-v1`;
+        console.log(`✅ Using ${initials.toUpperCase()} Clio credentials as fallback for reporting`);
+        break;
+      } catch (userError) {
+        console.warn(`${initials.toUpperCase()} Clio credentials unavailable:`, userError.message);
+      }
+    }
+    
+    if (!credentials) {
+      throw new Error('No valid Clio credentials found (PBI or user fallback)');
+    }
+  }
   
   // Store in both Redis and memory cache
   const expiryTime = Date.now() + 60 * 60 * 1000; // 1h TTL
@@ -673,6 +709,8 @@ async function fetchWipClioCurrentWeek({ connectionString, entraId }) {
     const startDate = formatDateTimeForClio(weekStart);
     const endDate = formatDateTimeForClio(now);
     
+    console.log(`[WipClio] Fetching ${userClioId ? `user ${userClioId}` : 'TEAM-WIDE'} activities from ${startDate} to ${endDate}`);
+    
     // Fetch activities from Clio API
     // Pass userClioId to filter at API level (more efficient than post-filtering)
     let activities = await fetchAllClioActivities(startDate, endDate, accessToken, userClioId);
@@ -686,6 +724,7 @@ async function fetchWipClioCurrentWeek({ connectionString, entraId }) {
     
     // Calculate date bounds
     const { start: currentStart, end: currentEnd } = getCurrentWeekBounds();
+    console.log(`[WipClio] Current week bounds: ${currentStart.toISOString()} to ${currentEnd.toISOString()}`);
     const lastWeekStart = new Date(currentStart);
     lastWeekStart.setDate(currentStart.getDate() - 7);
     lastWeekStart.setHours(0, 0, 0, 0);
@@ -695,12 +734,19 @@ async function fetchWipClioCurrentWeek({ connectionString, entraId }) {
     
     // Convert to WIP format
     const wipActivities = convertClioActivitiesToWIP(activities);
+    console.log(`[WipClio] Converted to ${wipActivities.length} WIP activities`);
     
     // Build activities for the current week (used by dashboards) and aggregate daily_data
     const currentWeekActivities = wipActivities.filter(a => {
       const key = toDayKey(a.date || a.created_at || a.updated_at);
       return key && isDateInRange(key, currentStart, currentEnd);
     });
+    console.log(`[WipClio] Filtered to ${currentWeekActivities.length} current week activities (from ${wipActivities.length} total)`);
+    if (wipActivities.length > 0 && currentWeekActivities.length === 0) {
+      // Debug why all got filtered out
+      const sampleDates = wipActivities.slice(0, 5).map(a => a.date || a.created_at || 'no date');
+      console.log(`[WipClio] ⚠️ All activities filtered out! Sample dates: ${JSON.stringify(sampleDates)}`);
+    }
 
     // Aggregate per-day totals from the activities we fetched
     const currentWeekDaily = aggregateDailyData(wipActivities, currentStart, currentEnd);
@@ -736,13 +782,16 @@ async function fetchWipClioCurrentWeek({ connectionString, entraId }) {
 }
 
 function formatDateTimeForClio(date) {
-  const year = date.getUTCFullYear();
-  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(date.getUTCDate()).padStart(2, '0');
-  const hours = String(date.getUTCHours()).padStart(2, '0');
-  const minutes = String(date.getUTCMinutes()).padStart(2, '0');
-  const seconds = String(date.getUTCSeconds()).padStart(2, '0');
-  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
+  // Clio expects ISO timestamps with timezone. Use Zulu time to avoid local/UTC ambiguity.
+  // Example: 2026-01-06T09:30:00Z
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    const d = new Date(date);
+    if (!Number.isNaN(d.getTime())) {
+      return d.toISOString().replace(/\.\d{3}Z$/, 'Z');
+    }
+    return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+  }
+  return date.toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
 async function fetchAllClioActivities(startDate, endDate, accessToken, userId = null) {
@@ -904,11 +953,14 @@ async function fetchRecoveredFeesSummary({ connectionString, entraId, clioId }) 
   }
 
   if (!effectiveClioId) {
+    console.log('[RecoveredFees] No Clio ID found, returning zeros');
     return {
       currentMonthTotal: 0,
       previousMonthTotal: 0,
     };
   }
+
+  console.log(`[RecoveredFees] Querying for Clio ID: ${effectiveClioId}`);
 
   const now = new Date();
   const currentStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -920,6 +972,8 @@ async function fetchRecoveredFeesSummary({ connectionString, entraId, clioId }) 
   const previousEnd = new Date(now.getFullYear(), now.getMonth(), 0);
   previousStart.setHours(0, 0, 0, 0);
   previousEnd.setHours(23, 59, 59, 999);
+
+  console.log(`[RecoveredFees] Date ranges: Current=${formatDateOnly(currentStart)} to ${formatDateOnly(currentEnd)}, Prev=${formatDateOnly(previousStart)} to ${formatDateOnly(previousEnd)}`);
 
   return withRequest(connectionString, async (request, sqlClient) => {
     request.input('userId', sqlClient.Int, effectiveClioId);
@@ -943,6 +997,8 @@ async function fetchRecoveredFeesSummary({ connectionString, entraId, clioId }) 
 
     const currentTotal = Number(record.current_total) || 0;
     const previousTotal = Number(record.prev_total) || 0;
+
+    console.log(`[RecoveredFees] Results for Clio ID ${effectiveClioId}: Current=${currentTotal}, Previous=${previousTotal}`);
 
     return {
       currentMonthTotal: currentTotal,

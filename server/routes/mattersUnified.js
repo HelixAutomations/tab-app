@@ -34,9 +34,40 @@ function normalizeName(name) {
  *  - bypassCache=true to force refresh
  */
 router.get('/', async (req, res) => {
-  const now = Date.now();
-  const bypassCache = String(req.query.bypassCache || '').toLowerCase() === 'true';
+  const requestId = Math.random().toString(36).slice(2, 9);
+  const startMs = Date.now();
   const fullName = req.query.fullName ? String(req.query.fullName) : '';
+  const bypassCache = String(req.query.bypassCache || '').toLowerCase() === 'true';
+
+  // Avoid hanging requests indefinitely (e.g. DB/network stalls)
+  res.setTimeout(70_000, () => {
+    console.warn('[mattersUnified] response timeout', { requestId, ms: Date.now() - startMs });
+    try {
+      if (!res.headersSent) {
+        res.status(504).json({ error: 'Unified matters request timed out' });
+      }
+    } catch {
+      // ignore
+    }
+  });
+
+  res.on('finish', () => {
+    console.info('[mattersUnified] done', {
+      requestId,
+      status: res.statusCode,
+      ms: Date.now() - startMs,
+    });
+  });
+
+  res.on('close', () => {
+    // close fires for both normal and aborted; only flag as aborted if not finished.
+    if (!res.writableEnded) {
+      console.warn('[mattersUnified] closed before end', { requestId, ms: Date.now() - startMs });
+    }
+  });
+
+  const now = Date.now();
+  // bypassCache/fullName already derived above
   
   // Generate Redis cache key
   const cacheKey = generateCacheKey(
@@ -47,6 +78,7 @@ router.get('/', async (req, res) => {
 
   // Level 1: In-memory cache (fastest)
   if (!bypassCache && unifiedCache.data && (now - unifiedCache.ts) < UNIFIED_CACHE_TTL_MS) {
+    console.info('[mattersUnified] hit memory cache', { requestId, ms: Date.now() - startMs });
     return res.json({ ...unifiedCache.data, cached: true, source: 'memory' });
   }
 
@@ -60,7 +92,8 @@ router.get('/', async (req, res) => {
       // Update in-memory cache with Redis result
       unifiedCache.data = result;
       unifiedCache.ts = now;
-      
+
+      console.info('[mattersUnified] hit redis cache', { requestId, ms: Date.now() - startMs });
       return res.json({ ...result, source: 'redis' });
     } catch (redisError) {
       console.warn('[mattersUnified] Redis cache unavailable, using in-memory fallback:', redisError.message);
@@ -90,11 +123,16 @@ async function performMattersUnifiedQuery(queryParams) {
   let legacyAll = [];
   let legacyError = null;
   try {
+    const legacyStart = Date.now();
     legacyAll = await withRequest(legacyConn, async (request) => {
       const q = 'SELECT * FROM matters';
       const r = await request.query(q);
       return Array.isArray(r.recordset) ? r.recordset : [];
     });
+    const legacyMs = Date.now() - legacyStart;
+    if (legacyMs > 5000) {
+      console.warn('[mattersUnified] slow legacy query', { ms: legacyMs });
+    }
   } catch (err) {
     legacyAll = [];
     legacyError = err;
@@ -104,6 +142,7 @@ async function performMattersUnifiedQuery(queryParams) {
   let vnetAll = [];
   let vnetError = null;
   try {
+    const vnetStart = Date.now();
     vnetAll = await withRequest(vnetConn, async (request) => {
       if (!norm) {
         const r = await request.query('SELECT * FROM Matters');
@@ -120,6 +159,10 @@ async function performMattersUnifiedQuery(queryParams) {
       const r = await request.query(q);
       return Array.isArray(r.recordset) ? r.recordset : [];
     });
+    const vnetMs = Date.now() - vnetStart;
+    if (vnetMs > 5000) {
+      console.warn('[mattersUnified] slow vnet query', { ms: vnetMs, filtered: !!norm });
+    }
   } catch (err) {
     vnetAll = [];
     vnetError = err;

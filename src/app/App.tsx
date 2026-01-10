@@ -8,6 +8,7 @@ import { useNavigatorActions } from './functionality/NavigatorContext';
 import FormsModal from '../components/FormsModal';
 import ResourcesModal from '../components/ResourcesModal';
 import { NavigatorProvider } from './functionality/NavigatorContext';
+import { ToastProvider } from '../components/feedback/ToastProvider';
 import { colours } from './styles/colours';
 import { app } from '@microsoft/teams-js';
 import { Matter, UserData, Enquiry, Tab, TeamData, POID, Transaction, BoardroomBooking, SoundproofPodBooking, InstructionData, NormalizedMatter } from './functionality/types';
@@ -65,6 +66,14 @@ const App: React.FC<AppProps> = ({
   onOptimisticClaim,
 }) => {
   const [activeTab, setActiveTab] = useState('home');
+  const [demoModeEnabled, setDemoModeEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('demoModeEnabled') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [pendingDemoMode, setPendingDemoMode] = useState(() => demoModeEnabled);
   const { state: serviceHealth, dismiss: dismissMaintenance } = useServiceHealthMonitor();
   const systemPrefersDark = typeof window !== 'undefined' && window.matchMedia
     ? window.matchMedia('(prefers-color-scheme: dark)').matches
@@ -253,10 +262,10 @@ const App: React.FC<AppProps> = ({
     try {
       const saved = localStorage.getItem('featureToggles');
       const parsed = saved ? JSON.parse(saved) : {};
-      // Default rateChangeTracker to true if not explicitly set
-      return { rateChangeTracker: true, ...parsed };
+      // rateChangeTracker defaults to false - users opt-in via UserBubble
+      return { rateChangeTracker: false, ...parsed };
     } catch {
-      return { rateChangeTracker: true };
+      return { rateChangeTracker: false };
     }
   });
   
@@ -420,20 +429,62 @@ const App: React.FC<AppProps> = ({
     };
   }, []);
 
+  const dispatchDemoModeActivation = useCallback(() => {
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('selectTestEnquiry'));
+    }, 100);
+  }, []);
+
   // Handler to enable demo mode (adds a stable demo enquiry for demos/testing)
   const handleShowTestEnquiry = useCallback(() => {
-    // Navigate to enquiries tab first
-    setActiveTab('enquiries');
     // Persist demo mode across sessions on this device
     try {
       localStorage.setItem('demoModeEnabled', 'true');
     } catch {
       // ignore storage errors (e.g., restricted environments)
     }
-    // Dispatch event to select the test enquiry
-    setTimeout(() => {
-      window.dispatchEvent(new CustomEvent('selectTestEnquiry'));
-    }, 100);
+    setDemoModeEnabled(true);
+    // If already on Enquiries, dispatch immediately; otherwise wait until user visits
+    if (activeTab === 'enquiries') {
+      dispatchDemoModeActivation();
+      return;
+    }
+    setPendingDemoMode(true);
+  }, [activeTab, dispatchDemoModeActivation]);
+
+  const handleToggleDemoMode = useCallback(
+    (enabled: boolean) => {
+      if (enabled) {
+        handleShowTestEnquiry();
+        return;
+      }
+      setPendingDemoMode(false);
+      setDemoModeEnabled(false);
+      try {
+        localStorage.setItem('demoModeEnabled', 'false');
+      } catch {
+        // ignore storage errors
+      }
+    },
+    [handleShowTestEnquiry]
+  );
+
+  useEffect(() => {
+    if (!pendingDemoMode || activeTab !== 'enquiries') {
+      return;
+    }
+    setPendingDemoMode(false);
+    dispatchDemoModeActivation();
+  }, [pendingDemoMode, activeTab, dispatchDemoModeActivation]);
+
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === 'demoModeEnabled') {
+        setDemoModeEnabled(event.newValue === 'true');
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
   }, []);
 
   // Determine the current user's initials
@@ -721,6 +772,7 @@ const App: React.FC<AppProps> = ({
             onImmediateActionsChange={setHasImmediateActions}
             originalAdminUser={originalAdminUser}
             featureToggles={featureToggles}
+            demoModeEnabled={demoModeEnabled}
           />
         );
       case 'enquiries':
@@ -767,7 +819,7 @@ const App: React.FC<AppProps> = ({
           />
         );
       case 'reporting':
-        return <ReportingHome userData={userData} teamData={teamData} />;
+        return <ReportingHome userData={userData} teamData={teamData} demoModeEnabled={demoModeEnabled} />;
       default:
         return (
           <Home
@@ -785,6 +837,7 @@ const App: React.FC<AppProps> = ({
             onImmediateActionsChange={setHasImmediateActions}
             originalAdminUser={originalAdminUser}
             featureToggles={featureToggles}
+            demoModeEnabled={demoModeEnabled}
           />
         );
     }
@@ -803,6 +856,7 @@ const App: React.FC<AppProps> = ({
   return (
     <NavigatorProvider>
       <ThemeProvider isDarkMode={isDarkMode || false}>
+        <ToastProvider isDarkMode={isDarkMode} position="bottom-right">
         <div
           style={{
             backgroundColor: isDarkMode ? '#020617' : colours.light.background,
@@ -833,6 +887,8 @@ const App: React.FC<AppProps> = ({
             onFeatureToggle={handleFeatureToggle}
             featureToggles={featureToggles}
             onShowTestEnquiry={handleShowTestEnquiry}
+            demoModeEnabled={demoModeEnabled}
+            onToggleDemoMode={handleToggleDemoMode}
           />
           {/* Navigator wrapper ensures correct layering and clickability */}
           <div className="app-navigator">
@@ -905,6 +961,7 @@ const App: React.FC<AppProps> = ({
             {renderContent()}
           </Suspense>
         </div>
+        </ToastProvider>
       </ThemeProvider>
     </NavigatorProvider>
   );

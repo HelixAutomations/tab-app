@@ -65,6 +65,7 @@ const RANGE_OPTIONS: Array<{ key: RangeKey; label: string }> = [
 
 const ROLE_OPTIONS = [
   { key: 'Partner', label: 'Partner' },
+  { key: 'Senior Partner', label: 'Senior Partner' },
   { key: 'Associate Solicitor', label: 'Associate' },
   { key: 'Solicitor', label: 'Solicitor' },
   { key: 'Paralegal', label: 'Paralegal' },
@@ -726,9 +727,11 @@ const AnnualLeaveReport: React.FC<Props> = ({
       }
       if (selectedRoles.size > 0) {
         const roleKey = member.role?.trim();
-        if (!roleKey || !selectedRoles.has(roleKey)) {
-          return false;
-        }
+        if (!roleKey) return false;
+        const matchesSelectedRole =
+          selectedRoles.has(roleKey)
+          || (roleKey === 'Senior Partner' && selectedRoles.has('Partner'));
+        if (!matchesSelectedRole) return false;
       }
       if (range) {
         const leaveStart = parseDate(row.start_date);
@@ -814,7 +817,10 @@ const AnnualLeaveReport: React.FC<Props> = ({
     return teamMembers.filter((member) => {
       if (!member.isActive) return false;
       const includeTeam = selectedTeams.size === 0 || selectedTeams.has(member.initials);
-      const includeRole = selectedRoles.size === 0 || (member.role && selectedRoles.has(member.role));
+      const includeRole =
+        selectedRoles.size === 0
+        || (member.role && selectedRoles.has(member.role))
+        || (member.role === 'Senior Partner' && selectedRoles.has('Partner'));
       return includeTeam && includeRole;
     });
   }, [teamMembers, selectedTeams, selectedRoles]);

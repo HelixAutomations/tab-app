@@ -11,18 +11,21 @@ import {
   FaUmbrellaBeach,
   FaEdit,
   FaFileInvoiceDollar,
+  FaClock,
 } from 'react-icons/fa';
 import {
   MdArticle,
   MdEventSeat,
   MdSlideshow,
   MdFactCheck,
+  MdLocationOn,
 } from 'react-icons/md';
 import { Icon } from '@fluentui/react';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 
-export type ImmediateActionCategory = 'critical' | 'standard' | 'success';
+// Category types for immediate action styling
+export type ImmediateActionCategory = 'critical' | 'standard' | 'success' | 'warning';
 
 export interface ImmediateActionChipProps {
   title: string;
@@ -61,6 +64,8 @@ const chipIconMap: Record<string, IconComponent> = {
   Money: FaFileInvoiceDollar,
   KnowledgeArticle: MdArticle,
   Room: MdEventSeat,
+  Attendance: MdLocationOn,
+  Timer: FaClock,
 };
 
 const getChipIcon = (name: string): React.ComponentType<any> => chipIconMap[name] || FaFolder;
@@ -81,11 +86,6 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
   const { isDarkMode: contextDarkMode } = useTheme();
   const isDark = contextDarkMode ?? propDarkMode ?? false;
 
-  // Minimal color tokens
-  const bg = isDark ? 'rgba(30, 41, 59, 0.7)' : '#ffffff';
-  const bgHover = isDark ? 'rgba(30, 41, 59, 0.85)' : '#f8fafc';
-  const border = isDark ? 'rgba(148, 163, 184, 0.12)' : 'rgba(0, 0, 0, 0.06)';
-  const borderHover = isDark ? 'rgba(148, 163, 184, 0.25)' : 'rgba(0, 0, 0, 0.12)';
   const text = isDark ? '#f1f5f9' : '#1e293b';
   const textMuted = isDark ? '#94a3b8' : '#64748b';
   const textSubtle = isDark ? '#64748b' : '#94a3b8';
@@ -98,6 +98,8 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
     ? colours.cta  // Red for urgent attention
     : category === 'critical'
     ? colours.cta
+    : category === 'warning'
+    ? colours.orange
     : category === 'success'
     ? colours.green
     : colours.highlight;
@@ -118,21 +120,31 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
         minWidth: 140,
         maxWidth: 280,
         background: needsUrgentAttention
-          ? (isDark ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.08)')
-          : (hovered ? bgHover : bg),
+          ? (isDark ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.08)')
+          : (hovered 
+            ? (isDark 
+                ? 'linear-gradient(90deg, rgba(24, 36, 58, 0.98) 0%, rgba(34, 48, 70, 0.95) 100%)' 
+                : 'linear-gradient(90deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.95) 100%)')
+            : (isDark 
+                ? 'linear-gradient(90deg, rgba(18, 28, 48, 0.95) 0%, rgba(28, 40, 60, 0.92) 100%)' 
+                : 'linear-gradient(90deg, rgba(255, 255, 255, 0.95) 0%, rgba(250, 251, 252, 0.9) 100%)')),
+        backdropFilter: 'blur(16px)',
+        WebkitBackdropFilter: 'blur(16px)',
         color: text,
-        borderTop: `1px solid ${hovered ? borderHover : border}`,
-        borderRight: `1px solid ${hovered ? borderHover : border}`,
-        borderBottom: `1px solid ${hovered ? borderHover : border}`,
+        borderTop: `1px solid ${hovered ? (isDark ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.2)') : (isDark ? 'rgba(54, 144, 206, 0.2)' : 'rgba(148, 163, 184, 0.15)')}`,
+        borderRight: `1px solid ${hovered ? (isDark ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.2)') : (isDark ? 'rgba(54, 144, 206, 0.2)' : 'rgba(148, 163, 184, 0.15)')}`,
+        borderBottom: `1px solid ${hovered ? (isDark ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.2)') : (isDark ? 'rgba(54, 144, 206, 0.2)' : 'rgba(148, 163, 184, 0.15)')}`,
         borderLeft: `3px solid ${categoryColor}`,
+        borderRadius: 2,
         boxShadow: needsUrgentAttention
-          ? (isDark ? '0 0 0 2px rgba(214, 85, 65, 0.25), 0 10px 22px rgba(0,0,0,0.35)' : '0 0 0 2px rgba(214, 85, 65, 0.22), 0 10px 22px rgba(0,0,0,0.10)')
+          ? (isDark ? '0 0 0 1px rgba(239, 68, 68, 0.2), 0 4px 12px rgba(0,0,0,0.3)' : '0 0 0 1px rgba(239, 68, 68, 0.15), 0 4px 12px rgba(0,0,0,0.08)')
           : hovered
-            ? (isDark ? '0 4px 12px rgba(0,0,0,0.3)' : '0 4px 12px rgba(0,0,0,0.08)')
-            : (isDark ? '0 1px 3px rgba(0,0,0,0.2)' : '0 1px 3px rgba(0,0,0,0.04)'),
+            ? (isDark ? '0 4px 16px rgba(0,0,0,0.35)' : '0 4px 16px rgba(0,0,0,0.08)')
+            : (isDark ? '0 2px 8px rgba(0,0,0,0.25)' : '0 2px 8px rgba(0,0,0,0.04)'),
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.5 : 1,
-        transition: 'all 0.15s ease',
+        transition: 'all 0.12s ease',
+        transform: hovered && !disabled ? 'translateY(-1px) scale(1.01)' : 'translateY(0) scale(1)',
         animation: needsUrgentAttention ? 'helixUrgentPulse 1.4s ease-in-out infinite' : undefined,
         position: 'relative',
         textAlign: 'left',
@@ -151,7 +163,12 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
         justifyContent: 'center',
         flexShrink: 0,
         color: categoryColor,
-        opacity: 0.9,
+        background: needsUrgentAttention
+          ? 'transparent'
+          : (isDark ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)'),
+        borderRadius: 2,
+        transition: 'transform 0.12s ease',
+        transform: hovered ? 'scale(1.1)' : 'scale(1)',
       }}>
         <ChipIcon style={{ fontSize: 14 }} />
       </div>
@@ -171,12 +188,12 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
             <span style={{
               marginLeft: 6,
               padding: '2px 6px',
-              background: isDark ? 'rgba(156, 163, 175, 0.15)' : 'rgba(100, 116, 139, 0.1)',
+              background: isDark ? 'rgba(148, 163, 184, 0.12)' : 'rgba(100, 116, 139, 0.08)',
               color: isDark ? '#cbd5e1' : '#475569',
               fontSize: 10,
               fontWeight: 600,
               verticalAlign: 'middle',
-              borderRadius: 3,
+              borderRadius: 2,
             }}>
               {count}
             </span>

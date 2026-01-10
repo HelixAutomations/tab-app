@@ -54,6 +54,18 @@ Team data (including hourly rates) is stored in **two synchronized databases**:
 
 ---
 
+## Annual Leave Approvals (AOW routing)
+
+Annual leave approver routing is derived from the `AOW` field (case-insensitive, comma-separated).
+
+- If `AOW` includes `construction` → route approvals to **JW**
+- Otherwise → route approvals to **AC**
+- **LZ** is always included as an approver
+
+Implementation reference: [api/src/functions/getAnnualLeave.ts](api/src/functions/getAnnualLeave.ts) (`determineApprovers`).
+
+---
+
 ## Rate Update Procedure
 
 ### 1. Identify Changes

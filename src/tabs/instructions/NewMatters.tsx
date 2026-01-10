@@ -161,7 +161,7 @@ const NewMatters: React.FC<NewMattersProps> = ({
         return teamData
             .filter((member: any) => 
                 member.status && member.status.toLowerCase() === 'active' &&
-                ['Partner', 'Associate Solicitor', 'Solicitor'].includes(member.Role)
+                ['Partner', 'Senior Partner', 'Associate Solicitor', 'Solicitor'].includes(member.Role)
             )
             .map((member: any) =>
                 member['Full Name'] || `${member.First || ''} ${member.Last || ''}`.trim(),
@@ -189,7 +189,7 @@ const NewMatters: React.FC<NewMattersProps> = ({
         return teamData
             .filter((member: any) => 
                 member.status && member.status.toLowerCase() === 'active' &&
-                member.Role === 'Partner')
+                (member.Role === 'Partner' || member.Role === 'Senior Partner'))
             .map((member: any) =>
                 member['Full Name'] || `${member.First || ''} ${member.Last || ''}`.trim(),
             )
@@ -201,7 +201,7 @@ const NewMatters: React.FC<NewMattersProps> = ({
         return teamData
             .filter((member: any) =>
                 member.status && member.status.toLowerCase() === 'active' &&
-                ['Partner', 'Associate Solicitor', 'Solicitor'].includes(member.Role)
+                ['Partner', 'Senior Partner', 'Associate Solicitor', 'Solicitor'].includes(member.Role)
             )
             .map((member: any) =>
                 member['Full Name'] || `${member.First || ''} ${member.Last || ''}`.trim(),

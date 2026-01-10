@@ -132,6 +132,10 @@ const CounselRecommendationFormContent: React.FC<CounselRecommendationFormProps>
       setSubmitMessage({ type: 'error', text: 'Last name is required.' });
       return;
     }
+    if (!formData.email.trim()) {
+      setSubmitMessage({ type: 'error', text: 'Email is required.' });
+      return;
+    }
     if (!formData.area_of_work.trim()) {
       setSubmitMessage({ type: 'error', text: 'Area of Work is required.' });
       return;
@@ -291,6 +295,7 @@ const CounselRecommendationFormContent: React.FC<CounselRecommendationFormProps>
                     value={formData.email}
                     onChange={(_, val) => handleFieldChange('email', val || '')}
                     type="email"
+                    required
                     styles={getInputStyles(isDarkMode)}
                   />
                 </Stack.Item>

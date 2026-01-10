@@ -1,7 +1,15 @@
-import React, { useState, useMemo, forwardRef, useImperativeHandle, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, forwardRef, useImperativeHandle, useEffect } from 'react';
 import type { CSSProperties } from 'react';
-import { Icon, PrimaryButton, DefaultButton, Dropdown, IDropdownOption, IRenderFunction, ISelectableOption } from '@fluentui/react';
+import { Icon, DefaultButton, Spinner, SpinnerSize } from '@fluentui/react';
 import { colours } from '../../app/styles/colours';
+import { addDays, format, startOfWeek, isSameDay } from 'date-fns';
+
+interface TeamMember {
+    First: string;
+    Initials: string;
+    Nickname?: string;
+    Level?: string;
+}
 
 interface AttendanceRecord {
     Attendance_ID: number;
@@ -29,46 +37,57 @@ interface AnnualLeaveRecord {
 
 interface PersonalAttendanceConfirmProps {
     isDarkMode: boolean;
+    demoModeEnabled?: boolean;
+    isAdmin?: boolean;
     attendanceRecords: AttendanceRecord[];
     annualLeaveRecords: AnnualLeaveRecord[];
     futureLeaveRecords: AnnualLeaveRecord[];
     userData: any;
-    onSave: (weekStart: string, days: string) => Promise<void>;
+    teamData?: TeamMember[];
+    onSave: (weekStart: string, days: string, initials?: string) => Promise<void>;
     onClose: () => void;
     onShowToast?: (message: string, type: 'success' | 'error' | 'info' | 'warning', details?: string) => void;
 }
 
-type StatusType = 'office' | 'wfh' | 'away' | 'sick' | 'ooo';
+type StatusType = 'office' | 'wfh' | 'away' | 'sick' | 'ooo' | 'unset';
 
-const STATUS_CONFIG: Record<StatusType, { label: string; shortLabel: string; color: string; icon: string }> = {
-    office: { label: 'In Office', shortLabel: 'Office', color: colours.missedBlue, icon: 'CityNext' },
-    wfh: { label: 'Work From Home', shortLabel: 'WFH', color: colours.green, icon: 'Home' },
-    away: { label: 'Away / Leave', shortLabel: 'Away', color: '#9CA3AF', icon: 'Airplane' },
-    sick: { label: 'Off Sick', shortLabel: 'Sick', color: colours.cta, icon: 'Health' },
-    ooo: { label: 'Out of Office', shortLabel: 'OOO', color: colours.orange, icon: 'Clock' },
+const STATUS_CONFIG: Record<StatusType, { label: string; shortLabel: string; color: string; icon: string; darkColor: string }> = {
+    office: { label: 'In Office', shortLabel: 'Office', color: colours.missedBlue, darkColor: colours.highlight, icon: 'CityNext' },
+    wfh: { label: 'Work From Home', shortLabel: 'WFH', color: colours.green, darkColor: colours.green, icon: 'Home' },
+    away: { label: 'Away / Leave', shortLabel: 'Away', color: '#9CA3AF', darkColor: '#9CA3AF', icon: 'Airplane' },
+    sick: { label: 'Off Sick', shortLabel: 'Sick', color: colours.cta, darkColor: colours.cta, icon: 'Health' },
+    ooo: { label: 'Out of Office', shortLabel: 'OOO', color: colours.cta, darkColor: colours.cta, icon: 'Clock' },
+    unset: { label: 'Not Set', shortLabel: 'Select', color: '#6B7280', darkColor: '#6B7280', icon: 'More' },
 };
 
-const STATUS_ORDER: StatusType[] = ['office', 'wfh', 'away', 'sick', 'ooo'];
-
-const STATUS_OPTIONS: IDropdownOption[] = STATUS_ORDER.map(status => ({
-    key: status,
-    text: STATUS_CONFIG[status].shortLabel,
-    data: STATUS_CONFIG[status],
-}));
+interface DayStatus {
+    status: StatusType;
+    isLeave: boolean;
+}
 
 const PersonalAttendanceConfirm = forwardRef<
     { setWeek: (week: 'current' | 'next') => void; focusTable: () => void },
     PersonalAttendanceConfirmProps
->(({
+>(function PersonalAttendanceConfirm({
     isDarkMode,
+    demoModeEnabled = false,
+    isAdmin = false,
     attendanceRecords,
     annualLeaveRecords,
     futureLeaveRecords,
     userData,
+    teamData = [],
     onSave,
     onClose,
     onShowToast,
-}, ref) => {
+}, ref) {
+    const safeAttendanceRecords: AttendanceRecord[] = Array.isArray(attendanceRecords) ? attendanceRecords : [];
+    const safeAnnualLeaveRecords: AnnualLeaveRecord[] = Array.isArray(annualLeaveRecords) ? annualLeaveRecords : [];
+    const safeFutureLeaveRecords: AnnualLeaveRecord[] = Array.isArray(futureLeaveRecords) ? futureLeaveRecords : [];
+
+    // Admin mode state - only used when isAdmin is true
+    const [selectedEmployee, setSelectedEmployee] = useState<string | null>(null);
+
     const weekDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'] as const;
     const dayAbbr = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'] as const;
 
@@ -92,16 +111,48 @@ const PersonalAttendanceConfirm = forwardRef<
         return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
     };
 
+    const toIsoDate = (value: unknown): string | null => {
+        if (!value) return null;
+        if (value instanceof Date) {
+            if (Number.isNaN(value.getTime())) return null;
+            return value.toISOString().slice(0, 10);
+        }
+        if (typeof value === 'string') {
+            const trimmed = value.trim();
+            if (!trimmed) return null;
+            if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return trimmed.slice(0, 10);
+            const parsed = new Date(trimmed);
+            if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+            return null;
+        }
+        const coerced = String(value);
+        if (/^\d{4}-\d{2}-\d{2}/.test(coerced)) return coerced.slice(0, 10);
+        const parsed = new Date(coerced);
+        if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+        return null;
+    };
+
     const currentWeekStart = formatDateLocal(getMondayOfCurrentWeek());
     const nextWeekMonday = new Date(getMondayOfCurrentWeek());
     nextWeekMonday.setDate(nextWeekMonday.getDate() + 7);
     const nextWeekStart = formatDateLocal(nextWeekMonday);
 
-    const userInitials = (userData?.[0]?.Initials || '').toString().toUpperCase() || 
+    const ownInitials = (userData?.[0]?.Initials || '').toString().toUpperCase() || 
                         (userData?.displayName?.match(/\b\w/g)?.join('') || '').toUpperCase() || 
                         (userData?.mail?.substring(0, 2) || '').toUpperCase();
 
-    const combinedLeaveRecords = useMemo(() => [...annualLeaveRecords, ...futureLeaveRecords], [annualLeaveRecords, futureLeaveRecords]);
+    // Employee list for admin mode
+    const employeeList = useMemo(() => {
+        if (!teamData || teamData.length === 0) return [];
+        return [...teamData]
+            .filter(m => m.Initials && m.First)
+            .sort((a, b) => (a.First || '').localeCompare(b.First || ''));
+    }, [teamData]);
+
+    // Active initials - either selected employee or own
+    const activeInitials = selectedEmployee || ownInitials;
+
+    const combinedLeaveRecords = useMemo(() => [...safeAnnualLeaveRecords, ...safeFutureLeaveRecords], [safeAnnualLeaveRecords, safeFutureLeaveRecords]);
 
     // Normalize status from various formats to our simplified format
     const normalizeStatus = (status: string): StatusType => {
@@ -111,7 +162,7 @@ const PersonalAttendanceConfirm = forwardRef<
         if (s === 'away' || s === 'leave') return 'away';
         if (s === 'sick' || s === 'off-sick' || s === 'off sick') return 'sick';
         if (s === 'ooo' || s === 'out-of-office' || s === 'out of office') return 'ooo';
-        return 'wfh'; // default
+        return 'unset'; // default to unset for unknown statuses
     };
 
     // Convert our format back to storage format
@@ -122,6 +173,7 @@ const PersonalAttendanceConfirm = forwardRef<
             case 'away': return 'away';
             case 'sick': return 'off-sick';
             case 'ooo': return 'out-of-office';
+            case 'unset': return 'wfh'; // save unset as wfh when submitting
             default: return 'wfh';
         }
     };
@@ -135,10 +187,10 @@ const PersonalAttendanceConfirm = forwardRef<
             Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday', Fri: 'Friday',
         };
         
-        const filteredRecords = attendanceRecords.filter((r) => r.Initials === userInitials);
+        const filteredRecords = safeAttendanceRecords.filter((r) => r.Initials === activeInitials);
         filteredRecords.forEach((rec) => {
-            const weekKey = rec.Week_Start?.substring(0, 10);
-            if (!state[weekKey]) return;
+            const weekKey = toIsoDate(rec.Week_Start);
+            if (!weekKey || !state[weekKey]) return;
             if (!rec.Attendance_Days) return;
 
             const normalized = rec.Attendance_Days.toString().trim().toLowerCase();
@@ -161,40 +213,95 @@ const PersonalAttendanceConfirm = forwardRef<
             });
         });
         
-        // Default all days to WFH if not set
+        // Default unconfirmed days to 'unset' (neutral state)
         [currentWeekStart, nextWeekStart].forEach(weekStart => {
             weekDays.forEach(day => {
                 if (!state[weekStart][day]) {
-                    state[weekStart][day] = 'wfh';
+                    state[weekStart][day] = 'unset';
                 }
             });
         });
         
         return state;
-    }, [attendanceRecords, userInitials, currentWeekStart, nextWeekStart]);
+    }, [safeAttendanceRecords, activeInitials, currentWeekStart, nextWeekStart]);
 
     const [localAttendance, setLocalAttendance] = useState<Record<string, Record<string, StatusType>>>(initialState);
     const [saving, setSaving] = useState(false);
+    const [selectedCell, setSelectedCell] = useState<{week: string; day: string} | null>(null);
+
+    // Reset attendance data when selected employee changes
+    useEffect(() => {
+        setLocalAttendance(initialState);
+    }, [selectedEmployee, initialState]);
 
     useImperativeHandle(ref, () => ({
         setWeek: () => { },
         focusTable: () => { },
     }));
 
-    const isOnLeave = (weekStart: string, dayIndex: number): boolean => {
+    // Check if a user is on leave for a specific day
+    const isOnLeave = useCallback((weekStart: string, dayIndex: number): boolean => {
         const weekStartDate = new Date(weekStart + 'T00:00:00');
         const date = new Date(weekStartDate);
         date.setDate(date.getDate() + dayIndex);
         const iso = formatDateLocal(date);
 
         return combinedLeaveRecords.some(
-            (leave) =>
-                leave.status === 'booked' &&
-                leave.person.trim().toLowerCase() === userInitials.toLowerCase() &&
-                iso >= leave.start_date &&
-                iso <= leave.end_date
+            (leave) => {
+                if (leave.status !== 'booked') return false;
+                const person = String((leave as any)?.person ?? '').trim().toLowerCase();
+                if (!person) return false;
+                const start = String((leave as any)?.start_date ?? '').trim();
+                const end = String((leave as any)?.end_date ?? '').trim();
+                if (!start || !end) return false;
+                return person === activeInitials.toLowerCase() && iso >= start && iso <= end;
+            }
         );
-    };
+    }, [combinedLeaveRecords, activeInitials]);
+
+    // Build 14-day calendar view (2 weeks)
+    const calendarDays = useMemo(() => {
+        const monday = getMondayOfCurrentWeek();
+        const days: Array<{
+            date: Date;
+            dateStr: string;
+            dayName: string;
+            dayAbbr: string;
+            weekStart: string;
+            isWeekend: boolean;
+            isLeave: boolean;
+            status: StatusType;
+        }> = [];
+
+        for (let i = 0; i < 14; i++) {
+            const date = new Date(monday);
+            date.setDate(monday.getDate() + i);
+            const dateStr = formatDateLocal(date);
+            const dayIdx = date.getDay();
+            const isWeekend = dayIdx === 0 || dayIdx === 6;
+            
+            // Determine which week this belongs to
+            const weekStart = i < 7 ? currentWeekStart : nextWeekStart;
+            const dayOfWeek = (dayIdx === 0 ? 6 : dayIdx - 1); // Monday = 0, Sunday = 6
+            const dayName = weekDays[dayOfWeek];
+            
+            const status = localAttendance[weekStart]?.[dayName] || 'wfh';
+            const isLeave = isOnLeave(weekStart, dayOfWeek);
+
+            days.push({
+                date,
+                dateStr,
+                dayName,
+                dayAbbr: dayAbbr[dayOfWeek],
+                weekStart,
+                isWeekend,
+                isLeave,
+                status: isLeave ? 'away' : status
+            });
+        }
+
+        return days;
+    }, [currentWeekStart, nextWeekStart, localAttendance, isOnLeave]);
 
     const setDayStatus = (weekStart: string, day: string, status: StatusType) => {
         setLocalAttendance((prev) => ({
@@ -204,6 +311,15 @@ const PersonalAttendanceConfirm = forwardRef<
                 [day]: status
             }
         }));
+        setSelectedCell(null); // Close selector after selection
+    };
+
+    const toggleDaySelector = (weekStart: string, day: string) => {
+        if (selectedCell?.week === weekStart && selectedCell?.day === day) {
+            setSelectedCell(null);
+        } else {
+            setSelectedCell({ week: weekStart, day });
+        }
     };
 
     const setAllDays = (weekStart: string, status: StatusType) => {
@@ -216,6 +332,7 @@ const PersonalAttendanceConfirm = forwardRef<
     const handleSave = async () => {
         console.log('[PersonalAttendanceConfirm] handleSave called');
         console.log('[PersonalAttendanceConfirm] localAttendance:', JSON.stringify(localAttendance));
+        console.log('[PersonalAttendanceConfirm] Saving for:', selectedEmployee ? `employee ${activeInitials}` : 'self');
         setSaving(true);
         try {
             for (const weekStart of [currentWeekStart, nextWeekStart]) {
@@ -229,12 +346,20 @@ const PersonalAttendanceConfirm = forwardRef<
                     return `${abbr}:${toStorageStatus(status)}`;
                 });
                 const days = dayStrings.join(',');
-                console.log('[PersonalAttendanceConfirm] Calling onSave with:', weekStart, days);
-                await onSave(weekStart, days);
+                console.log('[PersonalAttendanceConfirm] Calling onSave with:', weekStart, days, selectedEmployee ? activeInitials : undefined);
+                await onSave(weekStart, days, selectedEmployee ? activeInitials : undefined);
                 console.log('[PersonalAttendanceConfirm] onSave completed for:', weekStart);
             }
             if (onShowToast) {
-                onShowToast('Attendance saved', 'success', 'Your schedule has been updated');
+                if (demoModeEnabled) {
+                    onShowToast('Demo mode: attendance not saved', 'info', 'Changes are preview-only while demo mode is enabled.');
+                } else {
+                    const emp = employeeList.find(e => e.Initials === selectedEmployee);
+                    const msg = selectedEmployee 
+                        ? `Attendance saved for ${emp?.First || selectedEmployee}`
+                        : 'Attendance saved';
+                    onShowToast(msg, 'success', 'Schedule has been updated');
+                }
             }
             onClose();
         } catch (error) {
@@ -256,170 +381,115 @@ const PersonalAttendanceConfirm = forwardRef<
         });
     };
 
-    // Styles
+    // Styles matching Annual Leave Modal
     const containerStyle: CSSProperties = {
-        background: isDarkMode ? '#111827' : '#FFFFFF',
-        borderRadius: '12px',
-        padding: '20px',
+        background: 'transparent',
         width: '100%',
-        color: isDarkMode ? '#F3F4F6' : '#111827',
     };
 
-    const headerStyle: CSSProperties = {
-        marginBottom: '16px',
-        textAlign: 'center',
-    };
-
-    const titleStyle: CSSProperties = {
-        margin: 0,
-        fontSize: '18px',
-        fontWeight: 600,
-        color: isDarkMode ? '#FFFFFF' : '#111827',
-    };
-
-    const weekSectionStyle: CSSProperties = {
+    const calendarGridStyle: CSSProperties = {
+        display: 'grid',
+        gridTemplateColumns: 'repeat(5, 1fr)',
+        gap: '4px',
         marginBottom: '20px',
     };
 
-    const weekHeaderStyle: CSSProperties = {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: '12px',
-        paddingBottom: '8px',
-        borderBottom: `1px solid ${isDarkMode ? '#374151' : '#E5E7EB'}`,
-    };
-
-    const weekTitleStyle: CSSProperties = {
-        fontSize: '14px',
-        fontWeight: 600,
-        color: isDarkMode ? '#F3F4F6' : '#374151',
-    };
-
-    const weekDateStyle: CSSProperties = {
-        fontSize: '12px',
-        color: isDarkMode ? '#9CA3AF' : '#6B7280',
-    };
-
-    const daysGridStyle: CSSProperties = {
-        display: 'grid',
-        gridTemplateColumns: 'repeat(5, 1fr)',
-        gap: '8px',
-    };
-
-    const getDayCardStyle = (status: StatusType, isLeave: boolean): CSSProperties => {
-        const config = STATUS_CONFIG[status];
-        return {
-            padding: '10px 6px',
-            borderRadius: '8px',
-            borderLeft: `3px solid ${isLeave ? '#6B7280' : config.color}`,
-            background: isDarkMode ? '#1F2937' : '#F9FAFB',
-            textAlign: 'center' as const,
-            opacity: isLeave ? 0.5 : 1,
-        };
-    };
-
-    const dayLabelStyle: CSSProperties = {
+    const dayHeaderStyle: CSSProperties = {
+        padding: '10px 8px',
+        textAlign: 'center',
         fontSize: '11px',
         fontWeight: 600,
-        color: isDarkMode ? '#9CA3AF' : '#6B7280',
-        marginBottom: '2px',
+        color: isDarkMode ? 'rgba(243, 244, 246, 0.6)' : 'rgba(6, 23, 51, 0.6)',
         textTransform: 'uppercase',
         letterSpacing: '0.5px',
     };
 
-    const dayDateStyle: CSSProperties = {
-        fontSize: '15px',
-        fontWeight: 600,
-        color: isDarkMode ? '#F3F4F6' : '#374151',
-        marginBottom: '6px',
+    const getDayCardStyle = (status: StatusType, isLeave: boolean, isWeekend: boolean, isToday: boolean): CSSProperties => {
+        const config = STATUS_CONFIG[status];
+        const statusColor = isLeave ? '#9CA3AF' : (isDarkMode ? config.darkColor : config.color);
+        
+        let bgColor = isDarkMode ? 'rgba(31, 41, 55, 0.4)' : 'rgba(255, 255, 255, 0.5)';
+        let textColor = isDarkMode ? '#F3F4F6' : '#374151';
+        
+        if (isWeekend) {
+            bgColor = isDarkMode ? 'rgba(0, 0, 0, 0.2)' : 'rgba(0, 0, 0, 0.03)';
+        } else if (!isLeave) {
+            bgColor = isDarkMode ? `rgba(${hexToRgb(statusColor)}, 0.15)` : `rgba(${hexToRgb(statusColor)}, 0.1)`;
+        }
+
+        return {
+            padding: '8px',
+            background: bgColor,
+            border: `1px solid ${isToday ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)')}`,
+            borderLeft: isWeekend ? undefined : `3px solid ${statusColor}`,
+            borderRadius: 0,
+            textAlign: 'center',
+            cursor: isWeekend || isLeave ? 'default' : 'pointer',
+            opacity: isWeekend ? 0.4 : isLeave ? 0.6 : 1,
+            position: 'relative',
+            minHeight: '80px',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            transition: '0.1s',
+        };
     };
 
-    const getDropdownStyles = (status: StatusType) => {
-        const statusColor = STATUS_CONFIG[status].color;
+    const dateNumberStyle: CSSProperties = {
+        fontSize: '16px',
+        fontWeight: 700,
+        color: isDarkMode ? '#F3F4F6' : '#374151',
+        marginBottom: '4px',
+    };
+
+    const statusBadgeStyle = (status: StatusType): CSSProperties => {
+        const config = STATUS_CONFIG[status];
+        const statusColor = isDarkMode ? config.darkColor : config.color;
         return {
-            root: {
-                width: '100%',
-            },
-            dropdown: {
-                width: '100%',
-                minWidth: 0,
-                selectors: {
-                    ':focus::after': {
-                        border: `2px solid ${statusColor}`,
-                        borderRadius: '6px',
-                    },
-                },
-            },
-            title: {
-                backgroundColor: isDarkMode ? 'rgba(55, 65, 81, 0.6)' : '#FFFFFF',
-                borderColor: isDarkMode ? `rgba(${hexToRgb(statusColor)}, 0.5)` : statusColor,
-                borderWidth: '1px',
-                borderRadius: '6px',
-                color: isDarkMode ? '#F3F4F6' : '#374151',
-                fontSize: '12px',
-                fontWeight: 500 as const,
-                height: '32px',
-                lineHeight: '30px',
-                padding: '0 28px 0 10px',
-                transition: 'all 0.15s ease',
-                selectors: {
-                    ':hover': {
-                        backgroundColor: isDarkMode ? 'rgba(55, 65, 81, 0.8)' : '#F9FAFB',
-                        borderColor: statusColor,
-                    },
-                },
-            },
-            caretDownWrapper: {
-                right: '8px',
-                height: '32px',
-                lineHeight: '32px',
-            },
-            caretDown: {
-                color: isDarkMode ? '#9CA3AF' : '#6B7280',
-                fontSize: '10px',
-            },
-            callout: {
-                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : '#E5E7EB'}`,
-                borderRadius: '8px',
-                boxShadow: isDarkMode 
-                    ? '0 8px 24px rgba(0, 0, 0, 0.4)' 
-                    : '0 4px 16px rgba(0, 0, 0, 0.12)',
-                overflow: 'hidden' as const,
-            },
-            dropdownItems: {
-                backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF',
-                padding: '4px',
-            },
-            dropdownItem: {
-                fontSize: '12px',
-                fontWeight: 500 as const,
-                minHeight: '36px',
-                padding: '8px 12px',
-                borderRadius: '6px',
-                color: isDarkMode ? '#E5E7EB' : '#374151',
-                backgroundColor: 'transparent',
-                margin: '2px 0',
-                selectors: {
-                    ':hover': {
-                        backgroundColor: isDarkMode ? 'rgba(55, 65, 81, 0.6)' : '#F3F4F6',
-                        color: isDarkMode ? '#FFFFFF' : '#111827',
-                    },
-                },
-            },
-            dropdownItemSelected: {
-                backgroundColor: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.1)',
-                color: isDarkMode ? '#FFFFFF' : colours.blue,
-                fontWeight: 600 as const,
-                selectors: {
-                    ':hover': {
-                        backgroundColor: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.15)',
-                    },
-                },
-            },
-            dropdownOptionText: {
-                fontSize: '12px',
-            },
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '4px',
+            padding: '4px 8px',
+            fontSize: '10px',
+            fontWeight: 600,
+            color: statusColor,
+            background: isDarkMode ? `rgba(${hexToRgb(statusColor)}, 0.2)` : `rgba(${hexToRgb(statusColor)}, 0.15)`,
+            borderRadius: '2px',
+            textTransform: 'uppercase',
+            letterSpacing: '0.3px',
+        };
+    };
+
+    const statusSelectorStyle: CSSProperties = {
+        position: 'absolute',
+        top: '100%',
+        left: 0,
+        right: 0,
+        background: isDarkMode ? '#1F2937' : '#FFFFFF',
+        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : '#E5E7EB'}`,
+        borderRadius: '4px',
+        boxShadow: isDarkMode ? '0 4px 12px rgba(0, 0, 0, 0.4)' : '0 2px 8px rgba(0, 0, 0, 0.12)',
+        zIndex: 10,
+        marginTop: '4px',
+        padding: '4px',
+    };
+
+    const statusOptionStyle = (status: StatusType, isSelected: boolean): CSSProperties => {
+        const config = STATUS_CONFIG[status];
+        return {
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '8px 10px',
+            cursor: 'pointer',
+            borderRadius: '2px',
+            background: isSelected 
+                ? (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.1)')
+                : 'transparent',
+            color: isDarkMode ? '#E5E7EB' : '#374151',
+            fontSize: '12px',
+            fontWeight: 500,
         };
     };
 
@@ -435,214 +505,378 @@ const PersonalAttendanceConfirm = forwardRef<
     const quickActionsStyle: CSSProperties = {
         display: 'flex',
         gap: '8px',
-        marginTop: '12px',
+        marginTop: '16px',
         flexWrap: 'wrap',
+        justifyContent: 'center',
     };
 
     const quickButtonStyle = (color: string): CSSProperties => ({
-        padding: '6px 12px',
-        borderRadius: '6px',
+        height: '24px',
+        minWidth: '100px',
+        padding: '0 14px',
+        borderRadius: 0,
         border: `1px solid ${color}`,
-        background: 'transparent',
-        color: isDarkMode ? '#F3F4F6' : color,
+        background: isDarkMode ? `rgba(${hexToRgb(color)}, 0.1)` : `rgba(${hexToRgb(color)}, 0.1)`,
+        color: color,
         cursor: 'pointer',
-        fontSize: '12px',
-        fontWeight: 500,
+        fontSize: '10px',
+        fontWeight: 600,
+        textTransform: 'uppercase' as const,
+        letterSpacing: '0.5px',
         transition: 'all 0.15s ease',
         display: 'flex',
         alignItems: 'center',
+        justifyContent: 'center',
         gap: '6px',
     });
 
     const footerStyle: CSSProperties = {
         display: 'flex',
-        gap: '12px',
+        gap: '10px',
         justifyContent: 'flex-end',
-        marginTop: '20px',
-        paddingTop: '16px',
-        borderTop: `1px solid ${isDarkMode ? '#374151' : '#E5E7EB'}`,
-    };
-
-    // Custom dropdown option renderer with icons and status colors
-    const onRenderOption: IRenderFunction<ISelectableOption> = (option) => {
-        if (!option) return null;
-        const config = option.data as { label: string; shortLabel: string; color: string; icon: string } | undefined;
-        if (!config) return <span>{option.text}</span>;
-        
-        return (
-            <div style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: '10px',
-                width: '100%',
-            }}>
-                <div style={{
-                    width: '24px',
-                    height: '24px',
-                    borderRadius: '6px',
-                    backgroundColor: isDarkMode ? `rgba(${hexToRgb(config.color)}, 0.2)` : `rgba(${hexToRgb(config.color)}, 0.15)`,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                }}>
-                    <Icon 
-                        iconName={config.icon} 
-                        style={{ 
-                            fontSize: '12px', 
-                            color: config.color,
-                        }} 
-                    />
-                </div>
-                <span style={{ 
-                    color: isDarkMode ? '#E5E7EB' : '#374151',
-                    fontWeight: 500,
-                }}>
-                    {config.shortLabel}
-                </span>
-            </div>
-        );
-    };
-
-    // Custom title renderer to show icon with selected status
-    const onRenderTitle = (options?: IDropdownOption[]): JSX.Element => {
-        if (!options || options.length === 0) return <span>Select</span>;
-        const option = options[0];
-        const config = option.data as { label: string; shortLabel: string; color: string; icon: string } | undefined;
-        if (!config) return <span>{option.text}</span>;
-        
-        return (
-            <div style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: '6px',
-            }}>
-                <Icon 
-                    iconName={config.icon} 
-                    style={{ 
-                        fontSize: '11px', 
-                        color: config.color,
-                    }} 
-                />
-                <span>{config.shortLabel}</span>
-            </div>
-        );
-    };
-
-    const renderWeek = (label: string, weekStart: string) => {
-        const dates = getWeekDates(weekStart);
-        const monday = dates[0];
-        const friday = dates[4];
-        const dateRange = `${formatShortDate(monday)} – ${formatShortDate(friday)}`;
-
-        return (
-            <div style={weekSectionStyle}>
-                <div style={weekHeaderStyle}>
-                    <span style={weekTitleStyle}>{label}</span>
-                    <span style={weekDateStyle}>{dateRange}</span>
-                </div>
-
-                <div style={daysGridStyle}>
-                    {weekDays.map((day, idx) => {
-                        const status = localAttendance[weekStart]?.[day] || 'wfh';
-                        const onLeave = isOnLeave(weekStart, idx);
-                        const displayStatus = onLeave ? 'away' : status;
-
-                        return (
-                            <div
-                                key={day}
-                                style={getDayCardStyle(displayStatus, onLeave)}
-                            >
-                                <div style={dayLabelStyle}>{dayAbbr[idx]}</div>
-                                <div style={dayDateStyle}>{dates[idx].getDate()}</div>
-                                {onLeave ? (
-                                    <div style={{ 
-                                        fontSize: '11px', 
-                                        color: '#9CA3AF',
-                                        padding: '4px 0'
-                                    }}>
-                                        On Leave
-                                    </div>
-                                ) : (
-                                    <Dropdown
-                                        selectedKey={status}
-                                        options={STATUS_OPTIONS}
-                                        onChange={(_, option) => option && setDayStatus(weekStart, day, option.key as StatusType)}
-                                        styles={getDropdownStyles(status)}
-                                        onRenderOption={onRenderOption}
-                                        onRenderTitle={onRenderTitle}
-                                    />
-                                )}
-                            </div>
-                        );
-                    })}
-                </div>
-
-                <div style={quickActionsStyle}>
-                    <button
-                        type="button"
-                        onClick={() => setAllDays(weekStart, 'office')}
-                        style={quickButtonStyle(colours.missedBlue)}
-                    >
-                        <Icon iconName="CityNext" style={{ fontSize: '12px' }} />
-                        All Office
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setAllDays(weekStart, 'wfh')}
-                        style={quickButtonStyle(colours.green)}
-                    >
-                        <Icon iconName="Home" style={{ fontSize: '12px' }} />
-                        All WFH
-                    </button>
-                </div>
-            </div>
-        );
+        marginTop: '24px',
+        paddingTop: '20px',
+        borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.25)'}`,
     };
 
     return (
         <div style={containerStyle}>
-            {renderWeek('This Week', currentWeekStart)}
-            {renderWeek('Next Week', nextWeekStart)}
+            {/* Admin Mode - Employee Selection (only shown when isAdmin is true) */}
+            {isAdmin && teamData && teamData.length > 0 && (
+                <div style={{
+                    padding: '12px 14px',
+                    marginBottom: '16px',
+                    background: isDarkMode ? 'rgba(255, 183, 77, 0.06)' : 'rgba(255, 152, 0, 0.06)',
+                    border: `1px solid ${isDarkMode ? 'rgba(255, 183, 77, 0.2)' : 'rgba(255, 152, 0, 0.2)'}`,
+                    borderRadius: 4,
+                }}>
+                    {/* Header row */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            padding: '3px 8px',
+                            background: isDarkMode ? 'rgba(255, 183, 77, 0.2)' : 'rgba(255, 152, 0, 0.15)',
+                            borderRadius: 3,
+                            fontSize: '9px',
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.5px',
+                            color: isDarkMode ? '#FFB74D' : '#E65100',
+                        }}>
+                            <Icon iconName="Shield" style={{ fontSize: '10px' }} />
+                            Admin
+                        </div>
+                        <span style={{ 
+                            fontSize: '11px', 
+                            color: isDarkMode ? 'rgba(243, 244, 246, 0.5)' : 'rgba(6, 23, 51, 0.5)' 
+                        }}>
+                            Select employee to confirm their attendance
+                        </span>
+                    </div>
 
+                    {/* Employee chips */}
+                    <div style={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: '6px',
+                        maxHeight: '120px',
+                        overflowY: 'auto',
+                        padding: '2px 0',
+                    }}>
+                        {/* "Me" chip */}
+                        <button
+                            type="button"
+                            onClick={() => setSelectedEmployee(null)}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                padding: '4px 10px',
+                                background: !selectedEmployee 
+                                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)')
+                                    : (isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)'),
+                                border: `1px solid ${!selectedEmployee 
+                                    ? colours.highlight
+                                    : (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)')}`,
+                                borderRadius: 3,
+                                fontSize: '11px',
+                                fontWeight: !selectedEmployee ? 600 : 500,
+                                color: !selectedEmployee 
+                                    ? colours.highlight 
+                                    : (isDarkMode ? '#F3F4F6' : '#061733'),
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease',
+                            }}
+                        >
+                            <Icon iconName="Contact" style={{ fontSize: '10px' }} />
+                            Me ({ownInitials})
+                        </button>
+
+                        {/* Employee chips */}
+                        {employeeList.filter(e => e.Initials !== ownInitials).map((emp) => {
+                            const isSelected = selectedEmployee === emp.Initials;
+                            return (
+                                <button
+                                    key={emp.Initials}
+                                    type="button"
+                                    onClick={() => setSelectedEmployee(emp.Initials || null)}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                        padding: '4px 10px',
+                                        background: isSelected 
+                                            ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)')
+                                            : (isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)'),
+                                        border: `1px solid ${isSelected 
+                                            ? colours.highlight
+                                            : (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)')}`,
+                                        borderRadius: 3,
+                                        fontSize: '11px',
+                                        fontWeight: isSelected ? 600 : 500,
+                                        color: isSelected 
+                                            ? colours.highlight 
+                                            : (isDarkMode ? '#F3F4F6' : '#061733'),
+                                        cursor: 'pointer',
+                                        transition: 'all 0.15s ease',
+                                    }}
+                                >
+                                    <span style={{ fontWeight: 600 }}>{emp.Initials}</span>
+                                    <span style={{ opacity: 0.7 }}>{emp.First || emp.Nickname}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    {/* Selected employee info bar */}
+                    {selectedEmployee && (
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '12px',
+                            marginTop: '10px',
+                            padding: '8px 10px',
+                            background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)',
+                            borderRadius: 3,
+                            fontSize: '11px',
+                        }}>
+                            <span style={{ color: isDarkMode ? 'rgba(243, 244, 246, 0.5)' : 'rgba(6, 23, 51, 0.5)' }}>
+                                Confirming attendance for: <strong style={{ color: isDarkMode ? '#F3F4F6' : '#061733' }}>
+                                    {employeeList.find(e => e.Initials === selectedEmployee)?.First || selectedEmployee}
+                                </strong>
+                            </span>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Calendar Header - only show when not in admin-selecting mode */}
+            {!selectedEmployee && (
+                <div style={{
+                    marginBottom: '16px',
+                    padding: '10px 14px',
+                    background: isDarkMode ? 'rgba(31, 41, 55, 0.4)' : 'rgba(255, 255, 255, 0.5)',
+                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
+                    borderRadius: 4,
+                }}>
+                    <div style={{ fontSize: '11px', color: isDarkMode ? 'rgba(243, 244, 246, 0.6)' : 'rgba(6, 23, 51, 0.6)' }}>
+                        Click any day to change your status
+                    </div>
+                </div>
+            )}
+
+            {/* Day Headers */}
+            <div style={calendarGridStyle}>
+                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].map(day => (
+                    <div key={day} style={dayHeaderStyle}>
+                        {day}
+                    </div>
+                ))}
+
+                {/* Calendar Days */}
+                {calendarDays.filter(d => !d.isWeekend).map((dayInfo, idx) => {
+                    const isToday = isSameDay(dayInfo.date, new Date());
+                    const config = STATUS_CONFIG[dayInfo.status];
+                    const isFirstWeek = idx < 5;
+                    const isSelected = selectedCell?.week === dayInfo.weekStart && selectedCell?.day === dayInfo.dayName;
+
+                    return (
+                        <div
+                            key={idx}
+                            onClick={() => !dayInfo.isLeave && toggleDaySelector(dayInfo.weekStart, dayInfo.dayName)}
+                            style={getDayCardStyle(dayInfo.status, dayInfo.isLeave, false, isToday)}
+                            onMouseEnter={(e) => {
+                                if (!dayInfo.isLeave) {
+                                    e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.15)';
+                                    e.currentTarget.style.borderColor = isDarkMode ? colours.accent : colours.highlight;
+                                }
+                            }}
+                            onMouseLeave={(e) => {
+                                if (!dayInfo.isLeave) {
+                                    const originalStyle = getDayCardStyle(dayInfo.status, dayInfo.isLeave, false, isToday);
+                                    e.currentTarget.style.background = originalStyle.background as string;
+                                    e.currentTarget.style.borderColor = (originalStyle.border as string).split(' ')[2];
+                                }
+                            }}
+                        >
+                            <div>
+                                <div style={{ 
+                                    fontSize: '9px', 
+                                    fontWeight: 600, 
+                                    color: isDarkMode ? 'rgba(243, 244, 246, 0.5)' : 'rgba(6, 23, 51, 0.5)',
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.3px',
+                                    marginBottom: '2px'
+                                }}>
+                                    {dayInfo.dayAbbr}
+                                </div>
+                                <div style={dateNumberStyle}>
+                                    {dayInfo.date.getDate()}
+                                </div>
+                            </div>
+
+                            {dayInfo.isLeave ? (
+                                <div style={{ fontSize: '10px', color: '#9CA3AF', fontWeight: 500 }}>
+                                    On Leave
+                                </div>
+                            ) : (
+                                <div style={statusBadgeStyle(dayInfo.status)}>
+                                    <Icon iconName={config.icon} style={{ fontSize: '10px' }} />
+                                    {config.shortLabel}
+                                </div>
+                            )}
+
+                            {/* Status Selector Dropdown */}
+                            {isSelected && !dayInfo.isLeave && (
+                                <div style={statusSelectorStyle} onClick={(e) => e.stopPropagation()}>
+                                    {(['office', 'wfh', 'away', 'sick', 'ooo'] as StatusType[]).map(status => {
+                                        const statusConfig = STATUS_CONFIG[status];
+                                        const statusColor = isDarkMode ? statusConfig.darkColor : statusConfig.color;
+                                        const isCurrentStatus = dayInfo.status === status;
+                                        return (
+                                            <div
+                                                key={status}
+                                                onClick={() => setDayStatus(dayInfo.weekStart, dayInfo.dayName, status)}
+                                                style={statusOptionStyle(status, isCurrentStatus)}
+                                                onMouseEnter={(e) => {
+                                                    if (!isCurrentStatus) {
+                                                        e.currentTarget.style.background = isDarkMode ? 'rgba(55, 65, 81, 0.6)' : '#F3F4F6';
+                                                    }
+                                                }}
+                                                onMouseLeave={(e) => {
+                                                    if (!isCurrentStatus) {
+                                                        e.currentTarget.style.background = 'transparent';
+                                                    }
+                                                }}
+                                            >
+                                                <div style={{
+                                                    width: '20px',
+                                                    height: '20px',
+                                                    borderRadius: '3px',
+                                                    backgroundColor: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    flexShrink: 0,
+                                                }}>
+                                                    <Icon iconName={statusConfig.icon} style={{ fontSize: '11px', color: statusColor }} />
+                                                </div>
+                                                <span>{statusConfig.shortLabel}</span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+
+            {/* Quick Actions */}
+            <div style={quickActionsStyle}>
+                {(['office', 'wfh', 'away', 'sick', 'ooo'] as StatusType[]).map(status => {
+                    const config = STATUS_CONFIG[status];
+                    const color = isDarkMode ? config.darkColor : config.color;
+                    return (
+                        <button
+                            key={status}
+                            type="button"
+                            onClick={() => {
+                                setAllDays(currentWeekStart, status);
+                                setAllDays(nextWeekStart, status);
+                            }}
+                            style={quickButtonStyle(color)}
+                            onMouseEnter={(e) => e.currentTarget.style.opacity = '0.85'}
+                            onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                        >
+                            <Icon iconName={config.icon} style={{ fontSize: '10px' }} />
+                            All {config.shortLabel}
+                        </button>
+                    );
+                })}
+            </div>
+
+            {/* Footer Buttons */}
             <div style={footerStyle}>
                 <DefaultButton 
-                    text="Cancel" 
+                    text={saving ? 'Saving...' : 'Submit'}
+                    onClick={handleSave} 
+                    disabled={saving}
+                    iconProps={saving ? undefined : { iconName: 'Send' }}
+                    styles={{
+                        root: {
+                            height: '24px',
+                            minWidth: '90px',
+                            borderRadius: 0,
+                            border: isDarkMode ? `1px solid ${colours.accent}` : 'none',
+                            backgroundColor: isDarkMode ? 'rgba(135, 243, 243, 0.1)' : colours.highlight,
+                            color: isDarkMode ? colours.accent : '#ffffff',
+                            fontSize: '10px',
+                            fontWeight: 600,
+                            padding: '0 12px',
+                            transition: 'all 0.2s ease',
+                        },
+                        rootHovered: {
+                            backgroundColor: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : colours.highlight,
+                            borderColor: isDarkMode ? colours.accent : 'transparent',
+                            color: isDarkMode ? colours.accent : '#ffffff',
+                            opacity: isDarkMode ? 1 : 0.85,
+                        },
+                        rootDisabled: {
+                            backgroundColor: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(0, 0, 0, 0.1)',
+                            color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(0, 0, 0, 0.3)',
+                            border: isDarkMode ? '1px solid rgba(148, 163, 184, 0.2)' : 'none',
+                        },
+                        label: {
+                            fontWeight: 600,
+                        }
+                    }}
+                >
+                    {saving && <Spinner size={SpinnerSize.xSmall} style={{ marginRight: '8px' }} />}
+                </DefaultButton>
+                <DefaultButton 
+                    text="Clear" 
                     onClick={onClose}
                     styles={{
                         root: {
-                            borderColor: isDarkMode ? '#4B5563' : '#D1D5DB',
-                            backgroundColor: 'transparent',
-                            color: isDarkMode ? '#D1D5DB' : '#374151',
-                            minWidth: '80px',
+                            height: '24px',
+                            minWidth: '90px',
+                            borderRadius: 0,
+                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.08)'}`,
+                            backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+                            color: isDarkMode ? 'rgba(203, 213, 225, 0.6)' : 'rgba(71, 85, 105, 0.6)',
+                            fontSize: '10px',
+                            fontWeight: 600,
+                            padding: '0 12px',
+                            transition: 'all 0.2s ease',
                         },
                         rootHovered: {
-                            backgroundColor: isDarkMode ? '#374151' : '#F3F4F6',
-                            borderColor: isDarkMode ? '#6B7280' : '#9CA3AF',
-                        }
-                    }}
-                />
-                <PrimaryButton 
-                    text={saving ? 'Saving...' : 'Save'} 
-                    onClick={handleSave} 
-                    disabled={saving}
-                    styles={{
-                        root: {
-                            backgroundColor: colours.missedBlue,
-                            borderColor: colours.missedBlue,
-                            minWidth: '100px',
+                            backgroundColor: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(241, 245, 249, 0.9)',
                         },
-                        rootHovered: {
-                            backgroundColor: '#174a92',
-                            borderColor: '#174a92',
-                        },
-                        rootPressed: {
-                            backgroundColor: '#0a1f3d',
-                            borderColor: '#0a1f3d',
-                        },
-                        rootDisabled: {
-                            backgroundColor: isDarkMode ? '#374151' : '#E5E7EB',
-                            borderColor: 'transparent',
+                        label: {
+                            fontWeight: 600,
                         }
                     }}
                 />

@@ -14,6 +14,8 @@ import {
   MdSmartphone,
   MdOutlineEventSeat,
   MdEventSeat,
+  MdOutlineLocationOn,
+  MdLocationOn,
 } from 'react-icons/md';
 import {
   AiOutlinePlus,
@@ -37,7 +39,24 @@ interface QuickActionsBarProps {
   userDisplayName?: string;
   userIdentifier?: string;
   onToggleTheme?: () => void;
+  loading?: boolean; // Show skeleton loading state
+  showSessionLog?: boolean; // Show session changes chip (dev only)
+  sessionChanges?: string[]; // List of session changes to display
+  onShowChangelog?: () => void; // Callback to open changelog modal
 }
+
+// Skeleton chip for loading state - matches home page skeleton style
+const SkeletonChip: React.FC<{ isDark: boolean; width?: number }> = ({ isDark, width = 90 }) => (
+  <div
+    className="skeleton-shimmer"
+    style={{
+      height: 30,
+      width,
+      borderRadius: 2,
+      background: isDark ? 'rgba(54, 144, 206, 0.08)' : 'rgba(148, 163, 184, 0.15)',
+    }}
+  />
+);
 
 // Icon mapping for quick actions
 const CalendarDayIcon: React.FC<{ style?: React.CSSProperties }> = ({ style }) => (
@@ -54,6 +73,7 @@ const iconMap: Record<string, { outline: React.ComponentType<any>; filled: React
   Phone: { outline: MdSmartphone, filled: MdSmartphone },
   Leave: { outline: FaUmbrellaBeach, filled: FaUmbrellaBeach },
   PalmTree: { outline: FaUmbrellaBeach, filled: FaUmbrellaBeach },
+  Attendance: { outline: MdOutlineLocationOn, filled: MdLocationOn },
 };
 
 const getShortTitle = (title: string) => {
@@ -77,6 +97,10 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
   userDisplayName,
   userIdentifier,
   onToggleTheme,
+  loading = false,
+  showSessionLog = false,
+  sessionChanges = [],
+  onShowChangelog,
 }) => {
   const [selected, setSelected] = React.useState<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(false);
@@ -159,13 +183,44 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
   // Theme colours
   const textPrimary = isDarkMode ? '#F1F5F9' : '#0F172A';
   const textSecondary = isDarkMode ? '#94A3B8' : '#64748B';
-  const borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.25)';
-  const chipBg = isDarkMode ? 'rgba(30, 41, 59, 0.5)' : 'rgba(248, 250, 252, 0.8)';
-  const chipBgHover = isDarkMode ? 'rgba(51, 65, 85, 0.6)' : 'rgba(241, 245, 249, 0.95)';
-  const chipBorder = isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.3)';
-  const chipBorderHover = isDarkMode ? 'rgba(96, 165, 250, 0.4)' : 'rgba(54, 144, 206, 0.4)';
-  const activeBg = isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)';
-  const activeBorder = isDarkMode ? 'rgba(96, 165, 250, 0.5)' : colours.blue;
+
+  // Loading skeleton state - show chips similar to home page skeletons
+  if (loading) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          padding: '8px 16px',
+          minHeight: 44,
+          background: isDarkMode
+            ? 'rgba(15, 23, 42, 0.6)'
+            : 'rgba(255, 255, 255, 0.7)',
+          backdropFilter: 'blur(16px)',
+          WebkitBackdropFilter: 'blur(16px)',
+          borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.15)'}`,
+          borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.15)'}`,
+          width: '100%',
+        }}
+        role="region"
+        aria-label="Quick actions loading"
+        aria-busy="true"
+      >
+        {/* Skeleton toggle button */}
+        <SkeletonChip isDark={isDarkMode} width={110} />
+        {/* Skeleton action chips */}
+        <SkeletonChip isDark={isDarkMode} width={85} />
+        <SkeletonChip isDark={isDarkMode} width={100} />
+        <SkeletonChip isDark={isDarkMode} width={75} />
+        <SkeletonChip isDark={isDarkMode} width={90} />
+        {/* Spacer for theme toggle area */}
+        <div style={{ marginLeft: 'auto' }}>
+          <SkeletonChip isDark={isDarkMode} width={50} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -175,11 +230,16 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
         gap: 12,
         padding: '8px 16px',
         minHeight: 44,
-        background: 'transparent',
-        borderTop: `1px solid ${borderColor}`,
-        borderBottom: `1px solid ${borderColor}`,
+        background: isDarkMode
+          ? 'rgba(15, 23, 42, 0.6)'
+          : 'rgba(255, 255, 255, 0.7)',
+        backdropFilter: 'blur(16px)',
+        WebkitBackdropFilter: 'blur(16px)',
+        borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.15)'}`,
+        borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.15)'}`,
         position: 'relative',
         width: '100%',
+        transition: 'all 0.12s ease',
       }}
       role="region"
       aria-label="Quick actions"
@@ -194,14 +254,16 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
           alignItems: 'center',
           gap: 8,
           padding: '6px 10px',
-          background: expanded ? chipBgHover : 'transparent',
-          border: `1px solid ${expanded ? chipBorderHover : 'transparent'}`,
-          borderRadius: 8,
+          background: expanded 
+            ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
+            : 'transparent',
+          border: `1px solid ${expanded ? (isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.25)') : 'transparent'}`,
+          borderRadius: 2,
           color: textPrimary,
           fontSize: 13,
           fontWeight: 600,
           cursor: 'pointer',
-          transition: 'all 0.2s ease',
+          transition: 'all 0.12s ease',
           flexShrink: 0,
         }}
       >
@@ -282,15 +344,19 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
                 alignItems: 'center',
                 gap: 8,
                 padding: '6px 14px',
-                background: isActive ? activeBg : isHovered ? chipBgHover : chipBg,
-                border: `1px solid ${isActive ? activeBorder : isHovered ? chipBorderHover : chipBorder}`,
-                borderRadius: 8,
+                background: isActive 
+                  ? (isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)')
+                  : isHovered 
+                    ? (isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.15)')
+                    : (isDarkMode ? 'rgba(30, 41, 59, 0.6)' : 'rgba(255, 255, 255, 0.8)'),
+                border: `1px solid ${isActive ? (isDarkMode ? 'rgba(54, 144, 206, 0.4)' : colours.blue) : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)')}`,
+                borderRadius: 2,
                 color: isActive ? colours.blue : textPrimary,
                 fontSize: 13,
                 fontWeight: 500,
                 cursor: isLoading && !isSelected ? 'not-allowed' : 'pointer',
                 opacity: isLoading && !isSelected ? 0.5 : 1,
-                transition: 'all 0.15s ease',
+                transition: 'all 0.12s ease',
                 whiteSpace: 'nowrap',
                 flexShrink: 0,
                 animation: expanded ? `fadeInChip 0.2s ease ${index * 0.03}s both` : 'none',
@@ -309,18 +375,48 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
         })}
       </div>
 
-      {/* Theme toggle on right */}
+      {/* Session log chip + Theme toggle on right */}
       {onToggleTheme && !greetingVisible && (
         <div
           style={{
             marginLeft: 'auto',
             display: 'flex',
             alignItems: 'center',
-            gap: 6,
+            gap: 10,
             paddingLeft: 10,
             borderLeft: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.06)'}`,
           }}
         >
+          {/* Session Changes chip - dev only */}
+          {showSessionLog && sessionChanges.length > 0 && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '4px 8px',
+                background: isDarkMode ? 'rgba(96, 165, 250, 0.12)' : 'rgba(54, 144, 206, 0.08)',
+                border: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.25)' : 'rgba(54, 144, 206, 0.18)'}`,
+                borderRadius: 3,
+                fontSize: 10,
+                color: isDarkMode ? 'rgba(96, 165, 250, 0.9)' : colours.highlight,
+                fontWeight: 500,
+                cursor: 'pointer',
+              }}
+              title={`Session changes:\n${sessionChanges.map(c => `• ${c}`).join('\n')}\n\nClick to view changelog`}
+              onClick={() => {
+                if (onShowChangelog) {
+                  onShowChangelog();
+                }
+              }}
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M12 8v4l3 3"/>
+                <circle cx="12" cy="12" r="10"/>
+              </svg>
+              {sessionChanges.length} {sessionChanges.length === 1 ? 'change' : 'changes'}
+            </div>
+          )}
           <svg
             width="14"
             height="14"

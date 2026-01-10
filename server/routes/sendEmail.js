@@ -151,6 +151,30 @@ function safeReadTextFile(filePath) {
   }
 }
 
+function ensureNoopenerRelForBlankTargets(html) {
+  const input = String(html || '');
+  if (!input) return input;
+
+  return input.replace(/<a\b[^>]*\btarget=(['"])_blank\1[^>]*>/gi, (tag) => {
+    // If rel is missing, add it.
+    if (!/\srel\s*=\s*/i.test(tag)) {
+      return tag.replace(/>$/, ' rel="noopener noreferrer">');
+    }
+
+    // Ensure rel contains noopener + noreferrer.
+    return tag.replace(/\brel\s*=\s*(['"])([^'"]*)\1/i, (_m, quote, relValue) => {
+      const tokens = String(relValue || '')
+        .split(/\s+/)
+        .map((t) => t.trim())
+        .filter(Boolean);
+      const set = new Set(tokens.map((t) => t.toLowerCase()));
+      set.add('noopener');
+      set.add('noreferrer');
+      return `rel=${quote}${Array.from(set).join(' ')}${quote}`;
+    });
+  });
+}
+
 function pickSignatureFileFromDir(dirPath, fromEmail) {
   let files = [];
   try {
@@ -188,7 +212,7 @@ function loadPersonalSignatureHtml({ signatureInitials, fromEmail }) {
     const picked = pickSignatureFileFromDir(folderPath, fromEmail);
     if (!picked) continue;
     const html = safeReadTextFile(path.join(folderPath, picked));
-    if (html && html.trim()) return html;
+    if (html && html.trim()) return ensureNoopenerRelForBlankTargets(html);
   }
 
   return null;

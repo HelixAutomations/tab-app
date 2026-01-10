@@ -126,12 +126,25 @@ router.get('/stream', (req, res) => {
     'X-Accel-Buffering': 'no',
   });
 
+  // Flush headers early so proxies/browsers start the stream immediately
+  if (typeof res.flushHeaders === 'function') {
+    res.flushHeaders();
+  }
+
   // Connection message
   res.write(`data: ${JSON.stringify({ type: 'connected' })}\n\n`);
+
+  if (typeof res.flush === 'function') {
+    res.flush();
+  }
 
   // Send buffered logs (recent activity before you connected)
   for (const entry of logBuffer) {
     res.write(`data: ${JSON.stringify(entry)}\n\n`);
+  }
+
+  if (typeof res.flush === 'function') {
+    res.flush();
   }
 
   clients.add(res);
@@ -139,6 +152,9 @@ router.get('/stream', (req, res) => {
   // Heartbeat
   const heartbeat = setInterval(() => {
     res.write(`: heartbeat\n\n`);
+    if (typeof res.flush === 'function') {
+      res.flush();
+    }
   }, 30000);
 
   // Cleanup on disconnect

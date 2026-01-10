@@ -2,9 +2,14 @@ const express = require('express');
 const { withRequest, sql } = require('../utils/db');
 const { cacheUnified, generateCacheKey, CACHE_CONFIG, deleteCachePattern } = require('../utils/redisClient');
 const { loggers } = require('../utils/logger');
+const { attachEnquiriesStream, broadcastEnquiriesChanged } = require('../utils/enquiries-stream');
 const router = express.Router();
 
 const log = loggers.enquiries;
+
+// SSE stream endpoint: GET /api/enquiries-unified/stream
+// Emits lightweight "enquiries.changed" events on mutations so clients can refresh.
+attachEnquiriesStream(router);
 
 // Route: GET /api/enquiries-unified
 // Direct database connections to fetch enquiries from BOTH database sources
@@ -610,6 +615,10 @@ router.post('/update', async (req, res) => {
       // Don't fail the request if cache invalidation fails
     }
 
+    try {
+      broadcastEnquiriesChanged({ changeType: 'update', enquiryId: String(ID) });
+    } catch { /* non-blocking */ }
+
     res.status(200).json({
       success: true,
       message: 'Enquiry updated successfully',
@@ -791,6 +800,10 @@ router.post('/create', async (req, res) => {
       log.warn('⚠️  Failed to invalidate cache after create:', cacheError);
     }
 
+    try {
+      broadcastEnquiriesChanged({ changeType: 'create', enquiryId: String(newId) });
+    } catch { /* non-blocking */ }
+
     res.status(201).json({
       success: true,
       id: newId,
@@ -968,6 +981,11 @@ router.delete('/:id', async (req, res) => {
                    (results.teamsActivityDeleted > 0 ? ` (+ ${results.teamsActivityDeleted} Teams activities)` : '');
 
     log.info('✅', message);
+
+    try {
+      broadcastEnquiriesChanged({ changeType: 'delete', enquiryId: String(enquiryId) });
+    } catch { /* non-blocking */ }
+
     res.json({
       success: true,
       message,
@@ -1203,6 +1221,11 @@ router.delete('/cleanup', async (req, res) => {
       : `Successfully deleted ${results.v1Deleted} v1 + ${results.v2Deleted} v2 records${removeTeamsActivity ? ` + ${results.teamsActivityDeleted} Teams activities` : ''}`;
 
     log.info('✅', message);
+
+    try {
+      broadcastEnquiriesChanged({ changeType: 'cleanup' });
+    } catch { /* non-blocking */ }
+
     res.json({
       success: true,
       message,

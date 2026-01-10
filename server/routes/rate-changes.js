@@ -32,6 +32,29 @@ async function getClioAccessToken() {
     return access_token;
 }
 
+// Short-lived in-memory cache for verify-matter lookups to reduce Clio calls.
+// Keyed by display number (string), value = { payload, expiresAtMs }.
+const verifyMatterCache = new Map();
+const VERIFY_MATTER_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+function getCachedVerifyMatter(displayNumber) {
+    const key = String(displayNumber || '').trim();
+    if (!key) return null;
+    const entry = verifyMatterCache.get(key);
+    if (!entry) return null;
+    if (Date.now() > entry.expiresAtMs) {
+        verifyMatterCache.delete(key);
+        return null;
+    }
+    return entry.payload;
+}
+
+function setCachedVerifyMatter(displayNumber, payload) {
+    const key = String(displayNumber || '').trim();
+    if (!key) return;
+    verifyMatterCache.set(key, { payload, expiresAtMs: Date.now() + VERIFY_MATTER_CACHE_TTL_MS });
+}
+
 /**
  * Helper: Update a single matter's rate change date in Clio
  * Handles both new field values and updates to existing values
@@ -154,8 +177,12 @@ async function updateClioMattersRateChangeDate(matterIds, dateValue, customField
  */
 router.get('/verify-matter/:displayNumber', async (req, res) => {
     const { displayNumber } = req.params;
-    const { getSecret } = require('../utils/getSecret');
     const legacyConn = process.env.SQL_CONNECTION_STRING_LEGACY || process.env.SQL_CONNECTION_STRING;
+
+    const cached = getCachedVerifyMatter(displayNumber);
+    if (cached) {
+        return res.json(cached);
+    }
     
     try {
         // 1. First lookup the Clio matter ID from SQL (more reliable than search)
@@ -177,19 +204,8 @@ router.get('/verify-matter/:displayNumber', async (req, res) => {
             }
         }
         
-        const initials = (process.env.CLIO_USER_INITIALS || 'lz').toLowerCase();
-        const [clientId, clientSecret, refreshToken] = await Promise.all([
-            getSecret(`${initials}-clio-v1-clientid`),
-            getSecret(`${initials}-clio-v1-clientsecret`),
-            getSecret(`${initials}-clio-v1-refreshtoken`),
-        ]);
-        
         const clioBase = process.env.CLIO_API_BASE || 'https://eu.app.clio.com/api/v4';
-        const tokenUrl = `https://eu.app.clio.com/oauth/token?client_id=${clientId}&client_secret=${clientSecret}&grant_type=refresh_token&refresh_token=${refreshToken}`;
-        
-        const tokenResp = await fetch(tokenUrl, { method: 'POST' });
-        if (!tokenResp.ok) throw new Error('Failed to get Clio access token');
-        const { access_token } = await tokenResp.json();
+        const accessToken = await getClioAccessToken();
         
         let matter = null;
         
@@ -197,12 +213,16 @@ router.get('/verify-matter/:displayNumber', async (req, res) => {
         if (clioMatterId) {
             const directUrl = `${clioBase}/matters/${clioMatterId}?fields=id,display_number,responsible_attorney{id,name},originating_attorney{id,name},status`;
             const directResp = await fetch(directUrl, {
-                headers: { Authorization: `Bearer ${access_token}` }
+                headers: { Authorization: `Bearer ${accessToken}` }
             });
             
             if (directResp.ok) {
                 const directData = await directResp.json();
                 matter = directData.data;
+            } else if (directResp.status === 429) {
+                const payload = { display_number: displayNumber, rate_limited: true, source: 'direct' };
+                setCachedVerifyMatter(displayNumber, payload);
+                return res.json(payload);
             }
         }
         
@@ -210,9 +230,14 @@ router.get('/verify-matter/:displayNumber', async (req, res) => {
         if (!matter) {
             const searchUrl = `${clioBase}/matters?query=${encodeURIComponent(displayNumber)}&fields=id,display_number,responsible_attorney{id,name},originating_attorney{id,name},status`;
             const searchResp = await fetch(searchUrl, {
-                headers: { Authorization: `Bearer ${access_token}` }
+                headers: { Authorization: `Bearer ${accessToken}` }
             });
             
+            if (searchResp.status === 429) {
+                const payload = { display_number: displayNumber, rate_limited: true, source: 'search' };
+                setCachedVerifyMatter(displayNumber, payload);
+                return res.json(payload);
+            }
             if (!searchResp.ok) {
                 throw new Error(`Clio search failed: ${searchResp.status}`);
             }
@@ -225,14 +250,24 @@ router.get('/verify-matter/:displayNumber', async (req, res) => {
             return res.status(404).json({ error: 'Matter not found in Clio', displayNumber });
         }
         
-        res.json({
+        const payload = {
             display_number: matter.display_number,
             responsible_attorney: matter.responsible_attorney,
             originating_attorney: matter.originating_attorney,
             status: matter.status,
-        });
+        };
+
+        setCachedVerifyMatter(displayNumber, payload);
+        res.json(payload);
         
     } catch (error) {
+        // Avoid noisy 500s for rate-limits; bubble as a non-blocking payload.
+        if (String(error && error.message || '').includes('Clio search failed: 429')) {
+            const payload = { display_number: displayNumber, rate_limited: true, source: 'search' };
+            setCachedVerifyMatter(displayNumber, payload);
+            return res.json(payload);
+        }
+
         console.error('[rate-changes] Error verifying matter:', error);
         res.status(500).json({ error: error.message });
     }
@@ -273,7 +308,7 @@ router.post('/sync-matter/:displayNumber', async (req, res) => {
         
         // Try direct ID lookup first (most reliable)
         if (clioMatterId) {
-            const directUrl = `${clioBase}/matters/${clioMatterId}?fields=id,display_number,responsible_attorney{id,name},originating_attorney{id,name},status`;
+            const directUrl = `${clioBase}/matters/${clioMatterId}?fields=id,display_number,responsible_attorney{id,name},originating_attorney{id,name},status,open_date,close_date`;
             const directResp = await fetch(directUrl, {
                 headers: { Authorization: `Bearer ${accessToken}` }
             });
@@ -286,7 +321,7 @@ router.post('/sync-matter/:displayNumber', async (req, res) => {
         
         // Fall back to search if direct lookup failed
         if (!matter) {
-            const searchUrl = `${clioBase}/matters?query=${encodeURIComponent(displayNumber)}&fields=id,display_number,responsible_attorney{id,name},originating_attorney{id,name},status`;
+            const searchUrl = `${clioBase}/matters?query=${encodeURIComponent(displayNumber)}&fields=id,display_number,responsible_attorney{id,name},originating_attorney{id,name},status,open_date,close_date`;
             const searchResp = await fetch(searchUrl, {
                 headers: { Authorization: `Bearer ${accessToken}` }
             });
@@ -305,17 +340,33 @@ router.post('/sync-matter/:displayNumber', async (req, res) => {
         
         const clioResponsible = matter.responsible_attorney?.name || null;
         const clioOriginating = matter.originating_attorney?.name || null;
+        const clioOpenDate = matter.open_date || null;
+        const clioCloseDate = matter.close_date || null;
+
+        const clioStatusRaw = matter.status || null;
+        const clioStatusSql = (() => {
+            const v = typeof clioStatusRaw === 'string' ? clioStatusRaw.trim().toLowerCase() : '';
+            if (v === 'open') return 'Open';
+            if (v === 'closed') return 'Closed';
+            return null;
+        })();
         
         // 3. Update SQL database
         const updateResult = await withRequest(legacyConn, async (request) => {
             request.input('displayNumber', sql.NVarChar, displayNumber);
             request.input('responsible', sql.NVarChar, clioResponsible);
             request.input('originating', sql.NVarChar, clioOriginating);
+            request.input('openDate', sql.Date, clioOpenDate ? new Date(clioOpenDate) : null);
+            request.input('closeDate', sql.Date, clioCloseDate ? new Date(clioCloseDate) : null);
+            request.input('status', sql.NVarChar, clioStatusSql);
             
             const result = await request.query(`
                 UPDATE matters
                 SET [Responsible Solicitor] = @responsible,
-                    [Originating Solicitor] = @originating
+                    [Originating Solicitor] = @originating,
+                    [Open Date] = @openDate,
+                    [Close Date] = @closeDate,
+                    [Status] = COALESCE(@status, [Status])
                 WHERE [Display Number] = @displayNumber
             `);
             return result.rowsAffected[0] || 0;
@@ -329,6 +380,9 @@ router.post('/sync-matter/:displayNumber', async (req, res) => {
             updated: {
                 responsible_solicitor: clioResponsible,
                 originating_solicitor: clioOriginating,
+                open_date: clioOpenDate,
+                close_date: clioCloseDate,
+                status: clioStatusSql || clioStatusRaw,
             },
             rows_affected: updateResult,
         });
@@ -366,6 +420,27 @@ router.post('/sync-matters', async (req, res) => {
     const sendEvent = (data) => {
         res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
+
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    async function fetchClioWithRetry(url, accessToken, { maxRetries = 3 } = {}) {
+        let attempt = 0;
+        while (true) {
+            attempt++;
+            const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+
+            if (resp.status !== 429) return resp;
+
+            const retryAfterRaw = resp.headers && resp.headers.get ? resp.headers.get('retry-after') : null;
+            const retryAfterSeconds = retryAfterRaw ? Number(retryAfterRaw) : NaN;
+            const backoffMs = Number.isFinite(retryAfterSeconds)
+                ? Math.max(500, retryAfterSeconds * 1000)
+                : Math.min(10_000, 1000 * attempt);
+
+            if (attempt > maxRetries) return resp;
+            await sleep(backoffMs);
+        }
+    }
     
     try {
         const accessToken = await getClioAccessToken();
@@ -386,10 +461,8 @@ router.post('/sync-matters', async (req, res) => {
             
             try {
                 // Fetch from Clio
-                const searchUrl = `${clioBase}/matters?query=${encodeURIComponent(displayNumber)}&fields=id,display_number,responsible_attorney{id,name},originating_attorney{id,name}`;
-                const searchResp = await fetch(searchUrl, {
-                    headers: { Authorization: `Bearer ${accessToken}` }
-                });
+                const searchUrl = `${clioBase}/matters?query=${encodeURIComponent(displayNumber)}&fields=id,display_number,responsible_attorney{id,name},originating_attorney{id,name},status,open_date,close_date`;
+                const searchResp = await fetchClioWithRetry(searchUrl, accessToken, { maxRetries: 3 });
                 
                 if (!searchResp.ok) {
                     throw new Error(`Clio API error: ${searchResp.status}`);
@@ -411,6 +484,16 @@ router.post('/sync-matters', async (req, res) => {
                 
                 const clioResponsible = matter.responsible_attorney?.name || null;
                 const clioOriginating = matter.originating_attorney?.name || null;
+                const clioOpenDate = matter.open_date || null;
+                const clioCloseDate = matter.close_date || null;
+
+                const clioStatusRaw = matter.status || null;
+                const clioStatusSql = (() => {
+                    const v = typeof clioStatusRaw === 'string' ? clioStatusRaw.trim().toLowerCase() : '';
+                    if (v === 'open') return 'Open';
+                    if (v === 'closed') return 'Closed';
+                    return null;
+                })();
                 
                 sendEvent({ 
                     type: 'progress', 
@@ -425,11 +508,17 @@ router.post('/sync-matters', async (req, res) => {
                     request.input('displayNumber', sql.NVarChar, displayNumber);
                     request.input('responsible', sql.NVarChar, clioResponsible);
                     request.input('originating', sql.NVarChar, clioOriginating);
+                    request.input('openDate', sql.Date, clioOpenDate ? new Date(clioOpenDate) : null);
+                    request.input('closeDate', sql.Date, clioCloseDate ? new Date(clioCloseDate) : null);
+                    request.input('status', sql.NVarChar, clioStatusSql);
                     
                     await request.query(`
                         UPDATE matters
                         SET [Responsible Solicitor] = @responsible,
-                            [Originating Solicitor] = @originating
+                            [Originating Solicitor] = @originating,
+                            [Open Date] = @openDate,
+                            [Close Date] = @closeDate,
+                            [Status] = COALESCE(@status, [Status])
                         WHERE [Display Number] = @displayNumber
                     `);
                 });
@@ -441,8 +530,14 @@ router.post('/sync-matters', async (req, res) => {
                     status: 'success',
                     responsible: clioResponsible,
                     originating: clioOriginating,
+                    open_date: clioOpenDate,
+                    close_date: clioCloseDate,
+                    matter_status: clioStatusSql || clioStatusRaw,
                     current: i + 1
                 });
+
+                // Light throttle to reduce rate limiting during bulk ops.
+                await sleep(200);
                 
             } catch (err) {
                 results.failed++;
@@ -453,6 +548,9 @@ router.post('/sync-matters', async (req, res) => {
                     error: err.message,
                     current: i + 1
                 });
+
+                // Also throttle on errors to avoid hammering Clio.
+                await sleep(500);
             }
         }
         
@@ -591,11 +689,14 @@ router.post('/clio/update-matter', async (req, res) => {
  * GET /api/rate-changes/:year
  * Get all clients with open matters and their notification status for a given year
  * Joins legacy matters with tracking records from instructions DB
- * Returns open matters for the notification list, plus closed matters for context
+ * Returns open matters for the notification list
  */
 router.get('/:year', async (req, res) => {
     const { year } = req.params;
     const { status, solicitor } = req.query;
+
+    const includeOpenedFromYear = String(req.query.includeOpenedFromYear || '').toLowerCase() === '1'
+        || String(req.query.includeOpenedFromYear || '').toLowerCase() === 'true';
 
     
     const normalizeClientId = (value) => {
@@ -614,6 +715,10 @@ router.get('/:year', async (req, res) => {
     try {
         // 1. Get all OPEN matters grouped by client from legacy DB
         const openMattersResult = await withRequest(legacyConn, async (request) => {
+            const yearStart = new Date(Date.UTC(parseInt(year, 10), 0, 1));
+            request.input('yearStart', sql.Date, yearStart);
+            request.input('includeOpenedFromYear', sql.Bit, includeOpenedFromYear ? 1 : 0);
+
             const result = await request.query(`
                 SELECT 
                     [Client ID] as client_id,
@@ -627,38 +732,19 @@ router.get('/:year', async (req, res) => {
                     [Open Date] as open_date,
                     [CCL_date] as ccl_date
                 FROM matters
-                WHERE [Status] = 'Open'
+                                WHERE [Status] = 'Open'
+                                    AND [Close Date] IS NULL
+                                    AND (
+                                        @includeOpenedFromYear = 1
+                                        OR [Open Date] IS NULL
+                                        OR [Open Date] < @yearStart
+                                    )
                 ORDER BY [Client Name], [Display Number]
             `);
             return result.recordset || [];
         });
         
-        // 2. Get client IDs that have open matters
-        const clientIdsWithOpenMatters = new Set(
-            openMattersResult.map(m => normalizeClientId(m.client_id)).filter(Boolean)
-        );
-        
-        // 3. Get ALL matters (including closed) for those clients - for context in modal
-        const allMattersResult = await withRequest(legacyConn, async (request) => {
-            const result = await request.query(`
-                SELECT 
-                    [Client ID] as client_id,
-                    [Unique ID] as matter_id,
-                    [Display Number] as display_number,
-                    [Responsible Solicitor] as responsible_solicitor,
-                    [Originating Solicitor] as originating_solicitor,
-                    [Practice Area] as practice_area,
-                    [Status] as status,
-                    [Open Date] as open_date,
-                    [Close Date] as close_date,
-                    [CCL_date] as ccl_date
-                FROM matters
-                ORDER BY [Client ID], [Display Number]
-            `);
-            return result.recordset || [];
-        });
-        
-        // 4. Get tracking records from instructions DB
+        // 2. Get tracking records from instructions DB
         const trackingResult = await withRequest(instructionsConn, async (request) => {
             request.input('year', sql.Int, parseInt(year));
             const result = await request.query(`
@@ -697,29 +783,7 @@ router.get('/:year', async (req, res) => {
             console.log(`[rate-changes] Sample tracking client_ids:`, trackingResult.slice(0, 3).map(t => ({ id: t.client_id, status: t.status })));
         }
         
-        // 6. Build closed matters lookup by client (only for clients with open matters)
-        const closedMattersByClient = new Map();
-        allMattersResult.forEach(m => {
-            const clientId = normalizeClientId(m.client_id);
-            if (!clientId || !clientIdsWithOpenMatters.has(clientId)) return;
-            if (m.status !== 'Closed') return;
-            
-            if (!closedMattersByClient.has(clientId)) {
-                closedMattersByClient.set(clientId, []);
-            }
-            closedMattersByClient.get(clientId).push({
-                matter_id: m.matter_id,
-                display_number: m.display_number,
-                responsible_solicitor: m.responsible_solicitor,
-                originating_solicitor: m.originating_solicitor,
-                practice_area: m.practice_area,
-                status: 'Closed',
-                open_date: m.open_date,
-                close_date: m.close_date
-            });
-        });
-        
-        // 7. Group open matters by client
+        // 6. Group open matters by client
         const clientsMap = new Map();
         openMattersResult.forEach(m => {
             const clientId = normalizeClientId(m.client_id);
@@ -755,11 +819,6 @@ router.get('/:year', async (req, res) => {
             }
         });
         
-        // 8. Add closed matters to each client
-        clientsMap.forEach((client, clientId) => {
-            client.closed_matters = closedMattersByClient.get(clientId) || [];
-        });
-        
         // Debug: log sample of client IDs from both sources
         const sampleClientIds = Array.from(clientsMap.keys()).slice(0, 3);
         console.log(`[rate-changes] Sample open matter client_ids:`, sampleClientIds);
@@ -768,7 +827,7 @@ router.get('/:year', async (req, res) => {
             console.log(`[rate-changes] Client ${cid}: has tracking = ${hasTracking}`);
         });
         
-        // 9. Merge with tracking data
+        // 7. Merge with tracking data
         const results = [];
         let matchCount = 0;
         clientsMap.forEach((client, clientId) => {
@@ -782,7 +841,7 @@ router.get('/:year', async (req, res) => {
                 client_last_name: tracking?.client_last_name || null,
                 client_email: tracking?.client_email || null,
                 open_matters: client.open_matters,
-                closed_matters: client.closed_matters,
+                closed_matters: [],
                 responsible_solicitors: Array.from(client.responsible_solicitors),
                 originating_solicitors: Array.from(client.originating_solicitors),
                 status: tracking?.status || 'pending',

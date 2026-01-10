@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { ImmediateActionChip, ImmediateActionCategory } from './ImmediateActionChip';
+import { Icon } from '@fluentui/react/lib/Icon';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types (matches Home.tsx Action type)
@@ -39,18 +40,41 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
   const { isDarkMode: contextDarkMode } = useTheme();
   const isDark = contextDarkMode ?? propDarkMode ?? false;
   const [showSuccess, setShowSuccess] = useState(false);
-  
-  // Urgency tooltip state - shows once per session for rate change notices
-  const [showUrgencyTooltip, setShowUrgencyTooltip] = useState(false);
-  const [tooltipDismissed, setTooltipDismissed] = useState(false);
-  const rateChangeChipRef = useRef<HTMLDivElement>(null);
+  const [allowEmptyState, setAllowEmptyState] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    // Persist collapse state in localStorage
+    const saved = localStorage.getItem('immediateActionsCollapsed');
+    return saved === 'true';
+  });
 
-  const loading = !immediateActionsReady;
   const actions = immediateActionsList;
-  
-  // Check if there's a rate change action
-  const rateChangeAction = actions.find(a => a.title.toLowerCase().includes('rate change'));
-  const rateChangeIndex = actions.findIndex(a => a.title.toLowerCase().includes('rate change'));
+
+  // Avoid flicker: keep skeletons briefly when ready-but-empty, to allow
+  // attendance/instructions derived actions to appear without showing empty state first.
+  useEffect(() => {
+    if (!immediateActionsReady) {
+      setAllowEmptyState(false);
+      return;
+    }
+    if (actions.length > 0) {
+      setAllowEmptyState(true);
+      return;
+    }
+
+    setAllowEmptyState(false);
+    const timer = setTimeout(() => setAllowEmptyState(true), 700);
+    return () => clearTimeout(timer);
+  }, [immediateActionsReady, actions.length]);
+
+  const settlingEmpty = immediateActionsReady && actions.length === 0 && !allowEmptyState;
+  const loading = !immediateActionsReady || settlingEmpty;
+
+  // Toggle collapse and persist
+  const toggleCollapse = () => {
+    const newState = !isCollapsed;
+    setIsCollapsed(newState);
+    localStorage.setItem('immediateActionsCollapsed', String(newState));
+  };
 
   // Show success briefly when loading completes with no actions
   useEffect(() => {
@@ -61,40 +85,13 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
     }
   }, [immediateActionsReady, actions.length]);
   
-  // Show urgency tooltip for rate change action - once per session, auto-dismiss after 8 seconds
-  useEffect(() => {
-    if (immediateActionsReady && rateChangeAction && !tooltipDismissed) {
-      // Check if already shown this session
-      const alreadyShown = sessionStorage.getItem('rateChangeUrgencyShown');
-      if (!alreadyShown) {
-        // Delay showing slightly so chips render first
-        const showTimer = setTimeout(() => {
-          setShowUrgencyTooltip(true);
-          sessionStorage.setItem('rateChangeUrgencyShown', 'true');
-        }, 600);
-        
-        return () => clearTimeout(showTimer);
-      }
-    }
-  }, [immediateActionsReady, rateChangeAction, tooltipDismissed]);
-  
-  // Auto-dismiss tooltip after 8 seconds
-  useEffect(() => {
-    if (showUrgencyTooltip) {
-      const dismissTimer = setTimeout(() => {
-        setShowUrgencyTooltip(false);
-        setTooltipDismissed(true);
-      }, 8000);
-      return () => clearTimeout(dismissTimer);
-    }
-  }, [showUrgencyTooltip]);
+
 
   // Colors
   const headerText = isDark ? '#94a3b8' : '#64748b';
-  const border = isDark ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)';
 
   // Empty state
-  if (!loading && actions.length === 0) {
+  if (immediateActionsReady && allowEmptyState && actions.length === 0) {
     return (
       <Section isDark={isDark} seamless={seamless}>
         <Header text={headerText}>To Do</Header>
@@ -108,24 +105,37 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
   return (
     <Section isDark={isDark} seamless={seamless} highlighted={highlighted}>
       <Header text={headerText}>
+        <CollapseChevron 
+          isCollapsed={isCollapsed} 
+          onClick={toggleCollapse} 
+          isDark={isDark}
+        />
         To Do
         {actions.length > 0 && <CountBadge isDark={isDark}>{totalCount}</CountBadge>}
-        {loading && <Spinner isDark={isDark} />}
+        {!immediateActionsReady && <Spinner isDark={isDark} />}
         {showSuccess && <SuccessCheck />}
       </Header>
 
+      {!isCollapsed && (
       <div style={{ 
         display: 'flex', 
         flexWrap: 'wrap',
         gap: 6,
-        borderTop: `1px solid ${border}`,
-        paddingTop: 8,
+        paddingTop: 4,
         position: 'relative',
       }}>
-        {actions.map((action, idx) => (
+        {loading && (
+          <>
+            <SkeletonChip isDark={isDark} />
+            <SkeletonChip isDark={isDark} />
+            <SkeletonChip isDark={isDark} />
+          </>
+        )}
+
+        {!loading && actions.map((action, idx) => (
           <div 
             key={`${action.title}-${idx}`} 
-            ref={idx === rateChangeIndex ? rateChangeChipRef : undefined}
+
             style={{ position: 'relative' }}
           >
             <ImmediateActionChip
@@ -139,23 +149,26 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
               disabled={action.disabled}
               isDarkMode={isDark}
             />
-            {/* Urgency tooltip - appears attached to rate change chip */}
-            {idx === rateChangeIndex && showUrgencyTooltip && (
-              <UrgencyTooltip 
-                isDark={isDark} 
-                onDismiss={() => {
-                  setShowUrgencyTooltip(false);
-                  setTooltipDismissed(true);
-                }}
-                onClick={action.onClick}
-              />
-            )}
+
           </div>
         ))}
       </div>
+      )}
     </Section>
   );
 };
+
+const SkeletonChip: React.FC<{ isDark: boolean }> = ({ isDark }) => (
+  <div
+    className="skeleton-shimmer"
+    style={{
+      height: 30,
+      minWidth: 140,
+      borderRadius: 999,
+      background: isDark ? 'rgba(54, 144, 206, 0.08)' : 'rgba(148, 163, 184, 0.15)',
+    }}
+  />
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sub-components
@@ -168,12 +181,10 @@ const Section: React.FC<{ isDark: boolean; seamless?: boolean; highlighted?: boo
   children 
 }) => (
   <section style={{
-    padding: seamless ? '8px 12px' : '12px 16px',
-    // Use transparent background - the parent .immediate-actions-portal handles the themed background via CSS
-    background: highlighted 
-      ? (isDark ? 'rgba(59, 130, 246, 0.1)' : 'rgba(59, 130, 246, 0.05)')
-      : 'transparent',
-    borderBottom: seamless ? 'none' : `1px solid ${isDark ? 'rgba(148, 163, 184, 0.06)' : 'rgba(0, 0, 0, 0.03)'}`,
+    padding: seamless ? '8px 0' : '10px 0',
+    background: 'transparent',
+    marginBottom: 0,
+    transition: 'all 0.12s ease',
   }}>
     {children}
   </section>
@@ -195,18 +206,65 @@ const Header: React.FC<{ text: string; children: React.ReactNode }> = ({ text, c
   </div>
 );
 
+const CollapseChevron: React.FC<{ 
+  isCollapsed: boolean; 
+  onClick: () => void; 
+  isDark: boolean;
+}> = ({ isCollapsed, onClick, isDark }) => {
+  const [hovered, setHovered] = useState(false);
+  
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      aria-label={isCollapsed ? 'Expand actions' : 'Collapse actions'}
+      aria-expanded={!isCollapsed}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 18,
+        height: 18,
+        padding: 0,
+        border: 'none',
+        borderRadius: 3,
+        background: hovered 
+          ? (isDark ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)')
+          : 'transparent',
+        cursor: 'pointer',
+        transition: 'all 0.15s ease',
+        marginRight: 2,
+      }}
+    >
+      <Icon 
+        iconName={isCollapsed ? 'ChevronRight' : 'ChevronDown'}
+        style={{
+          fontSize: 10,
+          color: hovered 
+            ? (isDark ? '#7dd3fc' : '#3690ce')
+            : (isDark ? '#94a3b8' : '#64748b'),
+          transition: 'color 0.15s ease, transform 0.15s ease',
+          transform: hovered ? 'scale(1.1)' : 'scale(1)',
+        }}
+      />
+    </button>
+  );
+};
+
 const CountBadge: React.FC<{ isDark: boolean; children: React.ReactNode }> = ({ isDark, children }) => (
   <span style={{
     minWidth: 18,
     height: 18,
     padding: '0 5px',
-    background: isDark ? 'rgba(248, 113, 113, 0.15)' : 'rgba(220, 38, 38, 0.1)',
-    color: isDark ? '#fca5a5' : '#dc2626',
+    background: isDark ? 'rgba(214, 85, 65, 0.15)' : 'rgba(214, 85, 65, 0.1)',
+    color: isDark ? '#f0a090' : '#d65541',
     fontSize: 10,
     fontWeight: 700,
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: 2,
   }}>
     {children}
   </span>
@@ -214,16 +272,39 @@ const CountBadge: React.FC<{ isDark: boolean; children: React.ReactNode }> = ({ 
 
 const EmptyState: React.FC<{ isDark: boolean; children: React.ReactNode }> = ({ isDark, children }) => (
   <div style={{
-    padding: '20px 0',
-    textAlign: 'center',
-    color: isDark ? '#64748b' : '#94a3b8',
-    fontSize: 13,
-    fontWeight: 500,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '24px 16px',
+    background: isDark ? 'rgba(34, 197, 94, 0.04)' : 'rgba(34, 197, 94, 0.06)',
+    borderRadius: '2px',
+    border: `1px dashed ${isDark ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.25)'}`,
   }}>
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginBottom: 8, opacity: 0.5 }}>
-      <path d="M20 6L9 17l-5-5" />
+    <svg 
+      width="28" 
+      height="28" 
+      viewBox="0 0 24 24" 
+      fill="none" 
+      stroke={isDark ? '#4ade80' : '#22c55e'}
+      strokeWidth="2" 
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ marginBottom: 10, opacity: 0.7 }}
+    >
+      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+      <polyline points="22 4 12 14.01 9 11.01" />
     </svg>
-    <div>{children}</div>
+    <div style={{
+      fontSize: 13,
+      fontWeight: 600,
+      color: isDark ? '#4ade80' : '#16a34a',
+      marginBottom: 2,
+    }}>{children}</div>
+    <div style={{
+      fontSize: 11,
+      color: isDark ? 'rgba(74, 222, 128, 0.6)' : 'rgba(22, 163, 74, 0.7)',
+    }}>Nothing needs your attention</div>
   </div>
 );
 
@@ -245,117 +326,10 @@ const SuccessCheck: React.FC = () => (
   </svg>
 );
 
-// Urgency tooltip that animates out from the rate change chip
-const UrgencyTooltip: React.FC<{ isDark: boolean; onDismiss: () => void; onClick: () => void }> = ({ isDark, onDismiss, onClick }) => (
-  <div 
-    className="urgency-tooltip"
-    style={{
-      position: 'absolute',
-      top: 'calc(100% + 8px)',
-      left: 0,
-      zIndex: 1000,
-      minWidth: 260,
-      maxWidth: 320,
-      padding: '10px 12px',
-      background: isDark 
-        ? 'linear-gradient(135deg, rgba(30, 30, 35, 0.98) 0%, rgba(40, 35, 35, 0.98) 100%)'
-        : 'linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 252, 250, 0.98) 100%)',
-      border: `1px solid ${isDark ? 'rgba(239, 68, 68, 0.3)' : 'rgba(239, 68, 68, 0.25)'}`,
-      borderRadius: 6,
-      boxShadow: isDark 
-        ? '0 8px 24px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(239, 68, 68, 0.15)'
-        : '0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(239, 68, 68, 0.1)',
-      animation: 'urgencyTooltipIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards',
-    }}
-  >
-    {/* Arrow pointing up */}
-    <div style={{
-      position: 'absolute',
-      top: -6,
-      left: 16,
-      width: 12,
-      height: 12,
-      background: isDark ? 'rgba(30, 30, 35, 0.98)' : 'rgba(255, 255, 255, 0.98)',
-      border: `1px solid ${isDark ? 'rgba(239, 68, 68, 0.3)' : 'rgba(239, 68, 68, 0.25)'}`,
-      borderRight: 'none',
-      borderBottom: 'none',
-      transform: 'rotate(45deg)',
-    }} />
-    
-    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-      {/* Alert icon - professional, not playful */}
-      <svg 
-        width="16" 
-        height="16" 
-        viewBox="0 0 24 24" 
-        fill="none" 
-        stroke="#ef4444" 
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        style={{ flexShrink: 0, marginTop: 1 }}
-      >
-        <circle cx="12" cy="12" r="10" />
-        <line x1="12" y1="8" x2="12" y2="12" />
-        <line x1="12" y1="16" x2="12.01" y2="16" />
-      </svg>
-      
-      <div style={{ flex: 1 }}>
-        <div style={{ 
-          fontSize: 12, 
-          fontWeight: 600, 
-          color: '#ef4444',
-          marginBottom: 4,
-        }}>
-          Year-End Deadline
-        </div>
-        <div style={{ 
-          fontSize: 11, 
-          color: isDark ? 'rgba(255,255,255,0.75)' : 'rgba(0,0,0,0.7)',
-          lineHeight: 1.4,
-        }}>
-          Please action outstanding rate change notices before 1st January.
-        </div>
-      </div>
-      
-      {/* Dismiss button */}
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onDismiss();
-        }}
-        style={{
-          background: 'transparent',
-          border: 'none',
-          padding: 2,
-          cursor: 'pointer',
-          color: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.3)',
-          fontSize: 12,
-          lineHeight: 1,
-          flexShrink: 0,
-        }}
-        title="Dismiss"
-      >
-        ✕
-      </button>
-    </div>
-  </div>
-);
-
-// CSS animation for spinner and urgency tooltip
+// CSS animation for spinner
 const style = document.createElement('style');
 style.textContent = `
 @keyframes spin { to { transform: rotate(360deg); } }
-@keyframes urgencyTooltipIn {
-  0% { 
-    opacity: 0; 
-    transform: translateY(-8px) scale(0.95);
-  }
-  100% { 
-    opacity: 1; 
-    transform: translateY(0) scale(1);
-  }
-}
 `;
 if (!document.head.querySelector('style[data-immediate-actions]')) {
   style.setAttribute('data-immediate-actions', '');

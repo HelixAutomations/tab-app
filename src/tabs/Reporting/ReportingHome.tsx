@@ -33,7 +33,7 @@ import { useStreamingDatasets } from '../../hooks/useStreamingDatasets';
 import { fetchWithRetry, fetchJSON } from '../../utils/fetchUtils';
 import markWhite from '../../assets/markwhite.svg';
 import type { PpcIncomeMetrics } from './PpcReport';
-import OperationStatusToast from '../enquiries/pitch-builder/OperationStatusToast';
+import { useToast } from '../../components/feedback/ToastProvider';
 import type { DealRecord, InstructionRecord } from './dataSources';
 
 // Add spinner animation CSS
@@ -71,6 +71,49 @@ const spinnerStyle = `
 @keyframes fadeIn {
   0% { opacity: 0; }
   100% { opacity: 1; }
+}
+
+@keyframes fadeInUp {
+  0% { 
+    opacity: 0; 
+    transform: translateY(12px); 
+  }
+  100% { 
+    opacity: 1; 
+    transform: translateY(0); 
+  }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes slideInRight {
+  0% { 
+    opacity: 0; 
+    transform: translateX(20px); 
+  }
+  100% { 
+    opacity: 1; 
+    transform: translateX(0); 
+  }
+}
+
+@keyframes scaleIn {
+  0% { 
+    opacity: 0; 
+    transform: scale(0.95); 
+  }
+  100% { 
+    opacity: 1; 
+    transform: scale(1); 
+  }
 }
 `;
 
@@ -748,14 +791,15 @@ const containerStyle = (isDarkMode: boolean): CSSProperties => ({
 
 const sectionSurfaceStyle = (isDarkMode: boolean, overrides: CSSProperties = {}): CSSProperties => ({
   background: isDarkMode ? 'linear-gradient(135deg, #020617 0%, #0a1220 100%)' : '#ffffff',
-  borderRadius: 12,
+  borderRadius: 0,
   border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.55)' : 'rgba(148, 163, 184, 0.45)'}`,
   boxShadow: surfaceShadow(isDarkMode),
   padding: '20px 22px',
   display: 'flex',
   flexDirection: 'column',
   gap: 12,
-  transition: 'background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease',
+  transition: 'background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease, opacity 0.3s ease',
+  animation: 'fadeInUp 0.4s ease forwards',
   ...overrides,
 });
 
@@ -798,14 +842,17 @@ const reportsListStyle = (): CSSProperties => ({
   gap: 10,
 });
 
-const reportRowStyle = (isDarkMode: boolean): CSSProperties => ({
+const reportRowStyle = (isDarkMode: boolean, animationIndex?: number): CSSProperties => ({
   display: 'flex',
   flexDirection: 'column',
   gap: 6,
   padding: '12px 14px',
-  borderRadius: 10,
+  borderRadius: 0,
   border: `1px solid ${subtleStroke(isDarkMode)}`,
   background: isDarkMode ? 'rgba(17, 24, 39, 0.72)' : 'rgba(255, 255, 255, 0.95)',
+  opacity: animationIndex !== undefined ? 0 : 1,
+  animation: animationIndex !== undefined ? 'fadeInUp 0.3s ease forwards' : 'none',
+  animationDelay: animationIndex !== undefined ? `${animationIndex * 0.06}s` : '0s',
 });
 
 const reportRowHeaderStyle = (isDarkMode: boolean): CSSProperties => ({
@@ -838,7 +885,7 @@ const feedRowStyle = (isDarkMode: boolean): CSSProperties => ({
   flexWrap: 'wrap',
   justifyContent: 'space-between',
   alignItems: 'center',
-  borderRadius: 8,
+  borderRadius: 0,
   padding: '8px 12px',
   background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
   border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.light.borderColor}`,
@@ -1053,9 +1100,11 @@ const refreshProgressDatasetStatusStyle = (isDarkMode: boolean): CSSProperties =
 
 const sectionTitleStyle: CSSProperties = {
   margin: 0,
-  fontSize: 16,
-  fontWeight: 600,
+  fontSize: 9,
+  fontWeight: 700,
   fontFamily: 'Raleway, sans-serif',
+  textTransform: 'uppercase',
+  letterSpacing: '0.5px',
 };
 
 const heroMetaRowStyle: CSSProperties = {
@@ -1082,7 +1131,7 @@ const heroLeftColumnStyle = (isDarkMode: boolean): CSSProperties => ({
 });
 
 const heroRightColumnStyle = (isDarkMode: boolean): CSSProperties => ({
-  borderRadius: 16,
+  borderRadius: 0,
   padding: '18px 20px',
   background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : 'rgba(255, 255, 255, 0.88)',
   border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(15, 23, 42, 0.08)'}`,
@@ -1160,33 +1209,11 @@ type ReportCard = AvailableReport & {
   totalDependencies: number;
 };
 
-type ToastType = 'success' | 'error' | 'info' | 'warning';
-
-interface ToastState {
-  visible: boolean;
-  message: string;
-  type: ToastType;
-  details?: string;
-  loading?: boolean;
-  progress?: number;
-  icon?: string;
-}
-
-interface ToastOptions {
-  message: string;
-  type: ToastType;
-  details?: string;
-  loading?: boolean;
-  autoDismissMs?: number;
-  progress?: number;
-  icon?: string;
-}
-
 const conditionalButtonStyles = (isDarkMode: boolean, state: ButtonState): IButtonStyles => ({
   root: {
-    borderRadius: 8,
+    borderRadius: 0,
     padding: '0 16px',
-    height: 34,
+    height: 36,
     background: (() => {
       switch (state) {
         case 'ready':
@@ -1220,9 +1247,9 @@ const conditionalButtonStyles = (isDarkMode: boolean, state: ButtonState): IButt
           return `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`;
       }
     })(),
-    fontWeight: 500,
+    fontWeight: 600,
     boxShadow: 'none',
-    transition: 'all 0.2s ease',
+    transition: 'all 0.15s ease',
     fontFamily: 'Raleway, sans-serif',
   },
   rootHovered: {
@@ -1282,50 +1309,60 @@ const conditionalButtonStyles = (isDarkMode: boolean, state: ButtonState): IButt
 
 const primaryButtonStyles = (isDarkMode: boolean): IButtonStyles => ({
   root: {
-    borderRadius: 8,
-    padding: '0 16px',
-    height: 34,
-    background: isDarkMode ? 'rgba(54, 144, 206, 0.18)' : '#061733',
-    color: isDarkMode ? '#38bdf8' : '#ffffff',
-    border: isDarkMode ? '1px solid rgba(54, 144, 206, 0.4)' : '1px solid rgba(6, 23, 51, 0.4)',
-    fontWeight: 500,
+    borderRadius: 0,
+    padding: '0 18px',
+    height: 36,
+    background: colours.highlight,
+    color: '#ffffff',
+    border: 'none',
+    fontWeight: 600,
+    fontSize: 13,
     boxShadow: 'none',
-    transition: 'all 0.2s ease',
+    transition: 'all 0.15s ease',
     fontFamily: 'Raleway, sans-serif',
   },
   rootHovered: {
-    background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : '#0d2f60',
-    borderColor: isDarkMode ? 'rgba(54, 144, 206, 0.5)' : 'rgba(13, 47, 96, 0.6)',
+    background: '#2d7ab8',
+    boxShadow: '0 2px 8px rgba(54, 144, 206, 0.3)',
   },
   rootPressed: {
-    background: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : '#051a33',
+    background: '#266795',
   },
   rootDisabled: {
-    background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(148, 163, 184, 0.05)',
+    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)',
     color: isDarkMode ? '#64748b' : '#94a3b8',
-    border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
+    border: 'none',
+  },
+  icon: {
+    color: '#ffffff',
+    fontSize: 14,
   },
 });
 
 const subtleButtonStyles = (isDarkMode: boolean): IButtonStyles => ({
   root: {
-    borderRadius: 8,
+    borderRadius: 0,
     padding: '0 14px',
-    height: 34,
-    background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.04)',
-    color: isDarkMode ? '#cbd5e1' : '#64748b',
-    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
+    height: 36,
+    background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'transparent',
+    color: isDarkMode ? '#e2e8f0' : '#475569',
+    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
     fontWeight: 500,
+    fontSize: 13,
     boxShadow: 'none',
-    transition: 'background 0.2s ease',
+    transition: 'all 0.15s ease',
     fontFamily: 'Raleway, sans-serif',
   },
   rootHovered: {
-    background: isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(148, 163, 184, 0.08)',
-    color: isDarkMode ? '#cbd5e1' : '#64748b',
+    background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.08)',
+    borderColor: isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.3)',
   },
   rootPressed: {
-    background: isDarkMode ? 'rgba(148, 163, 184, 0.32)' : 'rgba(148, 163, 184, 0.12)',
+    background: isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.12)',
+  },
+  icon: {
+    color: isDarkMode ? '#94a3b8' : '#64748b',
+    fontSize: 14,
   },
 });
 
@@ -1458,14 +1495,17 @@ const formatCurrency = (amount: number): string => {
 interface ReportingHomeProps {
   userData?: UserData[] | null;
   teamData?: TeamData[] | null;
+  demoModeEnabled?: boolean;
 }
 
 /**
  * Streamlined reporting landing page that centres on the Management Dashboard experience.
  */
-const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, teamData: propTeamData }) => {
+const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, teamData: propTeamData, demoModeEnabled = false }) => {
   const { isDarkMode } = useTheme();
   const { setContent } = useNavigatorActions();
+  const { showToast, hideToast, updateToast } = useToast();
+  const loadingToastIdRef = useRef<string | null>(null);
   const [currentTime, setCurrentTime] = useState(() => new Date());
   const [activeView, setActiveView] = useState<'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters' | 'logMonitor'>('overview');
   const [mattersWipRangeKey, setMattersWipRangeKey] = useState<MattersWipRangeKey>('12m');
@@ -1516,22 +1556,21 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     }
   }>({});
 
-  const [toastState, setToastState] = useState<ToastState>({
-    visible: false,
-    message: '',
-    type: 'info',
-  });
   const [resumeNotice, setResumeNotice] = useState<{ message: string; startedAt: number } | null>(null);
   const resumeNoticeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   // Test mode - only available in local development
   const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-  const [testMode, setTestMode] = useState(false);
+  const [testMode, setTestMode] = useState(() => demoModeEnabled);
   // (Removed marketing data settings state; always fetch 24 months)
   
   // Memoize handlers to prevent recreation on every render
   const handleBackToOverview = useCallback(() => {
     setActiveView('overview');
   }, []);
+
+  useEffect(() => {
+    setTestMode(demoModeEnabled);
+  }, [demoModeEnabled]);
 
   const clearResumeNoticeTimeout = useCallback(() => {
     if (resumeNoticeTimeoutRef.current) {
@@ -1648,11 +1687,106 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     return Boolean(cachedTimestamp) && cacheState.hasFetchedOnce;
   });
   const [refreshStartedAt, setRefreshStartedAt] = useState<number | null>(null);
+  const prevIsFetchingRef = useRef<boolean>(false);
+
+  // Show global toast notifications for data loading
+  useEffect(() => {
+    const wasFetching = prevIsFetchingRef.current;
+    prevIsFetchingRef.current = isFetching;
+
+    if (isFetching && !wasFetching) {
+      // Starting to fetch - clear any orphaned loading toast from previous instance
+      if (loadingToastIdRef.current) {
+        hideToast(loadingToastIdRef.current);
+      }
+      const toastId = showToast({
+        type: 'loading',
+        title: 'Loading Reporting Data',
+        message: 'Fetching latest data. You can continue browsing - we\'ll notify you when it\'s ready.',
+      });
+      loadingToastIdRef.current = toastId;
+    } else if (!isFetching && wasFetching) {
+      // Finished fetching - hide loading toast and show success
+      if (loadingToastIdRef.current) {
+        hideToast(loadingToastIdRef.current);
+        loadingToastIdRef.current = null;
+      }
+      showToast({
+        type: 'success',
+        title: 'Data Ready',
+        message: 'Reporting data has been refreshed.',
+        action: {
+          label: 'View Reports',
+          onClick: () => setActiveView('overview'),
+        },
+      });
+    }
+
+    // Cleanup when unmounting - only hide toast if fetching completed
+    // If still fetching, let it persist so user knows data is loading in background
+    return () => {
+      if (loadingToastIdRef.current && !isFetching) {
+        hideToast(loadingToastIdRef.current);
+        loadingToastIdRef.current = null;
+      }
+    };
+  }, [isFetching, showToast, hideToast]);
+
+  const buildDemoDatasets = useCallback((): DatasetMap => {
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    return {
+      userData: propUserData ?? [],
+      teamData: propTeamData ?? [],
+      enquiries: [],
+      allMatters: [],
+      wip: [
+        {
+          created_at: now.toISOString(),
+          total: 750,
+          quantity_in_hours: 2.5,
+          user_id: 1,
+        },
+      ],
+      recoveredFees: [
+        {
+          payment_date: today,
+          payment_allocated: 1200,
+          user_id: 1,
+          kind: 'Service',
+        },
+      ],
+      poidData: [],
+      annualLeave: [],
+      metaMetrics: [],
+      googleAnalytics: [],
+      googleAds: [],
+      deals: [],
+      instructions: [],
+    };
+  }, [propUserData, propTeamData]);
+
+  const applyDemoDatasets = useCallback(() => {
+    const now = Date.now();
+    const demoData = buildDemoDatasets();
+    setDatasetData(prev => ({ ...prev, ...demoData }));
+    setDatasetStatus(() => {
+      const next: Partial<DatasetStatus> = {};
+      DATASETS.forEach((dataset) => {
+        next[dataset.key] = { status: 'ready', updatedAt: now } as DatasetStatus[DatasetKey];
+      });
+      return next as DatasetStatus;
+    });
+    cachedData = { ...cachedData, ...demoData };
+    cachedTimestamp = now;
+    setLastRefreshTimestamp(now);
+    setHasFetchedOnce(true);
+    setCacheState(true, now);
+  }, [buildDemoDatasets]);
   const datasetStatusRef = useRef<DatasetStatus>(datasetStatus);
   const refreshStartedAtRef = useRef<number | null>(refreshStartedAt);
   const isStreamingConnectedRef = useRef<boolean>(false);
   const isFetchingRef = useRef<boolean>(isFetching);
-  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const preheatInFlightRef = useRef(false);
   const lastStreamActivityRef = useRef<number>(Date.now());
   const lastAutoResumeRef = useRef<number>(0);
@@ -1668,42 +1802,11 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   const googleAdsRequestIdRef = useRef(0);
   const googleAnalyticsRequestIdRef = useRef(0);
 
-  const clearToastTimeout = useCallback(() => {
-    if (toastTimeoutRef.current) {
-      clearTimeout(toastTimeoutRef.current);
-      toastTimeoutRef.current = null;
+  useEffect(() => {
+    if (demoModeEnabled) {
+      applyDemoDatasets();
     }
-  }, []);
-
-  const hideToast = useCallback(() => {
-    clearToastTimeout();
-    setToastState(prev => (prev.visible ? { ...prev, visible: false, loading: false } : prev));
-  }, [clearToastTimeout]);
-
-  const showToast = useCallback((options: ToastOptions) => {
-    clearToastTimeout();
-    setToastState({
-      visible: true,
-      message: options.message,
-      type: options.type,
-      details: options.details,
-      loading: options.loading,
-      progress: options.progress,
-      icon: options.icon,
-    });
-
-    if (!options.loading) {
-      const timeout = setTimeout(hideToast, options.autoDismissMs ?? 4000);
-      toastTimeoutRef.current = timeout;
-    } else if (typeof options.autoDismissMs === 'number') {
-      const timeout = setTimeout(hideToast, options.autoDismissMs);
-      toastTimeoutRef.current = timeout;
-    }
-  }, [clearToastTimeout, hideToast]);
-
-  useEffect(() => () => {
-    clearToastTimeout();
-  }, [clearToastTimeout]);
+  }, [demoModeEnabled, applyDemoDatasets]);
   const ppcIncomeMetrics = useMemo<PpcIncomeMetrics | null>(() => {
     const enquiries = datasetData.enquiries;
     const matters = datasetData.allMatters;
@@ -2626,6 +2729,14 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
 
   // Enhanced refresh function with streaming support and better throttling
   const performStreamingRefresh = useCallback(async (forceRefresh: boolean, options?: RefreshOptions) => {
+    if (demoModeEnabled) {
+      showToast({
+        message: 'Demo mode: reporting refresh disabled. Using cached/sample data.',
+        type: 'info',
+        duration: 4000,
+      });
+      return;
+    }
     // Prevent triggering if already actively loading
     if (isFetching && (isStreamingConnected || refreshStartedAt !== null)) {
       debugLog('Refresh already in progress, skipping');
@@ -2645,15 +2756,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       ...buildEnquiriesRangeParams(effectiveEnquiriesRange),
       ...buildMetaRangeParams(effectiveEnquiriesKey),
     };
-    
-    showToast({
-      message: forceRefresh ? 'Refreshing reporting data (full)' : 'Refreshing reporting data…',
-      type: 'info',
-      details: forceRefresh
-        ? 'Requesting fresh data from every source'
-        : 'Reusing recent cache where it is still fresh',
-      loading: true,
-    });
 
     debugLog('ReportingHome: refreshDatasetsWithStreaming called', {
       forceRefresh,
@@ -2777,10 +2879,9 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       debugWarn('Failed to refresh non-streaming datasets:', fetchError);
       setError(fetchError instanceof Error ? fetchError.message : 'Unknown error');
       showToast({
-        message: 'Failed to refresh reporting data',
+        message: `Failed to refresh reporting data: ${fetchError instanceof Error ? fetchError.message : 'Unexpected error'}`,
         type: 'error',
-        details: fetchError instanceof Error ? fetchError.message : 'Unexpected error',
-        autoDismissMs: 7000,
+        duration: 7000,
       });
     }
     // Note: Don't set isFetching(false) here - let the streaming completion handler do it
@@ -2799,6 +2900,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     datasetStatus,
     propUserData,
     showToast,
+    demoModeEnabled,
   ]);
 
   // Enhanced throttling to prevent excessive refresh triggers
@@ -2806,6 +2908,14 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   const lastRefreshRef = useRef<number>(0);
   
   const refreshDatasetsWithStreaming = useCallback(async () => {
+    if (demoModeEnabled) {
+      showToast({
+        message: 'Demo mode: reporting refresh disabled. Open reports without hitting live data.',
+        type: 'info',
+        duration: 4000,
+      });
+      return;
+    }
     const now = Date.now();
     const timeSinceLastRefresh = now - lastRefreshRef.current;
     const timeSinceGlobalRefresh = now - globalLastRefresh;
@@ -2852,17 +2962,24 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     globalLastRefresh = now; // Update global refresh timestamp
     // Use cached server data by default for speed; full fresh is available via the global Refresh Data modal
     return performStreamingRefresh(false);
-  }, [performStreamingRefresh, showToast]);
+  }, [performStreamingRefresh, showToast, demoModeEnabled]);
 
   // Scoped refreshers for specific reports with enhanced throttling
   const refreshAnnualLeaveOnly = useCallback(async () => {
+    if (demoModeEnabled) {
+      showToast({
+        message: 'Demo mode: annual leave refresh skipped. Live attendance endpoints stay idle.',
+        type: 'info',
+        duration: 4000,
+      });
+      return;
+    }
     // Prevent retriggering if already loading or recently completed
     if (isFetching || (datasetStatus.annualLeave?.status === 'loading')) {
       showToast({
-        message: 'Annual leave refresh already running',
+        message: 'Annual leave refresh already running. Please wait for the current update to finish.',
         type: 'info',
-        details: 'Please wait for the current update to finish.',
-        autoDismissMs: 4000,
+        duration: 4000,
       });
       return;
     }
@@ -2872,20 +2989,12 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     if (lastUpdate && lastUpdate > fifteenMinutesAgo) {
       debugLog('Annual leave data is recent, skipping refresh');
       showToast({
-        message: 'Annual leave already up to date',
+        message: 'Annual leave already up to date. Try again later if you need a fresh pull.',
         type: 'info',
-        details: 'Try again later if you need a fresh pull.',
-        autoDismissMs: 4000,
+        duration: 4000,
       });
       return;
     }
-    
-    showToast({
-      message: 'Refreshing annual leave data…',
-      type: 'info',
-      details: 'Pulling the latest leave records',
-      loading: true,
-    });
 
     setIsFetching(true);
     setError(null);
@@ -2911,34 +3020,39 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       cachedTimestamp = now;
       updateRefreshTimestamp(now, setLastRefreshTimestamp);
       showToast({
-        message: 'Annual leave updated',
+        message: `Annual leave updated - loaded ${annualLeaveData.length} records`,
         type: 'success',
-        details: `Loaded ${annualLeaveData.length} records`,
-        autoDismissMs: 5000,
+        duration: 5000,
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to refresh annual leave');
       setStatusesFor(['annualLeave'], 'error');
       showToast({
-        message: 'Annual leave refresh failed',
+        message: `Annual leave refresh failed: ${e instanceof Error ? e.message : 'Unexpected error'}`,
         type: 'error',
-        details: e instanceof Error ? e.message : 'Unexpected error',
-        autoDismissMs: 7000,
+        duration: 7000,
       });
     } finally {
       setIsFetching(false);
       setRefreshStartedAt(null);
     }
-  }, [fetchAnnualLeaveDataset, setStatusesFor, isFetching, datasetStatus.annualLeave, showToast]);
+  }, [fetchAnnualLeaveDataset, setStatusesFor, isFetching, datasetStatus.annualLeave, showToast, demoModeEnabled]);
 
   const refreshMetaMetricsOnly = useCallback(async () => {
+    if (demoModeEnabled) {
+      showToast({
+        message: 'Demo mode: Meta metrics refresh skipped. Marketing API calls are disabled.',
+        type: 'info',
+        duration: 4000,
+      });
+      return;
+    }
     // Prevent retriggering if already loading or recently completed
     if (isFetching || (datasetStatus.metaMetrics?.status === 'loading')) {
       showToast({
-        message: 'Meta metrics refresh already running',
+        message: 'Meta metrics refresh already running. Hang tight while we finish the current update.',
         type: 'info',
-        details: 'Hang tight while we finish the current update.',
-        autoDismissMs: 4000,
+        duration: 4000,
       });
       return;
     }
@@ -2948,20 +3062,12 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     if (lastUpdate && lastUpdate > fifteenMinutesAgo) {
       debugLog('Meta metrics data is recent, skipping refresh');
       showToast({
-        message: 'Meta metrics already fresh',
+        message: 'Meta metrics already fresh. Try again later for another update.',
         type: 'info',
-        details: 'Try again later for another update.',
-        autoDismissMs: 4000,
+        duration: 4000,
       });
       return;
     }
-    
-    showToast({
-      message: 'Refreshing Meta metrics…',
-      type: 'info',
-      details: 'Pulling the latest marketing performance figures',
-      loading: true,
-    });
 
     setIsFetching(true);
     setError(null);
@@ -2976,46 +3082,44 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       cachedTimestamp = now;
       updateRefreshTimestamp(now, setLastRefreshTimestamp);
       showToast({
-        message: 'Meta metrics updated',
+        message: `Meta metrics updated - loaded ${metrics.length} days of performance data`,
         type: 'success',
-        details: `Loaded ${metrics.length} days of performance data`,
-        autoDismissMs: 5000,
+        duration: 5000,
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to refresh Meta metrics');
       setStatusesFor(['metaMetrics'], 'error');
       showToast({
-        message: 'Meta metrics refresh failed',
+        message: `Meta metrics refresh failed: ${e instanceof Error ? e.message : 'Unexpected error'}`,
         type: 'error',
-        details: e instanceof Error ? e.message : 'Unexpected error',
-        autoDismissMs: 7000,
+        duration: 7000,
       });
     } finally {
       setIsFetching(false);
       setRefreshStartedAt(null);
     }
-  }, [fetchMetaMetrics, setStatusesFor, isFetching, datasetStatus.metaMetrics, showToast, metaDaysBack]);
+  }, [fetchMetaMetrics, setStatusesFor, isFetching, datasetStatus.metaMetrics, showToast, metaDaysBack, demoModeEnabled]);
 
   const refreshGoogleAnalyticsOnly = useCallback(async () => {
+    if (demoModeEnabled) {
+      showToast({
+        message: 'Demo mode: SEO analytics refresh skipped. GA4 pulls are disabled.',
+        type: 'info',
+        duration: 4000,
+      });
+      return;
+    }
     if (datasetStatus.googleAnalytics?.status === 'loading') {
       showToast({
-        message: 'SEO analytics refresh already running',
+        message: 'SEO analytics refresh already running. We are still pulling the latest GA4 data.',
         type: 'info',
-        details: 'We are still pulling the latest GA4 data.',
-        autoDismissMs: 4000,
+        duration: 4000,
       });
       return;
     }
 
     const requestId = googleAnalyticsRequestIdRef.current + 1;
     googleAnalyticsRequestIdRef.current = requestId;
-
-    showToast({
-      message: 'Refreshing SEO analytics…',
-      type: 'info',
-      details: 'Fetching the latest GA4 metrics',
-      loading: true,
-    });
 
     setDatasetStatus(prev => ({
       ...prev,
@@ -3038,14 +3142,13 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       cachedTimestamp = now;
       updateRefreshTimestamp(now, setLastRefreshTimestamp);
       showToast({
-        message: 'SEO analytics updated',
+        message: `SEO analytics updated - loaded ${data.length} GA4 rows`,
         type: 'success',
-        details: `Loaded ${data.length} GA4 rows`,
-        autoDismissMs: 5000,
+        duration: 5000,
       });
     } catch (error) {
       if ((error as any)?.name === 'AbortError') {
-        hideToast();
+        // Request was aborted, no notification needed
         return;
       }
       console.error('ReportingHome: Failed to refresh Google Analytics data', error);
@@ -3055,21 +3158,19 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       }));
       setError(error instanceof Error ? error.message : 'Failed to refresh Google Analytics data');
       showToast({
-        message: 'SEO analytics refresh failed',
+        message: `SEO analytics refresh failed: ${error instanceof Error ? error.message : 'Unexpected error'}`,
         type: 'error',
-        details: error instanceof Error ? error.message : 'Unexpected error',
-        autoDismissMs: 7000,
+        duration: 7000,
       });
     }
-  }, [datasetStatus.googleAnalytics?.status, fetchGoogleAnalyticsData, hideToast, showToast]);
+  }, [datasetStatus.googleAnalytics?.status, fetchGoogleAnalyticsData, showToast, demoModeEnabled]);
 
   const refreshGoogleAdsOnly = useCallback(async () => {
     if (datasetStatus.googleAds?.status === 'loading') {
       showToast({
-        message: 'PPC refresh already running',
+        message: 'PPC refresh already running. Latest Google Ads data is on the way.',
         type: 'info',
-        details: 'Latest Google Ads data is on the way.',
-        autoDismissMs: 4000,
+        duration: 4000,
       });
       return;
     }
@@ -3081,13 +3182,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     if (shouldToggleLoading) {
       setPpcLoading(true);
     }
-
-    showToast({
-      message: 'Refreshing PPC data…',
-      type: 'info',
-      details: 'Fetching the latest Google Ads performance',
-      loading: true,
-    });
 
     setDatasetStatus(prev => ({
       ...prev,
@@ -3112,14 +3206,13 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       setPpcGoogleAdsUpdatedAt(now);
       updateRefreshTimestamp(now, setLastRefreshTimestamp);
       showToast({
-        message: 'PPC data updated',
+        message: `PPC data updated - loaded ${data.length} Google Ads rows`,
         type: 'success',
-        details: `Loaded ${data.length} Google Ads rows`,
-        autoDismissMs: 5000,
+        duration: 5000,
       });
     } catch (error) {
       if ((error as any)?.name === 'AbortError') {
-        hideToast();
+        // Request was aborted, no notification needed
         return;
       }
       console.error('ReportingHome: Failed to refresh Google Ads data', error);
@@ -3129,17 +3222,16 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       }));
       setError(error instanceof Error ? error.message : 'Failed to refresh Google Ads data');
       showToast({
-        message: 'PPC refresh failed',
+        message: `PPC refresh failed: ${error instanceof Error ? error.message : 'Unexpected error'}`,
         type: 'error',
-        details: error instanceof Error ? error.message : 'Unexpected error',
-        autoDismissMs: 7000,
+        duration: 7000,
       });
     } finally {
       if (shouldToggleLoading && googleAdsRequestIdRef.current === requestId) {
         setPpcLoading(false);
       }
     }
-  }, [activeView, datasetStatus.googleAds?.status, fetchGoogleAdsData, hideToast, showToast]);
+  }, [activeView, datasetStatus.googleAds?.status, fetchGoogleAdsData, showToast]);
 
   const refreshEnquiriesScoped = useCallback(async () => {
     setHasFetchedOnce(true);
@@ -3150,13 +3242,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     // Only the datasets this report needs
     const needed: DatasetKey[] = [...ENQUIRIES_RANGE_DATASETS, 'teamData'];
     setStatusesFor(needed, 'loading');
-    showToast({
-      message: 'Starting enquiries refresh…',
-      type: 'info',
-      details: 'Fetching latest enquiries and team data',
-      loading: true,
-      autoDismissMs: 2000,
-    });
     
     const errors: string[] = [];
     let hasCriticalFailure = false;
@@ -3210,10 +3295,9 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       setStatusesFor(needed, 'error');
       hasCriticalFailure = true;
       showToast({
-        message: 'Enquiries refresh failed',
+        message: `Enquiries refresh failed: ${e instanceof Error ? e.message : 'Unexpected error'}`,
         type: 'error',
-        details: e instanceof Error ? e.message : 'Unexpected error',
-        autoDismissMs: 7000,
+        duration: 7000,
       });
     } finally {
       setIsFetching(false);
@@ -3221,17 +3305,15 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       if (!hasCriticalFailure) {
         if (errors.length > 0) {
           showToast({
-            message: 'Enquiries refreshed with warnings',
+            message: `Enquiries refreshed with warnings. Optional datasets failed: ${errors.join(', ')}`,
             type: 'warning',
-            details: `Optional datasets failed: ${errors.join(', ')}`,
-            autoDismissMs: 7000,
+            duration: 7000,
           });
         } else {
           showToast({
-            message: 'Enquiries refresh triggered',
+            message: 'Enquiries refresh triggered. New enquiries will appear as soon as streaming completes.',
             type: 'success',
-            details: 'New enquiries will appear as soon as streaming completes.',
-            autoDismissMs: 5000,
+            duration: 5000,
           });
         }
       }
@@ -3248,34 +3330,24 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     const datasetsToRefresh: DatasetKey[] = MATTERS_REPORT_REFRESH_DATASETS;
     setStatusesFor(datasetsToRefresh, 'loading');
 
-    showToast({
-      message: 'Starting matters refresh…',
-      type: 'info',
-      details: 'Fetching latest matters plus latest pitch and instruction data',
-      loading: true,
-      autoDismissMs: 2000,
-    });
-
     try {
       startStreamingWithMemo({ datasets: datasetsToRefresh, bypassCache: true });
       const now = Date.now();
       cachedTimestamp = now;
       updateRefreshTimestamp(now, setLastRefreshTimestamp);
       showToast({
-        message: 'Matters refresh triggered',
+        message: 'Matters refresh triggered. Matters, WIP, recovered fees, pitches, and instructions will update as streaming completes.',
         type: 'success',
-        details: 'Matters, WIP, recovered fees, pitches, and instructions will update as streaming completes.',
-        autoDismissMs: 5000,
+        duration: 5000,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to refresh matters datasets';
       setError(message);
       setStatusesFor(datasetsToRefresh, 'error');
       showToast({
-        message: 'Matters refresh failed',
+        message: `Matters refresh failed: ${message}`,
         type: 'error',
-        details: message,
-        autoDismissMs: 7000,
+        duration: 7000,
       });
     } finally {
       setIsFetching(false);
@@ -3341,6 +3413,15 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
             }));
           }
         } else {
+          // Debug: log when recoveredFees is received
+          if (datasetName === 'recoveredFees') {
+            const feesData = Array.isArray(datasetState.data) ? datasetState.data : [];
+            const latestDates = feesData.slice(0, 10).map((f: any) => f.payment_date);
+            console.log('💰 recoveredFees received:', {
+              count: feesData.length,
+              latestPaymentDates: latestDates,
+            });
+          }
           setDatasetData(prev => ({
             ...prev,
             [datasetName]: datasetState.data,
@@ -3385,6 +3466,17 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     const clioState = streamingDatasets['wipClioCurrentWeek'];
     const dbCurrentState = streamingDatasets['wipDbCurrentWeek'];
 
+    // Debug: Always log what we have
+    console.log('📊 WIP Merge Check:', {
+      wipStatus: wipState?.status,
+      wipCount: Array.isArray(wipState?.data) ? wipState?.data.length : 0,
+      clioStatus: clioState?.status,
+      clioActivities: clioState?.data?.current_week?.activities?.length ?? 0,
+      clioDataShape: clioState?.data ? Object.keys(clioState.data) : 'no data',
+      dbCurrentStatus: dbCurrentState?.status,
+      dbCurrentCount: Array.isArray(dbCurrentState?.data) ? dbCurrentState?.data.length : 0,
+    });
+
     const hasWip = wipState && wipState.status === 'ready' && Array.isArray(wipState.data);
     const clioActivities: WIP[] | undefined = clioState && clioState.status === 'ready'
       ? (clioState.data?.current_week?.activities as WIP[] | undefined)
@@ -3398,7 +3490,10 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       ? clioActivities
       : (dbCurrentActivities && dbCurrentActivities.length > 0 ? dbCurrentActivities : undefined);
 
-    if (!activitiesToMerge || activitiesToMerge.length === 0) return;
+    if (!activitiesToMerge || activitiesToMerge.length === 0) {
+      console.log('📊 WIP Merge: No activities to merge (clio:', clioActivities?.length ?? 0, 'db:', dbCurrentActivities?.length ?? 0, ')');
+      return;
+    }
 
     setDatasetData(prev => {
       const baseWip: WIP[] = hasWip ? (wipState!.data as WIP[]) : (prev.wip || []);
@@ -3473,10 +3568,9 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
 
     const duration = startedAt ? Date.now() - startedAt : 0;
     showToast({
-      message: 'Reporting data refreshed',
+      message: duration > 0 ? `Reporting data refreshed. Completed in ${formatElapsedTime(duration)}` : 'Reporting data refreshed',
       type: 'success',
-      details: duration > 0 ? `Completed in ${formatElapsedTime(duration)}` : undefined,
-      autoDismissMs: 5000,
+      duration: 5000,
     });
   }, [isStreamingComplete, isStreamingConnected, showToast]);
 
@@ -3496,10 +3590,9 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
         setIsFetching(false);
         setRefreshStartedAt(null);
         showToast({
-          message: 'Refresh timed out',
+          message: 'Refresh timed out. The refresh took longer than expected. Try again if data is not complete.',
           type: 'warning',
-          details: 'The refresh took longer than expected. Try again if data is not complete.',
-          autoDismissMs: 7000,
+          duration: 7000,
         });
       }
     }, 60000); // Check every minute
@@ -3530,10 +3623,9 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       startStreamingWithMemo(override);
       showResumeNotice('We resumed the refresh after reconnecting to the data feeds. You can keep working while it finalises.');
       showToast({
-        message: 'Refresh resumed',
+        message: 'Refresh resumed. We picked up the in-progress refresh after you returned.',
         type: 'info',
-        details: 'We picked up the in-progress refresh after you returned.',
-        autoDismissMs: 4500,
+        duration: 4500,
       });
     };
 
@@ -3658,20 +3750,11 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     const alreadyLoading = datasets.some(key => datasetStatus[key]?.status === 'loading');
     if (alreadyLoading) {
       showToast({
-        message: `${reportName} data is already refreshing`,
+        message: `${reportName} data is already refreshing. Please wait for the current update to finish.`,
         type: 'info',
-        details: 'Please wait for the current update to finish.'
       });
       return false;
     }
-
-    // Show immediate feedback
-    showToast({
-      message: `Refreshing ${reportName} data…`,
-      type: 'info',
-      details: `Updating ${datasets.length} dataset${datasets.length > 1 ? 's' : ''}`,
-      loading: true,
-    });
 
     globalLastRefresh = now;
     setIsFetching(true);
@@ -3728,17 +3811,15 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
 
       if (errors.length > 0) {
         showToast({
-          message: `${reportName} partially refreshed`,
+          message: `${reportName} partially refreshed. Some datasets failed: ${errors.join(', ')}`,
           type: 'warning',
-          details: `Some datasets failed: ${errors.join(', ')}`,
-          autoDismissMs: 7000,
+          duration: 7000,
         });
       } else {
         showToast({
-          message: `${reportName} data refreshed`,
+          message: `${reportName} data refreshed. All required data updated successfully.`,
           type: 'success',
-          details: 'All required data updated successfully',
-          autoDismissMs: 5000,
+          duration: 5000,
         });
       }
 
@@ -3748,10 +3829,9 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       setError(message);
       setStatusesFor(datasets, 'error');
       showToast({
-        message: `${reportName} refresh failed`,
+        message: `${reportName} refresh failed. ${message}`,
         type: 'error',
-        details: message,
-        autoDismissMs: 7000,
+        duration: 7000,
       });
       return false;
     } finally {
@@ -3911,37 +3991,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     const phase = REFRESH_PHASES.find((candidate) => refreshElapsedMs < candidate.thresholdMs);
     return phase?.label ?? 'Finalising reporting data…';
   }, [isFetching, refreshElapsedMs, refreshStartedAt]);
-
-  useEffect(() => {
-    setToastState(prev => {
-      if (!prev.visible || !prev.loading) {
-        return prev;
-      }
-
-      let nextDetails: string | undefined;
-      if (isStreamingConnected) {
-        nextDetails = `Streaming ${Math.round(streamingProgress.percentage)}%`;
-      } else if (refreshStartedAt) {
-        const parts = [`Elapsed ${formatDurationMs(refreshElapsedMs)}`];
-        if (refreshPhaseLabel) {
-          parts.push(refreshPhaseLabel);
-        }
-        nextDetails = parts.join(' • ');
-      }
-
-      if (!nextDetails || nextDetails === prev.details) {
-        return prev;
-      }
-
-      return { ...prev, details: nextDetails };
-    });
-  }, [
-    isStreamingConnected,
-    streamingProgress.percentage,
-    refreshStartedAt,
-    refreshElapsedMs,
-    refreshPhaseLabel,
-  ]);
 
   // Memoize expensive calculations that depend on arrays or complex objects
   const readyCount = useMemo(() => 
@@ -4118,18 +4167,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     ppcLoading,
   ]);
 
-  const toastElement = (
-    <OperationStatusToast
-      visible={toastState.visible}
-      message={toastState.message}
-      type={toastState.type}
-      loading={toastState.loading}
-      details={toastState.details}
-      progress={toastState.progress}
-      icon={toastState.icon}
-    />
-  );
-
   // Helper function to check if all required datasets are ready for a report
   const areRequiredDatasetsReady = useCallback((requiredDatasets: DatasetKey[]): boolean => {
     return requiredDatasets.every(key => {
@@ -4227,7 +4264,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
             marginBottom: 20,
           }}
         >
-          {primaryCards.map((card) => renderReportCard(card, true))}
+          {primaryCards.map((card, index) => renderReportCard(card, true, index))}
         </div>
 
         {/* Separator */}
@@ -4245,13 +4282,13 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
             gap: 14,
           }}
         >
-          {secondaryCards.map((card) => renderReportCard(card, false))}
+          {secondaryCards.map((card, index) => renderReportCard(card, false, index + primaryCards.length))}
         </div>
       </>
     );
   };
 
-  const renderReportCard = (card: ReportCard, isPrimary: boolean = false) => {
+  const renderReportCard = (card: ReportCard, isPrimary: boolean = false, animationIndex: number = 0) => {
         const { readiness, dependencies, readyDependencies, totalDependencies, ...report } = card;
         const visualState: ReportVisualState = (report.disabled && !testMode) ? 'disabled' : readiness;
         const isReportReady = readiness === 'ready' || testMode;
@@ -4304,13 +4341,17 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
             }}
             style={{
               padding: 0,
-              borderRadius: 14,
-              background: isDarkMode ? 'linear-gradient(135deg, #0f172a 0%, #1a2a3a 100%)' : '#ffffff',
-              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(148, 163, 184, 0.15)'}`,
+              borderRadius: 0,
+              background: isDarkMode
+                ? `linear-gradient(90deg, ${colours.dark.sectionBackground} 0%, ${colours.dark.cardBackground} 100%)`
+                : `linear-gradient(90deg, ${colours.light.sectionBackground} 0%, ${colours.grey} 140%)`,
+              border: `1px solid ${isDarkMode ? `${colours.highlight}2B` : `${colours.highlight}1A`}`,
               overflow: 'hidden',
               transition: 'all 0.2s ease',
               opacity: visualState === 'disabled' ? 0.6 : 1,
               cursor: isPrimary && isExpanded ? 'pointer' : 'default',
+              animation: 'fadeInUp 0.35s ease forwards',
+              animationDelay: `${animationIndex * 0.06}s`,
             }}
           >
             <div
@@ -4329,25 +4370,25 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                 justifyContent: 'space-between',
                 gap: 14,
                 background: reportProgressStates[report.key]?.isLoading
-                  ? (isDarkMode ? 'rgba(59, 130, 246, 0.15)' : 'rgba(59, 130, 246, 0.08)')
+                  ? (isDarkMode ? `${colours.highlight}26` : `${colours.highlight}14`)
                   : (isPrimary && isActive && isExpanded)
-                  ? (isDarkMode ? 'rgba(59, 130, 246, 0.15)' : 'rgba(59, 130, 246, 0.1)')
+                  ? (isDarkMode ? `${colours.highlight}26` : `${colours.highlight}1A`)
                   : isReportReady
-                  ? (isDarkMode ? 'rgba(59, 130, 246, 0.08)' : 'rgba(59, 130, 246, 0.03)')
+                  ? (isDarkMode ? `${colours.highlight}14` : `${colours.highlight}0D`)
                   : 'transparent',
                 transition: 'all 0.2s ease',
               }}
               onMouseEnter={(e) => {
                 if (report.action && (!report.disabled || testMode) && !reportProgressStates[report.key]?.isLoading) {
-                  e.currentTarget.style.background = isDarkMode ? 'rgba(59, 130, 246, 0.12)' : 'rgba(59, 130, 246, 0.06)';
+                  e.currentTarget.style.background = isDarkMode ? `${colours.highlight}1F` : `${colours.highlight}14`;
                 }
               }}
               onMouseLeave={(e) => {
                 const currentProgress = reportProgressStates[report.key];
                 e.currentTarget.style.background = currentProgress?.isLoading
-                  ? (isDarkMode ? 'rgba(59, 130, 246, 0.15)' : 'rgba(59, 130, 246, 0.08)')
+                  ? (isDarkMode ? `${colours.highlight}26` : `${colours.highlight}14`)
                   : isReportReady
-                  ? (isDarkMode ? 'rgba(59, 130, 246, 0.08)' : 'rgba(59, 130, 246, 0.03)')
+                  ? (isDarkMode ? `${colours.highlight}14` : `${colours.highlight}0D`)
                   : 'transparent';
               }}
             >
@@ -4397,7 +4438,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                           <div style={{
                             width: 8,
                             height: 8,
-                            border: `2px solid ${isDarkMode ? '#3b82f6' : '#2563eb'}`,
+                            border: `2px solid ${colours.highlight}`,
                             borderTop: '2px solid transparent',
                             borderRadius: '50%',
                             animation: 'spin 1s linear infinite',
@@ -4456,7 +4497,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                             left: 0,
                             height: 2,
                             width: `${reportProgressStates[report.key]?.progress || 0}%`,
-                            background: isDarkMode ? '#3b82f6' : '#2563eb',
+                            background: colours.highlight,
                             transition: 'width 0.3s ease',
                             borderRadius: '0 0 999px 999px',
                           }} />
@@ -4719,15 +4760,15 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                               ? primaryButtonStyles(isDarkMode)
                               : {
                                   root: {
-                                    borderRadius: 8,
+                                    borderRadius: 0,
                                     padding: '0 16px',
-                                    height: 34,
+                                    height: 36,
                                     background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
                                     color: isDarkMode ? '#94a3b8' : '#64748b',
                                     border: `1px solid ${colours.highlight}`,
-                                    fontWeight: 500,
+                                    fontWeight: 600,
                                     boxShadow: 'none',
-                                    transition: 'all 0.2s ease',
+                                    transition: 'all 0.15s ease',
                                     fontFamily: 'Raleway, sans-serif',
                                   },
                                   rootHovered: {
@@ -4765,15 +4806,15 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                             ? primaryButtonStyles(isDarkMode)
                             : {
                                 root: {
-                                  borderRadius: 8,
+                                  borderRadius: 0,
                                   padding: '0 16px',
-                                  height: 34,
+                                  height: 36,
                                   background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
                                   color: isDarkMode ? '#94a3b8' : '#64748b',
                                   border: `1px solid ${colours.highlight}`,
-                                  fontWeight: 500,
+                                  fontWeight: 600,
                                   boxShadow: 'none',
-                                  transition: 'all 0.2s ease',
+                                  transition: 'all 0.15s ease',
                                   fontFamily: 'Raleway, sans-serif',
                                 },
                                 rootHovered: {
@@ -4888,15 +4929,15 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                               ? primaryButtonStyles(isDarkMode)
                               : {
                                   root: {
-                                    borderRadius: 8,
+                                    borderRadius: 0,
                                     padding: '0 16px',
-                                    height: 34,
+                                    height: 36,
                                     background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
                                     color: isDarkMode ? '#94a3b8' : '#64748b',
                                     border: `1px solid ${colours.highlight}`,
-                                    fontWeight: 500,
+                                    fontWeight: 600,
                                     boxShadow: 'none',
-                                    transition: 'all 0.2s ease',
+                                    transition: 'all 0.15s ease',
                                     fontFamily: 'Raleway, sans-serif',
                                   },
                                   rootHovered: {
@@ -5015,15 +5056,15 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                               ? primaryButtonStyles(isDarkMode)
                               : {
                                   root: {
-                                    borderRadius: 8,
+                                    borderRadius: 0,
                                     padding: '0 16px',
-                                    height: 34,
+                                    height: 36,
                                     background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
                                     color: isDarkMode ? '#94a3b8' : '#64748b',
                                     border: `1px solid ${colours.highlight}`,
-                                    fontWeight: 500,
+                                    fontWeight: 600,
                                     boxShadow: 'none',
-                                    transition: 'all 0.2s ease',
+                                    transition: 'all 0.15s ease',
                                     fontFamily: 'Raleway, sans-serif',
                                   },
                                   rootHovered: {
@@ -5061,15 +5102,15 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                             ? primaryButtonStyles(isDarkMode)
                             : {
                                 root: {
-                                  borderRadius: 8,
+                                  borderRadius: 0,
                                   padding: '0 16px',
-                                  height: 34,
+                                  height: 36,
                                   background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
                                   color: isDarkMode ? '#94a3b8' : '#64748b',
                                   border: `1px solid ${colours.highlight}`,
-                                  fontWeight: 500,
+                                  fontWeight: 600,
                                   boxShadow: 'none',
-                                  transition: 'all 0.2s ease',
+                                  transition: 'all 0.15s ease',
                                   fontFamily: 'Raleway, sans-serif',
                                 },
                                 rootHovered: {
@@ -5106,15 +5147,15 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                             ? primaryButtonStyles(isDarkMode)
                             : {
                                 root: {
-                                  borderRadius: 8,
+                                  borderRadius: 0,
                                   padding: '0 16px',
-                                  height: 34,
+                                  height: 36,
                                   background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
                                   color: isDarkMode ? '#94a3b8' : '#64748b',
                                   border: `1px solid ${colours.highlight}`,
-                                  fontWeight: 500,
+                                  fontWeight: 600,
                                   boxShadow: 'none',
-                                  transition: 'all 0.2s ease',
+                                  transition: 'all 0.15s ease',
                                   fontFamily: 'Raleway, sans-serif',
                                 },
                                 rootHovered: {
@@ -5151,15 +5192,15 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                             ? primaryButtonStyles(isDarkMode)
                             : {
                                 root: {
-                                  borderRadius: 8,
+                                  borderRadius: 0,
                                   padding: '0 16px',
-                                  height: 34,
+                                  height: 36,
                                   background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
                                   color: isDarkMode ? '#94a3b8' : '#64748b',
                                   border: `1px solid ${colours.highlight}`,
-                                  fontWeight: 500,
+                                  fontWeight: 600,
                                   boxShadow: 'none',
-                                  transition: 'all 0.2s ease',
+                                  transition: 'all 0.15s ease',
                                   fontFamily: 'Raleway, sans-serif',
                                 },
                                 rootHovered: {
@@ -5196,10 +5237,9 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   const handleLaunchDashboard = useCallback(() => {
     if (!canUseReports) {
       showToast({
-        message: 'Refresh data to continue',
+        message: 'Refresh data to continue. We need at least one ready dataset before opening the management dashboard.',
         type: 'info',
-        details: 'We need at least one ready dataset before opening the management dashboard.',
-        autoDismissMs: 5000,
+        duration: 5000,
       });
       return;
     }
@@ -5224,12 +5264,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       datasets: ENQUIRIES_RANGE_DATASETS,
       bypassCache: true,
       queryParams: nextQueryParams,
-    });
-    showToast({
-      message: 'Updating enquiries datasets…',
-      type: 'info',
-      details: `Range: ${describeRangeKey(nextKey)}`,
-      loading: true,
     });
   }, [
     enquiriesRangeKey,
@@ -5261,12 +5295,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       datasets: MATTERS_REPORT_REFRESH_DATASETS,
       bypassCache: true,
       queryParams: nextQueryParams,
-    });
-    showToast({
-      message: 'Updating matters datasets…',
-      type: 'info',
-      details: `Range: ${describeMattersRange(typedKey)}`,
-      loading: true,
     });
   }, [
     mattersWipRangeKey,
@@ -5538,57 +5566,49 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
 
   if (activeView === 'dashboard') {
     return (
-      <>
-        {toastElement}
-        <div style={fullScreenWrapperStyle(isDarkMode)}>
-          <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
-            <ManagementDashboard
-              enquiries={datasetData.enquiries}
-              allMatters={datasetData.allMatters}
-              wip={datasetData.wip}
-              recoveredFees={datasetData.recoveredFees}
-              teamData={datasetData.teamData}
-              userData={datasetData.userData}
-              poidData={datasetData.poidData}
+      <div style={fullScreenWrapperStyle(isDarkMode)}>
+        <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
+          <ManagementDashboard
+            enquiries={datasetData.enquiries}
+            allMatters={datasetData.allMatters}
+            wip={datasetData.wip}
+            recoveredFees={datasetData.recoveredFees}
+            teamData={datasetData.teamData}
+            userData={datasetData.userData}
+            poidData={datasetData.poidData}
               annualLeave={datasetData.annualLeave}
               triggerRefresh={refreshDatasetsWithStreaming}
               lastRefreshTimestamp={lastRefreshTimestamp ?? undefined}
               isFetching={isFetching}
               dataWindowDays={managementRangeDays}
             />
-          </div>
         </div>
-      </>
+      </div>
     );
   }
 
   if (activeView === 'annualLeave') {
     return (
-      <>
-        {toastElement}
-        <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
-          <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
+      <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
+        <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
 
-            <AnnualLeaveReport
-              data={datasetData.annualLeave || []}
-              teamData={datasetData.teamData || []}
+          <AnnualLeaveReport
+            data={datasetData.annualLeave || []}
+            teamData={datasetData.teamData || []}
               triggerRefresh={refreshAnnualLeaveOnly}
               lastRefreshTimestamp={lastRefreshTimestamp ?? undefined}
               isFetching={isFetching}
             />
-          </div>
         </div>
-      </>
+      </div>
     );
   }
 
   if (activeView === 'matters') {
     return (
-      <>
-        {toastElement}
-        <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
-          <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
-            <MattersReport
+      <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
+        <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
+          <MattersReport
               matters={datasetData.allMatters ?? []}
               isLoading={reportLoadingStates.matters}
               error={error}
@@ -5605,19 +5625,16 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               wipRangeIsRefreshing={wipRangeIsRefreshing}
               dataWindowDays={mattersRangeDays}
             />
-          </div>
         </div>
-      </>
+      </div>
     );
   }
 
   if (activeView === 'enquiries') {
     return (
-      <>
-        {toastElement}
-        <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
-          <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
-            <EnquiriesReport 
+      <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
+        <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
+          <EnquiriesReport 
               enquiries={datasetData.enquiries} 
               teamData={datasetData.teamData}
               annualLeave={datasetData.annualLeave}
@@ -5636,97 +5653,86 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               lastRefreshTimestamp={lastRefreshTimestamp ?? undefined}
               isFetching={isFetching}
             />
-          </div>
         </div>
-      </>
+      </div>
     );
   }
 
   if (activeView === 'metaMetrics') {
     return (
-      <>
-        {toastElement}
-        <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
-          <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
-            <MetaMetricsReport
+      <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
+        <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
+          <MetaMetricsReport
               metaMetrics={datasetData.metaMetrics}
               enquiries={datasetData.enquiries}
               triggerRefresh={refreshMetaMetricsOnly}
               lastRefreshTimestamp={lastRefreshTimestamp ?? undefined}
               isFetching={isFetching}
             />
-          </div>
         </div>
-      </>
+      </div>
     );
   }
 
   if (activeView === 'seoReport') {
     return (
-      <>
-        {toastElement}
-        <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
-          <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
-            <SeoReport 
+      <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
+        <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
+          <SeoReport 
               cachedGa4Data={(datasetData.googleAnalytics ?? cachedData.googleAnalytics) || []}
               cachedChannelData={[]} // TODO: Add when channel data is cached
               cachedSourceMediumData={[]} // TODO: Add when source/medium data is cached
               cachedLandingPageData={[]} // TODO: Add when landing page data is cached
               cachedDeviceData={[]} // TODO: Add when device data is cached
             />
-          </div>
         </div>
-      </>
+      </div>
     );
   }
 
   if (activeView === 'ppcReport') {
     return (
-      <>
-        {toastElement}
-        <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
-          <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
-            <PpcReport 
+      <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
+        <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
+          <PpcReport 
               cachedGoogleAdsData={(ppcGoogleAdsData ?? datasetData.googleAds ?? cachedData.googleAds) || []}
               ppcIncomeMetrics={ppcIncomeMetrics}
               isFetching={isFetching || ppcLoading}
               lastRefreshTimestamp={googleAdsLastRefreshTimestamp ?? undefined}
             />
-          </div>
         </div>
-      </>
+      </div>
     );
   }
 
   if (activeView === 'logMonitor') {
     return (
-      <>
-        {toastElement}
-        <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
-          <LogMonitor onBack={handleBackToOverview} />
-        </div>
-      </>
+      <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
+        <LogMonitor onBack={handleBackToOverview} />
+      </div>
     );
   }
 
   return (
     <>
       <style>{spinnerStyle}</style>
-      {toastElement}
+
       <div className="reporting-home-container" style={containerStyle(isDarkMode)}>
         <section style={{
           padding: '32px 28px',
-          background: isDarkMode ? 'linear-gradient(135deg, #020617 0%, #0a1220 100%)' : '#f9fafb',
-          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(148, 163, 184, 0.4)'}`,
+          background: isDarkMode
+            ? `linear-gradient(90deg, ${colours.dark.background} 0%, ${colours.dark.sectionBackground} 100%)`
+            : `linear-gradient(90deg, ${colours.light.sectionBackground} 0%, ${colours.light.background} 140%)`,
+          border: `1px solid ${isDarkMode ? `${colours.highlight}33` : `${colours.highlight}26`}`,
           borderRadius: 16,
           marginBottom: 20,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
             <div>
-              <h1 style={{ margin: '0 0 8px 0', fontSize: 22, fontWeight: 600, fontFamily: 'Raleway, sans-serif', color: isDarkMode ? '#f8fafc' : '#0f172a' }}>
+              <h1 style={{ margin: '0 0 8px 0', fontSize: 22, fontWeight: 600, fontFamily: 'Raleway, sans-serif', color: isDarkMode ? colours.dark.text : colours.light.text }}>
                 Reporting workspace
               </h1>
-              <p style={{ margin: 0, fontSize: 13, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+              <p style={{ margin: 0, fontSize: 13, color: isDarkMode ? colours.dark.subText : colours.greyText }}>
                 {isActivelyLoading ? 'Refreshing data feeds...' : 'All systems ready'}
               </p>
             </div>
@@ -5737,16 +5743,24 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                   onClick={refreshDatasetsWithStreaming}
                   styles={{
                     root: {
-                      borderRadius: 10,
-                      padding: '0 20px',
-                      height: 38,
-                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'}`,
+                      borderRadius: 0,
+                      padding: '0 16px',
+                      height: 36,
+                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
                       background: isDarkMode ? 'rgba(30, 41, 59, 0.6)' : 'transparent',
                       color: isDarkMode ? '#e2e8f0' : '#475569',
                       fontWeight: 500,
+                      fontSize: 13,
+                      fontFamily: 'Raleway, sans-serif',
+                      transition: 'all 0.15s ease',
                     },
                     rootHovered: {
-                      background: isDarkMode ? 'rgba(30, 41, 59, 0.8)' : 'rgba(248, 250, 252, 0.8)',
+                      background: isDarkMode ? 'rgba(30, 41, 59, 0.8)' : 'rgba(148, 163, 184, 0.08)',
+                      borderColor: isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.3)',
+                    },
+                    icon: {
+                      color: isDarkMode ? '#94a3b8' : '#64748b',
+                      fontSize: 14,
                     },
                   }}
                   disabled={isActivelyLoading}
@@ -5760,16 +5774,20 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                       onClick={handleToggleRefreshRangeCallout}
                       styles={{
                         root: {
-                          width: 32,
-                          height: 32,
-                          borderRadius: 10,
-                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.35)'}`,
-                          background: isDarkMode ? 'rgba(30, 41, 59, 0.7)' : 'rgba(248, 250, 252, 0.9)',
-                          color: isDarkMode ? '#cbd5f5' : '#475569',
+                          width: 36,
+                          height: 36,
+                          borderRadius: 0,
+                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
+                          background: isDarkMode ? 'rgba(30, 41, 59, 0.6)' : 'transparent',
+                          color: isDarkMode ? '#94a3b8' : '#64748b',
+                          transition: 'all 0.15s ease',
                         },
                         rootHovered: {
-                          background: isDarkMode ? 'rgba(30, 41, 59, 0.9)' : '#fff',
-                          color: isDarkMode ? '#e0f2fe' : colours.missedBlue,
+                          background: isDarkMode ? 'rgba(30, 41, 59, 0.8)' : 'rgba(148, 163, 184, 0.08)',
+                          color: isDarkMode ? '#e2e8f0' : '#475569',
+                        },
+                        icon: {
+                          fontSize: 14,
                         },
                       }}
                     />
@@ -5781,18 +5799,26 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                 onClick={handleLaunchDashboard}
                 styles={{
                   root: {
-                    borderRadius: 10,
-                    padding: '0 20px',
-                    height: 38,
+                    borderRadius: 0,
+                    padding: '0 18px',
+                    height: 36,
                     background: colours.highlight,
                     border: 'none',
-                    fontWeight: 500,
+                    fontWeight: 600,
+                    fontSize: 13,
+                    fontFamily: 'Raleway, sans-serif',
+                    transition: 'all 0.15s ease',
                   },
                   rootHovered: {
-                    background: colours.missedBlue,
+                    background: '#2d7ab8',
+                    boxShadow: '0 2px 8px rgba(54, 144, 206, 0.3)',
                   },
                   rootDisabled: {
                     background: isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(148, 163, 184, 0.2)',
+                  },
+                  icon: {
+                    color: '#ffffff',
+                    fontSize: 14,
                   },
                 }}
                 disabled={isActivelyLoading || !canUseReports}
@@ -5815,30 +5841,30 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                     : '0 25px 45px rgba(15, 23, 42, 0.35)',
                   border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.4)' : 'rgba(15, 23, 42, 0.08)'}`,
                   background: isDarkMode
-                    ? 'linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.95) 100%)'
-                    : 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+                    ? `linear-gradient(90deg, ${colours.dark.sectionBackground}F2 0%, ${colours.dark.cardBackground}F2 100%)`
+                    : `linear-gradient(90deg, ${colours.light.sectionBackground} 0%, ${colours.grey} 140%)`,
                   backdropFilter: 'blur(24px) saturate(160%)',
                   padding: 0,
                 },
                 calloutMain: {
                   borderRadius: 16,
                   background: isDarkMode
-                    ? 'linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.95) 100%)'
-                    : 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+                    ? `linear-gradient(90deg, ${colours.dark.sectionBackground}F2 0%, ${colours.dark.cardBackground}F2 100%)`
+                    : `linear-gradient(90deg, ${colours.light.sectionBackground} 0%, ${colours.grey} 140%)`,
                   color: isDarkMode ? '#e2e8f0' : '#0f172a',
                   padding: 0,
                 },
                 beak: {
                   background: isDarkMode
-                    ? 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)'
-                    : '#ffffff',
+                    ? `linear-gradient(90deg, ${colours.dark.sectionBackground} 0%, ${colours.dark.cardBackground} 100%)`
+                    : colours.light.sectionBackground,
                   border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.4)' : 'rgba(15, 23, 42, 0.1)'}`,
                   boxShadow: isDarkMode ? '0 4px 12px rgba(0,0,0,0.4)' : '0 4px 12px rgba(15,23,42,0.15)',
                 },
                 beakCurtain: {
                   background: isDarkMode
-                    ? 'linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.95) 100%)'
-                    : 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+                    ? `linear-gradient(90deg, ${colours.dark.sectionBackground}F2 0%, ${colours.dark.cardBackground}F2 100%)`
+                    : `linear-gradient(90deg, ${colours.light.sectionBackground} 0%, ${colours.grey} 140%)`,
                   borderRadius: 16,
                 },
               }}
@@ -6018,31 +6044,34 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
           <div
             style={{
               display: 'flex',
-              alignItems: 'baseline',
+              alignItems: 'center',
               justifyContent: 'space-between',
               gap: 12,
               flexWrap: 'wrap',
               marginBottom: 18,
             }}
           >
-            <div>
-              <h3
-                style={{
-                  margin: 0,
-                  fontSize: 15,
-                  fontWeight: 600,
-                  color: isDarkMode ? '#e2e8f0' : '#475569',
-                }}
-              >
-                Available reports
-              </h3>
-
-            </div>
+            <h3
+              style={{
+                margin: 0,
+                fontSize: 9,
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+                color: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(71, 85, 105, 0.85)',
+              }}
+            >
+              Available reports
+            </h3>
             <span
               style={{
-                fontSize: 12,
+                fontSize: 10,
                 fontWeight: 600,
-                color: isDarkMode ? '#94a3b8' : '#475569',
+                padding: '3px 8px',
+                borderRadius: 0,
+                background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
+                border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)'}`,
+                color: isDarkMode ? '#60a5fa' : colours.highlight,
               }}
             >
               {readyCount}/{datasetSummaries.length} feeds ready
@@ -6222,9 +6251,9 @@ const NotesAndSuggestionsBox: React.FC<NotesAndSuggestionsBoxProps> = ({ isDarkM
           iconProps={isSending ? undefined : { iconName: 'Send' }}
           styles={{
             root: {
-              borderRadius: 8,
+              borderRadius: 0,
               padding: '0 16px',
-              height: 32,
+              height: 36,
               background: canSubmit 
                 ? (isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(135, 243, 243, 0.1)')
                 : (isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.05)'),
@@ -6234,10 +6263,10 @@ const NotesAndSuggestionsBox: React.FC<NotesAndSuggestionsBoxProps> = ({ isDarkM
               border: `1px solid ${canSubmit 
                 ? (isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(135, 243, 243, 0.2)')
                 : (isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)')}`,
-              fontWeight: 500,
+              fontWeight: 600,
               fontSize: 12,
               boxShadow: 'none',
-              transition: 'all 0.2s ease',
+              transition: 'all 0.15s ease',
               fontFamily: 'Raleway, sans-serif',
             },
             rootHovered: canSubmit ? {

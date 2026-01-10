@@ -7,6 +7,8 @@ import { TeamData } from '../../app/functionality/types';
 import { groupInstructionsByClient, shouldGroupInstructions, GroupedInstruction } from '../../utils/tableGrouping';
 import InlineExpansionChevron from '../../components/InlineExpansionChevron';
 import InlineWorkbench from './InlineWorkbench';
+import { FaCreditCard, FaShieldAlt, FaIdCard, FaPoundSign, FaBuilding, FaFileAlt, FaRegFileAlt, FaFolder, FaRegFolder } from 'react-icons/fa';
+import { FiShield } from 'react-icons/fi';
 
 // Pipeline types
 type PipelineStage = 'id' | 'payment' | 'risk' | 'matter' | 'docs';
@@ -607,6 +609,28 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
     };
     const paymentStatus = getPaymentStatus();
     
+    // Payment icon - £ when no payment, card/bank based on method when payment exists
+    const getPaymentIcon = () => {
+      const hasPayment = payments && payments.length > 0;
+      if (!hasPayment) return <FaPoundSign size={10} />;
+      
+      // Determine payment method from latest payment
+      const latest = payments[0];
+      const methodRaw = (latest.payment_method || latest.method || '').toString().toLowerCase();
+      const meta = latest.metadata || {};
+      const metaMethod = (meta?.payment_method || meta?.method || meta?.paymentMethod || '').toString().toLowerCase();
+      const intentId = (latest.stripe_payment_intent_id || latest.payment_intent_id || '').toString();
+      const intentIsBank = intentId.startsWith('bank_');
+      const intentIsCard = intentId.startsWith('pi_');
+      const combinedMethod = methodRaw || metaMethod || (intentIsBank ? 'bank' : intentIsCard ? 'card' : '');
+      const isCard = combinedMethod.includes('card') || combinedMethod.includes('stripe') || combinedMethod === 'cc' || intentIsCard;
+      const isBank = combinedMethod.includes('bank') || combinedMethod.includes('transfer') || combinedMethod.includes('bacs') || combinedMethod.includes('ach') || intentIsBank;
+      
+      if (isBank) return <FaBuilding size={10} />;
+      return <FaCreditCard size={10} />; // Default to card if payment exists
+    };
+    const paymentIcon = getPaymentIcon();
+    
     // Risk status
     const riskResultRaw = risk?.RiskAssessmentResult?.toString().toLowerCase() ?? "";
     const riskStatus = riskResultRaw
@@ -645,7 +669,7 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
     }: { 
       label: string; 
       status: 'complete' | 'review' | 'pending' | 'processing' | 'neutral';
-      icon: string;
+      icon: string | React.ReactNode;
       stageKey: string;
       data?: any;
     }) => {
@@ -690,6 +714,15 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
         }
       };
       
+      // Render icon - either Fluent UI icon name or React element
+      const renderIcon = () => {
+        if (typeof icon === 'string') {
+          return <Icon iconName={icon} style={{ fontSize: '10px', color: colors.text }} />;
+        }
+        // Clone React element with color styling
+        return <span style={{ color: colors.text, display: 'flex', alignItems: 'center' }}>{icon}</span>;
+      };
+      
       return (
         <div 
           title={`${label}: ${status === 'complete' ? 'Complete' : status === 'review' ? 'Needs Review' : status === 'processing' ? 'Processing' : 'Pending'} — Click to view details`}
@@ -716,7 +749,7 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
             e.currentTarget.style.transform = 'scale(1)';
           }}
         >
-          <Icon iconName={icon} style={{ fontSize: '10px', color: colors.text }} />
+          {renderIcon()}
           <span style={{ 
             fontSize: '9px', 
             fontWeight: 600, 
@@ -966,24 +999,24 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
           ) : (
             // V1 Pipeline for instructions without matters
             <>
-              {/* ID Stage */}
-              <StatusStage status={idStatus} label="ID" icon="ContactCard" stageKey="id" data={eids || eid} />
+              {/* ID Stage - filled icon when submission exists, outline when pending */}
+              <StatusStage status={idStatus} label="ID" icon={idStatus === 'pending' ? 'ContactCard' : <FaIdCard size={10} />} stageKey="id" data={eids || eid} />
               <StageConnector complete={idStatus === 'complete'} />
               
-              {/* Payment Stage */}
-              <StatusStage status={paymentStatus === 'processing' ? 'processing' : paymentStatus === 'complete' ? 'complete' : 'pending'} label="Pay" icon="Money" stageKey="payment" data={payments} />
+              {/* Payment Stage - £ when no payment, card/bank when payment exists */}
+              <StatusStage status={paymentStatus === 'processing' ? 'processing' : paymentStatus === 'complete' ? 'complete' : 'pending'} label="Pay" icon={paymentIcon} stageKey="payment" data={payments} />
               <StageConnector complete={paymentStatus === 'complete'} />
               
-              {/* Risk Stage */}
-              <StatusStage status={riskStatus} label="Risk" icon="Shield" stageKey="risk" data={risk} />
+              {/* Risk Stage - outline when pending, filled when has assessment */}
+              <StatusStage status={riskStatus} label="Risk" icon={riskStatus === 'pending' ? <FiShield size={10} /> : <FaShieldAlt size={10} />} stageKey="risk" data={risk} />
               <StageConnector complete={riskStatus === 'complete'} />
               
-              {/* Matter Stage */}
-              <StatusStage status={matterStatus === 'complete' ? 'complete' : 'pending'} label="Matter" icon="DocumentSet" stageKey="matter" data={inst?.MatterId} />
+              {/* Matter Stage - outline folder when no matter, filled when has matter */}
+              <StatusStage status={matterStatus === 'complete' ? 'complete' : 'pending'} label="Matter" icon={matterStatus === 'complete' ? <FaFolder size={10} /> : <FaRegFolder size={10} />} stageKey="matter" data={inst?.MatterId} />
               <StageConnector complete={matterStatus === 'complete'} />
               
-              {/* Docs Stage */}
-              <StatusStage status={docStatus === 'complete' ? 'complete' : 'neutral'} label="Docs" icon="Page" stageKey="documents" data={documents} />
+              {/* Docs Stage - outline file when no docs, filled when has docs */}
+              <StatusStage status={docStatus === 'complete' ? 'complete' : 'neutral'} label="Docs" icon={docStatus === 'complete' ? <FaFileAlt size={10} /> : <FaRegFileAlt size={10} />} stageKey="documents" data={documents} />
             </>
           )}
         </div>
@@ -1521,11 +1554,11 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                         
                         {/* Pipeline filter buttons */}
                         {([
-                          { stage: 'id' as PipelineStage, label: 'ID', icon: 'ContactCard' },
-                          { stage: 'payment' as PipelineStage, label: 'Pay', icon: 'Money' },
-                          { stage: 'risk' as PipelineStage, label: 'Risk', icon: 'Shield' },
-                          { stage: 'matter' as PipelineStage, label: 'Matter', icon: 'DocumentSet' },
-                          { stage: 'docs' as PipelineStage, label: 'Docs', icon: 'Page' },
+                          { stage: 'id' as PipelineStage, label: 'ID', icon: <FaIdCard size={10} /> as string | React.ReactNode },
+                          { stage: 'payment' as PipelineStage, label: 'Pay', icon: <FaPoundSign size={10} /> as string | React.ReactNode },
+                          { stage: 'risk' as PipelineStage, label: 'Risk', icon: <FaShieldAlt size={10} /> as string | React.ReactNode },
+                          { stage: 'matter' as PipelineStage, label: 'Matter', icon: <FaFolder size={10} /> as string | React.ReactNode },
+                          { stage: 'docs' as PipelineStage, label: 'Docs', icon: <FaFileAlt size={10} /> as string | React.ReactNode },
                         ]).map(({ stage, label, icon }, index) => {
                           const filterState = getStageFilterState(stage);
                           const hasFilter = filterState !== null;
@@ -1586,15 +1619,19 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                                     : 'transparent';
                                 }}
                               >
-                                <Icon
-                                  iconName={icon}
-                                  styles={{
-                                    root: {
-                                      fontSize: 10,
-                                      color: filterColor,
-                                    },
-                                  }}
-                                />
+                                {typeof icon === 'string' ? (
+                                  <Icon
+                                    iconName={icon}
+                                    styles={{
+                                      root: {
+                                        fontSize: 10,
+                                        color: filterColor,
+                                      },
+                                    }}
+                                  />
+                                ) : (
+                                  <span style={{ color: filterColor, display: 'flex', alignItems: 'center' }}>{icon}</span>
+                                )}
                                 <span style={{
                                   fontSize: 9,
                                   fontWeight: 600,

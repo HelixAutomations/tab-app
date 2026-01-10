@@ -161,6 +161,64 @@ export const approveVerification = async (instructionRef: string) => {
 };
 
 /**
+ * Requests additional verification documents from the client
+ */
+export const requestVerificationDocuments = async (instructionRef: string) => {
+  try {
+    const response = await fetch(`/api/verify-id/${instructionRef}/request-documents`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      try {
+        const errorJson = JSON.parse(errorText);
+        throw new Error(errorJson.error || 'Failed to request documents');
+      } catch {
+        throw new Error(errorText || 'Failed to request documents');
+      }
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error requesting verification documents:', error);
+    throw error;
+  }
+};
+
+/**
+ * Drafts the document request email to the fee earner (server-side)
+ */
+export const draftVerificationDocumentRequest = async (instructionRef: string) => {
+  try {
+    const response = await fetch(`/api/verify-id/${instructionRef}/draft-request`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      try {
+        const errorJson = JSON.parse(errorText);
+        throw new Error(errorJson.error || 'Failed to draft request');
+      } catch {
+        throw new Error(errorText || 'Failed to draft request');
+      }
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error drafting verification document request:', error);
+    throw error;
+  }
+};
+
+/**
  * Sends verification failure email to client
  */
 export const sendVerificationEmail = async (instructionRef: string, clientEmail: string, clientName: string) => {

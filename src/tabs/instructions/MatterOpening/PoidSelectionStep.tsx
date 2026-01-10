@@ -3,6 +3,7 @@ import React from 'react'; // invisible change
 // invisible change 2.2
 import { Stack } from '@fluentui/react';
 import { useTheme } from '../../../app/functionality/ThemeContext';
+import { IdentityConfirmationCard } from './components';
 import PoidCard from '../PoidCard';
 import { POID, TeamData } from '../../../app/functionality/types';
 import helixLogo from '../../../assets/dark blue mark.svg';
@@ -140,7 +141,7 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
         if (hasAutoSelection) {
             return [] as string[];
         }
-        
+
         // For instruction-based entry, use selected or preselected IDs
         return (selectedPoidIds && selectedPoidIds.length > 0)
             ? selectedPoidIds
@@ -241,32 +242,48 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
     const aggId = agg('id');
     const aggPep = agg('pep');
     const aggAddr = agg('addr');
-    const chipStyle = (state: Verif): React.CSSProperties => {
-        const map: Record<Verif, { bg: string; text: string; brd: string }> = {
-            passed: { bg: '#e6f4ea', text: '#107C10', brd: '#107C10' },
-            review: { bg: '#fffbe6', text: '#b88600', brd: '#FFB900' },
-            failed: { bg: '#fde7e9', text: '#d13438', brd: '#d13438' },
-            pending: { bg: '#f4f4f6', text: '#666', brd: '#e1dfdd' },
-            '': { bg: '#f4f4f6', text: '#666', brd: '#e1dfdd' },
-        };
-        const c = map[state];
-        return {
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            padding: '4px 8px', border: `1px solid ${c.brd}66`, borderRadius: 6,
-            background: c.bg, color: c.text, fontSize: 12, fontWeight: 700,
-        };
-    };
 
-    const getChipColors = (state: Verif) => {
-        const map: Record<Verif, { bg: string; text: string; brd: string }> = {
-            passed: { bg: '#e6f4ea', text: '#107C10', brd: '#107C10' },
-            review: { bg: '#fffbe6', text: '#b88600', brd: '#FFB900' },
-            failed: { bg: '#fde7e9', text: '#d13438', brd: '#d13438' },
-            pending: { bg: '#f4f4f6', text: '#666', brd: '#e1dfdd' },
-            '': { bg: '#f4f4f6', text: '#666', brd: '#e1dfdd' },
+    // Overall status for styling the ID verification block (fails trump reviews trump pending)
+    const overallIdStatus: Verif = (() => {
+        const statuses: Verif[] = [aggId, aggPep, aggAddr];
+        if (statuses.some((s) => s === 'failed')) return 'failed';
+        if (statuses.some((s) => s === 'review')) return 'review';
+        if (statuses.some((s) => s === 'pending' || s === '')) return 'pending';
+        return 'passed';
+    })();
+
+    const overallPalette = (() => {
+        if (overallIdStatus === 'failed') {
+            return {
+                border: isDarkMode ? 'rgba(239, 68, 68, 0.45)' : 'rgba(239, 68, 68, 0.4)',
+                glow: '0 0 0 1px rgba(239, 68, 68, 0.18)',
+                text: '#ef4444',
+                header: isDarkMode ? 'rgba(239, 68, 68, 0.16)' : 'rgba(239, 68, 68, 0.12)',
+            };
+        }
+        if (overallIdStatus === 'review') {
+            return {
+                border: isDarkMode ? 'rgba(251, 191, 36, 0.45)' : 'rgba(251, 191, 36, 0.4)',
+                glow: '0 0 0 1px rgba(251, 191, 36, 0.16)',
+                text: '#f59e0b',
+                header: isDarkMode ? 'rgba(251, 191, 36, 0.16)' : 'rgba(251, 191, 36, 0.12)',
+            };
+        }
+        if (overallIdStatus === 'pending') {
+            return {
+                border: isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.3)',
+                glow: '0 0 0 1px rgba(148, 163, 184, 0.14)',
+                text: isDarkMode ? '#cbd5e1' : '#475569',
+                header: isDarkMode ? 'rgba(148, 163, 184, 0.14)' : 'rgba(148, 163, 184, 0.1)',
+            };
+        }
+        return {
+            border: isDarkMode ? 'rgba(34, 197, 94, 0.5)' : 'rgba(34, 197, 94, 0.45)',
+            glow: '0 0 0 1px rgba(34, 197, 94, 0.18)',
+            text: '#22c55e',
+            header: isDarkMode ? 'rgba(34, 197, 94, 0.18)' : 'rgba(34, 197, 94, 0.12)',
         };
-        return map[state];
-    };
+    })();
 
     // Collapsible state for unified Client Selection section - must be before any early returns
     const [isClientSectionOpen, setIsClientSectionOpen] = React.useState<boolean>(!!pendingClientType);
@@ -283,10 +300,10 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
                 className="instruction-card-banner"
                 style={{
                     background: themeColours.cardBg,
-                    border: `1px solid ${themeColours.border}`,
+                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.4)' : '#d0d7e2'}`,
                     borderRadius: 12,
-                    padding: '20px 24px',
-                    boxShadow: themeColours.shadow,
+                    padding: '22px 24px',
+                    boxShadow: `${isDarkMode ? '0 8px 24px rgba(0,0,0,0.35)' : '0 8px 20px rgba(15, 23, 42, 0.12)'}`,
                     color: themeColours.text,
                     marginBottom: 16,
                     position: 'relative',
@@ -294,33 +311,40 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
                     backgroundRepeat: 'no-repeat',
                     backgroundPosition: 'right 20px center',
                     backgroundSize: '48px 48px',
-                    backgroundBlendMode: isDarkMode ? 'soft-light' : 'multiply',
-                    backgroundColor: themeColours.cardBg
+                    backgroundBlendMode: 'soft-light',
+                    backgroundColor: themeColours.cardBg,
+                    overflow: 'hidden'
                 }}
             >
-                {/* Overlay to control logo opacity */}
+                {/* Overlay to lift contrast over the gradient */}
                 <div style={{
                     position: 'absolute',
                     top: 0,
                     left: 0,
                     right: 0,
                     bottom: 0,
-                    background: themeColours.cardBg,
-                    opacity: 0.85,
+                    background: isDarkMode 
+                        ? 'linear-gradient(135deg, rgba(30, 41, 59, 0.72) 0%, rgba(17, 24, 39, 0.78) 100%)'
+                        : 'linear-gradient(135deg, rgba(255, 255, 255, 0.92) 0%, rgba(241, 245, 249, 0.9) 100%)',
+                    opacity: 0.62,
                     borderRadius: 12,
                     pointerEvents: 'none'
                 }} />
                 
                 {/* Content with relative positioning */}
                 <div style={{ position: 'relative', zIndex: 1 }}>
-                    {/* Main client header - simplified without avatar */}
-                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: selectedPoids.length > 0 ? 16 : 0 }}>
+                    {/* Main client header */}
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: selectedPoids.length > 0 ? 18 : 0 }}>
                         <div style={{ flex: 1, minWidth: 0, paddingRight: 60 }}>
                             <div style={{ 
-                                fontSize: 16, 
+                                fontSize: 18, 
                                 lineHeight: 1.3, 
                                 color: themeColours.text,
-                                marginBottom: 8
+                                marginBottom: 6,
+                                letterSpacing: 0.1,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 10
                             }}>
                                 <span style={{ fontWeight: 800 }}>
                                     {typeof bannerTitle === 'object' ? bannerTitle.companyName : bannerTitle}
@@ -333,89 +357,171 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
                             </div>
                             {bannerSubtitle && (
                                 <div style={{ 
-                                    fontSize: 12, 
+                                    fontSize: 12.5, 
                                     color: themeColours.textSecondary, 
-                                    lineHeight: 1.3,
-                                    marginBottom: 12
+                                    lineHeight: 1.35,
+                                    marginBottom: 12,
+                                    letterSpacing: 0.1
                                 }}>
                                     {bannerSubtitle}
                                 </div>
                             )}
                             
-                            {/* Essential contact details only */}
+                            {/* Structured details: Contact / Address / Personal */}
                             {selectedPoid && (
-                                <div style={{ 
-                                    display: 'flex', 
-                                    gap: 20, 
-                                    flexWrap: 'wrap', 
-                                    fontSize: 12, 
-                                    color: themeColours.text,
-                                    marginBottom: 12
-                                }}>
-                                    {selectedPoid.email && (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                            <i className="ms-Icon ms-Icon--Mail" style={{ fontSize: 11, color: themeColours.textSecondary }} />
-                                            <span>{selectedPoid.email}</span>
+                                (selectedPoid.email || selectedPoid.best_number || selectedPoid.house_building_number || selectedPoid.street || selectedPoid.city || selectedPoid.post_code || selectedPoid.country || selectedPoid.date_of_birth || selectedPoid.nationality)
+                            ) && (
+                                <div
+                                    style={{
+                                        display: 'grid',
+                                        gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                                        gap: 12,
+                                        marginBottom: 12,
+                                    }}
+                                >
+                                    {/* Contact */}
+                                    {(selectedPoid.email || selectedPoid.best_number) && (
+                                        <div
+                                            style={{
+                                                padding: '12px 14px',
+                                                background: isDarkMode ? 'rgba(15, 23, 42, 0.35)' : 'rgba(255, 255, 255, 0.85)',
+                                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(0, 0, 0, 0.08)'}`,
+                                                borderRadius: 0,
+                                            }}
+                                        >
+                                            <div
+                                                style={{
+                                                    fontSize: 8,
+                                                    fontWeight: 800,
+                                                    color: isDarkMode ? 'rgba(226, 232, 240, 0.65)' : 'rgba(15, 23, 42, 0.55)',
+                                                    textTransform: 'uppercase',
+                                                    letterSpacing: 0.6,
+                                                    marginBottom: 10,
+                                                }}
+                                            >
+                                                Contact
+                                            </div>
+                                            <div style={{ display: 'grid', gap: 8 }}>
+                                                {selectedPoid.email && (
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                        <i className="ms-Icon ms-Icon--Mail" style={{ fontSize: 12, color: themeColours.textSecondary }} />
+                                                        <div style={{ minWidth: 0 }}>
+                                                            <div style={{ fontSize: 11, color: themeColours.textSecondary, marginBottom: 2 }}>Email</div>
+                                                            <div style={{ fontSize: 12.5, fontWeight: 600, color: themeColours.text, wordBreak: 'break-word' }}>
+                                                                {selectedPoid.email}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                {selectedPoid.best_number && (
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                        <i className="ms-Icon ms-Icon--Phone" style={{ fontSize: 12, color: themeColours.textSecondary }} />
+                                                        <div style={{ minWidth: 0 }}>
+                                                            <div style={{ fontSize: 11, color: themeColours.textSecondary, marginBottom: 2 }}>Phone</div>
+                                                            <div style={{ fontSize: 12.5, fontWeight: 600, color: themeColours.text }}>
+                                                                {selectedPoid.best_number}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
                                     )}
-                                    {selectedPoid.best_number && (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                            <i className="ms-Icon ms-Icon--Phone" style={{ fontSize: 11, color: themeColours.textSecondary }} />
-                                            <span>{selectedPoid.best_number}</span>
+
+                                    {/* Address */}
+                                    {(selectedPoid.house_building_number || selectedPoid.street || selectedPoid.city || selectedPoid.post_code || selectedPoid.country) && (
+                                        <div
+                                            style={{
+                                                padding: '12px 14px',
+                                                background: isDarkMode ? 'rgba(15, 23, 42, 0.35)' : 'rgba(255, 255, 255, 0.85)',
+                                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(0, 0, 0, 0.08)'}`,
+                                                borderRadius: 0,
+                                            }}
+                                        >
+                                            <div
+                                                style={{
+                                                    fontSize: 8,
+                                                    fontWeight: 800,
+                                                    color: isDarkMode ? 'rgba(226, 232, 240, 0.65)' : 'rgba(15, 23, 42, 0.55)',
+                                                    textTransform: 'uppercase',
+                                                    letterSpacing: 0.6,
+                                                    marginBottom: 10,
+                                                }}
+                                            >
+                                                Address
+                                            </div>
+                                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                                                <i className="ms-Icon ms-Icon--POI" style={{ fontSize: 12, color: themeColours.textSecondary, marginTop: 1 }} />
+                                                <div style={{ minWidth: 0 }}>
+                                                    <div style={{ fontSize: 11, color: themeColours.textSecondary, marginBottom: 2 }}>Home</div>
+                                                    <div style={{ fontSize: 12.5, fontWeight: 600, color: themeColours.text, lineHeight: 1.35 }}>
+                                                        {[
+                                                            selectedPoid.house_building_number,
+                                                            selectedPoid.street,
+                                                            selectedPoid.city,
+                                                            selectedPoid.post_code,
+                                                            selectedPoid.country,
+                                                        ]
+                                                            .filter(Boolean)
+                                                            .join(', ')}
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
                                     )}
-                                </div>
-                            )}
-                            
-                            {/* Address - condensed to one line */}
-                            {selectedPoid && (selectedPoid.house_building_number || selectedPoid.street || selectedPoid.city || selectedPoid.post_code) && (
-                                <div style={{ 
-                                    display: 'flex', 
-                                    alignItems: 'flex-start', 
-                                    gap: 6,
-                                    fontSize: 12, 
-                                    color: themeColours.text,
-                                    marginBottom: 8,
-                                    opacity: 0.9
-                                }}>
-                                    <i className="ms-Icon ms-Icon--POI" style={{ fontSize: 11, color: themeColours.textSecondary, marginTop: 1 }} />
-                                    <span style={{ lineHeight: '1.3' }}>
-                                        {[
-                                            selectedPoid.house_building_number,
-                                            selectedPoid.street,
-                                            selectedPoid.city,
-                                            selectedPoid.post_code,
-                                            selectedPoid.country
-                                        ].filter(Boolean).join(', ')}
-                                    </span>
-                                </div>
-                            )}
-                            
-                            {/* Personal details - DOB and nationality on their own line */}
-                            {selectedPoid && (selectedPoid.date_of_birth || selectedPoid.nationality) && (
-                                <div style={{ 
-                                    display: 'flex', 
-                                    gap: 20, 
-                                    flexWrap: 'wrap', 
-                                    fontSize: 12, 
-                                    color: themeColours.text,
-                                    marginBottom: 6
-                                }}>
-                                    {selectedPoid.date_of_birth && (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                            <i className="ms-Icon ms-Icon--EventDate" style={{ fontSize: 11, color: themeColours.textSecondary }} />
-                                            <span>{new Date(selectedPoid.date_of_birth).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
-                                        </div>
-                                    )}
-                                    {selectedPoid.nationality && (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                            <i className="ms-Icon ms-Icon--People" style={{ fontSize: 11, color: themeColours.textSecondary }} />
-                                            <span>
-                                                {selectedPoid.nationality}
-                                                {((selectedPoid as any).nationality_iso || (selectedPoid as any).country_code) && 
-                                                    ` (${(selectedPoid as any).nationality_iso || (selectedPoid as any).country_code})`
-                                                }
-                                            </span>
+
+                                    {/* Personal */}
+                                    {(selectedPoid.date_of_birth || selectedPoid.nationality) && (
+                                        <div
+                                            style={{
+                                                padding: '12px 14px',
+                                                background: isDarkMode ? 'rgba(15, 23, 42, 0.35)' : 'rgba(255, 255, 255, 0.85)',
+                                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(0, 0, 0, 0.08)'}`,
+                                                borderRadius: 0,
+                                            }}
+                                        >
+                                            <div
+                                                style={{
+                                                    fontSize: 8,
+                                                    fontWeight: 800,
+                                                    color: isDarkMode ? 'rgba(226, 232, 240, 0.65)' : 'rgba(15, 23, 42, 0.55)',
+                                                    textTransform: 'uppercase',
+                                                    letterSpacing: 0.6,
+                                                    marginBottom: 10,
+                                                }}
+                                            >
+                                                Personal
+                                            </div>
+                                            <div style={{ display: 'grid', gap: 8 }}>
+                                                {selectedPoid.date_of_birth && (
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                        <i className="ms-Icon ms-Icon--EventDate" style={{ fontSize: 12, color: themeColours.textSecondary }} />
+                                                        <div style={{ minWidth: 0 }}>
+                                                            <div style={{ fontSize: 11, color: themeColours.textSecondary, marginBottom: 2 }}>DOB</div>
+                                                            <div style={{ fontSize: 12.5, fontWeight: 600, color: themeColours.text }}>
+                                                                {new Date(selectedPoid.date_of_birth).toLocaleDateString('en-GB', {
+                                                                    day: '2-digit',
+                                                                    month: '2-digit',
+                                                                    year: 'numeric',
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                {selectedPoid.nationality && (
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                        <i className="ms-Icon ms-Icon--People" style={{ fontSize: 12, color: themeColours.textSecondary }} />
+                                                        <div style={{ minWidth: 0 }}>
+                                                            <div style={{ fontSize: 11, color: themeColours.textSecondary, marginBottom: 2 }}>Nationality</div>
+                                                            <div style={{ fontSize: 12.5, fontWeight: 600, color: themeColours.text }}>
+                                                                {selectedPoid.nationality}
+                                                                {((selectedPoid as any).nationality_iso || (selectedPoid as any).country_code) &&
+                                                                    ` (${(selectedPoid as any).nationality_iso || (selectedPoid as any).country_code})`}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
                                     )}
                                 </div>
@@ -424,18 +530,18 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
                             {/* Company details and address for company clients */}
                             {selectedPoid && (selectedPoid.company_name || selectedPoid.company_number) && (
                                 <div style={{ 
-                                    fontSize: 13, 
-                                    color: '#4B5563',
+                                    fontSize: 13.5, 
+                                    color: themeColours.textSecondary,
                                     marginTop: 8,
                                     marginBottom: 8
                                 }}>
                                     {/* Company name and number */}
-                                    <div style={{ 
-                                        display: 'flex', 
-                                        alignItems: 'center', 
-                                        gap: 6,
-                                        marginBottom: 6
-                                    }}>
+                                        <div style={{ 
+                                            display: 'flex', 
+                                            alignItems: 'center', 
+                                            gap: 8,
+                                            marginBottom: 8
+                                        }}>
                                         <i className="ms-Icon ms-Icon--BuildingRegular" style={{ fontSize: 12, color: themeColours.textSecondary }} />
                                         <span style={{ fontWeight: 600 }}>
                                             {selectedPoid.company_name}
@@ -448,8 +554,8 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
                                         <div style={{ 
                                             display: 'flex', 
                                             alignItems: 'flex-start', 
-                                            gap: 6,
-                                            fontSize: 12,
+                                            gap: 8,
+                                            fontSize: 12.5,
                                             color: themeColours.textSecondary
                                         }}>
                                             <i className="ms-Icon ms-Icon--POI" style={{ fontSize: 11, color: themeColours.textSecondary, marginTop: 2 }} />
@@ -473,23 +579,25 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
                             textAlign: 'right',
                             display: 'flex',
                             flexDirection: 'column',
-                            gap: 4
+                            gap: 6
                         }}>
                             {instructionRef && (
                                 <div style={{ 
-                                    fontSize: 12, 
+                                    fontSize: 12.5, 
                                     color: themeColours.textSecondary,
-                                    fontWeight: 600
+                                    fontWeight: 700,
+                                    letterSpacing: 0.2
                                 }}>
                                     {instructionRef}
                                 </div>
                             )}
                             {inferredType && (
                                 <div style={{ 
-                                    fontSize: 11, 
+                                    fontSize: 11.5, 
                                     color: themeColours.textSecondary,
-                                    fontWeight: 500,
-                                    opacity: 0.8
+                                    fontWeight: 600,
+                                    opacity: 0.9,
+                                    letterSpacing: 0.1
                                 }}>
                                     {inferredType}
                                 </div>
@@ -498,114 +606,57 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
                     </div>
                 </div>
 
-                {/* Remove the old reference info section since it's now moved to top right */}
-
-                {/* Verification status - clear visual hierarchy */}
+                {/* ID Verification - InlineWorkbench structure */}
                 {selectedPoids.length > 0 && (
                     <div style={{
-                        borderTop: `1px solid ${themeColours.border}`,
-                        paddingTop: 16,
                         margin: '0 -24px -20px -24px',
-                        padding: '16px 24px 20px 24px',
-                        borderRadius: '0 0 12px 12px'
+                        padding: '14px 24px 18px 24px',
                     }}>
-                        {/* Overall status indicator */}
-                        <div style={{ 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            marginBottom: 12
-                        }}>
-                            <div style={{ 
-                                fontSize: 12, 
-                                fontWeight: 800, 
-                                color: isDarkMode ? '#FFFFFF' : '#0F172A',
-                                textTransform: 'uppercase',
-                                letterSpacing: '0.6px'
-                            }}>
-                                Verification Status
-                            </div>
-                        </div>
-                        
-                        {/* Hierarchical verification status - matches card design */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                            {/* Main ID verification - prominent */}
-                            <div style={{
-                                padding: '10px 16px',
-                                borderRadius: 8,
-                                fontSize: 13,
-                                fontWeight: 800,
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 8,
-                                border: `2px solid ${getChipColors(aggId).brd}`,
-                                backgroundColor: `${getChipColors(aggId).bg}20`,
-                                color: getChipColors(aggId).text,
-                                backdropFilter: 'blur(8px)'
-                            }}>
-                                <i className="ms-Icon ms-Icon--Shield" style={{ fontSize: 14 }} /> 
-                                <span>ID Verification: {aggId || 'pending'}</span>
-                            </div>
-                            
-                            {/* Sub-verification results with visual connection */}
-                            {(aggPep || aggAddr) && (
-                                <div style={{ 
-                                    marginLeft: 20, 
-                                    display: 'flex', 
-                                    flexDirection: 'column', 
-                                    gap: 4,
-                                    position: 'relative'
-                                }}>
-                                    {/* Connection line */}
-                                    <div style={{
-                                        position: 'absolute',
-                                        left: -14,
-                                        top: 0,
-                                        bottom: 0,
-                                        width: 2,
-                                        backgroundColor: aggId ? getChipColors(aggId).brd : '#E5E7EB',
-                                        opacity: 0.4
-                                    }} />
-                                    
-                                    {aggPep && (
-                                        <div style={{
-                                            padding: '6px 12px',
-                                            borderRadius: 6,
-                                            fontSize: 11,
-                                            fontWeight: 600,
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 6,
-                                            border: `1px solid ${getChipColors(aggPep).brd}60`,
-                                            backgroundColor: `${getChipColors(aggPep).bg}15`,
-                                            color: getChipColors(aggPep).text,
-                                            opacity: 0.95
-                                        }}>
-                                            <i className="ms-Icon ms-Icon--PageShield" style={{ fontSize: 11 }} /> 
-                                            <span>PEP Check: {aggPep}</span>
-                                        </div>
-                                    )}
-                                    
-                                    {aggAddr && (
-                                        <div style={{
-                                            padding: '6px 12px',
-                                            borderRadius: 6,
-                                            fontSize: 11,
-                                            fontWeight: 600,
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 6,
-                                            border: `1px solid ${getChipColors(aggAddr).brd}60`,
-                                            backgroundColor: `${getChipColors(aggAddr).bg}15`,
-                                            color: getChipColors(aggAddr).text,
-                                            opacity: 0.95
-                                        }}>
-                                            <i className="ms-Icon ms-Icon--POI" style={{ fontSize: 11 }} /> 
-                                            <span>Address Verification: {aggAddr}</span>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                        </div>
+                        {(() => {
+                            const uniqueOrMultiple = (values: Array<string | undefined | null>): string => {
+                                const cleaned = values
+                                    .map(v => String(v ?? '').trim())
+                                    .filter(v => v && v !== '—');
+                                const unique = Array.from(new Set(cleaned));
+                                if (unique.length === 0) return '—';
+                                if (unique.length === 1) return unique[0];
+                                return 'Multiple';
+                            };
+
+                            const passportNumber = uniqueOrMultiple(selectedPoids.map(p => (p as any).passport_number));
+                            const drivingLicenceNumber = uniqueOrMultiple(selectedPoids.map(p => (p as any).drivers_license_number));
+                            const submitted = uniqueOrMultiple(selectedPoids.map(p => (p as any).submission_date));
+                            const expiry = uniqueOrMultiple(selectedPoids.map(p => (p as any).check_expiry));
+                            const checkId = uniqueOrMultiple(selectedPoids.map(p => (p as any).check_id));
+
+                            const displayClientName = (clientAsOnFile || '').trim()
+                              ? clientAsOnFile
+                              : (selectedPoid?.first ? `${selectedPoid.first} ${selectedPoid.last}`.trim() : 'Client');
+
+                            return (
+                                <IdentityConfirmationCard
+                                    clientName={displayClientName}
+                                    instructionRef={instructionRef}
+                                    verification={{
+                                        id: (aggId || 'pending') as any,
+                                        pep: (aggPep || 'pending') as any,
+                                        address: (aggAddr || 'pending') as any,
+                                    }}
+                                    documentProvided={{
+                                        passportNumber,
+                                        drivingLicenceNumber,
+                                    }}
+                                    metaRowItems={[
+                                        submitted !== '—' ? { label: 'Submitted', value: submitted } : null,
+                                        expiry !== '—' ? { label: 'Expires', value: expiry } : null,
+                                        checkId !== '—' ? { label: 'Check ID', value: checkId, monospace: true } : null,
+                                    ].filter(Boolean) as any}
+                                    hasMultipleClients={selectedPoids.length > 1}
+                                    clientCount={selectedPoids.length}
+                                    showConfirmation={false}
+                                />
+                            );
+                        })()}
                     </div>
                 )}
             </div>

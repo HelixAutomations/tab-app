@@ -86,6 +86,34 @@ module.exports = function(app) {
       },
     })
   );
+
+  // Dedicated SSE proxy for enquiries streaming
+  app.use(
+    '/api/enquiries-unified/stream',
+    createProxyMiddleware({
+      target: 'http://localhost:8080',
+      changeOrigin: true,
+      ws: false,
+      timeout: 0,
+      proxyTimeout: 0,
+      selfHandleResponse: false,
+      onProxyReq: (proxyReq) => {
+        proxyReq.setHeader('Cache-Control', 'no-cache, no-transform');
+        proxyReq.setHeader('Connection', 'keep-alive');
+      },
+      onProxyRes: (proxyRes) => {
+        try {
+          proxyRes.headers['cache-control'] = 'no-cache, no-transform';
+          proxyRes.headers['x-accel-buffering'] = 'no';
+          delete proxyRes.headers['content-length'];
+        } catch { /* ignore */ }
+      },
+      onError: (err, req, res) => {
+        console.error(`SSE proxy error for ${req.url}:`, err.message);
+        try { res.writeHead(502); res.end('SSE proxy error'); } catch { /* ignore */ }
+      },
+    })
+  );
   // Routes that go to the Express server (port 8080)
   const expressRoutes = [
     '/api/matters',
@@ -114,6 +142,8 @@ module.exports = function(app) {
     '/api/ccl-date',
   '/api/reporting-stream', // Streaming datasets endpoint
   '/api/home-metrics',     // Home metrics SSE endpoint
+  '/api/home-wip',         // Standalone WIP metrics endpoint
+  '/api/home-enquiries',   // Standalone enquiry metrics endpoint
     '/ccls'
   ];
 
@@ -198,6 +228,20 @@ module.exports = function(app) {
       }
     })
   );
+
+  // Serve changelog.md for session log feature (localhost only)
+  app.get('/logs/changelog.md', (req, res) => {
+    const path = require('path');
+    const fs = require('fs');
+    const filePath = path.join(__dirname, '..', 'logs', 'changelog.md');
+    fs.readFile(filePath, 'utf8', (err, data) => {
+      if (err) {
+        res.status(404).send('Changelog not found');
+        return;
+      }
+      res.type('text/plain').send(data);
+    });
+  });
 
   // Catch-all for any other /api routes - try Express server first, then Azure Functions
   app.use(
