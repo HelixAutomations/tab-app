@@ -137,7 +137,7 @@ export const fetchVerificationDetails = async (instructionRef: string) => {
 };
 
 /**
- * Approves ID verification and sends email notification
+ * Approves ID verification (marks as Verified)
  */
 export const approveVerification = async (instructionRef: string) => {
   try {

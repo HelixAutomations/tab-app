@@ -581,6 +581,10 @@ export interface AnnualLeaveRecord {
   clio_entry_id?: number;
   half_day_start?: boolean;
   half_day_end?: boolean;
+  requested_at?: string;
+  approved_at?: string;
+  booked_at?: string;
+  updated_at?: string;
 }
 
 export interface InstructionData {

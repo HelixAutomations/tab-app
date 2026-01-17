@@ -80,7 +80,7 @@ const getShortTitle = (title: string) => {
   switch (title) {
     case 'Create a Task': return 'New Task';
     case 'Save Telephone Note': return 'Attendance Note';
-    case 'Request Annual Leave': return 'Book Leave';
+    case 'Request Annual Leave': return 'Request Leave';
     case 'Update Attendance': return 'Attendance';
     case 'Confirm Attendance': return 'Confirm Attendance';
     case 'Book Space': return 'Book Room';

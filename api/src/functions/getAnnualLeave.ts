@@ -243,10 +243,11 @@ async function queryTeamDataFromSQL(config: any, context: InvocationContext): Pr
 }
 
 function determineApprovers(aow: string): string[] {
-    const aowList = aow.toLowerCase().split(',').map(item => item.trim());
+    const aowList = aow.toLowerCase().split(',').map(item => item.trim()).filter(Boolean);
     let approver = 'AC'; // Default approver
 
-    if (aowList.includes('construction')) {
+    const isConstruction = aowList.some((item) => item === 'cs' || item.includes('construction'));
+    if (isConstruction) {
         approver = 'JW';
     }
 

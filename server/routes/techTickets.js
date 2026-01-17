@@ -10,6 +10,8 @@
 
 const express = require('express');
 const sql = require('mssql');
+const { DefaultAzureCredential } = require('@azure/identity');
+const { SecretClient } = require('@azure/keyvault-secrets');
 const { withRequest } = require('../utils/db');
 
 const router = express.Router();
@@ -52,19 +54,19 @@ function serializeUnknownError(err) {
 
 async function tryGetTechRecipientAsanaUserIds() {
   try {
-    const rows = await withRequest(getConnectionString(), async (request) => {
-      const result = await request
-        .input('roleLike', sql.NVarChar, '%tech%')
-        .query(`
-          SELECT [ASANAUser_ID]
-          FROM [dbo].[team]
-          WHERE [status] = 'active'
-            AND [ASANAUser_ID] IS NOT NULL
-            AND [Role] LIKE @roleLike
-        `);
-      return result.recordset || [];
-    }, 1);
+    const pool = await getTeamSqlPool();
+    const result = await pool
+      .request()
+      .input('roleLike', sql.NVarChar, '%tech%')
+      .query(`
+        SELECT [ASANAUser_ID]
+        FROM [dbo].[team]
+        WHERE [status] = 'active'
+          AND [ASANAUser_ID] IS NOT NULL
+          AND [Role] LIKE @roleLike
+      `);
 
+    const rows = result.recordset || [];
     return rows
       .map((r) => r.ASANAUser_ID)
       .filter((v) => typeof v === 'string' && v.length > 0);
@@ -77,9 +79,13 @@ async function tryGetTechRecipientAsanaUserIds() {
 // Asana API configuration
 const ASANA_BASE_URL = 'https://app.asana.com/api/1.0';
 
-// Tech team project ID - TODO: Fetch from Asana API or configure in env
-// For now, using LZ's team project as placeholder
-const TECH_PROJECT_ID = process.env.ASANA_TECH_PROJECT_ID || '1204962032378888';
+const KV_URI = 'https://helix-keys.vault.azure.net/';
+const CORE_SQL_SERVER = 'helix-database-server.database.windows.net';
+const CORE_SQL_DATABASE = 'helix-core-data';
+const ASANA_WORKSPACE_ID = '1203336030510557';
+
+// Tech team project ID
+const TECH_PROJECT_ID = '1204962032378888';
 
 // Connection string for helix_projects database (falls back to core SQL)
 const getConnectionString = () => {
@@ -90,6 +96,22 @@ const getConnectionString = () => {
   return connStr;
 };
 
+let cachedCorePool;
+
+async function getTeamSqlPool() {
+  if (cachedCorePool) return cachedCorePool;
+  const secretClient = new SecretClient(KV_URI, new DefaultAzureCredential());
+  const passwordSecret = await secretClient.getSecret('sql-databaseserver-password');
+  cachedCorePool = await sql.connect({
+    server: CORE_SQL_SERVER,
+    database: CORE_SQL_DATABASE,
+    user: 'helix-database-server',
+    password: passwordSecret.value,
+    options: { encrypt: true, enableArithAbort: true },
+  });
+  return cachedCorePool;
+}
+
 // Known Asana user IDs for tech team (from team database)
 // These will be fetched dynamically from the team table
 const KNOWN_TEAM_MEMBERS = {
@@ -98,36 +120,50 @@ const KNOWN_TEAM_MEMBERS = {
   // CB - Need to look up from database
 };
 
-/**
- * Get Asana access token from environment or Key Vault
- */
-async function getAsanaToken() {
-  // First try environment variable
-  if (process.env.ASANA_ACCESS_TOKEN) {
-    return process.env.ASANA_ACCESS_TOKEN;
+async function getAsanaCredentials(initials) {
+  if (!initials) return null;
+  const pool = await getTeamSqlPool();
+  const result = await pool
+    .request()
+    .input('Initials', sql.NVarChar, initials.toUpperCase())
+    .query(`
+      SELECT [ASANAClient_ID], [ASANASecret], [ASANARefreshToken], [ASANAUser_ID]
+      FROM [dbo].[team]
+      WHERE UPPER([Initials]) = @Initials
+    `);
+
+  if (!result.recordset?.length) return null;
+  const row = result.recordset[0];
+  if (!row.ASANAClient_ID || !row.ASANASecret || !row.ASANARefreshToken) return null;
+  return {
+    clientId: row.ASANAClient_ID,
+    secret: row.ASANASecret,
+    refreshToken: row.ASANARefreshToken,
+    userId: row.ASANAUser_ID,
+  };
+}
+
+async function getAsanaAccessToken(credentials) {
+  const { clientId, secret, refreshToken } = credentials;
+  const tokenUrl = `https://app.asana.com/-/oauth_token?grant_type=refresh_token&client_id=${encodeURIComponent(clientId)}&client_secret=${encodeURIComponent(secret)}&refresh_token=${encodeURIComponent(refreshToken)}`;
+  const response = await fetch(tokenUrl, { method: 'POST' });
+  if (!response.ok) {
+    throw createHttpError(502, 'ASANA_TOKEN_REFRESH_FAILED', 'Failed to refresh Asana token');
   }
-  
-  // Otherwise, could fetch from Key Vault if needed
-  // For now, throw error if not configured
-  throw createHttpError(
-    503,
-    'ASANA_NOT_CONFIGURED',
-    'Asana integration not configured (missing ASANA_ACCESS_TOKEN)'
-  );
+  const data = await response.json();
+  return data.access_token;
 }
 
 /**
  * Create an Asana task
  */
-async function createAsanaTask({ name, notes, projectId, assigneeId, collaboratorIds = [], dueOn }) {
-  const token = await getAsanaToken();
+async function createAsanaTask({ accessToken, name, notes, projectId, assigneeId, collaboratorIds = [], dueOn }) {
   
   const taskData = {
     data: {
       name,
       notes,
       projects: [projectId],
-      workspace: process.env.ASANA_WORKSPACE_ID || '1203336030510557', // Helix workspace
     }
   };
 
@@ -149,7 +185,7 @@ async function createAsanaTask({ name, notes, projectId, assigneeId, collaborato
   const response = await fetch(`${ASANA_BASE_URL}/tasks`, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${token}`,
+      'Authorization': `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(taskData),
@@ -318,32 +354,25 @@ async function tryUpdateProblemFailure({ id, code, message }) {
  */
 router.get('/team', async (req, res) => {
   try {
-    const connectionString = process.env.SQL_CONNECTION_STRING;
-    if (!connectionString) {
-      return res.status(500).json({ error: 'Database not configured' });
-    }
-
-    const rows = await withRequest(connectionString, async (request) => {
-      // Query team table for members with Asana IDs
-      const result = await request.query(`
-        SELECT 
-          [Initials],
-          [Full Name],
-          [First],
-          [Email],
-          [ASANA_ID],
-          [ASANAUser_ID],
-          [ASANATeam_ID],
-          [AOW],
-          [Role],
-          [status]
-        FROM [dbo].[team]
-        WHERE [status] = 'active'
-          AND [ASANAUser_ID] IS NOT NULL
-        ORDER BY [Full Name]
-      `);
-      return result.recordset || [];
-    }, 2);
+    const pool = await getTeamSqlPool();
+    const result = await pool.request().query(`
+      SELECT 
+        [Initials],
+        [Full Name],
+        [First],
+        [Email],
+        [ASANA_ID],
+        [ASANAUser_ID],
+        [ASANATeam_ID],
+        [AOW],
+        [Role],
+        [status]
+      FROM [dbo].[team]
+      WHERE [status] = 'active'
+        AND [ASANAUser_ID] IS NOT NULL
+      ORDER BY [Full Name]
+    `);
+    const rows = result.recordset || [];
 
     // Format for frontend consumption
     const teamMembers = rows.map(row => ({
@@ -457,6 +486,81 @@ router.get('/ledger', async (req, res) => {
 });
 
 /**
+ * PATCH /api/tech-tickets/item/:type/:id
+ * Update a tech idea/problem title/summary or status.
+ */
+router.patch('/item/:type/:id', async (req, res) => {
+  try {
+    const rawType = req.params?.type;
+    const type = typeof rawType === 'string' ? rawType.toLowerCase() : '';
+    const id = Number(req.params?.id);
+
+    if (!id || (type !== 'idea' && type !== 'problem')) {
+      return res.status(400).json({ error: "Invalid type or id" });
+    }
+
+    const { title, status } = req.body || {};
+    const nextTitle = typeof title === 'string' ? title.trim() : '';
+    const nextStatus = typeof status === 'string' ? status.trim() : '';
+
+    if (!nextTitle && !nextStatus) {
+      return res.status(400).json({ error: 'No updates provided' });
+    }
+
+    const table = type === 'idea' ? '[dbo].[tech_ideas]' : '[dbo].[tech_problems]';
+    const titleField = type === 'idea' ? '[title]' : '[summary]';
+
+    await withRequest(getConnectionString(), async (request) => {
+      request.input('id', sql.Int, id);
+      request.input('title', sql.NVarChar, type === 'idea' ? 200 : 500, nextTitle || null);
+      request.input('status', sql.NVarChar, 30, nextStatus || null);
+
+      await request.query(`
+        UPDATE ${table}
+        SET
+          ${titleField} = COALESCE(@title, ${titleField}),
+          [status] = COALESCE(@status, [status])
+        WHERE [id] = @id
+      `);
+    }, 1);
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('[tech-tickets] Failed to update ticket:', serializeUnknownError(err));
+    return res.status(500).json({ error: 'Failed to update tech ticket' });
+  }
+});
+
+/**
+ * DELETE /api/tech-tickets/item/:type/:id
+ * Remove a tech idea/problem.
+ */
+router.delete('/item/:type/:id', async (req, res) => {
+  try {
+    const rawType = req.params?.type;
+    const type = typeof rawType === 'string' ? rawType.toLowerCase() : '';
+    const id = Number(req.params?.id);
+
+    if (!id || (type !== 'idea' && type !== 'problem')) {
+      return res.status(400).json({ error: "Invalid type or id" });
+    }
+
+    const table = type === 'idea' ? '[dbo].[tech_ideas]' : '[dbo].[tech_problems]';
+
+    await withRequest(getConnectionString(), async (request) => {
+      await request
+        .input('id', sql.Int, id)
+        .query(`DELETE FROM ${table} WHERE [id] = @id`);
+    }, 1);
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('[tech-tickets] Failed to delete ticket:', serializeUnknownError(err));
+    return res.status(500).json({ error: 'Failed to delete tech ticket' });
+  }
+});
+
+/**
  * POST /api/tech-tickets/idea
  * Submit a tech development idea
  * 
@@ -469,37 +573,46 @@ router.get('/ledger', async (req, res) => {
  */
 router.post('/idea', async (req, res) => {
   try {
-    const { title, description, priority = 'Medium', area = 'Hub', submittedBy } = req.body;
+    const {
+      title,
+      description,
+      priority = 'Medium',
+      area = 'Hub',
+      submittedBy,
+      submitted_by_initials,
+      submitted_by,
+    } = req.body;
 
     if (!title || !description) {
       return res.status(400).json({ error: 'title and description are required' });
     }
 
+    const submitterInitials = (submitted_by_initials || submittedBy || '').trim();
+    const submittedLabel = submitted_by || submittedBy || 'Unknown';
+    const submittedByValue = submitterInitials ? submitterInitials.slice(0, 10) : null;
+
     // Get LZ's Asana user ID for collaborator
-    const connectionString = process.env.SQL_CONNECTION_STRING;
     let lzAsanaId = KNOWN_TEAM_MEMBERS.LZ.asanaUserId;
 
-    if (connectionString) {
-      try {
-        const rows = await withRequest(connectionString, async (request) => {
-          const result = await request
-            .input('initials', sql.NVarChar, 'LZ')
-            .query(`SELECT [ASANAUser_ID] FROM [dbo].[team] WHERE [Initials] = @initials`);
-          return result.recordset || [];
-        }, 1);
-        if (rows.length > 0 && rows[0].ASANAUser_ID) {
-          lzAsanaId = rows[0].ASANAUser_ID;
-        }
-      } catch (dbErr) {
-        console.warn('[tech-tickets] Could not fetch LZ Asana ID from DB, using default');
+    try {
+      const pool = await getTeamSqlPool();
+      const result = await pool
+        .request()
+        .input('initials', sql.NVarChar, 'LZ')
+        .query('SELECT [ASANAUser_ID] FROM [dbo].[team] WHERE [Initials] = @initials');
+      const rows = result.recordset || [];
+      if (rows.length > 0 && rows[0].ASANAUser_ID) {
+        lzAsanaId = rows[0].ASANAUser_ID;
       }
+    } catch (dbErr) {
+      console.warn('[tech-tickets] Could not fetch LZ Asana ID from DB, using default');
     }
 
     // Build task description
     const notes = [
       `**Tech Development Idea**`,
       ``,
-      `**Submitted by:** ${submittedBy || 'Unknown'}`,
+      `**Submitted by:** ${submittedLabel}`,
       `**Area:** ${area}`,
       `**Priority:** ${priority}`,
       ``,
@@ -508,7 +621,7 @@ router.post('/idea', async (req, res) => {
       description,
     ].join('\n');
 
-    const ideaRecord = await tryInsertIdeaRecord({ title, description, priority, area, submittedBy });
+    const ideaRecord = await tryInsertIdeaRecord({ title, description, priority, area, submittedBy: submittedByValue });
 
     const techRecipientIds = await tryGetTechRecipientAsanaUserIds();
     const collaboratorIds = Array.from(
@@ -518,7 +631,18 @@ router.post('/idea', async (req, res) => {
     // Create Asana task
     let task;
     try {
+      if (!submitterInitials) {
+        throw createHttpError(400, 'ASANA_CREDENTIALS_MISSING', 'Submitter initials are required for Asana authentication.');
+      }
+
+      const asanaCredentials = await getAsanaCredentials(submitterInitials);
+      if (!asanaCredentials) {
+        throw createHttpError(400, 'ASANA_CREDENTIALS_MISSING', 'Asana credentials not found for the provided initials.');
+      }
+
+      const accessToken = await getAsanaAccessToken(asanaCredentials);
       task = await createAsanaTask({
+        accessToken,
         name: `[Idea] ${title}`,
         notes,
         projectId: TECH_PROJECT_ID,
@@ -531,15 +655,14 @@ router.post('/idea', async (req, res) => {
         message: asanaErr?.message,
       });
 
-      // Local/dev should still accept submissions even if Asana isn't configured.
-      if (asanaErr?.code === 'ASANA_NOT_CONFIGURED') {
+      if (asanaErr?.code === 'ASANA_CREDENTIALS_MISSING') {
         return res.status(201).json({
           success: true,
           taskId: null,
           taskUrl: null,
           recordId: ideaRecord?.id ?? null,
-          warning: 'Idea recorded but Asana integration is not configured on this environment.',
-          code: 'ASANA_NOT_CONFIGURED',
+          warning: 'Idea recorded but Asana credentials were not found for the submitter.',
+          code: 'ASANA_CREDENTIALS_MISSING',
         });
       }
 
@@ -585,7 +708,9 @@ router.post('/problem', async (req, res) => {
       stepsToReproduce, 
       expectedVsActual, 
       urgency = 'Annoying',
-      submittedBy 
+      submittedBy,
+      submitted_by_initials,
+      submitted_by,
     } = req.body;
 
     if (!system || !summary || !expectedVsActual) {
@@ -594,10 +719,6 @@ router.post('/problem', async (req, res) => {
       });
     }
 
-    // Get Asana user IDs for the tech team based on Role
-    const connectionString = process.env.SQL_CONNECTION_STRING;
-    void connectionString;
-
     // Build task description
     const urgencyEmoji = {
       Blocking: '🔴',
@@ -605,10 +726,14 @@ router.post('/problem', async (req, res) => {
       Minor: '🟢',
     }[urgency] || '🟡';
 
+    const submitterInitials = (submitted_by_initials || submittedBy || '').trim();
+    const submittedLabel = submitted_by || submittedBy || 'Unknown';
+    const submittedByValue = submitterInitials ? submitterInitials.slice(0, 10) : null;
+
     const notes = [
       `**Technical Problem Report** ${urgencyEmoji}`,
       ``,
-      `**Submitted by:** ${submittedBy || 'Unknown'}`,
+      `**Submitted by:** ${submittedLabel}`,
       `**System:** ${system}`,
       `**Urgency:** ${urgency}`,
       ``,
@@ -639,7 +764,7 @@ router.post('/problem', async (req, res) => {
       stepsToReproduce,
       expectedVsActual,
       urgency,
-      submittedBy,
+      submittedBy: submittedByValue,
     });
 
     // Create Asana task - assign to LZ (first assignee), others as collaborators
@@ -653,8 +778,19 @@ router.post('/problem', async (req, res) => {
 
     let task;
     try {
+      if (!submitterInitials) {
+        throw createHttpError(400, 'ASANA_CREDENTIALS_MISSING', 'Submitter initials are required for Asana authentication.');
+      }
+
+      const asanaCredentials = await getAsanaCredentials(submitterInitials);
+      if (!asanaCredentials) {
+        throw createHttpError(400, 'ASANA_CREDENTIALS_MISSING', 'Asana credentials not found for the provided initials.');
+      }
+
+      const accessToken = await getAsanaAccessToken(asanaCredentials);
       task = await createAsanaTask({
-        name: `[${system}] ${summary}`,
+        accessToken,
+        name: `[Problem: ${system}] ${summary}`,
         notes,
         projectId: TECH_PROJECT_ID,
         assigneeId: primaryAssignee,
@@ -668,15 +804,14 @@ router.post('/problem', async (req, res) => {
         message: asanaErr?.message,
       });
 
-      // Local/dev should still accept submissions even if Asana isn't configured.
-      if (asanaErr?.code === 'ASANA_NOT_CONFIGURED') {
+      if (asanaErr?.code === 'ASANA_CREDENTIALS_MISSING') {
         return res.status(201).json({
           success: true,
           taskId: null,
           taskUrl: null,
           recordId: problemRecord?.id ?? null,
-          warning: 'Problem recorded but Asana integration is not configured on this environment.',
-          code: 'ASANA_NOT_CONFIGURED',
+          warning: 'Problem recorded but Asana credentials were not found for the submitter.',
+          code: 'ASANA_CREDENTIALS_MISSING',
         });
       }
 
@@ -708,8 +843,19 @@ router.post('/problem', async (req, res) => {
  */
 router.get('/projects', async (req, res) => {
   try {
-    const token = await getAsanaToken();
-    const workspaceId = process.env.ASANA_WORKSPACE_ID || '1203336030510557';
+    const rawInitials = req.query?.initials;
+    const initials = typeof rawInitials === 'string' ? rawInitials.trim() : '';
+    if (!initials) {
+      return res.status(400).json({ error: 'initials query param is required' });
+    }
+
+    const asanaCredentials = await getAsanaCredentials(initials);
+    if (!asanaCredentials) {
+      return res.status(400).json({ error: 'Asana credentials not found for the provided initials.' });
+    }
+
+    const token = await getAsanaAccessToken(asanaCredentials);
+    const workspaceId = ASANA_WORKSPACE_ID;
 
     const response = await fetch(
       `${ASANA_BASE_URL}/workspaces/${workspaceId}/projects?opt_fields=name,gid,archived`,

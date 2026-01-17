@@ -6,8 +6,9 @@
 const express = require('express');
 const router = express.Router();
 const { withRequest } = require('../utils/db');
-const { cacheWrapper, generateCacheKey } = require('../utils/redisClient');
+const { cacheWrapper, generateCacheKey, deleteCache } = require('../utils/redisClient');
 const { loggers } = require('../utils/logger');
+const { attachFutureBookingsStream } = require('../utils/future-bookings-stream');
 
 const log = loggers.db.child('FutureBookings');
 
@@ -33,6 +34,15 @@ router.get('/', async (req, res) => {
     // Generate cache key based on current date (bookings are date-sensitive)
     const today = new Date().toISOString().split('T')[0];
     const cacheKey = generateCacheKey('metrics', 'future-bookings', today);
+
+    const forceRefresh = String(req.query?.forceRefresh || '').toLowerCase() === 'true';
+    if (forceRefresh) {
+      try {
+        await deleteCache(cacheKey);
+      } catch {
+        // Non-blocking
+      }
+    }
 
     const bookingsData = await cacheWrapper(
       cacheKey,
@@ -92,5 +102,8 @@ router.get('/', async (req, res) => {
     });
   }
 });
+
+// SSE: future bookings realtime change notifications
+attachFutureBookingsStream(router);
 
 module.exports = router;

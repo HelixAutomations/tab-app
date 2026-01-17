@@ -1,8 +1,35 @@
 const express = require('express');
 const sql = require('mssql');
 const Stripe = require('stripe');
+const { getSecret } = require('../utils/getSecret');
 
 const router = express.Router();
+
+let cachedStripeSecretKey = null;
+let cachedStripeSecretKeyAt = 0;
+const STRIPE_SECRET_CACHE_MS = 5 * 60 * 1000;
+
+async function resolveStripeSecretKey() {
+  const envKey = process.env.STRIPE_SECRET_KEY || process.env.INSTRUCTIONS_SANDBOX_SK;
+  if (envKey) return envKey;
+
+  const now = Date.now();
+  if (cachedStripeSecretKey && now - cachedStripeSecretKeyAt < STRIPE_SECRET_CACHE_MS) {
+    return cachedStripeSecretKey;
+  }
+
+  // Prefer a dedicated key with permissions to create Prices + Payment Links.
+  // The general "restricted payments" key often cannot create Payment Links.
+  let kvKey;
+  try {
+    kvKey = await getSecret('stripe-payment-links-key');
+  } catch (_e) {
+    kvKey = await getSecret('stripe-restricted-payments-key');
+  }
+  cachedStripeSecretKey = kvKey;
+  cachedStripeSecretKeyAt = now;
+  return kvKey;
+}
 
 // Lazily parse and cache the instructions DB connection config from the env connection string
 let dbConfig = null;
@@ -43,9 +70,14 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'Amount must be at least £1' });
     }
 
-    const stripeSecretKey = process.env.STRIPE_SECRET_KEY || process.env.INSTRUCTIONS_SANDBOX_SK;
-    if (!stripeSecretKey) {
-      return res.status(500).json({ error: 'Payment service not configured' });
+    let stripeSecretKey;
+    try {
+      stripeSecretKey = await resolveStripeSecretKey();
+    } catch (_e) {
+      return res.status(500).json({
+        error: 'Payment service not configured',
+        details: 'Missing Stripe secret key. Set STRIPE_SECRET_KEY / INSTRUCTIONS_SANDBOX_SK, or provide Key Vault secret stripe-restricted-payments-key (via KEY_VAULT_URL).',
+      });
     }
 
     const stripe = new Stripe(stripeSecretKey, { apiVersion: '2024-12-18.acacia' });
@@ -130,7 +162,12 @@ router.post('/', async (req, res) => {
     });
   } catch (err) {
     console.error('Error creating payment link:', err);
-    return res.status(500).json({ error: 'Failed to create payment link', details: err.message });
+    const rawMessage = err?.message ? String(err.message) : 'Unknown error';
+    const needsPermissions = /does not have the required permissions for this endpoint/i.test(rawMessage);
+    const details = needsPermissions
+      ? `${rawMessage} (Fix: use STRIPE_SECRET_KEY or a Key Vault secret 'stripe-payment-links-key' with permissions for Prices + Payment Links.)`
+      : rawMessage;
+    return res.status(500).json({ error: 'Failed to create payment link', details });
   }
 });
 

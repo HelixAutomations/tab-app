@@ -7,7 +7,7 @@ interface InlineExpansionChevronProps {
   onClick: (e: React.MouseEvent) => void;
   isDarkMode: boolean;
   count?: number;
-  itemType: 'prospect' | 'client';
+  itemType: 'prospect' | 'client' | 'enquiry';
 }
 
 /**
@@ -21,9 +21,12 @@ const InlineExpansionChevron: React.FC<InlineExpansionChevronProps> = ({
   count,
   itemType
 }) => {
+  const itemLabel = itemType === 'enquiry'
+    ? (count === 1 ? 'enquiry' : 'enquiries')
+    : `${itemType} ${count === 1 ? 'item' : 'items'}`;
   const title = isExpanded 
-    ? `Collapse ${count} ${itemType} ${count === 1 ? 'item' : 'items'}`
-    : `Show all ${count} ${itemType} ${count === 1 ? 'item' : 'items'}`;
+    ? `Collapse ${count} ${itemLabel}`
+    : `Show all ${count} ${itemLabel}`;
 
   return (
     <div

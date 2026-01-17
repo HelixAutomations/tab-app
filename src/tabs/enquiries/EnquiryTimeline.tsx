@@ -4,11 +4,12 @@ import { Enquiry } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
 import SectionCard from '../home/SectionCard';
 import { useTheme } from '../../app/functionality/ThemeContext';
-import { FaEnvelope, FaPhone, FaFileAlt, FaCheckCircle, FaCircle, FaArrowRight, FaUser, FaCalendar, FaInfoCircle, FaChevronDown, FaChevronUp, FaPoundSign, FaClipboard, FaExternalLinkAlt } from 'react-icons/fa';
+import { FaEnvelope, FaPhone, FaFileAlt, FaCheckCircle, FaCircle, FaArrowRight, FaUser, FaCalendar, FaInfoCircle, FaChevronDown, FaChevronUp, FaPoundSign, FaClipboard, FaExternalLinkAlt, FaLink } from 'react-icons/fa';
 import { parseISO, format, differenceInDays } from 'date-fns';
 import OperationStatusToast from './pitch-builder/OperationStatusToast';
 import { practiceAreasByArea } from '../instructions/MatterOpening/config';
 import { SCENARIOS } from './pitch-builder/scenarios';
+import InlineWorkbench from '../instructions/InlineWorkbench';
 
 // Add spinner animation
 const spinnerStyle = document.createElement('style');
@@ -215,7 +216,7 @@ function sanitizeEmailHtml(html: string): string {
   }
 }
 
-type CommunicationType = 'pitch' | 'email' | 'call' | 'instruction' | 'note' | 'document';
+type CommunicationType = 'pitch' | 'link-enabled' | 'email' | 'call' | 'instruction' | 'note' | 'document';
 
 interface TimelineItem {
   id: string;
@@ -258,6 +259,11 @@ interface TimelineItem {
     workspaceError?: string;
     workspaceFolders?: string[];
     hidden?: boolean;
+    dealOrigin?: 'email' | 'link';
+    dealOriginLabel?: string;
+    dealEmailSubject?: string | null;
+    dealPasscode?: string | null;
+    dealServiceDescription?: string;
   };
 }
 
@@ -634,10 +640,13 @@ interface EnquiryTimelineProps {
   userInitials?: string;
   userEmail?: string;
   featureToggles?: Record<string, boolean>;
+  demoModeEnabled?: boolean;
   onOpenPitchBuilder?: (scenarioId?: string) => void;
+  /** Pre-fetched instruction workbench item for this enquiry (from parent instructionData) */
+  inlineWorkbenchItem?: any;
 }
 
-const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoadingStatus = true, userInitials, userEmail, featureToggles, onOpenPitchBuilder }) => {
+const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoadingStatus = true, userInitials, userEmail, featureToggles, demoModeEnabled = false, onOpenPitchBuilder, inlineWorkbenchItem }) => {
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [selectedItem, setSelectedItem] = useState<TimelineItem | null>(null);
   const [loading, setLoading] = useState(true);
@@ -653,6 +662,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   const [hiddenPanelOpen, setHiddenPanelOpen] = useState(false);
   const [collapsedDays, setCollapsedDays] = useState<Set<string>>(() => new Set());
   const [expandedQuickAccessEmailIds, setExpandedQuickAccessEmailIds] = useState<Set<string>>(() => new Set());
+  const [expandedCallTranscriptIds, setExpandedCallTranscriptIds] = useState<Set<string>>(() => new Set());
   const [loadingStates, setLoadingStates] = useState({
     pitches: true,
     emails: true,
@@ -691,6 +701,13 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   const [forwardCc, setForwardCc] = useState('');
   const [showPitchConfirm, setShowPitchConfirm] = useState(false);
   const [selectedScenario, setSelectedScenario] = useState<string | null>(null);
+  const [ledgerMode, setLedgerMode] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('timelineLedgerMode') === 'true';
+    } catch {
+      return false;
+    }
+  });
   const { isDarkMode } = useTheme();
 
   const viewAsProdFromStorage = (() => {
@@ -704,7 +721,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   })();
 
   const isProductionPreview = featureToggles?.viewAsProd === true || viewAsProdFromStorage;
-  const showResourcesConcept = process.env.NODE_ENV === 'development' && !isProductionPreview;
+  const showResourcesConcept = demoModeEnabled;
   // Request Docs should be available in all environments by default.
   // Use a feature toggle kill switch if needed.
   const requestDocsEnabled = featureToggles?.docRequestWorkspace !== false;
@@ -751,6 +768,345 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
   // Hover states for action buttons
   const [hoveredAction, setHoveredAction] = useState<string | null>(null);
+
+  type CallTranscriptTurn = {
+    speaker: 'Agent' | 'Caller' | 'Other';
+    text: string;
+  };
+
+  const normaliseWhitespace = (value: string): string => value.replace(/\r\n/g, '\n').replace(/[\t\f\v]+/g, ' ').trim();
+
+  const parseCallTranscriptTurns = (raw: string): CallTranscriptTurn[] => {
+    const input = String(raw || '').trim();
+    if (!input) return [];
+
+    // The upstream transcription often arrives as a single run-on line containing repeated
+    // "Agent:" / "Caller:" markers. Split by those markers and reassemble as turns.
+    const pattern = /(Agent|Caller):/g;
+    const turns: CallTranscriptTurn[] = [];
+
+    let lastSpeaker: CallTranscriptTurn['speaker'] | null = null;
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = pattern.exec(input)) !== null) {
+      if (lastSpeaker !== null) {
+        const chunk = input.slice(lastIndex, match.index).trim();
+        if (chunk) {
+          turns.push({
+            speaker: lastSpeaker,
+            text: normaliseWhitespace(chunk).replace(/\s*\n+\s*/g, '\n'),
+          });
+        }
+      } else {
+        // Preamble before first explicit speaker marker.
+        const pre = input.slice(0, match.index).trim();
+        if (pre) {
+          turns.push({ speaker: 'Other', text: normaliseWhitespace(pre) });
+        }
+      }
+
+      lastSpeaker = match[1] === 'Agent' ? 'Agent' : 'Caller';
+      lastIndex = pattern.lastIndex;
+    }
+
+    if (lastSpeaker !== null) {
+      const tail = input.slice(lastIndex).trim();
+      if (tail) {
+        turns.push({
+          speaker: lastSpeaker,
+          text: normaliseWhitespace(tail).replace(/\s*\n+\s*/g, '\n'),
+        });
+      }
+    }
+
+    return turns;
+  };
+
+  const extractCallContentSections = (content: string | undefined): { metaLines: string[]; note: string; transcription: string } => {
+    const raw = String(content || '').replace(/\r\n/g, '\n');
+    if (!raw) return { metaLines: [], note: '', transcription: '' };
+
+    const lines = raw.split('\n');
+    const metaLines: string[] = [];
+    let note = '';
+    let transcription = '';
+
+    let i = 0;
+    for (; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.trim().startsWith('Note:')) break;
+      if (line.trim().startsWith('Transcription:')) break;
+      // Skip blank separators but stop collecting meta when we hit a long free-text block.
+      if (line.trim()) metaLines.push(line.trim());
+    }
+
+    for (; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.trim().startsWith('Note:')) {
+        note = line.replace(/^\s*Note:\s*/i, '').trim();
+        continue;
+      }
+      if (line.trim().startsWith('Transcription:')) {
+        transcription = lines.slice(i + 1).join('\n').trim();
+        break;
+      }
+    }
+
+    return { metaLines, note, transcription };
+  };
+
+  const renderCallDetails = (item: TimelineItem) => {
+    const callrail = (item.metadata as any)?.callrail as
+      | {
+          customerName?: string;
+          companyName?: string;
+          customerPhoneNumber?: string;
+          source?: string;
+          medium?: string;
+          trackingPhoneNumber?: string;
+          businessPhoneNumber?: string;
+          durationSeconds?: number;
+          answered?: boolean;
+          transcription?: string;
+          note?: string;
+        }
+      | undefined;
+
+    const fallback = extractCallContentSections(item.content);
+    const durationSeconds =
+      typeof callrail?.durationSeconds === 'number'
+        ? callrail.durationSeconds
+        : typeof item.metadata?.duration === 'number'
+          ? item.metadata.duration
+          : 0;
+
+    const minutes = Math.floor(durationSeconds / 60);
+    const seconds = (durationSeconds % 60).toString().padStart(2, '0');
+    const durationLabel = durationSeconds ? `${minutes}:${seconds}` : '';
+
+    const answered =
+      typeof callrail?.answered === 'boolean'
+        ? callrail.answered
+        : typeof item.metadata?.answered === 'boolean'
+          ? item.metadata.answered
+          : undefined;
+
+    const transcriptionRaw = String(callrail?.transcription || fallback.transcription || '').trim();
+    const turns = parseCallTranscriptTurns(transcriptionRaw);
+    const isExpanded = expandedCallTranscriptIds.has(item.id);
+    const turnsToShow = isExpanded ? turns : turns.slice(0, 6);
+
+    const labelColor = isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.55)';
+    const valueColor = isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)';
+    const cardBg = isDarkMode ? 'rgba(2, 6, 23, 0.22)' : 'rgba(255, 255, 255, 0.65)';
+    const border = `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.22)'}`;
+
+    const metaPairs: Array<{ label: string; value: string }> = [];
+    const pushIf = (label: string, value: unknown) => {
+      const v = String(value ?? '').trim();
+      if (v) metaPairs.push({ label, value: v });
+    };
+
+    pushIf('Duration', durationLabel);
+    if (answered !== undefined) pushIf('Answered', answered ? 'Yes' : 'No');
+    pushIf('Contact', callrail?.customerName);
+    pushIf('Company', callrail?.companyName);
+    pushIf('Phone', callrail?.customerPhoneNumber);
+    pushIf('Source', callrail?.source || item.metadata?.source);
+    pushIf('Medium', callrail?.medium);
+    pushIf('Tracking Number', callrail?.trackingPhoneNumber);
+    pushIf('Business Number', callrail?.businessPhoneNumber);
+
+    const recordingUrl = (item.metadata as any)?.recordingUrl as string | undefined;
+    const note = String(callrail?.note || fallback.note || '').trim();
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        {/* Summary grid */}
+        {metaPairs.length > 0 && (
+          <div style={{ background: cardBg, border, borderRadius: '6px', padding: '10px 12px' }}>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+              gap: '8px 14px',
+            }}>
+              {metaPairs.map((row) => (
+                <div key={row.label} style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.3px', color: labelColor, textTransform: 'uppercase' }}>
+                    {row.label}
+                  </div>
+                  <div style={{ fontSize: '12px', fontWeight: 600, color: valueColor, marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {row.value}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {recordingUrl && (
+              <div style={{ marginTop: '10px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <a
+                  href={recordingUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '6px 10px',
+                    borderRadius: '2px',
+                    background: colours.highlight,
+                    color: '#ffffff',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    textDecoration: 'none',
+                  }}
+                >
+                  ↗ Recording
+                </a>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    copyToClipboard(recordingUrl, 'Recording link');
+                  }}
+                  style={{
+                    padding: '6px 10px',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    borderRadius: '2px',
+                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.25)'}`,
+                    background: isDarkMode ? 'rgba(2, 6, 23, 0.25)' : 'rgba(255, 255, 255, 0.65)',
+                    color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.7)',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  Copy link
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Note */}
+        {note && (
+          <div style={{ background: cardBg, border, borderRadius: '6px', padding: '10px 12px' }}>
+            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.3px', color: labelColor, textTransform: 'uppercase' }}>Note</div>
+            <div style={{ marginTop: '6px', fontSize: '12px', color: valueColor, whiteSpace: 'pre-wrap', lineHeight: 1.45 }}>{note}</div>
+          </div>
+        )}
+
+        {/* Transcript */}
+        {transcriptionRaw ? (
+          <div style={{ background: cardBg, border, borderRadius: '6px', padding: '10px 12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+              <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.3px', color: labelColor, textTransform: 'uppercase' }}>
+                Transcription {turns.length > 0 ? `(${turns.length} turn${turns.length === 1 ? '' : 's'})` : ''}
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    copyToClipboard(transcriptionRaw, 'Transcription');
+                  }}
+                  style={{
+                    padding: '4px 8px',
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    borderRadius: '2px',
+                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.25)'}`,
+                    background: 'transparent',
+                    color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.7)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Copy
+                </button>
+                {turns.length > 6 && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setExpandedCallTranscriptIds((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(item.id)) next.delete(item.id);
+                        else next.add(item.id);
+                        return next;
+                      });
+                    }}
+                    style={{
+                      padding: '4px 8px',
+                      fontSize: '10px',
+                      fontWeight: 700,
+                      borderRadius: '2px',
+                      border: `1px solid ${colours.highlight}55`,
+                      background: isDarkMode ? `${colours.highlight}12` : `${colours.highlight}10`,
+                      color: colours.highlight,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {isExpanded ? 'Show less' : 'Show more'}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {turns.length > 0 ? (
+              <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {turnsToShow.map((t, idx) => {
+                  const accent =
+                    t.speaker === 'Agent'
+                      ? colours.highlight
+                      : t.speaker === 'Caller'
+                        ? '#22c55e'
+                        : isDarkMode
+                          ? 'rgba(148, 163, 184, 0.35)'
+                          : 'rgba(100, 116, 139, 0.35)';
+
+                  return (
+                    <div
+                      key={`${t.speaker}-${idx}`}
+                      style={{
+                        borderLeft: `3px solid ${accent}`,
+                        paddingLeft: '10px',
+                        paddingTop: '6px',
+                        paddingBottom: '6px',
+                      }}
+                    >
+                      <div style={{ fontSize: '10px', fontWeight: 800, letterSpacing: '0.2px', color: labelColor, textTransform: 'uppercase' }}>
+                        {t.speaker}
+                      </div>
+                      <div style={{ marginTop: '4px', fontSize: '12px', color: valueColor, whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
+                        {t.text}
+                      </div>
+                    </div>
+                  );
+                })}
+                {!isExpanded && turns.length > turnsToShow.length && (
+                  <div style={{ fontSize: '11px', color: labelColor, marginTop: '2px' }}>
+                    + {turns.length - turnsToShow.length} more turn{turns.length - turnsToShow.length === 1 ? '' : 's'}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ marginTop: '8px', fontSize: '12px', color: valueColor, whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
+                {transcriptionRaw}
+              </div>
+            )}
+          </div>
+        ) : fallback.metaLines.length > 0 ? (
+          <div style={{ background: cardBg, border, borderRadius: '6px', padding: '10px 12px' }}>
+            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.3px', color: labelColor, textTransform: 'uppercase' }}>Details</div>
+            <div style={{ marginTop: '6px', fontSize: '12px', color: valueColor, whiteSpace: 'pre-wrap', lineHeight: 1.45 }}>
+              {fallback.metaLines.join('\n')}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
+  };
 
   const formatDocRequestAmount = (val: string): string => {
     const raw = String(val || '').replace(/[£\s]/g, '').replace(/,/g, '');
@@ -1857,6 +2213,22 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             answered: call.answered,
             source: call.source,
             recordingUrl: call.recordingUrl,
+            callrail: {
+              customerName: call.customerName,
+              companyName: call.companyName,
+              customerPhoneNumber: call.customerPhoneNumber,
+              trackingPhoneNumber: call.trackingPhoneNumber,
+              businessPhoneNumber: call.businessPhoneNumber,
+              source: call.source,
+              medium: call.medium,
+              campaign: call.campaign,
+              keywords: call.keywords,
+              value: call.value,
+              note: call.note,
+              transcription: call.transcription,
+              durationSeconds,
+              answered: call.answered,
+            },
           },
         };
       });
@@ -2009,8 +2381,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     // Do not fetch anything until timeline is unlocked
     if (!timelineUnlocked) return;
 
-    // If we have a cached session snapshot for this enquiry, show it immediately and skip re-fetch.
-    // (This keeps the timeline "ready" for the duration of the browser session.)
+    // If we have a cached session snapshot for this enquiry, show it immediately,
+    // but still re-fetch in the background to pick up newly generated deals.
     const cached = enquiryTimelineSessionCache.get(enquiry.ID);
     if (cached) {
       setTimeline(cached.timeline);
@@ -2023,13 +2395,14 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
       });
       setLoading(false);
       setSelectedItem((prevSelected) => prevSelected ?? (cached.timeline.length > 0 ? cached.timeline[0] : null));
-      return;
     }
 
-    const fetchTimeline = async () => {
-      setLoading(true);
-      setTimeline([]);
-      setSelectedItem(null);
+    const fetchTimeline = async (options?: { background?: boolean }) => {
+      if (!options?.background) {
+        setLoading(true);
+        setTimeline([]);
+        setSelectedItem(null);
+      }
       setLoadingStates({ pitches: true, emails: true, calls: true, documents: true });
       setCompletedSources({ pitches: false, emails: false });
       let progressSnapshot: TimelineSourceProgress = createInitialSourceProgress();
@@ -2213,47 +2586,66 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
       // Fetch pitches
       try {
-        const pitchesRes = await fetch(`/api/pitches/${enquiry.ID}`);
+        const pitchesRes = await fetch(`/api/pitches/${enquiry.ID}?_ts=${Date.now()}`, {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache' },
+        });
         if (pitchesRes.ok) {
           const pitchesData = await pitchesRes.json();
           const pitches = pitchesData.pitches || [];
 
           const pitchItems: TimelineItem[] = [];
           
-          // For each pitch, try to fetch corresponding instruction data
+          // For each pitch, derive lightweight instruction/deal status from the pitch payload.
           for (let index = 0; index < pitches.length; index++) {
             const pitch = pitches[index];
+            
+            // Distinguish between full pitch (with email) and link-enabled-only (deal created without email)
+            const hasEmailContent = !!(pitch.EmailSubject?.trim() || pitch.EmailBody?.trim());
+            const rawDealStatus = String(pitch.DealStatus || '').trim().toUpperCase();
+            const isLinkOnlyStatus = rawDealStatus === 'CHECKOUT_LINK';
+            const itemType: CommunicationType = 'pitch';
+            const dealOrigin: 'email' | 'link' = hasEmailContent ? 'email' : 'link';
+            const dealOriginLabel = hasEmailContent ? 'Pitch email' : (isLinkOnlyStatus ? 'Checkout link' : 'Link enabled');
+            const serviceDescription = String(pitch.ServiceDescription || '').trim();
+            const dealSubject = serviceDescription ? `Deal captured – ${serviceDescription}` : 'Deal captured';
             
             const pitchId = `pitch-${index}`;
             pitchItems.push({
               id: pitchId,
-              type: 'pitch',
+              type: itemType,
               date: pitch.CreatedAt,
-              subject: pitch.EmailSubject || 'Pitch Sent',
+              subject: dealSubject,
               content: pitch.EmailBody,
               contentHtml: pitch.EmailBodyHtml,
               createdBy: pitch.CreatedBy || 'Unknown',
               metadata: {
                 amount: pitch.Amount,
-                status: 'sent',
-                scenarioId: pitch.ScenarioId
+                status: hasEmailContent ? 'sent' : (isLinkOnlyStatus ? 'checkout-link' : 'link-enabled'),
+                scenarioId: pitch.ScenarioId,
+                dealOrigin,
+                dealOriginLabel,
+                dealEmailSubject: hasEmailContent ? (pitch.EmailSubject || null) : null,
+                dealPasscode: pitch.Passcode || null,
+                dealServiceDescription: serviceDescription || undefined,
               }
             });
 
-            // Try to fetch instruction data for this pitch
-            if (pitch.ProspectId) {
-              try {
-                const instructionRes = await fetch(`/api/instruction-data/${pitch.ProspectId}`);
-                if (instructionRes.ok) {
-                  const instructionData = await instructionRes.json();
-                  if (instructionData) {
-                    const status = calculateInstructionStatus(instructionData);
-                    statusMap[pitchId] = status;
-                  }
-                }
-              } catch (error) {
-                console.error(`Failed to fetch instruction data for prospect ${pitch.ProspectId}:`, error);
-              }
+            // If the pitch payload includes instruction-stage info (from server-side joins),
+            // translate it into the legacy chip status model.
+            const instructionStage = String(pitch?.InstructionStage ?? '').trim();
+            const instructionInternalStatus = String(pitch?.InstructionInternalStatus ?? pitch?.InternalStatus ?? '').trim();
+
+            // Always provide at least a baseline (pending) status so the chips render.
+            // When the pitch includes instruction-stage/internalStatus, the same helper
+            // will mark the appropriate stages as progressed.
+            try {
+              statusMap[pitchId] = calculateInstructionStatus({
+                Stage: instructionStage || undefined,
+                InternalStatus: instructionInternalStatus || undefined,
+              });
+            } catch {
+              // Best-effort only; leave unset if something unexpected arrives.
             }
           }
 
@@ -2540,7 +2932,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
       });
     };
 
-    fetchTimeline();
+    fetchTimeline({ background: Boolean(cached) });
   }, [enquiry.ID, timelineUnlocked]);
 
   // Auto-select the first item only on initial timeline load (not when user collapses).
@@ -2598,6 +2990,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     switch (type) {
       case 'pitch':
         return <FaEnvelope />;
+      case 'link-enabled':
+        return <FaLink />;
       case 'email':
         return <FaEnvelope />;
       case 'call':
@@ -2619,6 +3013,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         return '#f59e0b'; // Amber/Orange - matches activity icon
       case 'pitch':
         return '#22c55e'; // Green - matches activity icon
+      case 'link-enabled':
+        return '#22c55e'; // Treat as deal
       case 'email':
         return colours.highlight; // Blue - matches activity icon
       case 'instruction':
@@ -2652,7 +3048,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   const getTypeLabel = (type: CommunicationType) => {
     switch (type) {
       case 'pitch':
-        return 'Pitch Sent';
+        return 'Deal';
+      case 'link-enabled':
+        return 'Deal';
       case 'email':
         return 'Email';
       case 'call':
@@ -2667,6 +3065,11 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         return 'Activity';
     }
   };
+
+  const isDocRequestPitch = (item: TimelineItem) => item.type === 'document' && item.metadata?.isDocWorkspace;
+  const getItemTypeLabel = (item: TimelineItem) => (isDocRequestPitch(item) ? 'Doc Request' : getTypeLabel(item.type));
+  const getItemTypeIcon = (item: TimelineItem) => (isDocRequestPitch(item) ? <FaLink /> : getTypeIcon(item.type));
+  const getItemTypeColor = (item: TimelineItem) => (isDocRequestPitch(item) ? '#a855f7' : getTypeColor(item.type));
 
   const quickAccessTypes: CommunicationType[] = ['document', 'email', 'call', 'pitch', 'instruction'];
   const getQuickAccessCount = (type: CommunicationType) => timeline.filter((item) => item.type === type).length;
@@ -2755,17 +3158,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   // Render instruction status indicators for pitches
   const renderInstructionStatus = (itemId: string) => {
     const status = instructionStatuses[itemId];
-    
-    // Use test data for now, replace with actual status when API is ready
-    const testStatus = {
-      verifyIdStatus: 'complete',
-      paymentStatus: 'processing', 
-      riskStatus: 'pending',
-      matterStatus: 'pending',
-      cclStatus: 'pending'
-    };
 
-    const activeStatus = status || testStatus;
+    if (!status) return null;
+
+    const activeStatus = status;
 
     const statusItems = [
       { 
@@ -3390,7 +3786,12 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 <button
                   onClick={() => {
                     if (existingWorkspace) {
+                      setActiveFilters(['document']);
                       setSelectedItem(existingWorkspace);
+                      setTimeout(() => {
+                        const el = document.getElementById(`timeline-item-${existingWorkspace.id}`);
+                        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      }, 250);
                       return;
                     }
                     setDocRequestConfirmOpen(true);
@@ -4215,6 +4616,36 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             >
               {collapsedDays.size > 0 ? '▼' : '▶'}
             </button>
+
+            {/* Ledger/Timeline view toggle */}
+            <button
+              onClick={() => {
+                const next = !ledgerMode;
+                setLedgerMode(next);
+                try { localStorage.setItem('timelineLedgerMode', String(next)); } catch {}
+              }}
+              title={ledgerMode ? 'Switch to card view' : 'Switch to ledger view'}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '28px',
+                height: '28px',
+                background: ledgerMode
+                  ? (isDarkMode ? 'rgba(125, 211, 252, 0.12)' : 'rgba(54, 144, 206, 0.08)')
+                  : 'transparent',
+                border: 'none',
+                borderRadius: '4px',
+                color: ledgerMode
+                  ? (isDarkMode ? '#7DD3FC' : '#3690CE')
+                  : (isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)'),
+                cursor: 'pointer',
+                fontSize: '11px',
+                transition: 'all 0.15s',
+              }}
+            >
+              {ledgerMode ? '≡' : '☰'}
+            </button>
           </div>
         </div>
 
@@ -4326,13 +4757,49 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                               background: isDarkMode ? 'rgba(2, 6, 23, 0.18)' : 'rgba(255, 255, 255, 0.6)',
                             }}
                           >
-                            {renderStatusIcon(entry.status)}
-                            <div style={{ minWidth: 0, display: 'flex', gap: 8, alignItems: 'baseline' }}>
-                              <span style={{ fontWeight: 700 }}>{label}</span>
-                              <span style={{ color: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(15, 23, 42, 0.5)' }}>
-                                {statusText}
-                              </span>
-                            </div>
+                            {entry.status === 'loading' ? (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                                <div
+                                  className="skeleton-shimmer"
+                                  style={{
+                                    width: 16,
+                                    height: 16,
+                                    borderRadius: 999,
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(148, 163, 184, 0.2)',
+                                  }}
+                                />
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0, flex: 1 }}>
+                                  <div
+                                    className="skeleton-shimmer"
+                                    style={{
+                                      width: '70%',
+                                      height: 8,
+                                      borderRadius: 999,
+                                      background: isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(148, 163, 184, 0.2)',
+                                    }}
+                                  />
+                                  <div
+                                    className="skeleton-shimmer"
+                                    style={{
+                                      width: '45%',
+                                      height: 7,
+                                      borderRadius: 999,
+                                      background: isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(148, 163, 184, 0.2)',
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                {renderStatusIcon(entry.status)}
+                                <div style={{ minWidth: 0, display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                                  <span style={{ fontWeight: 700 }}>{label}</span>
+                                  <span style={{ color: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(15, 23, 42, 0.5)' }}>
+                                    {statusText}
+                                  </span>
+                                </div>
+                              </>
+                            )}
                           </div>
                         );
                       })}
@@ -4344,7 +4811,174 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           </div>
         ) : null}
 
-        {timeline.length > 0 ? (
+        {showDataLoadingStatus && loading && timeline.length === 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '12px' }}>
+            {[0, 1, 2].map((idx) => (
+              <div
+                key={`timeline-skeleton-${idx}`}
+                className="skeleton-shimmer"
+                style={{
+                  height: 68,
+                  borderRadius: '6px',
+                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.12)'}`,
+                  background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(148, 163, 184, 0.14)',
+                }}
+              />
+            ))}
+          </div>
+        ) : null}
+
+        {/* LEDGER MODE: Clean table-style view */}
+        {ledgerMode && timeline.length > 0 && (
+          <div style={{ marginTop: 8 }}>
+            <table style={{
+              width: '100%',
+              borderCollapse: 'collapse',
+              fontSize: 12,
+              fontFamily: 'inherit',
+            }}>
+              <thead>
+                <tr style={{
+                  borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
+                }}>
+                  <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.8)', width: 80 }}>Date</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.8)', width: 70 }}>Type</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.8)' }}>Description</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.8)', width: 90 }}>By</th>
+                </tr>
+              </thead>
+              <tbody>
+                {timeline
+                  .slice()
+                  .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                  .filter((item) => !hiddenItemIds.has(item.id))
+                  .filter((item) => activeFilters.length === 0 || activeFilters.includes(item.type))
+                  .map((item) => {
+                    const itemDate = parseISO(item.date);
+                    const dateStr = Number.isFinite(itemDate.getTime()) ? format(itemDate, 'd MMM') : '—';
+                    const timeStr = Number.isFinite(itemDate.getTime()) ? format(itemDate, 'HH:mm') : '';
+                    const typeColor = getItemTypeColor(item);
+                    const isExpanded = selectedItem?.id === item.id;
+                    const typeLabel = item.type === 'email'
+                      ? (item.metadata?.direction === 'inbound' ? 'Email In' : 'Email Out')
+                      : getItemTypeLabel(item);
+                    const dealOriginLabel = item.metadata?.dealOriginLabel;
+
+                    return (
+                      <tr
+                        key={item.id}
+                        onClick={() => setSelectedItem(isExpanded ? null : item)}
+                        style={{
+                          borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.1)'}`,
+                          cursor: 'pointer',
+                          background: isExpanded
+                            ? (isDarkMode ? 'rgba(125, 211, 252, 0.06)' : 'rgba(54, 144, 206, 0.04)')
+                            : 'transparent',
+                          transition: 'background 0.15s',
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isExpanded) e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.05)' : 'rgba(148, 163, 184, 0.04)';
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isExpanded) e.currentTarget.style.background = 'transparent';
+                        }}
+                      >
+                        <td style={{ padding: '10px 12px', verticalAlign: 'top' }}>
+                          <div style={{ fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)' }}>{dateStr}</div>
+                          <div style={{ fontSize: 10, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)' }}>{timeStr}</div>
+                        </td>
+                        <td style={{ padding: '10px 12px', verticalAlign: 'top' }}>
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            fontSize: 11,
+                            fontWeight: 500,
+                            color: typeColor,
+                          }}>
+                            {getItemTypeIcon(item)}
+                            {typeLabel}
+                          </span>
+                          {dealOriginLabel && item.type === 'pitch' && (
+                            <div style={{
+                              marginTop: 4,
+                              fontSize: 9,
+                              fontWeight: 600,
+                              letterSpacing: '0.3px',
+                              textTransform: 'uppercase',
+                              color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
+                            }}>
+                              via {dealOriginLabel}
+                            </div>
+                          )}
+                          {item.type === 'document' && item.metadata?.isDocWorkspace && (
+                            <div style={{
+                              marginTop: 4,
+                              fontSize: 9,
+                              fontWeight: 600,
+                              letterSpacing: '0.3px',
+                              textTransform: 'uppercase',
+                              color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
+                            }}>
+                              via Doc request
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ padding: '10px 12px', verticalAlign: 'top' }}>
+                          <div style={{
+                            fontWeight: 500,
+                            color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)',
+                            marginBottom: isExpanded ? 8 : 0,
+                          }}>
+                            {item.subject}
+                          </div>
+                          {isExpanded && item.content && (
+                            <div style={{
+                              fontSize: 11,
+                              lineHeight: 1.5,
+                              color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.7)',
+                              whiteSpace: 'pre-wrap',
+                              maxHeight: 200,
+                              overflow: 'auto',
+                              padding: '8px 10px',
+                              background: isDarkMode ? 'rgba(15, 23, 42, 0.3)' : '#F8FAFC',
+                              borderRadius: 4,
+                              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.15)'}`,
+                            }}>
+                              {item.content}
+                            </div>
+                          )}
+                          {isExpanded && item.contentHtml && !item.content && (
+                            <div
+                              className="helix-email-html"
+                              style={{
+                                fontSize: 11,
+                                lineHeight: 1.5,
+                                color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.7)',
+                                maxHeight: 200,
+                                overflow: 'auto',
+                                padding: '8px 10px',
+                                background: isDarkMode ? 'rgba(15, 23, 42, 0.3)' : '#F8FAFC',
+                                borderRadius: 4,
+                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.15)'}`,
+                              }}
+                              dangerouslySetInnerHTML={{ __html: sanitizeEmailHtml(item.contentHtml) }}
+                            />
+                          )}
+                        </td>
+                        <td style={{ padding: '10px 12px', verticalAlign: 'top', fontSize: 11, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)' }}>
+                          {item.createdBy || '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* CARD MODE: Original complex timeline view */}
+        {!ledgerMode && timeline.length > 0 ? (
           <div style={{ position: 'relative', paddingLeft: '96px' }}>
             {/* Vertical line */}
             <div style={{
@@ -4379,7 +5013,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               const holdingDocsCount = computeHoldingDocCount(sortedItems);
 
               return sortedItems.map((item, index, allItems) => {
-                const typeColor = getTypeColor(item.type);
+                const typeColor = getItemTypeColor(item);
                 const isExpanded = selectedItem?.id === item.id;
                 const isDimmed = Boolean(activeFilters.length > 0 && !activeFilters.includes(item.type));
                 // Individual doc uploads (not the workspace itself) should be subtle "bookmarks"
@@ -4396,6 +5030,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 // - Email outbound: blue (we reached out)
                 // - Other items: green (complete)
                 const dotColor = (() => {
+                  if (isDocWorkspace) {
+                    return getItemTypeColor(item);
+                  }
                   if (isPortalUpload) {
                     return isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(148, 163, 184, 0.5)';
                   }
@@ -4725,7 +5362,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                         }}>
                           {!isPortalUpload && (
                             <span style={{ color: typeColor }}>
-                              {getTypeIcon(item.type)}
+                              {getItemTypeIcon(item)}
                             </span>
                           )}
                           {isPortalUpload && (
@@ -4752,9 +5389,32 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                               {item.metadata.direction === 'inbound' ? '← In' : 'Out →'}
                             </span>
                           )}
+                          {item.type === 'document' && item.metadata?.isDocWorkspace && (
+                            <span style={{
+                              fontSize: '9px',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              fontWeight: 600,
+                              background: isDarkMode ? 'rgba(168, 85, 247, 0.12)' : 'rgba(168, 85, 247, 0.1)',
+                              color: isDarkMode ? '#c4b5fd' : '#7c3aed',
+                            }}>
+                              Doc request
+                            </span>
+                          )}
+                          {item.type === 'pitch' && item.metadata?.dealOriginLabel && (
+                            <span style={{
+                              fontSize: '9px',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              fontWeight: 600,
+                              background: isDarkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.1)',
+                              color: isDarkMode ? '#4ADE80' : '#16A34A',
+                            }}>
+                              {item.metadata.dealOriginLabel}
+                            </span>
+                          )}
                           <span>
                             {(() => {
-                              if (item.type === 'pitch' && item.metadata?.scenarioId) return getScenarioName(item.metadata.scenarioId);
                               if (item.metadata?.isDocWorkspace) {
                                 const passcode = typeof item.metadata.workspacePasscode === 'string' ? item.metadata.workspacePasscode.trim() : '';
                                 return passcode ? `${item.subject} • ${passcode}` : item.subject;
@@ -4812,7 +5472,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                             </>
                           )}
                           {!isPortalUpload && (() => {
-                            if (item.type === 'pitch' && item.metadata?.scenarioId) {
+                            if (item.type === 'pitch' && item.metadata?.dealEmailSubject) {
                               return (
                                 <>
                                   <span>•</span>
@@ -4822,7 +5482,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                     whiteSpace: 'nowrap',
                                     minWidth: 0,
                                   }}>
-                                    {item.subject}
+                                    Email: {item.metadata.dealEmailSubject}
                                   </span>
                                 </>
                               );
@@ -5352,10 +6012,80 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                               </div>
                             ) : null}
                           </div>
+                        ) : item.type === 'call' ? (
+                          renderCallDetails(item)
                         ) : item.contentHtml ? (
                           <div className="helix-email-html" dangerouslySetInnerHTML={{ __html: sanitizeEmailHtml(item.contentHtml) }} />
                         ) : item.content ? (
                           <div style={{ whiteSpace: 'pre-wrap' }}>{item.content}</div>
+                        ) : item.type === 'pitch' && item.metadata?.dealOrigin === 'link' ? (
+                          <div style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '6px',
+                            padding: '10px 12px',
+                            borderRadius: '6px',
+                            border: `1px dashed ${isDarkMode ? 'rgba(34, 197, 94, 0.35)' : 'rgba(34, 197, 94, 0.25)'}`,
+                            background: isDarkMode ? 'rgba(34, 197, 94, 0.08)' : 'rgba(34, 197, 94, 0.06)',
+                            color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.8)',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                          }}>
+                            <span>Checkout link created (no pitch email).</span>
+                            {(() => {
+                              const passcode = item.metadata?.dealPasscode?.trim();
+                              if (!passcode) return null;
+                              const base = String(process.env.REACT_APP_PITCH_BACKEND_URL || 'https://instruct.helix-law.com').replace(/\/$/, '');
+                              const link = `${base}/pitch/${encodeURIComponent(passcode)}`;
+
+                              return (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                  <a
+                                    href={link}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    style={{
+                                      fontSize: '11px',
+                                      fontFamily: 'Consolas, Monaco, monospace',
+                                      color: isDarkMode ? colours.accent : colours.highlight,
+                                      textDecoration: 'underline',
+                                      wordBreak: 'break-all',
+                                    }}
+                                  >
+                                    {link}
+                                  </a>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      copyToClipboard(link, 'Checkout link');
+                                    }}
+                                    style={{
+                                      alignSelf: 'flex-start',
+                                      padding: '6px 10px',
+                                      fontSize: '10px',
+                                      fontWeight: 700,
+                                      borderRadius: '2px',
+                                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.25)'}`,
+                                      background: isDarkMode ? 'rgba(2, 6, 23, 0.25)' : 'rgba(255, 255, 255, 0.65)',
+                                      color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.7)',
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    Copy checkout link
+                                  </button>
+                                </div>
+                              );
+                            })()}
+                            <span style={{
+                              fontSize: '11px',
+                              fontWeight: 500,
+                              color: isDarkMode ? 'rgba(148, 163, 184, 0.75)' : 'rgba(100, 116, 139, 0.75)',
+                            }}>
+                              Use this link to collect payment outside of Helix Hub.
+                            </span>
+                          </div>
                         ) : (
                           <div style={{ 
                             color: isDarkMode ? 'rgba(226, 232, 240, 0.4)' : 'rgba(15, 23, 42, 0.4)',
@@ -5366,7 +6096,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                         )}
                         
                         {/* Forward Email Button for email and pitch items */}
-                        {(item.type === 'email' || item.type === 'pitch') && userEmail && (
+                        {(item.type === 'email' || (item.type === 'pitch' && item.metadata?.dealOrigin !== 'link')) && userEmail && (
                           <div style={{ marginTop: '12px' }}>
                             <button
                               onClick={(e) => {
@@ -5478,8 +6208,19 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                           </div>
                         )}
                         
-                        {/* Instruction Status Indicators for Pitches - at bottom of expanded content */}
-                        {item.type === 'pitch' && renderInstructionStatus(item.id)}
+                        {/* InlineWorkbench for Pitches - replaces old status chips */}
+                        {item.type === 'pitch' && inlineWorkbenchItem && (
+                          <div style={{ marginTop: '16px', paddingTop: '12px', borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)'}` }}>
+                            <InlineWorkbench
+                              item={{ ...(inlineWorkbenchItem ?? {}), enquiry, pitch: item }}
+                              isDarkMode={isDarkMode}
+                              enableContextStageChips={true}
+                              contextStageKeys={['instructed']}
+                            />
+                          </div>
+                        )}
+                        {/* Fallback to old status chips if no instruction data */}
+                        {item.type === 'pitch' && !inlineWorkbenchItem && renderInstructionStatus(item.id)}
                       </div>
                     )}
                   </div>
@@ -5488,7 +6229,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             });
             })()}
           </div>
-        ) : (
+        ) : null}
+
+        {/* Empty state when no timeline items */}
+        {timeline.length === 0 && (
           <div style={{
             padding: '20px',
             textAlign: 'center',
@@ -6006,9 +6750,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   onChange={(e) => {
                     const parsed = Number(e.target.value);
                     setCallSyncData(prev => {
-                      if (!prev) {
-                        return prev;
-                      }
+                      if (!prev) return prev;
                       if (Number.isNaN(parsed)) {
                         return { ...prev, maxResults: 1 };
                       }

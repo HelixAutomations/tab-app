@@ -570,6 +570,28 @@ router.get('/documents', async (req, res) => {
       message: err?.message,
     });
 
+    const maybeStatusCode = err?.statusCode || err?.details?.statusCode || err?.response?.status;
+    const msg = typeof err?.message === 'string' ? err.message : '';
+    const isAuthError =
+      maybeStatusCode === 401 ||
+      maybeStatusCode === 403 ||
+      msg.includes('not authorized') ||
+      msg.includes('not authorised') ||
+      msg.includes('Authorization') ||
+      msg.includes('permission');
+
+    // If blob auth isn't configured (common in staging/early deployments), don't fail the UI.
+    if (isAuthError) {
+      return res.status(200).json({
+        enquiryId,
+        passcode: typeof req.query?.passcode === 'string' ? String(req.query.passcode).trim() : null,
+        folders: [],
+        documents: [],
+        unauthorised: true,
+        hint: 'Blob access not configured for doc workspace. Assign storage RBAC to the app identity or provide INSTRUCTIONS_STORAGE_CONNECTION_STRING/INSTRUCTIONS_STORAGE_ACCOUNT_KEY.',
+      });
+    }
+
     const detail = process.env.NODE_ENV === 'production'
       ? undefined
       : (typeof err?.message === 'string' ? err.message : String(err));

@@ -446,15 +446,7 @@ router.post('/:instructionRef/approve', async (req, res) => {
       request.input('instructionRef', s.VarChar(50), instructionRef).query(updateInstructionQuery)
     );
 
-    const clientFirstName = instruction.FirstName || 'Client';
-    const sendingContact = instruction.HelixContact || instruction.PitchedBy || 'System';
-    
-    try {
-      await sendVerificationFailureEmail(instructionRef, instruction.Email, clientFirstName, sendingContact);
-    } catch (emailError) {
-      console.error('Failed to send verification email:', emailError);
-      // Don't fail the approval if email fails, just log it
-    }
+    // Approval is a state change only; we do not send any client emails here.
 
     // Invalidate caches post-approval
     try {
@@ -470,7 +462,7 @@ router.post('/:instructionRef/approve', async (req, res) => {
       success: true,
       message: 'Verification approved successfully',
       instructionRef,
-      emailSent: true
+      emailSent: false
     });
 
   } catch (error) {

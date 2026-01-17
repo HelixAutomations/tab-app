@@ -20,25 +20,36 @@ router.get('/:enquiryId', async (req, res) => {
             return res.status(500).json({ error: 'Database not configured' });
         }
 
-        // Query pitch content from the instructions database with full details
+        // Query pitch content from the instructions database with full details.
+        // Include deal + instruction join so the UI can show whether pitches have converted.
         const result = await withRequest(connectionString, async (request) => {
             return request
                 .input('enquiryId', sql.NVarChar, enquiryId)
                 .query(`
                     SELECT 
-                        EmailSubject,
-                        EmailBody,
-                        EmailBodyHtml,
-                        CreatedAt,
-                        CreatedBy,
-                        Amount,
-                        ServiceDescription,
-                        Reminders,
-                        Notes,
-                        ScenarioId
-                    FROM PitchContent
-                    WHERE ProspectId = @enquiryId
-                    ORDER BY CreatedAt DESC
+                        pc.DealId,
+                        pc.InstructionRef,
+                        pc.ProspectId,
+                        pc.EmailSubject,
+                        pc.EmailBody,
+                        pc.EmailBodyHtml,
+                        pc.CreatedAt,
+                        pc.CreatedBy,
+                        pc.Amount,
+                        pc.ServiceDescription,
+                        pc.Reminders,
+                        pc.Notes,
+                        pc.ScenarioId,
+                        d.Passcode AS Passcode,
+                        d.Status AS DealStatus,
+                        d.PitchValidUntil AS PitchValidUntil,
+                        i.Stage AS InstructionStage,
+                        i.InternalStatus AS InstructionInternalStatus
+                    FROM PitchContent pc
+                    LEFT JOIN Deals d ON d.DealId = pc.DealId
+                    LEFT JOIN Instructions i ON i.InstructionRef = pc.InstructionRef
+                    WHERE pc.ProspectId = @enquiryId
+                    ORDER BY pc.CreatedAt DESC
                 `);
         });
 

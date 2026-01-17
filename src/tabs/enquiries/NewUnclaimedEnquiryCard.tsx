@@ -6,6 +6,7 @@ import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import EnquiryBadge from './EnquiryBadge';
 import { useClaimEnquiry } from '../../utils/claimEnquiry';
+import InlineWorkbench from '../instructions/InlineWorkbench';
 
 interface Props {
   enquiry: Enquiry & { __sourceType?: 'new' | 'legacy' };
@@ -21,6 +22,8 @@ interface Props {
    * Number of documents uploaded for this enquiry (if available)
    */
   documentCount?: number;
+  inlineWorkbenchItem?: any;
+  teamData?: any[] | null;
 }
 
 /**
@@ -125,7 +128,7 @@ const getAreaColour = (area?: string) => {
   return colours.greyText;
 };
 
-const NewUnclaimedEnquiryCard: React.FC<Props> = ({ enquiry, onSelect, onAreaChange, userEmail, onClaimSuccess, onOptimisticClaim, promotionStatus, documentCount = 0 }) => {
+const NewUnclaimedEnquiryCard: React.FC<Props> = ({ enquiry, onSelect, onAreaChange, userEmail, onClaimSuccess, onOptimisticClaim, promotionStatus, documentCount = 0, inlineWorkbenchItem, teamData }) => {
   const { isDarkMode } = useTheme();
   const [selected, setSelected] = useState(false);
   const [showActions, setShowActions] = useState(false);
@@ -134,6 +137,7 @@ const NewUnclaimedEnquiryCard: React.FC<Props> = ({ enquiry, onSelect, onAreaCha
   const [justClaimed, setJustClaimed] = useState(false);
 
   const areaColor = getAreaColour(enquiry.Area_of_Work);
+  const hasInlineWorkbench = Boolean(inlineWorkbenchItem);
 
   // Enhanced styling to match instruction cards - code-like dark mode with clean design
   const bgGradientLight = 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)';
@@ -364,6 +368,22 @@ const NewUnclaimedEnquiryCard: React.FC<Props> = ({ enquiry, onSelect, onAreaCha
       {enquiry.Initial_first_call_notes && (
         <div style={{ marginTop: 6, marginBottom: 4 }}>
           <EnquiryNotesClamp notes={enquiry.Initial_first_call_notes} isDark={isDarkMode} forceExpand={selected} />
+        </div>
+      )}
+
+      {hasInlineWorkbench && selected && (
+        <div style={{
+          marginTop: 10,
+          paddingTop: 10,
+          borderTop: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+        }}>
+          <InlineWorkbench
+            item={inlineWorkbenchItem}
+            isDarkMode={isDarkMode}
+            enableContextStageChips={true}
+            onClose={() => setSelected(false)}
+            teamData={teamData}
+          />
         </div>
       )}
 

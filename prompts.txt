@@ -1,9 +1,6 @@
-prepare for transfer of instruction chips, id, pay, docs, matter, into the enquiry/prospect space. instructions/clients becomes client matters, matters tab disappears.
-the ccl will be the first step within the matter space. the tray/workbench right now if where the ccl and matter content will live.
-however instead of an inline workbench we will
-
 add a notes/whiteboard component in the pitch builder to assist users wwhen drafting follow up emails with clients but dont store it in db only the session cache.
 this is so they go out and back into pitch builder the notes remain. after refresh they can clear.
 also add an option to call prospect from the pitch builder, there is a option to copy email and phone but not call, so the user has to come out.
 
 add better way to see technical details report data. 
+

@@ -1048,6 +1048,14 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
     soundproofBookings: []
   });
 
+  const [attendanceRealtimePulseNonce, setAttendanceRealtimePulseNonce] = useState(0);
+  const [attendanceRealtimeHighlightInitials, setAttendanceRealtimeHighlightInitials] = useState<string | null>(null);
+
+  const [futureBookingsRealtimePulse, setFutureBookingsRealtimePulse] = useState<
+    | { nonce: number; id?: string; spaceType?: 'Boardroom' | 'Soundproof Pod'; changeType?: string }
+    | null
+  >(null);
+
   // Pending snippet edits for approval
   const [snippetEdits, setSnippetEdits] = useState<SnippetEdit[]>([]);
 
@@ -1067,7 +1075,10 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
     const fetchPendingDocActions = async () => {
       try {
         setPendingDocActionsLoading(true);
-        const res = await fetch(`${proxyBaseUrl}/api/doc-workspace/pending-actions`);
+        const url = proxyBaseUrl
+          ? `${proxyBaseUrl.replace(/\/$/, '')}/doc-workspace/pending-actions`
+          : '/api/doc-workspace/pending-actions';
+        const res = await fetch(url);
         if (res.ok) {
           const data = await res.json();
           setPendingDocActions(data.pendingActions || []);
@@ -1504,17 +1515,95 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
     return generateWeekKey(nextMonday);
   };
 
+  const mapAnnualLeaveArray = (raw: unknown): AnnualLeaveRecord[] => {
+    if (!Array.isArray(raw)) return [];
+    return raw.map((rec: any) => {
+      const leaveType = rec.leave_type ?? rec.leaveType;
+      return {
+        id: String(rec.request_id ?? rec.id ?? rec.ID ?? ''),
+        request_id: rec.request_id ?? rec.id ?? rec.ID ?? undefined,
+        person: String(rec.person ?? rec.fe ?? rec.initials ?? rec.user_initials ?? rec.userInitials ?? '').trim(),
+        start_date: rec.start_date ?? rec.Start_Date ?? rec.startDate ?? '',
+        end_date: rec.end_date ?? rec.End_Date ?? rec.endDate ?? '',
+        reason: rec.reason ?? rec.Reason ?? rec.notes ?? '',
+        status: rec.status ?? '',
+        days_taken: rec.days_taken ?? rec.total_days ?? rec.totalDays,
+        leave_type: typeof leaveType === 'string' ? leaveType : undefined,
+        rejection_notes: rec.rejection_notes ?? rec.rejectionNotes ?? undefined,
+        approvers: Array.isArray(rec.approvers) ? rec.approvers : [],
+        hearing_confirmation: rec.hearing_confirmation ?? rec.hearingConfirmation,
+        hearing_details: rec.hearing_details ?? rec.hearingDetails,
+        requested_at: rec.requested_at ?? rec.requestedAt ?? undefined,
+        approved_at: rec.approved_at ?? rec.approvedAt ?? undefined,
+        booked_at: rec.booked_at ?? rec.bookedAt ?? undefined,
+        updated_at: rec.updated_at ?? rec.updatedAt ?? undefined,
+      };
+    });
+  };
+
+  const refreshAnnualLeaveData = async (
+    initialsOverride?: string,
+    options?: { forceRefresh?: boolean }
+  ) => {
+    const initials = String(initialsOverride || storedUserInitials.current || userData?.[0]?.Initials || '').trim();
+    if (!initials) return;
+
+    try {
+      const forceRefresh = Boolean(options?.forceRefresh);
+      const url = forceRefresh ? '/api/attendance/getAnnualLeave?forceRefresh=true' : '/api/attendance/getAnnualLeave';
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userInitials: initials }),
+      });
+
+      if (!response.ok) return;
+      const data = await response.json();
+
+      const mappedAnnualLeave = mapAnnualLeaveArray(data.annual_leave);
+      const mappedFutureLeave = mapAnnualLeaveArray(data.future_leave);
+      const mappedAllData = mapAnnualLeaveArray(data.all_data);
+
+      cachedAnnualLeave = mappedAnnualLeave;
+      cachedFutureLeaveRecords = mappedFutureLeave;
+      cachedAnnualLeaveError = null;
+
+      setAnnualLeaveRecords(mappedAnnualLeave);
+      setFutureLeaveRecords(mappedFutureLeave);
+      setAnnualLeaveAllData(mappedAllData);
+      if (data.user_details?.totals) {
+        setAnnualLeaveTotals(data.user_details.totals);
+      }
+      if (Array.isArray(data.team)) {
+        setAnnualLeaveTeam(data.team);
+      }
+    } catch (error) {
+      console.warn('[Home] Failed to refresh annual leave data:', error);
+    }
+  };
+
   // Add the following function to update the approval state:
 const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
-  // Remove the updated approval from annualLeaveRecords.
-  setAnnualLeaveRecords((prevRecords) =>
-    prevRecords.filter(record => record.id !== updatedRequestId)
+  // Immediately remove from the approvals list, and update history so it doesn't reappear as 'requested'
+  setAnnualLeaveRecords((prevRecords) => prevRecords.filter(record => record.id !== updatedRequestId));
+  setFutureLeaveRecords((prev) => prev.map(r => (r.id === updatedRequestId ? { ...r, status: newStatus } : r)));
+  setAnnualLeaveAllData((prevAllData) =>
+    prevAllData.map(r => (r.id === updatedRequestId ? { ...r, status: newStatus } : r))
   );
 
-  // Also remove it from the full set of leave data if applicable.
-  setAnnualLeaveAllData((prevAllData) =>
-    prevAllData.filter(record => record.id !== updatedRequestId)
-  );
+  // Keep caches consistent so a remount/cache-restore can't resurrect processed items
+  if (cachedAnnualLeave) {
+    cachedAnnualLeave = cachedAnnualLeave.filter((r) => r.id !== updatedRequestId);
+  }
+  if (cachedFutureLeaveRecords) {
+    cachedFutureLeaveRecords = cachedFutureLeaveRecords.map((r) =>
+      r.id === updatedRequestId ? { ...r, status: newStatus } : r
+    );
+  }
+
+  // Backstop: refetch canonical data from API so UI stays consistent everywhere
+  void refreshAnnualLeaveData(undefined, { forceRefresh: true });
 };
 
   // ADDED: userInitials logic - store in ref so it doesn't reset on re-render.
@@ -1526,6 +1615,203 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
   }, [rawUserInitials]);
   // Now anywhere we used userInitials, we can do:
   const userInitials = storedUserInitials.current || rawUserInitials;
+
+  // Realtime: when annual leave changes (approved/edited/created), refresh so other users' approvals update.
+  useEffect(() => {
+    if (!userInitials) return;
+
+    let eventSource: EventSource | null = null;
+    let refreshTimer: number | null = null;
+
+    const scheduleRefresh = () => {
+      if (refreshTimer) {
+        window.clearTimeout(refreshTimer);
+      }
+      refreshTimer = window.setTimeout(() => {
+        void refreshAnnualLeaveData(undefined, { forceRefresh: true });
+      }, 350);
+    };
+
+    try {
+      eventSource = new EventSource('/api/attendance/annual-leave/stream');
+      eventSource.addEventListener('annualLeave.changed', scheduleRefresh as EventListener);
+      eventSource.addEventListener('connected', () => {
+        // Optional: on connect, do nothing; initial fetch happens via existing flows.
+      });
+      eventSource.onerror = () => {
+        // Browser will auto-retry; keep handler light.
+      };
+    } catch (error) {
+      console.warn('[Home] Failed to connect annual leave realtime stream:', error);
+    }
+
+    return () => {
+      if (refreshTimer) {
+        window.clearTimeout(refreshTimer);
+      }
+      try {
+        if (eventSource) {
+          eventSource.close();
+        }
+      } catch {
+        // ignore
+      }
+    };
+  }, [userInitials]);
+
+  // Realtime: when attendance changes (someone confirms), refresh team attendance view.
+  useEffect(() => {
+    if (!userInitials) return;
+
+    let eventSource: EventSource | null = null;
+    let refreshTimer: number | null = null;
+
+    const scheduleRefresh = (evt?: Event) => {
+      if (refreshTimer) {
+        window.clearTimeout(refreshTimer);
+      }
+
+      try {
+        const messageEvent = evt as MessageEvent | undefined;
+        const raw = typeof messageEvent?.data === 'string' ? messageEvent.data : '';
+        const payload = raw ? JSON.parse(raw) : null;
+        const initials = payload?.initials ? String(payload.initials).toUpperCase() : null;
+        if (initials) {
+          setAttendanceRealtimeHighlightInitials(initials);
+        }
+        setAttendanceRealtimePulseNonce((n) => n + 1);
+      } catch {
+        // Non-blocking
+      }
+
+      refreshTimer = window.setTimeout(async () => {
+        try {
+          const response = await fetch('/api/attendance/getAttendance?forceRefresh=true', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          });
+          if (!response.ok) return;
+          const data = await response.json();
+          if (!data?.success || !data?.attendance) return;
+
+          const transformedAttendance = data.attendance.map((member: any) => ({
+            Attendance_ID: 0,
+            Entry_ID: 0,
+            First_Name: member.First || member.name || '',
+            Initials: member.Initials || '',
+            Nickname: member.Nickname || member.First || '',
+            Level: member.Level || '',
+            Week_Start: member.Week_Start ? new Date(member.Week_Start).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+            Week_End: member.Week_End ? new Date(member.Week_End).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+            ISO_Week: typeof member.iso === 'number' ? member.iso : 0,
+            Attendance_Days: member.Status || '',
+            weeks: member.weeks || {},
+          }));
+
+          cachedAttendance = { attendance: transformedAttendance, team: data.team || [] };
+          cachedAttendanceError = null;
+
+          setAttendanceRecords(transformedAttendance);
+          setAttendanceTeam(data.team || []);
+        } catch (error) {
+          console.warn('[Home] Failed to refresh attendance (realtime):', error);
+        }
+      }, 350);
+    };
+
+    try {
+      eventSource = new EventSource('/api/attendance/attendance/stream');
+      eventSource.addEventListener('attendance.changed', scheduleRefresh as EventListener);
+      eventSource.onerror = () => {
+        // Browser will auto-retry
+      };
+    } catch (error) {
+      console.warn('[Home] Failed to connect attendance realtime stream:', error);
+    }
+
+    return () => {
+      if (refreshTimer) {
+        window.clearTimeout(refreshTimer);
+      }
+      try {
+        if (eventSource) {
+          eventSource.close();
+        }
+      } catch {
+        // ignore
+      }
+    };
+  }, [userInitials]);
+
+  // Realtime: when future bookings change, refresh bookings so other users see updates.
+  useEffect(() => {
+    if (!userInitials) return;
+
+    let eventSource: EventSource | null = null;
+    let refreshTimer: number | null = null;
+
+    const scheduleRefresh = (evt?: Event) => {
+      if (refreshTimer) {
+        window.clearTimeout(refreshTimer);
+      }
+
+      try {
+        const messageEvent = evt as MessageEvent | undefined;
+        const raw = typeof messageEvent?.data === 'string' ? messageEvent.data : '';
+        const payload = raw ? JSON.parse(raw) : null;
+        const id = payload?.id !== undefined ? String(payload.id) : undefined;
+        const spaceType = payload?.spaceType ? String(payload.spaceType) : undefined;
+        const changeType = payload?.changeType ? String(payload.changeType) : undefined;
+
+        if (id || spaceType || changeType) {
+          setFutureBookingsRealtimePulse((prev) => ({
+            nonce: (prev?.nonce || 0) + 1,
+            id,
+            spaceType: (spaceType === 'Boardroom' || spaceType === 'Soundproof Pod') ? spaceType : undefined,
+            changeType,
+          }));
+        } else {
+          setFutureBookingsRealtimePulse((prev) => ({ nonce: (prev?.nonce || 0) + 1 }));
+        }
+      } catch {
+        setFutureBookingsRealtimePulse((prev) => ({ nonce: (prev?.nonce || 0) + 1 }));
+      }
+
+      refreshTimer = window.setTimeout(async () => {
+        try {
+          const response = await fetch('/api/future-bookings?forceRefresh=true');
+          if (!response.ok) return;
+          const data = await response.json();
+          setFutureBookings(data);
+        } catch (error) {
+          console.warn('[Home] Failed to refresh future bookings (realtime):', error);
+        }
+      }, 350);
+    };
+
+    try {
+      eventSource = new EventSource('/api/future-bookings/stream');
+      eventSource.addEventListener('futureBookings.changed', scheduleRefresh as EventListener);
+      eventSource.onerror = () => {
+        // Browser will auto-retry
+      };
+    } catch (error) {
+      console.warn('[Home] Failed to connect future bookings realtime stream:', error);
+    }
+
+    return () => {
+      if (refreshTimer) {
+        window.clearTimeout(refreshTimer);
+      }
+      try {
+        if (eventSource) {
+          eventSource.close();
+        }
+      } catch {
+        // ignore
+      }
+    };
+  }, [userInitials]);
 
   // Quick Actions bar ready state - show skeletons until user data is available
   const quickActionsReady = hasStartedParallelFetch && Boolean(userInitials);
@@ -1725,6 +2011,30 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
     }
   }, [enquiries, currentUserEmail, userInitials]);
 
+  // Helper function to derive approvers for annual leave requests based on AOW
+  const deriveApproversForPerson = useCallback((personRaw: unknown): string[] => {
+    const person = String(personRaw ?? '').trim();
+    const initials = person.toUpperCase();
+
+    const teamRows: any[] = Array.isArray(teamData)
+      ? (teamData as any[])
+      : Array.isArray(annualLeaveTeam)
+        ? (annualLeaveTeam as any[])
+        : [];
+
+    const match = teamRows.find((t) => String(t?.Initials ?? '').trim().toUpperCase() === initials);
+    const aowRaw = String(match?.AOW ?? '').toLowerCase();
+
+    const aowList = aowRaw
+      .split(',')
+      .map((x) => x.trim())
+      .filter(Boolean);
+
+    const isConstruction = aowList.some((x) => x === 'cs' || x.includes('construction'));
+    const secondaryApprover = isConstruction ? 'JW' : 'AC';
+    return ['LZ', secondaryApprover];
+  }, [teamData, annualLeaveTeam]);
+
   // ═════════════════════════════════════════════════════════════════════════════
   // PARALLEL DATA FETCH - Combines attendance, annual leave, WIP, and enquiries
   // Fires all requests simultaneously to reduce waterfall delay by ~600-800ms
@@ -1854,9 +2164,15 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
           if (data.annual_leave) {
             const mappedAnnualLeave: AnnualLeaveRecord[] = data.annual_leave.map((rec: any) => {
               const leaveType = rec.leave_type ?? rec.leaveType;
+              const personInitials = String(rec.person ?? rec.fe ?? rec.initials ?? rec.user_initials ?? rec.userInitials ?? '').trim();
+              // Use backend approvers if present, otherwise calculate based on AOW
+              const approvers = Array.isArray(rec.approvers) && rec.approvers.length > 0 
+                ? rec.approvers 
+                : deriveApproversForPerson(personInitials);
               return {
                 id: String(rec.request_id ?? rec.id ?? rec.ID ?? ''),
-                person: String(rec.person ?? rec.fe ?? rec.initials ?? rec.user_initials ?? rec.userInitials ?? '').trim(),
+                request_id: rec.request_id ?? rec.id ?? rec.ID ?? undefined,
+                person: personInitials,
                 start_date: rec.start_date ?? rec.Start_Date ?? rec.startDate ?? '',
                 end_date: rec.end_date ?? rec.End_Date ?? rec.endDate ?? '',
                 reason: rec.reason ?? rec.Reason ?? rec.notes ?? '',
@@ -1864,9 +2180,13 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
                 days_taken: rec.days_taken ?? rec.total_days ?? rec.totalDays,
                 leave_type: typeof leaveType === 'string' ? leaveType : undefined,
                 rejection_notes: rec.rejection_notes ?? rec.rejectionNotes ?? undefined,
-                approvers: Array.isArray(rec.approvers) ? rec.approvers : [],
+                approvers,
                 hearing_confirmation: rec.hearing_confirmation ?? rec.hearingConfirmation,
                 hearing_details: rec.hearing_details ?? rec.hearingDetails,
+                requested_at: rec.requested_at ?? rec.requestedAt ?? undefined,
+                approved_at: rec.approved_at ?? rec.approvedAt ?? undefined,
+                booked_at: rec.booked_at ?? rec.bookedAt ?? undefined,
+                updated_at: rec.updated_at ?? rec.updatedAt ?? undefined,
               };
             });
             cachedAnnualLeave = mappedAnnualLeave;
@@ -1875,9 +2195,14 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
           if (data.future_leave) {
             const mappedFutureLeave: AnnualLeaveRecord[] = data.future_leave.map((rec: any) => {
               const leaveType = rec.leave_type ?? rec.leaveType;
+              const personInitials = String(rec.person ?? rec.fe ?? rec.initials ?? rec.user_initials ?? rec.userInitials ?? '').trim();
+              const approvers = Array.isArray(rec.approvers) && rec.approvers.length > 0 
+                ? rec.approvers 
+                : deriveApproversForPerson(personInitials);
               return {
                 id: String(rec.request_id ?? rec.id ?? rec.ID ?? ''),
-                person: String(rec.person ?? rec.fe ?? rec.initials ?? rec.user_initials ?? rec.userInitials ?? '').trim(),
+                request_id: rec.request_id ?? rec.id ?? rec.ID ?? undefined,
+                person: personInitials,
                 start_date: rec.start_date ?? rec.Start_Date ?? rec.startDate ?? '',
                 end_date: rec.end_date ?? rec.End_Date ?? rec.endDate ?? '',
                 reason: rec.reason ?? rec.Reason ?? rec.notes ?? '',
@@ -1885,9 +2210,13 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
                 days_taken: rec.days_taken ?? rec.total_days ?? rec.totalDays,
                 leave_type: typeof leaveType === 'string' ? leaveType : undefined,
                 rejection_notes: rec.rejection_notes ?? rec.rejectionNotes ?? undefined,
-                approvers: Array.isArray(rec.approvers) ? rec.approvers : [],
+                approvers,
                 hearing_confirmation: rec.hearing_confirmation ?? rec.hearingConfirmation,
                 hearing_details: rec.hearing_details ?? rec.hearingDetails,
+                requested_at: rec.requested_at ?? rec.requestedAt ?? undefined,
+                approved_at: rec.approved_at ?? rec.approvedAt ?? undefined,
+                booked_at: rec.booked_at ?? rec.bookedAt ?? undefined,
+                updated_at: rec.updated_at ?? rec.updatedAt ?? undefined,
               };
             });
             cachedFutureLeaveRecords = mappedFutureLeave;
@@ -1897,7 +2226,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
             setAnnualLeaveTotals(data.user_details.totals);
           }
           if (data.all_data) {
-            setAnnualLeaveAllData(data.all_data);
+            setAnnualLeaveAllData(mapAnnualLeaveArray(data.all_data));
           }
           if (Array.isArray(data.team)) {
             setAnnualLeaveTeam(data.team);
@@ -2029,7 +2358,8 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
           .map((x) => x.trim())
           .filter(Boolean);
 
-        const secondaryApprover = aowList.includes('construction') ? 'JW' : 'AC';
+        const isConstruction = aowList.some((x) => x === 'cs' || x.includes('construction'));
+        const secondaryApprover = isConstruction ? 'JW' : 'AC';
         return ['LZ', secondaryApprover];
       };
 
@@ -2076,7 +2406,12 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
           approvers: deriveApproversForPerson(rec?.person),
         }))
       );
-      setAnnualLeaveAllData((localAnnualLeave as any).all_data || []);
+      setAnnualLeaveAllData(
+        mapAnnualLeaveArray((localAnnualLeave as any).all_data).map((rec) => ({
+          ...rec,
+          approvers: deriveApproversForPerson(rec?.person),
+        }))
+      );
       setAnnualLeaveTeam((localAnnualLeave as any).team || []);
       if ((localAnnualLeave as any).user_details?.totals) {
         setAnnualLeaveTotals((localAnnualLeave as any).user_details.totals);
@@ -2231,7 +2566,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
             }
             // Use all_data (all team members) instead of user_leave (only current user)
             if (annualLeaveData.all_data) {
-              setAnnualLeaveAllData(annualLeaveData.all_data);
+              setAnnualLeaveAllData(mapAnnualLeaveArray(annualLeaveData.all_data));
             }
 
             // Store team entitlement data (Initials + holiday_entitlement)
@@ -3362,7 +3697,9 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
   const normalizedUserInitials = (userInitials || '').trim().toUpperCase();
   const isApprover = APPROVERS.includes(normalizedUserInitials);
   // Managers (broad visibility)
-  const isManagerApprover = ['LZ', 'AC'].includes(normalizedUserInitials);
+  // NOTE: Annual leave routing is AOW-based (construction -> JW, otherwise AC).
+  // AC should not see construction requests unless explicitly routed to AC.
+  const isManagerApprover = ['LZ'].includes(normalizedUserInitials);
 
   const approvalsNeeded = useMemo(
     () =>
@@ -3433,7 +3770,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
   const handleApproveLeaveClick = () => {
     if (approvalsNeeded.length > 0) {
       setBespokePanelContent(
-        <Suspense fallback={<ModalSkeleton variant="annual-leave" />}>
+        <Suspense fallback={<ModalSkeleton variant="annual-leave-approve" />}>
           <AnnualLeaveApprovals
             approvals={approvalsNeeded.map((item) => ({
               id: item.id,
@@ -3502,7 +3839,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     ];
 
     setBespokePanelContent(
-      <Suspense fallback={<ModalSkeleton variant="annual-leave" />}>
+      <Suspense fallback={<ModalSkeleton variant="annual-leave-approve" />}>
         <AnnualLeaveApprovals
           approvals={testApprovals}
           futureLeave={futureLeaveRecords.map((item) => ({
@@ -3541,7 +3878,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       const icon = 'Leave';
 
       setBespokePanelContent(
-        <Suspense fallback={<ModalSkeleton variant="annual-leave" />}>
+        <Suspense fallback={<ModalSkeleton variant="annual-leave-book" />}>
           <AnnualLeaveBookings
             bookings={entries.map((item) => ({
               id: item.id,
@@ -3656,16 +3993,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       return actions;
     }
     
-    // Add test annual leave approval for localhost (only if no real approvals exist and toggle enabled)
-    if (isLocalhost && approvalsNeeded.length === 0 && featureToggles.annualLeaveTestCards) {
-      actions.push({
-        title: 'Approve Annual Leave (Test)',
-        subtitle: 'Test approval flow',
-        onClick: handleTestApproveLeaveClick,
-        icon: 'PalmTree',
-        category: 'critical',
-      });
-    }
+    // Annual leave test/demo cards are controlled by demoModeEnabled (User Bubble)
     
     if (isApprover && approvalsNeeded.length > 0) {
       // Build subtitle from requestor initials
@@ -3728,15 +4056,6 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         count: bookingsNeeded.length,
       });
     }
-    if (isLocalhost && bookingsNeeded.length === 0 && featureToggles.annualLeaveTestCards) {
-      actions.push({
-        title: 'Book Requested Leave',
-        subtitle: 'Test booking flow',
-        onClick: handleBookLeavePreviewClick,
-        icon: 'Timer',
-        category: 'standard',
-      });
-    }
     return actions;
   }, [
     isApprover,
@@ -3749,7 +4068,6 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     handleBookLeaveClick,
     handleBookLeavePreviewClick,
     isLocalhost,
-    featureToggles.annualLeaveTestCards,
     demoModeEnabled,
   ]);
 
@@ -3776,7 +4094,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     const titleMap: Record<string, { shortTitle: string; description: string }> = {
       'Create a Task': { shortTitle: 'New Task', description: 'Create and assign a new task or reminder' },
       'Save Telephone Note': { shortTitle: 'Attendance Note', description: 'Record details from a phone conversation' },
-      'Request Annual Leave': { shortTitle: 'Book Leave', description: 'Submit a request for annual leave or time off' },
+      'Request Annual Leave': { shortTitle: 'Request Leave', description: 'Submit a request for annual leave or time off' },
       'Update Attendance': { shortTitle: 'Confirm Your Attendance', description: 'Plan your 14-day schedule' },
       'Confirm Attendance': { shortTitle: 'Confirm Attendance', description: 'Plan your 14-day schedule' },
       'Book Space': { shortTitle: 'Book Room', description: 'Reserve a meeting room or workspace' },
@@ -3860,6 +4178,11 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         content = <CognitoForm dataKey="QzaAr_2Q7kesClKq8g229g" dataForm="9" />;
         break;
       case 'Request Annual Leave':
+        if (!isLoadingAnnualLeave && (!annualLeaveTotals || annualLeaveAllData.length === 0)) {
+          setIsLoadingAnnualLeave(true);
+          void refreshAnnualLeaveData(String(userData?.[0]?.Initials || ''), { forceRefresh: true })
+            .finally(() => setIsLoadingAnnualLeave(false));
+        }
         console.log('[Home] Rendering AnnualLeaveModal with:', {
           annualLeaveAllDataLength: annualLeaveAllData?.length,
           futureLeaveRecordsLength: futureLeaveRecords?.length,
@@ -3867,33 +4190,21 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           isAdmin: isAdminUser(userData?.[0])
         });
         content = (
-          <Suspense fallback={<ModalSkeleton variant="annual-leave" />}>
+          <Suspense fallback={<ModalSkeleton variant="annual-leave-request" />}>
             <AnnualLeaveModal
               userData={enrichedUserData}
-              totals={annualLeaveTotals}
+              totals={annualLeaveTotals ?? { standard: 0, unpaid: 0, sale: 0 }}
               bankHolidays={bankHolidays}
               futureLeave={futureLeaveRecords}
               allLeave={annualLeaveAllData}
               team={transformedTeamData}
               isAdmin={isAdminUser(userData?.[0])}
+              isLoadingAnnualLeave={isLoadingAnnualLeave}
               onSubmitSuccess={async () => {
                 // Refresh annual leave data after successful submission
-                try {
-                  const response = await fetch('/api/attendance/getAnnualLeave', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userInitials: userData[0].Initials })
-                  });
-                  if (response.ok) {
-                    const data = await response.json();
-                    setFutureLeaveRecords(data.future_leave || []);
-                    setAnnualLeaveTotals(data.user_details?.totals || { standard: 0, unpaid: 0, sale: 0 });
-                    setAnnualLeaveAllData(data.all_data || []);
-                  }
-                } catch (error) {
-                  console.warn('Failed to refresh annual leave data:', error);
-                }
+                await refreshAnnualLeaveData(String(userData?.[0]?.Initials || ''), { forceRefresh: true });
                 setIsBespokePanelOpen(false);
+                setBespokePanelContent(null);
                 resetQuickActionsSelection();
               }}
             />
@@ -3937,6 +4248,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
                 resetQuickActionsSelection();
               }}
               futureBookings={futureBookings}
+              realtimePulse={futureBookingsRealtimePulse || undefined}
               onBookingCreated={async () => {
                 // Refresh future bookings after creation
                 try {
@@ -4305,49 +4617,6 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     );
   };
 
-  const _AttendancePersonaHeader: React.FC<{ person: { name: string; initials: string; nickname: string; attendance: string } }> = ({ person }) => {
-    // Determine today's weekday (default to Monday if out of range)
-    const todayDate = new Date();
-    const diffDays = Math.floor((todayDate.getTime() - currentWeekMonday.getTime()) / (1000 * 3600 * 24));
-    const todayWeekday = diffDays >= 0 && diffDays < weekDays.length ? weekDays[diffDays] : 'Monday';
-  
-    // Determine status
-    const currentStatus = getCellStatus(person.attendance, person.initials, todayWeekday, todayStr);
-  
-    // Define gradient based on status
-    let gradient = '';
-    if (currentStatus === 'in') {
-      gradient = `linear-gradient(135deg, ${colours.blue}, ${colours.darkBlue})`;
-    } else if (currentStatus === 'wfh') {
-      gradient = `linear-gradient(135deg, ${colours.highlight}, ${colours.darkBlue})`;
-    } else {
-      // For away/out
-      gradient = `linear-gradient(135deg, ${colours.grey}, ${colours.darkBlue})`;
-    }
-  
-    // Custom avatar styles with smaller font size
-    const avatarStyle: React.CSSProperties = {
-      width: '40px',
-      height: '40px',
-      borderRadius: '50%',
-      background: gradient,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      color: '#ffffff',
-      fontWeight: 600,
-      fontSize: '12px',
-    };
-  
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-        <div style={avatarStyle}>
-          {person.initials.toUpperCase()}
-        </div>
-      </div>
-    );
-  };  
-
 const conversionRate = displayEnquiriesMonthToDate
   ? Number(((displayMattersOpenedCount / displayEnquiriesMonthToDate) * 100).toFixed(2))
   : 0;
@@ -4420,6 +4689,8 @@ const conversionRate = displayEnquiriesMonthToDate
               onAttendanceUpdated={handleAttendanceUpdated}
               currentUserConfirmed={currentUserConfirmed}
               onConfirmAttendance={() => handleActionClick({ title: 'Confirm Attendance', icon: 'Attendance' })}
+              realtimeHighlightInitials={attendanceRealtimeHighlightInitials}
+              realtimePulseNonce={attendanceRealtimePulseNonce}
             />
           </SectionCard>
         </div>
@@ -4500,6 +4771,9 @@ const conversionRate = displayEnquiriesMonthToDate
         onClose={() => {
           setIsBespokePanelOpen(false);
           setBespokePanelIcon(null);
+          setBespokePanelContent(null);
+          setBespokePanelTitle('');
+          setBespokePanelDescription('');
           resetQuickActionsSelection();
         }}
         title={bespokePanelTitle}

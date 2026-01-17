@@ -11,9 +11,11 @@ interface UnclaimedEnquiriesProps {
     onClaimSuccess?: () => void;
     onOptimisticClaim?: (enquiryId: string, claimerEmail: string) => void;
     getPromotionStatusSimple?: (enquiry: Enquiry) => 'pitch' | 'instruction' | null;
+    inlineWorkbenchByEnquiryId?: Map<string, any>;
+    teamData?: any[] | null;
 }
 
-const UnclaimedEnquiries: React.FC<UnclaimedEnquiriesProps> = ({ enquiries, onSelect, userEmail, onAreaChange, onClaimSuccess, onOptimisticClaim, getPromotionStatusSimple }) => {
+const UnclaimedEnquiries: React.FC<UnclaimedEnquiriesProps> = ({ enquiries, onSelect, userEmail, onAreaChange, onClaimSuccess, onOptimisticClaim, getPromotionStatusSimple, inlineWorkbenchByEnquiryId, teamData }) => {
 
     if (!enquiries || enquiries.length === 0) {
         return (
@@ -43,6 +45,8 @@ const UnclaimedEnquiries: React.FC<UnclaimedEnquiriesProps> = ({ enquiries, onSe
                     onClaimSuccess={onClaimSuccess}
                     onOptimisticClaim={onOptimisticClaim}
                     promotionStatus={getPromotionStatusSimple ? getPromotionStatusSimple(enquiry) : null}
+                    inlineWorkbenchItem={enquiry.ID ? inlineWorkbenchByEnquiryId?.get(String(enquiry.ID)) : undefined}
+                    teamData={teamData}
                 />
             ))}
         </Stack>

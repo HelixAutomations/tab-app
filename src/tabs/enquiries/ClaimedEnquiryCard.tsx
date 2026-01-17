@@ -9,6 +9,7 @@ import PitchBuilder from './PitchBuilder';
 import TeamsLinkWidget from '../../components/TeamsLinkWidget';
 import PitchScenarioBadge from '../../components/PitchScenarioBadge';
 import { EnquiryEnrichmentData } from '../../app/functionality/enquiryEnrichment';
+import InlineWorkbench from '../instructions/InlineWorkbench';
 
 interface TeamDataRec {
   Email?: string;
@@ -41,6 +42,8 @@ interface Props {
    * Number of documents uploaded for this enquiry (if available)
    */
   documentCount?: number;
+  inlineWorkbenchItem?: any;
+  teamData?: any[] | null;
 }
 
 /**
@@ -67,6 +70,8 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
   enrichmentMap,
   enrichmentRequestsRef,
   documentCount = 0,
+  inlineWorkbenchItem,
+  teamData,
 }) => {
   // Pitched button component with hover transition
   const PitchedButtonContent: React.FC<{ pitchCount: number; isDarkMode: boolean }> = ({ pitchCount, isDarkMode }) => {
@@ -157,6 +162,7 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
   const [isOverflowing, setIsOverflowing] = useState(false);
 
   const hasNotes = !!(enquiry.Initial_first_call_notes && enquiry.Initial_first_call_notes.trim());
+  const hasInlineWorkbench = Boolean(inlineWorkbenchItem);
 
   useEffect(() => {
     if (!expandedNotes && clampRef.current && hasNotes) {
@@ -1320,6 +1326,22 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
               }} />
             </button>
           )}
+        </div>
+      )}
+
+      {hasInlineWorkbench && expandedNotes && !isEditing && (
+        <div style={{
+          marginTop: hasNotes ? 12 : 0,
+          paddingTop: 12,
+          borderTop: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+        }}>
+          <InlineWorkbench
+            item={inlineWorkbenchItem}
+            isDarkMode={isDarkMode}
+            enableContextStageChips={true}
+            onClose={() => setExpandedNotes(false)}
+            teamData={teamData}
+          />
         </div>
       )}
 

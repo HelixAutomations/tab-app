@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useId, useCallback } from 'react';
+import { Icon } from '@fluentui/react/lib/Icon';
 import DataInspector from './DataInspector';
 import AdminDashboard from './AdminDashboard';
 import DemoPromptsModal from './DemoPromptsModal';
@@ -502,17 +503,40 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                 </div>
                             )}
 
-                            {/* Demo Mode toggle - elevated */}
-                            {onToggleDemoMode && (isLocalDev || isAdminUser(user)) && (
-                                <div style={{ marginBottom: 20 }}>
-                                    <div style={sectionTitle}>
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                            <path d="M3 12h18M12 3v18" />
-                                        </svg>
-                                        Demo Mode
+                            {/* Demo Mode toggle - admin only */}
+                            {onToggleDemoMode && isAdminUser(user) && (
+                                <div style={{ 
+                                    marginBottom: 20,
+                                    padding: '12px 14px',
+                                    background: isDarkMode ? 'rgba(255, 183, 77, 0.06)' : 'rgba(255, 152, 0, 0.06)',
+                                    border: `1px solid ${isDarkMode ? 'rgba(255, 183, 77, 0.2)' : 'rgba(255, 152, 0, 0.2)'}`,
+                                    borderRadius: 4
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+                                        <div style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '5px',
+                                            padding: '3px 8px',
+                                            background: isDarkMode ? 'rgba(255, 183, 77, 0.2)' : 'rgba(255, 152, 0, 0.15)',
+                                            borderRadius: 3,
+                                            fontSize: '9px',
+                                            fontWeight: 700,
+                                            textTransform: 'uppercase' as const,
+                                            letterSpacing: '0.5px',
+                                            color: isDarkMode ? '#FFB74D' : '#E65100'
+                                        }}>
+                                            <Icon iconName="Shield" style={{ fontSize: '10px' }} />
+                                            Admin
+                                        </div>
+                                        <span style={{ fontSize: '11px', color: textMuted }}>Demo mode controls</span>
                                     </div>
                                     <div
-                                        style={toggleRow}
+                                        style={{
+                                            ...toggleRow,
+                                            background: bgCard,
+                                            borderColor: borderLight
+                                        }}
                                         onMouseEnter={(e) => {
                                             e.currentTarget.style.borderColor = borderMedium;
                                             e.currentTarget.style.background = bgHover;
@@ -570,28 +594,7 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                                 </svg>
                                             </div>
                                         )}
-                                        {isLocalDev && (
-                                            <div
-                                                style={toggleRow}
-                                                onMouseEnter={(e) => {
-                                                    e.currentTarget.style.borderColor = borderMedium;
-                                                    e.currentTarget.style.background = bgHover;
-                                                }}
-                                                onMouseLeave={(e) => {
-                                                    e.currentTarget.style.borderColor = borderLight;
-                                                    e.currentTarget.style.background = bgCard;
-                                                }}
-                                                onClick={() => onFeatureToggle('annualLeaveTestCards', !featureToggles.annualLeaveTestCards)}
-                                            >
-                                                <div>
-                                                    <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary }}>Annual Leave Test Cards</div>
-                                                    <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Show test cards (dev only)</div>
-                                                </div>
-                                                <div style={toggleSwitch(!!featureToggles.annualLeaveTestCards)}>
-                                                    <div style={toggleKnob(!!featureToggles.annualLeaveTestCards)} />
-                                                </div>
-                                            </div>
-                                        )}
+                                        {/* Annual leave test/demo cards are controlled by the Demo Mode toggle */}
                                         {isLocalDev && (
                                             <>
                                                 <div

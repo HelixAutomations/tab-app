@@ -147,21 +147,13 @@ export const approveVerification = async (req: Request, res: Response) => {
     
     await request.query(updateInstructionQuery);
 
-    // Send notification email to client
-    const clientName = `${instruction.FirstName} ${instruction.Surname}`.trim();
-    
-    try {
-      await sendVerificationFailureEmail(instructionRef, instruction.Email, clientName);
-    } catch (emailError) {
-      console.error('Failed to send verification email:', emailError);
-      // Don't fail the approval if email fails, just log it
-    }
+    // Approval is a state change only; we do not send any client emails here.
 
     res.json({
       success: true,
       message: 'Verification approved successfully',
       instructionRef,
-      emailSent: true
+      emailSent: false
     });
 
   } catch (error) {
@@ -173,65 +165,3 @@ export const approveVerification = async (req: Request, res: Response) => {
   }
 };
 
-/**
- * Sends verification failure notification email to client
- */
-async function sendVerificationFailureEmail(instructionRef: string, clientEmail: string, clientName: string) {
-  // Email content based on the template provided by user
-  const emailSubject = 'Additional Documents Required for ID Verification - AML Compliance';
-  
-  const emailBody = `
-Dear ${clientName},
-
-Thank you for providing your identification documents for our Anti-Money Laundering (AML) verification process.
-
-While we have successfully verified your identity, our automated address verification system requires additional documentation to complete the process. This is a standard requirement to ensure full compliance with AML regulations.
-
-To complete your verification, please provide one of the following documents that shows your current address:
-
-• Recent utility bill (gas, electricity, water, or council tax) - within the last 3 months
-• Recent bank statement - within the last 3 months  
-• Tenancy agreement (if renting)
-• Mortgage statement (if owned)
-• Official government correspondence - within the last 3 months
-
-Please upload your document using the secure link below:
-[Document Upload Portal - ${instructionRef}]
-
-If you have any questions or need assistance with the document upload process, please don't hesitate to contact our team.
-
-Thank you for your cooperation in helping us maintain the highest standards of compliance.
-
-Best regards,
-Compliance Team
-Helix Law
-
----
-Reference: ${instructionRef}
-This email was sent from an automated system. Please do not reply directly to this email.
-`;
-
-  // For now, just log the email that would be sent
-  // In production, this would integrate with SendGrid, AWS SES, or similar service
-  console.log('=== EMAIL TO BE SENT ===');
-  console.log('To:', clientEmail);
-  console.log('Subject:', emailSubject);
-  console.log('Body:', emailBody);
-  console.log('========================');
-
-  // TODO: Integrate with actual email service
-  // Example with SendGrid:
-  // const sgMail = require('@sendgrid/mail');
-  // sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-  // 
-  // const msg = {
-  //   to: clientEmail,
-  //   from: 'compliance@helixlaw.co.uk',
-  //   subject: emailSubject,
-  //   text: emailBody
-  // };
-  // 
-  // await sgMail.send(msg);
-
-  return true;
-}

@@ -8,6 +8,7 @@ interface PitchScenarioBadgeProps {
   scenarioId?: string | null;
   size?: 'small' | 'medium';
   className?: string;
+  fullWidth?: boolean;
 }
 
 /**
@@ -15,23 +16,54 @@ interface PitchScenarioBadgeProps {
  */
 function getScenarioIcon(scenarioId?: string | null): { iconName: string; tooltip: string } {
   if (!scenarioId) {
-    return { iconName: 'Send', tooltip: 'Pitch sent' };
+    return { iconName: 'CheckMark', tooltip: 'Pitch sent' };
   }
 
   switch (scenarioId) {
     case 'before-call-call':
-      return { iconName: 'Phone', tooltip: 'Before call — Call' };
+      return { iconName: 'CheckMark', tooltip: 'Before call — Call' };
     case 'before-call-no-call':
-      return { iconName: 'Mail', tooltip: 'Before call — No call' };
+      return { iconName: 'CheckMark', tooltip: 'Before call — No call' };
     case 'after-call-probably-cant-assist':
-      return { iconName: 'Cancel', tooltip: 'After call — Probably can\'t assist' };
+      return { iconName: 'CheckMark', tooltip: 'After call — Probably can\'t assist' };
     case 'after-call-want-instruction':
       return { iconName: 'CheckMark', tooltip: 'After call — Want the instruction' };
     case 'cfa':
-      return { iconName: 'Scales', tooltip: 'CFA' };
+      return { iconName: 'CheckMark', tooltip: 'CFA' };
     default:
-      return { iconName: 'Send', tooltip: 'Pitch sent' };
+      return { iconName: 'CheckMark', tooltip: 'Pitch sent' };
   }
+}
+
+/**
+ * Get the scenario short code from ID (BCC, BCNC, ACPCA, ACWI, CFA)
+ */
+function getScenarioCode(scenarioId?: string | null): string {
+  if (!scenarioId) return '';
+  
+  // Exact matches first
+  switch (scenarioId) {
+    case 'before-call-call':
+      return 'BCC';
+    case 'before-call-no-call':
+      return 'BCNC';
+    case 'after-call-probably-cant-assist':
+      return 'ACPCA';
+    case 'after-call-want-instruction':
+      return 'ACWI';
+    case 'cfa':
+      return 'CFA';
+  }
+  
+  // Fallback: check if scenarioId contains these patterns
+  const lower = scenarioId.toLowerCase();
+  if (lower.includes('before-call-call') || lower.includes('before_call_call')) return 'BCC';
+  if (lower.includes('before-call-no-call') || lower.includes('before_call_no_call')) return 'BCNC';
+  if (lower.includes('probably-cant-assist') || lower.includes('probably_cant_assist')) return 'ACPCA';
+  if (lower.includes('want-instruction') || lower.includes('want_instruction')) return 'ACWI';
+  if (lower.includes('cfa')) return 'CFA';
+  
+  return '';
 }
 
 /**
@@ -46,7 +78,7 @@ function getScenarioName(scenarioId?: string | null): string {
 /**
  * Get color for scenario type
  */
-function getScenarioColor(scenarioId?: string | null): string {
+export function getScenarioColor(scenarioId?: string | null): string {
   if (!scenarioId) {
     return '#60a5fa'; // Blue for generic pitch
   }
@@ -59,7 +91,7 @@ function getScenarioColor(scenarioId?: string | null): string {
     case 'after-call-probably-cant-assist':
       return '#ef4444'; // Red
     case 'after-call-want-instruction':
-      return '#10b981'; // Green
+      return '#20b26c'; // Green - matches colours.green
     case 'cfa':
       return '#a855f7'; // Purple
     default:
@@ -70,45 +102,63 @@ function getScenarioColor(scenarioId?: string | null): string {
 const PitchScenarioBadge: React.FC<PitchScenarioBadgeProps> = ({
   scenarioId,
   size = 'small',
-  className
+  className,
+  fullWidth = false,
 }) => {
   const { isDarkMode } = useTheme();
   const { iconName, tooltip } = getScenarioIcon(scenarioId);
   const scenarioName = getScenarioName(scenarioId);
+  const scenarioCode = getScenarioCode(scenarioId);
   const color = getScenarioColor(scenarioId);
   const isSmall = size === 'small';
 
+  // Parse color for rgba
+  const r = parseInt(color.slice(1, 3), 16);
+  const g = parseInt(color.slice(3, 5), 16);
+  const b = parseInt(color.slice(5, 7), 16);
+
   const widgetStyle = mergeStyles({
-    display: 'inline-flex',
+    display: fullWidth ? 'flex' : 'inline-flex',
     alignItems: 'center',
-    gap: isSmall ? 3 : 4,
-    padding: isSmall ? '4px 8px' : '4px 10px',
+    justifyContent: fullWidth ? 'center' : undefined,
+    gap: 4,
+    padding: '0 6px',
     borderRadius: 0,
+    // Match Mini chip opacity levels: dark 0.133 / light 0.086
     background: isDarkMode 
-      ? `rgba(${parseInt(color.slice(1, 3), 16)}, ${parseInt(color.slice(3, 5), 16)}, ${parseInt(color.slice(5, 7), 16)}, 0.08)`
-      : `rgba(${parseInt(color.slice(1, 3), 16)}, ${parseInt(color.slice(3, 5), 16)}, ${parseInt(color.slice(5, 7), 16)}, 0.06)`,
-    border: `1px solid ${isDarkMode ? `rgba(${parseInt(color.slice(1, 3), 16)}, ${parseInt(color.slice(3, 5), 16)}, ${parseInt(color.slice(5, 7), 16)}, 0.2)` : `rgba(${parseInt(color.slice(1, 3), 16)}, ${parseInt(color.slice(3, 5), 16)}, ${parseInt(color.slice(5, 7), 16)}, 0.12)`}`,
+      ? `rgba(${r}, ${g}, ${b}, 0.133)`
+      : `rgba(${r}, ${g}, ${b}, 0.086)`,
+    // Match Mini chip solid border style
+    border: `1px solid rgb(${r}, ${g}, ${b})`,
     cursor: 'default',
     transition: '0.2s',
-    fontSize: isSmall ? 10 : 11,
-    fontWeight: 500,
-    color: isDarkMode ? `rgba(${parseInt(color.slice(1, 3), 16)}, ${parseInt(color.slice(3, 5), 16)}, ${parseInt(color.slice(5, 7), 16)}, 0.8)` : color,
+    fontSize: 8,
+    fontWeight: 800,
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.4px',
+    // Match Mini chip text color (solid)
+    color: `rgb(${r}, ${g}, ${b})`,
     textDecoration: 'none',
     userSelect: 'none',
     position: 'relative' as const,
+    width: fullWidth ? '100%' : undefined,
+    height: fullWidth ? 22 : (isSmall ? 22 : 26),
+    whiteSpace: 'nowrap' as const,
+    fontFamily: 'inherit',
   });
 
   const iconStyle = mergeStyles({
-    fontSize: isSmall ? 11 : 13,
-    color: isDarkMode ? `rgba(${parseInt(color.slice(1, 3), 16)}, ${parseInt(color.slice(3, 5), 16)}, ${parseInt(color.slice(5, 7), 16)}, 0.9)` : color,
+    fontSize: 10,
+    color: 'inherit',
   });
 
   return (
     <div
       className={`${widgetStyle} ${className || ''}`}
-      title={`${tooltip}${scenarioId ? ` - ${scenarioName}` : ''}`}
+      title={tooltip}
     >
       <Icon iconName={iconName} className={iconStyle} />
+      {scenarioCode && <span>{scenarioCode}</span>}
     </div>
   );
 };

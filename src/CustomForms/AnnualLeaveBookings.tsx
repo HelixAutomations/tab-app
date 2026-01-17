@@ -119,12 +119,8 @@ const getCardStyle = (isDarkMode: boolean, isActive: boolean, isAnimatingOut: bo
 
 const getCardHeaderStyle = (isDarkMode: boolean, status: string) => {
   const statusLower = status.toLowerCase();
-  // In booking modal: rejected=red, approved=orange (needs booking action), pending=muted
-  const accentColor = statusLower === 'rejected' 
-    ? colours.red 
-    : statusLower === 'approved'
-      ? colours.orange 
-      : colours.highlight;
+  // In booking modal: keep the surrounding UI neutral; use the status chip for state colours.
+  const accentColor = statusLower === 'rejected' ? colours.red : colours.highlight;
   
   return mergeStyles({
     padding: '16px 20px',
@@ -180,22 +176,28 @@ const getStatusBadgeStyle = (isDarkMode: boolean, status: string) => {
     fontWeight: 700,
     textTransform: 'uppercase',
     letterSpacing: '0.5px',
-    // In booking modal: rejected=red, approved=orange (ready to book), pending=blue (waiting)
+    // Booking modal status chip: pending=orange, approved/ready=green, rejected=red
     backgroundColor: isRejected
       ? (isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)')
       : isApproved
-        ? (isDarkMode ? 'rgba(255, 183, 77, 0.15)' : 'rgba(255, 152, 0, 0.1)')
-        : (isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)'),
+        ? (isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.1)')
+        : isPending
+          ? (isDarkMode ? 'rgba(255, 183, 77, 0.15)' : 'rgba(255, 152, 0, 0.1)')
+          : (isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)'),
     color: isRejected 
       ? colours.red 
       : isApproved 
-        ? (isDarkMode ? '#FFB74D' : '#E65100')
-        : colours.highlight,
+        ? colours.green
+        : isPending
+          ? (isDarkMode ? '#FFB74D' : '#E65100')
+          : colours.highlight,
     border: `1px solid ${isRejected 
       ? colours.red 
       : isApproved 
-        ? (isDarkMode ? 'rgba(255, 183, 77, 0.3)' : 'rgba(255, 152, 0, 0.3)')
-        : colours.highlight}40`,
+        ? colours.green
+        : isPending
+          ? (isDarkMode ? 'rgba(255, 183, 77, 0.3)' : 'rgba(255, 152, 0, 0.3)')
+          : colours.highlight}40`,
   });
 };
 
@@ -277,7 +279,7 @@ const getActionButtonStyle = (isDarkMode: boolean, variant: 'primary' | 'seconda
           ? (isDarkMode ? 'rgba(239, 68, 68, 0.4)' : 'rgba(239, 68, 68, 0.3)')
           : (isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(15, 23, 42, 0.15)')}`,
     backgroundColor: variant === 'primary'
-      ? colours.orange
+      ? colours.highlight
       : 'transparent',
     color: variant === 'primary'
       ? '#ffffff'
@@ -286,13 +288,13 @@ const getActionButtonStyle = (isDarkMode: boolean, variant: 'primary' | 'seconda
         : (isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.75)'),
     ':hover': {
       backgroundColor: variant === 'primary'
-        ? '#e67e22'
+        ? '#2f7fb7'
         : variant === 'danger'
           ? (isDarkMode ? 'rgba(239, 68, 68, 0.1)' : 'rgba(239, 68, 68, 0.08)')
           : (isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(15, 23, 42, 0.05)'),
       transform: 'translateY(-1px)',
       boxShadow: variant === 'primary'
-        ? '0 4px 12px rgba(243, 156, 18, 0.3)'
+        ? '0 4px 12px rgba(54, 144, 206, 0.3)'
         : 'none',
     },
     ':disabled': {
@@ -755,10 +757,10 @@ const AnnualLeaveBookings: React.FC<AnnualLeaveBookingsProps> = ({ bookings, onC
               marginTop: '16px',
               padding: '12px 16px',
               borderRadius: '6px',
-              backgroundColor: isDarkMode ? 'rgba(255, 183, 77, 0.08)' : 'rgba(255, 152, 0, 0.06)',
-              border: `1px solid ${isDarkMode ? 'rgba(255, 183, 77, 0.2)' : 'rgba(255, 152, 0, 0.15)'}`,
+              backgroundColor: isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(54, 144, 206, 0.08)',
+              border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.20)'}`,
               fontSize: '13px',
-              color: isDarkMode ? '#FFB74D' : '#E65100',
+              color: colours.highlight,
               display: 'flex',
               alignItems: 'center',
               gap: '8px',

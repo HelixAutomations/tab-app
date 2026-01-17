@@ -33,22 +33,22 @@ export const sharedSearchBoxStyle = (isDarkMode: boolean) => ({
     maxWidth: '300px',
     display: 'flex',
     alignItems: 'center',
-  height: '32px',
+    height: '32px',
     outline: 'none',
-    transition: 'border-color 0.15s ease',
+    transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
     selectors: {
-      ':focus': {
-        outline: 'none',
-        borderColor: isDarkMode ? 'rgba(255,255,255,0.24)' : 'rgba(0,0,0,0.24)',
-        boxShadow: 'none',
-      },
-      ':focus-within': {
-        outline: 'none',
-        borderColor: isDarkMode ? 'rgba(255,255,255,0.24)' : 'rgba(0,0,0,0.24)',
-        boxShadow: 'none',
-      },
       ':hover': {
         borderColor: isDarkMode ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.18)',
+      },
+      ':focus-within': {
+        borderColor: isDarkMode ? 'rgba(135, 243, 243, 0.5)' : 'rgba(54, 144, 206, 0.5)',
+        boxShadow: isDarkMode 
+          ? '0 0 0 2px rgba(135, 243, 243, 0.2)' 
+          : '0 0 0 2px rgba(54, 144, 206, 0.15)',
+      },
+      // Disable Fluent's default focus ring on the wrapper
+      '&::after': {
+        display: 'none !important',
       },
     },
   },
@@ -56,17 +56,23 @@ export const sharedSearchBoxStyle = (isDarkMode: boolean) => ({
     backgroundColor: 'transparent',
     border: 'none',
     boxShadow: 'none !important',
-    borderRadius: '8px 8px 0 0',
+    borderRadius: '16px',
     padding: '0 12px',
-  height: '100%',
-  lineHeight: '32px',
+    height: '100%',
+    lineHeight: '32px',
     color: isDarkMode ? colours.dark.text : colours.light.text,
     fontSize: '12px',
-    outline: 'none',
-    '::placeholder': {
-      color: isDarkMode ? '#aaaaaa' : '#888888',
-      opacity: 1,
-      fontSize: '12px',
+    outline: 'none !important',
+    selectors: {
+      '::placeholder': {
+        color: isDarkMode ? '#aaaaaa' : '#888888',
+        opacity: 1,
+        fontSize: '12px',
+      },
+      ':focus': {
+        outline: 'none !important',
+        boxShadow: 'none !important',
+      },
     },
   },
   icon: {

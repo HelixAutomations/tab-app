@@ -32,6 +32,7 @@ import {
 
 type StageStatus = 'pending' | 'processing' | 'review' | 'complete' | 'neutral';
 type WorkbenchTab = 'details' | 'identity' | 'payment' | 'risk' | 'matter' | 'documents';
+type ContextStageKey = 'enquiry' | 'pitch' | 'instructed';
 
 type VerificationDetails = {
   instructionRef: string;
@@ -47,21 +48,18 @@ type VerificationDetails = {
   documentsReceived?: boolean;
 };
 
-type EidNotifyOptions = {
-  notifyClient: boolean;
-  notifyFeeEarner: boolean;
-};
-
 type InlineWorkbenchProps = {
   item: any;
   isDarkMode: boolean;
   initialTab?: WorkbenchTab;
   stageStatuses?: Partial<Record<WorkbenchTab | 'id', StageStatus>>;
   teamData?: TeamData[] | null;
+  enableContextStageChips?: boolean;
+  contextStageKeys?: ContextStageKey[];
   onDocumentPreview?: (doc: any) => void;
   onOpenRiskAssessment?: (instruction: any) => void;
   onOpenMatter?: (instruction: any) => void;
-  onTriggerEID?: (instructionRef: string, options?: EidNotifyOptions) => void | Promise<void>;
+  onTriggerEID?: (instructionRef: string) => void | Promise<void>;
   onOpenIdReview?: (instructionRef: string) => void;
   onConfirmBankPayment?: (paymentId: string, confirmedDate: string) => void | Promise<void>;
   onClose?: () => void;
@@ -73,6 +71,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   initialTab = 'details',
   stageStatuses,
   teamData,
+  enableContextStageChips = false,
+  contextStageKeys,
   onDocumentPreview,
   onOpenRiskAssessment,
   onOpenMatter,
@@ -82,6 +82,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   onClose,
 }) => {
   const [activeTab, setActiveTab] = useState<WorkbenchTab>(initialTab);
+  const [activeContextStage, setActiveContextStage] = useState<ContextStageKey | null>(null);
   const [expandedPayment, setExpandedPayment] = useState<string | null>(null);
   const [teamsCardLink, setTeamsCardLink] = useState<string | null>(null);
   const [isTeamsLinkLoading, setIsTeamsLinkLoading] = useState(false);
@@ -89,6 +90,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const [isVerificationDetailsLoading, setIsVerificationDetailsLoading] = useState(false);
   const [verificationDetailsError, setVerificationDetailsError] = useState<string | null>(null);
   const [isEidDetailsExpanded, setIsEidDetailsExpanded] = useState(true);
+  const [isEnquiryNotesExpanded, setIsEnquiryNotesExpanded] = useState(false);
   const [isRawRecordExpanded, setIsRawRecordExpanded] = useState(false);
   const [isVerificationActionLoading, setIsVerificationActionLoading] = useState(false);
   const [isTriggerEidLoading, setIsTriggerEidLoading] = useState(false);
@@ -96,13 +98,11 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const [showApproveModal, setShowApproveModal] = useState(false);
   const [showRequestDocsModal, setShowRequestDocsModal] = useState(false);
   const [showTriggerEidConfirmModal, setShowTriggerEidConfirmModal] = useState(false);
-  const [eidNotifyOptions, setEidNotifyOptions] = useState({
-    notifyClient: true,
-    notifyFeeEarner: true,
-  });
   const { showToast } = useToast();
   const [emailOverrideTo, setEmailOverrideTo] = useState<string>('');
   const [emailOverrideCc, setEmailOverrideCc] = useState<string>('');
+  const [useManualToRecipient, setUseManualToRecipient] = useState<boolean>(false);
+  const [useManualCcRecipients, setUseManualCcRecipients] = useState<boolean>(false);
   
   // Payment Link Request state
   const [showPaymentLinkModal, setShowPaymentLinkModal] = useState(false);
@@ -141,8 +141,14 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   useEffect(() => {
     if (initialTab) {
       setActiveTab(initialTab);
+      setActiveContextStage(null);
     }
   }, [initialTab]);
+
+  useEffect(() => {
+    // Reset context panel when switching to a different instruction/enquiry payload.
+    setActiveContextStage(null);
+  }, [item]);
 
   useEffect(() => {
     // Avoid leaving the raw record expanded when switching instructions.
@@ -152,6 +158,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   // Extract data from item
   const inst = item?.instruction;
   const deal = item?.deal;
+  const enquiry = item?.enquiry || item?.Enquiry || item?.enquiryRecord || item?.prospectEnquiry || null;
+  const pitch = item?.pitch || item?.Pitch || item?.pitchRecord || item?.pitchData || null;
   const eid = item?.eid;
   const risk = item?.risk;
   const documents = item?.documents || inst?.documents || [];
@@ -173,6 +181,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const prospectId =
     item?.ProspectId ||
     item?.prospectId ||
+    enquiry?.ID ||
+    enquiry?.id ||
     inst?.ProspectId ||
     inst?.prospectId ||
     deal?.ProspectId ||
@@ -226,24 +236,60 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   }, [inst, isTeamsLinkLoading, item, teamsCardLink, teamsIdentifier]);
 
   // Helper to get value from multiple possible field names
+  // Context stages (enquiry/pitch) should prefer the data available at that phase.
   const getValue = (fields: string[], fallback = '—') => {
+    const contextStage: ContextStageKey = enableContextStageChips
+      ? (activeContextStage ?? 'instructed')
+      : 'instructed';
+
+    const sources: any[] =
+      contextStage === 'enquiry'
+        ? [enquiry, inst, clients?.[0], deal, pitch, item]
+        : contextStage === 'pitch'
+          ? [deal, pitch, enquiry, inst, clients?.[0], item]
+          : [inst, clients?.[0], deal, enquiry, pitch, item];
+
     for (const field of fields) {
-      if (inst?.[field]) return inst[field];
-      if (deal?.[field]) return deal[field];
-      if (clients?.[0]?.[field]) return clients[0][field];
+      for (const source of sources) {
+        const value = source?.[field];
+        if (value === undefined || value === null) continue;
+        if (typeof value === 'string' && value.trim().length === 0) continue;
+        return value;
+      }
     }
     return fallback;
   };
 
   // Derive values
+  // NOTE: keep instructionRef sourced from instruction/deal (used for actions like ID/EID)
   const instructionRef = inst?.InstructionRef || deal?.InstructionRef || '';
-  const firstName = getValue(['FirstName', 'firstName', 'first_name'], '');
-  const lastName = getValue(['LastName', 'lastName', 'last_name'], '');
+
+  // Client identity/contact shown in Details should be stage-aware.
+  const firstName = getValue(['First_Name', 'FirstName', 'firstName', 'first_name'], '');
+  const lastName = getValue(['Last_Name', 'LastName', 'lastName', 'last_name'], '');
   const fullName = `${firstName} ${lastName}`.trim() || 'Unknown';
-  const email = getValue(['ClientEmail', 'Email', 'email', 'LeadClientEmail']);
-  const phone = getValue(['Telephone', 'Phone', 'phone', 'MobileNumber', 'Mobile']);
-  const areaOfWork = getValue(['AreaOfWork', 'Area_of_Work', 'area']);
-  getValue(['Notes', 'ServiceDescription', 'Description', 'description']);
+  const email = getValue(['ClientEmail', 'Email', 'email', 'LeadClientEmail', 'EmailAddress']);
+  const phone = getValue(['Phone_Number', 'Telephone', 'Phone', 'phone', 'MobileNumber', 'Mobile']);
+  const areaOfWork = getValue(['Area_of_Work', 'AreaOfWork', 'area', 'Area']);
+  const pointOfContact = getValue(['Point_of_Contact', 'PointOfContact', 'pointOfContact', 'poc', 'Point of Contact']);
+  const typeOfWork = getValue(['Type_of_Work', 'TypeOfWork', 'typeOfWork', 'tow', 'Type']);
+  const methodOfContact = getValue(['Method_of_Contact', 'MethodOfContact', 'methodOfContact', 'moc', 'Method']);
+  const callTaker = getValue(['Call_Taker', 'CallTaker', 'callTaker', 'rep', 'pocname']);
+  const enquiryValueRaw = getValue(['Value', 'value']);
+  const ultimateSource = getValue(['Ultimate_Source', 'UltimateSource', 'ultimateSource', 'Source', 'source']);
+  const campaign = getValue(['Campaign', 'campaign']);
+  const adGroup = getValue(['Ad_Group', 'AdGroup', 'adGroup', 'ad_group']);
+  const searchKeyword = getValue(['Search_Keyword', 'SearchKeyword', 'searchKeyword', 'search_keyword']);
+  const referralUrl = getValue(['Referral_URL', 'ReferralURL', 'referralUrl', 'url']);
+  const website = getValue(['Website', 'website']);
+  const gclid = getValue(['GCLID', 'gclid']);
+  const enquiryRating = getValue(['Rating', 'rating']);
+  const enquiryNotesRaw = getValue(
+    ['Initial_first_call_notes', 'InitialFirstCallNotes', 'notes', 'Notes'],
+    ''
+  );
+  const enquiryNotes = String(enquiryNotesRaw ?? '').replace(/\r\n/g, '\n');
+  const hasEnquiryNotes = enquiryNotes.trim().length > 0;
   
   // Personal details
   const dobRaw = getValue(['DateOfBirth', 'dateOfBirth', 'DOB']);
@@ -253,13 +299,40 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     if (Number.isNaN(parsed.getTime())) return '—';
     return parsed.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
   };
+
+  const formatMoney = (raw: any): string => {
+    const n = typeof raw === 'number' ? raw : Number(raw);
+    if (!Number.isFinite(n)) return '—';
+    try {
+      return new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(n);
+    } catch {
+      return `£${n.toFixed(2)}`;
+    }
+  };
+
+  const enquiryValue = (() => {
+    if (!enquiryValueRaw || enquiryValueRaw === '—') return '—';
+    const raw = String(enquiryValueRaw).trim();
+    if (!raw) return '—';
+    if (/[£$€]/.test(raw)) return raw;
+    const numeric = Number(raw.replace(/,/g, ''));
+    if (Number.isFinite(numeric)) return formatMoney(numeric);
+    return raw;
+  })();
+
+  const enquirySourceSummary = (() => {
+    if (ultimateSource && ultimateSource !== '—') return String(ultimateSource);
+    if (campaign && campaign !== '—') return String(campaign);
+    if (referralUrl && referralUrl !== '—') return String(referralUrl);
+    return '—';
+  })();
   
   // Submission date (after formatDate is defined)
-  const submissionDateRaw = getValue(['SubmissionDate', 'submission_date', 'DateSubmitted', 'InstructionDate', 'created_at']);
+  const submissionDateRaw = getValue(['Touchpoint_Date', 'Date_Created', 'DateCreated', 'SubmissionDate', 'submission_date', 'DateSubmitted', 'InstructionDate', 'created_at', 'createdAt']);
   const submissionDate = formatDate(submissionDateRaw);
 
   // Timeline dates
-  const pitchDateRaw = deal?.PitchedDate || deal?.pitchedDate || deal?.CreatedDate || deal?.createdDate || null;
+  const pitchDateRaw = deal?.PitchedDate || deal?.pitchedDate || deal?.CreatedDate || deal?.createdDate || pitch?.CreatedAt || pitch?.createdAt || null;
   const pitchDate = formatDate(pitchDateRaw);
   
   const matterOpenDateRaw = getValue(['MatterOpenDate', 'matter_open_date', 'MatterCreatedDate', 'OpenedDate', 'opened_at']);
@@ -406,12 +479,20 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   
   // EID
   const eidResult = eid?.EIDOverallResult || '';
+  const eidStatusValue = (eid?.EIDStatus || '').toLowerCase();
   // Detect manual approval: EIDOverallResult === 'Verified' (exact case) indicates manual override
   const isManuallyApproved = eidResult === 'Verified';
-  const eidStatus = eidResult.toLowerCase().includes('pass') || eidResult.toLowerCase().includes('verified') ? 'verified' 
-    : eidResult.toLowerCase().includes('fail') ? 'failed' 
-    : eidResult.toLowerCase().includes('skip') ? 'skipped'
-    : eid ? 'completed' : 'pending';
+  const eidStatus = eidStatusValue.includes('pending') || eidStatusValue.includes('processing')
+    ? 'pending'
+    : eidResult.toLowerCase().includes('pass') || eidResult.toLowerCase().includes('verified')
+    ? 'verified'
+    : eidResult.toLowerCase().includes('fail')
+    ? 'failed'
+    : eidResult.toLowerCase().includes('skip')
+    ? 'skipped'
+    : eid
+    ? 'completed'
+    : 'pending';
   const pepResult = eid?.PEPAndSanctionsCheckResult || '—';
   const addressVerification = eid?.AddressVerificationResult || '—';
   // Check if there are underlying issues that were manually overridden
@@ -423,6 +504,51 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   );
   const eidDate = eid?.EIDCheckedDate ? new Date(eid.EIDCheckedDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 
+  const isDemoInstruction = Boolean((item as any)?.isDemo || (item as any)?.rawData?.isDemo || instructionRef === 'HLX-DEMO-00001');
+
+  type DemoEidOutcome = 'pass' | 'review' | 'fail' | 'manual-approved';
+  type DemoEidSubResult = 'passed' | 'review' | 'failed';
+  interface DemoEidSimConfig {
+    outcome: DemoEidOutcome;
+    pepResult: DemoEidSubResult;
+    addressResult: DemoEidSubResult;
+  }
+  const DEMO_EID_SIM_CONFIG_KEY = 'demoEidSimulationConfig';
+  const readDemoEidSimConfig = React.useCallback((): DemoEidSimConfig => {
+    try {
+      const raw = window.localStorage.getItem(DEMO_EID_SIM_CONFIG_KEY);
+      if (!raw) return { outcome: 'pass', pepResult: 'passed', addressResult: 'passed' };
+      const parsed = JSON.parse(raw) as Partial<DemoEidSimConfig>;
+      const outcome: DemoEidOutcome =
+        parsed.outcome === 'review' || parsed.outcome === 'fail' || parsed.outcome === 'manual-approved' || parsed.outcome === 'pass'
+          ? parsed.outcome
+          : 'pass';
+      const pepResult: DemoEidSubResult = parsed.pepResult === 'review' || parsed.pepResult === 'failed' || parsed.pepResult === 'passed'
+        ? parsed.pepResult
+        : 'passed';
+      const addressResult: DemoEidSubResult = parsed.addressResult === 'review' || parsed.addressResult === 'failed' || parsed.addressResult === 'passed'
+        ? parsed.addressResult
+        : 'passed';
+      return { outcome, pepResult, addressResult };
+    } catch {
+      return { outcome: 'pass', pepResult: 'passed', addressResult: 'passed' };
+    }
+  }, []);
+
+  const [demoEidSimConfig, setDemoEidSimConfig] = React.useState<DemoEidSimConfig>(() => {
+    if (typeof window === 'undefined') return { outcome: 'pass', pepResult: 'passed', addressResult: 'passed' };
+    return readDemoEidSimConfig();
+  });
+
+  const persistDemoEidSimConfig = React.useCallback((next: DemoEidSimConfig) => {
+    try {
+      window.localStorage.setItem(DEMO_EID_SIM_CONFIG_KEY, JSON.stringify(next));
+      window.dispatchEvent(new Event('demoEidSimConfigChanged'));
+    } catch {
+      // Ignore demo config persistence failures.
+    }
+  }, []);
+
   const activeCampaignBlueFilter = 'invert(33%) sepia(98%) saturate(1766%) hue-rotate(190deg) brightness(95%) contrast(92%)';
 
   const loadVerificationDetails = React.useCallback(async () => {
@@ -431,6 +557,31 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     setIsVerificationDetailsLoading(true);
     setVerificationDetailsError(null);
     try {
+      if (isDemoInstruction) {
+        const inst = (item as any)?.instruction ?? {};
+        const demoFullName = `${inst.Forename || inst.FirstName || 'Test'} ${inst.Surname || inst.LastName || 'Client'}`.trim();
+        const demoClientName = demoFullName && demoFullName !== ' ' ? demoFullName : (inst.CompanyName || 'Demo client');
+        const demoEmail = inst.Email || inst.ClientEmail || 'test.client@example.com';
+
+        setVerificationDetails({
+          instructionRef,
+          clientName: demoClientName,
+          clientEmail: demoEmail,
+          overallResult: eidResult || (eidStatusValue.includes('pending') ? 'pending' : '—'),
+          pepResult: pepResult || (eidStatusValue.includes('pending') ? 'pending' : '—'),
+          addressResult: addressVerification || (eidStatusValue.includes('pending') ? 'pending' : '—'),
+          checkedDate: eidDate,
+          rawResponse: {
+            demo: true,
+            provider: 'DEMO',
+            status: eidStatusValue || (eid ? 'complete' : 'idle'),
+          },
+          documentsRequested: false,
+          documentsReceived: false,
+        });
+        return;
+      }
+
       const details = (await fetchVerificationDetails(instructionRef)) as VerificationDetails;
 
       const prefer = (primary: string | undefined, fallback: string | undefined) => {
@@ -454,7 +605,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     } finally {
       setIsVerificationDetailsLoading(false);
     }
-  }, [instructionRef]);
+  }, [instructionRef, isDemoInstruction, item, eidResult, eidStatusValue, pepResult, addressVerification, eidDate]);
 
   const openEidDetails = React.useCallback(() => {
     setIsEidDetailsExpanded(true);
@@ -462,26 +613,30 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   }, [loadVerificationDetails]);
 
   const openTriggerEidConfirm = React.useCallback(() => {
-    // Reset options to defaults when opening
-    setEidNotifyOptions({ notifyClient: true, notifyFeeEarner: true });
+    if (isDemoInstruction) {
+      setDemoEidSimConfig(readDemoEidSimConfig());
+    }
     setShowTriggerEidConfirmModal(true);
-  }, []);
+  }, [isDemoInstruction, readDemoEidSimConfig]);
 
   const handleTriggerEid = React.useCallback(async () => {
     if (!onTriggerEID || !instructionRef) return;
     setShowTriggerEidConfirmModal(false);
     setIsTriggerEidLoading(true);
-    showToast({ type: 'loading', message: 'Starting ID verification…' });
+    if (!isDemoInstruction) {
+      showToast({ type: 'loading', message: 'Starting ID verification…' });
+    }
     try {
-      // Pass notification options to the trigger function
-      await onTriggerEID(instructionRef, eidNotifyOptions);
-      showToast({ type: 'success', message: 'Verification request sent' });
+      await onTriggerEID(instructionRef);
+      if (!isDemoInstruction) {
+        showToast({ type: 'success', message: 'Verification request sent' });
+      }
     } catch {
       showToast({ type: 'error', message: 'Failed to start verification' });
     } finally {
       setIsTriggerEidLoading(false);
     }
-  }, [onTriggerEID, instructionRef, showToast, eidNotifyOptions]);
+  }, [onTriggerEID, instructionRef, showToast, isDemoInstruction]);
 
   useEffect(() => {
     if (activeTab !== 'identity') return;
@@ -490,6 +645,14 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     if (verificationDetails || isVerificationDetailsLoading) return;
     void loadVerificationDetails();
   }, [activeTab, instructionRef, isEidDetailsExpanded, verificationDetails, isVerificationDetailsLoading, loadVerificationDetails]);
+
+  useEffect(() => {
+    if (!isDemoInstruction) return;
+    if (activeTab !== 'identity') return;
+    if (!instructionRef) return;
+    // Demo mode: keep the locally-derived details aligned with the simulated EID record.
+    void loadVerificationDetails();
+  }, [isDemoInstruction, activeTab, instructionRef, eid?.EIDStatus, eid?.EIDOverallResult, loadVerificationDetails]);
 
   const parseRawResponse = React.useCallback((raw: unknown) => {
     if (typeof raw === 'string') {
@@ -803,6 +966,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const hasMatter = !!(inst?.MatterId || inst?.MatterRef);
   const matterRef = inst?.MatterRef || inst?.DisplayNumber || inst?.MatterId || '—';
   const matterStatus = inst?.MatterStatus || inst?.Stage || '—';
+  const instructionStage = String(inst?.Stage ?? inst?.stage ?? deal?.Stage ?? deal?.stage ?? '').trim();
+  const isInstructionInitialised = /initiali[sz]ed/i.test(instructionStage);
   const feeEarner = getValue(['HelixContact', 'FeeEarner', 'feeEarner']);
 
   // Look up fee earner email from teamData
@@ -815,6 +980,49 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     );
     return match?.['Email'] || '';
   }, [teamData, feeEarner]);
+
+  const colleagueEmailOptions = useMemo(() => {
+    if (!teamData || teamData.length === 0) return [] as Array<{ email: string; label: string }>;
+
+    const getEmail = (member: any): string => {
+      const email = (member?.Email || member?.email || member?.WorkEmail || member?.Mail || member?.UserPrincipalName || member?.['Email Address'] || member?.['Email'] || '').trim();
+      return email;
+    };
+
+    const getName = (member: any): string => {
+      const name = (
+        member?.['Full Name'] ||
+        member?.FullName ||
+        member?.fullName ||
+        [member?.First, member?.Last].filter(Boolean).join(' ') ||
+        [member?.first, member?.last].filter(Boolean).join(' ') ||
+        member?.Nickname ||
+        member?.Initials ||
+        ''
+      );
+      return String(name || '').trim();
+    };
+
+    const isActive = (member: any): boolean => {
+      const status = String(member?.status || member?.Status || '').trim().toLowerCase();
+      if (!status) return true;
+      return status === 'active';
+    };
+
+    return teamData
+      .filter((m: any) => {
+        const email = getEmail(m);
+        if (!email || !email.includes('@')) return false;
+        if (email.toLowerCase().includes('team@')) return false;
+        return isActive(m);
+      })
+      .map((m: any) => {
+        const email = getEmail(m);
+        const name = getName(m) || email;
+        return { email, label: `${name} (${email})` };
+      })
+      .sort((a, b) => a.label.toLowerCase().localeCompare(b.label.toLowerCase()));
+  }, [teamData]);
 
   // Normalised identity stage status (prefer pipeline status when provided)
   const identityStatus: StageStatus = (stageStatuses?.id || (
@@ -888,6 +1096,11 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     );
   };
 
+  const isInstructedComplete = Boolean(submissionDateRaw && submissionDateRaw !== '—');
+  const instructedStatus: StageStatus = isInstructedComplete
+    ? 'complete'
+    : (isInstructionInitialised ? 'complete' : 'pending');
+
   // Timeline stages - unified navigation: Enquiry → Pitch → Instructed → ID → Pay → Risk → Matter → Docs
   // Combines the old tabs with the timeline concept - clickable stages that also show completion
   const timelineStages = useMemo(() => {
@@ -926,9 +1139,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         icon: <FaFileAlt size={10} />,
         date: submissionDate !== '—' ? submissionDate : null,
         dateRaw: submissionDateRaw,
-        isComplete: !!submissionDateRaw && submissionDateRaw !== '—',
+        isComplete: isInstructedComplete,
         hasIssue: false,
-        status: (submissionDateRaw && submissionDateRaw !== '—' ? 'complete' : 'pending') as StageStatus,
+        status: instructedStatus,
         navigatesTo: 'details' as WorkbenchTab,
       },
       { 
@@ -988,7 +1201,29 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         navigatesTo: 'documents' as WorkbenchTab,
       },
     ];
-  }, [prospectId, hasId, eidStatus, hasSuccessfulPayment, hasFailedPayment, documents.length, riskComplete, isHighRisk, hasMatter, stageStatuses, pitchDate, pitchDateRaw, submissionDate, submissionDateRaw, paymentDate, paymentDateRaw, matterOpenDate, matterOpenDateRaw, firstDocUploadDate, firstDocUploadDateRaw]);
+  }, [prospectId, hasId, eidStatus, hasSuccessfulPayment, hasFailedPayment, documents.length, riskComplete, isHighRisk, hasMatter, stageStatuses, pitchDate, pitchDateRaw, submissionDate, submissionDateRaw, paymentDate, paymentDateRaw, matterOpenDate, matterOpenDateRaw, firstDocUploadDate, firstDocUploadDateRaw, isInstructedComplete, instructedStatus]);
+
+  const contextStageKeyList = useMemo(() => (
+    contextStageKeys && contextStageKeys.length > 0
+      ? contextStageKeys
+      : (['enquiry', 'pitch', 'instructed'] as ContextStageKey[])
+  ), [contextStageKeys?.join('|')]);
+
+  const pipelineStages = useMemo(() => {
+    const allowedContextStages = new Set(contextStageKeyList);
+    return timelineStages.filter((stage) => {
+      if (['enquiry', 'pitch', 'instructed'].includes(stage.key)) {
+        return allowedContextStages.has(stage.key as ContextStageKey);
+      }
+      return true;
+    });
+  }, [timelineStages, contextStageKeyList]);
+
+  const openEnquiryFromContext = React.useCallback(() => {
+    const enquiryStage = timelineStages.find(s => s.key === 'enquiry') as any;
+    const externalAction = enquiryStage?.externalAction as (() => void) | undefined;
+    if (typeof externalAction === 'function') externalAction();
+  }, [timelineStages]);
 
   // Legacy tabs array for compatibility (maps from timeline stages)
   const tabs = useMemo(() => timelineStages.filter(s => s.navigatesTo === s.key || ['identity', 'payment', 'risk', 'matter', 'documents'].includes(s.key)).map(s => ({
@@ -1041,11 +1276,24 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
   // Create payment link handler
   const handleCreatePaymentLink = async () => {
-    const amount = parseFloat(paymentLinkAmount);
-    if (isNaN(amount) || amount <= 0) {
-      showToast({ type: 'warning', message: 'Please enter a valid amount' });
+    const instructionRefToUse = (deal?.instructionRef || deal?.instruction_ref || instructionRef || '').toString().trim();
+    if (!instructionRefToUse) {
+      showToast({ type: 'error', message: 'Missing instruction reference for payment link' });
       return;
     }
+
+    const netAmount = parseFloat(paymentLinkAmount);
+    if (Number.isNaN(netAmount) || netAmount < 1) {
+      showToast({ type: 'warning', message: 'Please enter a valid amount (at least £1)' });
+      return;
+    }
+
+    const amountToCharge = paymentLinkIncludesVat
+      ? Math.round(netAmount * 1.2 * 100) / 100
+      : Math.round(netAmount * 100) / 100;
+
+    const baseDescription = paymentLinkDescription || `Payment for ${deal?.instructionRef || deal?.instruction_ref || 'instruction'}`;
+    const description = paymentLinkIncludesVat ? `${baseDescription} (incl VAT)` : baseDescription;
 
     setIsCreatingPaymentLink(true);
     setCreatedPaymentLink(null);
@@ -1055,16 +1303,19 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          amount,
-          instructionRef: deal?.instructionRef || deal?.instruction_ref || '',
-          description: paymentLinkDescription || `Payment for ${deal?.instructionRef || deal?.instruction_ref || 'instruction'}`,
+          amount: amountToCharge,
+          instructionRef: instructionRefToUse,
+          description,
           currency: 'gbp',
         }),
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Failed to create payment link');
+        const errorData = await response.json().catch(() => ({} as any));
+        const message = errorData?.details
+          ? `${errorData.error || 'Failed to create payment link'}: ${errorData.details}`
+          : (errorData.error || 'Failed to create payment link');
+        throw new Error(message);
       }
 
       const data = await response.json();
@@ -1266,6 +1517,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); onRequestPaymentLink?.(); }}
+              title="Generate a Stripe payment link (copy & send to the client)"
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -1288,7 +1540,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               }}
             >
               <FaLink size={9} />
-              Request Link
+              Create payment link
             </button>
           </div>
 
@@ -1615,7 +1867,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         pointerEvents: 'auto',
       }}
     >
-      {/* Pipeline Tabs - Enquiry → Pitch (faded context) | ID → Pay → Risk → Matter → Docs (active tabs) */}
+      {/* Pipeline Tabs - Instructed → ID → Pay → Risk → Matter → Docs */}
       <div 
         data-action-button="true"
         onClick={(e) => e.stopPropagation()}
@@ -1629,8 +1881,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         }}
       >
         <div style={{ display: 'flex', alignItems: 'stretch', gap: 0 }}>
-          {timelineStages.map((stage, idx) => {
-            const prevStage = idx > 0 ? timelineStages[idx - 1] : null;
+          {pipelineStages.map((stage, idx) => {
+            const prevStage = idx > 0 ? pipelineStages[idx - 1] : null;
             // Enquiry and Pitch are context stages (faded, not tabs)
             const isContextStage = ['enquiry', 'pitch', 'instructed'].includes(stage.key);
             const isTabStage = ['identity', 'payment', 'risk', 'matter', 'documents'].includes(stage.key);
@@ -1643,8 +1895,18 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               return { line: isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)' };
             })() : null;
             
-            // Context stages (Enquiry, Pitch, Instructed) - faded visual only
+            // Context stages (Enquiry, Pitch, Instructed)
             if (isContextStage) {
+              const externalAction = (stage as any).externalAction as (() => void) | undefined;
+              const isClickable = enableContextStageChips && (typeof externalAction === 'function' || stage.navigatesTo === 'details');
+              const contextLabelColor = stage.isComplete
+                ? (isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.8)')
+                : statusColors.text;
+              const contextIconColor = stage.isComplete ? statusColors.text : statusColors.text;
+              const contextHoverBg = stage.status === 'complete'
+                ? (isDarkMode ? 'rgba(34, 197, 94, 0.22)' : 'rgba(34, 197, 94, 0.16)')
+                : (isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.09)');
+
               return (
                 <React.Fragment key={stage.key}>
                   {/* Connector line */}
@@ -1657,11 +1919,68 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                       <div style={{
                         height: 1,
                         width: 6,
-                        background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)',
+                        background: prevColors?.line ?? (isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)'),
                       }} />
                     </div>
                   )}
-                  <div 
+                  {isClickable ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveTab('details');
+                        // "Instructed" already has a rich landing view (Details with avatar),
+                        // so only Enquiry/Pitch open the lightweight context panel.
+                        if (stage.key === 'enquiry' || stage.key === 'pitch') {
+                          setActiveContextStage(stage.key as ContextStageKey);
+                        } else {
+                          setActiveContextStage(null);
+                        }
+                      }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        padding: '5px 10px',
+                        background: statusColors.bg,
+                        border: `1px solid ${statusColors.border}`,
+                        borderBottom: 'none',
+                        borderRadius: '4px 4px 0 0',
+                        marginBottom: -1,
+                        cursor: 'pointer',
+                        fontFamily: 'inherit',
+                        transition: 'all 0.18s ease',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = contextHoverBg;
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = statusColors.bg;
+                      }}
+                      title={stage.date || stage.label}
+                    >
+                      <span style={{
+                        color: contextIconColor,
+                        display: 'flex',
+                        alignItems: 'center',
+                      }}>
+                        {stage.icon}
+                      </span>
+                      <span style={{
+                        fontSize: 9,
+                        fontWeight: 700,
+                        color: contextLabelColor,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.3px',
+                      }}>
+                        {stage.label}
+                      </span>
+                      {stage.isComplete && (
+                        <FaCheck size={7} style={{ color: statusColors.text }} />
+                      )}
+                    </button>
+                  ) : (
+                  <div
                     style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -1698,6 +2017,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                       <FaCheck size={7} style={{ color: isDarkMode ? 'rgba(34, 197, 94, 0.5)' : 'rgba(34, 197, 94, 0.4)' }} />
                     )}
                   </div>
+                  )}
                 </React.Fragment>
               );
             }
@@ -1715,13 +2035,14 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     <div style={{
                       height: 1,
                       width: 6,
-                      background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
+                      background: prevColors?.line ?? (isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)'),
                     }} />
                   </div>
                 )}
                 <div 
                   onClick={(e) => {
                     e.stopPropagation();
+                    setActiveContextStage(null);
                     // Toggle off to Details when clicking the active tab
                     if (isActive) {
                       setActiveTab('details');
@@ -1809,188 +2130,668 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         {/* Details Tab - Client/Entity information landing page */}
         {activeTab === 'details' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {/* Client Type Banner - Prominent cue for company vs individual */}
-            {isCompany && (
+            {(() => {
+              // For Details, treat null context as "instructed" (default landing).
+              const contextStage: ContextStageKey = enableContextStageChips
+                ? (activeContextStage ?? 'instructed')
+                : 'instructed';
+
+              return (
+                <>
+                  {/* Client Type Banner - Prominent cue for company vs individual */}
+                  {isCompany && (
+                    <div style={{
+                      padding: '8px 14px',
+                      background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
+                      border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.18)'}`,
+                      borderRadius: 0,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                    }}>
+                      <FaBuilding size={12} color={colours.highlight} />
+                      <span style={{ fontSize: 10, fontWeight: 800, color: colours.highlight, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        Company Client
+                      </span>
+                      <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.8)', marginLeft: 4 }}>
+                        {companyName !== '—' ? companyName : ''}
+                        {companyNo !== '—' && <span style={{ fontFamily: 'monospace', marginLeft: 6, opacity: 0.7 }}>({companyNo})</span>}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Client/Entity Header Card */}
+                  <div style={{
+                    background: isDarkMode ? 'rgba(15, 23, 42, 0.45)' : 'rgba(255, 255, 255, 0.7)',
+                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                    borderRadius: 0,
+                    padding: '12px 14px',
+                  }}>
+                    {(() => {
+                      const chipBaseStyle: React.CSSProperties = {
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        padding: '0 8px',
+                        height: 24,
+                        minHeight: 24,
+                        borderRadius: 0,
+                        boxSizing: 'border-box',
+                        fontSize: 10,
+                        fontWeight: 600,
+                        lineHeight: '24px',
+                        textDecoration: 'none',
+                        position: 'relative',
+                      };
+
+                      const chipActiveStyle: React.CSSProperties = {
+                        background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
+                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.25)'}`,
+                        color: colours.highlight,
+                      };
+
+                      const chipInactiveStyle: React.CSSProperties = {
+                        background: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(148, 163, 184, 0.04)',
+                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)'}`,
+                        color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.4)',
+                      };
+
+                      return (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                        {/* Individual Avatar + Name */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{
+                            width: 36, height: 36, borderRadius: 0,
+                            background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)',
+                            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          }}>
+                            <FaUser size={14} color={colours.highlight} style={{ opacity: 0.8 }} />
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: isDarkMode ? 'rgba(226, 232, 240, 0.95)' : 'rgba(15, 23, 42, 0.9)', display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                              {fullName}
+                              {/* Age/DOB not available at enquiry stage */}
+                              {contextStage !== 'enquiry' && age !== '—' && <span style={{ fontSize: 10, fontWeight: 500, color: isDarkMode ? 'rgba(148, 163, 184, 0.55)' : 'rgba(100, 116, 139, 0.55)' }}>({age})</span>}
+                            </div>
+                            {isCompany && <div style={{ fontSize: 9, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', marginTop: 1 }}>Director / Individual</div>}
+
+                            <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                              {email !== '—' && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: 420 }}>
+                                  <div
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      try {
+                                        window.open(`mailto:${encodeURIComponent(String(email))}`, '_blank');
+                                      } catch {
+                                        window.location.href = `mailto:${encodeURIComponent(String(email))}`;
+                                      }
+                                    }}
+                                    title="Email"
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: 6,
+                                      cursor: 'pointer',
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      whiteSpace: 'nowrap',
+                                      color: isDarkMode ? 'rgba(226, 232, 240, 0.82)' : 'rgba(15, 23, 42, 0.76)',
+                                      fontSize: 10,
+                                      fontWeight: 600,
+                                    }}
+                                  >
+                                    <Icon iconName="Mail" styles={{ root: { fontSize: 10, opacity: 0.8 } }} />
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email}</span>
+                                  </div>
+                                  <div
+                                    onClick={(e) => { e.stopPropagation(); void safeCopy(String(email)); }}
+                                    title="Copy email"
+                                    style={{
+                                      width: 18,
+                                      height: 18,
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      borderRadius: 0,
+                                      background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)',
+                                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.14)'}`,
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    <Icon iconName="Copy" styles={{ root: { fontSize: 10, opacity: 0.75 } }} />
+                                  </div>
+                                </div>
+                              )}
+
+                              {email !== '—' && phone !== '—' && (
+                                <span style={{ fontSize: 10, opacity: 0.35, color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : 'rgba(100, 116, 139, 0.9)' }}>·</span>
+                              )}
+
+                              {phone !== '—' && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  <div
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const tel = String(phone).replace(/\s+/g, '');
+                                      try {
+                                        window.open(`tel:${tel}`, '_self');
+                                      } catch {
+                                        window.location.href = `tel:${tel}`;
+                                      }
+                                    }}
+                                    title="Call"
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: 6,
+                                      cursor: 'pointer',
+                                      color: isDarkMode ? 'rgba(226, 232, 240, 0.82)' : 'rgba(15, 23, 42, 0.76)',
+                                      fontSize: 10,
+                                      fontWeight: 600,
+                                    }}
+                                  >
+                                    <Icon iconName="Phone" styles={{ root: { fontSize: 10, opacity: 0.8 } }} />
+                                    <span>{phone}</span>
+                                  </div>
+                                  <div
+                                    onClick={(e) => { e.stopPropagation(); void safeCopy(String(phone)); }}
+                                    title="Copy phone"
+                                    style={{
+                                      width: 18,
+                                      height: 18,
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      borderRadius: 0,
+                                      background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)',
+                                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.14)'}`,
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    <Icon iconName="Copy" styles={{ root: { fontSize: 10, opacity: 0.75 } }} />
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Company if applicable */}
+                        {isCompany && companyName !== '—' && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <div style={{
+                              width: 36, height: 36, borderRadius: 0,
+                              background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.1)',
+                              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            }}>
+                              <FaBuilding size={14} color={isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)'} />
+                            </div>
+                            <div>
+                              <div style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.8)' }}>{companyName}</div>
+                              {companyNo !== '—' && <div style={{ fontSize: 9, fontFamily: 'monospace', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', marginTop: 1 }}>{companyNo}</div>}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Source chips */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {acContactId ? (
+                          <a href={`https://helix-law54533.activehosted.com/app/contacts/${acContactId}`} target="_blank" rel="noopener noreferrer" title={`ActiveCampaign #${acContactId}`} onClick={(e) => e.stopPropagation()}
+                            style={{ ...chipBaseStyle, ...chipActiveStyle }}>
+                            <img src={activecampaignIcon} alt="" style={{ width: 12, height: 12, filter: activeCampaignBlueFilter, display: 'block' }} />
+                            <span>AC</span>
+                            <span style={{ position: 'absolute', top: -2, right: -2, width: 7, height: 7, borderRadius: '50%', background: '#22c55e', border: `1.5px solid ${isDarkMode ? 'rgba(15, 23, 42, 0.9)' : '#fff'}` }} />
+                          </a>
+                        ) : (
+                          <div title="Not linked to ActiveCampaign" style={{ ...chipBaseStyle, ...chipInactiveStyle }}>
+                            <img src={activecampaignIcon} alt="" style={{ width: 12, height: 12, opacity: 0.35, filter: 'grayscale(100%)', display: 'block' }} />
+                            <span>AC</span>
+                          </div>
+                        )}
+                        {(teamsCardLink || teamsIdentifier) ? (
+                          <button type="button" title={teamsCardLink ? 'Open Teams card' : 'Resolve Teams link'} onClick={async (e) => { e.stopPropagation(); const link = teamsCardLink || (await resolveTeamsCardLink()); if (link) window.open(link, '_blank'); else window.open('https://teams.microsoft.com/', '_blank'); }}
+                            style={{ ...chipBaseStyle, ...chipActiveStyle, cursor: 'pointer', opacity: isTeamsLinkLoading ? 0.6 : 1, background: chipActiveStyle.background }}>
+                            <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 13, color: colours.highlight, lineHeight: '13px', display: 'block' } }} />
+                            <span>Teams</span>
+                            <span style={{ position: 'absolute', top: -2, right: -2, width: 7, height: 7, borderRadius: '50%', background: '#22c55e', border: `1.5px solid ${isDarkMode ? 'rgba(15, 23, 42, 0.9)' : '#fff'}` }} />
+                          </button>
+                        ) : (
+                          <div title="No Teams card linked" style={{ ...chipBaseStyle, ...chipInactiveStyle }}>
+                            <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 13, color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.4)', lineHeight: '13px', display: 'block' } }} />
+                            <span>Teams</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                      );
+                    })()}
+
+                    {/* Meta tags (match enquiry table/overview look & feel) */}
+                    <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}` }}>
+                      {(() => {
+                        const tagBase: React.CSSProperties = {
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          padding: '4px 8px',
+                          borderRadius: 4,
+                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.16)' : 'rgba(0, 0, 0, 0.08)'}`,
+                          background: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(2, 6, 23, 0.03)',
+                          color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.82)',
+                          fontSize: 10,
+                          fontWeight: 600,
+                          lineHeight: 1,
+                          maxWidth: '100%',
+                        };
+
+                        const tagText: React.CSSProperties = {
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          maxWidth: 360,
+                        };
+
+                        const isMeaningful = (v: any) => {
+                          if (v === null || v === undefined) return false;
+                          const s = String(v).trim();
+                          return s.length > 0 && s !== '—';
+                        };
+
+                        const resolveAowAccent = (raw: any): string => {
+                          const a = String(raw ?? '').toLowerCase();
+                          if (a.includes('commercial')) return 'rgb(54, 144, 206)';
+                          if (a.includes('construction')) return 'rgb(240, 124, 80)';
+                          if (a.includes('property')) return 'rgb(115, 171, 96)';
+                          if (a.includes('employment')) return 'rgb(214, 176, 70)';
+                          return 'rgb(214, 85, 65)';
+                        };
+
+                        const renderTag = (opts: {
+                          iconName: string;
+                          label: string;
+                          value: any;
+                          monospace?: boolean;
+                          accentLeft?: string;
+                          onClick?: () => void;
+                        }) => {
+                          if (!isMeaningful(opts.value)) return null;
+                          const valueText = String(opts.value);
+                          const clickable = Boolean(opts.onClick);
+                          return (
+                            <div
+                              title={`${opts.label}: ${valueText}`}
+                              onClick={(e) => {
+                                if (!opts.onClick) return;
+                                e.stopPropagation();
+                                opts.onClick();
+                              }}
+                              style={{
+                                ...tagBase,
+                                cursor: clickable ? 'pointer' : 'default',
+                                borderLeft: opts.accentLeft ? `3px solid ${opts.accentLeft}` : tagBase.borderLeft,
+                              }}
+                            >
+                              <Icon iconName={opts.iconName} styles={{ root: { fontSize: 11, opacity: 0.9 } }} />
+                              <span style={{ ...tagText, fontFamily: opts.monospace ? 'monospace' : undefined }}>
+                                {valueText}
+                              </span>
+                            </div>
+                          );
+                        };
+
+                        if (contextStage === 'enquiry') {
+                          const aowAccent = resolveAowAccent(areaOfWork);
+                          const ratingIcon = enquiryRating === 'Good' ? 'Like' : enquiryRating === 'Poor' ? 'Dislike' : 'Like';
+
+                          return (
+                            <>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                {renderTag({ iconName: 'Tag', label: 'Area of Work', value: areaOfWork, accentLeft: aowAccent })}
+                                {renderTag({ iconName: 'Calendar', label: 'Received', value: submissionDate })}
+                                {renderTag({ iconName: 'Contact', label: 'Point of Contact', value: pointOfContact })}
+                                {renderTag({ iconName: 'ContactCard', label: 'Method', value: methodOfContact })}
+                                {renderTag({ iconName: 'TextDocument', label: 'Type', value: typeOfWork })}
+                                {renderTag({ iconName: 'Money', label: 'Value', value: enquiryValue })}
+                                {renderTag({ iconName: ratingIcon, label: 'Rating', value: enquiryRating })}
+                                {renderTag({ iconName: 'ContactInfo', label: 'Taker', value: callTaker })}
+                              </div>
+
+                              {(isMeaningful(enquirySourceSummary) || isMeaningful(campaign) || isMeaningful(adGroup) || isMeaningful(searchKeyword) || isMeaningful(website) || isMeaningful(gclid)) && (
+                                <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8, opacity: 0.92 }}>
+                                  {renderTag({ iconName: 'Info', label: 'Source', value: enquirySourceSummary })}
+                                  {renderTag({ iconName: 'Tag', label: 'Campaign', value: campaign })}
+                                  {renderTag({ iconName: 'BulletedList', label: 'Ad group', value: adGroup })}
+                                  {renderTag({ iconName: 'Search', label: 'Keyword', value: searchKeyword })}
+                                  {renderTag({ iconName: 'Globe', label: 'Website', value: website })}
+                                  {renderTag({ iconName: 'NumberSymbol', label: 'GCLID', value: gclid, monospace: true, onClick: () => void safeCopy(String(gclid)) })}
+                                </div>
+                              )}
+                            </>
+                          );
+                        }
+
+                        return (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                            {renderTag({ iconName: 'CompletedSolid', label: 'Stage', value: matterStatus })}
+                            {renderTag({ iconName: 'NumberSymbol', label: 'Ref', value: instructionRef, monospace: true, onClick: instructionRef ? () => void safeCopy(String(instructionRef)) : undefined })}
+                            {renderTag({ iconName: 'TextDocument', label: 'Matter', value: matterRef, monospace: true })}
+                            {renderTag({ iconName: 'Contact', label: 'Fee earner', value: feeEarner })}
+                          </div>
+                        );
+                      })()}
+                    </div>
+
+                    {/* Enquiry notes (collapsed by default, like table view) */}
+                    {contextStage === 'enquiry' && hasEnquiryNotes && (
+                      <div style={{ marginTop: 10 }}>
+                        <div
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setIsEnquiryNotesExpanded((prev) => !prev);
+                          }}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 10,
+                            cursor: 'pointer',
+                            padding: '8px 10px',
+                            background: isDarkMode ? 'rgba(148, 163, 184, 0.05)' : 'rgba(0, 0, 0, 0.02)',
+                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
+                          }}
+                          title={isEnquiryNotesExpanded ? 'Collapse notes' : 'Show notes'}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <div
+                              style={{
+                                width: 20,
+                                height: 20,
+                                borderRadius: 0,
+                                background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
+                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                            >
+                              <Icon
+                                iconName={isEnquiryNotesExpanded ? 'ChevronUp' : 'ChevronDown'}
+                                styles={{
+                                  root: {
+                                    fontSize: 10,
+                                    color: isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)',
+                                  },
+                                }}
+                              />
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                              <div
+                                style={{
+                                  fontSize: 9,
+                                  fontWeight: 700,
+                                  letterSpacing: '0.5px',
+                                  textTransform: 'uppercase',
+                                  color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
+                                  lineHeight: 1,
+                                }}
+                              >
+                                Notes
+                              </div>
+                              {!isEnquiryNotesExpanded && (
+                                <div
+                                  style={{
+                                    fontSize: 10,
+                                    color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.55)',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                    maxWidth: 520,
+                                  }}
+                                >
+                                  {enquiryNotes.replace(/\n+/g, ' ').trim()}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {isEnquiryNotesExpanded && (
+                          <div
+                            style={{
+                              padding: '12px 12px',
+                              backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.015)' : 'rgba(0, 0, 0, 0.008)',
+                              border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)'}`,
+                              borderTop: 'none',
+                              fontSize: 11,
+                              lineHeight: '1.5',
+                              color: isDarkMode ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)',
+                              whiteSpace: 'pre-line',
+                            }}
+                          >
+                            {enquiryNotes.replace(/\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Address is not available at enquiry stage */}
+                    {contextStage !== 'enquiry' && (
+                      <>
+                        {/* Address */}
+                        <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}` }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.55)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                              <FaHome size={9} /> Address
+                            </div>
+                            <button type="button" onClick={(e) => { e.stopPropagation(); void safeCopy([streetFull, city, county, postcode, country].filter((v) => v !== '—' && v).join(', ')); }} style={{ background: 'transparent', border: 'none', padding: '2px 4px', cursor: 'pointer', fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.55)', display: 'flex', alignItems: 'center', gap: 3 }} title="Copy full address">
+                              <FaCopy size={8} /> Copy
+                            </button>
+                          </div>
+                          <div style={{ fontSize: 10, fontWeight: 500, color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.75)', lineHeight: 1.4 }}>
+                            {[streetFull, city, county, postcode, country].filter((v: string) => v && v !== '—').join(', ') || '—'}
+                          </div>
+                        </div>
+
+                        {/* Company Address (if company client) */}
+                        {isCompany && companyName !== '—' && (
+                          <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}` }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.55)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                                <FaBuilding size={9} /> Company Address
+                              </div>
+                              <button type="button" onClick={(e) => { e.stopPropagation(); void safeCopy([companyStreetFull, companyCity, companyCounty, companyPostcode, companyCountry].filter((v) => v !== '—' && v).join(', ')); }} style={{ background: 'transparent', border: 'none', padding: '2px 4px', cursor: 'pointer', fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.55)', display: 'flex', alignItems: 'center', gap: 3 }} title="Copy company address">
+                                <FaCopy size={8} /> Copy
+                              </button>
+                            </div>
+                            <div style={{ fontSize: 10, fontWeight: 500, color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.75)', lineHeight: 1.4 }}>
+                              {[companyStreetFull, companyCity, companyCounty, companyPostcode, companyCountry].filter((v) => v && v !== '—').join(', ') || '—'}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </>
+              );
+            })()}
+
+
+            {/* Pitch Landing (Details layout) */}
+            {enableContextStageChips && activeContextStage === 'pitch' && (
               <div style={{
-                padding: '8px 14px',
-                background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
-                border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.18)'}`,
+                background: isDarkMode ? 'rgba(15, 23, 42, 0.45)' : 'rgba(255, 255, 255, 0.7)',
+                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
                 borderRadius: 0,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
+                overflow: 'hidden',
               }}>
-                <FaBuilding size={12} color={colours.highlight} />
-                <span style={{ fontSize: 10, fontWeight: 800, color: colours.highlight, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  Company Client
-                </span>
-                <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.8)', marginLeft: 4 }}>
-                  {companyName !== '—' ? companyName : ''}
-                  {companyNo !== '—' && <span style={{ fontFamily: 'monospace', marginLeft: 6, opacity: 0.7 }}>({companyNo})</span>}
-                </span>
+                <div style={{
+                  padding: '8px 14px',
+                  background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.03)',
+                  borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 10,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, fontWeight: 800, color: colours.highlight, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      <FaUser size={11} /> Pitch
+                    </div>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.75)' : 'rgba(15, 23, 42, 0.75)' }}>
+                      {pitchDate && pitchDate !== '—' ? `Pitched ${pitchDate}` : 'No pitch recorded'}
+                    </div>
+                  </div>
+
+                  {prospectId && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); openEnquiryFromContext(); }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '6px 10px',
+                        borderRadius: 0,
+                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.25)'}`,
+                        background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
+                        color: colours.highlight,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                      }}
+                      title="Open this enquiry in Prospects"
+                    >
+                      <FaLink size={10} />
+                      Open Enquiry
+                    </button>
+                  )}
+                </div>
+
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                  gap: 12,
+                  padding: '10px 14px',
+                }}>
+                  <div>
+                    <div style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.45)' : 'rgba(100, 116, 139, 0.45)' }}>Amount</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)' }}>
+                      {formatMoney(deal?.Amount ?? deal?.amount ?? deal?.FeeAmount ?? deal?.feeAmount)}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.45)' : 'rgba(100, 116, 139, 0.45)' }}>Service</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)' }}>
+                      {deal?.ServiceDescription || deal?.serviceDescription || areaOfWork || '—'}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.45)' : 'rgba(100, 116, 139, 0.45)' }}>Passcode</div>
+                    <div style={{
+                      fontSize: 12,
+                      fontWeight: 700,
+                      fontFamily: 'monospace',
+                      color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)',
+                      cursor: (deal?.Passcode || deal?.passcode) ? 'pointer' : 'default',
+                    }}
+                      onClick={(e) => {
+                        const passcode = (deal?.Passcode || deal?.passcode) as any;
+                        if (!passcode) return;
+                        e.stopPropagation();
+                        void safeCopy(String(passcode));
+                      }}
+                      title={(deal?.Passcode || deal?.passcode) ? 'Click to copy' : undefined}
+                    >
+                      {(deal?.Passcode || deal?.passcode || '—') as any}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.45)' : 'rgba(100, 116, 139, 0.45)' }}>Client</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.8)' }}>{fullName}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.45)' : 'rgba(100, 116, 139, 0.45)' }}>Contact</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.8)' }}>{email !== '—' ? email : phone}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.45)' : 'rgba(100, 116, 139, 0.45)' }}>Instruction Ref</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, fontFamily: 'monospace', color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.8)' }}>{instructionRef || '—'}</div>
+                  </div>
+                </div>
               </div>
             )}
 
-            {/* Client/Entity Header Card */}
-            <div style={{
-              background: isDarkMode ? 'rgba(15, 23, 42, 0.45)' : 'rgba(255, 255, 255, 0.7)',
-              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
-              borderRadius: 0,
-              padding: '12px 14px',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                  {/* Individual Avatar + Name */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div style={{
-                      width: 36, height: 36, borderRadius: 0,
-                      background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)',
-                      border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    }}>
-                      <FaUser size={14} color={colours.highlight} style={{ opacity: 0.8 }} />
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: isDarkMode ? 'rgba(226, 232, 240, 0.95)' : 'rgba(15, 23, 42, 0.9)', display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                        {fullName}
-                        {age !== '—' && <span style={{ fontSize: 10, fontWeight: 500, color: isDarkMode ? 'rgba(148, 163, 184, 0.55)' : 'rgba(100, 116, 139, 0.55)' }}>({age})</span>}
-                      </div>
-                      {isCompany && <div style={{ fontSize: 9, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', marginTop: 1 }}>Director / Individual</div>}
-                    </div>
-                  </div>
+            {/* Instruction / Pitch Reference (hidden for enquiry-only view) */}
+            {(() => {
+              const contextStage: ContextStageKey = enableContextStageChips
+                ? (activeContextStage ?? 'instructed')
+                : 'instructed';
 
-                  {/* Company if applicable */}
-                  {isCompany && companyName !== '—' && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div style={{
-                        width: 36, height: 36, borderRadius: 0,
-                        background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.1)',
-                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      }}>
-                        <FaBuilding size={14} color={isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)'} />
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.8)' }}>{companyName}</div>
-                        {companyNo !== '—' && <div style={{ fontSize: 9, fontFamily: 'monospace', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', marginTop: 1 }}>{companyNo}</div>}
-                      </div>
-                    </div>
+              if (contextStage === 'enquiry') return null;
+
+              const dealPasscode = (deal?.Passcode || deal?.passcode) as any;
+              const dealId = (deal?.DealId || deal?.dealId) as any;
+
+              const refLabel = contextStage === 'pitch' ? 'Deal' : 'Ref';
+
+              const refValueRaw =
+                contextStage === 'pitch'
+                  ? String(dealPasscode || dealId || instructionRef || '')
+                  : String(instructionRef || '');
+
+              const refValue = refValueRaw && refValueRaw.trim().length > 0 ? refValueRaw : '—';
+              const canCopy = refValue !== '—';
+
+              return (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '8px 12px',
+                  background: isDarkMode ? 'rgba(15, 23, 42, 0.3)' : 'rgba(255, 255, 255, 0.5)',
+                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
+                  borderRadius: 0,
+                }}>
+                  <div style={{ fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.55)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>{refLabel}</div>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      fontFamily: 'monospace',
+                      color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)',
+                      cursor: canCopy ? 'pointer' : 'default',
+                      opacity: canCopy ? 1 : 0.7,
+                    }}
+                    onClick={(e) => {
+                      if (!canCopy) return;
+                      e.stopPropagation();
+                      void safeCopy(refValue);
+                    }}
+                    title={canCopy ? 'Click to copy' : undefined}
+                  >
+                    {refValue}
+                  </div>
+                  {feeEarner !== '—' && (
+                    <>
+                      <div style={{ width: 1, height: 12, background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(0, 0, 0, 0.08)' }} />
+                      <div style={{ fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.55)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>FE</div>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.75)' }}>{feeEarner}</div>
+                    </>
+                  )}
+                  {contextStage === 'instructed' && matterRef !== '—' && (
+                    <>
+                      <div style={{ width: 1, height: 12, background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(0, 0, 0, 0.08)' }} />
+                      <div style={{ fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.55)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Matter</div>
+                      <div style={{ fontSize: 10, fontWeight: 600, fontFamily: 'monospace', color: colours.highlight, cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); if (onOpenMatter) onOpenMatter(item); }} title="Open matter">{matterRef}</div>
+                    </>
                   )}
                 </div>
-
-                {/* Source chips */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  {acContactId ? (
-                    <a href={`https://helix-law54533.activehosted.com/app/contacts/${acContactId}`} target="_blank" rel="noopener noreferrer" title={`ActiveCampaign #${acContactId}`} onClick={(e) => e.stopPropagation()}
-                      style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 8px', borderRadius: 0, background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)', border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.25)'}`, fontSize: 10, fontWeight: 600, color: colours.highlight, textDecoration: 'none', position: 'relative' }}>
-                      <img src={activecampaignIcon} alt="" style={{ width: 12, height: 12, filter: activeCampaignBlueFilter }} />
-                      <span>AC</span>
-                      <span style={{ position: 'absolute', top: -2, right: -2, width: 7, height: 7, borderRadius: '50%', background: '#22c55e', border: `1.5px solid ${isDarkMode ? 'rgba(15, 23, 42, 0.9)' : '#fff'}` }} />
-                    </a>
-                  ) : (
-                    <div title="Not linked to ActiveCampaign" style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 8px', borderRadius: 0, background: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(148, 163, 184, 0.04)', border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)'}`, fontSize: 10, fontWeight: 600, color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.4)', position: 'relative' }}>
-                      <img src={activecampaignIcon} alt="" style={{ width: 12, height: 12, opacity: 0.35, filter: 'grayscale(100%)' }} />
-                      <span>AC</span>
-                    </div>
-                  )}
-                  {(teamsCardLink || teamsIdentifier) ? (
-                    <button type="button" title={teamsCardLink ? 'Open Teams card' : 'Resolve Teams link'} onClick={async (e) => { e.stopPropagation(); const link = teamsCardLink || (await resolveTeamsCardLink()); if (link) window.open(link, '_blank'); else window.open('https://teams.microsoft.com/', '_blank'); }}
-                      style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 8px', borderRadius: 0, background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)', border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.25)'}`, fontSize: 10, fontWeight: 600, color: colours.highlight, cursor: 'pointer', opacity: isTeamsLinkLoading ? 0.6 : 1, position: 'relative' }}>
-                      <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 13, color: colours.highlight } }} />
-                      <span>Teams</span>
-                      <span style={{ position: 'absolute', top: -2, right: -2, width: 7, height: 7, borderRadius: '50%', background: '#22c55e', border: `1.5px solid ${isDarkMode ? 'rgba(15, 23, 42, 0.9)' : '#fff'}` }} />
-                    </button>
-                  ) : (
-                    <div title="No Teams card linked" style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 8px', borderRadius: 0, background: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(148, 163, 184, 0.04)', border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)'}`, fontSize: 10, fontWeight: 600, color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.4)', position: 'relative' }}>
-                      <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 13, color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.4)' } }} />
-                      <span>Teams</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Contact details grid */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 10, paddingTop: 10, borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}` }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '40px 1fr', gap: 6, alignItems: 'baseline' }}>
-                    <div style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.4)' }}>Email</div>
-                    <div style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.8)', cursor: email !== '—' ? 'pointer' : 'default', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} onClick={(e) => { if (email !== '—') { e.stopPropagation(); void safeCopy(email); } }} title={email !== '—' ? 'Click to copy' : undefined}>{email}</div>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '40px 1fr', gap: 6, alignItems: 'baseline' }}>
-                    <div style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.4)' }}>Phone</div>
-                    <div style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.8)', cursor: phone !== '—' ? 'pointer' : 'default' }} onClick={(e) => { if (phone !== '—') { e.stopPropagation(); void safeCopy(phone); } }} title={phone !== '—' ? 'Click to copy' : undefined}>{phone}</div>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '40px 1fr', gap: 6, alignItems: 'baseline' }}>
-                    <div style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.4)' }}>DOB</div>
-                    <div style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.8)' }}>{dob}</div>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '40px 1fr', gap: 6, alignItems: 'baseline' }}>
-                    <div style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.4)' }}>Nation</div>
-                    <div style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.8)' }} title={nationalityFull !== '—' ? nationalityFull : undefined}>{nationalityAlpha}</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Address */}
-              <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}` }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.55)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                    <FaHome size={9} /> Address
-                  </div>
-                  <button type="button" onClick={(e) => { e.stopPropagation(); void safeCopy([streetFull, city, county, postcode, country].filter((v) => v !== '—' && v).join(', ')); }} style={{ background: 'transparent', border: 'none', padding: '2px 4px', cursor: 'pointer', fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.55)', display: 'flex', alignItems: 'center', gap: 3 }} title="Copy full address">
-                    <FaCopy size={8} /> Copy
-                  </button>
-                </div>
-                <div style={{ fontSize: 10, fontWeight: 500, color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.75)', lineHeight: 1.4 }}>
-                  {[streetFull, city, county, postcode, country].filter((v: string) => v && v !== '—').join(', ') || '—'}
-                </div>
-              </div>
-
-              {/* Company Address (if company client) */}
-              {isCompany && companyName !== '—' && (
-                <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}` }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.55)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                      <FaBuilding size={9} /> Company Address
-                    </div>
-                    <button type="button" onClick={(e) => { e.stopPropagation(); void safeCopy([companyStreetFull, companyCity, companyCounty, companyPostcode, companyCountry].filter((v) => v !== '—' && v).join(', ')); }} style={{ background: 'transparent', border: 'none', padding: '2px 4px', cursor: 'pointer', fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.55)', display: 'flex', alignItems: 'center', gap: 3 }} title="Copy company address">
-                      <FaCopy size={8} /> Copy
-                    </button>
-                  </div>
-                  <div style={{ fontSize: 10, fontWeight: 500, color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.75)', lineHeight: 1.4 }}>
-                    {[companyStreetFull, companyCity, companyCounty, companyPostcode, companyCountry].filter((v) => v && v !== '—').join(', ') || '—'}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Instruction Reference */}
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 10,
-              padding: '8px 12px',
-              background: isDarkMode ? 'rgba(15, 23, 42, 0.3)' : 'rgba(255, 255, 255, 0.5)',
-              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
-              borderRadius: 0,
-            }}>
-              <div style={{ fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.55)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Ref</div>
-              <div style={{ fontSize: 11, fontWeight: 700, fontFamily: 'monospace', color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); void safeCopy(instructionRef); }} title="Click to copy">{instructionRef}</div>
-              {feeEarner !== '—' && (
-                <>
-                  <div style={{ width: 1, height: 12, background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(0, 0, 0, 0.08)' }} />
-                  <div style={{ fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.55)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>FE</div>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.75)' }}>{feeEarner}</div>
-                </>
-              )}
-              {matterRef !== '—' && (
-                <>
-                  <div style={{ width: 1, height: 12, background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(0, 0, 0, 0.08)' }} />
-                  <div style={{ fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.55)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Matter</div>
-                  <div style={{ fontSize: 10, fontWeight: 600, fontFamily: 'monospace', color: colours.highlight, cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); if (onOpenMatter) onOpenMatter(item); }} title="Open matter">{matterRef}</div>
-                </>
-              )}
-            </div>
+              );
+            })()}
           </div>
         )}
 
@@ -2033,27 +2834,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                 >
                   <FaIdCard size={10} />
                   {isTriggerEidLoading ? 'Starting…' : 'Run Verification'}
-                </button>
-              ) : (stageStatuses?.id === 'review' || eidStatus === 'failed') ? (
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); openEidDetails(); }}
-                  style={{
-                    padding: '6px 12px',
-                    background: isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)',
-                    color: '#ef4444',
-                    border: '1px solid #ef4444',
-                    borderRadius: 0,
-                    fontSize: 10,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 5,
-                  }}
-                >
-                  <FaIdCard size={10} />
-                  {isVerificationDetailsLoading ? 'Loading…' : 'Review'}
                 </button>
               ) : undefined,
             )}
@@ -2313,15 +3093,15 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                         style={{
                           padding: '8px 10px',
                           background: isOverallNeedsAction 
-                            ? (isDarkMode ? 'rgba(239, 68, 68, 0.06)' : 'rgba(239, 68, 68, 0.03)')
+                            ? (isDarkMode ? 'rgba(239, 68, 68, 0.045)' : 'rgba(239, 68, 68, 0.025)')
                             : (isDarkMode ? 'rgba(15, 23, 42, 0.55)' : 'rgba(255, 255, 255, 0.75)'),
                           border: isOverallNeedsAction
-                            ? `1.5px solid ${colours.cta}`
+                            ? `1px solid rgba(239, 68, 68, 0.75)`
                             : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
                           borderRadius: 4,
                           cursor: isOverallNeedsAction ? 'pointer' : 'default',
                           transition: 'border-color 0.15s, box-shadow 0.15s, background 0.15s',
-                          boxShadow: isOverallNeedsAction ? `0 0 0 1px rgba(239, 68, 68, 0.12)` : 'none',
+                          boxShadow: isOverallNeedsAction ? `0 0 0 1px rgba(239, 68, 68, 0.10)` : 'none',
                         }}
                         title={isOverallNeedsAction ? 'Click to review and resolve' : undefined}
                       >
@@ -2341,6 +3121,26 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           </span>
                           <div style={{ fontSize: 10, fontWeight: 650, color: resultColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>{value}</div>
                         </div>
+
+                        {isOverallNeedsAction && (
+                          <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}>
+                            <div style={{
+                              padding: '4px 8px',
+                              borderRadius: 999,
+                              background: isDarkMode ? 'rgba(239, 68, 68, 0.10)' : 'rgba(239, 68, 68, 0.08)',
+                              border: `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.28)' : 'rgba(239, 68, 68, 0.22)'}`,
+                              color: '#ef4444',
+                              fontSize: 10,
+                              fontWeight: 750,
+                              letterSpacing: '0.1px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 6,
+                            }}>
+                              Review options <span style={{ fontWeight: 900 }}>→</span>
+                            </div>
+                          </div>
+                        )}
 
                         {isEidDetailsExpanded && verificationDetails && (
                           <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -2617,7 +3417,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                 <FaCheck size={12} color="#22c55e" />
                               </div>
                               <div>
-                                <div style={{ fontSize: 12, fontWeight: 700, color: '#22c55e' }}>Approve Anyway</div>
+                                <div style={{ fontSize: 12, fontWeight: 700, color: '#22c55e' }}>Approve</div>
                                 <div style={{ fontSize: 10, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)', marginTop: 2 }}>Mark ID as verified (result is acceptable)</div>
                               </div>
                             </button>
@@ -2728,7 +3528,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             color: isDarkMode ? 'rgba(226, 232, 240, 0.75)' : 'rgba(15, 23, 42, 0.7)',
                             marginBottom: 16,
                           }}>
-                            <strong>What happens next:</strong> The ID status will be marked as verified. The fee earner will be notified and can proceed with the matter.
+                            <strong>What happens next:</strong> The ID status will be marked as verified and the instruction will move to <strong>proof-of-id-complete</strong>. No emails are sent automatically from this action.
                           </div>
 
                           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
@@ -2836,58 +3636,186 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             <div style={{ fontSize: 9, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
                               Recipients
                             </div>
-                            
-                            {/* To field */}
-                            <div style={{ marginBottom: 10 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                                <span style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)', minWidth: 24 }}>To</span>
-                                <input
-                                  type="email"
-                                  value={emailOverrideTo || feeEarnerEmail}
-                                  onChange={(e) => setEmailOverrideTo(e.target.value)}
-                                  placeholder={feeEarnerEmail || 'Fee earner email'}
-                                  style={{
-                                    flex: 1,
-                                    padding: '6px 10px',
-                                    fontSize: 11,
-                                    fontFamily: 'inherit',
-                                    background: isDarkMode ? 'rgba(0, 0, 0, 0.3)' : '#ffffff',
-                                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
-                                    borderRadius: 4,
-                                    color: isDarkMode ? '#e2e8f0' : '#0f172a',
-                                    outline: 'none',
-                                  }}
-                                />
-                              </div>
-                              <div style={{ fontSize: 10, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', marginLeft: 32 }}>
-                                {feeEarner !== '—' ? `Default: ${feeEarner}` : 'No fee earner assigned'}{feeEarnerEmail ? ` (${feeEarnerEmail})` : ''}
+
+                            {/* To */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '28px 1fr', gap: 10, alignItems: 'start', marginBottom: 12 }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.75)' : 'rgba(100, 116, 139, 0.75)', paddingTop: 6 }}>To</div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                {!useManualToRecipient ? (
+                                  <select
+                                    value={emailOverrideTo || ''}
+                                    onChange={(e) => {
+                                      const next = e.target.value;
+                                      if (next === '__manual__') {
+                                        setUseManualToRecipient(true);
+                                        return;
+                                      }
+                                      setUseManualToRecipient(false);
+                                      setEmailOverrideTo(next);
+                                    }}
+                                    style={{
+                                      width: '100%',
+                                      padding: '7px 10px',
+                                      fontSize: 11,
+                                      borderRadius: 6,
+                                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+                                      background: isDarkMode ? 'rgba(0, 0, 0, 0.25)' : '#ffffff',
+                                      color: isDarkMode ? '#e2e8f0' : '#0f172a',
+                                      outline: 'none',
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    <option value="">Default fee earner{feeEarnerEmail ? ` (${feeEarnerEmail})` : ''}</option>
+                                    {colleagueEmailOptions.map((opt) => (
+                                      <option key={opt.email} value={opt.email}>
+                                        {opt.label}
+                                      </option>
+                                    ))}
+                                    <option value="__manual__">Enter email manually…</option>
+                                  </select>
+                                ) : (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                    <input
+                                      type="email"
+                                      value={emailOverrideTo}
+                                      onChange={(e) => setEmailOverrideTo(e.target.value)}
+                                      placeholder="Enter recipient email address"
+                                      style={{
+                                        width: '100%',
+                                        padding: '7px 10px',
+                                        fontSize: 11,
+                                        fontFamily: 'inherit',
+                                        background: isDarkMode ? 'rgba(0, 0, 0, 0.3)' : '#ffffff',
+                                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+                                        borderRadius: 6,
+                                        color: isDarkMode ? '#e2e8f0' : '#0f172a',
+                                        outline: 'none',
+                                      }}
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setUseManualToRecipient(false);
+                                        if (!emailOverrideTo) {
+                                          setEmailOverrideTo('');
+                                        }
+                                      }}
+                                      style={{
+                                        padding: '6px 10px',
+                                        background: 'transparent',
+                                        color: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.8)',
+                                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(100, 116, 139, 0.18)'}`,
+                                        borderRadius: 6,
+                                        fontSize: 10,
+                                        fontWeight: 700,
+                                        cursor: 'pointer',
+                                        width: 'fit-content',
+                                      }}
+                                    >
+                                      Pick colleague instead
+                                    </button>
+                                  </div>
+                                )}
                               </div>
                             </div>
 
-                            {/* CC field */}
-                            <div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                                <span style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)', minWidth: 24 }}>CC</span>
-                                <input
-                                  type="text"
-                                  value={emailOverrideCc}
-                                  onChange={(e) => setEmailOverrideCc(e.target.value)}
-                                  placeholder="Optional: additional recipients"
-                                  style={{
-                                    flex: 1,
-                                    padding: '6px 10px',
-                                    fontSize: 11,
-                                    fontFamily: 'inherit',
-                                    background: isDarkMode ? 'rgba(0, 0, 0, 0.3)' : '#ffffff',
-                                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
-                                    borderRadius: 4,
-                                    color: isDarkMode ? '#e2e8f0' : '#0f172a',
-                                    outline: 'none',
-                                  }}
-                                />
-                              </div>
-                              <div style={{ fontSize: 10, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', marginLeft: 32 }}>
-                                Separate multiple addresses with commas
+                            {/* CC */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '28px 1fr', gap: 10, alignItems: 'start' }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.75)' : 'rgba(100, 116, 139, 0.75)', paddingTop: 6 }}>CC</div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                {colleagueEmailOptions.length > 0 && (
+                                  <select
+                                    onChange={(e) => {
+                                      const selectedEmail = e.target.value;
+                                      if (!selectedEmail) return;
+                                      const ccList = emailOverrideCc ? emailOverrideCc.split(',').map((x) => x.trim()) : [];
+                                      if (!ccList.some((addr) => addr.toLowerCase() === selectedEmail.toLowerCase())) {
+                                        ccList.push(selectedEmail);
+                                        setEmailOverrideCc(ccList.filter(Boolean).join(', '));
+                                      }
+                                      e.target.value = '';
+                                    }}
+                                    style={{
+                                      width: '100%',
+                                      padding: '7px 10px',
+                                      fontSize: 11,
+                                      borderRadius: 6,
+                                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+                                      background: isDarkMode ? 'rgba(0, 0, 0, 0.25)' : '#ffffff',
+                                      color: isDarkMode ? '#e2e8f0' : '#0f172a',
+                                      outline: 'none',
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    <option value="">+ Add colleague to CC</option>
+                                    {colleagueEmailOptions.map((opt) => (
+                                      <option key={opt.email} value={opt.email}>
+                                        {opt.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                )}
+
+                                {(useManualCcRecipients || Boolean(emailOverrideCc)) ? (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                    <input
+                                      type="text"
+                                      value={emailOverrideCc}
+                                      onChange={(e) => setEmailOverrideCc(e.target.value)}
+                                      placeholder="CC email addresses (comma separated)"
+                                      style={{
+                                        width: '100%',
+                                        padding: '7px 10px',
+                                        fontSize: 11,
+                                        fontFamily: 'inherit',
+                                        background: isDarkMode ? 'rgba(0, 0, 0, 0.3)' : '#ffffff',
+                                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+                                        borderRadius: 6,
+                                        color: isDarkMode ? '#e2e8f0' : '#0f172a',
+                                        outline: 'none',
+                                      }}
+                                    />
+                                    <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setEmailOverrideCc('');
+                                          setUseManualCcRecipients(false);
+                                        }}
+                                        style={{
+                                          padding: '5px 8px',
+                                          background: 'transparent',
+                                          color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
+                                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(100, 116, 139, 0.18)'}`,
+                                          borderRadius: 6,
+                                          fontSize: 10,
+                                          fontWeight: 700,
+                                          cursor: 'pointer',
+                                        }}
+                                      >
+                                        Clear CC
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setUseManualCcRecipients(true)}
+                                    style={{
+                                      padding: 0,
+                                      background: 'transparent',
+                                      border: 'none',
+                                      color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
+                                      fontSize: 10,
+                                      fontWeight: 700,
+                                      cursor: 'pointer',
+                                      textAlign: 'left',
+                                      width: 'fit-content',
+                                    }}
+                                  >
+                                    Enter CC manually
+                                  </button>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -3163,70 +4091,145 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     </div>
                   </div>
 
-                  <div style={{ fontSize: 12, lineHeight: 1.6, color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.75)', marginBottom: 18 }}>
-                    This will send an ID verification request via the EID provider. Select which notifications to send:
-                  </div>
+                  <div style={{
+                    padding: 12,
+                    background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.05)',
+                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)'}`,
+                    borderRadius: 6,
+                    marginBottom: 14,
+                  }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.9)', marginBottom: 8 }}>
+                      What this does
+                    </div>
+                    <div style={{ fontSize: 12, lineHeight: 1.6, color: isDarkMode ? 'rgba(226, 232, 240, 0.82)' : 'rgba(15, 23, 42, 0.78)' }}>
+                      Starts an electronic ID verification with the provider and records the outcome back onto this instruction.
+                    </div>
+                    <div style={{ marginTop: 10, fontSize: 11, lineHeight: 1.6, color: isDarkMode ? 'rgba(226, 232, 240, 0.78)' : 'rgba(15, 23, 42, 0.72)' }}>
+                      <strong>Checks include:</strong>
+                      <ul style={{ margin: '6px 0 0 0', paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <li>Identity match (name + date of birth)</li>
+                        <li>Address verification</li>
+                        <li>PEP / sanctions screening</li>
+                      </ul>
+                    </div>
+                    <div style={{ marginTop: 10, fontSize: 11, lineHeight: 1.6, color: isDarkMode ? 'rgba(226, 232, 240, 0.78)' : 'rgba(15, 23, 42, 0.72)' }}>
+                      <strong>Client comms:</strong> No client emails are sent from Helix Hub in this flow.
+                    </div>
+                    <div style={{ marginTop: 10, fontSize: 11, lineHeight: 1.6, color: isDarkMode ? 'rgba(226, 232, 240, 0.78)' : 'rgba(15, 23, 42, 0.72)' }}>
+                      You’ll see results appear under EID Results once the check completes.
+                    </div>
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}>
-                    {/* Notify Client checkbox */}
-                    <label
-                      style={{
-                        display: 'flex',
-                        alignItems: 'flex-start',
-                        gap: 12,
-                        padding: '12px 14px',
-                        background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.05)',
-                        border: `1px solid ${eidNotifyOptions.notifyClient ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)')}`,
-                        borderRadius: 6,
-                        cursor: 'pointer',
-                        transition: 'border-color 0.15s',
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={eidNotifyOptions.notifyClient}
-                        onChange={(e) => setEidNotifyOptions((prev) => ({ ...prev, notifyClient: e.target.checked }))}
-                        style={{ marginTop: 2, accentColor: colours.highlight }}
-                      />
-                      <div>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)' }}>
-                          Email client verification link
+                    {isDemoInstruction && (
+                      <div style={{
+                        marginTop: 12,
+                        paddingTop: 12,
+                        borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.15)'}`,
+                      }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.9)', marginBottom: 8 }}>
+                          Demo simulation
                         </div>
-                        <div style={{ fontSize: 10, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)', marginTop: 2 }}>
-                          Client receives email to complete ID check ({email !== '—' ? email : 'no email on file'})
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                          <div>
+                            <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.85, marginBottom: 6 }}>Overall outcome</div>
+                            <select
+                              value={demoEidSimConfig.outcome}
+                              onChange={(e) => {
+                                const next = { ...demoEidSimConfig, outcome: e.target.value as DemoEidOutcome };
+                                setDemoEidSimConfig(next);
+                                persistDemoEidSimConfig(next);
+                              }}
+                              style={{
+                                width: '100%',
+                                padding: '8px 10px',
+                                borderRadius: 6,
+                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.25)'}`,
+                                background: isDarkMode ? 'rgba(15, 23, 42, 0.35)' : 'rgba(255, 255, 255, 0.9)',
+                                color: isDarkMode ? 'rgba(226, 232, 240, 0.92)' : 'rgba(15, 23, 42, 0.92)',
+                                outline: 'none',
+                              }}
+                            >
+                              <option value="pass">Pass</option>
+                              <option value="review">Review</option>
+                              <option value="fail">Fail</option>
+                              <option value="manual-approved">Manual approved</option>
+                            </select>
+                          </div>
+
+                          <div style={{ display: 'flex', gap: 10 }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.85, marginBottom: 6 }}>PEP / sanctions</div>
+                              <select
+                                value={demoEidSimConfig.pepResult}
+                                onChange={(e) => {
+                                  const next = { ...demoEidSimConfig, pepResult: e.target.value as DemoEidSubResult };
+                                  setDemoEidSimConfig(next);
+                                  persistDemoEidSimConfig(next);
+                                }}
+                                style={{
+                                  width: '100%',
+                                  padding: '8px 10px',
+                                  borderRadius: 6,
+                                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.25)'}`,
+                                  background: isDarkMode ? 'rgba(15, 23, 42, 0.35)' : 'rgba(255, 255, 255, 0.9)',
+                                  color: isDarkMode ? 'rgba(226, 232, 240, 0.92)' : 'rgba(15, 23, 42, 0.92)',
+                                  outline: 'none',
+                                }}
+                              >
+                                <option value="passed">Passed</option>
+                                <option value="review">Review</option>
+                                <option value="failed">Failed</option>
+                              </select>
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.85, marginBottom: 6 }}>Address</div>
+                              <select
+                                value={demoEidSimConfig.addressResult}
+                                onChange={(e) => {
+                                  const next = { ...demoEidSimConfig, addressResult: e.target.value as DemoEidSubResult };
+                                  setDemoEidSimConfig(next);
+                                  persistDemoEidSimConfig(next);
+                                }}
+                                style={{
+                                  width: '100%',
+                                  padding: '8px 10px',
+                                  borderRadius: 6,
+                                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.25)'}`,
+                                  background: isDarkMode ? 'rgba(15, 23, 42, 0.35)' : 'rgba(255, 255, 255, 0.9)',
+                                  color: isDarkMode ? 'rgba(226, 232, 240, 0.92)' : 'rgba(15, 23, 42, 0.92)',
+                                  outline: 'none',
+                                }}
+                              >
+                                <option value="passed">Passed</option>
+                                <option value="review">Review</option>
+                                <option value="failed">Failed</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                window.dispatchEvent(new Event('demoEidResetRequested'));
+                                setShowTriggerEidConfirmModal(false);
+                              }}
+                              style={{
+                                padding: '7px 10px',
+                                background: 'transparent',
+                                color: isDarkMode ? 'rgba(248, 113, 113, 0.9)' : 'rgba(185, 28, 28, 0.9)',
+                                border: `1px solid ${isDarkMode ? 'rgba(248, 113, 113, 0.35)' : 'rgba(185, 28, 28, 0.25)'}`,
+                                borderRadius: 6,
+                                fontSize: 10,
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              Clear demo check record
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </label>
-
-                    {/* Notify Fee Earner checkbox */}
-                    <label
-                      style={{
-                        display: 'flex',
-                        alignItems: 'flex-start',
-                        gap: 12,
-                        padding: '12px 14px',
-                        background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(148, 163, 184, 0.03)',
-                        border: `1px solid ${eidNotifyOptions.notifyFeeEarner ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)')}`,
-                        borderRadius: 6,
-                        cursor: 'pointer',
-                        transition: 'border-color 0.15s',
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={eidNotifyOptions.notifyFeeEarner}
-                        onChange={(e) => setEidNotifyOptions((prev) => ({ ...prev, notifyFeeEarner: e.target.checked }))}
-                        style={{ marginTop: 2, accentColor: colours.highlight }}
-                      />
-                      <div>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)' }}>
-                          Notify fee earner
-                        </div>
-                        <div style={{ fontSize: 10, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)', marginTop: 2 }}>
-                          Fee earner receives Teams notification when verification sent ({feeEarner !== '—' ? feeEarner : 'unassigned'})
-                        </div>
-                      </div>
-                    </label>
+                    )}
                   </div>
 
                   <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
@@ -3813,7 +4816,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                   fontWeight: 700,
                   color: isDarkMode ? 'rgba(226, 232, 240, 0.95)' : 'rgba(15, 23, 42, 0.9)',
                 }}>
-                  Request Payment Link
+                  Create client payment link
                 </span>
               </div>
               <button
@@ -3890,7 +4893,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     }}
                   >
                     <FaCopy size={10} />
-                    Copy Link
+                    Copy link
                   </button>
                   <button
                     type="button"
@@ -3936,7 +4939,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               /* Form state - enter amount */
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                 <div style={{ fontSize: 11, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)' }}>
-                  Create a Stripe payment link to share with the client for ad-hoc payments.
+                  Generates a one-off Stripe Checkout link for this instruction. Nothing is sent automatically — copy the link and send it to the client.
                 </div>
 
                 {/* Amount Input */}
@@ -3965,10 +4968,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     <input
                       type="number"
                       step="0.01"
-                      min="0.01"
+                      min="1"
                       value={paymentLinkAmount}
                       onChange={(e) => setPaymentLinkAmount(e.target.value)}
-                      placeholder="0.00"
+                      placeholder="1.00"
                       style={{
                         width: '100%',
                         padding: '10px 12px 10px 28px',
@@ -4081,8 +5084,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           marginTop: 4,
                         }}>
                           {paymentLinkIncludesVat 
-                            ? 'VAT will be added to the amount entered'
-                            : 'This payment does not include VAT'}
+                            ? 'Charges the entered amount + 20% VAT (total shown below)'
+                            : 'Charges exactly the entered amount (no VAT added)'}
                         </div>
                         {/* Show breakdown when amount is entered */}
                         {amt > 0 && paymentLinkIncludesVat && (
@@ -4206,7 +5209,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     ) : (
                       <>
                         <FaLink size={10} />
-                        Create Link
+                        Generate link
                       </>
                     )}
                   </button>

@@ -817,6 +817,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
   const [selectedOption, setSelectedOption] = useState<IDropdownOption | undefined>(initialOption);
   // Default estimated fee now set to 1,500 per request
   const [amount, setAmount] = useState<string>('1500');
+  const [linkActivationMode, setLinkActivationMode] = useState<'pitch' | 'manual'>('pitch');
   function handleAmountChange(val?: string) {
     setAmount(val ?? '');
   }
@@ -1293,37 +1294,40 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
           handleTemplateSetChange(initialSet);
           return;
         }
+
         if (state.templateSet) {
           setTemplateSet(state.templateSet);
           initialSet = state.templateSet;
         }
-        // Backward compatibility: migrate stored serviceDescription -> initialScopeDescription
-        if (state.serviceDescription && !state.initialScopeDescription) {
-          setInitialScopeDescription(state.serviceDescription);
+        if (shouldResume) {
+          // Backward compatibility: migrate stored serviceDescription -> initialScopeDescription
+          if (state.serviceDescription && !state.initialScopeDescription) {
+            setInitialScopeDescription(state.serviceDescription);
+          }
+          if (state.initialScopeDescription) setInitialScopeDescription(state.initialScopeDescription);
+          if (state.selectedOption) setSelectedOption(state.selectedOption);
+          if (state.amount) setAmount(state.amount);
+          if (state.subject) setSubject(state.subject);
+          if (state.to) setTo(state.to);
+          if (state.cc) setCc(state.cc);
+          if (state.bcc) setBcc(state.bcc);
+          if (state.attachments) setAttachments(state.attachments);
+          if (state.followUp) setFollowUp(state.followUp);
+          if (state.activeTab) setActiveTab(state.activeTab);
+          if (state.selectedTemplateOptions) setSelectedTemplateOptions(state.selectedTemplateOptions);
+          if (state.insertedBlocks) setInsertedBlocks(state.insertedBlocks);
+          if (state.autoInsertedBlocks) setAutoInsertedBlocks(state.autoInsertedBlocks);
+          if (state.lockedBlocks) setLockedBlocks(state.lockedBlocks);
+          if (state.pinnedBlocks) setPinnedBlocks(state.pinnedBlocks);
+          if (state.editedBlocks) setEditedBlocks(state.editedBlocks);
+          if (state.editedSnippets) setEditedSnippets(state.editedSnippets);
+          if (state.originalBlockContent) setOriginalBlockContent(state.originalBlockContent);
+          if (state.originalSnippetContent) setOriginalSnippetContent(state.originalSnippetContent);
+          if (state.hiddenBlocks) setHiddenBlocks(state.hiddenBlocks);
+          if (state.blocks) setBlocks(state.blocks);
+          if (state.savedSnippets) setSavedSnippets(state.savedSnippets);
+          if (state.body) setBody(state.body);
         }
-        if (state.initialScopeDescription) setInitialScopeDescription(state.initialScopeDescription);
-        if (state.selectedOption) setSelectedOption(state.selectedOption);
-        if (state.amount) setAmount(state.amount);
-        if (state.subject) setSubject(state.subject);
-        if (state.to) setTo(state.to);
-        if (state.cc) setCc(state.cc);
-        if (state.bcc) setBcc(state.bcc);
-        if (state.attachments) setAttachments(state.attachments);
-        if (state.followUp) setFollowUp(state.followUp);
-        if (state.activeTab) setActiveTab(state.activeTab);
-        if (state.selectedTemplateOptions) setSelectedTemplateOptions(state.selectedTemplateOptions);
-        if (state.insertedBlocks) setInsertedBlocks(state.insertedBlocks);
-        if (state.autoInsertedBlocks) setAutoInsertedBlocks(state.autoInsertedBlocks);
-        if (state.lockedBlocks) setLockedBlocks(state.lockedBlocks);
-        if (state.pinnedBlocks) setPinnedBlocks(state.pinnedBlocks);
-        if (state.editedBlocks) setEditedBlocks(state.editedBlocks);
-        if (state.editedSnippets) setEditedSnippets(state.editedSnippets);
-        if (state.originalBlockContent) setOriginalBlockContent(state.originalBlockContent);
-        if (state.originalSnippetContent) setOriginalSnippetContent(state.originalSnippetContent);
-        if (state.hiddenBlocks) setHiddenBlocks(state.hiddenBlocks);
-        if (state.blocks) setBlocks(state.blocks);
-        if (state.savedSnippets) setSavedSnippets(state.savedSnippets);
-        if (shouldResume && state.body) setBody(state.body);
       } catch (e) {
         console.error('Failed to parse saved pitch builder state', e);
         initialSet = 'Database';
@@ -2946,7 +2950,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
     return true;
   }
 
-  async function insertDealIfNeeded(options?: { background?: boolean; bccAdditional?: string }): Promise<string | null> {
+  async function insertDealIfNeeded(options?: { background?: boolean; bccAdditional?: string; linkOnly?: boolean }): Promise<string | null> {
     try {
       // Check if deal creation is already in progress
       if (dealCreationInProgress) {
@@ -3058,12 +3062,13 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
           feeEarnerEmail: userEmailAddress
         },
         // Pitch content fields
-        emailSubject: subject || '',
-        emailBody: body || '',
-        emailBodyHtml: body || '', // Use same content for now, could be enhanced later
+        emailSubject: options?.linkOnly ? '' : (subject || ''),
+        emailBody: options?.linkOnly ? '' : (body || ''),
+        emailBodyHtml: options?.linkOnly ? '' : (body || ''), // Use same content for now, could be enhanced later
         reminders: [], // Could be populated from UI in future
         notes: enquiry.Initial_first_call_notes || '',
-        scenarioId: selectedScenarioId || null, // Include the selected pitch scenario
+        scenarioId: options?.linkOnly ? null : (selectedScenarioId || null), // Include the selected pitch scenario
+        linkOnly: Boolean(options?.linkOnly),
         ...(isMultiClientFlag && {
           clients: dealClients.map((c) => ({
             clientEmail: c.email,
@@ -4612,6 +4617,11 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
         userData={effectiveUserData}
         enquiry={enquiry}
         amount={amount}
+        initialScopeDescription={initialScopeDescription}
+        linkActivationMode={linkActivationMode}
+        onLinkActivationModeChange={setLinkActivationMode}
+        onInitialScopeDescriptionChange={setInitialScopeDescription}
+        onAmountChange={(v) => handleAmountChange(v)}
         passcode={dealPasscode}
         usedPitchRoute={usedPitchRoute}
         onPreview={(url) => {
@@ -4621,12 +4631,77 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
             // no-op fallback
           }
         }}
+        dealStatus={dealStatus}
+        dealCreationInProgress={dealCreationInProgress}
+        onCaptureDealForLink={() => insertDealIfNeeded({ linkOnly: true })}
       />
 
       <main className={bodyWrapperStyle}>
-        {/* Content Sections - Streamlined */}
+        {/* Main composer (scenario cards, editor, blocks, send) */}
+        <EditorAndTemplateBlocks
+          isDarkMode={isDarkMode}
+          body={body}
+          setBody={setBodyForComponents}
+          templateBlocks={blocks.filter(b => !EXTRACTED_BLOCKS.includes(b.title))}
+          selectedTemplateOptions={selectedTemplateOptions}
+          insertedBlocks={insertedBlocks}
+          lockedBlocks={lockedBlocks}
+          editedBlocks={editedBlocks}
+          handleMultiSelectChange={handleMultiSelectChange}
+          handleSingleSelectChange={handleSingleSelectChange}
+          insertTemplateBlock={insertTemplateBlock}
+          renderPreview={renderPreview}
+          applyFormat={applyFormat}
+          saveSelection={saveSelection}
+          handleInput={handleInput}
+          handleBlur={handleBlur}
+          handleClearBlock={handleClearBlock}
+          bodyEditorRef={bodyEditorRef}
+          toolbarStyle={toolbarStyle}
+          bubblesContainerStyle={bubblesContainerStyle}
+          saveCustomSnippet={saveCustomSnippet}
+          markBlockAsEdited={(blockTitle, edited) =>
+            setEditedBlocks((prev) => ({ ...prev, [blockTitle]: edited }))
+          }
+          initialNotes={enquiry.Initial_first_call_notes}
+          subject={subject}
+          setSubject={setSubject}
+          // Deal capture props (always enabled)
+          initialScopeDescription={initialScopeDescription}
+          onScopeDescriptionChange={setInitialScopeDescription}
+          amount={amount}
+          onAmountChange={handleAmountChange}
+          // Inline preview props
+          userData={effectiveUserData}
+          enquiry={enquiry}
+          passcode={dealPasscode}
+          handleDraftEmail={handleDraftEmail}
+          sendEmail={sendEmail}
+          isDraftConfirmed={isDraftConfirmed}
+          // Email recipient props for send confirmation
+          to={to}
+          cc={cc}
+          bcc={bcc}
+          feeEarnerEmail={userEmailAddress}
+          teamData={pitchUserData || undefined}
+          onRecipientsChange={(newTo, newCc, newBcc) => {
+            setTo(newTo);
+            if (newCc !== undefined) setCc(newCc);
+            if (newBcc !== undefined) setBcc(newBcc);
+          }}
+          // Inline status feedback
+          dealCreationInProgress={dealCreationInProgress}
+          dealStatus={dealStatus}
+          emailStatus={emailStatus}
+          emailMessage={emailMessage}
+          onScenarioChange={setSelectedScenarioId}
+          initialScenario={initialScenario}
+          pitchFlowLocked={linkActivationMode === 'manual'}
+        />
+
+        {/* Optional extracted sections (kept functional, moved below composer to reduce pre-scenario noise) */}
         {EXTRACTED_BLOCKS.length > 0 && (
-          <div>
+          <div style={{ marginTop: 18 }}>
             {EXTRACTED_BLOCKS.map(title => {
               const block = blocks.find(b => b.title === title);
               if (!block) return null;
@@ -4641,7 +4716,6 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
                   padding: 16,
                   boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
                 }}>
-                  {/* Section header removed as requested */}
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
                     {block.options.map(opt => {
                       const selected = selections.includes(opt.label);
@@ -4705,68 +4779,6 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
             })}
           </div>
         )}
-        {/* Summary/Overview Section: Instruction, Deal, and Risk/Compliance Cards */}
-
-        {/* Row: Combined Email Editor and Template Blocks */}
-        <EditorAndTemplateBlocks
-          isDarkMode={isDarkMode}
-          body={body}
-          setBody={setBodyForComponents}
-          templateBlocks={blocks.filter(b => !EXTRACTED_BLOCKS.includes(b.title))}
-          selectedTemplateOptions={selectedTemplateOptions}
-          insertedBlocks={insertedBlocks}
-          lockedBlocks={lockedBlocks}
-          editedBlocks={editedBlocks}
-          handleMultiSelectChange={handleMultiSelectChange}
-          handleSingleSelectChange={handleSingleSelectChange}
-          insertTemplateBlock={insertTemplateBlock}
-          renderPreview={renderPreview}
-          applyFormat={applyFormat}
-          saveSelection={saveSelection}
-          handleInput={handleInput}
-          handleBlur={handleBlur}
-          handleClearBlock={handleClearBlock}
-          bodyEditorRef={bodyEditorRef}
-          toolbarStyle={toolbarStyle}
-          bubblesContainerStyle={bubblesContainerStyle}
-          saveCustomSnippet={saveCustomSnippet}
-          markBlockAsEdited={(blockTitle, edited) =>
-            setEditedBlocks((prev) => ({ ...prev, [blockTitle]: edited }))
-          }
-          initialNotes={enquiry.Initial_first_call_notes}
-          subject={subject}
-          setSubject={setSubject}
-          // Deal capture props (always enabled)
-          initialScopeDescription={initialScopeDescription}
-          onScopeDescriptionChange={setInitialScopeDescription}
-          amount={amount}
-          onAmountChange={handleAmountChange}
-          // Inline preview props
-          userData={effectiveUserData}
-          enquiry={enquiry}
-          passcode={dealPasscode}
-          handleDraftEmail={handleDraftEmail}
-          sendEmail={sendEmail}
-          isDraftConfirmed={isDraftConfirmed}
-          // Email recipient props for send confirmation
-          to={to}
-          cc={cc}
-          bcc={bcc}
-          feeEarnerEmail={userEmailAddress}
-          teamData={pitchUserData || undefined}
-          onRecipientsChange={(newTo, newCc, newBcc) => {
-            setTo(newTo);
-            if (newCc !== undefined) setCc(newCc);
-            if (newBcc !== undefined) setBcc(newBcc);
-          }}
-          // Inline status feedback
-          dealCreationInProgress={dealCreationInProgress}
-          dealStatus={dealStatus}
-          emailStatus={emailStatus}
-          emailMessage={emailMessage}
-          onScenarioChange={setSelectedScenarioId}
-          initialScenario={initialScenario}
-        />
 
         {snippetOptionsBlock && snippetOptionsTarget && (
           <Callout

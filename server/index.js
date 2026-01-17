@@ -80,6 +80,7 @@ const pitchTeamRouter = require('./routes/pitchTeam');
 const proxyToAzureFunctionsRouter = require('./routes/proxyToAzureFunctions');
 const fileMapRouter = require('./routes/fileMap');
 const paymentLinkRouter = require('./routes/paymentLink');
+const stripeWebhookRouter = require('./routes/stripeWebhook');
 const opsRouter = require('./routes/ops');
 const sendEmailRouter = require('./routes/sendEmail');
 const forwardEmailRouter = require('./routes/forwardEmail');
@@ -118,7 +119,7 @@ const app = express();
 if (compression) {
     app.use((req, res, next) => {
         // Skip compression for Server-Sent Events to avoid buffering
-        if (req.path.startsWith('/api/reporting-stream') || req.path.startsWith('/api/home-metrics') || req.path.startsWith('/api/logs/stream') || req.path.startsWith('/api/ccl-date') || req.path.startsWith('/api/enquiries-unified/stream')) {
+        if (req.path.startsWith('/api/reporting-stream') || req.path.startsWith('/api/home-metrics') || req.path.startsWith('/api/logs/stream') || req.path.startsWith('/api/ccl-date') || req.path.startsWith('/api/enquiries-unified/stream') || req.path.startsWith('/api/attendance/annual-leave/stream') || req.path.startsWith('/api/attendance/attendance/stream') || req.path.startsWith('/api/future-bookings/stream')) {
             res.setHeader('Cache-Control', 'no-cache, no-transform');
             return next();
         }
@@ -180,6 +181,11 @@ app.use(cors((req, callback) => {
 if (process.env.NODE_ENV !== 'production') {
     app.use(morgan('dev'));
 }
+
+// Stripe webhooks require the *raw* request body for signature verification.
+// This must be registered before express.json().
+app.use('/api/stripe/webhook', stripeWebhookRouter);
+
 // Financial forms can include base64 file uploads; default 100kb limit is too small.
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));

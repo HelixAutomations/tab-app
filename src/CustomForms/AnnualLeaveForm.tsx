@@ -11,6 +11,19 @@ import 'react-date-range/dist/styles.css';
 import 'react-date-range/dist/theme/default.css';
 import '../app/styles/CustomDateRange.css';
 import { getFormDefaultButtonStyles, getFormDecisionButtonStyles, getFormAccentOutlineButtonStyles, getChoiceGroupStyles } from './shared/formStyles';
+
+// Helper: Get fiscal year start for a given date (April 1 - March 31)
+function getFiscalYearStart(date: Date): Date {
+  const year = date.getFullYear();
+  const aprilFirst = new Date(year, 3, 1); // April 1st
+  return date >= aprilFirst ? aprilFirst : new Date(year - 1, 3, 1);
+}
+
+// Helper: Get fiscal year end for a given date
+function getFiscalYearEnd(date: Date): Date {
+  const fiscalStart = getFiscalYearStart(date);
+  return new Date(fiscalStart.getFullYear() + 1, 2, 31); // March 31
+}
 import HelixAvatar from '../assets/helix avatar.png';
 import GreyHelixMark from '../assets/grey helix mark.png'; // Not currently used
 import '../app/styles/personas.css';
@@ -322,14 +335,59 @@ function AnnualLeaveForm({
     }
   }, [deleteTarget, deleteFromClio, onLeaveDeleted]);
 
+  // Fiscal year detection for selected dates
+  const fiscalYearInfo = useMemo(() => {
+    if (dateRanges.length === 0) {
+      return { 
+        currentYear: true, 
+        nextYear: false, 
+        spansMultiple: false,
+        allDaysInNextYear: false 
+      };
+    }
+
+    const currentFiscalStart = getFiscalYearStart(new Date());
+    const currentFiscalEnd = getFiscalYearEnd(new Date());
+    
+    let hasCurrentYear = false;
+    let hasNextYear = false;
+    
+    dateRanges.forEach(range => {
+      const rangeStart = range.startDate;
+      const rangeEnd = range.endDate;
+      
+      // Check if any part of this range falls in current fiscal year
+      if (rangeStart <= currentFiscalEnd && rangeEnd >= currentFiscalStart) {
+        hasCurrentYear = true;
+      }
+      
+      // Check if any part falls in next fiscal year
+      if (rangeEnd > currentFiscalEnd) {
+        hasNextYear = true;
+      }
+    });
+    
+    return {
+      currentYear: hasCurrentYear,
+      nextYear: hasNextYear,
+      spansMultiple: hasCurrentYear && hasNextYear,
+      allDaysInNextYear: !hasCurrentYear && hasNextYear,
+      currentFiscalEnd: format(currentFiscalEnd, 'd MMM yyyy')
+    };
+  }, [dateRanges]);
+
   const holidayEntitlement = Number(userData?.[0]?.holiday_entitlement ?? 0);
   let effectiveRemaining = 0;
+  
+  // Only deduct days from current year's allowance if they're actually in the current fiscal year
+  const daysToDeduct = fiscalYearInfo.allDaysInNextYear ? 0 : totalDays;
+  
   if (selectedLeaveType === 'standard') {
-    effectiveRemaining = holidayEntitlement - safeTotals.standard - totalDays;
+    effectiveRemaining = holidayEntitlement - safeTotals.standard - daysToDeduct;
   } else if (selectedLeaveType === 'purchase') {
-    effectiveRemaining = 5 - safeTotals.unpaid - totalDays; // "Purchase" maps to "unpaid"
+    effectiveRemaining = 5 - safeTotals.unpaid - daysToDeduct; // "Purchase" maps to "unpaid"
   } else if (selectedLeaveType === 'sale') {
-    effectiveRemaining = 5 - safeTotals.sale - totalDays;   // "Sell" maps to "sale"
+    effectiveRemaining = 5 - safeTotals.sale - daysToDeduct;   // "Sell" maps to "sale"
   }
 
   const groupedLeave = useMemo(() => {
@@ -869,6 +927,54 @@ function AnnualLeaveForm({
                 </Stack>
               </div>
             </div>
+
+            {/* Fiscal Year Warning */}
+            {(fiscalYearInfo.nextYear || fiscalYearInfo.spansMultiple) && (
+              <div style={{
+                padding: '0.75rem 1rem',
+                marginBottom: '16px',
+                borderRadius: 0,
+                background: isDarkMode ? 'rgba(251, 191, 36, 0.08)' : 'rgba(251, 191, 36, 0.06)',
+                border: `1px solid ${isDarkMode ? 'rgba(251, 191, 36, 0.3)' : 'rgba(251, 191, 36, 0.25)'}`,
+                borderLeft: `3px solid ${isDarkMode ? '#fbbf24' : '#f59e0b'}`,
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '0.75rem'
+              }}>
+                <Icon 
+                  iconName="Warning" 
+                  style={{ 
+                    color: isDarkMode ? '#fbbf24' : '#f59e0b',
+                    fontSize: '16px',
+                    marginTop: '2px',
+                    flexShrink: 0
+                  }} 
+                />
+                <div style={{ flex: 1 }}>
+                  <Text style={{ 
+                    fontSize: '13px', 
+                    fontWeight: 600,
+                    color: isDarkMode ? '#fbbf24' : '#f59e0b',
+                    display: 'block',
+                    marginBottom: '4px'
+                  }}>
+                    {fiscalYearInfo.spansMultiple 
+                      ? 'Request spans multiple fiscal years'
+                      : 'Next fiscal year request'}
+                  </Text>
+                  <Text style={{ 
+                    fontSize: '12px', 
+                    color: isDarkMode ? colours.dark.text : colours.light.text,
+                    lineHeight: '1.4'
+                  }}>
+                    {fiscalYearInfo.spansMultiple 
+                      ? `Some dates fall after ${fiscalYearInfo.currentFiscalEnd} (next fiscal year). Allowances shown are for the current year only. Next year's entitlement will be assessed separately upon approval.`
+                      : `These dates fall in the next fiscal year (after ${fiscalYearInfo.currentFiscalEnd}). Next year's allowance will be used instead of the current year's balance shown above.`
+                    }
+                  </Text>
+                </div>
+              </div>
+            )}
 
             {/* Date Ranges Section */}
             <div style={{ marginBottom: '16px' }}>

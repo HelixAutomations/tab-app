@@ -35,6 +35,8 @@ interface EnhancedAttendanceProps {
   onAttendanceUpdated?: (updatedRecords: AttendanceRecord[]) => void;
   currentUserConfirmed?: boolean;
   onConfirmAttendance?: () => void;
+  realtimeHighlightInitials?: string | null;
+  realtimePulseNonce?: number;
 }
 
 export interface EnhancedAttendanceRef {
@@ -57,6 +59,8 @@ const EnhancedAttendance = forwardRef<EnhancedAttendanceRef, EnhancedAttendanceP
     onAttendanceUpdated,
     currentUserConfirmed,
     onConfirmAttendance,
+    realtimeHighlightInitials,
+    realtimePulseNonce,
   } = props;
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -396,6 +400,8 @@ const EnhancedAttendance = forwardRef<EnhancedAttendanceRef, EnhancedAttendanceP
           onDayUpdate={handleDayUpdate}
           currentUserConfirmed={currentUserConfirmed}
           onConfirmAttendance={onConfirmAttendance}
+          realtimeHighlightInitials={realtimeHighlightInitials}
+          realtimePulseNonce={realtimePulseNonce}
         />
       </div>
 

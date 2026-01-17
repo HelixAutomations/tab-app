@@ -6,7 +6,14 @@ import { useTheme } from '../app/functionality/ThemeContext';
 import '../app/styles/animations.css';
 
 interface ModalSkeletonProps {
-  variant?: 'annual-leave' | 'attendance' | 'task' | 'generic';
+  variant?:
+    | 'annual-leave'
+    | 'annual-leave-request'
+    | 'annual-leave-approve'
+    | 'annual-leave-book'
+    | 'attendance'
+    | 'task'
+    | 'generic';
 }
 
 const SkeletonBlock: React.FC<{ 
@@ -33,131 +40,283 @@ export const ModalSkeleton: React.FC<ModalSkeletonProps> = ({ variant = 'generic
   
   const textMuted = isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)';
 
-  if (variant === 'annual-leave') {
-    return (
-      <div style={{ padding: '8px 0' }}>
-        {/* Admin bar skeleton */}
-        <div style={{
-          display: 'flex',
-          gap: 8,
-          marginBottom: 16,
-          padding: '10px 12px',
-          background: isDarkMode ? 'rgba(255, 183, 77, 0.06)' : 'rgba(255, 152, 0, 0.06)',
-          borderRadius: 4
-        }}>
-          <SkeletonBlock width={70} height={24} isDark={isDarkMode} borderRadius={3} />
-          <SkeletonBlock width={60} height={24} isDark={isDarkMode} borderRadius={3} />
-          <SkeletonBlock width={55} height={24} isDark={isDarkMode} borderRadius={3} />
-          <SkeletonBlock width={65} height={24} isDark={isDarkMode} borderRadius={3} />
-        </div>
+  const annualLeaveRequestSkeleton = (
+    <div style={{ padding: '8px 0' }}>
+      {/* Admin bar skeleton */}
+      <div style={{
+        display: 'flex',
+        gap: 8,
+        marginBottom: 16,
+        padding: '10px 12px',
+        background: isDarkMode ? 'rgba(255, 183, 77, 0.06)' : 'rgba(255, 152, 0, 0.06)',
+        borderRadius: 4
+      }}>
+        <SkeletonBlock width={70} height={24} isDark={isDarkMode} borderRadius={3} />
+        <SkeletonBlock width={60} height={24} isDark={isDarkMode} borderRadius={3} />
+        <SkeletonBlock width={55} height={24} isDark={isDarkMode} borderRadius={3} />
+        <SkeletonBlock width={65} height={24} isDark={isDarkMode} borderRadius={3} />
+      </div>
 
-        {/* 2-column grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-          {/* Left: Calendar skeleton */}
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <SkeletonBlock width={24} height={24} isDark={isDarkMode} />
-              <SkeletonBlock width={120} height={20} isDark={isDarkMode} />
-              <SkeletonBlock width={24} height={24} isDark={isDarkMode} />
-            </div>
-            {/* Calendar grid */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
-              {/* Weekday headers */}
-              {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((_, i) => (
-                <SkeletonBlock key={`h-${i}`} width="100%" height={20} isDark={isDarkMode} borderRadius={2} />
-              ))}
-              {/* Calendar days */}
-              {Array.from({ length: 35 }).map((_, i) => (
-                <SkeletonBlock key={i} width="100%" height={32} isDark={isDarkMode} borderRadius={2} />
-              ))}
-            </div>
-          </div>
-
-          {/* Right: Stats skeleton */}
-          <div>
-            {/* Legend */}
-            <div style={{
-              padding: 10,
-              marginBottom: 12,
-              background: isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)',
-              borderRadius: 0
-            }}>
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
-                {[80, 70, 60, 65, 70].map((w, i) => (
-                  <SkeletonBlock key={i} width={w} height={14} isDark={isDarkMode} borderRadius={2} />
-                ))}
-              </div>
-              <SkeletonBlock width="90%" height={12} isDark={isDarkMode} />
-            </div>
-            
-            {/* Stats card */}
-            <div style={{
-              padding: 16,
-              background: isDarkMode ? 'rgba(6, 23, 51, 0.4)' : 'rgba(255, 255, 255, 0.95)',
-              borderRadius: 0,
-              marginBottom: 16
-            }}>
-              <SkeletonBlock width={100} height={12} isDark={isDarkMode} style={{ marginBottom: 8 }} />
-              <SkeletonBlock width={60} height={32} isDark={isDarkMode} style={{ marginBottom: 16 }} />
-              
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {[1, 2, 3, 4, 5].map(i => (
-                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <SkeletonBlock width={120} height={14} isDark={isDarkMode} />
-                    <SkeletonBlock width={40} height={14} isDark={isDarkMode} />
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Divider */}
-        <div style={{ height: 1, background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.1)', margin: '20px 0 16px' }} />
-
-        {/* Leave history skeleton */}
+      {/* 2-column grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+        {/* Left: Calendar skeleton */}
         <div>
-          <SkeletonBlock width={150} height={12} isDark={isDarkMode} style={{ marginBottom: 10 }} />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {[1, 2, 3].map(i => (
-              <div key={i} style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                padding: '10px 12px',
-                background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
-                borderRadius: 4
-              }}>
-                <div style={{ display: 'flex', gap: 12 }}>
-                  <SkeletonBlock width={80} height={16} isDark={isDarkMode} />
-                  <SkeletonBlock width={60} height={16} isDark={isDarkMode} />
-                </div>
-                <SkeletonBlock width={70} height={20} isDark={isDarkMode} borderRadius={10} />
-              </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <SkeletonBlock width={24} height={24} isDark={isDarkMode} />
+            <SkeletonBlock width={120} height={20} isDark={isDarkMode} />
+            <SkeletonBlock width={24} height={24} isDark={isDarkMode} />
+          </div>
+          {/* Calendar grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
+            {/* Weekday headers */}
+            {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((_, i) => (
+              <SkeletonBlock key={`h-${i}`} width="100%" height={20} isDark={isDarkMode} borderRadius={2} />
+            ))}
+            {/* Calendar days */}
+            {Array.from({ length: 35 }).map((_, i) => (
+              <SkeletonBlock key={i} width="100%" height={32} isDark={isDarkMode} borderRadius={2} />
             ))}
           </div>
         </div>
 
-        {/* Bottom actions */}
-        <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-          <SkeletonBlock width={100} height={36} isDark={isDarkMode} borderRadius={4} />
-          <SkeletonBlock width={140} height={36} isDark={isDarkMode} borderRadius={4} />
-        </div>
+        {/* Right: Stats skeleton */}
+        <div>
+          {/* Legend */}
+          <div style={{
+            padding: 10,
+            marginBottom: 12,
+            background: isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)',
+            borderRadius: 0
+          }}>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+              {[80, 70, 60, 65, 70].map((w, i) => (
+                <SkeletonBlock key={i} width={w} height={14} isDark={isDarkMode} borderRadius={2} />
+              ))}
+            </div>
+            <SkeletonBlock width="90%" height={12} isDark={isDarkMode} />
+          </div>
 
-        {/* Loading indicator text */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 8,
-          marginTop: 16,
-          color: textMuted,
-          fontSize: 12
-        }}>
-          <span>Loading annual leave data...</span>
+          {/* Stats card */}
+          <div style={{
+            padding: 16,
+            background: isDarkMode ? 'rgba(6, 23, 51, 0.4)' : 'rgba(255, 255, 255, 0.95)',
+            borderRadius: 0,
+            marginBottom: 16
+          }}>
+            <SkeletonBlock width={100} height={12} isDark={isDarkMode} style={{ marginBottom: 8 }} />
+            <SkeletonBlock width={60} height={32} isDark={isDarkMode} style={{ marginBottom: 16 }} />
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {[1, 2, 3, 4, 5].map(i => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <SkeletonBlock width={120} height={14} isDark={isDarkMode} />
+                  <SkeletonBlock width={40} height={14} isDark={isDarkMode} />
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
+
+      {/* Divider */}
+      <div style={{ height: 1, background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.1)', margin: '20px 0 16px' }} />
+
+      {/* Leave history skeleton */}
+      <div>
+        <SkeletonBlock width={150} height={12} isDark={isDarkMode} style={{ marginBottom: 10 }} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {[1, 2, 3].map(i => (
+            <div key={i} style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '10px 12px',
+              background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+              borderRadius: 4
+            }}>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <SkeletonBlock width={80} height={16} isDark={isDarkMode} />
+                <SkeletonBlock width={60} height={16} isDark={isDarkMode} />
+              </div>
+              <SkeletonBlock width={70} height={20} isDark={isDarkMode} borderRadius={10} />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Bottom actions */}
+      <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+        <SkeletonBlock width={100} height={36} isDark={isDarkMode} borderRadius={4} />
+        <SkeletonBlock width={140} height={36} isDark={isDarkMode} borderRadius={4} />
+      </div>
+
+      {/* Loading indicator text */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        marginTop: 16,
+        color: textMuted,
+        fontSize: 12
+      }}>
+        <span>Loading leave request form...</span>
+      </div>
+    </div>
+  );
+
+  const annualLeaveApproveSkeleton = (
+    <div style={{ padding: '8px 0' }}>
+      {/* Header bar */}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: 10,
+        marginBottom: 14
+      }}>
+        <SkeletonBlock width={170} height={18} isDark={isDarkMode} />
+        <SkeletonBlock width={120} height={28} isDark={isDarkMode} borderRadius={14} />
+      </div>
+
+      {/* Search / filter row */}
+      <div style={{
+        display: 'flex',
+        gap: 10,
+        marginBottom: 16
+      }}>
+        <SkeletonBlock width="100%" height={34} isDark={isDarkMode} borderRadius={6} />
+        <SkeletonBlock width={90} height={34} isDark={isDarkMode} borderRadius={6} />
+      </div>
+
+      {/* Approval cards */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {[1, 2, 3].map(i => (
+          <div key={i} style={{
+            padding: '14px 14px',
+            borderRadius: 8,
+            background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(6,23,51,0.08)'}`
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <SkeletonBlock width={34} height={34} isDark={isDarkMode} borderRadius={17} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <SkeletonBlock width={120} height={12} isDark={isDarkMode} />
+                  <SkeletonBlock width={160} height={10} isDark={isDarkMode} />
+                </div>
+              </div>
+              <SkeletonBlock width={86} height={20} isDark={isDarkMode} borderRadius={10} />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <SkeletonBlock width="85%" height={12} isDark={isDarkMode} />
+              <SkeletonBlock width="70%" height={12} isDark={isDarkMode} />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
+              <SkeletonBlock width={110} height={34} isDark={isDarkMode} borderRadius={6} />
+              <SkeletonBlock width={110} height={34} isDark={isDarkMode} borderRadius={6} />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        marginTop: 16,
+        color: textMuted,
+        fontSize: 12
+      }}>
+        <span>Loading approvals...</span>
+      </div>
+    </div>
+  );
+
+  const annualLeaveBookSkeleton = (
+    <div style={{ padding: '8px 0' }}>
+      {/* Header */}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: 10,
+        marginBottom: 14
+      }}>
+        <SkeletonBlock width={190} height={18} isDark={isDarkMode} />
+        <SkeletonBlock width={90} height={28} isDark={isDarkMode} borderRadius={14} />
+      </div>
+
+      {/* Booking cards */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {[1, 2, 3].map(i => (
+          <div key={i} style={{
+            borderRadius: 8,
+            overflow: 'hidden',
+            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(6,23,51,0.08)'}`,
+            background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)'
+          }}>
+            <div style={{
+              padding: '14px 16px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: isDarkMode ? 'rgba(7, 16, 32, 0.6)' : 'rgba(248, 250, 252, 0.7)'
+            }}>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <SkeletonBlock width={34} height={34} isDark={isDarkMode} borderRadius={17} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <SkeletonBlock width={110} height={12} isDark={isDarkMode} />
+                  <SkeletonBlock width={150} height={10} isDark={isDarkMode} />
+                </div>
+              </div>
+              <SkeletonBlock width={92} height={20} isDark={isDarkMode} borderRadius={10} />
+            </div>
+            <div style={{ padding: '14px 16px' }}>
+              <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
+                <SkeletonBlock width={120} height={18} isDark={isDarkMode} borderRadius={12} />
+                <SkeletonBlock width={90} height={18} isDark={isDarkMode} borderRadius={12} />
+              </div>
+              <SkeletonBlock width="75%" height={12} isDark={isDarkMode} style={{ marginBottom: 8 }} />
+              <SkeletonBlock width="55%" height={12} isDark={isDarkMode} />
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
+                <SkeletonBlock width={120} height={34} isDark={isDarkMode} borderRadius={6} />
+                <SkeletonBlock width={110} height={34} isDark={isDarkMode} borderRadius={6} />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        marginTop: 16,
+        color: textMuted,
+        fontSize: 12
+      }}>
+        <span>Loading bookings...</span>
+      </div>
+    </div>
+  );
+
+  if (variant === 'annual-leave' || variant === 'annual-leave-request') {
+    return (
+      annualLeaveRequestSkeleton
     );
+  }
+
+  if (variant === 'annual-leave-approve') {
+    return annualLeaveApproveSkeleton;
+  }
+
+  if (variant === 'annual-leave-book') {
+    return annualLeaveBookSkeleton;
   }
 
   if (variant === 'attendance') {

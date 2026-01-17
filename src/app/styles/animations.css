@@ -254,3 +254,12 @@
     animation: skeletonCascadeIn 0.35s ease-out forwards;
     animation-delay: var(--cascade-delay, 0ms);
 }
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}

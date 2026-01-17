@@ -85,6 +85,7 @@ interface InstructionsProps {
   setIsInMatterOpeningWorkflow?: (inWorkflow: boolean) => void;
   enquiries?: any[] | null;
   featureToggles?: Record<string, boolean>;
+  demoModeEnabled?: boolean;
 }
 const Instructions: React.FC<InstructionsProps> = ({
   userInitials,
@@ -100,10 +101,11 @@ const Instructions: React.FC<InstructionsProps> = ({
   setIsInMatterOpeningWorkflow,
   enquiries = [],
   featureToggles = {},
+  demoModeEnabled = false,
 }) => {
   const { isDarkMode } = useTheme();
   const { setContent } = useNavigatorActions();
-  const { showToast } = useToast();
+  const { showToast, updateToast } = useToast();
   const [showNewMatterPage, setShowNewMatterPage] = useState<boolean>(false);
   const [showRiskPage, setShowRiskPage] = useState<boolean>(false);
   // Core selection + workflow state (restored after resume/new workflow removal)
@@ -3367,6 +3369,188 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
     return items;
   }, [overviewItemsWithNextAction, clientsActionFilter, searchTerm, pipelineFilters, selectedAreaFilters]);
 
+  const DEMO_INSTRUCTION_REF = 'HLX-DEMO-00001';
+  const [demoEidState, setDemoEidState] = useState<'idle' | 'processing' | 'complete'>('idle');
+  const demoEidCompletedAtRef = useRef<string | null>(null);
+  const demoEidTimerRef = useRef<number | null>(null);
+
+  type DemoEidOutcome = 'pass' | 'review' | 'fail' | 'manual-approved';
+  type DemoEidSubResult = 'passed' | 'review' | 'failed';
+  interface DemoEidSimConfig {
+    outcome: DemoEidOutcome;
+    pepResult: DemoEidSubResult;
+    addressResult: DemoEidSubResult;
+  }
+  const DEMO_EID_SIM_CONFIG_KEY = 'demoEidSimulationConfig';
+  const readDemoEidSimConfig = (): DemoEidSimConfig => {
+    try {
+      const raw = window.localStorage.getItem(DEMO_EID_SIM_CONFIG_KEY);
+      if (!raw) {
+        return { outcome: 'pass', pepResult: 'passed', addressResult: 'passed' };
+      }
+      const parsed = JSON.parse(raw) as Partial<DemoEidSimConfig>;
+      const outcome: DemoEidOutcome =
+        parsed.outcome === 'review' || parsed.outcome === 'fail' || parsed.outcome === 'manual-approved' || parsed.outcome === 'pass'
+          ? parsed.outcome
+          : 'pass';
+      const pepResult: DemoEidSubResult = parsed.pepResult === 'review' || parsed.pepResult === 'failed' || parsed.pepResult === 'passed'
+        ? parsed.pepResult
+        : 'passed';
+      const addressResult: DemoEidSubResult = parsed.addressResult === 'review' || parsed.addressResult === 'failed' || parsed.addressResult === 'passed'
+        ? parsed.addressResult
+        : 'passed';
+      return { outcome, pepResult, addressResult };
+    } catch {
+      return { outcome: 'pass', pepResult: 'passed', addressResult: 'passed' };
+    }
+  };
+
+  // Keep demo simulation config in sync when edited from the workbench.
+  const [demoEidSimConfigNonce, setDemoEidSimConfigNonce] = useState(0);
+  useEffect(() => {
+    const onConfigChanged = () => setDemoEidSimConfigNonce((n) => n + 1);
+    const onResetRequested = () => {
+      if (demoEidTimerRef.current) {
+        window.clearTimeout(demoEidTimerRef.current);
+        demoEidTimerRef.current = null;
+      }
+      demoEidCompletedAtRef.current = null;
+      setDemoEidState('idle');
+      showToast({ type: 'info', message: 'Demo: ID verification record cleared' });
+    };
+
+    window.addEventListener('demoEidSimConfigChanged', onConfigChanged as EventListener);
+    window.addEventListener('demoEidResetRequested', onResetRequested as EventListener);
+    return () => {
+      window.removeEventListener('demoEidSimConfigChanged', onConfigChanged as EventListener);
+      window.removeEventListener('demoEidResetRequested', onResetRequested as EventListener);
+    };
+  }, [showToast]);
+
+  useEffect(() => {
+    return () => {
+      if (demoEidTimerRef.current) {
+        window.clearTimeout(demoEidTimerRef.current);
+        demoEidTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  const startDemoEidSimulation = useCallback(() => {
+    if (!demoModeEnabled) return;
+
+    if (demoEidTimerRef.current) {
+      window.clearTimeout(demoEidTimerRef.current);
+      demoEidTimerRef.current = null;
+    }
+
+    demoEidCompletedAtRef.current = null;
+    setDemoEidState('processing');
+    const config = readDemoEidSimConfig();
+    const toastId = showToast({ type: 'loading', message: 'Demo: running ID verification checks…' });
+
+    demoEidTimerRef.current = window.setTimeout(() => {
+      demoEidCompletedAtRef.current = new Date().toISOString();
+      setDemoEidState('complete');
+
+      const label =
+        config.outcome === 'manual-approved'
+          ? 'Manual approval'
+          : config.outcome === 'review'
+          ? 'Review'
+          : config.outcome === 'fail'
+          ? 'Fail'
+          : 'Pass';
+      const finalType = config.outcome === 'fail' ? 'error' : config.outcome === 'review' ? 'warning' : 'success';
+      updateToast(toastId, { type: finalType, message: `Demo: ID verification complete (${label})` });
+      demoEidTimerRef.current = null;
+    }, 1600);
+  }, [demoModeEnabled, showToast, updateToast]);
+
+  const tableOverviewItems = useMemo(() => {
+    if (!demoModeEnabled) return filteredOverviewItems;
+
+    const alreadyPresent = filteredOverviewItems.some(
+      (item: any) => item?.instruction?.InstructionRef === DEMO_INSTRUCTION_REF
+    );
+    if (alreadyPresent) return filteredOverviewItems;
+
+    const demoNow = new Date().toISOString();
+
+    const config = readDemoEidSimConfig();
+    const overallResult =
+      config.outcome === 'manual-approved'
+        ? 'Verified'
+        : config.outcome === 'review'
+        ? 'review'
+        : config.outcome === 'fail'
+        ? 'failed'
+        : 'passed';
+
+    const eidCompletedAt = demoEidCompletedAtRef.current || demoNow;
+    const demoEid: any =
+      demoEidState === 'processing'
+        ? {
+            EIDStatus: 'pending',
+            EIDOverallResult: 'pending',
+            EIDCheckedDate: null,
+            PEPAndSanctionsCheckResult: 'pending',
+            AddressVerificationResult: 'pending',
+            Provider: 'DEMO',
+          }
+        : demoEidState === 'complete'
+        ? {
+            EIDStatus: 'complete',
+            EIDOverallResult: overallResult,
+            EIDCheckedDate: eidCompletedAt,
+            PEPAndSanctionsCheckResult: config.pepResult,
+            AddressVerificationResult: config.addressResult,
+            Provider: 'DEMO',
+          }
+        : null;
+
+    const demoItem: any = {
+      instruction: {
+        InstructionRef: DEMO_INSTRUCTION_REF,
+        SubmittedDate: demoNow,
+        Stage: demoEidState === 'complete' ? 'proof-of-id-complete' : 'proof-of-id',
+        FirstName: 'Test',
+        LastName: 'Client',
+        Forename: 'Test',
+        Surname: 'Client',
+        ClientEmail: 'test.client@example.com',
+        Email: 'test.client@example.com',
+        CompanyName: 'Demo Co Ltd',
+        ClientType: 'Individual',
+        AreaOfWork: 'Demo',
+        HelixContact: userInitials,
+        EIDOverallResult: demoEidState === 'complete' ? overallResult : '',
+        EIDStatus: demoEid?.EIDStatus || '',
+      },
+      deal: {
+        DealId: 'DEMO',
+        Passcode: '00000',
+        PitchedDate: demoNow,
+        Status: 'demo',
+        AreaOfWork: 'Demo',
+        Amount: 0,
+        PitchedBy: userInitials,
+        LeadClientEmail: 'test.client@example.com',
+      },
+      prospectId: 'DEMO',
+      documentCount: 0,
+      payments: [],
+      documents: [],
+      risk: null,
+      eid: demoEid,
+      eids: demoEid ? [demoEid] : [],
+      nextAction: demoEidState === 'complete' ? 'Complete' : 'ID Verification',
+      isDemo: true,
+    };
+
+    return [demoItem, ...filteredOverviewItems];
+  }, [demoModeEnabled, filteredOverviewItems, userInitials, demoEidState, demoEidSimConfigNonce]);
+
   // Local dev helper: detect instructions whose next required action is Matter Opening
   const isLocalhostEnv = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
   const openMatterCandidates = useMemo(() => {
@@ -5032,7 +5216,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
           )}
           {activeTab === "clients" && viewMode === 'table' && (
             <InstructionTableView
-              instructions={filteredOverviewItems}
+              instructions={tableOverviewItems}
               isDarkMode={isDarkMode}
               loading={!instructionData || instructionData.length === 0}
               pipelineFilters={pipelineFilters}
@@ -5046,6 +5230,10 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                 setPreviewModalOpen(true);
               }}
               onTriggerEID={async (instructionRef: string) => {
+                if (demoModeEnabled && instructionRef === DEMO_INSTRUCTION_REF) {
+                  startDemoEidSimulation();
+                  return;
+                }
                 // Find the instruction by ref and trigger EID check
                 const item = filteredOverviewItems.find((ov: any) => ov.instruction?.InstructionRef === instructionRef);
                 if (item?.instruction) {
@@ -5055,6 +5243,23 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
               onOpenIdReview={async (instructionRef: string) => {
                 // Open the ID verification review modal for this instruction
                 try {
+                  if (demoModeEnabled && instructionRef === DEMO_INSTRUCTION_REF) {
+                    const demoNow = new Date().toISOString();
+                    setReviewModalDetails({
+                      instructionRef,
+                      clientName: 'Test Client',
+                      clientEmail: 'test.client@example.com',
+                      overallResult: demoEidState === 'complete' ? 'verified' : demoEidState === 'processing' ? 'pending' : 'not started',
+                      pepResult: demoEidState === 'complete' ? 'passed' : demoEidState === 'processing' ? 'pending' : 'not started',
+                      addressResult: demoEidState === 'complete' ? 'passed' : demoEidState === 'processing' ? 'pending' : 'not started',
+                      rawResponse: { demo: true },
+                      checkedDate: demoEidCompletedAtRef.current || demoNow,
+                      documentsRequested: false,
+                      documentsReceived: false,
+                    });
+                    setShowReviewModal(true);
+                    return;
+                  }
                   const details = await fetchVerificationDetails(instructionRef);
                   setReviewModalDetails(details);
                   setShowReviewModal(true);

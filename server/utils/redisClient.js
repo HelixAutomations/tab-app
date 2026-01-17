@@ -7,6 +7,8 @@ const log = loggers.redis;
 let redisClient = null;
 let isConnected = false;
 let connectionPromise = null;
+let nextConnectAllowedAt = 0;
+const CONNECT_FAILURE_COOLDOWN_MS = 30 * 1000;
 // Last used auth context (for diagnostics)
 let lastAuthContext = { method: null, username: undefined, tenantId: undefined, oid: undefined, appid: undefined, sub: undefined, upn: undefined };
 // In-flight de-duplication map: cacheKey -> Promise
@@ -14,6 +16,9 @@ const inflightCache = new Map();
 // Rate-limit auth error logging (log once per minute max)
 let lastAuthErrorLog = 0;
 const AUTH_ERROR_LOG_INTERVAL_MS = 60 * 1000;
+// Rate-limit noisy network error logging (log once per 30s max)
+let lastNetworkErrorLog = 0;
+const NETWORK_ERROR_LOG_INTERVAL_MS = 30 * 1000;
 
 // Token management for Entra ID auth
 let cachedCredential = null;
@@ -120,6 +125,11 @@ async function initRedisClient() {
   // Return existing healthy connection
   if (redisClient && isConnected && redisClient.isReady) {
     return redisClient;
+  }
+
+  // Avoid tight retry loops when Redis is down/misconfigured
+  if (Date.now() < nextConnectAllowedAt) {
+    return null;
   }
 
   // If connection is in progress, wait for it
@@ -296,7 +306,22 @@ async function performRedisConnection() {
         cachedCredential = null;
         lastTokenExpiry = 0;
       } else {
-        log.error('Redis error:', err);
+        const now = Date.now();
+        const noisyNetworkError = msg.includes('Socket closed unexpectedly')
+          || msg.includes('ECONNRESET')
+          || msg.includes('ETIMEDOUT')
+          || msg.includes('EAI_AGAIN')
+          || msg.includes('ENOTFOUND');
+
+        if (!noisyNetworkError || (now - lastNetworkErrorLog >= NETWORK_ERROR_LOG_INTERVAL_MS)) {
+          lastNetworkErrorLog = now;
+          log.error('Redis error:', err);
+        }
+
+        // Back off reconnect attempts a bit if we keep flapping
+        if (noisyNetworkError) {
+          nextConnectAllowedAt = Math.max(nextConnectAllowedAt, now + CONNECT_FAILURE_COOLDOWN_MS);
+        }
         isConnected = false;
       }
     });
@@ -327,6 +352,7 @@ async function performRedisConnection() {
     log.error('Failed to initialize Redis client:', error);
     redisClient = null;
     isConnected = false;
+    nextConnectAllowedAt = Date.now() + CONNECT_FAILURE_COOLDOWN_MS;
     return null;
   }
 }

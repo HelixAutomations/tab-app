@@ -490,10 +490,19 @@ const App: React.FC<AppProps> = ({
   // Determine the current user's initials
   const userInitials = userData?.[0]?.Initials?.toUpperCase() || '';
 
-  // Fetch instruction data lazily when Instructions tab is opened (not on app load)
+  // Fetch instruction data lazily when Instructions tab is opened.
+  // Enquiries also needs access to this dataset for InlineWorkbench expansion.
   useEffect(() => {
-    // Only fetch instructions when Instructions tab is active
-    if (activeTab !== 'instructions') {
+    const currentUser = userData?.[0] || null;
+    const hasAccess = hasInstructionsAccess(currentUser);
+
+    // Only fetch instructions when Instructions tab is active, or when Enquiries needs workbench data.
+    if (activeTab !== 'instructions' && activeTab !== 'enquiries') {
+      return;
+    }
+
+    // Don't attempt to fetch instruction data for users without access.
+    if (!hasAccess) {
       return;
     }
 
@@ -510,7 +519,6 @@ const App: React.FC<AppProps> = ({
       const pilotUsers = ["AC", "JW", "KW", "BL", "LZ"];
       // Use the actual user's initials for filtering, not LZ's
       const targetInitials = userInitials;
-      const currentUser = userData?.[0];
       const isAdmin = isAdminUser(currentUser);
 
       if (useLocalData) {
@@ -788,6 +796,7 @@ const App: React.FC<AppProps> = ({
             onOptimisticClaim={onOptimisticClaim}
             instructionData={allInstructionData}
             featureToggles={featureToggles}
+            demoModeEnabled={demoModeEnabled}
             isActive={activeTab === 'enquiries'}
           />
         );
@@ -807,6 +816,7 @@ const App: React.FC<AppProps> = ({
             setPoidData={setPoidData}
             enquiries={enquiries}
             featureToggles={featureToggles}
+            demoModeEnabled={demoModeEnabled}
           />
         );
       case 'matters':

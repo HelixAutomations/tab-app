@@ -4,6 +4,8 @@ const axios = require('axios');
 const { DefaultAzureCredential } = require('@azure/identity');
 const { SecretClient } = require('@azure/keyvault-secrets');
 const { getRedisClient, generateCacheKey, cacheWrapper, deleteCachePattern, deleteCache } = require('../utils/redisClient');
+const { attachAnnualLeaveStream, broadcastAnnualLeaveChanged } = require('../utils/annual-leave-stream');
+const { attachAttendanceStream, broadcastAttendanceChanged } = require('../utils/attendance-stream');
 const router = express.Router();
 
 const TRANSIENT_SQL_CODES = new Set(['ESOCKET', 'ECONNCLOSED', 'ECONNRESET', 'ETIMEDOUT', 'ETIMEOUT']);
@@ -121,7 +123,11 @@ async function getGeneralAnnualLeaveData(today, { forceRefresh = false } = {}) {
               hearing_confirmation,
               hearing_details,
               half_day_start,
-              half_day_end
+              half_day_end,
+              requested_at,
+              approved_at,
+              booked_at,
+              updated_at
             FROM [dbo].[annualLeave]
             WHERE status = 'booked'
               AND @today BETWEEN start_date AND end_date
@@ -143,7 +149,11 @@ async function getGeneralAnnualLeaveData(today, { forceRefresh = false } = {}) {
               hearing_confirmation,
               hearing_details,
               half_day_start,
-              half_day_end
+              half_day_end,
+              requested_at,
+              approved_at,
+              booked_at,
+              updated_at
             FROM [dbo].[annualLeave]
             WHERE start_date > @today
               AND status IN ('requested', 'approved', 'booked')
@@ -165,7 +175,11 @@ async function getGeneralAnnualLeaveData(today, { forceRefresh = false } = {}) {
               hearing_confirmation,
               hearing_details,
               half_day_start,
-              half_day_end
+              half_day_end,
+              requested_at,
+              approved_at,
+              booked_at,
+              updated_at
             FROM [dbo].[annualLeave]
             WHERE start_date >= DATEADD(year, -2, GETDATE())
             ORDER BY start_date DESC
@@ -236,11 +250,19 @@ router.get('/debug-team-schema', async (req, res) => {
 // (getSqlPassword is defined later for all routes; keep a single definition to avoid confusion)
 
 // Helper function to check annual leave
-async function checkAnnualLeave() {
+async function checkAnnualLeave({ forceRefresh = false } = {}) {
   try {
     // Cache key based on current date since leave status changes daily
     const today = new Date().toISOString().split('T')[0];
     const cacheKey = generateCacheKey('attendance', 'annual-leave-active', today);
+
+    if (forceRefresh) {
+      try {
+        await deleteCache(cacheKey);
+      } catch {
+        // Non-blocking
+      }
+    }
     
     return await cacheWrapper(
       cacheKey,
@@ -288,6 +310,15 @@ const getAttendanceHandler = async (req, res) => {
     // Generate cache key based on current date (attendance changes daily)
     const today = new Date().toISOString().split('T')[0];
     const cacheKey = generateCacheKey('attendance', 'team-data', today);
+    const forceRefresh = String(req.query?.forceRefresh || '').toLowerCase() === 'true';
+
+    if (forceRefresh) {
+      try {
+        await deleteCache(cacheKey);
+      } catch {
+        // Non-blocking
+      }
+    }
     
     // Try to get cached data first
     const cachedData = await cacheWrapper(
@@ -316,7 +347,7 @@ const getAttendanceHandler = async (req, res) => {
                 PARTITION BY [Initials], [ISO_Week] 
                 ORDER BY [Confirmed_At] DESC
               ) as rn
-            FROM [dbo].[attendance]
+            FROM [dbo].[Attendance]
             WHERE [Week_Start] <= CAST(GETDATE() AS DATE) 
               AND [Week_End] >= CAST(GETDATE() AS DATE)
               AND [Initials] IS NOT NULL
@@ -339,8 +370,8 @@ const getAttendanceHandler = async (req, res) => {
           ORDER BY [First]
         `));
 
-        // Check who's on annual leave
-  const peopleOnLeaveList = await checkAnnualLeave();
+          // Check who's on annual leave
+        const peopleOnLeaveList = await checkAnnualLeave({ forceRefresh });
   const peopleOnLeave = new Set(Array.isArray(peopleOnLeaveList) ? peopleOnLeaveList : []);
         
         // Transform attendance results to include leave status
@@ -522,6 +553,17 @@ router.post('/updateAttendance', async (req, res) => {
       record: updatedResult.recordset[0]
     });
 
+    // Realtime notify (payload-light: clients refetch)
+    try {
+      broadcastAttendanceChanged({
+        changeType: 'updated',
+        initials: String(initials || '').toUpperCase(),
+        weekStart: String(weekStart || ''),
+      });
+    } catch {
+      // Non-blocking
+    }
+
     // Clear attendance cache after successful update
     try {
       await deleteCachePattern('attendance:*');
@@ -537,6 +579,9 @@ router.post('/updateAttendance', async (req, res) => {
     });
   }
 });
+
+// SSE: attendance realtime change notifications
+attachAttendanceStream(router);
 
 // ===== ANNUAL LEAVE ROUTES =====
 
@@ -653,6 +698,241 @@ async function getClioAccessToken(clioSecrets) {
   }
 }
 
+// ===== Outlook (Graph) helpers =====
+const GRAPH_TENANT_ID = '7fbc252f-3ce5-460f-9740-4e1cb8bf78b8';
+const GRAPH_TIMEZONE = 'Europe/London';
+let graphSecretsCache = { clientId: null, clientSecret: null, expiresAt: 0 };
+let graphTokenCache = { token: null, exp: 0 };
+
+async function getGraphSecrets() {
+  const now = Date.now();
+  if (graphSecretsCache.clientId && graphSecretsCache.clientSecret && now < graphSecretsCache.expiresAt) {
+    return { clientId: graphSecretsCache.clientId, clientSecret: graphSecretsCache.clientSecret };
+  }
+
+  try {
+    const kvUri = "https://helix-keys.vault.azure.net/";
+    const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
+    const secretClient = new SecretClient(kvUri, credential);
+
+    const [clientIdSecret, clientSecretSecret] = await Promise.all([
+      secretClient.getSecret('graph-aidenteams-clientid'),
+      secretClient.getSecret('aiden-email-secret-value')
+    ]);
+
+    graphSecretsCache = {
+      clientId: clientIdSecret.value || null,
+      clientSecret: clientSecretSecret.value || null,
+      expiresAt: Date.now() + 60 * 60 * 1000
+    };
+
+    return { clientId: graphSecretsCache.clientId, clientSecret: graphSecretsCache.clientSecret };
+  } catch (error) {
+    console.error('Error getting Graph secrets from Key Vault:', error);
+    return { clientId: null, clientSecret: null };
+  }
+}
+
+async function getGraphAccessToken() {
+  const now = Math.floor(Date.now() / 1000);
+  if (graphTokenCache.token && graphTokenCache.exp - 300 > now) {
+    return graphTokenCache.token;
+  }
+
+  const { clientId, clientSecret } = await getGraphSecrets();
+  if (!clientId || !clientSecret) return null;
+
+  const body = new URLSearchParams({
+    client_id: clientId,
+    client_secret: clientSecret,
+    scope: 'https://graph.microsoft.com/.default',
+    grant_type: 'client_credentials'
+  });
+
+  try {
+    const res = await axios.post(
+      `https://login.microsoftonline.com/${GRAPH_TENANT_ID}/oauth2/v2.0/token`,
+      body.toString(),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+    );
+    const token = res.data?.access_token;
+    if (!token) return null;
+    graphTokenCache = { token, exp: now + (res.data?.expires_in || 3600) };
+    return token;
+  } catch (error) {
+    console.error('Error obtaining Graph access token:', error?.response?.data || error.message);
+    return null;
+  }
+}
+
+function formatGraphDateTime(date) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:00`;
+}
+
+function buildOutlookEventPayload({ initials, startDate, endDate, halfDayStart, halfDayEnd, requestId }) {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  const isSingleDay = start.toDateString() === end.toDateString();
+  const isHalfDay = halfDayStart || halfDayEnd;
+
+  if (isSingleDay && isHalfDay) {
+    const startHour = halfDayStart ? 13 : 9;
+    const endHour = halfDayEnd ? 13 : 17;
+    start.setHours(startHour, 0, 0, 0);
+    end.setHours(endHour, 0, 0, 0);
+  } else if (isHalfDay) {
+    if (halfDayStart) {
+      start.setHours(13, 0, 0, 0);
+    } else {
+      start.setHours(0, 0, 0, 0);
+    }
+
+    if (halfDayEnd) {
+      end.setHours(13, 0, 0, 0);
+    } else {
+      end.setDate(end.getDate() + 1);
+      end.setHours(0, 0, 0, 0);
+    }
+  } else {
+    start.setHours(0, 0, 0, 0);
+    end.setDate(end.getDate() + 1);
+    end.setHours(0, 0, 0, 0);
+  }
+
+  const suffix = [];
+  if (halfDayStart) suffix.push('starts PM');
+  if (halfDayEnd) suffix.push('ends AM');
+
+  return {
+    subject: `${initials} Annual Leave`,
+    body: {
+      contentType: 'HTML',
+      content: `Annual leave for ${initials}${suffix.length ? ` (${suffix.join(', ')})` : ''}.`
+    },
+    isAllDay: !halfDayStart && !halfDayEnd,
+    showAs: 'oof',
+    transactionId: `annual-leave-${requestId}`,
+    start: {
+      dateTime: formatGraphDateTime(start),
+      timeZone: GRAPH_TIMEZONE
+    },
+    end: {
+      dateTime: formatGraphDateTime(end),
+      timeZone: GRAPH_TIMEZONE
+    }
+  };
+}
+
+async function createOutlookCalendarEntry(accessToken, userId, payload) {
+  try {
+    const response = await axios.post(
+      `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userId)}/events`,
+      payload,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    return response.data?.id || null;
+  } catch (error) {
+    console.error('Error creating Outlook calendar entry:', error?.response?.data || error.message);
+    return null;
+  }
+}
+
+async function deleteOutlookCalendarEntry(accessToken, userId, eventId) {
+  try {
+    const response = await axios.delete(
+      `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userId)}/events/${encodeURIComponent(eventId)}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    return response.status === 204;
+  } catch (error) {
+    console.error('Error deleting Outlook calendar entry:', error?.response?.data || error.message);
+    return false;
+  }
+}
+
+async function findOutlookEventIdForLeave(accessToken, userId, { startDate, endDate, transactionId, subject }) {
+  try {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      return null;
+    }
+
+    start.setHours(0, 0, 0, 0);
+    const searchEnd = new Date(end);
+    searchEnd.setDate(searchEnd.getDate() + 1);
+    searchEnd.setHours(0, 0, 0, 0);
+
+    const searchUrl = new URL(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userId)}/calendarView`);
+    searchUrl.searchParams.set('startDateTime', formatGraphDateTime(start));
+    searchUrl.searchParams.set('endDateTime', formatGraphDateTime(searchEnd));
+    searchUrl.searchParams.set('$top', '50');
+
+    let nextUrl = searchUrl.toString();
+    while (nextUrl) {
+      const response = await axios.get(nextUrl, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Prefer: `outlook.timezone="${GRAPH_TIMEZONE}"`
+        }
+      });
+
+      const events = response.data?.value || [];
+      for (const event of events) {
+        if (transactionId && event.transactionId === transactionId) {
+          return event.id || null;
+        }
+
+        if (subject && event.subject === subject) {
+          const eventStart = String(event.start?.dateTime || '').slice(0, 10);
+          const eventEnd = String(event.end?.dateTime || '').slice(0, 10);
+          const expectedStart = format(new Date(startDate), 'yyyy-MM-dd');
+          const expectedEnd = format(searchEnd, 'yyyy-MM-dd');
+          if (eventStart === expectedStart && eventEnd === expectedEnd) {
+            return event.id || null;
+          }
+        }
+      }
+
+      nextUrl = response.data?.['@odata.nextLink'] || null;
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Error searching Outlook calendar entry:', error?.response?.data || error.message);
+    return null;
+  }
+}
+
+async function getTeamMemberByInitials(initials, password) {
+  if (!initials) return null;
+  const coreDataConnStr = `Server=tcp:helix-database-server.database.windows.net,1433;Initial Catalog=helix-core-data;Persist Security Info=False;User ID=helix-database-server;Password=${password};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;`;
+
+  try {
+    const result = await attendanceQuery(coreDataConnStr, (req, sqlTypes) =>
+      req.input('initials', sqlTypes.VarChar(10), String(initials).trim().toUpperCase())
+        .query(`
+          SELECT Email, [Entra ID], First, Last
+          FROM [dbo].[team]
+          WHERE Initials = @initials
+        `)
+    );
+
+    const row = result.recordset?.[0];
+    if (!row) return null;
+    return {
+      email: row.Email || null,
+      entraId: row['Entra ID'] || null,
+      firstName: row.First || null,
+      lastName: row.Last || null
+    };
+  } catch (error) {
+    console.error('Error fetching team member for Outlook calendar:', error);
+    return null;
+  }
+}
+
 // GET /api/attendance/annual-leave - Get all annual leave data
 router.post('/getAnnualLeave', async (req, res) => {
   const { userInitials } = req.body;
@@ -751,7 +1031,11 @@ router.post('/getAnnualLeave', async (req, res) => {
                 leave_type,
                 rejection_notes,
                 hearing_confirmation,
-                hearing_details
+                hearing_details,
+                requested_at,
+                approved_at,
+                booked_at,
+                updated_at
               FROM [dbo].[annualLeave]
               WHERE fe = @initials
                 AND start_date >= @fiscalStart 
@@ -869,9 +1153,9 @@ router.post('/annual-leave', async (req, res) => {
           .input('half_day_end', sql.Bit, range.half_day_end ? 1 : 0)
           .query(`
             INSERT INTO [dbo].[annualLeave] 
-              ([fe], [start_date], [end_date], [reason], [status], [days_taken], [leave_type], [hearing_confirmation], [hearing_details], [half_day_start], [half_day_end])
+              ([fe], [start_date], [end_date], [reason], [status], [days_taken], [leave_type], [hearing_confirmation], [hearing_details], [half_day_start], [half_day_end], [requested_at], [updated_at])
             VALUES 
-              (@fe, @start_date, @end_date, @reason, @status, @days_taken, @leave_type, @hearing_confirmation, @hearing_details, @half_day_start, @half_day_end);
+              (@fe, @start_date, @end_date, @reason, @status, @days_taken, @leave_type, @hearing_confirmation, @hearing_details, @half_day_start, @half_day_end, SYSUTCDATETIME(), SYSUTCDATETIME());
             SELECT SCOPE_IDENTITY() AS InsertedId;
           `)
       );
@@ -885,8 +1169,22 @@ router.post('/annual-leave', async (req, res) => {
       insertedIds
     });
 
+    // Realtime notify (payload-light: clients refetch)
+    try {
+      broadcastAnnualLeaveChanged({ changeType: 'created', ids: insertedIds });
+    } catch {
+      // Non-blocking
+    }
+
     // Clear annual leave cache after successful creation
     try {
+      const today = getTodayIso();
+      const cacheKey = generateCacheKey('attendance', 'annual-leave-general', today);
+      try {
+        await deleteCache(cacheKey);
+      } catch (cacheError) {
+        // Single-key cache clear failed, continue
+      }
       await deleteCachePattern('attendance:annual-leave*');
     } catch (cacheError) {
       // Cache clear failed, not critical
@@ -954,7 +1252,20 @@ router.post('/updateAnnualLeave', async (req, res) => {
                                        WHEN @newStatus = 'rejected' AND (@rejectionNotes IS NOT NULL AND @rejectionNotes <> '')
                                        THEN @rejectionNotes 
                                        ELSE [rejection_notes] 
-                                     END
+                                     END,
+                 [requested_at] = CASE 
+                                   WHEN @newStatus = 'requested' AND [requested_at] IS NULL THEN SYSUTCDATETIME()
+                                   ELSE [requested_at]
+                                 END,
+                 [approved_at] = CASE 
+                                  WHEN @newStatus = 'approved' AND [approved_at] IS NULL THEN SYSUTCDATETIME()
+                                  ELSE [approved_at]
+                                END,
+                 [booked_at] = CASE 
+                                 WHEN @newStatus = 'booked' AND [booked_at] IS NULL THEN SYSUTCDATETIME()
+                                 ELSE [booked_at]
+                               END,
+                 [updated_at] = SYSUTCDATETIME()
            WHERE [request_id] = @id;
         `)
     );
@@ -973,7 +1284,7 @@ router.post('/updateAnnualLeave', async (req, res) => {
         const leaveResult = await attendanceQuery(projectDataConnStr, (req, sql) =>
           req.input('id', sql.Int, parseInt(id, 10))
             .query(`
-              SELECT fe, start_date, end_date, ClioEntryId, half_day_start, half_day_end
+              SELECT fe, start_date, end_date, ClioEntryId, OutlookEntryId, half_day_start, half_day_end
               FROM [dbo].[annualLeave]
               WHERE request_id = @id
             `)
@@ -981,32 +1292,65 @@ router.post('/updateAnnualLeave', async (req, res) => {
 
         const leaveRecord = leaveResult.recordset[0];
         
-        if (leaveRecord && !leaveRecord.ClioEntryId) {
-          // Get Clio secrets and create calendar entry
-          const clioSecrets = await getClioSecrets();
-          if (clioSecrets) {
-            const accessToken = await getClioAccessToken(clioSecrets);
-            if (accessToken) {
-              const clioEntryId = await createClioCalendarEntry(
-                accessToken,
-                leaveRecord.fe,
-                leaveRecord.start_date,
-                leaveRecord.end_date,
-                leaveRecord.half_day_start,
-                leaveRecord.half_day_end
-              );
-
-              // Update the SQL record with the Clio entry ID
-              if (clioEntryId) {
-                await attendanceQuery(projectDataConnStr, (req, sql) =>
-                  req.input('id', sql.Int, parseInt(id, 10))
-                    .input('clioEntryId', sql.Int, clioEntryId)
-                    .query(`
-                      UPDATE [dbo].[annualLeave]
-                         SET [ClioEntryId] = @clioEntryId
-                       WHERE [request_id] = @id;
-                    `)
+        if (leaveRecord) {
+          if (!leaveRecord.ClioEntryId) {
+            // Get Clio secrets and create calendar entry
+            const clioSecrets = await getClioSecrets();
+            if (clioSecrets) {
+              const accessToken = await getClioAccessToken(clioSecrets);
+              if (accessToken) {
+                const clioEntryId = await createClioCalendarEntry(
+                  accessToken,
+                  leaveRecord.fe,
+                  leaveRecord.start_date,
+                  leaveRecord.end_date,
+                  leaveRecord.half_day_start,
+                  leaveRecord.half_day_end
                 );
+
+                // Update the SQL record with the Clio entry ID
+                if (clioEntryId) {
+                  await attendanceQuery(projectDataConnStr, (req, sql) =>
+                    req.input('id', sql.Int, parseInt(id, 10))
+                      .input('clioEntryId', sql.Int, clioEntryId)
+                      .query(`
+                        UPDATE [dbo].[annualLeave]
+                           SET [ClioEntryId] = @clioEntryId
+                         WHERE [request_id] = @id;
+                      `)
+                  );
+                }
+              }
+            }
+          }
+
+          if (!leaveRecord.OutlookEntryId) {
+            const teamMember = await getTeamMemberByInitials(leaveRecord.fe, password);
+            const outlookUserId = teamMember?.entraId || teamMember?.email;
+            if (outlookUserId) {
+              const graphToken = await getGraphAccessToken();
+              if (graphToken) {
+                const payload = buildOutlookEventPayload({
+                  initials: leaveRecord.fe,
+                  startDate: leaveRecord.start_date,
+                  endDate: leaveRecord.end_date,
+                  halfDayStart: leaveRecord.half_day_start,
+                  halfDayEnd: leaveRecord.half_day_end,
+                  requestId: parsedId
+                });
+
+                const outlookEntryId = await createOutlookCalendarEntry(graphToken, outlookUserId, payload);
+                if (outlookEntryId) {
+                  await attendanceQuery(projectDataConnStr, (req, sql) =>
+                    req.input('id', sql.Int, parseInt(id, 10))
+                      .input('outlookEntryId', sql.NVarChar(100), outlookEntryId)
+                      .query(`
+                        UPDATE [dbo].[annualLeave]
+                           SET [OutlookEntryId] = @outlookEntryId
+                         WHERE [request_id] = @id;
+                      `)
+                  );
+                }
               }
             }
           }
@@ -1022,8 +1366,22 @@ router.post('/updateAnnualLeave', async (req, res) => {
       message: `Annual leave ID ${id} updated to status '${newStatus}'.`
     });
 
+    // Realtime notify (payload-light: clients refetch)
+    try {
+      broadcastAnnualLeaveChanged({ changeType: 'status-updated', id: String(id), newStatus: String(newStatus) });
+    } catch {
+      // Non-blocking
+    }
+
     // Clear annual leave cache after successful update
     try {
+      const today = getTodayIso();
+      const cacheKey = generateCacheKey('attendance', 'annual-leave-general', today);
+      try {
+        await deleteCache(cacheKey);
+      } catch (cacheError) {
+        // Single-key cache clear failed, continue
+      }
       await deleteCachePattern('attendance:annual-leave*');
     } catch (cacheError) {
       // Cache clear failed, not critical
@@ -1238,6 +1596,9 @@ router.put('/admin/annual-leave', async (req, res) => {
     if (newStatus) {
       updates.push('[status] = @newStatus');
       inputs.push({ name: 'newStatus', type: sql.VarChar(50), value: newStatus });
+      updates.push(`[requested_at] = CASE WHEN @newStatus = 'requested' AND [requested_at] IS NULL THEN SYSUTCDATETIME() ELSE [requested_at] END`);
+      updates.push(`[approved_at] = CASE WHEN @newStatus = 'approved' AND [approved_at] IS NULL THEN SYSUTCDATETIME() ELSE [approved_at] END`);
+      updates.push(`[booked_at] = CASE WHEN @newStatus = 'booked' AND [booked_at] IS NULL THEN SYSUTCDATETIME() ELSE [booked_at] END`);
     }
 
     if (days_taken !== undefined && days_taken !== null) {
@@ -1251,6 +1612,8 @@ router.put('/admin/annual-leave', async (req, res) => {
         error: 'No valid fields to update. Provide newStatus and/or days_taken.'
       });
     }
+
+    updates.push('[updated_at] = SYSUTCDATETIME()');
 
     const updateResult = await attendanceQuery(projectDataConnStr, (reqSql, sqlTypes) => {
       let request = reqSql.input('id', sqlTypes.Int, parsedId);
@@ -1271,6 +1634,84 @@ router.put('/admin/annual-leave', async (req, res) => {
       });
     }
 
+    if (newStatus && newStatus.toLowerCase() === 'booked') {
+      try {
+        const leaveResult = await attendanceQuery(projectDataConnStr, (req, sql) =>
+          req.input('id', sql.Int, parseInt(id, 10))
+            .query(`
+              SELECT fe, start_date, end_date, ClioEntryId, OutlookEntryId, half_day_start, half_day_end
+              FROM [dbo].[annualLeave]
+              WHERE request_id = @id
+            `)
+        );
+
+        const leaveRecord = leaveResult.recordset[0];
+        if (leaveRecord) {
+          if (!leaveRecord.ClioEntryId) {
+            const clioSecrets = await getClioSecrets();
+            if (clioSecrets) {
+              const accessToken = await getClioAccessToken(clioSecrets);
+              if (accessToken) {
+                const clioEntryId = await createClioCalendarEntry(
+                  accessToken,
+                  leaveRecord.fe,
+                  leaveRecord.start_date,
+                  leaveRecord.end_date,
+                  leaveRecord.half_day_start,
+                  leaveRecord.half_day_end
+                );
+
+                if (clioEntryId) {
+                  await attendanceQuery(projectDataConnStr, (req, sql) =>
+                    req.input('id', sql.Int, parseInt(id, 10))
+                      .input('clioEntryId', sql.Int, clioEntryId)
+                      .query(`
+                        UPDATE [dbo].[annualLeave]
+                           SET [ClioEntryId] = @clioEntryId
+                         WHERE [request_id] = @id;
+                      `)
+                  );
+                }
+              }
+            }
+          }
+
+          if (!leaveRecord.OutlookEntryId) {
+            const teamMember = await getTeamMemberByInitials(leaveRecord.fe, password);
+            const outlookUserId = teamMember?.entraId || teamMember?.email;
+            if (outlookUserId) {
+              const graphToken = await getGraphAccessToken();
+              if (graphToken) {
+                const payload = buildOutlookEventPayload({
+                  initials: leaveRecord.fe,
+                  startDate: leaveRecord.start_date,
+                  endDate: leaveRecord.end_date,
+                  halfDayStart: leaveRecord.half_day_start,
+                  halfDayEnd: leaveRecord.half_day_end,
+                  requestId: parsedId
+                });
+
+                const outlookEntryId = await createOutlookCalendarEntry(graphToken, outlookUserId, payload);
+                if (outlookEntryId) {
+                  await attendanceQuery(projectDataConnStr, (req, sql) =>
+                    req.input('id', sql.Int, parseInt(id, 10))
+                      .input('outlookEntryId', sql.NVarChar(100), outlookEntryId)
+                      .query(`
+                        UPDATE [dbo].[annualLeave]
+                           SET [OutlookEntryId] = @outlookEntryId
+                         WHERE [request_id] = @id;
+                      `)
+                  );
+                }
+              }
+            }
+          }
+        }
+      } catch (calendarError) {
+        console.error('Error syncing calendars (admin):', calendarError);
+      }
+    }
+
     // Clear cache
     const today = getTodayIso();
     const cacheKey = generateCacheKey('attendance', 'annual-leave-general', today);
@@ -1280,12 +1721,26 @@ router.put('/admin/annual-leave', async (req, res) => {
       console.warn('Failed to clear annual leave cache:', cacheError);
     }
 
+    // Also clear the broader annual-leave cache namespace as a backstop
+    try {
+      await deleteCachePattern('attendance:annual-leave*');
+    } catch (cacheError) {
+      // Cache clear failed, not critical
+    }
+
     console.log(`[Admin] Updated annual leave record ${id}: status=${newStatus || 'unchanged'}, days_taken=${days_taken ?? 'unchanged'}`);
 
     res.json({
       success: true,
       message: `Successfully updated annual leave record ${id}.`
     });
+
+    // Realtime notify (payload-light: clients refetch)
+    try {
+      broadcastAnnualLeaveChanged({ changeType: 'admin-updated', id: String(id), newStatus: newStatus ? String(newStatus) : undefined });
+    } catch {
+      // Non-blocking
+    }
 
   } catch (error) {
     console.error('Error updating annual leave (admin):', error);
@@ -1331,7 +1786,7 @@ router.delete('/annual-leave/:id', async (req, res) => {
     const fetchResult = await attendanceQuery(projectDataConnStr, (req, sql) =>
       req.input('id', sql.Int, parsedId)
         .query(`
-          SELECT request_id, fe, start_date, end_date, ClioEntryId, status
+          SELECT request_id, fe, start_date, end_date, ClioEntryId, OutlookEntryId, status
           FROM [dbo].[annualLeave]
           WHERE request_id = @id
         `)
@@ -1346,6 +1801,8 @@ router.delete('/annual-leave/:id', async (req, res) => {
 
     const record = fetchResult.recordset[0];
     let clioDeleted = false;
+    let outlookDeleted = null;
+    let outlookMatched = null;
 
     // Delete from Clio if requested and there's a Clio entry
     if (deleteFromClio && record.ClioEntryId) {
@@ -1360,6 +1817,60 @@ router.delete('/annual-leave/:id', async (req, res) => {
       } catch (clioError) {
         console.error('Error deleting from Clio:', clioError);
         // Continue with SQL deletion even if Clio fails
+      }
+    }
+
+    // Delete from Outlook if an event exists
+    if (record.OutlookEntryId) {
+      try {
+        const teamMember = await getTeamMemberByInitials(record.fe, password);
+        const outlookUserId = teamMember?.entraId || teamMember?.email;
+        if (outlookUserId) {
+          const graphToken = await getGraphAccessToken();
+          if (graphToken) {
+            outlookDeleted = await deleteOutlookCalendarEntry(graphToken, outlookUserId, record.OutlookEntryId);
+            outlookMatched = true;
+            if (!outlookDeleted) {
+              const fallbackEventId = await findOutlookEventIdForLeave(graphToken, outlookUserId, {
+                startDate: record.start_date,
+                endDate: record.end_date,
+                transactionId: `annual-leave-${record.request_id}`,
+                subject: `${record.fe} Annual Leave`
+              });
+              if (fallbackEventId) {
+                outlookMatched = true;
+                outlookDeleted = await deleteOutlookCalendarEntry(graphToken, outlookUserId, fallbackEventId);
+              }
+            }
+          }
+        }
+      } catch (outlookError) {
+        console.error('Error deleting Outlook calendar entry:', outlookError);
+        // Continue with SQL deletion even if Outlook fails
+      }
+    } else {
+      try {
+        const teamMember = await getTeamMemberByInitials(record.fe, password);
+        const outlookUserId = teamMember?.entraId || teamMember?.email;
+        if (outlookUserId) {
+          const graphToken = await getGraphAccessToken();
+          if (graphToken) {
+            const fallbackEventId = await findOutlookEventIdForLeave(graphToken, outlookUserId, {
+              startDate: record.start_date,
+              endDate: record.end_date,
+              transactionId: `annual-leave-${record.request_id}`,
+              subject: `${record.fe} Annual Leave`
+            });
+            if (fallbackEventId) {
+              outlookMatched = true;
+              outlookDeleted = await deleteOutlookCalendarEntry(graphToken, outlookUserId, fallbackEventId);
+            } else {
+              outlookMatched = false;
+            }
+          }
+        }
+      } catch (outlookError) {
+        console.error('Error searching Outlook calendar entry:', outlookError);
       }
     }
 
@@ -1384,8 +1895,18 @@ router.delete('/annual-leave/:id', async (req, res) => {
     res.json({
       success: true,
       message: `Annual leave record deleted successfully.`,
-      clioDeleted: record.ClioEntryId ? clioDeleted : null
+      clioDeleted: record.ClioEntryId ? clioDeleted : null,
+      outlookDeleted: typeof outlookDeleted === 'boolean' ? outlookDeleted : null,
+      outlookMatched: typeof outlookMatched === 'boolean' ? outlookMatched : null,
+      sqlDeleted: true
     });
+
+    // Realtime notify (payload-light: clients refetch)
+    try {
+      broadcastAnnualLeaveChanged({ changeType: 'deleted', id: String(id) });
+    } catch {
+      // Non-blocking
+    }
 
     // Clear annual leave cache after successful deletion
     try {
@@ -1402,5 +1923,8 @@ router.delete('/annual-leave/:id', async (req, res) => {
     });
   }
 });
+
+// SSE: annual leave realtime change notifications
+attachAnnualLeaveStream(router);
 
 module.exports = router;

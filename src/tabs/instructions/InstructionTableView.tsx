@@ -4,7 +4,7 @@ import { Icon } from '@fluentui/react';
 import { format } from 'date-fns';
 import { colours } from '../../app/styles/colours';
 import { TeamData } from '../../app/functionality/types';
-import { groupInstructionsByClient, shouldGroupInstructions, GroupedInstruction } from '../../utils/tableGrouping';
+import { groupInstructionsByClient, shouldGroupInstructions } from '../../utils/tableGrouping';
 import InlineExpansionChevron from '../../components/InlineExpansionChevron';
 import InlineWorkbench from './InlineWorkbench';
 import { FaCreditCard, FaShieldAlt, FaIdCard, FaPoundSign, FaBuilding, FaFileAlt, FaRegFileAlt, FaFolder, FaRegFolder } from 'react-icons/fa';
@@ -74,7 +74,6 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
   // Helper to calculate stage statuses from item data - matches pipeline chip logic
   const getStageStatuses = useCallback((item: any): StageStatuses => {
     const inst = item?.rawData?.instruction || item?.instruction;
-    const deal = item?.rawData?.deal || item?.deal;
     const risk = item?.rawData?.risk || item?.risk;
     const eid = item?.rawData?.eid || item?.eid;
     const eids = item?.rawData?.eids || item?.eids;
@@ -488,10 +487,6 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
     return grouped;
   }, [sortedTableData, sortColumn]);
 
-  // Determine if we should show client-based grouped view
-  const showClientGroups = useMemo(() => {
-    return clientGroupedData.length > 0 && (sortColumn === 'date' || !sortColumn);
-  }, [clientGroupedData, sortColumn]);
 
   // Helper to process day groups and add client sub-grouping
   const processedGroupedData = useMemo(() => {
@@ -532,21 +527,6 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
     if (area.includes('general') || area.includes('misc') || area.includes('other')) return 'ℹ️';
     
     return 'ℹ️'; // Default icon
-  };
-
-  const getAreaColor = (area: string): string => {
-    switch (area?.toLowerCase()) {
-      case 'commercial':
-        return '#3690CE';
-      case 'construction':
-        return '#f97316';
-      case 'property':
-        return '#10b981';
-      case 'employment':
-        return '#f59e0b';
-      default:
-        return '#6b7280';
-    }
   };
 
   // Status pipeline renderer with ID, Payment, Risk, Matter, Docs stages
@@ -623,7 +603,6 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
       const intentIsBank = intentId.startsWith('bank_');
       const intentIsCard = intentId.startsWith('pi_');
       const combinedMethod = methodRaw || metaMethod || (intentIsBank ? 'bank' : intentIsCard ? 'card' : '');
-      const isCard = combinedMethod.includes('card') || combinedMethod.includes('stripe') || combinedMethod === 'cc' || intentIsCard;
       const isBank = combinedMethod.includes('bank') || combinedMethod.includes('transfer') || combinedMethod.includes('bacs') || combinedMethod.includes('ach') || intentIsBank;
       
       if (isBank) return <FaBuilding size={10} />;
@@ -1445,9 +1424,7 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
               {tableConfig.columns.map((col, index) => {
                 const key = String(col.key);
                 const isActions = key === 'actions';
-                const showSortIcon = col.sortable && !isActions;
                 const isSorted = sortColumn === key;
-                const sortIconName = isSorted ? (sortDirection === 'asc' ? 'SortUp' : 'SortDown') : 'Sort';
                 const justifyContent =
                   key === 'area'
                     ? 'center'
@@ -2105,10 +2082,6 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                               const notesKey = item.id || item.reference || '';
                               const isExpanded = expandedNotes.has(notesKey);
                               const rawData = item.rawData;
-                              const inst = rawData?.instruction;
-                              const deal = rawData?.deal;
-                              const description = inst?.Notes || deal?.ServiceDescription || inst?.Description || inst?.description || deal?.description;
-
                               return (
                                 <div key={`client-child-${notesKey}`}>
                                   <div
@@ -2118,7 +2091,7 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                                         ? `32px ${gridTemplateColumns}` 
                                         : gridTemplateColumns,
                                       gap: '12px',
-                                      padding: '10px 16px 10px 32px', // Indent child items
+                                      padding: '10px 16px',
                                       alignItems: 'center',
                                       borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.02)'}`,
                                       fontSize: '13px',
@@ -2176,7 +2149,7 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                                       </div>
                                     )}
                                     
-                                    {/* Render all other columns using existing renderers with proper structure */}
+                                    {/* Render columns for child rows */}
                                     {tableConfig.columns.map((col) => (
                                       <div
                                         key={String(col.key)}
@@ -2224,10 +2197,6 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                         const notesKey = item.id || item.reference || '';
                         const isExpanded = expandedNotes.has(notesKey);
                         const rawData = item.rawData;
-                        const inst = rawData?.instruction;
-                        const deal = rawData?.deal;
-                        const description = inst?.Notes || deal?.ServiceDescription || inst?.Description || inst?.description || deal?.description;
-
                         return (
                           <div key={`single-${notesKey}`}>
                             <div
@@ -2340,13 +2309,6 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                     const rawData = item.rawData;
                     const inst = rawData?.instruction;
                     const deal = rawData?.deal;
-
-                    const description =
-                      inst?.Notes ||
-                      deal?.ServiceDescription ||
-                      inst?.Description ||
-                      inst?.description ||
-                      deal?.description;
 
                     return (
                       <div key={notesKey}>

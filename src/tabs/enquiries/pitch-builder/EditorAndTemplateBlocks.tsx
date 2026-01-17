@@ -368,6 +368,7 @@ interface InlineEditableAreaProps {
   bodyEditorRef?: React.RefObject<HTMLDivElement>;
   handleFormatCommand?: (command: string, value?: string) => void;
   onFocusChange?: (active: boolean) => void;
+  pitchFlowLocked?: boolean;
 }
 
 interface UndoRedoState {
@@ -388,8 +389,10 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
   richTextMode,
   bodyEditorRef,
   handleFormatCommand,
-  onFocusChange
+  onFocusChange,
+  pitchFlowLocked = false
 }) => {
+  const isPitchFlowLocked = pitchFlowLocked;
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   const preRef = useRef<HTMLPreElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -1049,9 +1052,10 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
       {/* Rich text editor - WYSIWYG experience */}
       <div
         ref={bodyEditorRef}
-        contentEditable={true}
+        contentEditable={!isPitchFlowLocked}
         className="rich-text-editor"
         onFocus={() => {
+          if (isPitchFlowLocked) return;
           editorFocusedRef.current = true;
           setIsFocused(true);
           
@@ -1080,6 +1084,7 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
           }
         }}
         onInput={(e) => {
+          if (isPitchFlowLocked) return;
           const target = e.currentTarget as HTMLDivElement;
           const newValue = target.innerHTML;
           console.log('[EditorInput] User typing - setting flags');
@@ -1101,6 +1106,7 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
           }, 150);
         }}
         onBlur={(e) => {
+          if (isPitchFlowLocked) return;
           // Update ref synchronously to prevent race with sync effect
           const nextTarget = e.relatedTarget as HTMLElement | null;
           const leavingEditor = !nextTarget || !wrapperRef.current?.contains(nextTarget);
@@ -1412,6 +1418,7 @@ interface EditorAndTemplateBlocksProps {
   dealStatus?: 'idle' | 'processing' | 'ready' | 'error';
   emailStatus?: 'idle' | 'processing' | 'sent' | 'error';
   emailMessage?: string;
+  pitchFlowLocked?: boolean;
   // Scenario callback to expose selectedScenarioId to parent
   onScenarioChange?: (scenarioId: string) => void;
   initialScenario?: string;
@@ -1468,9 +1475,11 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   dealStatus,
   emailStatus,
   emailMessage,
+  pitchFlowLocked = false,
   onScenarioChange,
   initialScenario
 }) => {
+  const isPitchFlowLocked = pitchFlowLocked;
   // State for removed blocks
   const [removedBlocks, setRemovedBlocks] = useState<{ [key: string]: boolean }>({});
   // Local editable contents per block
@@ -2459,7 +2468,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
       {/* Content */}
       <div className="helix-professional-content" style={{
         position: 'relative',
-        zIndex: isBodyEditorFocused ? 10001 : 'auto'
+        zIndex: isBodyEditorFocused ? 10001 : 'auto',
+        opacity: isPitchFlowLocked ? 0.6 : 1
       }}>
         <Stack tokens={{ childrenGap: 8 }} styles={{ root: { marginTop: 0 } }}>
           {/* Direct content without Email Composer container */}
@@ -2662,6 +2672,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     role="radio"
                     className={`scenario-choice-card ${selectedScenarioId === s.id ? 'active' : ''}`}
                     aria-checked={selectedScenarioId === s.id}
+                    aria-disabled={isPitchFlowLocked}
+                    disabled={isPitchFlowLocked}
                     aria-label={`Select ${s.name} template: ${(() => {
                       switch (s.id) {
                         case 'before-call-call':
@@ -2683,6 +2695,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                       // Scenario mousedown
                     }}
                     onClick={(e) => {
+                      if (isPitchFlowLocked) return;
                       e.preventDefault();
                       e.stopPropagation();
                       try {
@@ -2755,8 +2768,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                         : (isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.16)')}`,
                       borderRadius: '12px',
                       padding: '18px',
-                      cursor: 'pointer',
-                      pointerEvents: 'auto',
+                      cursor: isPitchFlowLocked ? 'not-allowed' : 'pointer',
+                      pointerEvents: isPitchFlowLocked ? 'none' : 'auto',
                       userSelect: 'none',
                       WebkitUserSelect: 'none',
                       transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
@@ -2768,7 +2781,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                       boxShadow: selectedScenarioId === s.id
                         ? (isDarkMode ? '0 8px 32px rgba(54, 144, 206, 0.35), 0 0 0 1px rgba(54, 144, 206, 0.25) inset' : '0 4px 20px rgba(54, 144, 206, 0.22), 0 0 0 1px rgba(54, 144, 206, 0.1) inset')
                         : (isDarkMode ? '0 4px 16px rgba(4, 9, 20, 0.45)' : '0 2px 10px rgba(13, 47, 96, 0.06)'),
-                      opacity: 0,
+                      opacity: isPitchFlowLocked ? 0.5 : 0,
                       animationFillMode: 'forwards',
                       overflow: 'hidden',
                       fontFamily: 'inherit',
@@ -2776,6 +2789,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                       backdropFilter: 'blur(8px)'
                     }}
                     onMouseEnter={(e) => {
+                      if (isPitchFlowLocked) return;
                       if (selectedScenarioId !== s.id) {
                         e.currentTarget.style.borderColor = colours.blue;
                         e.currentTarget.style.boxShadow = isDarkMode
@@ -2788,6 +2802,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                       }
                     }}
                     onMouseLeave={(e) => {
+                      if (isPitchFlowLocked) return;
                       if (selectedScenarioId !== s.id) {
                         e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.16)';
                         e.currentTarget.style.boxShadow = isDarkMode ? '0 4px 16px rgba(4, 9, 20, 0.45)' : '0 2px 10px rgba(13, 47, 96, 0.06)';
@@ -3795,6 +3810,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                         bodyEditorRef={bodyEditorRef}
                         handleFormatCommand={handleFormatCommand}
                         onFocusChange={setIsBodyEditorFocused}
+                        pitchFlowLocked={isPitchFlowLocked}
                       />
                     </div>
                   </div>

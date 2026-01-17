@@ -1,7 +1,7 @@
 // Clean admin tools - removed beaker and legacy toggle
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import ReactDOM from 'react-dom';
 import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
-import { SCENARIOS } from './pitch-builder/scenarios';
 import {
   Stack,
   Text,
@@ -21,7 +21,7 @@ import {
 } from '@fluentui/react';
 import OperationStatusToast from './pitch-builder/OperationStatusToast';
 import IconAreaFilter from '../../components/filter/IconAreaFilter';
-import PitchScenarioBadge from '../../components/PitchScenarioBadge';
+import PitchScenarioBadge, { getScenarioColor } from '../../components/PitchScenarioBadge';
 import {
   BarChart,
   Bar,
@@ -43,6 +43,7 @@ import EnquiryLineItem from './EnquiryLineItem';
 import NewUnclaimedEnquiryCard from './NewUnclaimedEnquiryCard';
 import ClaimedEnquiryCard from './ClaimedEnquiryCard';
 import GroupedEnquiryCard from './GroupedEnquiryCard';
+import InlineWorkbench from '../instructions/InlineWorkbench';
 import { GroupedEnquiry, getMixedEnquiryDisplay, isGroupedEnquiry } from './enquiryGrouping';
 import PitchBuilder from './PitchBuilder';
 import EnquiryTimeline from './EnquiryTimeline';
@@ -71,54 +72,79 @@ import { checkIsLocalDev, isActuallyLocalhost } from '../../utils/useIsLocalDev'
 import EmptyState from '../../components/states/EmptyState';
 import LoadingState from '../../components/states/LoadingState';
 
+const DEMO_MODE_STORAGE_KEY = 'helix-hub-demo-enquiry-mode';
+
 // Synthetic demo enquiry for demos/testing - always available, not from database
-const DEV_PREVIEW_TEST_ENQUIRY: Enquiry & { __sourceType: 'new' | 'legacy' } = {
-  ID: 'DEV-PREVIEW-99999',
-  Date_Created: new Date().toISOString().split('T')[0],
-  Touchpoint_Date: new Date().toISOString().split('T')[0],
-  Email: 'demo@example.com',
-  Area_of_Work: 'commercial (costs)',
-  Type_of_Work: 'Contract Disputes',
-  Method_of_Contact: 'Website Form',
-  Point_of_Contact: 'lz@helix-law.com',
-  Company: 'Demo Company Ltd',
-  Website: 'https://example.com',
-  Title: 'Mr',
+const DEV_PREVIEW_TEST_ENQUIRY: Enquiry = {
+  ID: 'DEMO-ENQ-0001',
+  Date_Created: '2026-01-01',
+  Touchpoint_Date: '2026-01-01',
+  Email: 'demo.client@helix-law.com',
+  Area_of_Work: 'Commercial',
+  Type_of_Work: 'Contract Dispute',
+  Method_of_Contact: 'Email',
+  Point_of_Contact: 'team@helix-law.com',
   First_Name: 'Demo',
   Last_Name: 'Client',
-  DOB: '1990-01-01',
   Phone_Number: '07000000000',
-  Secondary_Phone: '02000000000',
-  Tags: '',
-  Unit_Building_Name_or_Number: '123',
-  Mailing_Street: 'Test Street',
-  Mailing_Street_2: '',
-  Postal_Code: 'AB1 2CD',
-  City: 'Test City',
-  Mailing_County: 'Test County',
-  Country: 'United Kingdom',
-  Gift_Rank: 5,
-  Value: '£25,000 to £50,000',
-  Call_Taker: 'LZ',
-  Ultimate_Source: 'Google Ads',
-  Referral_URL: 'https://google.com',
-  Campaign: 'Test_Campaign',
-  Ad_Group: 'Test_AdGroup',
-  Search_Keyword: 'test keyword',
-  GCLID: 'test-gclid-123',
-  Initial_first_call_notes: 'Demo enquiry notes for demos/testing (stable record, not from database).',
-  Do_not_Market: 'No',
-  Rating: 'Good',
-  __sourceType: 'new'
+  Rating: 'Neutral',
 };
 
-const DEMO_MODE_STORAGE_KEY = 'demoModeEnabled';
-
-// CSS for shimmer animation
 const shimmerStyle = `
 @keyframes shimmer {
-  0% { left: -100%; }
-  100% { left: 100%; }
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer {
+  background: linear-gradient(90deg, rgba(255,255,255,0.05), rgba(255,255,255,0.15), rgba(255,255,255,0.05));
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+`;
+
+const pipelineCarouselStyle = `
+.pipeline-carousel {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+}
+.pipeline-carousel-track {
+  display: flex;
+  transition: transform 0.2s ease-out;
+  height: 100%;
+}
+.pipeline-carousel-nav {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 1;
+  opacity: 0.6;
+  transition: opacity 0.15s ease;
+}
+.pipeline-carousel-nav:hover {
+  opacity: 1;
+}
+.pipeline-chip {
+  transition: filter 0.1s ease;
+}
+.pipeline-chip:hover {
+  filter: brightness(1.15);
+}
+@keyframes pitch-cta-pulse {
+  0%, 100% {
+    border-color: rgba(251, 191, 36, 0.35);
+    background: rgba(251, 191, 36, 0.08);
+  }
+  50% {
+    border-color: rgba(251, 191, 36, 0.55);
+    background: rgba(251, 191, 36, 0.14);
+  }
 }
 `;
 
@@ -127,6 +153,14 @@ if (typeof document !== 'undefined' && !document.querySelector('#shimmer-styles'
   const style = document.createElement('style');
   style.id = 'shimmer-styles';
   style.textContent = shimmerStyle;
+  document.head.appendChild(style);
+}
+
+// Inject the pipeline carousel CSS
+if (typeof document !== 'undefined' && !document.querySelector('#pipeline-carousel-styles')) {
+  const style = document.createElement('style');
+  style.id = 'pipeline-carousel-styles';
+  style.textContent = pipelineCarouselStyle;
   document.head.appendChild(style);
 }
   // Subtle Helix watermark generator – three rounded ribbons rotated slightly
@@ -204,6 +238,7 @@ interface EnquiriesProps {
   instructionData?: any[]; // For detecting promoted enquiries
   featureToggles?: Record<string, boolean>;
   isActive?: boolean; // Whether this tab is currently active
+  demoModeEnabled?: boolean;
 }
 
 // Add keyframes for loading spinner
@@ -233,6 +268,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   instructionData,
   featureToggles = {},
   isActive = false,
+  demoModeEnabled: demoModeEnabledProp,
 }) => {
 
   // Function to check if an enquiry has been promoted to pitch/instruction
@@ -295,17 +331,143 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     return result.type;
   }, [getPromotionStatus]);
 
-  // Get pitch scenario display name
-  const getScenarioDisplayName = useCallback((scenarioId: string): string => {
-    const scenarios: { [key: string]: string } = {
-      'before-call-call': 'Before call — Call',
-      'before-call-no-call': 'Before call — No call',
-      'after-call-probably-cant-assist': 'After call — Cannot assist',
-      'after-call-want-instruction': 'After call — Want instruction',
-      'cfa': 'CFA'
+  // Map enquiry ID -> InlineWorkbench item (instruction + attached domains)
+  // This is intentionally lightweight and read-only for the Prospects view.
+  const inlineWorkbenchByEnquiryId = useMemo(() => {
+    const result = new Map<string, any>();
+    if (!instructionData) return result;
+
+    const normaliseId = (value: unknown): string | null => {
+      const s = String(value ?? '').trim();
+      return s.length > 0 ? s : null;
     };
-    return scenarios[scenarioId] || scenarioId;
-  }, []);
+
+    // Global indexes (Deals are the join point: Deal.InstructionRef -> Instructions.InstructionRef)
+    const instructionByRef = new Map<string, any>();
+    const dealByRef = new Map<string, any>();
+    const dealsByProspectId = new Map<string, any[]>();
+
+    (instructionData as any[]).forEach((prospect) => {
+      const instructions: any[] = Array.isArray(prospect?.instructions) ? prospect.instructions : [];
+      const deals: any[] = Array.isArray(prospect?.deals) ? prospect.deals : [];
+
+      instructions.forEach((inst) => {
+        const ref = normaliseId(inst?.InstructionRef ?? inst?.instructionRef);
+        if (ref && !instructionByRef.has(ref)) {
+          instructionByRef.set(ref, inst);
+        }
+      });
+
+      deals.forEach((deal) => {
+        const ref = normaliseId(deal?.InstructionRef ?? deal?.instructionRef);
+        if (ref && !dealByRef.has(ref)) {
+          dealByRef.set(ref, deal);
+        }
+        const pid = normaliseId(deal?.ProspectId ?? deal?.prospectId);
+        if (pid) {
+          const arr = dealsByProspectId.get(pid) || [];
+          arr.push(deal);
+          dealsByProspectId.set(pid, arr);
+        }
+      });
+    });
+
+    const scoreWorkbenchItem = (workbenchItem: any): number => {
+      const inst = workbenchItem?.instruction;
+      const matters = workbenchItem?.matters;
+      const deal = workbenchItem?.deal;
+      const hasInstructionRef = Boolean(inst?.InstructionRef || inst?.instructionRef);
+      const hasMatter = Boolean(inst?.MatterId || inst?.matterId) || (Array.isArray(matters) && matters.length > 0);
+      const hasDeal = Boolean(deal);
+      return (hasMatter ? 2 : 0) + (hasInstructionRef ? 1 : 0) + (hasDeal ? 1 : 0);
+    };
+
+    (instructionData as any[]).forEach((prospect) => {
+      const instructions: any[] = Array.isArray(prospect?.instructions) ? prospect.instructions : [];
+      const deals: any[] = Array.isArray(prospect?.deals) ? prospect.deals : [];
+
+      const riskAssessments: any[] = Array.isArray(prospect?.riskAssessments)
+        ? prospect.riskAssessments
+        : (Array.isArray(prospect?.compliance) ? prospect.compliance : []);
+
+      const idVerifications: any[] = Array.isArray(prospect?.idVerifications)
+        ? prospect.idVerifications
+        : (Array.isArray(prospect?.electronicIDChecks) ? prospect.electronicIDChecks : []);
+
+      const registerForEnquiryId = (enquiryId: string, inst: any | null, dealOverride?: any | null) => {
+        if (!enquiryId) return;
+
+        const localDealByProspect = deals.find((d) => normaliseId(d?.ProspectId ?? d?.prospectId) === enquiryId) || null;
+        const globalDealsByProspect = dealsByProspectId.get(enquiryId) || [];
+
+        const matchingDeal =
+          dealOverride ||
+          localDealByProspect ||
+          globalDealsByProspect[0] ||
+          deals[0] ||
+          null;
+
+        const matchingDealRef = normaliseId(matchingDeal?.InstructionRef ?? matchingDeal?.instructionRef);
+        const matchingInstructionRef = normaliseId(inst?.InstructionRef ?? inst?.instructionRef);
+
+        const matchingInstruction =
+          inst ||
+          (matchingDealRef ? (instructionByRef.get(matchingDealRef) || null) : null) ||
+          (matchingInstructionRef ? (instructionByRef.get(matchingInstructionRef) || null) : null) ||
+          instructions[0] ||
+          null;
+
+        // If we found an instruction but not a deal yet, try the join path by InstructionRef
+        const instructionRef = normaliseId(matchingInstruction?.InstructionRef ?? matchingInstruction?.instructionRef);
+        const joinedDeal = !matchingDeal && instructionRef ? (dealByRef.get(instructionRef) || null) : null;
+        const finalDeal = matchingDeal || joinedDeal;
+
+        if (!matchingInstruction && !finalDeal) return;
+
+        const workbenchItem = {
+          instruction: matchingInstruction,
+          deal: finalDeal,
+          clients: prospect?.jointClients || finalDeal?.jointClients || prospect?.clients || [],
+          documents: prospect?.documents || matchingInstruction?.documents || [],
+          payments: prospect?.payments || matchingInstruction?.payments || [],
+          eid: idVerifications[0] ?? null,
+          eids: idVerifications,
+          risk: riskAssessments[0] ?? null,
+          matters: prospect?.matters || matchingInstruction?.matters || [],
+          prospectId: enquiryId,
+          ProspectId: enquiryId,
+        };
+
+        const existing = result.get(enquiryId);
+        if (!existing || scoreWorkbenchItem(workbenchItem) > scoreWorkbenchItem(existing)) {
+          result.set(enquiryId, workbenchItem);
+        }
+      };
+
+      // Preferred linkage: per-instruction ProspectId/prospectId
+      instructions.forEach((inst) => {
+        const enquiryId = normaliseId(inst?.ProspectId ?? inst?.prospectId);
+        if (!enquiryId) return;
+        registerForEnquiryId(enquiryId, inst);
+      });
+
+      // Also allow deal-only linkage (pitches)
+      deals.forEach((deal) => {
+        const enquiryId = normaliseId(deal?.ProspectId ?? deal?.prospectId);
+        if (!enquiryId) return;
+        const matchingInst = (deal?.InstructionRef ? (instructionByRef.get(String(deal.InstructionRef)) || null) : null) || null;
+        registerForEnquiryId(enquiryId, matchingInst, deal);
+      });
+
+      // Fallback linkage: some datasets carry enquiry ID on the prospect wrapper itself
+      const wrapperId = normaliseId(prospect?.prospectId);
+      if (wrapperId && (instructions.length > 0 || deals.length > 0)) {
+        registerForEnquiryId(wrapperId, instructions[0] ?? null, deals[0] ?? null);
+      }
+    });
+
+    return result;
+  }, [instructionData]);
 
   // Use only real enquiries data
   // All normalized enquiries (union of legacy + new) retained irrespective of toggle
@@ -346,12 +508,17 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   
   // Track ongoing enrichment requests to prevent duplicates
   const enrichmentRequestsRef = useRef<Set<string>>(new Set());
+  
+  // Track visible enquiry IDs (only enrich what's in viewport)
+  const [visibleEnquiryIds, setVisibleEnquiryIds] = useState<Set<string>>(new Set());
+  
+  // Track enrichment progress for UI feedback
+  const [isEnriching, setIsEnriching] = useState<boolean>(false);
+  const [enrichmentProgress, setEnrichmentProgress] = useState<{ current: number; total: number } | null>(null);
 
   // Table view: Track expanded notes by enquiry ID
   const [expandedNotesInTable, setExpandedNotesInTable] = useState<Set<string>>(new Set());
   
-  // Table view: Track hovered row for showing contact actions
-  const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
   
   // Table view: Sorting state
   type SortColumn = 'date' | 'aow' | 'id' | 'value' | 'contact' | 'pipeline' | null;
@@ -359,18 +526,166 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [sortColumn, setSortColumn] = useState<SortColumn>('date');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   
-  // Pipeline filter state - for filtering by Teams/Pitched status (yes/no toggles)
-  type EnquiryPipelineStage = 'teams' | 'pitched';
+  // Pipeline filter state - for filtering by pipeline stages (yes/no toggles)
+  type EnquiryPipelineStage = 'teams' | 'claimed' | 'pitched' | 'instructed' | 'idcheck' | 'paid' | 'risk' | 'matter';
   type EnquiryPipelineStatus = 'yes' | 'no';
   const [enquiryPipelineFilters, setEnquiryPipelineFilters] = useState<Map<EnquiryPipelineStage, EnquiryPipelineStatus>>(new Map());
+
+  type PipelineChipLabelMode = 'full' | 'short' | 'icon';
+  const pipelineGridMeasureRef = useRef<HTMLDivElement | null>(null);
+  const [pipelineChipLabelMode, setPipelineChipLabelMode] = useState<PipelineChipLabelMode>('short');
+  // Number of pipeline chips that fit in the available width (8 = all chips fit)
+  const [visiblePipelineChipCount, setVisiblePipelineChipCount] = useState<number>(8);
+  // Minimum chip width at each mode (icon needs ~32px, short ~64px [increased from 56], full ~78px)
+  // We prioritize labels with carousel vs showing all icons
+  const CHIP_MIN_WIDTHS = { icon: 32, short: 64, full: 78 };
+
+  const pipelineStageUi = useMemo(() => {
+    const entries: Array<{
+      stage: EnquiryPipelineStage;
+      fullLabel: string;
+      shortLabel: string;
+      iconName: string;
+    }> = [
+      { stage: 'teams', fullLabel: 'Card', shortLabel: 'Card', iconName: 'TeamsLogo' },
+      { stage: 'claimed', fullLabel: 'Claimed', shortLabel: 'Claim', iconName: 'Contact' },
+      { stage: 'pitched', fullLabel: 'Pitch', shortLabel: 'Pitch', iconName: 'Send' },
+      { stage: 'instructed', fullLabel: 'Instructed', shortLabel: 'Inst', iconName: 'CheckMark' },
+      { stage: 'idcheck', fullLabel: 'ID Check', shortLabel: 'ID', iconName: 'CheckMark' },
+      { stage: 'paid', fullLabel: 'Payment', shortLabel: 'Pay', iconName: 'CurrencyPound' },
+      { stage: 'risk', fullLabel: 'Risk', shortLabel: 'Risk', iconName: 'Shield' },
+      { stage: 'matter', fullLabel: 'Matter', shortLabel: 'Matter', iconName: 'OpenFolderHorizontal' },
+    ];
+    return {
+      entries,
+      byStage: new Map(entries.map((e) => [e.stage, e])),
+    };
+  }, []);
+
+  type PipelineHoverInfo = {
+    x: number;
+    y: number;
+    title: string;
+    status: string;
+    subtitle?: string;
+    color: string;
+    iconName?: string;
+  } | null;
+
+  const [pipelineHover, setPipelineHover] = useState<PipelineHoverInfo>(null);
+
+  const getPipelineHoverPosition = useCallback((target: EventTarget & HTMLElement) => {
+    const rect = target.getBoundingClientRect();
+    const offset = 12;
+    const estimatedWidth = 240;
+    let x = rect.right + offset;
+    let y = rect.top;
+
+    if (typeof window !== 'undefined') {
+      const maxX = window.innerWidth - estimatedWidth - 8;
+      if (x > maxX) {
+        x = rect.left - offset;
+      }
+      if (x < 8) x = 8;
+
+      if (y < 8) y = 8;
+      if (y > window.innerHeight - 8) y = window.innerHeight - 8;
+    }
+
+    return { x, y };
+  }, []);
+
+  const showPipelineHover = useCallback((event: React.MouseEvent, info: Omit<NonNullable<PipelineHoverInfo>, 'x' | 'y'>) => {
+    const { x, y } = getPipelineHoverPosition(event.currentTarget as HTMLElement);
+    setPipelineHover({
+      ...info,
+      x,
+      y,
+    });
+  }, [getPipelineHoverPosition]);
+
+  const movePipelineHover = useCallback((event: React.MouseEvent) => {
+    setPipelineHover((prev) => prev);
+  }, []);
+
+  const hidePipelineHover = useCallback(() => {
+    setPipelineHover(null);
+  }, []);
+
+  const getPipelineDotColor = (active: boolean, color: string, darkMode: boolean) => {
+    if (!active) {
+      return darkMode ? 'rgba(148, 163, 184, 0.45)' : 'rgba(100, 116, 139, 0.45)';
+    }
+    if (color === colours.green) {
+      return '#4ade80';
+    }
+    return color;
+  };
+
+  const getPipelineDotStyle = (active: boolean, color: string, darkMode: boolean) => {
+    const dotColor = getPipelineDotColor(active, color, darkMode);
+    return {
+      width: 6,
+      height: 6,
+      borderRadius: '50%',
+      background: dotColor,
+      boxShadow: active ? `0 0 6px ${dotColor}99` : 'none',
+      marginLeft: 6,
+      flexShrink: 0,
+    } as React.CSSProperties;
+  };
+
+  useEffect(() => {
+    const el = pipelineGridMeasureRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+
+    const observer = new ResizeObserver((items) => {
+      const rect = items[0]?.contentRect;
+      if (!rect) return;
+
+      const totalWidth = rect.width;
+      const columnGap = 8;
+      const columns = 8;
+      const trailingFixedColWidth = 24;
+      // The pipeline grid includes a final fixed-width gutter column for the clear button.
+      // Account for that fixed column and its extra gap so we measure the 8 stage columns correctly.
+      const availableWidth = totalWidth - trailingFixedColWidth - columnGap;
+      
+      // Prioritise labels in the header. When space is tight, use carousel,
+      // but avoid switching the header to icon-only mode.
+
+      const minFull = CHIP_MIN_WIDTHS.full;
+      const minShort = CHIP_MIN_WIDTHS.short;
+
+      let nextMode: PipelineChipLabelMode = 'short';
+      let nextCount = 8;
+
+      const widthRef = (count: number, width: number) => count * width + (count - 1) * columnGap;
+      const widthAvailableForCarousel = availableWidth - 24; // Reserve nav space
+
+      if (availableWidth >= widthRef(8, minFull)) {
+        nextMode = 'full';
+        nextCount = 8;
+      } else if (availableWidth >= widthRef(8, minShort)) {
+        nextMode = 'short';
+        nextCount = 8;
+      } else {
+        const possibleShortCount = Math.floor((widthAvailableForCarousel + columnGap) / (minShort + columnGap));
+        nextMode = 'short';
+        nextCount = Math.max(3, Math.min(8, possibleShortCount)); // Minimum 3 chips to prevent next button wrapping
+      }
+
+      setPipelineChipLabelMode((prev) => (prev === nextMode ? prev : nextMode));
+      setVisiblePipelineChipCount(nextCount);
+    });
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [viewMode]);
   
   // POC filter - dropdown with team members (separate from toggle filters)
   const [selectedPocFilter, setSelectedPocFilter] = useState<string | null>(null);
   const [isPocDropdownOpen, setIsPocDropdownOpen] = useState(false);
-  
-  // Pitch scenario filter - dropdown with scenarios
-  const [selectedPitchScenarioFilter, setSelectedPitchScenarioFilter] = useState<string | null>(null);
-  const [isPitchScenarioDropdownOpen, setIsPitchScenarioDropdownOpen] = useState(false);
   
   // Pipeline filter toggle handler - cycles through: no filter → yes → no → no filter
   const cycleEnquiryPipelineFilter = useCallback((stage: EnquiryPipelineStage) => {
@@ -385,8 +700,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         // Switch to 'no' (doesn't have this stage)
         newFilters.set(stage, 'no');
       } else {
-        // Clear filter
-        newFilters.delete(stage);
+        // Deselect (clear) currently causes a crash in some cases.
+        // Keep the last stable state and rely on the global Clear Filters button to remove.
+        newFilters.set(stage, 'no');
       }
       
       return newFilters;
@@ -418,6 +734,127 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // Table view: Track hovered day for highlight effect
   const [hoveredDayKey, setHoveredDayKey] = useState<string | null>(null);
   
+  // Pipeline chips carousel: track scroll offset per row (enquiry ID -> offset index)
+  const [pipelineScrollOffsets, setPipelineScrollOffsets] = useState<Map<string, number>>(new Map());
+  
+  // Pipeline carousel scroll handler - advances visible chips by 1
+  const advancePipelineScroll = useCallback((enquiryId: string, totalChips: number, visibleChips: number) => {
+    setPipelineScrollOffsets(prev => {
+      const next = new Map(prev);
+      const currentOffset = prev.get(enquiryId) || 0;
+      const maxOffset = Math.max(0, totalChips - visibleChips);
+      // Cycle: if at max, go back to 0; otherwise advance by 1
+      const nextOffset = currentOffset >= maxOffset ? 0 : currentOffset + 1;
+      next.set(enquiryId, nextOffset);
+      return next;
+    });
+  }, []);
+  
+  // Get visible chip indices for a row (returns start index for array slicing)
+  const getPipelineScrollOffset = useCallback((enquiryId: string): number => {
+    return pipelineScrollOffsets.get(enquiryId) || 0;
+  }, [pipelineScrollOffsets]);
+  
+  // Check if pipeline needs carousel navigation for a row
+  const pipelineNeedsCarousel = visiblePipelineChipCount < 8;
+  
+  // Helper: Render pipeline chips with carousel if needed
+  // This wraps chips in a scrollable container when width is constrained
+  const renderPipelineCarouselWrapper = useCallback((
+    enquiryId: string,
+    children: React.ReactNode[],
+    isDark: boolean
+  ) => {
+    const totalChips = 8;
+    const offset = getPipelineScrollOffset(enquiryId);
+    const showNav = pipelineNeedsCarousel;
+    const hasMoreChips = showNav && offset < totalChips - visiblePipelineChipCount;
+    const isAtStart = offset === 0;
+    
+    // Calculate which chips to show
+    const visibleStart = offset;
+    const visibleEnd = offset + visiblePipelineChipCount;
+    
+    // Grid template for visible chips only
+    const gridCols = showNav 
+      ? `repeat(${visiblePipelineChipCount}, minmax(0, 1fr)) 24px`
+      : 'repeat(8, minmax(0, 1fr)) 24px';
+    
+    return (
+      <div style={{ position: 'relative', height: '100%', width: '100%' }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: gridCols,
+            columnGap: 8,
+            alignItems: 'center',
+            width: '100%',
+            height: '100%',
+          }}
+        >
+          {showNav 
+            ? children.slice(visibleStart, visibleEnd)
+            : children}
+          
+          {/* Navigation chevron / gutter */}
+          {showNav ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                advancePipelineScroll(enquiryId, totalChips, visiblePipelineChipCount);
+              }}
+              title={hasMoreChips ? `View more stages (${totalChips - visibleEnd} hidden)` : 'Back to start'}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '100%',
+                height: 22,
+                padding: 0,
+                border: `1px solid ${isDark ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)'}`,
+                borderRadius: 0,
+                background: hasMoreChips 
+                  ? (isDark ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
+                  : (isDark ? 'rgba(148, 163, 184, 0.06)' : 'rgba(148, 163, 184, 0.04)'),
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+                color: hasMoreChips 
+                  ? colours.blue 
+                  : (isDark ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.4)'),
+              }}
+            >
+              <Icon 
+                iconName={hasMoreChips ? 'ChevronRight' : 'Refresh'} 
+                styles={{ 
+                  root: { 
+                    fontSize: hasMoreChips ? 12 : 10, 
+                    color: 'inherit',
+                    opacity: hasMoreChips ? 1 : 0.7,
+                  } 
+                }} 
+              />
+              {hasMoreChips && !isAtStart && (
+                <span style={{ 
+                  position: 'absolute',
+                  top: -2,
+                  right: -2,
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  background: colours.blue,
+                  fontSize: 0,
+                }} />
+              )}
+            </button>
+          ) : (
+            <div />
+          )}
+        </div>
+      </div>
+    );
+  }, [pipelineNeedsCarousel, visiblePipelineChipCount, getPipelineScrollOffset, advancePipelineScroll]);
+  
   // Toggle day collapse
   const toggleDayCollapse = useCallback((dayKey: string) => {
     setCollapsedDays(prev => {
@@ -432,7 +869,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   }, []);
 
   // Reassignment state
-  const [reassignmentDropdown, setReassignmentDropdown] = useState<{ enquiryId: string; x: number; y: number } | null>(null);
+  const [reassignmentDropdown, setReassignmentDropdown] = useState<{ enquiryId: string; x: number; y: number; openAbove?: boolean } | null>(null);
   const [isReassigning, setIsReassigning] = useState(false);
 
   // Navigation state variables  
@@ -660,7 +1097,20 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const isVSCodeWebview = (typeof navigator !== 'undefined') && navigator.userAgent.includes('Code');
   // Scope toggle - always default to "Mine" for focused workflow
   const [showMineOnly, setShowMineOnly] = useState<boolean>(true);
-  const [isDeletionMode, setIsDeletionMode] = useState<boolean>(false);
+  type EnquiriesActiveState = '' | 'Claimed' | 'Claimable' | 'Triaged';
+  const [activeState, setActiveState] = useState<EnquiriesActiveState>('Claimed');
+
+  // In Claimed view, claim is guaranteed by definition, so drop any persisted claim-stage filter.
+  useEffect(() => {
+    if (activeState !== 'Claimed') return;
+    setEnquiryPipelineFilters(prev => {
+      if (!prev.has('claimed')) return prev;
+      const next = new Map(prev);
+      next.delete('claimed');
+      return next;
+    });
+  }, [activeState]);
+
   const [editingEnquiry, setEditingEnquiry] = useState<Enquiry | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [deletePasscode, setDeletePasscode] = useState('');
@@ -679,10 +1129,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<{ oldest: string; newest: string } | null>(null);
   const [isSearchActive, setSearchActive] = useState<boolean>(false);
+  const [searchInputValue, setSearchInputValue] = useState<string>(''); // Local input value for immediate UI feedback
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState<string>('');
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [showGroupedView, setShowGroupedView] = useState<boolean>(true);
   const [areActionsEnabled, setAreActionsEnabled] = useState<boolean>(false);
+  const [documentCounts, setDocumentCounts] = useState<Record<string, number>>({});
   // Local dataset toggle (legacy vs new direct) analogous to Matters (only in localhost UI for now)
   // Deal Capture is always enabled by default now
   const showDealCapture = true;
@@ -786,24 +1238,15 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         console.info('[Enquiries] stream:event', { type: 'changed' });
       }
 
-      const didPatch = (
-        data?.changeType === 'claim' &&
-        typeof data?.enquiryId === 'string' &&
-        typeof data?.claimedBy === 'string' &&
-        applyRealtimeClaimPatch(data.enquiryId, data.claimedBy, data.claimedAt)
-      );
-
-      // If we successfully patched locally, push the backstop refresh out a bit.
-      scheduleRefresh(didPatch ? 5000 : 900);
-    };
-
-    es.addEventListener('enquiries.changed', onChangedEvent);
-    // Only listen to explicit 'enquiries.changed' events; do NOT use onmessage
-    // as that would fire on connection/heartbeat and cause refresh loops.
-    es.onerror = () => {
-      console.warn('[Enquiries] stream:error');
+      scheduleRefresh();
       // Let EventSource handle retries; do not spam refresh.
     };
+
+    try {
+      es.addEventListener('enquiries.changed', onChangedEvent as any);
+    } catch {
+      // ignore
+    }
 
     return () => {
       try { es.removeEventListener('enquiries.changed', onChangedEvent); } catch { /* ignore */ }
@@ -844,30 +1287,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [toastDetails, setToastDetails] = useState<string>('');
   const [toastType, setToastType] = useState<'success' | 'error' | 'info' | 'warning'>('success');
 
-  const [demoModeEnabled, setDemoModeEnabled] = useState<boolean>(() => {
+  const [demoModeEnabledLocal, setDemoModeEnabledLocal] = useState<boolean>(() => {
     try {
       return localStorage.getItem(DEMO_MODE_STORAGE_KEY) === 'true';
     } catch {
       return false;
     }
   });
-  
-  // Document counts state - maps enquiry ID to document count
-  const [documentCounts, setDocumentCounts] = useState<Record<string, number>>({});
-  
-  useEffect(() => {
-    const anyModalOpen = isRateModalOpen || showEditModal || isCreateContactModalOpen;
-    if (typeof window === 'undefined' || !anyModalOpen) {
-      return;
-    }
-    window.requestAnimationFrame(() => {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    });
-  }, [isRateModalOpen, showEditModal, isCreateContactModalOpen]);
-  
-  // Navigation state variables  
-  const [activeState, setActiveState] = useState<string>('Claimed');
-
+  const demoModeEnabled = typeof demoModeEnabledProp === 'boolean' ? demoModeEnabledProp : demoModeEnabledLocal;
   const triggerFetchAllEnquiries = useCallback((reason: string) => {
     lastTeamWideFetchReasonRef.current = reason;
     console.info('[Enquiries] fetchAllEnquiries:trigger', {
@@ -881,11 +1308,23 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     });
     fetchAllEnquiries();
   }, [showMineOnly, activeState, isLoadingAllData, teamWideEnquiries.length, allEnquiries.length, fetchAllEnquiries]);
-  const [searchTerm, setSearchTerm] = useState<string>('');
   
-  // Debounced search handler - prevents lag while typing
+  // Track enquiry visibility (for viewport-based enrichment)
+  const handleEnquiryVisibilityChange = useCallback((enquiryId: string, isVisible: boolean) => {
+    setVisibleEnquiryIds(prev => {
+      const next = new Set(prev);
+      if (isVisible) {
+        next.add(enquiryId);
+      } else {
+        next.delete(enquiryId);
+      }
+      return next;
+    });
+  }, []);
+  
+  // Debounced search handler - prevents component re-renders while typing
   const handleSearchChange = useCallback((value: string) => {
-    setSearchTerm(value); // Update UI immediately for responsiveness
+    setSearchInputValue(value); // Update input immediately for responsive typing
     
     // Clear existing timeout
     if (searchTimeoutRef.current) {
@@ -920,8 +1359,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       areaOfWork?: string;
       enquiryId?: string;
       dataSource?: 'new' | 'legacy';
+      iconOnly?: boolean;
     }) => {
       const size = options?.size ?? 'default';
+      const iconOnly = options?.iconOnly ?? false;
       const metrics = size === 'compact'
         ? { padding: '4px 8px', fontSize: 9, iconSize: 10 }
         : { padding: '4px 10px', fontSize: 10, iconSize: 11 };
@@ -992,7 +1433,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             display: 'inline-flex',
             alignItems: 'center',
             gap: '4px',
-            padding: metrics.padding,
+            padding: iconOnly ? '0 6px' : metrics.padding,
+            height: iconOnly ? 22 : 24,
+            boxSizing: 'border-box',
+            lineHeight: 1,
             borderRadius: 0,
             border: `1px solid ${isDarkMode ? 'rgba(245, 158, 11, 0.4)' : 'rgba(217, 119, 6, 0.45)'}`,
             background: isDarkMode ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.08)',
@@ -1007,6 +1451,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             fontFamily: 'inherit',
             opacity: isClaiming ? 0.6 : 1,
             position: 'relative',
+            width: iconOnly ? '100%' : undefined,
           }}
           onMouseEnter={(e) => {
             if (!isClaiming) {
@@ -1038,7 +1483,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             />
           )}
           <Icon iconName={isClaiming ? 'Sync' : 'Contact'} styles={{ root: { fontSize: metrics.iconSize, color: 'inherit', animation: isClaiming ? 'spin 1s linear infinite' : 'none' } }} />
-          <span>{isClaiming ? 'Claiming...' : 'Claim'}</span>
+          {!iconOnly && <span>{isClaiming ? 'Claiming...' : 'Claim'}</span>}
         </button>
       );
     },
@@ -1231,10 +1676,18 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     event.stopPropagation();
     event.preventDefault();
     const rect = event.currentTarget.getBoundingClientRect();
+    const dropdownHeight = 280;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    
+    // Position below if enough space, otherwise above
+    const openAbove = spaceBelow < dropdownHeight && spaceAbove > spaceBelow;
+    
     setReassignmentDropdown({
       enquiryId,
-      x: rect.left,
-      y: rect.bottom + 5
+      x: rect.left + (rect.width / 2) - 100, // Center the 200px dropdown on the chip
+      y: openAbove ? rect.top - dropdownHeight - 4 : rect.bottom + 4,
+      openAbove,
     });
   }, []);
 
@@ -1634,6 +2087,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       hour: '2-digit',
       minute: '2-digit',
       hour12: false,
+      timeZone: 'Europe/London',
       timeZoneName: 'short',
     });
   };
@@ -1650,6 +2104,68 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
     if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
     return `${Math.floor(seconds / 86400)}d ago`;
+  };
+
+  const timeAgoLong = (dateStr: string | null): string => {
+    if (!dateStr) return '';
+    const now = new Date();
+    const then = new Date(dateStr);
+    if (isNaN(then.getTime())) return '';
+    let seconds = Math.floor((now.getTime() - then.getTime()) / 1000);
+
+    if (seconds <= 0) return 'Just now';
+
+    // < 1 minute: seconds only
+    if (seconds < 60) return `${seconds}s ago`;
+
+    // < 10 minutes: minutes + seconds (m/s)
+    if (seconds < 600) {
+      const minutes = Math.floor(seconds / 60);
+      const remSeconds = seconds % 60;
+      return remSeconds > 0 ? `${minutes}m ${remSeconds}s ago` : `${minutes}m ago`;
+    }
+
+    // < 1 hour: minutes only
+    if (seconds < 3600) {
+      const minutes = Math.floor(seconds / 60);
+      return `${minutes}m ago`;
+    }
+
+    // < 1 day: hours + minutes (h/m)
+    if (seconds < 86400) {
+      const hours = Math.floor(seconds / 3600);
+      const remMinutes = Math.floor((seconds % 3600) / 60);
+      return remMinutes > 0 ? `${hours}h ${remMinutes}m ago` : `${hours}h ago`;
+    }
+
+    const days = Math.floor(seconds / 86400);
+    const remHours = Math.floor((seconds % 86400) / 3600);
+
+    // < 1 week: days + hours (d/h)
+    if (days < 7) {
+      return remHours > 0 ? `${days}d ${remHours}h ago` : `${days}d ago`;
+    }
+
+    // < ~1 month: weeks + days (w/d)
+    if (days < 30) {
+      const weeks = Math.floor(days / 7);
+      const remDays = days % 7;
+      return remDays > 0 ? `${weeks}w ${remDays}d ago` : `${weeks}w ago`;
+    }
+
+    // < 1 year: months + weeks (m/w), month ≈ 30d
+    if (days < 365) {
+      const months = Math.floor(days / 30);
+      const remDays2 = days % 30;
+      const weeks = Math.floor(remDays2 / 7);
+      return weeks > 0 ? `${months}m ${weeks}w ago` : `${months}m ago`;
+    }
+
+    // years + months (y/m), year ≈ 365d
+    const years = Math.floor(days / 365);
+    const remDays3 = days % 365;
+    const months = Math.floor(remDays3 / 30);
+    return months > 0 ? `${years}y ${months}m ago` : `${years}y ago`;
   };
 
   // Get compact time display - single line format
@@ -1688,6 +2204,18 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     
     // Older: show date
     return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  };
+
+  const getStackedDateDisplay = (dateStr: string | null): { top: string; middle: string; bottom: string } => {
+    if (!dateStr) return { top: '-', middle: '', bottom: '' };
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return { top: '-', middle: '', bottom: '' };
+
+    const datePart = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Europe/London' });
+    const timePart = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Europe/London' });
+    const hasTime = timePart !== '00:00';
+
+    return { top: datePart, middle: '', bottom: hasTime ? timePart : '' };
   };
   
   // Format day separator label (e.g. "Today", "Yesterday", "Mon 30 Dec")
@@ -1858,7 +2386,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // Added for infinite scroll
   const [itemsToShow, setItemsToShow] = useState<number>(20);
   const loader = useRef<HTMLDivElement | null>(null);
-  const previousMainTab = useRef<string>('Claimed');
+  const previousMainTab = useRef<EnquiriesActiveState>('Claimed');
 
   const toggleDashboard = useCallback(() => {
     if (activeState === '') {
@@ -2295,10 +2823,19 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     setActiveSubTab(key);
   }, []);
 
-  const handleSelectEnquiry = useCallback((enquiry: Enquiry) => {
+  const openEnquiryWorkbench = useCallback((enquiry: Enquiry, tab: 'Pitch' | 'Timeline') => {
     setSelectedEnquiry(enquiry);
-    setActiveSubTab('Pitch'); // Go directly to Pitch Builder
+    setActiveSubTab(tab);
   }, []);
+
+  const handleSelectEnquiry = useCallback((enquiry: Enquiry) => {
+    const promotion = getPromotionStatusSimple(enquiry);
+    const enrichmentPitch = enquiry.ID
+      ? enrichmentMap.get(String(enquiry.ID))?.pitchData
+      : null;
+    const defaultTab = (promotion || enquiry.pitchEnquiryId || enrichmentPitch) ? 'Timeline' : 'Pitch';
+    openEnquiryWorkbench(enquiry, defaultTab);
+  }, [enrichmentMap, getPromotionStatusSimple, openEnquiryWorkbench]);
 
   const handleBackToList = useCallback(() => {
     setSelectedEnquiry(null);
@@ -2364,12 +2901,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     } catch {
       // ignore storage errors
     }
-    setDemoModeEnabled(true);
+    setDemoModeEnabledLocal(true);
 
     const demoEnquiry: Enquiry & { __sourceType: 'new' | 'legacy' } = {
       ...DEV_PREVIEW_TEST_ENQUIRY,
       Point_of_Contact: currentUserEmail,
       Touchpoint_Date: new Date().toISOString().split('T')[0],
+      __sourceType: 'legacy',
     };
 
     setDisplayEnquiries(prev => {
@@ -2769,11 +3307,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     }
   }, []);
 
-  const submitRating = useCallback(async () => {
-    if (ratingEnquiryId && currentRating) {
+  const submitRating = useCallback(async (ratingValue?: string) => {
+    const rating = ratingValue || currentRating;
+    if (ratingEnquiryId && rating) {
       try {
         // Use handleRatingChange which has proper state updates and toast feedback
-        await handleRatingChange(ratingEnquiryId, currentRating);
+        await handleRatingChange(ratingEnquiryId, rating);
         closeRateModal();
       } catch (error) {
         console.error('Error submitting rating:', error);
@@ -3040,27 +3579,52 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       });
     }
 
-    // Apply pipeline filters (Teams/Pitched - yes/no toggles)
+    // Apply pipeline filters (yes/no toggles)
     if (enquiryPipelineFilters.size > 0) {
       filtered = filtered.filter(enquiry => {
-        const enrichmentData = enrichmentMap.get(String(enquiry.ID));
-        
-        // Check each active filter
-        for (const [stage, requiredStatus] of enquiryPipelineFilters.entries()) {
-          let hasStage = false;
-          
-          if (stage === 'teams') {
-            hasStage = !!(enrichmentData?.teamsData);
-          } else if (stage === 'pitched') {
-            hasStage = !!(enrichmentData?.pitchData);
+        try {
+          const enrichmentData = enrichmentMap.get(String(enquiry.ID));
+          const inlineWorkbenchItem = enquiry.ID ? inlineWorkbenchByEnquiryId.get(String(enquiry.ID)) : undefined;
+          const inst = inlineWorkbenchItem?.instruction;
+          const deal = inlineWorkbenchItem?.deal;
+          const instructionRef = (inst?.InstructionRef ?? inst?.instructionRef ?? deal?.InstructionRef ?? deal?.instructionRef) as string | undefined;
+          const poc = (enquiry.Point_of_Contact || (enquiry as any).poc || '').toLowerCase();
+
+          // Check each active filter
+          for (const [stage, requiredStatus] of enquiryPipelineFilters.entries()) {
+            if (activeState === 'Claimed' && stage === 'claimed') {
+              continue;
+            }
+            let hasStage = false;
+
+            if (stage === 'teams') {
+              hasStage = !!(enrichmentData?.teamsData);
+            } else if (stage === 'claimed') {
+              hasStage = Boolean(poc) && poc !== 'team@helix-law.com';
+            } else if (stage === 'pitched') {
+              hasStage = !!(enrichmentData?.pitchData);
+            } else if (stage === 'instructed') {
+              hasStage = Boolean(instructionRef);
+            } else if (stage === 'idcheck') {
+              hasStage = Boolean(inlineWorkbenchItem?.eid);
+            } else if (stage === 'paid') {
+              hasStage = Array.isArray(inlineWorkbenchItem?.payments) && inlineWorkbenchItem.payments.length > 0;
+            } else if (stage === 'risk') {
+              hasStage = Boolean(inlineWorkbenchItem?.risk);
+            } else if (stage === 'matter') {
+              hasStage = Boolean(inst?.MatterId ?? inst?.matterId) || (Array.isArray(inlineWorkbenchItem?.matters) && inlineWorkbenchItem.matters.length > 0);
+            }
+
+            // requiredStatus is 'yes' or 'no'
+            if (requiredStatus === 'yes' && !hasStage) return false;
+            if (requiredStatus === 'no' && hasStage) return false;
           }
-          
-          // requiredStatus is 'yes' or 'no'
-          if (requiredStatus === 'yes' && !hasStage) return false;
-          if (requiredStatus === 'no' && hasStage) return false;
+
+          return true;
+        } catch {
+          // Don't let a filter edge-case take down the whole tab.
+          return true;
         }
-        
-        return true;
       });
     }
 
@@ -3069,17 +3633,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       filtered = filtered.filter(enquiry => {
         const poc = (enquiry.Point_of_Contact || (enquiry as any).poc || '').toLowerCase();
         return poc === selectedPocFilter.toLowerCase();
-      });
-    }
-
-    // Apply pitch scenario filter
-    if (selectedPitchScenarioFilter) {
-      filtered = filtered.filter(enquiry => {
-        const enrichmentData = enrichmentMap.get(String(enquiry.ID));
-        if (!enrichmentData?.pitchData) return false;
-        // Check if the pitch has the selected scenario
-        const pitchScenario = enrichmentData.pitchData.scenarioId;
-        return pitchScenario === selectedPitchScenarioFilter;
       });
     }
 
@@ -3096,9 +3649,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     teamData,
     enrichmentMap, // For Triaged filter and pipeline filters
     triagedDataLoaded, // For Triaged filter - wait until data is loaded
-    enquiryPipelineFilters, // For pipeline filtering (Teams/Pitched)
+    enquiryPipelineFilters, // For pipeline filtering
     selectedPocFilter, // For POC dropdown filter
-    selectedPitchScenarioFilter, // For pitch scenario filter
+    inlineWorkbenchByEnquiryId,
   ]);
 
   // Build a quick lookup of every enquiry keyed by ID so special shared IDs can hydrate their history.
@@ -3307,6 +3860,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   }, [filteredEnquiries.length]);
 
   // Progressive enrichment for displayed items only (more efficient)
+  // Uses a stable ref-based approach to prevent spam when switching to "All" view
   useEffect(() => {
     // Skip enrichment when viewing a single enquiry detail
     if (selectedEnquiry) {
@@ -3315,27 +3869,42 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
     const fetchProgressiveEnrichment = async () => {
       // Get currently displayed enquiries that need enrichment
-      const displayedEnquiries = displayedItems.filter((item): item is (Enquiry & { __sourceType: 'new' | 'legacy' }) => {
+      // **VIEWPORT OPTIMIZATION**: Only process items that are actually visible
+      const displayedEnquiriesSnapshot = displayedItems.filter((item): item is (Enquiry & { __sourceType: 'new' | 'legacy' }) => {
         if (!('ID' in item) || !item.ID) return false;
         const key = String(item.ID);
+        
+        // Skip if already enriched or being fetched
         const hasEnrichment = enrichmentMap.has(key);
         const isBeingFetched = enrichmentRequestsRef.current.has(key);
-        return !hasEnrichment && !isBeingFetched;
+        if (hasEnrichment || isBeingFetched) return false;
+        
+        // **CRITICAL**: Only enrich if visible in viewport
+        const isVisible = visibleEnquiryIds.has(key);
+        return isVisible;
       });
 
-      if (displayedEnquiries.length === 0) {
-        return; // All displayed items already enriched
+      if (displayedEnquiriesSnapshot.length === 0) {
+        return; // All visible items already enriched
       }
       
+      // **CRITICAL**: Limit batch size to prevent spam (max 20 items per batch for viewport)
+      const BATCH_LIMIT = 20; // Smaller batch since we're only doing visible items
+      const batchToEnrich = displayedEnquiriesSnapshot.slice(0, BATCH_LIMIT);
+      
+      // Update UI feedback
+      setIsEnriching(true);
+      setEnrichmentProgress({ current: batchToEnrich.length, total: displayedEnquiriesSnapshot.length });
+      
       // Mark items as being fetched
-      displayedEnquiries.forEach(enquiry => {
+      batchToEnrich.forEach(enquiry => {
         if (enquiry.ID) {
           enrichmentRequestsRef.current.add(String(enquiry.ID));
         }
       });
 
       // Get v2 enquiry IDs for Teams data
-      const v2EnquiryIds = displayedEnquiries
+      const v2EnquiryIds = batchToEnrich
         .filter(enquiry => {
           const isNewSource = enquiry.__sourceType === 'new' || (enquiry as any).source === 'instructions';
           return isNewSource && enquiry.ID;
@@ -3344,7 +3913,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         .filter(Boolean);
 
       // Get all enquiry emails for pitch data
-      const enquiryEmails = displayedEnquiries
+      const enquiryEmails = batchToEnrich
         .map(enquiry => enquiry.Email)
         .filter(Boolean)
         .filter(email => email.toLowerCase() !== 'team@helix-law.com');
@@ -3369,7 +3938,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             });
 
             // Map pitch data by email to enquiry IDs
-            displayedEnquiries.forEach(enquiry => {
+            batchToEnrich.forEach(enquiry => {
               if (enquiry.Email && enquiry.ID) {
                 const pitchData = enrichmentResponse.pitchByEmail[enquiry.Email.toLowerCase()];
                 if (pitchData) {
@@ -3382,7 +3951,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             
             // IMPORTANT: Create empty records for enquiries that didn't get data
             // This stops the spinners for items with no enrichment data
-            displayedEnquiries.forEach(enquiry => {
+            batchToEnrich.forEach(enquiry => {
               const key = String(enquiry.ID);
               if (enquiry.ID && !newMap.has(key)) {
                 newMap.set(key, { enquiryId: key }); // Empty record
@@ -3393,18 +3962,22 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           });
           
           // Clear tracking for successfully processed items
-          displayedEnquiries.forEach(enquiry => {
+          batchToEnrich.forEach(enquiry => {
             if (enquiry.ID) {
               enrichmentRequestsRef.current.delete(String(enquiry.ID));
             }
           });
+          
+          // Clear UI feedback
+          setIsEnriching(false);
+          setEnrichmentProgress(null);
         } catch (error) {
           console.error('[Enquiries] Progressive enrichment failed:', error);
           
           // Create empty enrichment records to stop spinners and clear tracking
           setEnrichmentMap(prevMap => {
             const newMap = new Map(prevMap);
-            displayedEnquiries.forEach(enquiry => {
+            batchToEnrich.forEach(enquiry => {
               const key = String(enquiry.ID);
               if (enquiry.ID && !newMap.has(key)) {
                 newMap.set(key, { enquiryId: key }); // Empty record to indicate processed
@@ -3413,12 +3986,16 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             });
             return newMap;
           });
+          
+          // Clear UI feedback on error
+          setIsEnriching(false);
+          setEnrichmentProgress(null);
         }
       } else {
         // No enrichment needed, but create empty records to stop spinners
         setEnrichmentMap(prevMap => {
           const newMap = new Map(prevMap);
-          displayedEnquiries.forEach(enquiry => {
+          batchToEnrich.forEach(enquiry => {
             const key = String(enquiry.ID);
             if (enquiry.ID && !newMap.has(key)) {
               newMap.set(key, { enquiryId: key }); // Empty record
@@ -3427,13 +4004,50 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           });
           return newMap;
         });
+        
+        // Clear UI feedback when no enrichment needed
+        setIsEnriching(false);
+        setEnrichmentProgress(null);
       }
     };
 
-    // Add a small delay to debounce rapid calls
-    const timeoutId = setTimeout(fetchProgressiveEnrichment, 100);
+    // Use longer debounce for large datasets to prevent spam
+    const datasetSize = dedupedEnquiries.length;
+    const debounceTime = datasetSize > 100 ? 300 : 50; // Reduced debounce for faster response
+    
+    const timeoutId = setTimeout(fetchProgressiveEnrichment, debounceTime);
     return () => clearTimeout(timeoutId);
-  }, [selectedEnquiry, displayedItems, dedupedEnquiries.length, showGroupedView, showUnclaimedBoard, filteredEnquiries.length, filteredEnquiriesWithSharedHistory.length, unclaimedEnquiries.length, itemsToShow, viewMode]); // Trigger on any data or view change
+  }, [
+    selectedEnquiry, 
+    enrichmentMap.size, // Only re-run when enrichment count changes (stable)
+    itemsToShow, // When user loads more
+    showMineOnly, // When switching All/Mine (affects dataset)
+    visibleEnquiryIds.size, // When viewport visibility changes
+  ]); // Removed unstable deps: displayedItems, filteredEnquiries.length, etc.
+
+  // Track visible enquiries using IntersectionObserver (viewport-based enrichment)
+  useEffect(() => {
+    const observerOptions = {
+      root: null, // viewport
+      rootMargin: '100px', // Start enriching slightly before item enters view
+      threshold: 0.01, // Trigger as soon as 1% is visible
+    };
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        const enquiryId = entry.target.getAttribute('data-enquiry-id');
+        if (enquiryId) {
+          handleEnquiryVisibilityChange(enquiryId, entry.isIntersecting);
+        }
+      });
+    }, observerOptions);
+
+    // Observe all enquiry rows
+    const rows = document.querySelectorAll('[data-enquiry-id]');
+    rows.forEach(row => observer.observe(row));
+
+    return () => observer.disconnect();
+  }, [displayedItems.length, handleEnquiryVisibilityChange]); // Re-observe when items change
 
   // Bulk fetch pitch data when Triaged filter is active (needs all emails, not just displayed)
   const triagedBulkFetchRef = useRef<boolean>(false);
@@ -3514,7 +4128,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // Clear enrichment request tracking when view context changes significantly
   useEffect(() => {
     enrichmentRequestsRef.current.clear();
-  }, [showUnclaimedBoard, showGroupedView, viewMode, selectedArea, dateRange?.oldest, dateRange?.newest, searchTerm]);
+  }, [showUnclaimedBoard, showGroupedView, viewMode, selectedArea, dateRange?.oldest, dateRange?.newest, debouncedSearchTerm]);
 
   // Fetch document counts for displayed enquiries
   // Note: This will be activated when the backend API is implemented
@@ -3544,7 +4158,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         
         // For now, initialize with zeros to prevent re-fetching
         // BUT inject synthetic counts for the dev preview test record
-        setDocumentCounts(prev => {
+        setDocumentCounts((prev: Record<string, number>) => {
           const newCounts = { ...prev };
           enquiryIds.forEach(id => {
             if (!(id in newCounts)) {
@@ -3592,7 +4206,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     };
   }, [filteredEnquiries, itemsToShow]);
   const handleSetActiveState = useCallback(
-    (key: string) => {
+    (key: EnquiriesActiveState) => {
       if (key !== '') {
         previousMainTab.current = key;
       }
@@ -3630,6 +4244,71 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         'Poor quality. Very unlikely to instruct us. Prospect or matter not a good fit. Time waster or irrelevant issue.',
     },
   ];
+
+  const getRatingIconAndColor = (ratingKey: string | undefined, darkMode: boolean) => {
+    if (!ratingKey) {
+      return {
+        iconName: 'FavoriteStar',
+        color: darkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)',
+      };
+    }
+
+    switch (ratingKey) {
+      case 'Good':
+        return { iconName: 'FavoriteStarFill', color: colours.blue };
+      case 'Neutral':
+        return {
+          iconName: 'CircleRing',
+          color: darkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(100, 116, 139, 0.9)',
+        };
+      case 'Poor':
+        return { iconName: 'StatusErrorFull', color: colours.cta };
+      default:
+        return {
+          iconName: 'FavoriteStar',
+          color: darkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)',
+        };
+    }
+  };
+
+  const getRatingChipMeta = (ratingKey: string | undefined, darkMode: boolean) => {
+    const baseBorder = darkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)';
+    const { iconName, color } = getRatingIconAndColor(ratingKey, darkMode);
+
+    if (!ratingKey) {
+      return {
+        iconName,
+        color,
+        background: darkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)',
+        borderColor: baseBorder,
+        hoverBackground: darkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+        hoverColor: colours.blue,
+        hoverBorderColor: colours.blue,
+      };
+    }
+
+    const background = ratingKey === 'Good'
+      ? (darkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.14)')
+      : ratingKey === 'Neutral'
+        ? (darkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.14)')
+        : (darkMode ? 'rgba(214, 85, 65, 0.2)' : 'rgba(214, 85, 65, 0.14)');
+
+    const hoverBackground = ratingKey === 'Good'
+      ? (darkMode ? 'rgba(54, 144, 206, 0.28)' : 'rgba(54, 144, 206, 0.2)')
+      : ratingKey === 'Neutral'
+        ? (darkMode ? 'rgba(148, 163, 184, 0.28)' : 'rgba(148, 163, 184, 0.2)')
+        : (darkMode ? 'rgba(214, 85, 65, 0.28)' : 'rgba(214, 85, 65, 0.2)');
+
+    return {
+      iconName,
+      color,
+      background,
+      borderColor: baseBorder,
+      hoverBackground,
+      hoverColor: color,
+      hoverBorderColor: color,
+    };
+  };
 
   const renderRatingOptions = useCallback(() => {
     return (
@@ -3693,15 +4372,17 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             userInitials={userData && userData[0] ? userData[0].Initials : undefined}
             userEmail={userData?.[0]?.Email}
             featureToggles={featureToggles}
+            demoModeEnabled={demoModeEnabled}
             onOpenPitchBuilder={(scenarioId) => {
               setSelectedPitchScenario(scenarioId);
               setActiveSubTab('Pitch');
             }}
+            inlineWorkbenchItem={enquiry.ID ? inlineWorkbenchByEnquiryId.get(String(enquiry.ID)) : undefined}
           />
         )}
       </>
     ),
-  [activeSubTab, userData, isLocalhost, featureToggles, setActiveSubTab]
+  [activeSubTab, userData, isLocalhost, featureToggles, setActiveSubTab, inlineWorkbenchByEnquiryId]
   );
 
   const enquiriesCountPerMember = useMemo(() => {
@@ -4355,7 +5036,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             </div>
           )}
           search={{
-            value: searchTerm,
+            value: searchInputValue,
             onChange: handleSearchChange,
             placeholder: "Search (name, email, company, type, ID)"
           }}
@@ -4603,7 +5284,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     selectedEnquiry,
     activeState,
     selectedAreas,
-    searchTerm,
+    searchInputValue,
     userData,
     isAdmin,
     isLocalhost,
@@ -4658,6 +5339,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           onClaimSuccess={() => { try { handleManualRefresh(); } catch (e) { /* ignore */ } }}
           onOptimisticClaim={onOptimisticClaim}
           getPromotionStatusSimple={getPromotionStatusSimple}
+          inlineWorkbenchByEnquiryId={inlineWorkbenchByEnquiryId}
+          teamData={teamData}
         />
       ) : null}
 
@@ -4692,7 +5375,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                   ) :filteredEnquiries.length === 0 ? (
                     <EmptyState
                       title={
-                        enquiryPipelineFilters.size > 0 || selectedPocFilter || selectedPitchScenarioFilter || debouncedSearchTerm || selectedAreas.length > 0 || selectedPersonInitials
+                        enquiryPipelineFilters.size > 0 || selectedPocFilter || debouncedSearchTerm || selectedAreas.length > 0 || selectedPersonInitials
                           ? 'No matching enquiries'
                           : activeState === 'Claimed' && showMineOnly
                           ? 'No claimed enquiries yet'
@@ -4703,7 +5386,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           : 'No enquiries found'
                       }
                       description={
-                        enquiryPipelineFilters.size > 0 || selectedPocFilter || selectedPitchScenarioFilter || debouncedSearchTerm || selectedAreas.length > 0 || selectedPersonInitials
+                        enquiryPipelineFilters.size > 0 || selectedPocFilter || debouncedSearchTerm || selectedAreas.length > 0 || selectedPersonInitials
                           ? 'No enquiries match your current filters. Try adjusting or clearing your filters to see more results.'
                           : activeState === 'Claimed' && showMineOnly
                           ? 'You haven\'t claimed any enquiries yet. Check the claimable section to get started.'
@@ -4714,20 +5397,23 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           : 'Try adjusting your date range or filters.'
                       }
                       illustration={
-                        enquiryPipelineFilters.size > 0 || selectedPocFilter || selectedPitchScenarioFilter || debouncedSearchTerm || selectedAreas.length > 0 || selectedPersonInitials
+                        enquiryPipelineFilters.size > 0 || selectedPocFilter || debouncedSearchTerm || selectedAreas.length > 0 || selectedPersonInitials
                           ? 'filter'
                           : activeState === 'Triaged' ? 'filter' : 'search'
                       }
                       size="md"
                       action={
-                        (enquiryPipelineFilters.size > 0 || selectedPocFilter || selectedPitchScenarioFilter || debouncedSearchTerm || selectedAreas.length > 0 || selectedPersonInitials)
+                        (enquiryPipelineFilters.size > 0 || selectedPocFilter || debouncedSearchTerm || selectedAreas.length > 0 || selectedPersonInitials)
                           ? {
                               label: 'Clear All Filters',
                               onClick: () => {
                                 setEnquiryPipelineFilters(new Map());
                                 setSelectedPocFilter(null);
-                                setSelectedPitchScenarioFilter(null);
-                                setSearchTerm('');
+                                setSearchInputValue('');
+                                if (searchTimeoutRef.current) {
+                                  clearTimeout(searchTimeoutRef.current);
+                                }
+                                setDebouncedSearchTerm('');
                                 setSelectedAreas([]);
                                 setSelectedPersonInitials(null);
                               },
@@ -4739,6 +5425,50 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
             ) : (
               <>
+                {/* Global pipeline animations - defined once for all rows */}
+                <style>{`
+                  @keyframes pipeline-cascade {
+                    0% { opacity: 0; transform: translateY(-6px) scale(0.9); }
+                    100% { opacity: 1; transform: translateY(0) scale(1); }
+                  }
+                  @keyframes action-dot-pulse {
+                    0%, 100% { opacity: 0.6; }
+                    50% { opacity: 1; }
+                  }
+                `}</style>
+
+                {/* Subtle enrichment progress indicator */}
+                {isEnriching && enrichmentProgress && (
+                  <div style={{
+                    position: 'fixed',
+                    bottom: 16,
+                    right: 16,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '8px 12px',
+                    background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
+                    border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`,
+                    borderRadius: 8,
+                    fontSize: 11,
+                    fontWeight: 500,
+                    color: isDarkMode ? 'rgba(255, 255, 255, 0.8)' : 'rgba(0, 0, 0, 0.7)',
+                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+                    backdropFilter: 'blur(8px)',
+                    zIndex: 1000,
+                    animation: 'fadeIn 0.2s ease',
+                  }}>
+                    <div style={{
+                      width: 12,
+                      height: 12,
+                      border: `2px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`,
+                      borderTopColor: colours.blue,
+                      borderRadius: '50%',
+                      animation: 'spin 0.8s linear infinite',
+                    }} />
+                    <span>Loading {enrichmentProgress.current} of {enrichmentProgress.total} items</span>
+                  </div>
+                )}
                 {viewMode === 'card' ? (
                   /* Card View */
                   <div
@@ -4786,8 +5516,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                       if (isGroupedEnquiry(item)) {
                         // Render grouped enquiry card
                         return (
+                          <div key={item.clientKey} data-enquiry-id={item.clientKey}>
                           <GroupedEnquiryCard
-                            key={item.clientKey}
                             groupedEnquiry={item}
                             onSelect={handleSelectEnquiry}
                             onRate={handleRate}
@@ -4799,15 +5529,18 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             getPromotionStatus={getPromotionStatusSimple}
                             onFilterByPerson={handleFilterByPerson}
                             documentCounts={documentCounts}
+                            inlineWorkbenchByEnquiryId={inlineWorkbenchByEnquiryId}
                           />
+                          </div>
                         );
                       } else {
                         const pocLower = (item.Point_of_Contact || (item as any).poc || '').toLowerCase();
                         const isUnclaimed = pocLower === 'team@helix-law.com';
+                        const inlineWorkbenchItem = item.ID ? inlineWorkbenchByEnquiryId.get(String(item.ID)) : undefined;
                         if (isUnclaimed) {
                           return (
+                            <div key={`${item.ID}-${item.First_Name || ''}-${item.Last_Name || ''}-${item.Touchpoint_Date || ''}-${item.Point_of_Contact || ''}`} data-enquiry-id={item.ID ? String(item.ID) : undefined}>
                             <NewUnclaimedEnquiryCard
-                              key={`${item.ID}-${item.First_Name || ''}-${item.Last_Name || ''}-${item.Touchpoint_Date || ''}-${item.Point_of_Contact || ''}`}
                               enquiry={item}
                               onSelect={() => {}} // Prevent click-through to pitch builder
                               onRate={handleRate}
@@ -4818,13 +5551,16 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               onOptimisticClaim={onOptimisticClaim}
                               promotionStatus={getPromotionStatusSimple(item)}
                               documentCount={item.ID ? (documentCounts[String(item.ID)] || 0) : 0}
+                              inlineWorkbenchItem={inlineWorkbenchItem}
+                              teamData={teamData}
                             />
+                            </div>
                           );
                         }
                         const claimer = claimerMap[pocLower];
                         return (
+                          <div key={`${item.ID}-${item.First_Name || ''}-${item.Last_Name || ''}-${item.Touchpoint_Date || ''}-${item.Point_of_Contact || ''}`} data-enquiry-id={item.ID ? String(item.ID) : undefined}>
                           <ClaimedEnquiryCard
-                            key={`${item.ID}-${item.First_Name || ''}-${item.Last_Name || ''}-${item.Touchpoint_Date || ''}-${item.Point_of_Contact || ''}`}
                             enquiry={item}
                             claimer={claimer}
                             onSelect={handleSelectEnquiry}
@@ -4840,7 +5576,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             enrichmentMap={enrichmentMap}
                             enrichmentRequestsRef={enrichmentRequestsRef}
                             documentCount={item.ID ? (documentCounts[String(item.ID)] || 0) : 0}
+                            inlineWorkbenchItem={inlineWorkbenchItem}
+                            teamData={teamData}
                           />
+                          </div>
                         );
                       }
                     })}
@@ -4852,23 +5591,24 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                       backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.6)' : '#ffffff',
                       border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
                       borderRadius: 2,
-                      overflow: 'visible',
+                      overflow: 'hidden',
                       fontFamily: 'Raleway, "Segoe UI", sans-serif',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      maxHeight: 'calc(100vh - 180px)',
                     }}
                   >
                     <div 
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: '32px 70px 50px 60px 1.2fr 0.5fr 1.6fr 0.5fr',
+                        gridTemplateColumns: '32px 80px 50px 70px 1.1fr 2.85fr 0.45fr',
                         gap: '12px',
-                        padding: '10px 16px',
+                        padding: '10px 32px 10px 16px', // Extra right padding to account for scrollbar
                         alignItems: 'center',
-                        position: 'sticky',
-                        top: 0,
-                        zIndex: 100,
+                        flexShrink: 0,
                         background: isDarkMode 
-                          ? 'rgba(15, 23, 42, 0.95)'
-                          : 'rgba(255, 255, 255, 0.95)',
+                          ? 'rgba(15, 23, 42, 0.98)'
+                          : 'rgba(255, 255, 255, 0.98)',
                         backdropFilter: 'blur(12px)',
                         borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)'}`,
                         fontFamily: 'Raleway, "Segoe UI", sans-serif',
@@ -5038,44 +5778,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           }}
                         />
                       </div>
-                      <div 
-                        onClick={() => {
-                          if (sortColumn === 'value') {
-                            setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
-                          } else {
-                            setSortColumn('value');
-                            setSortDirection('desc');
-                          }
-                        }}
-                        style={{ 
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          transition: 'color 0.15s ease',
-                          color: sortColumn === 'value' 
-                            ? (isDarkMode ? colours.accent : colours.highlight)
-                            : undefined,
-                        }}
-                        title="Sort by value"
-                      >
-                        Value
-                        <Icon 
-                          iconName={sortColumn === 'value' ? (sortDirection === 'asc' ? 'ChevronUpSmall' : 'ChevronDownSmall') : 'ChevronDownSmall'} 
-                          styles={{ 
-                            root: { 
-                              fontSize: 8,
-                              marginLeft: 4,
-                              opacity: sortColumn === 'value' ? 1 : 0.35,
-                              color: sortColumn === 'value' 
-                                ? (isDarkMode ? colours.accent : colours.highlight)
-                                : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)'),
-                              transition: 'opacity 0.15s ease',
-                            },
-                          }}
-                        />
-                      </div>
-                      {/* Pipeline filter buttons */}
+                      {/* Pipeline header + filter buttons */}
                       <div 
                         style={{ 
                           display: 'flex', 
@@ -5086,588 +5789,503 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                         }}
                         onClick={(e) => e.stopPropagation()}
                       >
-                        {/* Teams toggle */}
-                        {(() => {
-                          const filterState = getEnquiryStageFilterState('teams');
-                          const hasFilter = filterState !== null;
-                          const getFilterColor = () => {
-                            if (!filterState) return isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)';
-                            if (filterState === 'yes') return '#22c55e';
-                            if (filterState === 'no') return '#ef4444';
-                            return colours.highlight;
-                          };
-                          const filterColor = getFilterColor();
-                          const stateLabel = filterState === 'yes' ? 'Has' : filterState === 'no' ? 'No' : null;
-                          
-                          return (
-                            <button
-                              type="button"
-                              title={hasFilter 
-                                ? `Teams: ${stateLabel} (click to cycle)` 
-                                : `Filter by Teams (click to activate)`}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                cycleEnquiryPipelineFilter('teams');
-                              }}
+                        <div style={{ display: 'flex', flexDirection: 'column', width: '100%', gap: 0 }}>
+                          {/* Pipeline stage filters row (acts as the header; avoids duplicated labels) */}
+                          <div
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: pipelineNeedsCarousel 
+                                ? `repeat(${visiblePipelineChipCount}, minmax(0, 1fr)) 24px`
+                                : 'repeat(8, minmax(0, 1fr)) 24px',
+                              columnGap: 8,
+                              width: '100%',
+                              alignItems: 'center',
+                            }}
+                            ref={pipelineGridMeasureRef}
+                          >
+                            {/* Header carousel state */}
+                            {(() => {
+                              const headerOffset = getPipelineScrollOffset('__header__');
+                              const headerVisibleEnd = headerOffset + visiblePipelineChipCount;
+                              const headerHasMore = pipelineNeedsCarousel && headerOffset < 8 - visiblePipelineChipCount;
+                              const headerIsVisible = (idx: number) => 
+                                !pipelineNeedsCarousel || (idx >= headerOffset && idx < headerVisibleEnd);
+
+                              return (
+                                <>
+                            {/* Teams - chip index 0 */}
+                            {headerIsVisible(0) && (
+                            <div>
+                              {(() => {
+                                const filterState = getEnquiryStageFilterState('teams');
+                                const hasFilter = filterState !== null;
+                                const getFilterColor = () => {
+                                  if (!filterState) return isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)';
+                                  if (filterState === 'yes') return '#22c55e';
+                                  if (filterState === 'no') return '#ef4444';
+                                  return colours.highlight;
+                                };
+                                const filterColor = getFilterColor();
+                                const stateLabel = filterState === 'yes' ? 'Has' : filterState === 'no' ? 'No' : null;
+
+                                return (
+                                  <button
+                                    type="button"
+                                    title={hasFilter
+                                      ? `Teams: ${stateLabel} (click to cycle)`
+                                      : `Filter by Teams (click to activate)`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      cycleEnquiryPipelineFilter('teams');
+                                    }}
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      gap: 4,
+                                      height: 22,
+                                      width: '100%',
+                                      padding: '0 8px',
+                                      background: hasFilter
+                                        ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
+                                        : 'transparent',
+                                      border: hasFilter
+                                        ? `1px solid ${filterColor}40`
+                                        : `1px solid ${isDarkMode ? 'rgba(148,163,184,0.18)' : 'rgba(100,116,139,0.14)'}`,
+                                      borderRadius: 0,
+                                      cursor: 'pointer',
+                                      transition: 'all 150ms ease',
+                                      opacity: hasFilter ? 1 : 0.85,
+                                    }}
+                                  >
+                                    <span style={{ fontSize: 9, fontWeight: 700, color: filterColor, textTransform: 'uppercase' }}>
+                                      {pipelineChipLabelMode === 'full' ? 'Card' : 'Card'}
+                                    </span>
+                                  </button>
+                                );
+                              })()}
+                            </div>
+                            )}
+
+                            {/* Claim column - chip index 1: POC selector only in Claimed tab (claim is guaranteed there). */}
+                            {headerIsVisible(1) && (
+                            <div
                               style={{
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                gap: 3,
-                                height: 22,
-                                width: '90px',
-                                padding: '0 8px',
-                                background: hasFilter 
-                                  ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
-                                  : 'transparent',
-                                border: hasFilter 
-                                  ? `1px solid ${filterColor}40`
-                                  : '1px solid transparent',
-                                borderRadius: 0,
-                                cursor: 'pointer',
-                                transition: 'all 150ms ease',
-                                opacity: hasFilter ? 1 : 0.7,
-                              }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.opacity = '1';
-                                e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.opacity = hasFilter ? '1' : '0.7';
-                                e.currentTarget.style.background = hasFilter 
-                                  ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
-                                  : 'transparent';
+                                width: '100%',
                               }}
                             >
-                              <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 10, color: filterColor } }} />
-                              <span style={{ fontSize: 9, fontWeight: 600, color: filterColor, textTransform: 'uppercase' }}>Teams</span>
-                              {hasFilter && <span style={{ width: 6, height: 6, borderRadius: '50%', background: filterColor, marginLeft: 1 }}/>}
-                            </button>
-                          );
-                        })()}
-                        
-                        {/* Stage connector */}
-                        <div style={{ width: 8, height: 1, background: isDarkMode ? 'linear-gradient(to right, rgba(148, 163, 184, 0.3), rgba(148, 163, 184, 0.15))' : 'linear-gradient(to right, rgba(148, 163, 184, 0.25), rgba(148, 163, 184, 0.1))', alignSelf: 'center' }} />
-                        
-                        {/* POC filter - dropdown for All mode, simple toggle for Mine mode */}
-                        {(() => {
-                          const currentUserEmail = userData?.[0]?.Email?.toLowerCase() || '';
-                          const currentUserInitials = userData?.[0]?.Initials || 
-                            teamData?.find(t => t.Email?.toLowerCase() === currentUserEmail)?.Initials ||
-                            currentUserEmail.split('@')[0]?.slice(0, 2).toUpperCase() || 'ME';
-                          const isFiltered = !!selectedPocFilter;
-                          const isFilteredToMe = selectedPocFilter?.toLowerCase() === currentUserEmail;
-                          
-                          // Get display initials for current filter
-                          const getFilteredInitials = () => {
-                            if (!selectedPocFilter) return 'POC';
-                            if (selectedPocFilter.toLowerCase() === currentUserEmail) return currentUserInitials;
-                            const teamMember = teamData?.find(t => t.Email?.toLowerCase() === selectedPocFilter.toLowerCase());
-                            return teamMember?.Initials || selectedPocFilter.split('@')[0]?.slice(0, 2).toUpperCase() || 'POC';
-                          };
-                          
-                          const filterColor = isFiltered ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)');
-                          
-                          // In "All" mode, show dropdown; in "Mine" mode, simple toggle
-                          if (!showMineOnly) {
-                            return (
-                              <div style={{ position: 'relative' }}>
+                              {activeState === 'Claimable' ? (
+                                // In Unclaimed view, just show "Claim" label (no filter needed - they're all unclaimed)
+                                <span style={{ 
+                                  fontSize: 9, 
+                                  fontWeight: 700, 
+                                  color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)', 
+                                  textTransform: 'uppercase' 
+                                }}>
+                                  {pipelineChipLabelMode === 'full' ? 'Claimed' : 'Claim'}
+                                </span>
+                              ) : (
+                              (() => {
+                                const currentUserEmail = userData?.[0]?.Email?.toLowerCase() || '';
+                                const currentUserInitials = userData?.[0]?.Initials ||
+                                  teamData?.find(t => t.Email?.toLowerCase() === currentUserEmail)?.Initials ||
+                                  currentUserEmail.split('@')[0]?.slice(0, 2).toUpperCase() || 'ME';
+                                const isFiltered = !!selectedPocFilter;
+                                const isFilteredToMe = selectedPocFilter?.toLowerCase() === currentUserEmail;
+
+                                const getFilteredInitials = () => {
+                                  if (!selectedPocFilter) return 'POC';
+                                  if (selectedPocFilter.toLowerCase() === currentUserEmail) return currentUserInitials;
+                                  const teamMember = teamData?.find(t => t.Email?.toLowerCase() === selectedPocFilter.toLowerCase());
+                                  return teamMember?.Initials || selectedPocFilter.split('@')[0]?.slice(0, 2).toUpperCase() || 'POC';
+                                };
+
+                                const filterColor = isFiltered ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)');
+
+                                if (!showMineOnly) {
+                                  const pocOptions = [
+                                    { email: currentUserEmail, label: `Me (${currentUserInitials})` },
+                                    { email: 'team@helix-law.com', label: 'Team inbox' },
+                                    ...(teamData || [])
+                                      .filter((t) => !!t?.Email)
+                                      .map((t) => ({
+                                        email: (t.Email || '').toLowerCase(),
+                                        label: `${t["Initials"] || ''} ${(t["Full Name"] || `${t["First"] || ''} ${t["Last"] || ''}`.trim() || t["Email"] || '')}`.trim(),
+                                      })),
+                                  ]
+                                    .filter((opt) => !!opt.email)
+                                    .filter((opt, idx, arr) => arr.findIndex((o) => o.email === opt.email) === idx);
+
+                                  return (
+                                    <div style={{ position: 'relative', width: '100%' }}>
+                                      <button
+                                        type="button"
+                                        title={isFiltered ? `Filtering by ${getFilteredInitials()} - Click to change` : 'Filter by POC (click to select)'}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setIsPocDropdownOpen((prev) => !prev);
+                                        }}
+                                        style={{
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          gap: 3,
+                                          height: 22,
+                                          width: '100%',
+                                          padding: '0 8px',
+                                          background: isFiltered
+                                            ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
+                                            : 'transparent',
+                                          border: isFiltered
+                                            ? `1px solid ${colours.highlight}40`
+                                            : `1px solid ${isDarkMode ? 'rgba(148,163,184,0.18)' : 'rgba(100,116,139,0.14)'}`,
+                                          borderRadius: 0,
+                                          cursor: 'pointer',
+                                          transition: 'all 150ms ease',
+                                          opacity: isFiltered ? 1 : 0.85,
+                                        }}
+                                      >
+                                        <Icon iconName="Contact" styles={{ root: { fontSize: 10, color: filterColor } }} />
+                                        <span style={{ fontSize: 9, fontWeight: 600, color: filterColor, textTransform: 'uppercase' }}>
+                                          {getFilteredInitials()}
+                                        </span>
+                                        <Icon iconName="ChevronDown" styles={{ root: { fontSize: 8, color: filterColor, marginLeft: 1 } }} />
+                                      </button>
+
+                                      {isPocDropdownOpen && (
+                                        <div
+                                          className="poc-filter-dropdown"
+                                          style={{
+                                            position: 'absolute',
+                                            top: '100%',
+                                            left: 0,
+                                            marginTop: 4,
+                                            minWidth: 200,
+                                            background: isDarkMode ? 'rgba(30, 41, 59, 0.98)' : 'rgba(255, 255, 255, 0.98)',
+                                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.3)'}`,
+                                            borderRadius: 4,
+                                            boxShadow: isDarkMode
+                                              ? '0 4px 12px rgba(0, 0, 0, 0.4)'
+                                              : '0 4px 12px rgba(0, 0, 0, 0.15)',
+                                            zIndex: 1000,
+                                            maxHeight: 260,
+                                            overflowY: 'auto',
+                                          }}
+                                          onClick={(e) => e.stopPropagation()}
+                                        >
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setSelectedPocFilter(null);
+                                              setIsPocDropdownOpen(false);
+                                            }}
+                                            style={{
+                                              display: 'flex',
+                                              alignItems: 'center',
+                                              gap: 8,
+                                              width: '100%',
+                                              padding: '8px 12px',
+                                              background: !selectedPocFilter
+                                                ? (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.1)')
+                                                : 'transparent',
+                                              border: 'none',
+                                              borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.15)'}`,
+                                              cursor: 'pointer',
+                                              textAlign: 'left',
+                                              fontSize: 11,
+                                              color: isDarkMode ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.6)',
+                                            }}
+                                          >
+                                            <Icon iconName="Clear" styles={{ root: { fontSize: 10 } }} />
+                                            <span>All POC</span>
+                                          </button>
+
+                                          {pocOptions.map((opt) => {
+                                            const isSelected = selectedPocFilter?.toLowerCase() === opt.email;
+                                            return (
+                                              <button
+                                                key={opt.email}
+                                                type="button"
+                                                onClick={() => {
+                                                  setSelectedPocFilter(opt.email);
+                                                  setIsPocDropdownOpen(false);
+                                                }}
+                                                style={{
+                                                  display: 'flex',
+                                                  alignItems: 'center',
+                                                  gap: 8,
+                                                  width: '100%',
+                                                  padding: '8px 12px',
+                                                  background: isSelected
+                                                    ? (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.1)')
+                                                    : 'transparent',
+                                                  border: 'none',
+                                                  cursor: 'pointer',
+                                                  textAlign: 'left',
+                                                  fontSize: 11,
+                                                  color: isSelected
+                                                    ? (isDarkMode ? colours.accent : colours.highlight)
+                                                    : (isDarkMode ? 'rgba(255, 255, 255, 0.8)' : 'rgba(0, 0, 0, 0.7)'),
+                                                  fontWeight: isSelected ? 600 : 400,
+                                                }}
+                                              >
+                                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{opt.label || opt.email}</span>
+                                                {isSelected && <Icon iconName="Accept" styles={{ root: { fontSize: 10, marginLeft: 'auto' } }} />}
+                                              </button>
+                                            );
+                                          })}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+
+                                }
+
+                                // Mine mode - simple toggle for current user
+                                {
+                                  const mineIsFiltered = isFilteredToMe;
+                                  const mineFilterColor = mineIsFiltered
+                                    ? colours.highlight
+                                    : (isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)');
+
+                                  return (
+                                    <button
+                                      type="button"
+                                      title={mineIsFiltered
+                                        ? `Filtering by your POC (${currentUserInitials}) - Click to clear`
+                                        : `Filter by your POC (${currentUserInitials})`}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setSelectedPocFilter(mineIsFiltered ? null : currentUserEmail);
+                                      }}
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        gap: 3,
+                                        height: 22,
+                                        width: '100%',
+                                        padding: '0 8px',
+                                        background: mineIsFiltered
+                                          ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
+                                          : 'transparent',
+                                        border: mineIsFiltered
+                                          ? `1px solid ${colours.highlight}40`
+                                          : `1px solid ${isDarkMode ? 'rgba(148,163,184,0.18)' : 'rgba(100,116,139,0.14)'}`,
+                                        borderRadius: 0,
+                                        cursor: 'pointer',
+                                        transition: 'all 150ms ease',
+                                        opacity: mineIsFiltered ? 1 : 0.85,
+                                      }}
+                                    >
+                                      <Icon iconName="Contact" styles={{ root: { fontSize: 10, color: mineFilterColor } }} />
+                                      <span style={{ fontSize: 9, fontWeight: 700, color: mineFilterColor, textTransform: 'uppercase' }}>
+                                        {currentUserInitials}
+                                      </span>
+                                    </button>
+                                  );
+                                }
+                              })()
+                              )}
+                            </div>
+                            )}
+
+                            {/* Pitch - chip index 2 - tri-state toggle */}
+                            {headerIsVisible(2) && (
+                            (() => {
+                              const filterState = getEnquiryStageFilterState('pitched');
+                              const hasFilter = filterState !== null;
+                              const getFilterColor = () => {
+                                if (!filterState) return isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)';
+                                if (filterState === 'yes') return '#22c55e';
+                                if (filterState === 'no') return '#ef4444';
+                                return colours.highlight;
+                              };
+                              const filterColor = getFilterColor();
+                              const stateLabel = filterState === 'yes' ? 'Has' : filterState === 'no' ? 'No' : null;
+
+                              return (
                                 <button
                                   type="button"
-                                  title={isFiltered ? `Filtering by ${getFilteredInitials()} - Click to change` : 'Filter by POC (click to select)'}
+                                  title={hasFilter
+                                    ? `Pitch: ${stateLabel} (click to cycle)`
+                                    : `Filter by Pitch (click to activate)`}
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    setIsPocDropdownOpen(prev => !prev);
+                                    cycleEnquiryPipelineFilter('pitched');
                                   }}
                                   style={{
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
-                                    gap: 3,
+                                    gap: 4,
                                     height: 22,
-                                    width: '90px',
-                                    padding: '0 8px',
-                                    background: isFiltered 
+                                    width: '100%',
+                                    padding: '0 6px',
+                                    background: hasFilter
                                       ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
                                       : 'transparent',
-                                    border: isFiltered 
-                                      ? `1px solid ${colours.highlight}40`
-                                      : '1px solid transparent',
+                                    border: hasFilter
+                                      ? `1px solid ${filterColor}40`
+                                      : `1px solid ${isDarkMode ? 'rgba(148,163,184,0.18)' : 'rgba(100,116,139,0.14)'}`,
                                     borderRadius: 0,
                                     cursor: 'pointer',
                                     transition: 'all 150ms ease',
-                                    opacity: isFiltered ? 1 : 0.7,
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.opacity = '1';
-                                    e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.opacity = isFiltered ? '1' : '0.7';
-                                    e.currentTarget.style.background = isFiltered 
-                                      ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
-                                      : 'transparent';
+                                    opacity: hasFilter ? 1 : 0.85,
                                   }}
                                 >
-                                  <Icon iconName="Contact" styles={{ root: { fontSize: 10, color: filterColor } }} />
-                                  <span style={{ fontSize: 9, fontWeight: 600, color: filterColor, textTransform: 'uppercase' }}>
-                                    {getFilteredInitials()}
-                                  </span>
-                                  <Icon iconName="ChevronDown" styles={{ root: { fontSize: 8, color: filterColor, marginLeft: 1 } }} />
-                                  {isFiltered && <span style={{ width: 6, height: 6, borderRadius: '50%', background: filterColor, marginLeft: 1 }}/>}
+                                  <span style={{ fontSize: 9, fontWeight: 700, color: filterColor, textTransform: 'uppercase' }}>Pitch</span>
                                 </button>
-                                
-                                {isPocDropdownOpen && (
-                                  <div
-                                    className="poc-filter-dropdown"
-                                    style={{
-                                      position: 'absolute',
-                                      top: '100%',
-                                      left: 0,
-                                      marginTop: 4,
-                                      minWidth: 140,
-                                      background: isDarkMode ? 'rgba(30, 41, 59, 0.98)' : 'rgba(255, 255, 255, 0.98)',
-                                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.3)'}`,
-                                      borderRadius: 4,
-                                      boxShadow: isDarkMode 
-                                        ? '0 4px 12px rgba(0, 0, 0, 0.4)'
-                                        : '0 4px 12px rgba(0, 0, 0, 0.15)',
-                                      zIndex: 1000,
-                                      maxHeight: 200,
-                                      overflowY: 'auto',
-                                    }}
-                                    onClick={(e) => e.stopPropagation()}
-                                  >
-                                    {/* Clear filter option */}
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setSelectedPocFilter(null);
-                                        setIsPocDropdownOpen(false);
-                                      }}
-                                      style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 8,
-                                        width: '100%',
-                                        padding: '8px 12px',
-                                        background: !selectedPocFilter 
-                                          ? (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.1)')
-                                          : 'transparent',
-                                        border: 'none',
-                                        borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.15)'}`,
-                                        cursor: 'pointer',
-                                        textAlign: 'left',
-                                        fontSize: 11,
-                                        color: isDarkMode ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.6)',
-                                      }}
-                                      onMouseEnter={(e) => {
-                                        if (selectedPocFilter) e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)';
-                                      }}
-                                      onMouseLeave={(e) => {
-                                        e.currentTarget.style.background = !selectedPocFilter 
-                                          ? (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.1)')
-                                          : 'transparent';
-                                      }}
-                                    >
-                                      <Icon iconName="Clear" styles={{ root: { fontSize: 10 } }} />
-                                      <span>All POCs</span>
-                                    </button>
-                                    
-                                    {/* Team members */}
-                                    {teamData?.filter(t => t.Email).map((member) => {
-                                      const memberEmail = member.Email?.toLowerCase() || '';
-                                      const memberInitials = member.Initials || memberEmail.split('@')[0]?.slice(0, 2).toUpperCase();
-                                      const memberName = member.First || member.Initials || memberEmail.split('@')[0];
-                                      const isSelected = selectedPocFilter?.toLowerCase() === memberEmail;
-                                      const isCurrentUser = memberEmail === currentUserEmail;
-                                      
-                                      return (
-                                        <button
-                                          key={memberEmail}
-                                          type="button"
-                                          onClick={() => {
-                                            setSelectedPocFilter(memberEmail);
-                                            setIsPocDropdownOpen(false);
-                                          }}
-                                          style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 8,
-                                            width: '100%',
-                                            padding: '8px 12px',
-                                            background: isSelected 
-                                              ? (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.1)')
-                                              : 'transparent',
-                                            border: 'none',
-                                            cursor: 'pointer',
-                                            textAlign: 'left',
-                                            fontSize: 11,
-                                            color: isSelected 
-                                              ? (isDarkMode ? colours.accent : colours.highlight)
-                                              : (isDarkMode ? 'rgba(255, 255, 255, 0.8)' : 'rgba(0, 0, 0, 0.7)'),
-                                            fontWeight: isSelected ? 600 : 400,
-                                          }}
-                                          onMouseEnter={(e) => {
-                                            if (!isSelected) e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)';
-                                          }}
-                                          onMouseLeave={(e) => {
-                                            e.currentTarget.style.background = isSelected 
-                                              ? (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.1)')
-                                              : 'transparent';
-                                          }}
-                                        >
-                                          <span style={{ 
-                                            width: 24, 
-                                            height: 24, 
-                                            borderRadius: '50%', 
-                                            background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            fontSize: 9,
-                                            fontWeight: 600,
-                                          }}>
-                                            {memberInitials}
-                                          </span>
-                                          <span>{memberName}{isCurrentUser ? ' (me)' : ''}</span>
-                                          {isSelected && <Icon iconName="Accept" styles={{ root: { fontSize: 10, marginLeft: 'auto' } }} />}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          }
-                          
-                          // Mine mode - simple toggle for current user
-                          return (
-                            <button
-                              type="button"
-                              title={isFilteredToMe ? `Filtering by your POC (${currentUserInitials}) - Click to clear` : `Filter by your POC (${currentUserInitials})`}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelectedPocFilter(isFilteredToMe ? null : currentUserEmail);
-                              }}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: 3,
-                                height: 22,
-                                width: '90px',
-                                padding: '0 8px',
-                                background: isFilteredToMe 
-                                  ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
-                                  : 'transparent',
-                                border: isFilteredToMe 
-                                  ? `1px solid ${colours.highlight}40`
-                                  : '1px solid transparent',
-                                borderRadius: 0,
-                                cursor: 'pointer',
-                                transition: 'all 150ms ease',
-                                opacity: isFilteredToMe ? 1 : 0.7,
-                              }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.opacity = '1';
-                                e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.opacity = isFilteredToMe ? '1' : '0.7';
-                                e.currentTarget.style.background = isFilteredToMe 
-                                  ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
-                                  : 'transparent';
-                              }}
-                            >
-                              <Icon iconName="Contact" styles={{ root: { fontSize: 10, color: filterColor } }} />
-                              <span style={{ fontSize: 9, fontWeight: 600, color: filterColor, textTransform: 'uppercase' }}>
-                                {currentUserInitials}
-                              </span>
-                              {isFilteredToMe && <span style={{ width: 6, height: 6, borderRadius: '50%', background: filterColor, marginLeft: 1 }}/>}
-                            </button>
-                          );
-                        })()}
-                        
-                        {/* Stage connector */}
-                        <div style={{ width: 8, height: 1, background: isDarkMode ? 'linear-gradient(to right, rgba(148, 163, 184, 0.3), rgba(148, 163, 184, 0.15))' : 'linear-gradient(to right, rgba(148, 163, 184, 0.25), rgba(148, 163, 184, 0.1))', alignSelf: 'center' }} />
-                        
-                        {/* Pitch toggle */}
-                        {(() => {
-                          const filterState = getEnquiryStageFilterState('pitched');
-                          const hasFilter = filterState !== null;
-                          const getFilterColor = () => {
-                            if (!filterState) return isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)';
-                            if (filterState === 'yes') return '#22c55e';
-                            if (filterState === 'no') return '#ef4444';
-                            return colours.highlight;
-                          };
-                          const filterColor = getFilterColor();
-                          const stateLabel = filterState === 'yes' ? 'Has' : filterState === 'no' ? 'No' : null;
-                          
-                          return (
-                            <button
-                              type="button"
-                              title={hasFilter 
-                                ? `Pitch: ${stateLabel} (click to cycle)` 
-                                : `Filter by Pitch (click to activate)`}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                cycleEnquiryPipelineFilter('pitched');
-                              }}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: 3,
-                                height: 22,
-                                width: '90px',
-                                padding: '0 8px',
-                                background: hasFilter 
-                                  ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
-                                  : 'transparent',
-                                border: hasFilter 
-                                  ? `1px solid ${filterColor}40`
-                                  : '1px solid transparent',
-                                borderRadius: 0,
-                                cursor: 'pointer',
-                                transition: 'all 150ms ease',
-                                opacity: hasFilter ? 1 : 0.7,
-                              }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.opacity = '1';
-                                e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.opacity = hasFilter ? '1' : '0.7';
-                                e.currentTarget.style.background = hasFilter 
-                                  ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
-                                  : 'transparent';
-                              }}
-                            >
-                              <Icon iconName="Money" styles={{ root: { fontSize: 10, color: filterColor } }} />
-                              <span style={{ fontSize: 9, fontWeight: 600, color: filterColor, textTransform: 'uppercase' }}>Pitch</span>
-                              {hasFilter && <span style={{ width: 6, height: 6, borderRadius: '50%', background: filterColor, marginLeft: 1 }}/>}
-                            </button>
-                          );
-                        })()}
-                        
-                        {/* Pitch Scenario dropdown */}
-                        <div style={{ position: 'relative' }}>
-                          <button
-                            type="button"
-                            title={selectedPitchScenarioFilter 
-                              ? `Scenario: ${SCENARIOS.find(s => s.id === selectedPitchScenarioFilter)?.name || selectedPitchScenarioFilter} (click to change)` 
-                              : 'Filter by Pitch Scenario (click to select)'}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setIsPitchScenarioDropdownOpen(prev => !prev);
-                            }}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: 3,
-                              height: 22,
-                              minWidth: '28px',
-                              padding: '0 6px',
-                              background: selectedPitchScenarioFilter 
-                                ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
-                                : 'transparent',
-                              border: selectedPitchScenarioFilter 
-                                ? `1px solid ${colours.highlight}40`
-                                : '1px solid transparent',
-                              borderRadius: 0,
-                              cursor: 'pointer',
-                              transition: 'all 150ms ease',
-                              opacity: selectedPitchScenarioFilter ? 1 : 0.7,
-                            }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.opacity = '1';
-                              e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.opacity = selectedPitchScenarioFilter ? '1' : '0.7';
-                              e.currentTarget.style.background = selectedPitchScenarioFilter 
-                                ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
-                                : 'transparent';
-                            }}
-                          >
-                            <Icon iconName="ChevronDown" styles={{ root: { fontSize: 8, color: selectedPitchScenarioFilter ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)') } }} />
-                          </button>
-                          
-                          {/* Pitch Scenario Dropdown menu */}
-                          {isPitchScenarioDropdownOpen && (
-                            <div 
-                              style={{
-                                position: 'absolute',
-                                top: '100%',
-                                right: 0,
-                                marginTop: 4,
-                                minWidth: 220,
-                                maxHeight: 320,
-                                overflowY: 'auto',
-                                background: isDarkMode ? 'rgba(30, 41, 59, 0.98)' : 'rgba(255, 255, 255, 0.98)',
-                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(100, 116, 139, 0.15)'}`,
-                                borderRadius: 6,
-                                boxShadow: isDarkMode 
-                                  ? '0 10px 40px rgba(0, 0, 0, 0.5)' 
-                                  : '0 10px 40px rgba(0, 0, 0, 0.15)',
-                                zIndex: 1000,
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              {/* Clear option */}
+                              );
+                            })()
+                            )}
+
+                            {/* Inst / ID / Pay / Risk / Matter - chip indices 3-7 - tri-state toggles */}
+                            {([
+                              { stage: 'instructed' as const, label: 'Inst', icon: 'CheckMark', textIcon: null, chipIndex: 3 },
+                              { stage: 'idcheck' as const, label: 'ID', icon: 'ContactCard', textIcon: null, chipIndex: 4 },
+                              { stage: 'paid' as const, label: 'Pay', icon: null, textIcon: '£', chipIndex: 5 },
+                              { stage: 'risk' as const, label: 'Risk', icon: 'Shield', textIcon: null, chipIndex: 6 },
+                              { stage: 'matter' as const, label: 'Matter', icon: 'OpenFolderHorizontal', textIcon: null, chipIndex: 7 },
+                            ] as const).filter(({ chipIndex }) => headerIsVisible(chipIndex)).map(({ stage, label, icon, textIcon }) => {
+                              const filterState = getEnquiryStageFilterState(stage);
+                              const hasFilter = filterState !== null;
+                              const filterColor = !filterState
+                                ? (isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)')
+                                : (filterState === 'yes' ? '#22c55e' : '#ef4444');
+                              const stateLabel = filterState === 'yes' ? 'Has' : filterState === 'no' ? 'No' : null;
+
+                              const fullLabel = pipelineStageUi.byStage.get(stage)?.fullLabel || label;
+                              const shortLabel = pipelineStageUi.byStage.get(stage)?.shortLabel || label;
+
+                              return (
+                                <button
+                                  key={stage}
+                                  type="button"
+                                  title={hasFilter
+                                    ? `${label}: ${stateLabel} (click to cycle)`
+                                    : `Filter by ${label} (click to activate)`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    cycleEnquiryPipelineFilter(stage);
+                                  }}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: 4,
+                                    height: 22,
+                                    width: '100%',
+                                    padding: '0 6px',
+                                    background: hasFilter
+                                      ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
+                                      : 'transparent',
+                                    border: hasFilter
+                                      ? `1px solid ${filterColor}40`
+                                      : `1px solid ${isDarkMode ? 'rgba(148,163,184,0.18)' : 'rgba(100,116,139,0.14)'}`,
+                                    borderRadius: 0,
+                                    cursor: 'pointer',
+                                    transition: 'all 150ms ease',
+                                    opacity: hasFilter ? 1 : 0.85,
+                                  }}
+                                >
+                                  <span style={{ fontSize: 9, fontWeight: 700, color: filterColor, textTransform: 'uppercase' }}>
+                                    {pipelineChipLabelMode === 'full' ? fullLabel : shortLabel}
+                                  </span>
+                                </button>
+                              );
+                            })}
+
+                            {/* Navigation chevron / Clear filters (gutter column; keeps header aligned with rows) */}
+                            {pipelineNeedsCarousel ? (
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setSelectedPitchScenarioFilter(null);
-                                  setIsPitchScenarioDropdownOpen(false);
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  advancePipelineScroll('__header__', 8, visiblePipelineChipCount);
                                 }}
+                                title={headerHasMore ? `View more stages (${8 - headerVisibleEnd} hidden)` : 'Back to start'}
                                 style={{
-                                  width: '100%',
-                                  padding: '8px 12px',
-                                  background: !selectedPitchScenarioFilter ? (isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)') : 'transparent',
-                                  border: 'none',
-                                  borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.1)'}`,
-                                  cursor: 'pointer',
                                   display: 'flex',
                                   alignItems: 'center',
-                                  gap: 8,
-                                  fontSize: 12,
-                                  color: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.8)',
-                                  fontStyle: 'italic',
+                                  justifyContent: 'center',
+                                  width: '100%',
+                                  height: 22,
+                                  padding: 0,
+                                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)'}`,
+                                  borderRadius: 0,
+                                  background: headerHasMore 
+                                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
+                                    : (isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(148, 163, 184, 0.04)'),
+                                  cursor: 'pointer',
+                                  transition: 'all 0.15s ease',
+                                  color: headerHasMore 
+                                    ? colours.blue 
+                                    : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.4)'),
                                 }}
-                                onMouseEnter={(e) => { e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.1)'; }}
-                                onMouseLeave={(e) => { e.currentTarget.style.background = !selectedPitchScenarioFilter ? (isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)') : 'transparent'; }}
                               >
-                                All scenarios
+                                <Icon 
+                                  iconName={headerHasMore ? 'ChevronRight' : 'Refresh'} 
+                                  styles={{ 
+                                    root: { 
+                                      fontSize: headerHasMore ? 12 : 10, 
+                                      color: 'inherit',
+                                      opacity: headerHasMore ? 1 : 0.7,
+                                    } 
+                                  }} 
+                                />
                               </button>
-                              
-                              {/* Scenario options */}
-                              {SCENARIOS.map((scenario) => {
-                                // Colors matching pitch-builder EditorAndTemplateBlocks.tsx
-                                const getScenarioColor = () => {
-                                  switch (scenario.id) {
-                                    case 'before-call-call': return colours.blue; // #3690ce
-                                    case 'before-call-no-call': return isDarkMode ? '#FBBF24' : '#D97706'; // amber
-                                    case 'after-call-probably-cant-assist': return isDarkMode ? '#F87171' : '#DC2626'; // red
-                                    case 'after-call-want-instruction': return isDarkMode ? '#4ADE80' : '#059669'; // green
-                                    case 'cfa': return isDarkMode ? '#A855F7' : '#8B5CF6'; // purple
-                                    default: return colours.highlight;
-                                  }
-                                };
-                                const getScenarioIcon = () => {
-                                  switch (scenario.id) {
-                                    case 'before-call-call': return 'Phone';
-                                    case 'before-call-no-call': return 'Mail';
-                                    case 'after-call-probably-cant-assist': return 'Cancel';
-                                    case 'after-call-want-instruction': return 'CheckMark';
-                                    case 'cfa': return 'Scales';
-                                    default: return 'CircleFill';
-                                  }
-                                };
-                                return (
-                                  <button
-                                    key={scenario.id}
-                                    type="button"
-                                    onClick={() => {
-                                      setSelectedPitchScenarioFilter(scenario.id);
-                                      // Auto-enable "Pitched: yes" filter when selecting a scenario
-                                      setEnquiryPipelineFilters(prev => {
-                                        const newFilters = new Map(prev);
-                                        newFilters.set('pitched', 'yes');
-                                        return newFilters;
-                                      });
-                                      setIsPitchScenarioDropdownOpen(false);
+                            ) : (
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              {(enquiryPipelineFilters.size > 0 || selectedPocFilter) && (
+                                <button
+                                  type="button"
+                                  title="Clear all pipeline filters"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setEnquiryPipelineFilters(new Map());
+                                    setSelectedPocFilter(null);
+                                  }}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    width: 18,
+                                    height: 18,
+                                    background: isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)',
+                                    border: `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.4)' : 'rgba(239, 68, 68, 0.3)'}`,
+                                    borderRadius: '50%',
+                                    cursor: 'pointer',
+                                    transition: 'all 150ms ease',
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.background = isDarkMode ? 'rgba(239, 68, 68, 0.25)' : 'rgba(239, 68, 68, 0.15)';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.background = isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)';
+                                  }}
+                                >
+                                  <Icon
+                                    iconName="Cancel"
+                                    styles={{
+                                      root: {
+                                        fontSize: 8,
+                                        color: '#ef4444',
+                                      },
                                     }}
-                                    style={{
-                                      width: '100%',
-                                      padding: '8px 12px',
-                                      background: selectedPitchScenarioFilter === scenario.id 
-                                        ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.1)')
-                                        : 'transparent',
-                                      border: 'none',
-                                      cursor: 'pointer',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: 8,
-                                      fontSize: 12,
-                                      color: selectedPitchScenarioFilter === scenario.id
-                                        ? colours.highlight
-                                        : (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(30, 41, 59, 0.9)'),
-                                      fontWeight: selectedPitchScenarioFilter === scenario.id ? 600 : 400,
-                                    }}
-                                    onMouseEnter={(e) => { e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.1)'; }}
-                                    onMouseLeave={(e) => { 
-                                      e.currentTarget.style.background = selectedPitchScenarioFilter === scenario.id 
-                                        ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.1)')
-                                        : 'transparent'; 
-                                    }}
-                                  >
-                                    <span style={{
-                                      width: 22,
-                                      height: 22,
-                                      borderRadius: '50%',
-                                      background: `${getScenarioColor()}20`,
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                    }}>
-                                      <Icon iconName={getScenarioIcon()} styles={{ root: { fontSize: 10, color: getScenarioColor() } }} />
-                                    </span>
-                                    <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                      {scenario.name}
-                                    </span>
-                                  </button>
-                                );
-                              })}
+                                  />
+                                </button>
+                              )}
                             </div>
-                          )}
+                            )}
+                                </>
+                              );
+                            })()}
+                          </div>
                         </div>
-                        
-                        {/* Clear all filters button */}
-                        {(enquiryPipelineFilters.size > 0 || selectedPocFilter || selectedPitchScenarioFilter) && (
-                          <button
-                            type="button"
-                            title="Clear all pipeline filters"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEnquiryPipelineFilters(new Map());
-                              setSelectedPocFilter(null);
-                              setSelectedPitchScenarioFilter(null);
-                            }}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              width: 18,
-                              height: 18,
-                              marginLeft: 6,
-                              background: isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)',
-                              border: `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.4)' : 'rgba(239, 68, 68, 0.3)'}`,
-                              borderRadius: '50%',
-                              cursor: 'pointer',
-                              transition: 'all 150ms ease',
-                            }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.background = isDarkMode ? 'rgba(239, 68, 68, 0.25)' : 'rgba(239, 68, 68, 0.15)';
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.background = isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)';
-                            }}
-                          >
-                            <Icon
-                              iconName="Cancel"
-                              styles={{
-                                root: {
-                                  fontSize: 8,
-                                  color: '#ef4444',
-                                },
-                              }}
-                            />
-                          </button>
-                        )}
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '4px' }}>
                         <span>Actions</span>
@@ -5710,7 +6328,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                       </div>
                     </div>
 
-                    {/* Data Rows */}
+                    {/* Data Rows - scrollable container */}
+                    <div style={{ flex: 1, overflowY: 'scroll', overflowX: 'hidden' }}>
                     {displayedItems.map((item, idx) => {
                       const isLast = idx === displayedItems.length - 1;
                       
@@ -5903,7 +6522,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           <div
                             style={{
                               display: 'grid',
-                              gridTemplateColumns: '32px 70px 50px 60px 1.2fr 0.5fr 1.6fr 0.5fr',
+                              gridTemplateColumns: '32px 80px 50px 70px 1.1fr 2.85fr 0.45fr',
                               gap: '12px',
                               padding: '10px 16px',
                               alignItems: 'center',
@@ -5965,21 +6584,42 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               }} />
                             </div>
 
-                            {/* Date column - compact single-line format */}
+                            {/* Date column - stacked format */}
                             <TooltipHost
                               content={formatFullDateTime(dateReceived || null)}
                               styles={{ root: { display: 'flex', alignItems: 'center', height: '100%' } }}
                               calloutProps={{ gapSpace: 6 }}
                             >
-                              <span style={{
-                                fontSize: '11px',
-                                color: isDarkMode ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.6)',
-                                fontWeight: 500,
-                                fontVariantNumeric: 'tabular-nums',
-                                whiteSpace: 'nowrap',
-                              }}>
-                                {getCompactTimeDisplay(dateReceived)}
-                              </span>
+                              {(() => {
+                                const { top, bottom } = getStackedDateDisplay(dateReceived);
+                                return (
+                                  <div style={{
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: '2px',
+                                    lineHeight: 1.1,
+                                    justifyContent: 'center',
+                                    fontVariantNumeric: 'tabular-nums',
+                                  }}>
+                                    <span style={{
+                                      fontSize: '10px',
+                                      color: isDarkMode ? 'rgba(255, 255, 255, 0.72)' : 'rgba(0, 0, 0, 0.62)',
+                                      fontWeight: 600,
+                                      whiteSpace: 'nowrap',
+                                    }}>
+                                      {top}
+                                    </span>
+                                    <span style={{
+                                      fontSize: '9px',
+                                      color: isDarkMode ? 'rgba(255, 255, 255, 0.45)' : 'rgba(0, 0, 0, 0.38)',
+                                      fontWeight: 500,
+                                      whiteSpace: 'nowrap',
+                                    }}>
+                                      {bottom}
+                                    </span>
+                                  </div>
+                                );
+                              })()}
                             </TooltipHost>
 
                             {/* Area of Work column - empty for groups */}
@@ -5989,12 +6629,21 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
                             {/* ID column - empty for group headers */}
                             <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
-                              {/* Group rows don't show individual IDs */}
+                              {/* Empty for grouped enquiries */}
                             </div>
 
                             {/* Contact & Company */}
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', height: '100%' }}>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                <div style={{
+                                  fontSize: '9px',
+                                  fontWeight: 700,
+                                  color: isDarkMode ? 'rgba(148, 163, 184, 0.65)' : 'rgba(100, 116, 139, 0.6)',
+                                  textTransform: 'uppercase',
+                                  letterSpacing: '0.4px',
+                                }}>
+                                  Prospect
+                                </div>
                                 <div style={{ fontWeight: 600, fontSize: '13px', color: isDarkMode ? '#E5E7EB' : '#1F2937' }}>
                                   {contactName}
                                 </div>
@@ -6007,21 +6656,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     {latestEnquiry.Company}
                                   </div>
                                 )}
-                              </div>
-                            </div>
-
-                            {/* Value column - show count badge */}
-                            <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
-                              <div style={{
-                                padding: '2px 8px',
-                                borderRadius: 0,
-                                background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
-                                border: `1px solid ${colours.blue}`,
-                                fontSize: 10,
-                                fontWeight: 600,
-                                color: colours.blue,
-                              }}>
-                                x{item.enquiries.length}
                               </div>
                             </div>
 
@@ -6049,7 +6683,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                 }}
                                 isDarkMode={isDarkMode}
                                 count={item.enquiries.length}
-                                itemType="prospect"
+                                itemType="enquiry"
                               />
                             </div>
                           </div>
@@ -6067,6 +6701,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             const childHasNotes = childEnquiry.Initial_first_call_notes && childEnquiry.Initial_first_call_notes.trim().length > 0;
                             const childNoteKey = buildEnquiryIdentityKey(childEnquiry);
                             const childNotesExpanded = expandedNotesInTable.has(childNoteKey);
+                            const childInlineWorkbenchItem = childEnquiry.ID ? inlineWorkbenchByEnquiryId.get(String(childEnquiry.ID)) : undefined;
+                            const childHasInlineWorkbench = Boolean(childInlineWorkbenchItem);
                             const childPocIdentifier = childEnquiry.Point_of_Contact || (childEnquiry as any).poc || '';
                             const childPocEmail = childPocIdentifier.toLowerCase();
                             const childClaimerInfo = claimerMap[childPocEmail];
@@ -6076,11 +6712,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             const childClaimerSecondary = childPocEmail === 'team@helix-law.com'
                               ? 'Shared'
                               : (childClaimerInfo?.DisplayName?.split(' ')[0] || (childEnquiry.Point_of_Contact || '').split('@')[0] || 'Claimed');
-                            const childClaimerColor = childPocEmail === 'team@helix-law.com' ? colours.orange : colours.blue;
                             const childHasClaimer = !!childPocEmail;
-                            const childClaimerTitle = childHasClaimer
-                              ? `${childEnquiry.Point_of_Contact || childPocEmail}`
-                              : 'Unassigned';
+                            const childShowClaimer = childHasClaimer && activeState !== 'Triaged';
                             
                             // No day separators for child enquiries - parent group already has timeline marker
                             
@@ -6090,17 +6723,16 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                 key={`item-${childEnquiry.ID}-${childEnquiry.First_Name || ''}-${childEnquiry.Last_Name || ''}-${childEnquiry.Touchpoint_Date || ''}-${childEnquiry.Point_of_Contact || ''}`}
                                 style={{
                                   display: 'grid',
-                                  gridTemplateColumns: '70px 50px 60px 1.2fr 0.5fr 1.6fr 0.5fr',
+                                  gridTemplateColumns: '32px 80px 50px 70px 1.1fr 2.85fr 0.45fr',
                                   gap: '12px',
-                                  padding: '8px 16px 8px 40px',
+                                  padding: '8px 16px',
                                   alignItems: 'center',
                                   borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)'}`,
                                   position: 'relative',
-                                  fontSize: '11px',
-                                  color: isDarkMode ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.7)',
+                                  fontSize: '13px',
+                                  color: isDarkMode ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0, 0, 0, 0.85)',
                                   background: isDarkMode ? 'rgba(255, 255, 255, 0.01)' : 'rgba(0, 0, 0, 0.005)',
                                   cursor: 'pointer',
-                                  marginLeft: '20px',
                                 }}
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -6113,8 +6745,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   // Show child tooltip on hover
                                   const tooltip = e.currentTarget.querySelector('.child-timeline-date-tooltip') as HTMLElement;
                                   if (tooltip) tooltip.style.opacity = '1';
-                                  // Track hovered row for contact actions
-                                  setHoveredRowId(childEnquiry.ID);
                                 }}
                                 onMouseLeave={(e) => {
                                   e.currentTarget.style.backgroundColor = isDarkMode 
@@ -6123,83 +6753,28 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   // Hide child tooltip
                                   const tooltip = e.currentTarget.querySelector('.child-timeline-date-tooltip') as HTMLElement;
                                   if (tooltip) tooltip.style.opacity = '0';
-                                  // Clear hovered row
-                                  setHoveredRowId(null);
                                 }}
                               >
-                                {/* Child timeline - most recent connects to parent, others standalone */}
+                                {/* Timeline cell - matches main row structure */}
                                 <div style={{
-                                  position: 'absolute',
-                                  left: '-47px', // Compensate for 20px marginLeft indentation
-                                  top: 0,
-                                  bottom: 0,
-                                  width: '24px',
+                                  position: 'relative',
+                                  height: '100%',
                                   display: 'flex',
-                                  flexDirection: 'column',
-                                  alignItems: 'flex-start',
+                                  alignItems: 'center',
                                   justifyContent: 'center',
-                                  pointerEvents: 'none'
                                 }}>
-                                  {childIdx === 0 ? (
-                                    // First child (most recent) - connects to parent timeline
-                                    <>
-                                      {/* Connector from parent */}
-                                      <div style={{
-                                        position: 'absolute',
-                                        left: '3px',
-                                        top: 0,
-                                        height: '50%',
-                                        width: '1px',
-                                        background: isDarkMode 
-                                          ? 'rgba(135, 243, 243, 0.3)' 
-                                          : 'rgba(54, 144, 206, 0.25)',
-                                      }} />
-                                      
-                                      {/* Horizontal branch to child */}
-                                      <div style={{
-                                        position: 'absolute',
-                                        left: '3px',
-                                        top: '50%',
-                                        width: '17px', // Longer to reach indented child
-                                        height: '1px',
-                                        background: isDarkMode 
-                                          ? 'rgba(135, 243, 243, 0.25)' 
-                                          : 'rgba(54, 144, 206, 0.2)',
-                                      }} />
-                                      
-                                      {/* Connection dot */}
-                                      <div style={{
-                                        position: 'absolute',
-                                        left: '19px',
-                                        top: '50%',
-                                        transform: 'translateY(-50%)',
-                                        width: '3px',
-                                        height: '3px',
-                                        borderRadius: '50%',
-                                        background: isDarkMode ? 'rgba(135, 243, 243, 0.6)' : 'rgba(54, 144, 206, 0.6)',
-                                        border: `1px solid ${isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.9)'}`,
-                                      }} />
-                                    </>
-                                  ) : (
-                                    // Older children - minimal standalone indicator
-                                    <>
-                                      {/* Standalone dot only */}
-                                      <div style={{
-                                        position: 'absolute',
-                                        left: '19px',
-                                        top: '50%',
-                                        transform: 'translateY(-50%)',
-                                        width: '2px',
-                                        height: '2px',
-                                        borderRadius: '50%',
-                                        background: isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(54, 144, 206, 0.3)',
-                                        border: `1px solid ${isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.9)'}`,
-                                      }} />
-                                    </>
-                                  )}
+                                  <div style={{
+                                    position: 'absolute',
+                                    left: '50%',
+                                    top: 0,
+                                    bottom: 0,
+                                    width: '1px',
+                                    transform: 'translateX(-50%)',
+                                    background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)',
+                                  }} />
                                 </div>
 
-                                {/* Date column for child - compact format */}
+                                {/* Date column for child - stacked format */}
                                 <TooltipHost
                                   content={formatFullDateTime(childEnquiry.Touchpoint_Date || (childEnquiry as any).datetime || (childEnquiry as any).claim || null)}
                                   styles={{ root: { display: 'flex', alignItems: 'center', height: '100%' } }}
@@ -6207,23 +6782,40 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                 >
                                   {(() => {
                                     const childDateStr = childEnquiry.Touchpoint_Date || (childEnquiry as any).datetime || (childEnquiry as any).claim;
+                                    const { top, bottom } = getStackedDateDisplay(childDateStr);
                                     return (
-                                      <span style={{
-                                        fontSize: '10px',
-                                        color: isDarkMode ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)',
-                                        fontWeight: 500,
+                                      <div style={{
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: '2px',
+                                        lineHeight: 1.1,
+                                        justifyContent: 'center',
                                         fontVariantNumeric: 'tabular-nums',
-                                        whiteSpace: 'nowrap',
                                       }}>
-                                        {getCompactTimeDisplay(childDateStr)}
-                                      </span>
+                                        <span style={{
+                                          fontSize: '10px',
+                                          color: isDarkMode ? 'rgba(255, 255, 255, 0.72)' : 'rgba(0, 0, 0, 0.62)',
+                                          fontWeight: 600,
+                                          whiteSpace: 'nowrap',
+                                        }}>
+                                          {top}
+                                        </span>
+                                        <span style={{
+                                          fontSize: '9px',
+                                          color: isDarkMode ? 'rgba(255, 255, 255, 0.45)' : 'rgba(0, 0, 0, 0.38)',
+                                          fontWeight: 500,
+                                          whiteSpace: 'nowrap',
+                                        }}>
+                                          {bottom}
+                                        </span>
+                                      </div>
                                     );
                                   })()}
                                 </TooltipHost>
                                 
-                                {/* AOW icon - second column */}
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', position: 'relative' }}>
-                                  <span style={{ fontSize: '16px', lineHeight: 1, opacity: 0.7 }} title={childAOW}>
+                                {/* AOW icon */}
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+                                  <span style={{ fontSize: '16px', lineHeight: 1, opacity: 0.85 }} title={childAOW}>
                                     {getAreaOfWorkIcon(childAOW)}
                                   </span>
                                 </div>
@@ -6247,6 +6839,33 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   }}>
                                     {childEnquiry.ID}
                                   </div>
+                                  {(() => {
+                                    const numValue = typeof childValue === 'string' ? parseFloat(childValue.replace(/[^0-9.]/g, '')) : (typeof childValue === 'number' ? childValue : 0);
+                                    const displayValue = formatValueForDisplay(childValue);
+                                    if (!displayValue) return null;
+
+                                    let textColor;
+                                    if (numValue >= 50000) {
+                                      textColor = isDarkMode ? 'rgba(54, 144, 206, 1)' : 'rgba(54, 144, 206, 1)';
+                                    } else if (numValue >= 10000) {
+                                      textColor = isDarkMode ? 'rgba(54, 144, 206, 0.75)' : 'rgba(54, 144, 206, 0.75)';
+                                    } else {
+                                      textColor = isDarkMode ? 'rgba(54, 144, 206, 0.5)' : 'rgba(54, 144, 206, 0.55)';
+                                    }
+
+                                    return (
+                                      <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+                                        <span style={{
+                                          fontSize: 10,
+                                          fontWeight: 700,
+                                          color: textColor,
+                                          whiteSpace: 'nowrap',
+                                        }}>
+                                          {displayValue}
+                                        </span>
+                                      </div>
+                                    );
+                                  })()}
                                   {childEnrichmentData?.pitchData?.displayNumber && (
                                     <div style={{
                                       fontFamily: 'Monaco, Consolas, monospace',
@@ -6261,168 +6880,68 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   )}
                                 </div>
                                 
-                                {/* Contact & Company */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0px', justifyContent: 'center' }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                {/* Contact & Company - stacked layout to match main rows */}
+                                <div style={{ 
+                                  display: 'flex', 
+                                  flexDirection: 'column', 
+                                  gap: '2px', 
+                                  lineHeight: 1.3,
+                                  justifyContent: 'center' 
+                                }}>
+                                  {/* Name row */}
+                                  <div 
+                                    style={{ 
+                                      fontWeight: 500, 
+                                      fontSize: '13px', 
+                                      color: isDarkMode ? '#E5E7EB' : '#1F2937', 
+                                      cursor: 'pointer',
+                                      transition: 'color 0.15s ease',
+                                    }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      copyToClipboard(childContactName);
+                                    }}
+                                    onMouseEnter={(e) => {
+                                      e.currentTarget.style.color = isDarkMode ? '#87F3F3' : '#3690CE';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      e.currentTarget.style.color = isDarkMode ? '#E5E7EB' : '#1F2937';
+                                    }}
+                                    title="Click to copy contact name"
+                                  >
+                                    {childContactName}
+                                  </div>
+                                  
+                                  {/* Email row - stacked below name */}
+                                  {childEnquiry.Email && (
                                     <div 
-                                      style={{ 
-                                        fontWeight: 500, 
-                                        fontSize: '11px', 
-                                        color: isDarkMode ? '#E5E7EB' : '#1F2937', 
-                                        cursor: 'pointer',
-                                        position: 'relative',
-                                        transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                                        padding: '1px 3px',
-                                        borderRadius: '3px',
-                                        background: 'transparent'
-                                      }}
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        copyToClipboard(childContactName);
+                                        copyToClipboard(childEnquiry.Email);
+                                      }}
+                                      style={{
+                                        fontSize: '10px',
+                                        color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
+                                        maxWidth: '200px',
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        whiteSpace: 'nowrap',
+                                        cursor: 'pointer',
+                                        transition: 'color 0.15s ease',
                                       }}
                                       onMouseEnter={(e) => {
-                                        e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(214, 232, 255, 0.8)';
                                         e.currentTarget.style.color = isDarkMode ? '#87F3F3' : '#3690CE';
-                                        e.currentTarget.style.transform = 'translateY(-1px)';
-                                        e.currentTarget.style.boxShadow = `0 2px 8px ${isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.12)'}`;
                                       }}
                                       onMouseLeave={(e) => {
-                                        e.currentTarget.style.background = 'transparent';
-                                        e.currentTarget.style.color = isDarkMode ? '#E5E7EB' : '#1F2937';
-                                        e.currentTarget.style.transform = 'translateY(0)';
-                                        e.currentTarget.style.boxShadow = 'none';
+                                        e.currentTarget.style.color = isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)';
                                       }}
-                                      title="Click to copy contact name"
+                                      title={`Click to copy: ${childEnquiry.Email}`}
                                     >
-                                      {childContactName}
-                                      <span style={{
-                                        position: 'absolute',
-                                        bottom: '-2px',
-                                        left: '4px',
-                                        right: '4px',
-                                        height: '1px',
-                                        background: isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(54, 144, 206, 0.3)',
-                                        transform: 'scaleX(0)',
-                                        transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                                        transformOrigin: 'center'
-                                      }} className="copy-underline" />
-                                    </div>
-                                    {/* Email inline with name */}
-                                    {childEnquiry.Email && (
-                                      <div 
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          copyToClipboard(childEnquiry.Email);
-                                        }}
-                                        style={{
-                                          fontSize: '9px',
-                                          color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
-                                          fontFamily: 'Consolas, Monaco, monospace',
-                                          maxWidth: '140px',
-                                          overflow: 'hidden',
-                                          textOverflow: 'ellipsis',
-                                          whiteSpace: 'nowrap',
-                                          cursor: 'pointer',
-                                          padding: '2px 4px',
-                                          borderRadius: '3px',
-                                          transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                                          background: 'transparent',
-                                          border: '1px solid transparent',
-                                        }}
-                                        onMouseEnter={(e) => {
-                                          e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(214, 232, 255, 0.8)';
-                                          e.currentTarget.style.color = isDarkMode ? '#87F3F3' : '#3690CE';
-                                          e.currentTarget.style.border = `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(54, 144, 206, 0.25)'}`;
-                                        }}
-                                        onMouseLeave={(e) => {
-                                          e.currentTarget.style.background = 'transparent';
-                                          e.currentTarget.style.color = isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)';
-                                          e.currentTarget.style.border = '1px solid transparent';
-                                        }}
-                                        title={`Click to copy: ${childEnquiry.Email}`}
-                                      >
-                                        {childEnquiry.Email}
-                                      </div>
-                                    )}
-                                    {/* Phone inline with name/ID/email */}
-                                    {(childEnquiry.Phone_Number || (childEnquiry as any).phone) && (
-                                      <div 
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          copyToClipboard(childEnquiry.Phone_Number || (childEnquiry as any).phone);
-                                        }}
-                                        style={{
-                                          fontSize: '9px',
-                                          color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
-                                          fontFamily: 'Consolas, Monaco, monospace',
-                                          maxWidth: '120px',
-                                          overflow: 'hidden',
-                                          textOverflow: 'ellipsis',
-                                          whiteSpace: 'nowrap',
-                                          cursor: 'pointer',
-                                          padding: '2px 4px',
-                                          borderRadius: '3px',
-                                          transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                                          background: 'transparent',
-                                          border: '1px solid transparent',
-                                        }}
-                                        onMouseEnter={(e) => {
-                                          e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(214, 232, 255, 0.8)';
-                                          e.currentTarget.style.color = isDarkMode ? '#87F3F3' : '#3690CE';
-                                          e.currentTarget.style.border = `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(54, 144, 206, 0.25)'}`;
-                                        }}
-                                        onMouseLeave={(e) => {
-                                          e.currentTarget.style.background = 'transparent';
-                                          e.currentTarget.style.color = isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)';
-                                          e.currentTarget.style.border = '1px solid transparent';
-                                        }}
-                                        title={`Click to copy: ${childEnquiry.Phone_Number || (childEnquiry as any).phone}`}
-                                      >
-                                        {childEnquiry.Phone_Number || (childEnquiry as any).phone}
-                                      </div>
-                                    )}
-                                  </div>
-                                  {childCompanyName && (
-                                    <div style={{ 
-                                      fontSize: '10px', 
-                                      color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
-                                      fontWeight: 400,
-                                      paddingLeft: '3px'
-                                    }}>
-                                      {childCompanyName}
+                                      {childEnquiry.Email}
                                     </div>
                                   )}
                                 </div>
 
-                                {/* Value */}
-                                {(() => {
-                                  const numValue = typeof childValue === 'string' ? parseFloat(childValue.replace(/[^0-9.]/g, '')) : (typeof childValue === 'number' ? childValue : 0);
-                                  const displayValue = formatValueForDisplay(childValue);
-                                  
-                                  // Blue shades based on value range
-                                  let textColor;
-                                  if (numValue >= 50000) {
-                                    textColor = isDarkMode ? 'rgba(54, 144, 206, 1)' : 'rgba(54, 144, 206, 1)'; // Brightest blue
-                                  } else if (numValue >= 10000) {
-                                    textColor = isDarkMode ? 'rgba(54, 144, 206, 0.75)' : 'rgba(54, 144, 206, 0.75)'; // Medium blue
-                                  } else {
-                                    textColor = isDarkMode ? 'rgba(54, 144, 206, 0.5)' : 'rgba(54, 144, 206, 0.55)'; // Subtle blue
-                                  }
-                                  
-                                  return (
-                                    <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
-                                      <span style={{
-                                        fontSize: 11,
-                                        fontWeight: 600,
-                                        color: textColor,
-                                        whiteSpace: 'nowrap',
-                                      }}>
-                                        {displayValue || '-'}
-                                      </span>
-                                    </div>
-                                  );
-                                })()}
-                                
                                 {/* Pipeline for child */}
                                 {(() => {
                                   const childTeamsData = childEnrichmentData?.teamsData as any;
@@ -6484,427 +7003,785 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   // Determine loading vs not-resolvable state for V2 enquiries
                                   const childEnrichmentWasProcessed = childEnrichmentData && childEnrichmentData.enquiryId;
                                   const showLoadingState = childIsV2 && !childEnrichmentWasProcessed && !childIsLegacy && !childTeamsTime;
+                                  
+                                  // If loading, show full placeholder pipeline
+                                  if (showLoadingState) {
+                                    return (
+                                      <div style={{ position: 'relative', height: '100%', width: '100%' }}>
+                                        <div
+                                          style={{
+                                            display: 'grid',
+                                            gridTemplateColumns: 'repeat(8, minmax(0, 1fr)) 24px',
+                                            columnGap: 8,
+                                            alignItems: 'center',
+                                            width: '100%',
+                                            height: '100%',
+                                          }}
+                                        >
+                                          {[
+                                            { icon: 'TeamsLogo', label: 'Teams' },
+                                            { icon: 'Contact', label: 'Claim' },
+                                            { icon: 'Send', label: 'Pitch' },
+                                            { icon: 'CreditCard', label: 'Card' },
+                                            { icon: 'CheckMark', label: 'ID' },
+                                            { icon: 'CurrencyPound', label: 'Payment' },
+                                            { icon: 'ShieldAlert', label: 'Risk' },
+                                            { icon: 'FolderHorizontal', label: 'Matter' },
+                                          ].map((stage, idx) => (
+                                            <div
+                                              key={idx}
+                                              style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                width: '100%',
+                                                height: 22,
+                                                animation: `pipeline-pulse 1.5s ease-in-out infinite ${idx * 0.1}s`,
+                                              }}
+                                            >
+                                              <Icon 
+                                                iconName={stage.icon} 
+                                                styles={{ 
+                                                  root: { 
+                                                    fontSize: 14, 
+                                                    color: isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)',
+                                                  } 
+                                                }} 
+                                              />
+                                            </div>
+                                          ))}
+                                          <div /> {/* Phone action placeholder */}
+                                        </div>
+                                        <style>{`
+                                          @keyframes pipeline-pulse {
+                                            0%, 100% { opacity: 0.3; }
+                                            50% { opacity: 0.7; }
+                                          }
+                                        `}</style>
+                                      </div>
+                                    );
+                                  }
                                   const showNotResolvable = childIsV2 && childEnrichmentWasProcessed && !childEnrichmentData?.teamsData && !childIsLegacy;
                                   const showClaimer = childHasClaimer && activeState !== 'Triaged';
                                   const showPitch = !!childEnrichmentData?.pitchData;
+                                  const pitchColor = getScenarioColor(childEnrichmentData?.pitchData?.scenarioId);
+                                  // Only show pitch CTA when we're certain there's no pitch (enrichment was processed)
+                                  const showPitchCTA = showClaimer && childPocEmail !== 'team@helix-law.com' && childEnrichmentWasProcessed && !showPitch;
+
+                                  // Pipeline carousel state for this row
+                                  const childPipelineOffset = getPipelineScrollOffset(childEnquiry.ID);
+                                  const childVisibleEnd = childPipelineOffset + visiblePipelineChipCount;
+                                  const childHasMoreChips = pipelineNeedsCarousel && childPipelineOffset < 8 - visiblePipelineChipCount;
+                                  const childIsChipVisible = (chipIndex: number) => 
+                                    !pipelineNeedsCarousel || (chipIndex >= childPipelineOffset && chipIndex < childVisibleEnd);
+                                  
+                                  // Dynamic grid columns based on carousel state
+                                  const childGridCols = pipelineNeedsCarousel 
+                                    ? `repeat(${visiblePipelineChipCount}, minmax(0, 1fr)) 24px`
+                                    : 'repeat(8, minmax(0, 1fr)) 24px';
+                                  
+                                  // Cascade animation helper
+                                  const getCascadeStyle = (chipIndex: number) => ({
+                                    animation: childEnrichmentWasProcessed ? `pipeline-cascade 0.35s cubic-bezier(0.4, 0, 0.2, 1) ${chipIndex * 0.12}s both` : 'none',
+                                  });
 
                                   return (
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: '100%' }}>
-                                      {/* Loading state - show when V2 but enrichment not loaded yet */}
-                                      {showLoadingState && (
-                                        <div
-                                          className="skeleton-shimmer"
-                                          title="Loading pipeline data..."
-                                          style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 6,
-                                            padding: '4px 10px',
-                                            borderRadius: 4,
-                                            background: isDarkMode 
-                                              ? 'linear-gradient(90deg, rgba(148,163,184,0.06) 25%, rgba(148,163,184,0.12) 50%, rgba(148,163,184,0.06) 75%)'
-                                              : 'linear-gradient(90deg, rgba(148,163,184,0.04) 25%, rgba(148,163,184,0.08) 50%, rgba(148,163,184,0.04) 75%)',
-                                            backgroundSize: '200% 100%',
-                                            border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.15)' : 'rgba(100,116,139,0.1)'}`,
-                                            fontSize: 9,
-                                            fontWeight: 500,
-                                            color: isDarkMode ? 'rgba(148,163,184,0.5)' : 'rgba(71,85,105,0.5)',
-                                            whiteSpace: 'nowrap',
-                                            width: '90px',
-                                            justifyContent: 'center',
-                                          }}
-                                        >
-                                          <span style={{ fontSize: 9, opacity: 0.7 }}>loading...</span>
-                                        </div>
-                                      )}
-
-                                      {(showTeamsStage || showLegacyPlaceholder) && (
-                                        showTeamsStage ? (
-                                          <button
-                                            className="content-reveal"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              const link = childTeamsData?.teamsLink || getAreaSpecificChannelUrl(childEnquiry.Area_of_Work);
-                                              if (link) {
-                                                window.open(link, '_blank');
-                                              }
-                                            }}
-                                            style={{
-                                              display: 'flex',
-                                              alignItems: 'center',
-                                              gap: 6,
-                                              padding: '4px 8px',
-                                              borderRadius: 0,
-                                              background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
-                                              border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`,
-                                              fontSize: 11,
-                                              fontWeight: 500,
-                                              color: isDarkMode ? 'rgba(54, 144, 206, 0.95)' : 'rgba(54, 144, 206, 0.9)',
-                                              cursor: 'pointer',
-                                              transition: '0.2s',
-                                              whiteSpace: 'nowrap',
-                                              width: 90,
-                                              justifyContent: 'center',
-                                            }}
-                                            onMouseEnter={(e) => {
-                                              e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)';
-                                            }}
-                                            onMouseLeave={(e) => {
-                                              e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)';
-                                            }}
-                                          >
-                                            <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 12, color: isDarkMode ? 'rgba(54, 144, 206, 0.85)' : 'rgba(54, 144, 206, 0.8)' } }} />
-                                            <span style={{ fontSize: 9, color: isDarkMode ? 'rgba(54, 144, 206, 0.7)' : 'rgba(54, 144, 206, 0.65)', fontFamily: 'inherit', fontWeight: 500 }}>
-                                              {childTeamsTime ? formatDateTime(childTeamsTime) : 'TEAMS'}
-                                            </span>
-                                          </button>
-                                        ) : (
-                                          <div
-                                            title="Not pipeline-tracked (legacy format)"
-                                            style={{
-                                              display: 'flex',
-                                              alignItems: 'center',
-                                              gap: 6,
-                                              padding: '4px 8px',
-                                              borderRadius: 0,
-                                              background: isDarkMode ? 'rgba(148,163,184,0.06)' : 'rgba(148,163,184,0.04)',
-                                              border: `1px dashed ${isDarkMode ? 'rgba(148,163,184,0.25)' : 'rgba(100,116,139,0.2)'}`,
-                                              fontSize: 9,
-                                              fontWeight: 500,
-                                              color: isDarkMode ? 'rgba(148,163,184,0.6)' : 'rgba(71,85,105,0.6)',
-                                              whiteSpace: 'nowrap',
-                                              width: 90,
-                                              justifyContent: 'center',
-                                            }}
-                                          >
-                                            <span style={{ fontSize: 9 }}>legacy</span>
-                                          </div>
-                                        )
-                                      )}
-
-                                      {/* Teams placeholder shell when no Teams/legacy shown */}
-                                      {!showTeamsStage && !showLegacyPlaceholder && !showLoadingState && (
-                                        <div style={{
-                                          display: 'flex',
+                                    <div style={{ position: 'relative', height: '100%', width: '100%' }}>
+                                      <div
+                                        style={{
+                                          display: 'grid',
+                                          gridTemplateColumns: childGridCols,
+                                          columnGap: 8,
                                           alignItems: 'center',
-                                          gap: 6,
-                                          padding: '4px 8px',
-                                          borderRadius: 0,
-                                          background: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(148, 163, 184, 0.04)',
-                                          border: `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
-                                          fontSize: 11,
-                                          fontWeight: 500,
-                                          color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)',
-                                          whiteSpace: 'nowrap',
-                                          width: 90,
-                                          justifyContent: 'center',
-                                        }}>
-                                          <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 12, color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.4)' } }} />
-                                          <span style={{ fontSize: 9, fontFamily: 'inherit', fontWeight: 500 }}>-- --</span>
-                                        </div>
-                                      )}
-
-                                      {(showTeamsStage || showLegacyPlaceholder) && showClaimer && (
-                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, minWidth: 8 }}>
-                                          <div style={{ width: 8, height: 1, background: isDarkMode ? 'linear-gradient(to right, rgba(148, 163, 184, 0.3), rgba(148, 163, 184, 0.15))' : 'linear-gradient(to right, rgba(148, 163, 184, 0.25), rgba(148, 163, 184, 0.1))' }} />
-                                          {(childIsV2 || childIsLegacy) && hasValidClaimTime && childTeamsTime && (
-                                            <span style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', fontFamily: 'Consolas, Monaco, monospace', fontWeight: 600, whiteSpace: 'nowrap', minWidth: '42px', textAlign: 'center', display: 'inline-block' }}>
-                                              {calculateDuration(childTeamsTime, childPocClaimTime)}
-                                            </span>
-                                          )}
-                                        </div>
-                                      )}
-
-                                      {/* Claim placeholder shell when no claimer shown */}
-                                      {!showClaimer && (
-                                        <div style={{
-                                          display: 'flex',
-                                          alignItems: 'center',
-                                          justifyContent: 'center',
-                                          padding: '4px 10px',
-                                          borderRadius: 0,
-                                          background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(148, 163, 184, 0.03)',
-                                          border: `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)'}`,
-                                          width: 90,
-                                          height: 24,
-                                        }} />
-                                      )}
-
-                                      {showClaimer && (
-                                        // Only show claim button for truly unclaimed enquiries (not triaged)
-                                        childPocEmail === 'team@helix-law.com' && !childPocEmail.toLowerCase().includes('triage')
-                                          ? renderClaimPromptChip({ 
-                                              size: 'compact', 
-                                              teamsLink: childTeamsLink, 
-                                              leadName: childContactName,
-                                              areaOfWork: childEnquiry['Area_of_Work'],
-                                              enquiryId: childEnquiry.ID,
-                                              dataSource: childIsV2 ? 'new' : 'legacy'
-                                            })
-                                          : (
+                                          width: '100%',
+                                          height: '100%',
+                                        }}
+                                      >
+                                        {/* Teams - chip index 0 */}
+                                        <div style={getCascadeStyle(0)}>{childIsChipVisible(0) && (
+                                        <>
+                                          {showTeamsStage ? (
                                             <button
-                                              className="content-reveal"
-                                              onClick={(e) => handleReassignClick(String(childEnquiry.ID), e)}
-                                              title={`Claimed by ${childPocIdentifier} - Click to reassign`}
+                                              className="pipeline-chip"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                const link = childTeamsData?.teamsLink || getAreaSpecificChannelUrl(childEnquiry.Area_of_Work);
+                                                if (link) window.open(link, '_blank');
+                                              }}
+                                              onMouseEnter={(e) => showPipelineHover(e, {
+                                                title: 'Teams Card',
+                                                status: 'Activity logged',
+                                                subtitle: childContactName,
+                                                color: colours.blue,
+                                                iconName: 'TeamsLogo',
+                                              })}
+                                              onMouseMove={movePipelineHover}
+                                              onMouseLeave={hidePipelineHover}
+                                              style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                width: '100%',
+                                                height: 22,
+                                                padding: 0,
+                                                borderRadius: 0,
+                                                background: 'transparent',
+                                                border: 'none',
+                                                cursor: 'pointer',
+                                              }}
+                                            >
+                                              <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 14, color: isDarkMode ? 'rgba(54, 144, 206, 0.85)' : 'rgba(54, 144, 206, 0.75)' } }} />
+                                              <span style={getPipelineDotStyle(true, colours.blue, isDarkMode)} />
+                                            </button>
+                                          ) : showLegacyPlaceholder ? (
+                                            <div
                                               style={{
                                                 display: 'flex',
                                                 alignItems: 'center',
                                                 gap: 6,
-                                                padding: '4px 10px',
+                                                padding: '4px 8px',
                                                 borderRadius: 0,
-                                                background: isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.1)',
-                                                border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.3)'}`,
-                                                fontSize: 11,
-                                                fontWeight: 600,
-                                                color: isDarkMode ? 'rgba(32, 178, 108, 0.9)' : 'rgba(32, 178, 108, 0.85)',
-                                                cursor: 'pointer',
-                                                width: '90px',
+                                                background: isDarkMode ? 'rgba(148,163,184,0.06)' : 'rgba(148,163,184,0.04)',
+                                                border: `1px dashed ${isDarkMode ? 'rgba(148,163,184,0.25)' : 'rgba(100,116,139,0.2)'}`,
+                                                fontSize: 9,
+                                                fontWeight: 500,
+                                                color: isDarkMode ? 'rgba(148,163,184,0.6)' : 'rgba(71,85,105,0.6)',
+                                                whiteSpace: 'nowrap',
+                                                width: '100%',
                                                 justifyContent: 'center',
-                                                transition: 'all 0.2s ease',
-                                              }}
-                                              onMouseEnter={(e) => {
-                                                e.currentTarget.style.background = isDarkMode ? 'rgba(32, 178, 108, 0.25)' : 'rgba(32, 178, 108, 0.18)';
-                                                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.45)';
-                                              }}
-                                              onMouseLeave={(e) => {
-                                                e.currentTarget.style.background = isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.1)';
-                                                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.3)';
                                               }}
                                             >
-                                              <Icon iconName="Accept" styles={{ root: { fontSize: 11, color: isDarkMode ? 'rgba(32, 178, 108, 0.9)' : 'rgba(32, 178, 108, 0.85)' } }} />
-                                              <span style={{ fontSize: 9 }}>{getPocInitials(childPocIdentifier)}</span>
-                                              <Icon iconName="ChevronDown" styles={{ root: { fontSize: 8, color: isDarkMode ? 'rgba(32, 178, 108, 0.6)' : 'rgba(32, 178, 108, 0.5)', marginLeft: -2 } }} />
-                                            </button>
-                                          )
-                                      )}
-
-                                      {showClaimer && showPitch && (
-                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, minWidth: 8 }}>
-                                          <div style={{ width: 8, height: 1, background: isDarkMode ? 'linear-gradient(to right, rgba(148, 163, 184, 0.3), rgba(148, 163, 184, 0.15))' : 'linear-gradient(to right, rgba(148, 163, 184, 0.25), rgba(148, 163, 184, 0.1))' }} />
-                                          {hasValidPitchTime && (childPocClaimTime || childTeamsTime) && (
-                                            <span style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', fontFamily: 'Consolas, Monaco, monospace', fontWeight: 600, minWidth: '42px', textAlign: 'center', display: 'inline-block' }}>
-                                              {calculateDuration(childPocClaimTime || childTeamsTime, childPitchTime)}
-                                            </span>
-                                          )}
-                                        </div>
-                                      )}
-
-                                      {showPitch ? (
-                                        // Show pitch badge when already pitched
-                                        (() => {
-                                          const PitchScenarioBadge = require('../../components/PitchScenarioBadge').default;
-                                          return <PitchScenarioBadge scenarioId={(childEnrichmentData.pitchData as any).scenarioId} size="small" className="content-reveal" />;
-                                        })()
-                                      ) : (
-                                        // Show pitch prompt when claimed but not pitched
-                                        showClaimer && childPocEmail !== 'team@helix-law.com' && (
-                                          <button
-                                            type="button"
-                                            className="content-reveal"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              handleSelectEnquiry(childEnquiry);
-                                            }}
-                                            style={{
-                                              display: 'inline-flex',
-                                              alignItems: 'center',
-                                              gap: '4px',
-                                              padding: '3px 8px',
-                                              borderRadius: 0,
-                                              border: `1px solid ${isDarkMode ? 'rgba(245, 158, 11, 0.4)' : 'rgba(245, 158, 11, 0.35)'}`,
-                                              background: isDarkMode ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.08)',
-                                              color: isDarkMode ? 'rgba(251, 191, 36, 0.95)' : 'rgba(251, 191, 36, 0.9)',
-                                              textTransform: 'uppercase',
-                                              fontWeight: 600,
-                                              letterSpacing: '0.4px',
-                                              fontSize: '8px',
-                                              cursor: 'pointer',
-                                              width: '90px',
-                                              justifyContent: 'center',
-                                              transition: 'all 0.15s ease',
-                                              fontFamily: 'inherit',
-                                              position: 'relative',
-                                            }}
-                                            onMouseEnter={(e) => {
-                                              e.currentTarget.style.background = isDarkMode ? 'rgba(245, 158, 11, 0.18)' : 'rgba(245, 158, 11, 0.15)';
-                                              e.currentTarget.style.borderColor = isDarkMode ? 'rgba(245, 158, 11, 0.55)' : 'rgba(245, 158, 11, 0.5)';
-                                            }}
-                                            onMouseLeave={(e) => {
-                                              e.currentTarget.style.background = isDarkMode ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.08)';
-                                              e.currentTarget.style.borderColor = isDarkMode ? 'rgba(245, 158, 11, 0.4)' : 'rgba(245, 158, 11, 0.35)';
-                                            }}
-                                            title={`Pitch to ${childContactName}`}
-                                          >
-                                            <span style={{
-                                              position: 'absolute',
-                                              top: -3,
-                                              right: -3,
-                                              width: 6,
-                                              height: 6,
-                                              borderRadius: '50%',
-                                              background: isDarkMode ? 'rgba(251, 191, 36, 0.9)' : 'rgba(217, 119, 6, 0.85)',
-                                              animation: 'status-breathe 2s ease-in-out infinite',
-                                            }} />
-                                            <Icon iconName="Send" styles={{ root: { fontSize: 9, color: 'inherit' } }} />
-                                            <span>Pitch</span>
-                                          </button>
-                                        )
-                                      )}
-
-                                      {/* Pitch placeholder shell when no pitch shown and no pitch CTA */}
-                                      {!showPitch && !(showClaimer && childPocEmail !== 'team@helix-law.com') && (
-                                        <div style={{
-                                          display: 'flex',
-                                          alignItems: 'center',
-                                          justifyContent: 'center',
-                                          padding: '3px 8px',
-                                          borderRadius: 0,
-                                          background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(148, 163, 184, 0.03)',
-                                          border: `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)'}`,
-                                          width: 90,
-                                          height: 22,
-                                        }} />
-                                      )}
-
-                                      {/* Action buttons: Call, Email, Rate - shown on row hover with cascade animation */}
-                                      {showClaimer && childPocEmail !== 'team@helix-law.com' && hoveredRowId === childEnquiry.ID && (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginLeft: 6 }}>
-                                          {/* Call button - always available */}
-                                          {(childEnquiry.Phone_Number || (childEnquiry as any).phone) && (
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                const phone = childEnquiry.Phone_Number || (childEnquiry as any).phone;
-                                                window.open(`tel:${phone}`, '_self');
-                                              }}
+                                              <span style={{ fontSize: 9 }}>legacy</span>
+                                            </div>
+                                          ) : (
+                                            <div
+                                              onMouseEnter={(e) => showPipelineHover(e, {
+                                                title: 'Teams Card',
+                                                status: 'No activity yet',
+                                                subtitle: childContactName,
+                                                color: colours.blue,
+                                                iconName: 'TeamsLogo',
+                                              })}
+                                              onMouseMove={movePipelineHover}
+                                              onMouseLeave={hidePipelineHover}
                                               style={{
-                                                width: 24,
-                                                height: 24,
-                                                borderRadius: 0,
-                                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
-                                                background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)',
-                                                color: isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)',
-                                                display: 'flex',
+                                                display: 'inline-flex',
                                                 alignItems: 'center',
                                                 justifyContent: 'center',
-                                                cursor: 'pointer',
-                                                transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease',
-                                                animation: 'contactCascadeIn 0.2s ease-out forwards',
-                                                animationDelay: '0ms',
-                                                opacity: 0,
-                                              }}
-                                              onMouseEnter={(e) => {
-                                                e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)';
-                                                e.currentTarget.style.borderColor = colours.blue;
-                                                e.currentTarget.style.color = colours.blue;
-                                              }}
-                                              onMouseLeave={(e) => {
-                                                e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)';
-                                                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)';
-                                                e.currentTarget.style.color = isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)';
-                                              }}
-                                              title={`Call ${childEnquiry.Phone_Number || (childEnquiry as any).phone}`}
-                                            >
-                                              <Icon iconName="Phone" styles={{ root: { fontSize: 11 } }} />
-                                            </button>
-                                          )}
-                                          
-                                          {/* Email button - only shown after pitch is made */}
-                                          {showPitch && childEnquiry.Email && (
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                window.open(`mailto:${childEnquiry.Email}`, '_blank');
-                                              }}
-                                              style={{
-                                                width: 24,
-                                                height: 24,
+                                                width: '100%',
+                                                height: 22,
+                                                border: 'none',
                                                 borderRadius: 0,
-                                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
-                                                background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)',
-                                                color: isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)',
-                                                display: 'flex',
+                                                background: 'transparent',
+                                              }}
+                                            >
+                                              <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 14, color: isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)' } }} />
+                                              <span style={getPipelineDotStyle(false, colours.blue, isDarkMode)} />
+                                            </div>
+                                          )}
+                                        </>
+                                        )}</div>
+
+                                        {/* Claim - chip index 1 */}
+                                        <div style={getCascadeStyle(1)}>{childIsChipVisible(1) && (
+                                        <>
+                                          {!showClaimer ? (
+                                            <div
+                                              onMouseEnter={(e) => showPipelineHover(e, {
+                                                title: 'Claimed',
+                                                status: 'Unclaimed',
+                                                subtitle: childContactName,
+                                                color: colours.green,
+                                                iconName: 'Contact',
+                                              })}
+                                              onMouseMove={movePipelineHover}
+                                              onMouseLeave={hidePipelineHover}
+                                              style={{
+                                                display: 'inline-flex',
                                                 alignItems: 'center',
                                                 justifyContent: 'center',
-                                                cursor: 'pointer',
-                                                transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease',
-                                                animation: 'contactCascadeIn 0.2s ease-out forwards',
-                                                animationDelay: '50ms',
-                                                opacity: 0,
+                                                width: '100%',
+                                                height: 22,
+                                                border: 'none',
+                                                borderRadius: 0,
+                                                background: 'transparent',
                                               }}
-                                              onMouseEnter={(e) => {
-                                                e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)';
-                                                e.currentTarget.style.borderColor = colours.blue;
-                                                e.currentTarget.style.color = colours.blue;
-                                              }}
-                                              onMouseLeave={(e) => {
-                                                e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)';
-                                                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)';
-                                                e.currentTarget.style.color = isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)';
-                                              }}
-                                              title={`Email ${childEnquiry.Email}`}
                                             >
-                                              <Icon iconName="Mail" styles={{ root: { fontSize: 11 } }} />
-                                            </button>
+                                              <Icon iconName="Contact" styles={{ root: { fontSize: 14, color: isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)' } }} />
+                                              <span style={getPipelineDotStyle(false, colours.green, isDarkMode)} />
+                                            </div>
+                                          ) : (
+                                            <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
+                                              {childPocEmail === 'team@helix-law.com' && !childPocEmail.toLowerCase().includes('triage')
+                                                ? renderClaimPromptChip({
+                                                    size: 'compact',
+                                                    teamsLink: childTeamsLink,
+                                                    leadName: childContactName,
+                                                    areaOfWork: childEnquiry['Area_of_Work'],
+                                                    enquiryId: childEnquiry.ID,
+                                                    dataSource: childIsV2 ? 'new' : 'legacy',
+                                                    iconOnly: true,
+                                                  })
+                                                : (
+                                                  <button
+                                                    className="pipeline-chip"
+                                                    onClick={(e) => handleReassignClick(String(childEnquiry.ID), e)}
+                                                    onMouseEnter={(e) => showPipelineHover(e, {
+                                                      title: 'Claimed',
+                                                      status: `Claimed by ${childPocIdentifier}`,
+                                                      subtitle: childContactName,
+                                                      color: colours.green,
+                                                      iconName: 'Contact',
+                                                    })}
+                                                    onMouseMove={movePipelineHover}
+                                                    onMouseLeave={hidePipelineHover}
+                                                    style={{
+                                                      display: 'inline-flex',
+                                                      alignItems: 'center',
+                                                      justifyContent: 'center',
+                                                      gap: 4,
+                                                      width: '100%',
+                                                      height: 22,
+                                                      padding: 0,
+                                                      borderRadius: 0,
+                                                      border: 'none',
+                                                      background: 'transparent',
+                                                      color: colours.green,
+                                                      fontSize: 10,
+                                                      fontWeight: 700,
+                                                      textTransform: 'uppercase',
+                                                      letterSpacing: '0.3px',
+                                                      cursor: 'pointer',
+                                                      fontFamily: 'inherit',
+                                                    }}
+                                                  >
+                                                    {childClaimerLabel}
+                                                    <Icon iconName="ChevronDown" styles={{ root: { fontSize: 8, color: 'inherit', opacity: 0.6, marginLeft: 3 } }} />
+                                                    <span style={getPipelineDotStyle(true, colours.green, isDarkMode)} />
+                                                  </button>
+                                                )}
+                                            </div>
                                           )}
+                                        </>
+                                        )}</div>
+
+                                        {/* Pitch - chip index 2 */}
+                                        <div style={getCascadeStyle(2)}>{childIsChipVisible(2) && (
+                                        <>
+                                          {showPitch ? (
+                                            <button
+                                              type="button"
+                                              className="pipeline-chip"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                openEnquiryWorkbench(childEnquiry, 'Pitch');
+                                              }}
+                                              onMouseEnter={(e) => showPipelineHover(e, {
+                                                title: 'Pitch',
+                                                status: 'Pitched',
+                                                subtitle: childContactName,
+                                                color: pitchColor,
+                                                iconName: 'Send',
+                                              })}
+                                              onMouseMove={movePipelineHover}
+                                              onMouseLeave={hidePipelineHover}
+                                              style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                width: '100%',
+                                                height: 22,
+                                                padding: 0,
+                                                borderRadius: 0,
+                                                border: 'none',
+                                                background: 'transparent',
+                                                cursor: 'pointer',
+                                                fontFamily: 'inherit',
+                                              }}
+                                            >
+                                              <Icon iconName="Send" styles={{ root: { fontSize: 14, color: pitchColor } }} />
+                                              <span style={getPipelineDotStyle(true, colours.green, isDarkMode)} />
+                                            </button>
+                                          ) : showPitchCTA ? (
+                                            <button
+                                              type="button"
+                                              className="pipeline-chip"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                openEnquiryWorkbench(childEnquiry, 'Pitch');
+                                              }}
+                                              onMouseEnter={(e) => showPipelineHover(e, {
+                                                title: 'Pitch',
+                                                status: 'Ready to pitch',
+                                                subtitle: childContactName,
+                                                color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.6)',
+                                                iconName: 'Send',
+                                              })}
+                                              onMouseMove={movePipelineHover}
+                                              onMouseLeave={hidePipelineHover}
+                                              style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                width: '100%',
+                                                height: 22,
+                                                padding: 0,
+                                                borderRadius: 0,
+                                                border: 'none',
+                                                background: 'transparent',
+                                                cursor: 'pointer',
+                                                fontFamily: 'inherit',
+                                              }}
+                                            >
+                                              <Icon iconName="Send" styles={{ root: { fontSize: 14, color: isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)' } }} />
+                                              <span style={{
+                                                width: 6,
+                                                height: 6,
+                                                borderRadius: '50%',
+                                                background: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.7)',
+                                                boxShadow: `0 0 8px ${isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.7)'}99`,
+                                                marginLeft: 6,
+                                                flexShrink: 0,
+                                                animation: 'action-dot-pulse 2s ease-in-out infinite',
+                                              }} />
+                                            </button>
+                                          ) : (
+                                            <div
+                                              onMouseEnter={(e) => showPipelineHover(e, {
+                                                title: 'Pitch',
+                                                status: 'Not pitched',
+                                                subtitle: childContactName,
+                                                color: pitchColor,
+                                                iconName: 'Send',
+                                              })}
+                                              onMouseMove={movePipelineHover}
+                                              onMouseLeave={hidePipelineHover}
+                                              style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                width: '100%',
+                                                height: 22,
+                                                border: 'none',
+                                                borderRadius: 0,
+                                                background: 'transparent',
+                                              }}
+                                            >
+                                              <Icon iconName="Send" styles={{ root: { fontSize: 14, color: isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)' } }} />
+                                              <span style={getPipelineDotStyle(false, colours.grey, isDarkMode)} />
+                                            </div>
+                                          )}
+                                        </>
+                                        )}</div>
+
+                                        {/* Post-pitch stages - chip indices 3-7 */}
+                                        {(() => {
+                                          const inst = childInlineWorkbenchItem?.instruction;
+                                          const deal = childInlineWorkbenchItem?.deal;
+                                          const instructionRef = (inst?.InstructionRef ?? inst?.instructionRef ?? deal?.InstructionRef ?? deal?.instructionRef) as string | undefined;
+                                          const hasInstruction = Boolean(instructionRef);
+                                          const hasEid = Boolean(childInlineWorkbenchItem?.eid);
+                                          const eidResult = (childInlineWorkbenchItem?.eid as any)?.EIDOverallResult?.toLowerCase() ?? '';
+                                          const eidColor = eidResult === 'passed' || eidResult === 'pass' ? colours.green : eidResult === 'refer' ? colours.orange : colours.highlight;
+                                          const eidLabel = eidResult === 'passed' || eidResult === 'pass' ? 'Pass' : eidResult === 'refer' ? 'Refer' : eidResult || 'ID';
                                           
-                                          {/* Rate button - always available */}
+                                          // Payment detection with method and confirmation status
+                                          const payments = Array.isArray(childInlineWorkbenchItem?.payments) ? childInlineWorkbenchItem.payments : [];
+                                          const latestPayment = payments[0] as any;
+                                          const methodRaw = (
+                                            latestPayment?.payment_method || 
+                                            latestPayment?.payment_type || 
+                                            latestPayment?.method || 
+                                            latestPayment?.paymentMethod ||
+                                            latestPayment?.PaymentMethod ||
+                                            ''
+                                          ).toString().toLowerCase();
+                                          const meta = typeof latestPayment?.metadata === 'object' ? latestPayment.metadata : {};
+                                          const metaMethod = (meta?.payment_method || meta?.method || meta?.paymentMethod || '').toString().toLowerCase();
+                                          const intentId = (latestPayment?.payment_intent_id || latestPayment?.paymentIntentId || '').toString();
+                                          const intentIsBank = intentId.startsWith('bank_');
+                                          const intentIsCard = intentId.startsWith('pi_');
+                                          const combinedMethod = methodRaw || metaMethod || (intentIsBank ? 'bank' : intentIsCard ? 'card' : '');
+                                          const isCardPayment = combinedMethod.includes('card') || combinedMethod.includes('stripe') || combinedMethod === 'cc' || intentIsCard;
+                                          const isBankPayment = combinedMethod.includes('bank') || combinedMethod.includes('transfer') || combinedMethod.includes('bacs') || intentIsBank;
+                                          const paymentStatus = (latestPayment?.status || latestPayment?.Status || '').toString().toLowerCase();
+                                          const isCardConfirmed = isCardPayment && (paymentStatus === 'succeeded' || paymentStatus === 'success' || paymentStatus === 'complete' || paymentStatus === 'completed' || paymentStatus === 'paid');
+                                          const isBankConfirmed = isBankPayment && (latestPayment?.confirmed === true || latestPayment?.Confirmed === true || paymentStatus === 'confirmed');
+                                          const hasConfirmedPayment = isCardConfirmed || isBankConfirmed;
+                                          const hasPayment = payments.length > 0;
+                                          const paymentLabel = hasConfirmedPayment ? 'Paid' : hasPayment ? (isBankPayment ? 'Pending' : '£') : '£';
+                                          const paymentIcon = hasConfirmedPayment ? (isCardPayment ? 'PaymentCard' : 'Bank') : hasPayment ? (isBankPayment ? 'Bank' : 'Money') : 'Money';
+                                          const paymentColor = hasConfirmedPayment ? colours.green : hasPayment ? (isBankPayment ? colours.orange : colours.blue) : colours.blue;
+                                          const paymentTitle = hasConfirmedPayment 
+                                            ? `Paid via ${isCardPayment ? 'card' : 'bank transfer'}` 
+                                            : hasPayment 
+                                              ? (isBankPayment ? 'Bank payment awaiting confirmation' : 'Payment recorded')
+                                              : 'No payment yet';
+                                          
+                                          const hasRisk = Boolean(childInlineWorkbenchItem?.risk);
+                                          const hasMatter = Boolean(inst?.MatterId ?? inst?.matterId) || (Array.isArray(childInlineWorkbenchItem?.matters) && childInlineWorkbenchItem.matters.length > 0);
+                                          const shouldShowPostPitch = Boolean(childInlineWorkbenchItem) || showPitch;
+
+                                          // Determine next incomplete stage in pipeline order
+                                          // Only consider stages that are "in play" - skip Teams if no activity, then look for first incomplete
+                                          const pipelineStages = [
+                                            { done: showTeamsStage, index: 0, inPlay: showTeamsStage || showLegacyPlaceholder },
+                                            { done: showClaimer, index: 1, inPlay: true },
+                                            { done: showPitch, index: 2, inPlay: true },
+                                            { done: hasInstruction, index: 3, inPlay: shouldShowPostPitch },
+                                            { done: hasEid, index: 4, inPlay: shouldShowPostPitch },
+                                            { done: hasConfirmedPayment, index: 5, inPlay: shouldShowPostPitch },
+                                            { done: hasRisk, index: 6, inPlay: shouldShowPostPitch },
+                                            { done: hasMatter, index: 7, inPlay: shouldShowPostPitch },
+                                          ];
+                                          const nextIncompleteIndex = pipelineStages.find(s => s.inPlay && !s.done)?.index ?? -1;
+                                          
+                                          // Debug logging for ID chip issue
+                                          if (hasInstruction && !hasEid && shouldShowPostPitch) {
+                                            console.log(`Enquiry ${childEnquiry.ID} - Inst done, ID next?`, {
+                                              showTeamsStage,
+                                              showLegacyPlaceholder,
+                                              showClaimer,
+                                              showPitch,
+                                              hasInstruction,
+                                              hasEid,
+                                              shouldShowPostPitch,
+                                              nextIncompleteIndex,
+                                              pipelineStages: pipelineStages.map(s => ({ index: s.index, done: s.done, inPlay: s.inPlay }))
+                                            });
+                                          }
+
+                                          const Mini = ({
+                                            shortLabel,
+                                            fullLabel,
+                                            done,
+                                            color,
+                                            title,
+                                            iconName,
+                                            statusText,
+                                            subtitle,
+                                            onClick,
+                                            isNextAction,
+                                          }: {
+                                            shortLabel: string;
+                                            fullLabel: string;
+                                            done: boolean;
+                                            color: string;
+                                            title: string;
+                                            iconName: string;
+                                            statusText?: string;
+                                            subtitle?: string;
+                                            onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
+                                            isNextAction?: boolean;
+                                          }) => (
+                                            <button
+                                              type="button"
+                                              onClick={onClick}
+                                              className="pipeline-chip"
+                                              onMouseEnter={(e) => showPipelineHover(e, {
+                                                title: fullLabel,
+                                                status: statusText || (done ? 'Complete' : 'Not started'),
+                                                subtitle,
+                                                color,
+                                                iconName,
+                                              })}
+                                              onMouseMove={movePipelineHover}
+                                              onMouseLeave={hidePipelineHover}
+                                              style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                width: '100%',
+                                                height: 22,
+                                                padding: 0,
+                                                borderRadius: 0,
+                                                border: 'none',
+                                                background: 'transparent',
+                                                cursor: onClick ? 'pointer' : 'default',
+                                                fontFamily: 'inherit',
+                                              }}
+                                            >
+                                              <Icon iconName={iconName} styles={{ root: { fontSize: 14, color: done ? color : (isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)') } }} />
+                                              {isNextAction && !done ? (
+                                                <span style={{
+                                                  width: 6,
+                                                  height: 6,
+                                                  borderRadius: '50%',
+                                                  background: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.7)',
+                                                  boxShadow: `0 0 8px ${isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.7)'}99`,
+                                                  marginLeft: 6,
+                                                  flexShrink: 0,
+                                                  animation: 'action-dot-pulse 2s ease-in-out infinite',
+                                                }} />
+                                              ) : (
+                                                <span style={getPipelineDotStyle(done, color, isDarkMode)} />
+                                              )}
+                                            </button>
+                                          );
+
+                                          return (
+                                            <>
+                                              {/* Inst - chip index 3 */}
+                                              <div style={getCascadeStyle(3)}>{(shouldShowPostPitch || childIsChipVisible(3)) && (
+                                              <Mini
+                                                shortLabel="Inst"
+                                                fullLabel="Instructed"
+                                                done={shouldShowPostPitch && hasInstruction}
+                                                color={colours.green}
+                                                iconName="CheckMark"
+                                                statusText={hasInstruction ? `Instruction linked (${instructionRef})` : 'Not instructed'}
+                                                subtitle={childContactName}
+                                                title={hasInstruction ? `Instructed (${instructionRef})` : 'Not instructed yet'}
+                                                isNextAction={nextIncompleteIndex === 3}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  openEnquiryWorkbench(childEnquiry, 'Timeline');
+                                                }}
+                                              />
+                                              )}</div>
+                                              {/* ID - chip index 4 */}
+                                              <div style={getCascadeStyle(4)}>{(shouldShowPostPitch || childIsChipVisible(4)) && (
+                                              <Mini
+                                                shortLabel={hasEid ? eidLabel : 'ID'}
+                                                fullLabel={hasEid ? eidLabel : 'ID Check'}
+                                                done={shouldShowPostPitch && hasEid}
+                                                color={hasEid ? eidColor : colours.highlight}
+                                                iconName="ContactCard"
+                                                statusText={hasEid ? `ID: ${eidLabel}` : 'ID not started'}
+                                                subtitle={childContactName}
+                                                title={hasEid ? `ID: ${eidLabel}` : 'ID not started'}
+                                                isNextAction={nextIncompleteIndex === 4}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  openEnquiryWorkbench(childEnquiry, 'Timeline');
+                                                }}
+                                              />
+                                              )}</div>
+                                              {/* Pay - chip index 5 */}
+                                              <div style={getCascadeStyle(5)}>{(shouldShowPostPitch || childIsChipVisible(5)) && (
+                                              <Mini
+                                                shortLabel={paymentLabel}
+                                                fullLabel={hasConfirmedPayment ? 'Paid' : hasPayment ? (isBankPayment ? 'Pending' : 'Payment') : 'Payment'}
+                                                done={shouldShowPostPitch && hasConfirmedPayment}
+                                                color={paymentColor}
+                                                iconName={paymentIcon}
+                                                statusText={hasConfirmedPayment ? 'Paid' : hasPayment ? (isBankPayment ? 'Bank pending' : 'Payment recorded') : 'No payment'}
+                                                subtitle={childContactName}
+                                                title={paymentTitle}
+                                                isNextAction={nextIncompleteIndex === 5}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  openEnquiryWorkbench(childEnquiry, 'Timeline');
+                                                }}
+                                              />
+                                              )}</div>
+                                              {/* Risk - chip index 6 */}
+                                              <div style={getCascadeStyle(6)}>{(shouldShowPostPitch || childIsChipVisible(6)) && (
+                                              <Mini
+                                                shortLabel="Risk"
+                                                fullLabel="Risk"
+                                                done={shouldShowPostPitch && hasRisk}
+                                                color={colours.orange}
+                                                iconName="Shield"
+                                                statusText={hasRisk ? 'Risk recorded' : 'No risk record'}
+                                                subtitle={childContactName}
+                                                title={hasRisk ? 'Risk record present' : 'Risk not started'}
+                                                isNextAction={nextIncompleteIndex === 6}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  openEnquiryWorkbench(childEnquiry, 'Timeline');
+                                                }}
+                                              />
+                                              )}</div>
+                                              {/* Matter - chip index 7 */}
+                                              <div style={getCascadeStyle(7)}>{(shouldShowPostPitch || childIsChipVisible(7)) && (
+                                              <Mini
+                                                shortLabel="Matter"
+                                                fullLabel="Matter"
+                                                done={shouldShowPostPitch && hasMatter}
+                                                color={colours.accent}
+                                                iconName="OpenFolderHorizontal"
+                                                statusText={hasMatter ? 'Matter linked' : 'No matter yet'}
+                                                subtitle={childContactName}
+                                                title={hasMatter ? 'Matter linked/opened' : 'Matter not opened'}
+                                                isNextAction={nextIncompleteIndex === 7}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  openEnquiryWorkbench(childEnquiry, 'Timeline');
+                                                }}
+                                              />
+                                              )}</div>
+                                            </>
+                                          );
+                                        })()}
+
+                                        {/* Navigation chevron for carousel OR empty gutter */}
+                                        {pipelineNeedsCarousel ? (
                                           <button
                                             type="button"
                                             onClick={(e) => {
                                               e.stopPropagation();
-                                              handleRate(childEnquiry.ID);
+                                              advancePipelineScroll(childEnquiry.ID, 8, visiblePipelineChipCount);
                                             }}
+                                            title={childHasMoreChips ? `View more stages (${8 - childVisibleEnd} hidden)` : 'Back to start'}
                                             style={{
-                                              width: 24,
-                                              height: 24,
-                                              borderRadius: 0,
-                                              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
-                                              background: childEnquiry.Rating 
-                                                ? (isDarkMode ? 'rgba(214, 176, 70, 0.15)' : 'rgba(214, 176, 70, 0.12)')
-                                                : (isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)'),
-                                              color: childEnquiry.Rating 
-                                                ? colours.yellow 
-                                                : (isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)'),
                                               display: 'flex',
                                               alignItems: 'center',
                                               justifyContent: 'center',
+                                              width: '100%',
+                                              height: 22,
+                                              padding: 0,
+                                              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)'}`,
+                                              borderRadius: 0,
+                                              background: childHasMoreChips 
+                                                ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
+                                                : (isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(148, 163, 184, 0.04)'),
                                               cursor: 'pointer',
-                                              transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease',
-                                              animation: 'contactCascadeIn 0.2s ease-out forwards',
-                                              animationDelay: showPitch && childEnquiry.Email ? '100ms' : (childEnquiry.Phone_Number || (childEnquiry as any).phone) ? '50ms' : '0ms',
-                                              opacity: 0,
+                                              transition: 'all 0.15s ease',
+                                              color: childHasMoreChips 
+                                                ? colours.blue 
+                                                : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.4)'),
                                             }}
-                                            onMouseEnter={(e) => {
-                                              e.currentTarget.style.background = isDarkMode ? 'rgba(214, 176, 70, 0.2)' : 'rgba(214, 176, 70, 0.15)';
-                                              e.currentTarget.style.borderColor = colours.yellow;
-                                              e.currentTarget.style.color = colours.yellow;
-                                            }}
-                                            onMouseLeave={(e) => {
-                                              e.currentTarget.style.background = childEnquiry.Rating 
-                                                ? (isDarkMode ? 'rgba(214, 176, 70, 0.15)' : 'rgba(214, 176, 70, 0.12)')
-                                                : (isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)');
-                                              e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)';
-                                              e.currentTarget.style.color = childEnquiry.Rating 
-                                                ? colours.yellow 
-                                                : (isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)');
-                                            }}
-                                            title={childEnquiry.Rating ? `Rating: ${childEnquiry.Rating}/5 - Click to change` : 'Rate this enquiry'}
                                           >
-                                            <Icon iconName={childEnquiry.Rating ? 'FavoriteStarFill' : 'FavoriteStar'} styles={{ root: { fontSize: 11 } }} />
+                                            <Icon 
+                                              iconName={childHasMoreChips ? 'ChevronRight' : 'Refresh'} 
+                                              styles={{ 
+                                                root: { 
+                                                  fontSize: childHasMoreChips ? 12 : 10, 
+                                                  color: 'inherit',
+                                                  opacity: childHasMoreChips ? 1 : 0.7,
+                                                } 
+                                              }} 
+                                            />
                                           </button>
-                                        </div>
-                                      )}
+                                        ) : (
+                                          <div />
+                                        )}
+                                      </div>
+
                                     </div>
                                   );
                                 })()}
 
                                 {/* Actions Column for Child Enquiry */}
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
+                                {/* Call / Email / Rate actions (no hover) */}
+                                {childShowClaimer && childPocEmail !== 'team@helix-law.com' && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      disabled={!(childEnquiry.Phone_Number || (childEnquiry as any).phone)}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const phone = childEnquiry.Phone_Number || (childEnquiry as any).phone;
+                                        if (phone) window.open(`tel:${phone}`, '_self');
+                                      }}
+                                      style={{
+                                        width: 22,
+                                        height: 22,
+                                        borderRadius: 0,
+                                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
+                                        background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)',
+                                        color: isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)',
+                                        opacity: (childEnquiry.Phone_Number || (childEnquiry as any).phone) ? 1 : 0.3,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        cursor: (childEnquiry.Phone_Number || (childEnquiry as any).phone) ? 'pointer' : 'default',
+                                        transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease',
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        if (childEnquiry.Phone_Number || (childEnquiry as any).phone) {
+                                          e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)';
+                                          e.currentTarget.style.borderColor = colours.blue;
+                                          e.currentTarget.style.color = colours.blue;
+                                        }
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)';
+                                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)';
+                                        e.currentTarget.style.color = isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)';
+                                      }}
+                                      title={(childEnquiry.Phone_Number || (childEnquiry as any).phone) ? `Call ${childEnquiry.Phone_Number || (childEnquiry as any).phone}` : 'No phone number'}
+                                    >
+                                      <Icon iconName="Phone" styles={{ root: { fontSize: 11 } }} />
+                                    </button>
+
+                                    {childEnquiry.Email && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          window.open(`mailto:${childEnquiry.Email}`, '_blank');
+                                        }}
+                                        style={{
+                                          width: 22,
+                                          height: 22,
+                                          borderRadius: 0,
+                                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
+                                          background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)',
+                                          color: isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          cursor: 'pointer',
+                                          transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease',
+                                        }}
+                                        onMouseEnter={(e) => {
+                                          e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)';
+                                          e.currentTarget.style.borderColor = colours.blue;
+                                          e.currentTarget.style.color = colours.blue;
+                                        }}
+                                        onMouseLeave={(e) => {
+                                          e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)';
+                                          e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)';
+                                          e.currentTarget.style.color = isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)';
+                                        }}
+                                        title={`Email ${childEnquiry.Email}`}
+                                      >
+                                        <Icon iconName="Mail" styles={{ root: { fontSize: 11 } }} />
+                                      </button>
+                                    )}
+
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleRate(childEnquiry.ID);
+                                      }}
+                                      style={{
+                                        width: 22,
+                                        height: 22,
+                                        borderRadius: 0,
+                                        border: `1px solid ${getRatingChipMeta(childEnquiry.Rating, isDarkMode).borderColor}`,
+                                        background: getRatingChipMeta(childEnquiry.Rating, isDarkMode).background,
+                                        color: getRatingChipMeta(childEnquiry.Rating, isDarkMode).color,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        cursor: 'pointer',
+                                        transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease',
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        const meta = getRatingChipMeta(childEnquiry.Rating, isDarkMode);
+                                        e.currentTarget.style.background = meta.hoverBackground;
+                                        e.currentTarget.style.borderColor = meta.hoverBorderColor;
+                                        e.currentTarget.style.color = meta.hoverColor;
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        const meta = getRatingChipMeta(childEnquiry.Rating, isDarkMode);
+                                        e.currentTarget.style.background = meta.background;
+                                        e.currentTarget.style.borderColor = meta.borderColor;
+                                        e.currentTarget.style.color = meta.color;
+                                      }}
+                                      title={childEnquiry.Rating ? `Rating: ${childEnquiry.Rating} - Click to change` : 'Rate this enquiry'}
+                                    >
+                                      <Icon iconName={getRatingChipMeta(childEnquiry.Rating, isDarkMode).iconName} styles={{ root: { fontSize: 11 } }} />
+                                    </button>
+                                  </>
+                                )}
                                 {/* Notes chevron */}
-                                {childHasNotes && (
+                                {(childHasNotes || childHasInlineWorkbench) && (
                                   <div
                                     onClick={(e) => {
                                       e.stopPropagation();
@@ -6917,8 +7794,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                       setExpandedNotesInTable(newSet);
                                     }}
                                     style={{
-                                      width: 24,
-                                    height: 24,
+                                      width: 22,
+                                      height: 22,
                                       borderRadius: 0,
                                       background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
                                       border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
@@ -6936,7 +7813,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                       e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)';
                                       e.currentTarget.style.transform = 'scale(1)';
                                     }}
-                                    title={childNotesExpanded ? 'Hide notes' : 'Show notes'}
+                                    title={
+                                      childNotesExpanded
+                                        ? 'Collapse'
+                                        : (childHasNotes && childHasInlineWorkbench
+                                          ? 'Show notes & workbench'
+                                          : (childHasNotes ? 'Show notes' : 'Show workbench'))
+                                    }
                                   >
                                     <Icon 
                                       iconName={childNotesExpanded ? 'ChevronUp' : 'ChevronDown'} 
@@ -6949,124 +7832,114 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     />
                                   </div>
                                 )}
-                                {/* Edit Button */}
-                                <div
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (!areActionsEnabled) {
-                                      return;
-                                    }
-                                    setEditingEnquiry(childEnquiry);
-                                    setShowEditModal(true);
-                                  }}
-                                  style={{
-                                    width: 24,
-                                    height: 24,
-                                    borderRadius: 0,
-                                    background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
-                                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    cursor: areActionsEnabled ? 'pointer' : 'not-allowed',
-                                    transition: 'all 0.2s ease',
-                                    opacity: areActionsEnabled ? 1 : 0.4,
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    if (!areActionsEnabled) return;
-                                    e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)';
-                                    e.currentTarget.style.transform = 'scale(1.05)';
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    if (!areActionsEnabled) return;
-                                    e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)';
-                                    e.currentTarget.style.transform = 'scale(1)';
-                                  }}
-                                  title="Edit enquiry"
-                                  aria-disabled={!areActionsEnabled}
-                                >
-                                  <Icon 
-                                    iconName="Edit" 
-                                    styles={{ 
-                                      root: { 
-                                        fontSize: '10px', 
-                                        color: isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)' 
-                                      } 
-                                    }} 
-                                  />
-                                </div>
+                                {areActionsEnabled && (
+                                  <>
+                                    {/* Edit Button */}
+                                    <div
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditingEnquiry(childEnquiry);
+                                        setShowEditModal(true);
+                                      }}
+                                      style={{
+                                        width: 22,
+                                        height: 22,
+                                        borderRadius: 0,
+                                        background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
+                                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.2s ease',
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)';
+                                        e.currentTarget.style.transform = 'scale(1.05)';
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)';
+                                        e.currentTarget.style.transform = 'scale(1)';
+                                      }}
+                                      title="Edit enquiry"
+                                    >
+                                      <Icon 
+                                        iconName="Edit" 
+                                        styles={{ 
+                                          root: { 
+                                            fontSize: '10px', 
+                                            color: isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)' 
+                                          } 
+                                        }} 
+                                      />
+                                    </div>
 
-                                {/* Delete Button */}
-                                <div
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (!areActionsEnabled) {
-                                      return;
-                                    }
-                                    const passcode = prompt('Enter passcode to delete this enquiry:');
-                                    if (passcode === '2011') {
-                                      const enquiryName = `${childEnquiry.First_Name || ''} ${childEnquiry.Last_Name || ''}`.trim() || 'Unnamed enquiry';
-                                      const confirmMessage = `Are you sure you want to permanently delete "${enquiryName}"?\n\nThis action cannot be undone.`;
-                                      if (window.confirm(confirmMessage)) {
-                                        handleDeleteEnquiry(childEnquiry.ID, enquiryName);
-                                      }
-                                    } else if (passcode !== null) {
-                                      alert('Incorrect passcode');
-                                    }
-                                  }}
-                                  style={{
-                                    width: 24,
-                                    height: 24,
-                                    borderRadius: 0,
-                                    background: isDarkMode ? 'rgba(248, 113, 113, 0.1)' : 'rgba(248, 113, 113, 0.08)',
-                                    border: `1px solid ${isDarkMode ? 'rgba(248, 113, 113, 0.3)' : 'rgba(248, 113, 113, 0.2)'}`,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    cursor: areActionsEnabled ? 'pointer' : 'not-allowed',
-                                    transition: 'all 0.2s ease',
-                                    opacity: areActionsEnabled ? 1 : 0.4,
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    if (!areActionsEnabled) return;
-                                    e.currentTarget.style.background = isDarkMode ? 'rgba(248, 113, 113, 0.15)' : 'rgba(248, 113, 113, 0.12)';
-                                    e.currentTarget.style.transform = 'scale(1.05)';
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    if (!areActionsEnabled) return;
-                                    e.currentTarget.style.background = isDarkMode ? 'rgba(248, 113, 113, 0.1)' : 'rgba(248, 113, 113, 0.08)';
-                                    e.currentTarget.style.transform = 'scale(1)';
-                                  }}
-                                  title="Delete enquiry (requires passcode)"
-                                  aria-disabled={!areActionsEnabled}
-                                >
-                                  <Icon 
-                                    iconName="Delete" 
-                                    styles={{ 
-                                      root: { 
-                                        fontSize: '10px', 
-                                        color: isDarkMode ? '#F87171' : '#EF4444' 
-                                      } 
-                                    }} 
-                                  />
-                                </div>
+                                    {/* Delete Button */}
+                                    <div
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const passcode = prompt('Enter passcode to delete this enquiry:');
+                                        if (passcode === '2011') {
+                                          const enquiryName = `${childEnquiry.First_Name || ''} ${childEnquiry.Last_Name || ''}`.trim() || 'Unnamed enquiry';
+                                          const confirmMessage = `Are you sure you want to permanently delete "${enquiryName}"?\n\nThis action cannot be undone.`;
+                                          if (window.confirm(confirmMessage)) {
+                                            handleDeleteEnquiry(childEnquiry.ID, enquiryName);
+                                          }
+                                        } else if (passcode !== null) {
+                                          alert('Incorrect passcode');
+                                        }
+                                      }}
+                                      style={{
+                                        width: 22,
+                                        height: 22,
+                                        borderRadius: 0,
+                                        background: isDarkMode ? 'rgba(248, 113, 113, 0.1)' : 'rgba(248, 113, 113, 0.08)',
+                                        border: `1px solid ${isDarkMode ? 'rgba(248, 113, 113, 0.3)' : 'rgba(248, 113, 113, 0.2)'}`,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.2s ease',
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        e.currentTarget.style.background = isDarkMode ? 'rgba(248, 113, 113, 0.15)' : 'rgba(248, 113, 113, 0.12)';
+                                        e.currentTarget.style.transform = 'scale(1.05)';
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        e.currentTarget.style.background = isDarkMode ? 'rgba(248, 113, 113, 0.1)' : 'rgba(248, 113, 113, 0.08)';
+                                        e.currentTarget.style.transform = 'scale(1)';
+                                      }}
+                                      title="Delete enquiry (requires passcode)"
+                                    >
+                                      <Icon 
+                                        iconName="Delete" 
+                                        styles={{ 
+                                          root: { 
+                                            fontSize: '10px', 
+                                            color: isDarkMode ? '#F87171' : '#EF4444' 
+                                          } 
+                                        }} 
+                                      />
+                                    </div>
+                                  </>
+                                )}
                                 </div>
                               </div>
                               
-                              {/* Child notes section */}
-                              {childHasNotes && childNotesExpanded && (
+                              {/* Child expanded section - notes only */}
+                              {childNotesExpanded && childHasNotes && (
                                 <div style={{
-                                  padding: '12px 60px 12px 80px',
+                                  padding: '12px 60px 12px 32px',
                                   backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.015)' : 'rgba(0, 0, 0, 0.008)',
                                   borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)'}`,
-                                  fontSize: '11px',
+                                  fontSize: '10px',
                                   lineHeight: '1.5',
                                   color: isDarkMode ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)',
                                   whiteSpace: 'pre-line',
                                   marginLeft: '20px',
                                 }}>
                                   <div style={{
-                                    fontSize: '10px',
+                                    fontSize: '9px',
                                     fontWeight: 600,
                                     color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : 'rgba(100, 116, 139, 0.9)',
                                     marginBottom: '6px',
@@ -7086,12 +7959,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                         // Handle individual enquiries
                         const pocLower = (item.Point_of_Contact || '').toLowerCase();
                         const isUnclaimed = pocLower === 'team@helix-law.com';
-                        const claimer = claimerMap[pocLower];
-                        const promotionStatus = getPromotionStatusSimple(item);
 
                         // Extract values for display using correct property names
                         const contactName = `${item.First_Name || ''} ${item.Last_Name || ''}`.trim() || 'Unknown';
-                        const companyName = item.Company || '';
                         const areaOfWork = item.Area_of_Work || 'Unspecified';
                         const dateReceived = item.Touchpoint_Date || item.Date_Created || '';
                         const rawValue: any = (item as any).Value ?? (item as any).value ?? '';
@@ -7099,15 +7969,16 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           ? rawValue.replace(/^£\s*/, '').trim() 
                           : rawValue;
                         const isFromInstructions = (item as any).source === 'instructions';
-                        // For v2 enquiries, claim field contains the claim datetime
-                        const claimDate = isFromInstructions ? ((item as any).claim || null) : null;
                         const hasNotes = item.Initial_first_call_notes && item.Initial_first_call_notes.trim().length > 0;
                         const noteKey = buildEnquiryIdentityKey(item);
                         const isNotesExpanded = expandedNotesInTable.has(noteKey);
+                        const inlineWorkbenchItem = item.ID ? inlineWorkbenchByEnquiryId.get(String(item.ID)) : undefined;
+                        const hasInlineWorkbench = Boolean(inlineWorkbenchItem);
                         const enrichmentDataKey = item.ID ?? (item as any).id ?? '';
                         const enrichmentData = enrichmentDataKey
                           ? enrichmentMap.get(String(enrichmentDataKey))
                           : undefined;
+                        const mainShowClaimer = !!(item.Point_of_Contact || (item as any).poc || '') && activeState !== 'Triaged';
                         const enquiryTeamsLink = (enrichmentData?.teamsData as any)?.teamsLink as string | undefined;
                         
                         // Day separator for Unclaimed table view (robust across legacy/v2 fields)
@@ -7269,9 +8140,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           {/* Skip row if day is collapsed */}
                           {!isSingleDayCollapsed && (
                           <div
+                            data-enquiry-id={item.ID ? String(item.ID) : undefined}
                             style={{
                               display: 'grid',
-                              gridTemplateColumns: '32px 70px 50px 60px 1.2fr 0.5fr 1.6fr 0.5fr',
+                              gridTemplateColumns: '32px 80px 50px 70px 1.1fr 2.85fr 0.45fr',
                               gap: '12px',
                               padding: '10px 16px',
                               alignItems: 'center',
@@ -7293,8 +8165,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               // Show tooltip on hover
                               const tooltip = e.currentTarget.querySelector('.timeline-date-tooltip') as HTMLElement;
                               if (tooltip) tooltip.style.opacity = '1';
-                              // Track hovered row for contact actions
-                              setHoveredRowId(item.ID);
                               // Highlight timeline for this day
                               setHoveredDayKey(singleDayKey);
                             }}
@@ -7305,8 +8175,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               // Hide tooltip
                               const tooltip = e.currentTarget.querySelector('.timeline-date-tooltip') as HTMLElement;
                               if (tooltip) tooltip.style.opacity = '0';
-                              // Clear hovered row
-                              setHoveredRowId(null);
                               // Clear timeline highlight
                               setHoveredDayKey((prev) => (prev === singleDayKey ? null : prev));
                             }}
@@ -7335,21 +8203,42 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               }} />
                             </div>
 
-                            {/* Date column - compact format */}
+                            {/* Date column - stacked format */}
                             <TooltipHost
                               content={fullDateTooltip}
                               styles={{ root: { display: 'flex', alignItems: 'center', height: '100%' } }}
                               calloutProps={{ gapSpace: 6 }}
                             >
-                              <span style={{
-                                fontSize: '11px',
-                                color: isDarkMode ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.6)',
-                                fontWeight: 500,
-                                fontVariantNumeric: 'tabular-nums',
-                                whiteSpace: 'nowrap',
-                              }}>
-                                {getCompactTimeDisplay(dateReceived)}
-                              </span>
+                              {(() => {
+                                const { top, bottom } = getStackedDateDisplay(dateReceived);
+                                return (
+                                  <div style={{
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: '2px',
+                                    lineHeight: 1.1,
+                                    justifyContent: 'center',
+                                    fontVariantNumeric: 'tabular-nums',
+                                  }}>
+                                    <span style={{
+                                      fontSize: '10px',
+                                      color: isDarkMode ? 'rgba(255, 255, 255, 0.72)' : 'rgba(0, 0, 0, 0.62)',
+                                      fontWeight: 600,
+                                      whiteSpace: 'nowrap',
+                                    }}>
+                                      {top}
+                                    </span>
+                                    <span style={{
+                                      fontSize: '9px',
+                                      color: isDarkMode ? 'rgba(255, 255, 255, 0.45)' : 'rgba(0, 0, 0, 0.38)',
+                                      fontWeight: 500,
+                                      whiteSpace: 'nowrap',
+                                    }}>
+                                      {bottom}
+                                    </span>
+                                  </div>
+                                );
+                              })()}
                             </TooltipHost>
 
                             {/* Area of Work - second */}
@@ -7378,6 +8267,33 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               }}>
                                 {item.ID}
                               </div>
+                              {(() => {
+                                const numValue = typeof value === 'string' ? parseFloat(value.replace(/[^0-9.]/g, '')) : (typeof value === 'number' ? value : 0);
+                                const displayValue = formatValueForDisplay(value);
+                                if (!displayValue) return null;
+
+                                let textColor;
+                                if (numValue >= 50000) {
+                                  textColor = isDarkMode ? 'rgba(54, 144, 206, 1)' : 'rgba(54, 144, 206, 1)';
+                                } else if (numValue >= 10000) {
+                                  textColor = isDarkMode ? 'rgba(54, 144, 206, 0.75)' : 'rgba(54, 144, 206, 0.75)';
+                                } else {
+                                  textColor = isDarkMode ? 'rgba(54, 144, 206, 0.5)' : 'rgba(54, 144, 206, 0.55)';
+                                }
+
+                                return (
+                                  <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+                                    <span style={{
+                                      fontSize: 10,
+                                      fontWeight: 700,
+                                      color: textColor,
+                                      whiteSpace: 'nowrap',
+                                    }}>
+                                      {displayValue}
+                                    </span>
+                                  </div>
+                                );
+                              })()}
                               {enrichmentData?.pitchData?.displayNumber && (
                                 <div style={{
                                   fontFamily: 'Monaco, Consolas, monospace',
@@ -7424,7 +8340,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                 {contactName}
                               </div>
                               
-                              {/* Email · Phone row */}
+                              {/* Email row */}
                               <div style={{ 
                                 fontSize: '10px', 
                                 color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
@@ -7441,7 +8357,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     style={{
                                       cursor: 'pointer',
                                       transition: 'color 0.15s ease',
-                                      maxWidth: '160px',
+                                      maxWidth: '200px',
                                       overflow: 'hidden',
                                       textOverflow: 'ellipsis',
                                       whiteSpace: 'nowrap',
@@ -7457,61 +8373,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     {item.Email}
                                   </span>
                                 )}
-                                {item.Email && (item.Phone_Number || (item as any).phone) && (
-                                  <span style={{ margin: '0 4px', opacity: 0.5 }}>·</span>
-                                )}
-                                {(item.Phone_Number || (item as any).phone) && (
-                                  <span 
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      copyToClipboard(item.Phone_Number || (item as any).phone);
-                                    }}
-                                    style={{
-                                      cursor: 'pointer',
-                                      transition: 'color 0.15s ease',
-                                    }}
-                                    onMouseEnter={(e) => {
-                                      e.currentTarget.style.color = isDarkMode ? '#87F3F3' : '#3690CE';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                      e.currentTarget.style.color = isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)';
-                                    }}
-                                    title={`Click to copy: ${item.Phone_Number || (item as any).phone}`}
-                                  >
-                                    {item.Phone_Number || (item as any).phone}
-                                  </span>
-                                )}
                               </div>
                             </div>
-
-                            {/* Value */}
-                            {(() => {
-                              const numValue = typeof value === 'string' ? parseFloat(value.replace(/[^0-9.]/g, '')) : (typeof value === 'number' ? value : 0);
-                              const displayValue = formatValueForDisplay(value);
-                              
-                              // Blue shades based on value range
-                              let textColor;
-                              if (numValue >= 50000) {
-                                textColor = isDarkMode ? 'rgba(54, 144, 206, 1)' : 'rgba(54, 144, 206, 1)'; // Brightest blue
-                              } else if (numValue >= 10000) {
-                                textColor = isDarkMode ? 'rgba(54, 144, 206, 0.75)' : 'rgba(54, 144, 206, 0.75)'; // Medium blue
-                              } else {
-                                textColor = isDarkMode ? 'rgba(54, 144, 206, 0.5)' : 'rgba(54, 144, 206, 0.55)'; // Subtle blue
-                              }
-                              
-                              return (
-                                <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
-                                  <span style={{
-                                    fontSize: 11,
-                                    fontWeight: 600,
-                                    color: textColor,
-                                    whiteSpace: 'nowrap',
-                                  }}>
-                                    {displayValue || '-'}
-                                  </span>
-                                </div>
-                              );
-                            })()}
 
                             {/* Pipeline - Teams → POC → Pitch */}
                             {(() => {
@@ -7542,39 +8405,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                 return date.getHours() !== 0 || date.getMinutes() !== 0 || date.getSeconds() !== 0;
                               };
                               
-                              const hasValidClaimTime = isValidTimestamp(pocClaimTime);
-                              const hasValidPitchTime = pitchTime ? isValidTimestamp(pitchTime) : false;
-                              
-                              // Duration calculation
-                              const calculateDuration = (fromDate: string | null, toDate: string | null) => {
-                                if (!fromDate || !toDate) return null;
-                                const from = new Date(fromDate);
-                                const to = new Date(toDate);
-                                let diff = Math.max(0, Math.floor((to.getTime() - from.getTime()) / 1000));
-                                
-                                const S = diff % 60; diff = Math.floor(diff / 60);
-                                const M = diff % 60; diff = Math.floor(diff / 60);
-                                const H = diff % 24; diff = Math.floor(diff / 24);
-                                const D = diff % 7; diff = Math.floor(diff / 7);
-                                const W = diff;
-                                
-                                const parts: string[] = [];
-                                if (W > 0) { parts.push(W + 'w'); if (D > 0) parts.push(D + 'd'); }
-                                else if (D > 0) { parts.push(D + 'd'); if (H > 0) parts.push(H + 'h'); }
-                                else if (H > 0) { parts.push(H + 'h'); if (M > 0) parts.push(M + 'm'); }
-                                else if (M > 0) { parts.push(M + 'm'); if (S > 0) parts.push(S + 's'); }
-                                else if (S > 0) parts.push(S + 's');
-                                
-                                if (parts.length === 0) parts.push('0s');
-                                return parts.slice(0, 2).join(' ');
-                              };
-                              
-                              const formatDateTime = (dateStr: string | null) => {
-                                if (!dateStr) return null;
-                                const date = new Date(dateStr);
-                                return date.toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
-                              };
-                              
                               const showTeamsStage = isV2Enquiry && !!teamsData;
                               const showLegacyPlaceholder = isDefinitelyLegacy;
                               // Determine loading vs not-resolvable state for V2 enquiries
@@ -7582,452 +8412,800 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               // - enrichmentData doesn't exist = still loading
                               const enrichmentWasProcessed = enrichmentData && enrichmentData.enquiryId;
                               const showLoadingState = isV2Enquiry && !enrichmentWasProcessed && !isDefinitelyLegacy && !teamsTime;
-                              const showNotResolvable = isV2Enquiry && enrichmentWasProcessed && !enrichmentData?.teamsData && !isDefinitelyLegacy;
-                              const showClaimer = hasClaimerStage && activeState !== 'Triaged';
-                              const showPitch = !!enrichmentData?.pitchData;
                               
-                              return (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: '100%' }}>
-                                  {/* Loading state - show when V2 but enrichment not loaded yet */}
-                                  {showLoadingState && (
+                              // If loading, show full placeholder pipeline
+                              if (showLoadingState) {
+                                return (
+                                  <div style={{ position: 'relative', height: '100%', width: '100%' }}>
                                     <div
-                                      title="Loading pipeline data..."
                                       style={{
-                                        display: 'flex',
+                                        display: 'grid',
+                                        gridTemplateColumns: pipelineNeedsCarousel 
+                                          ? `repeat(${visiblePipelineChipCount}, minmax(0, 1fr)) 24px`
+                                          : 'repeat(8, minmax(0, 1fr)) 24px',
+                                        columnGap: 8,
                                         alignItems: 'center',
-                                        gap: 6,
-                                        padding: '4px 10px',
-                                        borderRadius: 0,
-                                        background: isDarkMode ? 'rgba(148,163,184,0.06)' : 'rgba(148,163,184,0.04)',
-                                        border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(100,116,139,0.15)'}`,
-                                        fontSize: 9,
-                                        fontWeight: 500,
-                                        color: isDarkMode ? 'rgba(148,163,184,0.6)' : 'rgba(71,85,105,0.6)',
-                                        whiteSpace: 'nowrap',
-                                        minWidth: '120px',
-                                        justifyContent: 'center',
+                                        width: '100%',
+                                        height: '100%',
                                       }}
                                     >
-                                      <div
-                                        style={{
-                                          width: 10,
-                                          height: 10,
-                                          borderRadius: '50%',
-                                          border: `2px solid ${isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(100,116,139,0.15)'}`,
-                                          borderTopColor: isDarkMode ? 'rgba(148,163,184,0.5)' : 'rgba(100,116,139,0.4)',
-                                          animation: 'spin 1s linear infinite',
-                                        }}
-                                      />
-                                      <style>{`
-                                        @keyframes spin {
-                                          to { transform: rotate(360deg); }
-                                        }
-                                      `}</style>
-                                      <span style={{ fontSize: 8 }}>processing...</span>
+                                      {[
+                                        { icon: 'TeamsLogo', label: 'Teams' },
+                                        { icon: 'Contact', label: 'Claim' },
+                                        { icon: 'Send', label: 'Pitch' },
+                                        { icon: 'CreditCard', label: 'Card' },
+                                        { icon: 'CheckMark', label: 'ID' },
+                                        { icon: 'Money', label: 'Payment' },
+                                        { icon: 'ShieldAlert', label: 'Risk' },
+                                        { icon: 'FolderHorizontal', label: 'Matter' },
+                                      ].map((stage, idx) => {
+                                        const mainPipelineOffset = getPipelineScrollOffset(item.ID);
+                                        const mainVisibleEnd = mainPipelineOffset + visiblePipelineChipCount;
+                                        const isVisible = !pipelineNeedsCarousel || (idx >= mainPipelineOffset && idx < mainVisibleEnd);
+                                        
+                                        if (!isVisible) return null;
+                                        
+                                        return (
+                                          <div
+                                            key={idx}
+                                            style={{
+                                              display: 'flex',
+                                              alignItems: 'center',
+                                              justifyContent: 'center',
+                                              width: '100%',
+                                              height: 22,
+                                              animation: `pipeline-pulse 1.5s ease-in-out infinite ${idx * 0.1}s`,
+                                            }}
+                                          >
+                                            <Icon 
+                                              iconName={stage.icon} 
+                                              styles={{ 
+                                                root: { 
+                                                  fontSize: 14, 
+                                                  color: isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)',
+                                                } 
+                                              }} 
+                                            />
+                                          </div>
+                                        );
+                                      })}
+                                      <div /> {/* Phone action placeholder */}
                                     </div>
-                                  )}
-
-                                  {(showTeamsStage || showLegacyPlaceholder) && (
-                                    showTeamsStage ? (
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          const link = teamsData?.teamsLink || getAreaSpecificChannelUrl(item['Area_of_Work']);
-                                          if (link) {
-                                            window.open(link, '_blank');
-                                          }
-                                        }}
-                                        style={{
-                                          display: 'flex',
-                                          alignItems: 'center',
-                                          gap: 6,
-                                          padding: '4px 8px',
-                                          borderRadius: 0,
-                                          background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
-                                          border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`,
-                                          fontSize: 11,
-                                          fontWeight: 500,
-                                          color: isDarkMode ? 'rgba(54, 144, 206, 0.95)' : 'rgba(54, 144, 206, 0.9)',
-                                          cursor: 'pointer',
-                                          transition: '0.2s',
-                                          whiteSpace: 'nowrap',
-                                          width: 90,
-                                          justifyContent: 'center',
-                                        }}
-                                        onMouseEnter={(e) => {
-                                          e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)';
-                                        }}
-                                        onMouseLeave={(e) => {
-                                          e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)';
-                                        }}
-                                      >
-                                        <Icon
-                                          iconName="TeamsLogo"
-                                          styles={{ root: { fontSize: 12, color: isDarkMode ? 'rgba(54, 144, 206, 0.85)' : 'rgba(54, 144, 206, 0.8)' } }}
-                                        />
-                                        <span style={{ fontSize: 9, color: isDarkMode ? 'rgba(54, 144, 206, 0.7)' : 'rgba(54, 144, 206, 0.65)', fontFamily: 'inherit', fontWeight: 500 }}>
-                                          {teamsTime ? formatDateTime(teamsTime) : 'TEAMS'}
-                                        </span>
-                                      </button>
-                                    ) : (
-                                      <div
-                                        title="Not pipeline-tracked (legacy format)"
-                                        style={{
-                                          display: 'flex',
-                                          alignItems: 'center',
-                                          gap: 6,
-                                          padding: '4px 8px',
-                                          borderRadius: 0,
-                                          background: isDarkMode ? 'rgba(148,163,184,0.06)' : 'rgba(148,163,184,0.04)',
-                                          border: `1px dashed ${isDarkMode ? 'rgba(148,163,184,0.25)' : 'rgba(100,116,139,0.2)'}`,
-                                          fontSize: 9,
-                                          fontWeight: 500,
-                                          color: isDarkMode ? 'rgba(148,163,184,0.6)' : 'rgba(71,85,105,0.6)',
-                                          whiteSpace: 'nowrap',
-                                          width: 90,
-                                          justifyContent: 'center',
-                                        }}
-                                      >
-                                        <span style={{ fontSize: 9 }}>legacy</span>
-                                      </div>
-                                    )
-                                  )}
-
-                                  {/* Teams placeholder shell when no Teams/legacy shown */}
-                                  {!showTeamsStage && !showLegacyPlaceholder && !showLoadingState && (
-                                    <div style={{
-                                      display: 'flex',
+                                    <style>{`
+                                      @keyframes pipeline-pulse {
+                                        0%, 100% { opacity: 0.3; }
+                                        50% { opacity: 0.7; }
+                                      }
+                                    `}</style>
+                                  </div>
+                                );
+                              }
+                              
+                              const showClaimer = hasClaimerStage && activeState !== 'Triaged';
+                              const claimerInfo = claimerMap[pocLower];
+                              const claimerLabel = pocLower === 'team@helix-law.com'
+                                ? 'Team'
+                                : (claimerInfo?.Initials || getPocInitials(pocDisplayName));
+                              const showPitch = !!enrichmentData?.pitchData;
+                              const pitchColor = getScenarioColor(enrichmentData?.pitchData?.scenarioId);
+                              // Only show pitch CTA when we're certain there's no pitch (enrichment was processed)
+                              // This prevents the yellow flash on initial load
+                              const showPitchCTA = showClaimer && pocLower !== 'team@helix-law.com' && enrichmentWasProcessed && !showPitch;
+                              
+                              // Pipeline carousel state for this row
+                              const mainPipelineOffset = getPipelineScrollOffset(item.ID);
+                              const mainVisibleEnd = mainPipelineOffset + visiblePipelineChipCount;
+                              const mainHasMoreChips = pipelineNeedsCarousel && mainPipelineOffset < 8 - visiblePipelineChipCount;
+                              const mainIsChipVisible = (chipIndex: number) => 
+                                !pipelineNeedsCarousel || (chipIndex >= mainPipelineOffset && chipIndex < mainVisibleEnd);
+                              
+                              // Dynamic grid columns based on carousel state
+                              const mainGridCols = pipelineNeedsCarousel 
+                                ? `repeat(${visiblePipelineChipCount}, minmax(0, 1fr)) 24px`
+                                : 'repeat(8, minmax(0, 1fr)) 24px';
+                              
+                              // Cascade animation helper
+                              const getMainCascadeStyle = (chipIndex: number) => ({
+                                animation: enrichmentWasProcessed ? `pipeline-cascade 0.35s cubic-bezier(0.4, 0, 0.2, 1) ${chipIndex * 0.12}s both` : 'none',
+                              });
+                              
+                              return (
+                                <div style={{ position: 'relative', height: '100%', width: '100%' }}>
+                                  <div
+                                    style={{
+                                      display: 'grid',
+                                      gridTemplateColumns: mainGridCols,
+                                      columnGap: 8,
                                       alignItems: 'center',
-                                      gap: 6,
-                                      padding: '4px 8px',
-                                      borderRadius: 0,
-                                      background: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(148, 163, 184, 0.04)',
-                                      border: `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
-                                      fontSize: 11,
-                                      fontWeight: 500,
-                                      color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)',
-                                      whiteSpace: 'nowrap',
-                                      width: 90,
-                                      justifyContent: 'center',
-                                    }}>
-                                      <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 12, color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.4)' } }} />
-                                      <span style={{ fontSize: 9, fontFamily: 'inherit', fontWeight: 500 }}>-- --</span>
-                                    </div>
-                                  )}
-
-                                  {(showTeamsStage || showLegacyPlaceholder) && showClaimer && (
-                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, minWidth: 8 }}>
-                                      <div style={{ width: 8, height: 1, background: isDarkMode ? 'linear-gradient(to right, rgba(148, 163, 184, 0.3), rgba(148, 163, 184, 0.15))' : 'linear-gradient(to right, rgba(148, 163, 184, 0.25), rgba(148, 163, 184, 0.1))' }} />
-                                      {teamsTime && hasValidClaimTime && (
-                                        <span style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', fontFamily: 'Consolas, Monaco, monospace', fontWeight: 600, whiteSpace: 'nowrap', minWidth: '42px', textAlign: 'center', display: 'inline-block' }}>
-                                          {calculateDuration(teamsTime, pocClaimTime)}
-                                        </span>
-                                      )}
-                                    </div>
-                                  )}
-
-                                  {/* Claim placeholder shell when no claimer shown */}
-                                  {!showClaimer && (
-                                    <div style={{
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      padding: '4px 10px',
-                                      borderRadius: 0,
-                                      background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(148, 163, 184, 0.03)',
-                                      border: `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)'}`,
-                                      width: 90,
-                                      height: 24,
-                                    }} />
-                                  )}
-
-                                  {showClaimer && (
-                                    // Only show claim button for truly unclaimed enquiries (not triaged)
-                                    pocLower === 'team@helix-law.com' && !pocLower.includes('triage')
-                                      ? renderClaimPromptChip({ 
-                                          teamsLink: enquiryTeamsLink, 
-                                          leadName: contactName,
-                                          areaOfWork: item['Area_of_Work'],
-                                          enquiryId: item.ID,
-                                          dataSource: isFromInstructions ? 'new' : 'legacy'
-                                        })
-                                      : (
+                                      width: '100%',
+                                      height: '100%',
+                                    }}
+                                  >
+                                    {/* Teams - chip index 0 */}
+                                    {mainIsChipVisible(0) && (
+                                    <div style={getMainCascadeStyle(0)}>
+                                      {showTeamsStage ? (
                                         <button
-                                          onClick={(e) => handleReassignClick(String(item.ID), e)}
-                                          title={`Claimed by ${pocDisplayName} - Click to reassign`}
+                                          className="pipeline-chip"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const link = teamsData?.teamsLink || getAreaSpecificChannelUrl(item['Area_of_Work']);
+                                            if (link) window.open(link, '_blank');
+                                          }}
+                                          onMouseEnter={(e) => showPipelineHover(e, {
+                                            title: 'Teams Card',
+                                            status: 'Activity logged',
+                                            subtitle: contactName,
+                                            color: colours.blue,
+                                            iconName: 'TeamsLogo',
+                                          })}
+                                          onMouseMove={movePipelineHover}
+                                          onMouseLeave={hidePipelineHover}
+                                          style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            width: '100%',
+                                            height: 22,
+                                            padding: 0,
+                                            borderRadius: 0,
+                                            background: 'transparent',
+                                            border: 'none',
+                                            cursor: 'pointer',
+                                          }}
+                                        >
+                                          <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 14, color: isDarkMode ? 'rgba(54, 144, 206, 0.85)' : 'rgba(54, 144, 206, 0.75)' } }} />
+                                          <span style={getPipelineDotStyle(true, colours.blue, isDarkMode)} />
+                                        </button>
+                                      ) : showLegacyPlaceholder ? (
+                                        <div
                                           style={{
                                             display: 'flex',
                                             alignItems: 'center',
                                             gap: 6,
-                                            padding: '4px 10px',
+                                            padding: '4px 8px',
                                             borderRadius: 0,
-                                            background: isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.1)',
-                                            border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.3)'}`,
-                                            fontSize: 11,
-                                            fontWeight: 600,
-                                            color: isDarkMode ? 'rgba(32, 178, 108, 0.9)' : 'rgba(32, 178, 108, 0.85)',
-                                            cursor: 'pointer',
-                                            width: '90px',
+                                            background: isDarkMode ? 'rgba(148,163,184,0.06)' : 'rgba(148,163,184,0.04)',
+                                            border: `1px dashed ${isDarkMode ? 'rgba(148,163,184,0.25)' : 'rgba(100,116,139,0.2)'}`,
+                                            fontSize: 9,
+                                            fontWeight: 500,
+                                            color: isDarkMode ? 'rgba(148,163,184,0.6)' : 'rgba(71,85,105,0.6)',
+                                            whiteSpace: 'nowrap',
+                                            width: '100%',
                                             justifyContent: 'center',
-                                            transition: 'all 0.2s ease',
-                                          }}
-                                          onMouseEnter={(e) => {
-                                            e.currentTarget.style.background = isDarkMode ? 'rgba(32, 178, 108, 0.25)' : 'rgba(32, 178, 108, 0.18)';
-                                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.45)';
-                                          }}
-                                          onMouseLeave={(e) => {
-                                            e.currentTarget.style.background = isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.1)';
-                                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.3)';
                                           }}
                                         >
-                                          <Icon
-                                            iconName="Accept"
-                                            styles={{ root: { fontSize: 11, color: isDarkMode ? 'rgba(32, 178, 108, 0.9)' : 'rgba(32, 178, 108, 0.85)' } }}
-                                          />
-                                          <span style={{ fontSize: 9 }}>{getPocInitials(pocDisplayName)}</span>
-                                          <Icon iconName="ChevronDown" styles={{ root: { fontSize: 8, color: isDarkMode ? 'rgba(32, 178, 108, 0.6)' : 'rgba(32, 178, 108, 0.5)', marginLeft: -2 } }} />
-                                        </button>
-                                      )
-                                  )}
-
-                                  {showClaimer && showPitch && (
-                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, minWidth: 8 }}>
-                                      <div style={{ width: 8, height: 1, background: isDarkMode ? 'linear-gradient(to right, rgba(148, 163, 184, 0.3), rgba(148, 163, 184, 0.15))' : 'linear-gradient(to right, rgba(148, 163, 184, 0.25), rgba(148, 163, 184, 0.1))' }} />
-                                      {hasValidPitchTime && (pocClaimTime || teamsTime) && (
-                                        <span style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', fontFamily: 'Consolas, Monaco, monospace', fontWeight: 600, minWidth: '42px', textAlign: 'center', display: 'inline-block' }}>
-                                          {calculateDuration(pocClaimTime || teamsTime, pitchTime)}
-                                        </span>
+                                          <span style={{ fontSize: 9 }}>legacy</span>
+                                        </div>
+                                      ) : (
+                                        <div
+                                          onMouseEnter={(e) => showPipelineHover(e, {
+                                            title: 'Teams Card',
+                                            status: 'No activity yet',
+                                            subtitle: contactName,
+                                            color: colours.blue,
+                                            iconName: 'TeamsLogo',
+                                          })}
+                                          onMouseMove={movePipelineHover}
+                                          onMouseLeave={hidePipelineHover}
+                                          style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            width: '100%',
+                                            height: 22,
+                                            border: 'none',
+                                            borderRadius: 0,
+                                            background: 'transparent',
+                                          }}
+                                        >
+                                          <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 14, color: isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)' } }} />
+                                          <span style={getPipelineDotStyle(false, colours.blue, isDarkMode)} />
+                                        </div>
                                       )}
                                     </div>
-                                  )}
+                                    )}
 
-                                  {showPitch ? (
-                                    // Show pitch badge when already pitched
-                                    (() => {
-                                      const PitchScenarioBadge = require('../../components/PitchScenarioBadge').default;
-                                      return <PitchScenarioBadge scenarioId={(enrichmentData.pitchData as any).scenarioId} size="small" />;
-                                    })()
-                                  ) : (
-                                    // Show pitch prompt when claimed but not pitched
-                                    showClaimer && pocLower !== 'team@helix-law.com' && (
+                                    {/* Claim - chip index 1 */}
+                                    {mainIsChipVisible(1) && (
+                                    <div style={getMainCascadeStyle(1)}>
+                                      {!showClaimer ? (
+                                        <div
+                                          onMouseEnter={(e) => showPipelineHover(e, {
+                                            title: 'Claimed',
+                                            status: 'Unclaimed',
+                                            subtitle: contactName,
+                                            color: colours.green,
+                                            iconName: 'Contact',
+                                          })}
+                                          onMouseMove={movePipelineHover}
+                                          onMouseLeave={hidePipelineHover}
+                                          style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            width: '100%',
+                                            height: 22,
+                                            border: 'none',
+                                            borderRadius: 0,
+                                            background: 'transparent',
+                                          }}
+                                        >
+                                          <Icon iconName="Contact" styles={{ root: { fontSize: 14, color: isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)' } }} />
+                                          <span style={getPipelineDotStyle(false, colours.green, isDarkMode)} />
+                                        </div>
+                                      ) : (
+                                        <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
+                                          {pocLower === 'team@helix-law.com' && !pocLower.includes('triage')
+                                            ? renderClaimPromptChip({
+                                                teamsLink: enquiryTeamsLink,
+                                                leadName: contactName,
+                                                areaOfWork: item['Area_of_Work'],
+                                                enquiryId: item.ID,
+                                                dataSource: isFromInstructions ? 'new' : 'legacy',
+                                                iconOnly: true,
+                                              })
+                                            : (
+                                              <button
+                                                className="pipeline-chip"
+                                                onClick={(e) => handleReassignClick(String(item.ID), e)}
+                                                onMouseEnter={(e) => showPipelineHover(e, {
+                                                  title: 'Claimed',
+                                                  status: `Claimed by ${pocDisplayName}`,
+                                                  subtitle: contactName,
+                                                  color: colours.green,
+                                                  iconName: 'Contact',
+                                                })}
+                                                onMouseMove={movePipelineHover}
+                                                onMouseLeave={hidePipelineHover}
+                                                style={{
+                                                  display: 'inline-flex',
+                                                  alignItems: 'center',
+                                                  justifyContent: 'center',
+                                                  gap: 4,
+                                                  width: '100%',
+                                                  height: 22,
+                                                  padding: 0,
+                                                  borderRadius: 0,
+                                                  border: 'none',
+                                                  background: 'transparent',
+                                                  color: colours.green,
+                                                  fontSize: 10,
+                                                  fontWeight: 700,
+                                                  textTransform: 'uppercase',
+                                                  letterSpacing: '0.3px',
+                                                  cursor: 'pointer',
+                                                  fontFamily: 'inherit',
+                                                }}
+                                              >
+                                                {claimerLabel}
+                                                <Icon iconName="ChevronDown" styles={{ root: { fontSize: 8, color: 'inherit', opacity: 0.6, marginLeft: 3 } }} />
+                                                <span style={getPipelineDotStyle(true, colours.green, isDarkMode)} />
+                                              </button>
+                                            )}
+                                        </div>
+                                      )}
+                                    </div>
+                                    )}
+
+                                    {/* Pitch - chip index 2 */}
+                                    {mainIsChipVisible(2) && (
+                                    <div style={getMainCascadeStyle(2)}>
+                                      {showPitch ? (
+                                        <button
+                                          type="button"
+                                          className="pipeline-chip"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            openEnquiryWorkbench(item, 'Pitch');
+                                          }}
+                                          onMouseEnter={(e) => showPipelineHover(e, {
+                                            title: 'Pitch',
+                                            status: 'Pitched',
+                                            subtitle: contactName,
+                                            color: pitchColor,
+                                            iconName: 'Send',
+                                          })}
+                                          onMouseMove={movePipelineHover}
+                                          onMouseLeave={hidePipelineHover}
+                                          style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            width: '100%',
+                                            height: 22,
+                                            padding: 0,
+                                            borderRadius: 0,
+                                            border: 'none',
+                                            background: 'transparent',
+                                            cursor: 'pointer',
+                                            fontFamily: 'inherit',
+                                          }}
+                                        >
+                                          <Icon iconName="Send" styles={{ root: { fontSize: 14, color: pitchColor } }} />
+                                          <span style={getPipelineDotStyle(true, colours.green, isDarkMode)} />
+                                        </button>
+                                      ) : showPitchCTA ? (
+                                        <button
+                                          type="button"
+                                          className="pipeline-chip"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            openEnquiryWorkbench(item, 'Pitch');
+                                          }}
+                                          onMouseEnter={(e) => showPipelineHover(e, {
+                                            title: 'Pitch',
+                                            status: 'Ready to pitch',
+                                            subtitle: contactName,
+                                            color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.6)',
+                                            iconName: 'Send',
+                                          })}
+                                          onMouseMove={movePipelineHover}
+                                          onMouseLeave={hidePipelineHover}
+                                          style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            width: '100%',
+                                            height: 22,
+                                            padding: 0,
+                                            borderRadius: 0,
+                                            border: 'none',
+                                            background: 'transparent',
+                                            cursor: 'pointer',
+                                            fontFamily: 'inherit',
+                                          }}
+                                        >
+                                          <Icon iconName="Send" styles={{ root: { fontSize: 14, color: isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)' } }} />
+                                          <span style={{
+                                            width: 6,
+                                            height: 6,
+                                            borderRadius: '50%',
+                                            background: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.7)',
+                                            boxShadow: `0 0 8px ${isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.7)'}99`,
+                                            marginLeft: 6,
+                                            flexShrink: 0,
+                                            animation: 'action-dot-pulse 2s ease-in-out infinite',
+                                          }} />
+                                        </button>
+                                      ) : (
+                                        <div
+                                          onMouseEnter={(e) => showPipelineHover(e, {
+                                            title: 'Pitch',
+                                            status: 'Not pitched',
+                                            subtitle: contactName,
+                                            color: pitchColor,
+                                            iconName: 'Send',
+                                          })}
+                                          onMouseMove={movePipelineHover}
+                                          onMouseLeave={hidePipelineHover}
+                                          style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            width: '100%',
+                                            height: 22,
+                                            border: 'none',
+                                            borderRadius: 0,
+                                            background: 'transparent',
+                                          }}
+                                        >
+                                          <Icon iconName="Send" styles={{ root: { fontSize: 14, color: isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)' } }} />
+                                          <span style={getPipelineDotStyle(false, colours.grey, isDarkMode)} />
+                                        </div>
+                                      )}
+                                    </div>
+                                    )}
+
+                                    {/* Post-pitch stages - chip indices 3-7 */}
+                                    {(() => {
+                                      const inst = inlineWorkbenchItem?.instruction;
+                                      const deal = inlineWorkbenchItem?.deal;
+                                      const instructionRef = (inst?.InstructionRef ?? inst?.instructionRef ?? deal?.InstructionRef ?? deal?.instructionRef) as string | undefined;
+                                      const hasInstruction = Boolean(instructionRef);
+                                      const hasEid = Boolean(inlineWorkbenchItem?.eid);
+                                      const eidResult = (inlineWorkbenchItem?.eid as any)?.EIDOverallResult?.toLowerCase() ?? '';
+                                      const eidColor = eidResult === 'passed' || eidResult === 'pass' ? colours.green : eidResult === 'refer' ? colours.orange : colours.highlight;
+                                      const eidLabel = eidResult === 'passed' || eidResult === 'pass' ? 'Pass' : eidResult === 'refer' ? 'Refer' : eidResult || 'ID';
+                                      
+                                      // Payment detection with method and confirmation status
+                                      const payments = Array.isArray(inlineWorkbenchItem?.payments) ? inlineWorkbenchItem.payments : [];
+                                      const latestPayment = payments[0] as any;
+                                      // Determine payment method
+                                      const methodRaw = (
+                                        latestPayment?.payment_method || 
+                                        latestPayment?.payment_type || 
+                                        latestPayment?.method || 
+                                        latestPayment?.paymentMethod ||
+                                        latestPayment?.PaymentMethod ||
+                                        ''
+                                      ).toString().toLowerCase();
+                                      const meta = typeof latestPayment?.metadata === 'object' ? latestPayment.metadata : {};
+                                      const metaMethod = (meta?.payment_method || meta?.method || meta?.paymentMethod || '').toString().toLowerCase();
+                                      const intentId = (latestPayment?.payment_intent_id || latestPayment?.paymentIntentId || '').toString();
+                                      const intentIsBank = intentId.startsWith('bank_');
+                                      const intentIsCard = intentId.startsWith('pi_');
+                                      const combinedMethod = methodRaw || metaMethod || (intentIsBank ? 'bank' : intentIsCard ? 'card' : '');
+                                      const isCardPayment = combinedMethod.includes('card') || combinedMethod.includes('stripe') || combinedMethod === 'cc' || intentIsCard;
+                                      const isBankPayment = combinedMethod.includes('bank') || combinedMethod.includes('transfer') || combinedMethod.includes('bacs') || intentIsBank;
+                                      // Check payment status - card payments are auto-confirmed, bank needs manual confirmation
+                                      const paymentStatus = (latestPayment?.status || latestPayment?.Status || '').toString().toLowerCase();
+                                      const isCardConfirmed = isCardPayment && (paymentStatus === 'succeeded' || paymentStatus === 'success' || paymentStatus === 'complete' || paymentStatus === 'completed' || paymentStatus === 'paid');
+                                      const isBankConfirmed = isBankPayment && (latestPayment?.confirmed === true || latestPayment?.Confirmed === true || paymentStatus === 'confirmed');
+                                      const hasConfirmedPayment = isCardConfirmed || isBankConfirmed;
+                                      const hasPayment = payments.length > 0;
+                                      const paymentLabel = hasConfirmedPayment ? 'Paid' : hasPayment ? (isBankPayment ? 'Pending' : '£') : '£';
+                                      const paymentIcon = hasConfirmedPayment ? (isCardPayment ? 'PaymentCard' : 'Bank') : hasPayment ? (isBankPayment ? 'Bank' : 'Money') : 'Money';
+                                      const paymentColor = hasConfirmedPayment ? colours.green : hasPayment ? (isBankPayment ? colours.orange : colours.blue) : colours.blue;
+                                      const paymentTitle = hasConfirmedPayment 
+                                        ? `Paid via ${isCardPayment ? 'card' : 'bank transfer'}` 
+                                        : hasPayment 
+                                          ? (isBankPayment ? 'Bank payment awaiting confirmation' : 'Payment recorded')
+                                          : 'No payment yet';
+                                      
+                                      const hasRisk = Boolean(inlineWorkbenchItem?.risk);
+                                      const hasMatter = Boolean(inst?.MatterId ?? inst?.matterId) || (Array.isArray(inlineWorkbenchItem?.matters) && inlineWorkbenchItem.matters.length > 0);
+                                      const shouldShowPostPitch = Boolean(inlineWorkbenchItem) || showPitch;
+
+                                      // Determine next incomplete stage in pipeline order
+                                      // Only consider stages that are "in play" - skip Teams if no activity, then look for first incomplete
+                                      const mainPipelineStages = [
+                                        { done: showTeamsStage, index: 0, inPlay: showTeamsStage || showLegacyPlaceholder },
+                                        { done: showClaimer, index: 1, inPlay: true },
+                                        { done: showPitch, index: 2, inPlay: true },
+                                        { done: hasInstruction, index: 3, inPlay: shouldShowPostPitch },
+                                        { done: hasEid, index: 4, inPlay: shouldShowPostPitch },
+                                        { done: hasConfirmedPayment, index: 5, inPlay: shouldShowPostPitch },
+                                        { done: hasRisk, index: 6, inPlay: shouldShowPostPitch },
+                                        { done: hasMatter, index: 7, inPlay: shouldShowPostPitch },
+                                      ];
+                                      const mainNextIncompleteIndex = mainPipelineStages.find(s => s.inPlay && !s.done)?.index ?? -1;
+                                      
+                                      // Debug logging for ID chip issue
+                                      if (hasInstruction && !hasEid && shouldShowPostPitch) {
+                                        console.log(`Main Enquiry ${item.ID} - Inst done, ID next?`, {
+                                          showTeamsStage,
+                                          showLegacyPlaceholder,
+                                          showClaimer,
+                                          showPitch,
+                                          hasInstruction,
+                                          hasEid,
+                                          shouldShowPostPitch,
+                                          mainNextIncompleteIndex,
+                                          mainPipelineStages: mainPipelineStages.map(s => ({ index: s.index, done: s.done, inPlay: s.inPlay }))
+                                        });
+                                      }
+
+                                      const Mini = ({
+                                        shortLabel,
+                                        fullLabel,
+                                        done,
+                                        color,
+                                        title,
+                                        iconName,
+                                        statusText,
+                                        subtitle,
+                                        onClick,
+                                        isNextAction,
+                                      }: {
+                                        shortLabel: string;
+                                        fullLabel: string;
+                                        done: boolean;
+                                        color: string;
+                                        title: string;
+                                        iconName: string;
+                                        statusText?: string;
+                                        subtitle?: string;
+                                        onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
+                                        isNextAction?: boolean;
+                                      }) => (
+                                        <button
+                                          type="button"
+                                          onClick={onClick}
+                                          className="pipeline-chip"
+                                          onMouseEnter={(e) => showPipelineHover(e, {
+                                            title: fullLabel,
+                                            status: statusText || (done ? 'Complete' : 'Not started'),
+                                            subtitle,
+                                            color,
+                                            iconName,
+                                          })}
+                                          onMouseMove={movePipelineHover}
+                                          onMouseLeave={hidePipelineHover}
+                                          style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            width: '100%',
+                                            height: 22,
+                                            padding: 0,
+                                            borderRadius: 0,
+                                            border: 'none',
+                                            background: 'transparent',
+                                            cursor: onClick ? 'pointer' : 'default',
+                                            fontFamily: 'inherit',
+                                          }}
+                                        >
+                                          <Icon iconName={iconName} styles={{ root: { fontSize: 14, color: done ? color : (isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)') } }} />
+                                          {isNextAction && !done ? (
+                                            <span style={{
+                                              width: 6,
+                                              height: 6,
+                                              borderRadius: '50%',
+                                              background: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.7)',
+                                              boxShadow: `0 0 8px ${isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.7)'}99`,
+                                              marginLeft: 6,
+                                              flexShrink: 0,
+                                              animation: 'action-dot-pulse 2s ease-in-out infinite',
+                                            }} />
+                                          ) : (
+                                            <span style={getPipelineDotStyle(done, color, isDarkMode)} />
+                                          )}
+                                        </button>
+                                      );
+
+                                      return (
+                                        <>
+                                          {/* Inst - chip index 3 */}
+                                          <div style={getMainCascadeStyle(3)}>{(shouldShowPostPitch || mainIsChipVisible(3)) && (
+                                          <Mini
+                                            shortLabel="Inst"
+                                            fullLabel="Instructed"
+                                            done={shouldShowPostPitch && hasInstruction}
+                                            color={colours.green}
+                                            iconName="CheckMark"
+                                            statusText={hasInstruction ? `Instruction linked (${instructionRef})` : 'Not instructed'}
+                                            subtitle={contactName}
+                                            title={hasInstruction ? `Instructed (${instructionRef})` : 'Not instructed yet'}
+                                            isNextAction={mainNextIncompleteIndex === 3}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              openEnquiryWorkbench(item, 'Timeline');
+                                            }}
+                                          />
+                                          )}</div>
+                                          {/* ID - chip index 4 */}
+                                          <div style={getMainCascadeStyle(4)}>{(shouldShowPostPitch || mainIsChipVisible(4)) && (
+                                          <Mini
+                                            shortLabel={hasEid ? eidLabel : 'ID'}
+                                            fullLabel={hasEid ? eidLabel : 'ID Check'}
+                                            done={shouldShowPostPitch && hasEid}
+                                            isNextAction={mainNextIncompleteIndex === 4}
+                                            color={hasEid ? eidColor : colours.highlight}
+                                            iconName="ContactCard"
+                                            statusText={hasEid ? `ID: ${eidLabel}` : 'ID not started'}
+                                            subtitle={contactName}
+                                            title={hasEid ? `ID: ${eidLabel}` : 'ID not started'}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              openEnquiryWorkbench(item, 'Timeline');
+                                            }}
+                                          />
+                                          )}</div>
+                                          {/* Pay - chip index 5 */}
+                                          <div style={getMainCascadeStyle(5)}>{(shouldShowPostPitch || mainIsChipVisible(5)) && (
+                                          <Mini
+                                            shortLabel={paymentLabel}
+                                            fullLabel={hasConfirmedPayment ? 'Paid' : hasPayment ? (isBankPayment ? 'Pending' : 'Payment') : 'Payment'}
+                                            done={shouldShowPostPitch && hasConfirmedPayment}
+                                            color={paymentColor}
+                                            iconName={paymentIcon}
+                                            statusText={hasConfirmedPayment ? 'Paid' : hasPayment ? (isBankPayment ? 'Bank pending' : 'Payment recorded') : 'No payment'}
+                                            subtitle={contactName}
+                                            title={paymentTitle}
+                                            isNextAction={mainNextIncompleteIndex === 5}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              openEnquiryWorkbench(item, 'Timeline');
+                                            }}
+                                          />
+                                          )}</div>
+                                          {/* Risk - chip index 6 */}
+                                          <div style={getMainCascadeStyle(6)}>{(shouldShowPostPitch || mainIsChipVisible(6)) && (
+                                          <Mini
+                                            shortLabel="Risk"
+                                            fullLabel="Risk"
+                                            done={shouldShowPostPitch && hasRisk}
+                                            color={colours.orange}
+                                            isNextAction={mainNextIncompleteIndex === 6}
+                                            iconName="Shield"
+                                            statusText={hasRisk ? 'Risk recorded' : 'No risk record'}
+                                            subtitle={contactName}
+                                            title={hasRisk ? 'Risk record present' : 'Risk not started'}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              openEnquiryWorkbench(item, 'Timeline');
+                                            }}
+                                          />
+                                          )}</div>
+                                          {/* Matter - chip index 7 */}
+                                          <div style={getMainCascadeStyle(7)}>{(shouldShowPostPitch || mainIsChipVisible(7)) && (
+                                          <Mini
+                                            shortLabel="Matter"
+                                            fullLabel="Matter"
+                                            done={shouldShowPostPitch && hasMatter}
+                                            color={colours.accent}
+                                            iconName="OpenFolderHorizontal"
+                                            statusText={hasMatter ? 'Matter linked' : 'No matter yet'}
+                                            subtitle={contactName}
+                                            title={hasMatter ? 'Matter linked/opened' : 'Matter not opened'}
+                                            isNextAction={mainNextIncompleteIndex === 7}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              openEnquiryWorkbench(item, 'Timeline');
+                                            }}
+                                          />
+                                          )}</div>
+                                        </>
+                                      );
+                                    })()}
+
+                                    {/* Navigation chevron for carousel OR empty gutter */}
+                                    {pipelineNeedsCarousel ? (
                                       <button
                                         type="button"
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          handleSelectEnquiry(item);
+                                          advancePipelineScroll(item.ID, 8, visiblePipelineChipCount);
                                         }}
+                                        title={mainHasMoreChips ? `View more stages (${8 - mainVisibleEnd} hidden)` : 'Back to start'}
                                         style={{
-                                          display: 'inline-flex',
-                                          alignItems: 'center',
-                                          gap: '5px',
-                                          padding: '4px 10px',
-                                          borderRadius: 0,
-                                          border: `1px solid ${isDarkMode ? 'rgba(245, 158, 11, 0.4)' : 'rgba(245, 158, 11, 0.35)'}`,
-                                          background: isDarkMode ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.08)',
-                                          color: isDarkMode ? 'rgba(251, 191, 36, 0.95)' : 'rgba(251, 191, 36, 0.9)',
-                                          textTransform: 'uppercase',
-                                          fontWeight: 600,
-                                          letterSpacing: '0.4px',
-                                          fontSize: '9px',
-                                          cursor: 'pointer',
-                                          width: '90px',
-                                          justifyContent: 'center',
-                                          transition: 'all 0.15s ease',
-                                          fontFamily: 'inherit',
-                                          position: 'relative',
-                                        }}
-                                        onMouseEnter={(e) => {
-                                          e.currentTarget.style.background = isDarkMode ? 'rgba(245, 158, 11, 0.18)' : 'rgba(245, 158, 11, 0.15)';
-                                          e.currentTarget.style.borderColor = isDarkMode ? 'rgba(245, 158, 11, 0.55)' : 'rgba(245, 158, 11, 0.5)';
-                                        }}
-                                        onMouseLeave={(e) => {
-                                          e.currentTarget.style.background = isDarkMode ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.08)';
-                                          e.currentTarget.style.borderColor = isDarkMode ? 'rgba(245, 158, 11, 0.4)' : 'rgba(245, 158, 11, 0.35)';
-                                        }}
-                                        title={`Pitch to ${contactName}`}
-                                      >
-                                        <span style={{
-                                          position: 'absolute',
-                                          top: -3,
-                                          right: -3,
-                                          width: 6,
-                                          height: 6,
-                                          borderRadius: '50%',
-                                          background: isDarkMode ? 'rgba(251, 191, 36, 0.9)' : 'rgba(217, 119, 6, 0.85)',
-                                          animation: 'status-breathe 2s ease-in-out infinite',
-                                        }} />
-                                        <Icon iconName="Send" styles={{ root: { fontSize: 10, color: 'inherit' } }} />
-                                        <span>Pitch</span>
-                                      </button>
-                                    )
-                                  )}
-
-                                  {/* Pitch placeholder shell when no pitch shown and no pitch CTA */}
-                                  {!showPitch && !(showClaimer && pocLower !== 'team@helix-law.com') && (
-                                    <div style={{
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      padding: '4px 10px',
-                                      borderRadius: 0,
-                                      background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(148, 163, 184, 0.03)',
-                                      border: `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)'}`,
-                                      width: 90,
-                                      height: 24,
-                                    }} />
-                                  )}
-
-                                  {/* Action buttons: Call, Email, Rate - shown on row hover with cascade animation */}
-                                  {showClaimer && pocLower !== 'team@helix-law.com' && hoveredRowId === item.ID && (
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 8 }}>
-                                      <style>{`
-                                        @keyframes contactCascadeIn {
-                                          0% {
-                                            opacity: 0;
-                                            transform: translateY(8px);
-                                          }
-                                          100% {
-                                            opacity: 1;
-                                            transform: translateY(0);
-                                          }
-                                        }
-                                      `}</style>
-                                      {/* Call button - always available */}
-                                      {(item.Phone_Number || (item as any).phone) && (
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            const phone = item.Phone_Number || (item as any).phone;
-                                            window.open(`tel:${phone}`, '_self');
-                                          }}
-                                          style={{
-                                            width: 24,
-                                            height: 24,
-                                            borderRadius: 0,
-                                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
-                                            background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)',
-                                            color: isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            cursor: 'pointer',
-                                            transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease',
-                                            animation: 'contactCascadeIn 0.2s ease-out forwards',
-                                            animationDelay: '0ms',
-                                            opacity: 0,
-                                          }}
-                                          onMouseEnter={(e) => {
-                                            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)';
-                                            e.currentTarget.style.borderColor = colours.blue;
-                                            e.currentTarget.style.color = colours.blue;
-                                          }}
-                                          onMouseLeave={(e) => {
-                                            e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)';
-                                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)';
-                                            e.currentTarget.style.color = isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)';
-                                          }}
-                                          title={`Call ${item.Phone_Number || (item as any).phone}`}
-                                        >
-                                          <Icon iconName="Phone" styles={{ root: { fontSize: 12 } }} />
-                                        </button>
-                                      )}
-                                      
-                                      {/* Email button - only shown after pitch is made */}
-                                      {showPitch && item.Email && (
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            window.open(`mailto:${item.Email}`, '_blank');
-                                          }}
-                                          style={{
-                                            width: 24,
-                                            height: 24,
-                                            borderRadius: 0,
-                                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
-                                            background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)',
-                                            color: isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            cursor: 'pointer',
-                                            transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease',
-                                            animation: 'contactCascadeIn 0.2s ease-out forwards',
-                                            animationDelay: '50ms',
-                                            opacity: 0,
-                                          }}
-                                          onMouseEnter={(e) => {
-                                            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)';
-                                            e.currentTarget.style.borderColor = colours.blue;
-                                            e.currentTarget.style.color = colours.blue;
-                                          }}
-                                          onMouseLeave={(e) => {
-                                            e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)';
-                                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)';
-                                            e.currentTarget.style.color = isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)';
-                                          }}
-                                          title={`Email ${item.Email}`}
-                                        >
-                                          <Icon iconName="Mail" styles={{ root: { fontSize: 12 } }} />
-                                        </button>
-                                      )}
-                                      
-                                      {/* Rate button - always available */}
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleRate(item.ID);
-                                        }}
-                                        style={{
-                                          width: 24,
-                                          height: 24,
-                                          borderRadius: 0,
-                                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
-                                          background: item.Rating 
-                                            ? (isDarkMode ? 'rgba(214, 176, 70, 0.15)' : 'rgba(214, 176, 70, 0.12)')
-                                            : (isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)'),
-                                          color: item.Rating 
-                                            ? colours.yellow 
-                                            : (isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)'),
                                           display: 'flex',
                                           alignItems: 'center',
                                           justifyContent: 'center',
+                                          width: '100%',
+                                          height: 22,
+                                          padding: 0,
+                                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)'}`,
+                                          borderRadius: 0,
+                                          background: mainHasMoreChips 
+                                            ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
+                                            : (isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(148, 163, 184, 0.04)'),
                                           cursor: 'pointer',
-                                          transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease',
-                                          animation: 'contactCascadeIn 0.2s ease-out forwards',
-                                          animationDelay: showPitch && item.Email ? '100ms' : (item.Phone_Number || (item as any).phone) ? '50ms' : '0ms',
-                                          opacity: 0,
+                                          transition: 'all 0.15s ease',
+                                          color: mainHasMoreChips 
+                                            ? colours.blue 
+                                            : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.4)'),
                                         }}
-                                        onMouseEnter={(e) => {
-                                          e.currentTarget.style.background = isDarkMode ? 'rgba(214, 176, 70, 0.2)' : 'rgba(214, 176, 70, 0.15)';
-                                          e.currentTarget.style.borderColor = colours.yellow;
-                                          e.currentTarget.style.color = colours.yellow;
-                                        }}
-                                        onMouseLeave={(e) => {
-                                          e.currentTarget.style.background = item.Rating 
-                                            ? (isDarkMode ? 'rgba(214, 176, 70, 0.15)' : 'rgba(214, 176, 70, 0.12)')
-                                            : (isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)');
-                                          e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)';
-                                          e.currentTarget.style.color = item.Rating 
-                                            ? colours.yellow 
-                                            : (isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)');
-                                        }}
-                                        title={item.Rating ? `Rating: ${item.Rating}/5 - Click to change` : 'Rate this enquiry'}
                                       >
-                                        <Icon iconName={item.Rating ? 'FavoriteStarFill' : 'FavoriteStar'} styles={{ root: { fontSize: 12 } }} />
+                                        <Icon 
+                                          iconName={mainHasMoreChips ? 'ChevronRight' : 'Refresh'} 
+                                          styles={{ 
+                                            root: { 
+                                              fontSize: mainHasMoreChips ? 12 : 10, 
+                                              color: 'inherit',
+                                              opacity: mainHasMoreChips ? 1 : 0.7,
+                                            } 
+                                          }} 
+                                        />
                                       </button>
-                                    </div>
-                                  )}
+                                    ) : (
+                                      <div />
+                                    )}
+                                  </div>
                                 </div>
                               );
                             })()}
 
                             {/* Actions Column */}
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
+                              {/* Call / Email / Rate actions (no hover) */}
+                              {mainShowClaimer && pocLower !== 'team@helix-law.com' && (
+                                <>
+                                  <button
+                                    type="button"
+                                    disabled={!(item.Phone_Number || (item as any).phone)}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const phone = item.Phone_Number || (item as any).phone;
+                                      if (phone) window.open(`tel:${phone}`, '_self');
+                                    }}
+                                    style={{
+                                      width: 22,
+                                      height: 22,
+                                      borderRadius: 0,
+                                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
+                                      background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)',
+                                      color: isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)',
+                                      opacity: (item.Phone_Number || (item as any).phone) ? 1 : 0.3,
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      cursor: (item.Phone_Number || (item as any).phone) ? 'pointer' : 'default',
+                                      transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease',
+                                    }}
+                                    onMouseEnter={(e) => {
+                                      if (item.Phone_Number || (item as any).phone) {
+                                        e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)';
+                                        e.currentTarget.style.borderColor = colours.blue;
+                                        e.currentTarget.style.color = colours.blue;
+                                      }
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)';
+                                      e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)';
+                                      e.currentTarget.style.color = isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)';
+                                    }}
+                                    title={(item.Phone_Number || (item as any).phone) ? `Call ${item.Phone_Number || (item as any).phone}` : 'No phone number'}
+                                  >
+                                    <Icon iconName="Phone" styles={{ root: { fontSize: 11 } }} />
+                                  </button>
+
+                                  {item.Email && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        window.open(`mailto:${item.Email}`, '_blank');
+                                      }}
+                                      style={{
+                                        width: 22,
+                                        height: 22,
+                                        borderRadius: 0,
+                                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
+                                        background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)',
+                                        color: isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        cursor: 'pointer',
+                                        transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease',
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)';
+                                        e.currentTarget.style.borderColor = colours.blue;
+                                        e.currentTarget.style.color = colours.blue;
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)';
+                                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)';
+                                        e.currentTarget.style.color = isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)';
+                                      }}
+                                      title={`Email ${item.Email}`}
+                                    >
+                                      <Icon iconName="Mail" styles={{ root: { fontSize: 11 } }} />
+                                    </button>
+                                  )}
+
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleRate(item.ID);
+                                    }}
+                                    style={{
+                                      width: 22,
+                                      height: 22,
+                                      borderRadius: 0,
+                                      border: `1px solid ${getRatingChipMeta(item.Rating, isDarkMode).borderColor}`,
+                                      background: getRatingChipMeta(item.Rating, isDarkMode).background,
+                                      color: getRatingChipMeta(item.Rating, isDarkMode).color,
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      cursor: 'pointer',
+                                      transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease',
+                                    }}
+                                    onMouseEnter={(e) => {
+                                      const meta = getRatingChipMeta(item.Rating, isDarkMode);
+                                      e.currentTarget.style.background = meta.hoverBackground;
+                                      e.currentTarget.style.borderColor = meta.hoverBorderColor;
+                                      e.currentTarget.style.color = meta.hoverColor;
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      const meta = getRatingChipMeta(item.Rating, isDarkMode);
+                                      e.currentTarget.style.background = meta.background;
+                                      e.currentTarget.style.borderColor = meta.borderColor;
+                                      e.currentTarget.style.color = meta.color;
+                                    }}
+                                    title={item.Rating ? `Rating: ${item.Rating} - Click to change` : 'Rate this enquiry'}
+                                  >
+                                    <Icon iconName={getRatingChipMeta(item.Rating, isDarkMode).iconName} styles={{ root: { fontSize: 11 } }} />
+                                  </button>
+                                </>
+                              )}
                               {/* Notes Chevron */}
-                              {hasNotes && (
+                              {(hasNotes || hasInlineWorkbench) && (
                                 <div
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -8040,8 +9218,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     setExpandedNotesInTable(newSet);
                                   }}
                                   style={{
-                                    width: 24,
-                                    height: 24,
+                                    width: 22,
+                                    height: 22,
                                     borderRadius: 0,
                                     background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
                                     border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
@@ -8059,7 +9237,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)';
                                     e.currentTarget.style.transform = 'scale(1)';
                                   }}
-                                  title={isNotesExpanded ? 'Hide notes' : 'Show notes'}
+                                  title={
+                                    isNotesExpanded
+                                      ? 'Collapse'
+                                      : (hasNotes && hasInlineWorkbench
+                                        ? 'Show notes & workbench'
+                                        : (hasNotes ? 'Show notes' : 'Show workbench'))
+                                  }
                                 >
                                   <Icon 
                                     iconName={isNotesExpanded ? 'ChevronUp' : 'ChevronDown'} 
@@ -8072,187 +9256,114 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   />
                                 </div>
                               )}
-                              {/* Edit Button */}
-                              <div
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (!areActionsEnabled) {
-                                    return;
-                                  }
-                                  setEditingEnquiry(item);
-                                  setShowEditModal(true);
-                                }}
-                                style={{
-                                  width: 24,
-                                    height: 24,
-                                  borderRadius: 0,
-                                  background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
-                                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  cursor: areActionsEnabled ? 'pointer' : 'not-allowed',
-                                  transition: 'all 0.2s ease',
-                                  opacity: areActionsEnabled ? 1 : 0.4,
-                                }}
-                                onMouseEnter={(e) => {
-                                  if (!areActionsEnabled) return;
-                                  e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)';
-                                  e.currentTarget.style.transform = 'scale(1.05)';
-                                }}
-                                onMouseLeave={(e) => {
-                                  if (!areActionsEnabled) return;
-                                  e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)';
-                                  e.currentTarget.style.transform = 'scale(1)';
-                                }}
-                                title="Edit enquiry"
-                                aria-disabled={!areActionsEnabled}
-                              >
-                                <Icon 
-                                  iconName="Edit" 
-                                  styles={{ 
-                                    root: { 
-                                      fontSize: '10px', 
-                                      color: isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)' 
-                                    } 
-                                  }} 
-                                />
-                              </div>
+                              {areActionsEnabled && (
+                                <>
+                                  {/* Edit Button */}
+                                  <div
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setEditingEnquiry(item);
+                                      setShowEditModal(true);
+                                    }}
+                                    style={{
+                                      width: 22,
+                                      height: 22,
+                                      borderRadius: 0,
+                                      background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
+                                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      cursor: 'pointer',
+                                      transition: 'all 0.2s ease',
+                                    }}
+                                    onMouseEnter={(e) => {
+                                      e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)';
+                                      e.currentTarget.style.transform = 'scale(1.05)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)';
+                                      e.currentTarget.style.transform = 'scale(1)';
+                                    }}
+                                    title="Edit enquiry"
+                                  >
+                                    <Icon 
+                                      iconName="Edit" 
+                                      styles={{ 
+                                        root: { 
+                                          fontSize: '10px', 
+                                          color: isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)' 
+                                        } 
+                                      }} 
+                                    />
+                                  </div>
 
-                              {/* Delete Button */}
-                              <div
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (!areActionsEnabled) {
-                                    return;
-                                  }
-                                  const passcode = prompt('Enter passcode to delete this enquiry:');
-                                  if (passcode === '2011') {
-                                    const enquiryName = `${item.First_Name || ''} ${item.Last_Name || ''}`.trim() || 'Unnamed enquiry';
-                                    const confirmMessage = `Are you sure you want to permanently delete "${enquiryName}"?\n\nThis action cannot be undone.`;
-                                    if (window.confirm(confirmMessage)) {
-                                      handleDeleteEnquiry(item.ID, enquiryName);
-                                    }
-                                  } else if (passcode !== null) {
-                                    alert('Incorrect passcode');
-                                  }
-                                }}
-                                style={{
-                                  width: 24,
-                                    height: 24,
-                                  borderRadius: 0,
-                                  background: isDarkMode ? 'rgba(248, 113, 113, 0.1)' : 'rgba(248, 113, 113, 0.08)',
-                                  border: `1px solid ${isDarkMode ? 'rgba(248, 113, 113, 0.3)' : 'rgba(248, 113, 113, 0.2)'}`,
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  cursor: areActionsEnabled ? 'pointer' : 'not-allowed',
-                                  transition: 'all 0.2s ease',
-                                  opacity: areActionsEnabled ? 1 : 0.4,
-                                }}
-                                onMouseEnter={(e) => {
-                                  if (!areActionsEnabled) return;
-                                  e.currentTarget.style.background = isDarkMode ? 'rgba(248, 113, 113, 0.15)' : 'rgba(248, 113, 113, 0.12)';
-                                  e.currentTarget.style.transform = 'scale(1.05)';
-                                }}
-                                onMouseLeave={(e) => {
-                                  if (!areActionsEnabled) return;
-                                  e.currentTarget.style.background = isDarkMode ? 'rgba(248, 113, 113, 0.1)' : 'rgba(248, 113, 113, 0.08)';
-                                  e.currentTarget.style.transform = 'scale(1)';
-                                }}
-                                title="Delete enquiry (requires passcode)"
-                                aria-disabled={!areActionsEnabled}
-                              >
-                                <Icon 
-                                  iconName="Delete" 
-                                  styles={{ 
-                                    root: { 
-                                      fontSize: '10px', 
-                                      color: isDarkMode ? '#F87171' : '#EF4444' 
-                                    } 
-                                  }} 
-                                />
-                              </div>
-                            </div>
-
-                            {/* Right-side action tools */}
-                            <div 
-                              style={{
-                                position: 'absolute',
-                                right: '16px',
-                                top: '50%',
-                                transform: 'translateY(-50%)',
-                                opacity: 1,
-                                transition: 'opacity 0.2s ease',
-                                pointerEvents: 'auto',
-                                display: 'flex',
-                                gap: '4px',
-                                alignItems: 'center',
-                              }}
-                              className="row-actions"
-                            >
-                              {areActionsEnabled && isDeletionMode && (
-                                <div
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const enquiryName = `${item.First_Name || ''} ${item.Last_Name || ''}`.trim() || 'Unnamed enquiry';
-                                    const confirmMessage = `Are you sure you want to permanently delete "${enquiryName}"?\n\nThis will remove the enquiry from both systems and cannot be undone.`;
-                                    
-                                    if (window.confirm(confirmMessage)) {
-                                      handleDeleteEnquiry(item.ID, enquiryName);
-                                    }
-                                  }}
-                                  style={{
-                                    width: 24,
-                                    height: 24,
-                                    borderRadius: '50%',
-                                    background: isDarkMode ? 'rgba(248, 113, 113, 0.1)' : 'rgba(248, 113, 113, 0.08)',
-                                    border: `1px solid ${isDarkMode ? 'rgba(248, 113, 113, 0.3)' : 'rgba(248, 113, 113, 0.2)'}`,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    cursor: 'pointer',
-                                    pointerEvents: 'auto',
-                                    transition: 'all 0.2s ease',
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.background = isDarkMode ? 'rgba(248, 113, 113, 0.15)' : 'rgba(248, 113, 113, 0.12)';
-                                    e.currentTarget.style.transform = 'scale(1.1)';
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.background = isDarkMode ? 'rgba(248, 113, 113, 0.1)' : 'rgba(248, 113, 113, 0.08)';
-                                    e.currentTarget.style.transform = 'scale(1)';
-                                  }}
-                                  title="Delete enquiry permanently"
-                                >
-                                  <Icon 
-                                    iconName="Delete" 
-                                    styles={{ 
-                                      root: { 
-                                        fontSize: '10px', 
-                                        color: isDarkMode ? '#F87171' : '#EF4444' 
-                                      } 
-                                    }} 
-                                  />
-                                </div>
+                                  {/* Delete Button */}
+                                  <div
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const passcode = prompt('Enter passcode to delete this enquiry:');
+                                      if (passcode === '2011') {
+                                        const enquiryName = `${item.First_Name || ''} ${item.Last_Name || ''}`.trim() || 'Unnamed enquiry';
+                                        const confirmMessage = `Are you sure you want to permanently delete "${enquiryName}"?\n\nThis action cannot be undone.`;
+                                        if (window.confirm(confirmMessage)) {
+                                          handleDeleteEnquiry(item.ID, enquiryName);
+                                        }
+                                      } else if (passcode !== null) {
+                                        alert('Incorrect passcode');
+                                      }
+                                    }}
+                                    style={{
+                                      width: 22,
+                                      height: 22,
+                                      borderRadius: 0,
+                                      background: isDarkMode ? 'rgba(248, 113, 113, 0.1)' : 'rgba(248, 113, 113, 0.08)',
+                                      border: `1px solid ${isDarkMode ? 'rgba(248, 113, 113, 0.3)' : 'rgba(248, 113, 113, 0.2)'}`,
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      cursor: 'pointer',
+                                      transition: 'all 0.2s ease',
+                                    }}
+                                    onMouseEnter={(e) => {
+                                      e.currentTarget.style.background = isDarkMode ? 'rgba(248, 113, 113, 0.15)' : 'rgba(248, 113, 113, 0.12)';
+                                      e.currentTarget.style.transform = 'scale(1.05)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      e.currentTarget.style.background = isDarkMode ? 'rgba(248, 113, 113, 0.1)' : 'rgba(248, 113, 113, 0.08)';
+                                      e.currentTarget.style.transform = 'scale(1)';
+                                    }}
+                                    title="Delete enquiry (requires passcode)"
+                                  >
+                                    <Icon 
+                                      iconName="Delete" 
+                                      styles={{ 
+                                        root: { 
+                                          fontSize: '10px', 
+                                          color: isDarkMode ? '#F87171' : '#EF4444' 
+                                        } 
+                                      }} 
+                                    />
+                                  </div>
+                                </>
                               )}
                             </div>
                           </div>
                           )}
-                          {/* Notes Section - expanded below the row */}
-                          {!isSingleDayCollapsed && hasNotes && isNotesExpanded && (
+                          {/* Expanded Section - notes only */}
+                          {!isSingleDayCollapsed && isNotesExpanded && hasNotes && (
                             <div style={{
                               gridColumn: '1 / -1',
-                              padding: '12px 16px',
+                              padding: '12px 60px 12px 32px',
                               backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.01)',
                               borderBottom: isLast ? 'none' : `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)'}`,
-                              fontSize: '13px',
+                              fontSize: '12px',
                               lineHeight: '1.5',
                               color: isDarkMode ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.75)',
                               whiteSpace: 'pre-line',
                             }}>
                               <div style={{
-                                fontSize: '10px',
+                                fontSize: '9px',
                                 fontWeight: 600,
                                 textTransform: 'uppercase',
                                 letterSpacing: '0.5px',
@@ -8268,6 +9379,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                         );
                       }
                     })}
+                    </div>
                   </div>
                 )}
                         
@@ -8375,7 +9487,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                   key={option.value}
                   onClick={() => {
                     setCurrentRating(option.value);
-                    submitRating();
+                    submitRating(option.value);
                   }}
                   style={{
                     width: '100%',
@@ -8458,6 +9570,45 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         userEmail={userData?.[0]?.Email}
         teamData={teamData}
       />
+
+      {pipelineHover && typeof document !== 'undefined' && ReactDOM.createPortal(
+        <div
+          style={{
+            position: 'fixed',
+            top: pipelineHover.y,
+            left: pipelineHover.x,
+            background: isDarkMode ? 'rgba(15, 23, 42, 0.96)' : '#ffffff',
+            color: isDarkMode ? 'rgba(255,255,255,0.95)' : 'rgba(0,0,0,0.9)',
+            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.3)'}`,
+            borderRadius: 10,
+            padding: '10px 12px',
+            minWidth: 220,
+            boxShadow: isDarkMode ? '0 12px 28px rgba(0,0,0,0.45)' : '0 12px 28px rgba(15,23,42,0.12)',
+            zIndex: 20000,
+            pointerEvents: 'none',
+            opacity: 1,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {pipelineHover.iconName && (
+              <Icon iconName={pipelineHover.iconName} styles={{ root: { fontSize: 14, color: pipelineHover.color } }} />
+            )}
+            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.2px' }}>
+              {pipelineHover.title}
+            </div>
+            <span style={getPipelineDotStyle(true, pipelineHover.color, isDarkMode)} />
+          </div>
+          <div style={{ marginTop: 6, fontSize: 12, fontWeight: 600, color: pipelineHover.color }}>
+            {pipelineHover.status}
+          </div>
+          {pipelineHover.subtitle && (
+            <div style={{ marginTop: 4, fontSize: 11, color: isDarkMode ? 'rgba(226, 232, 240, 0.75)' : 'rgba(71, 85, 105, 0.75)' }}>
+              {pipelineHover.subtitle}
+            </div>
+          )}
+        </div>,
+        document.body,
+      )}
 
       {/* Edit Enquiry Modal */}
       {showEditModal && editingEnquiry && (

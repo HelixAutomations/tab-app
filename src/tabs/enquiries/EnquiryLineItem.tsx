@@ -8,6 +8,7 @@ import { colours } from '../../app/styles/colours';
 import RatingIndicator from './RatingIndicator';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import TeamsLinkWidget from '../../components/TeamsLinkWidget';
+import InlineWorkbench from '../instructions/InlineWorkbench';
 import { TeamsActivityData } from '../../app/functionality/teamsActivityTracking';
 
 import React, { useState, useRef, useEffect } from 'react';
@@ -151,6 +152,7 @@ interface EnquiryLineItemProps {
   onRatingChange?: (enquiryId: string, newRating: string) => Promise<void>;
   onPitch?: (enquiry: Enquiry) => void;
   teamData?: TeamData[] | null;
+    inlineWorkbenchItem?: any;
   isLast?: boolean;
   userAOW?: string[]; // List of user's areas of work (lowercase)
   onFilterByPerson?: (initials: string) => void; // Handler to filter by person
@@ -212,6 +214,7 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
   onRatingChange,
   onPitch,
   teamData,
+  inlineWorkbenchItem,
   isLast,
   userAOW,
   onFilterByPerson,
@@ -221,6 +224,9 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
   documentCount = 0,
 }) => {
   const { isDarkMode } = useTheme();
+  const hasNotes = Boolean(enquiry.Initial_first_call_notes && enquiry.Initial_first_call_notes.trim().length > 0);
+  const hasInlineWorkbench = Boolean(inlineWorkbenchItem);
+  const hasExpandableDetails = hasNotes || hasInlineWorkbench;
 
   // State for global notes reveal (hidden until chevron on far right is clicked)
   const [notesExpanded, setNotesExpanded] = useState(false);
@@ -262,7 +268,7 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
     return s.trim();
   };
 
-  const hasNotes = enquiry.Initial_first_call_notes && enquiry.Initial_first_call_notes.trim().length > 0;
+  
 
   // Simple notes renderer (full notes only shown when parent notesExpanded is true)
   const NotesBlock = ({ notes }: { notes: string }) => {
@@ -1147,7 +1153,7 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
               </button>
             </>
           )}
-          {hasNotes && (
+          {hasExpandableDetails && (
             <button
               onClick={(e) => { e.stopPropagation(); setNotesExpanded(!notesExpanded); }}
               title={notesExpanded ? 'Hide notes' : 'Show notes'}
@@ -1176,14 +1182,26 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
       </div>
       
       {/* Notes Section - only rendered after chevron click */}
-      {hasNotes && notesExpanded && (
+      {hasExpandableDetails && notesExpanded && (
         <div style={{ 
           padding: '10px 20px 16px', 
           borderTop: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
           background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
           animation: 'dropIn 0.32s cubic-bezier(0.16,1,0.3,1)'
         }}>
-          <NotesBlock notes={enquiry.Initial_first_call_notes || ''} />
+          {hasNotes ? <NotesBlock notes={enquiry.Initial_first_call_notes || ''} /> : null}
+
+          {hasInlineWorkbench ? (
+            <div style={{ marginTop: hasNotes ? 14 : 0 }}>
+              <InlineWorkbench
+                item={inlineWorkbenchItem}
+                isDarkMode={isDarkMode}
+                enableContextStageChips={true}
+                onClose={() => setNotesExpanded(false)}
+                teamData={teamData}
+              />
+            </div>
+          ) : null}
           {isClaimed && (
             <div style={{
               display: 'flex',

@@ -19,13 +19,12 @@ import UserSelectionDialog from "./components/UserSelectionDialog";
 import PasscodeDialog from "./components/PasscodeDialog";
 const Data = lazy(() => import("./tabs/Data"));
 
-// Initialize icons once, but defer to idle to speed first paint
+// Initialize icons once.
+// This must happen before first render, otherwise Fluent UI will warn that icons
+// (e.g. "cancel", "lock", "briefcase") were used before registration.
 if (typeof window !== 'undefined' && !(window as any).__iconsInitialized) {
-  const init = () => {
-    initializeIcons();
-    (window as any).__iconsInitialized = true;
-  };
-  (window as any).requestIdleCallback ? (window as any).requestIdleCallback(init) : setTimeout(init, 0);
+  initializeIcons();
+  (window as any).__iconsInitialized = true;
 }
 
 // Define the custom Fluent UI theme

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { debugLog } from '../../utils/debug';
-import { Icon, Text, DefaultButton } from '@fluentui/react';
+import { Callout, DirectionalHint, Icon, Text, DefaultButton } from '@fluentui/react';
 import { mergeStyles, keyframes } from '@fluentui/react/lib/Styling';
 import { colours } from '../../app/styles/colours';
 import { FaUmbrellaBeach } from 'react-icons/fa';
@@ -38,7 +38,24 @@ interface WeeklyAttendanceViewProps {
   onDayUpdate?: (initials: string, day: string, status: 'office' | 'wfh' | 'away' | 'off-sick' | 'out-of-office', week: 'current' | 'next') => void;
   currentUserConfirmed?: boolean;
   onConfirmAttendance?: () => void;
+  realtimeHighlightInitials?: string | null;
+  realtimePulseNonce?: number;
 }
+
+const realtimePulseCard = keyframes({
+  '0%': {
+    boxShadow: '0 0 0 rgba(54,144,206,0)',
+    transform: 'translateZ(0)',
+  },
+  '35%': {
+    boxShadow: '0 0 0 3px rgba(54,144,206,0.28), 0 10px 24px rgba(54,144,206,0.18)',
+    transform: 'translateY(-1px)',
+  },
+  '100%': {
+    boxShadow: '0 0 0 rgba(54,144,206,0)',
+    transform: 'translateZ(0)',
+  },
+});
 
 // Custom icon component to handle both FluentUI icons and custom images
 const StatusIcon: React.FC<{ 
@@ -160,7 +177,9 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
   onOpenModal,
   onDayUpdate,
   currentUserConfirmed = true,
-  onConfirmAttendance
+  onConfirmAttendance,
+  realtimeHighlightInitials,
+  realtimePulseNonce,
 }) => {
   debugLog('WeeklyAttendanceView received data:', {
     attendanceRecordsCount: attendanceRecords?.length,
@@ -183,6 +202,8 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
   const [editingMember, setEditingMember] = useState<string | null>(null); // initials of member being edited
   const [editingDay, setEditingDay] = useState<DayFilterKey | null>(null);
   const [expandedMember, setExpandedMember] = useState<string | null>(null); // initials of member with week editor open
+  const [statusPickerTarget, setStatusPickerTarget] = useState<HTMLElement | null>(null);
+  const [weekEditorTarget, setWeekEditorTarget] = useState<HTMLElement | null>(null);
   const [pendingChanges, setPendingChanges] = useState<Record<string, Record<string, string>>>({}); // { initials: { day: status } }
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -304,8 +325,8 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
     }
   };
   
-  // Handle drop - immediately save to database
-  const handleDrop = async (e: React.DragEvent, newStatus: string) => {
+  // Handle drop in edit mode - stage a local change (save once)
+  const handleDrop = (e: React.DragEvent, newStatus: string) => {
     e.preventDefault();
     setDragOverStatus(null);
     
@@ -332,96 +353,18 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
     const dayKeys: DayFilterKey[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
     const todayDayKey = todayIndex >= 1 && todayIndex <= 5 ? dayKeys[todayIndex - 1] : 'monday';
     
-    const weekOffset = selectedWeek === 'next' ? 1 : 0;
-    const weekStart = getWeekStartDate(weekOffset);
-    
-    // Get current attendance pattern for this user
-    const currentPattern = getDailyAttendance(member, weekOffset);
-    const previousAttendance = member.attendanceDays; // Save for rollback
-    
-    // Build new pattern - for "Today" view, only change today's status
-    const newPattern = [...currentPattern];
-    if (selectedWeek === 'today') {
-      const dayIndex = DAY_INDEX_MAP[todayDayKey];
-      newPattern[dayIndex] = newStatus as any;
-    } else {
-      // For week view, change all days to new status
-      for (let i = 0; i < 5; i++) {
-        newPattern[i] = newStatus as any;
+    // In edit mode we stage changes locally and let the user save once.
+    // This avoids blocking the UI on every click/drag.
+    setPendingChanges(prev => ({
+      ...prev,
+      [initials]: {
+        ...(prev[initials] || {}),
+        [todayDayKey]: newStatus
       }
-    }
-    
-    const attendanceDays = newPattern.join(',');
-    
-    // OPTIMISTIC UPDATE: Move the chip immediately before API call
-    setOptimisticAttendance((prev) => ({ ...prev, [initials]: attendanceDays }));
-    
-    setIsSaving(true);
-    
-    try {
-      const response = await fetch('/api/attendance/updateAttendance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ initials, weekStart, attendanceDays })
-      });
-      
-      let result: any = null;
-      try {
-        result = await response.json();
-      } catch {
-        result = null;
-      }
-      
-      if (!response.ok || (result && result.success === false)) {
-        throw new Error(result?.error || `Failed to update attendance for ${name}`);
-      }
-      
-      const statusLabelMap: Record<string, string> = {
-        office: 'Office',
-        wfh: 'Working From Home',
-        away: 'Away',
-        'off-sick': 'Off Sick',
-        'out-of-office': 'Out of Office'
-      };
+    }));
 
-      // Calmer reassurance message
-      setSaveSuccess(`${name} updated to ${statusLabelMap[newStatus] || newStatus}.`);
-      setTimeout(() => setSaveSuccess(null), 2000);
-
-      // Notify parent of the update
-      if (onAttendanceUpdated) {
-        const updatedRecord = {
-          Attendance_ID: member.Attendance_ID ?? 0,
-          Entry_ID: member.Entry_ID ?? 0,
-          First_Name: member.First || member.name || name,
-          Initials: initials,
-          Level: member.Level ?? '',
-          Week_Start: weekStart,
-          Week_End: weekStart,
-          ISO_Week: member.ISO_Week ?? 0,
-          Attendance_Days: attendanceDays,
-          Confirmed_At: null,
-        } as AttendanceRecord;
-        onAttendanceUpdated([updatedRecord]);
-      }
-      
-    } catch (error: any) {
-      console.error('Error updating attendance via drag-drop:', error);
-      // ROLLBACK: Revert optimistic update on error
-      setOptimisticAttendance((prev) => {
-        const next = { ...prev };
-        if (previousAttendance) {
-          next[initials] = previousAttendance;
-        } else {
-          delete next[initials];
-        }
-        return next;
-      });
-      setSaveError(error.message || 'Failed to update attendance');
-      setTimeout(() => setSaveError(null), 4000);
-    } finally {
-      setIsSaving(false);
-    }
+    setSaveSuccess(`Change staged for ${name}. Click Save Changes to apply.`);
+    setTimeout(() => setSaveSuccess(null), 2000);
   };
   
   // Handle drag end (cleanup)
@@ -430,53 +373,15 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
     setDragOverStatus(null);
   };
 
-  // Handle immediate single-day status change (used by week editor)
-  const handleSingleDayChange = async (initials: string, day: DayFilterKey, newStatus: string) => {
-    const member = processedTeamData.find(m => m.Initials === initials);
-    if (!member) return;
-
-    const weekOffset = selectedWeek === 'next' ? 1 : 0;
-    const weekStart = getWeekStartDate(weekOffset);
-    const currentPattern = getDailyAttendance(member, weekOffset);
-    const previousAttendance = member.attendanceDays;
-    
-    // Build new pattern with just this day changed
-    const newPattern = [...currentPattern];
-    const dayIndex = DAY_INDEX_MAP[day];
-    newPattern[dayIndex] = newStatus as any;
-    const attendanceDays = newPattern.join(',');
-    
-    // Optimistic update
-    setOptimisticAttendance((prev) => ({ ...prev, [initials]: attendanceDays }));
-    
-    try {
-      const response = await fetch('/api/attendance/updateAttendance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ initials, weekStart, attendanceDays })
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to update');
+  // Handle single-day status change (used by week editor) - stage locally
+  const handleSingleDayChange = (initials: string, day: DayFilterKey, newStatus: string) => {
+    setPendingChanges(prev => ({
+      ...prev,
+      [initials]: {
+        ...(prev[initials] || {}),
+        [day]: newStatus
       }
-      
-      setSaveSuccess(`Updated ${member.First || initials}'s ${day}`);
-      setTimeout(() => setSaveSuccess(null), 1500);
-      
-    } catch (error) {
-      // Rollback
-      setOptimisticAttendance((prev) => {
-        const next = { ...prev };
-        if (previousAttendance) {
-          next[initials] = previousAttendance;
-        } else {
-          delete next[initials];
-        }
-        return next;
-      });
-      setSaveError('Failed to update');
-      setTimeout(() => setSaveError(null), 3000);
-    }
+    }));
   };
 
   // Handle status change for a specific day (legacy - adds to pending changes)
@@ -490,6 +395,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
     }));
     setEditingDay(null);
     setEditingMember(null);
+    setStatusPickerTarget(null);
   };
 
   // Save pending changes to the server
@@ -550,7 +456,39 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
       
       // Refresh attendance data
       if (onAttendanceUpdated) {
-        onAttendanceUpdated([]);
+        try {
+          const attendanceResponse = await fetch('/api/attendance/getAttendance', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+          });
+          
+          if (attendanceResponse.ok) {
+            const attendanceResult = await attendanceResponse.json();
+            if (attendanceResult.success && attendanceResult.attendance) {
+              // Transform API response to AttendanceRecord shape
+              const transformedRecords = attendanceResult.attendance.map((member: any) => ({
+                Attendance_ID: 0,
+                Entry_ID: 0,
+                First_Name: member.First,
+                Initials: member.Initials,
+                Level: member.Level || '',
+                Week_Start: member.Week_Start,
+                Week_End: member.Week_End,
+                ISO_Week: typeof member.iso === 'number' ? member.iso : 0,
+                Attendance_Days: member.Status || '',
+                Confirmed_At: member.Confirmed_At ?? null,
+                status: member.Status,
+                isConfirmed: Boolean(member.Confirmed_At),
+                isOnLeave: member.IsOnLeave
+              }));
+              onAttendanceUpdated(transformedRecords);
+            }
+          }
+        } catch (refreshError) {
+          console.error('Error refreshing attendance data:', refreshError);
+          // Fallback: still call with empty array if refresh fails
+          onAttendanceUpdated([]);
+        }
       }
       
     } catch (error: any) {
@@ -566,6 +504,8 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
     setIsEditMode(false);
     setEditingMember(null);
     setEditingDay(null);
+    setStatusPickerTarget(null);
+    setWeekEditorTarget(null);
     setPendingChanges({});
     setSaveError(null);
     setOptimisticAttendance({});
@@ -1134,6 +1074,8 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
     });
     
     // For weekends, use Friday's status as the "current" status
+    // NOTE: In edit mode we *stage* changes locally. For the Today-grouping logic
+    // we intentionally ignore staged changes so cards don't jump between columns.
     if (mondayBasedIndex < 0 || mondayBasedIndex > 4) {
       const currentWeekAttendance = getDailyAttendance(member, 0);
       const fridayStatus = currentWeekAttendance[4]; // Friday is index 4
@@ -1261,6 +1203,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
     
     // For 'today' view, return only TODAY's specific status, not a weekly average
     if (selectedWeek === 'today') {
+      // IMPORTANT: ignore staged edits here to avoid cards moving columns mid-edit
       const todayStatus = getTodayAttendance(member) as StatusFilterKey;
       return todayStatus || 'wfh';
     }
@@ -1723,6 +1666,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                     const handleGroupClick = (e: React.MouseEvent) => {
                       if (e.target === e.currentTarget) {
                         setExpandedMember(null);
+                        setWeekEditorTarget(null);
                       }
                     };
                     
@@ -1853,10 +1797,13 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                                   // Toggle week editor on click
                                   if (isExpandedMember) {
                                     setExpandedMember(null);
+                                    setWeekEditorTarget(null);
                                   } else {
                                     setExpandedMember(member.Initials);
+                                    setWeekEditorTarget(e.currentTarget as HTMLElement);
                                     setEditingMember(null);
                                     setEditingDay(null);
+                                    setStatusPickerTarget(null);
                                   }
                                 }
                               }}
@@ -1946,20 +1893,30 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                               {/* (Temporarily hidden) Tomorrow marker */}
                               
                               {/* Week Editor - shows all days when expanded */}
-                              {isExpandedMember && (
-                                <div 
+                              {isExpandedMember && weekEditorTarget && (
+                                <Callout
+                                  target={weekEditorTarget}
+                                  isBeakVisible={false}
+                                  onDismiss={() => {
+                                    setExpandedMember(null);
+                                    setWeekEditorTarget(null);
+                                  }}
+                                  directionalHint={DirectionalHint.topCenter}
+                                  gapSpace={8}
+                                  styles={{
+                                    root: { zIndex: 1000 },
+                                    calloutMain: {
+                                      borderRadius: 6,
+                                      overflow: 'hidden',
+                                      border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.25)' : 'rgba(6,23,51,0.12)'}`,
+                                      boxShadow: isDarkMode ? '0 -8px 32px rgba(0,0,0,0.6)' : '0 -8px 32px rgba(0,0,0,0.18)',
+                                      background: isDarkMode ? 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)' : '#fff',
+                                    }
+                                  }}
+                                >
+                                <div
                                   onClick={(e) => e.stopPropagation()}
                                   style={{
-                                    position: 'absolute',
-                                    bottom: '100%',
-                                    left: '50%',
-                                    transform: 'translateX(-50%)',
-                                    marginBottom: '6px',
-                                    background: isDarkMode ? 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)' : '#fff',
-                                    border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.25)' : 'rgba(6,23,51,0.12)'}`,
-                                    borderRadius: '6px',
-                                    boxShadow: isDarkMode ? '0 -8px 32px rgba(0,0,0,0.6)' : '0 -8px 32px rgba(0,0,0,0.18)',
-                                    zIndex: 1000,
                                     padding: '10px',
                                     minWidth: '220px'
                                   }}
@@ -1981,7 +1938,10 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                                       {member.First || member.Initials}'s Week
                                     </span>
                                     <div
-                                      onClick={() => setExpandedMember(null)}
+                                      onClick={() => {
+                                        setExpandedMember(null);
+                                        setWeekEditorTarget(null);
+                                      }}
                                       style={{
                                         cursor: 'pointer',
                                         padding: '2px',
@@ -1998,7 +1958,8 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                                   {/* Days Grid */}
                                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                     {DAY_FILTER_OPTIONS.map((dayOption, dayIdx) => {
-                                      const dayStatus = memberWeekPattern[dayIdx];
+                                      const pendingStatus = pendingChanges[member.Initials]?.[dayOption.key];
+                                      const dayStatus = (pendingStatus || memberWeekPattern[dayIdx]) as any;
                                       const dayColor = getDayColor(dayStatus);
                                       const isToday = todayIndex >= 1 && todayIndex <= 5 && dayIdx === todayIndex - 1;
                                       
@@ -2085,6 +2046,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                                     })}
                                   </div>
                                 </div>
+                                </Callout>
                               )}
                             </div>
                           );
@@ -2106,6 +2068,8 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
               {(() => {
                 // Show only selected days, or all days if none selected
                 const daysToRender = orderedSelectedDays.length > 0 ? orderedSelectedDays : DAY_ORDER;
+                const normalizedRealtime = (realtimeHighlightInitials || '').trim().toUpperCase();
+                const pulseNonce = typeof realtimePulseNonce === 'number' ? realtimePulseNonce : 0;
                 return filteredData
                   .sort((a, b) => {
                     if (a.isUser && !b.isUser) return -1;
@@ -2116,10 +2080,13 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                     // Use appropriate week offset based on selected week
                     const weekOffset = selectedWeek === 'next' ? 1 : 0;
                     const weekAttendance = getDailyAttendance(member, weekOffset);
+
+                    const memberInitials = String(member.Initials || '').trim().toUpperCase();
+                    const shouldPulseMember = Boolean(normalizedRealtime) && memberInitials === normalizedRealtime;
                     
                     return (
                       <div 
-                        key={member.Initials}
+                        key={shouldPulseMember ? `${member.Initials}-${pulseNonce}` : member.Initials}
                         style={{
                           background: isDarkMode
                             ? 'linear-gradient(135deg, rgba(2,6,23,0.62) 0%, rgba(15,23,42,0.68) 100%)'
@@ -2130,7 +2097,16 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                           display: 'flex',
                           flexDirection: 'column',
                           gap: '8px',
-                          boxShadow: isDarkMode ? '0 8px 18px rgba(0,0,0,0.30)' : '0 8px 18px rgba(6,23,51,0.08)'
+                          boxShadow: isDarkMode ? '0 8px 18px rgba(0,0,0,0.30)' : '0 8px 18px rgba(6,23,51,0.08)',
+                          ...(shouldPulseMember
+                            ? {
+                                border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.55)' : 'rgba(54,144,206,0.45)'}`,
+                                background: isDarkMode
+                                  ? 'linear-gradient(135deg, rgba(54,144,206,0.10) 0%, rgba(15,23,42,0.70) 100%)'
+                                  : 'linear-gradient(135deg, rgba(54,144,206,0.08) 0%, rgba(255,255,255,0.98) 100%)',
+                                animation: `${realtimePulseCard} 900ms ease-out`,
+                              }
+                            : {}),
                         }}
                       >
                         <div style={{
@@ -2180,16 +2156,17 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                                   {label}
                                 </div>
                                 <div
-                                  onClick={() => {
-                                    if (canEdit) {
-                                      if (isEditing) {
-                                        setEditingMember(null);
-                                        setEditingDay(null);
-                                      } else {
-                                        setEditingMember(member.Initials);
-                                        setEditingDay(dayKey);
-                                      }
+                                  onClick={(e) => {
+                                    if (!canEdit) return;
+                                    if (isEditing) {
+                                      setEditingMember(null);
+                                      setEditingDay(null);
+                                      setStatusPickerTarget(null);
+                                      return;
                                     }
+                                    setEditingMember(member.Initials);
+                                    setEditingDay(dayKey);
+                                    setStatusPickerTarget(e.currentTarget as HTMLElement);
                                   }}
                                   style={{
                                     width: '32px',
@@ -2218,80 +2195,92 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                                   />
                                 </div>
                                 
-                                {/* Status Picker Dropdown */}
-                                {isEditing && (
-                                  <div style={{
-                                    position: 'absolute',
-                                    top: '100%',
-                                    left: '50%',
-                                    transform: 'translateX(-50%)',
-                                    marginTop: '4px',
-                                    background: isDarkMode ? '#1e293b' : '#fff',
-                                    border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.25)' : 'rgba(6,23,51,0.12)'}`,
-                                    borderRadius: '4px',
-                                    boxShadow: isDarkMode ? '0 8px 24px rgba(0,0,0,0.5)' : '0 8px 24px rgba(0,0,0,0.15)',
-                                    zIndex: 1000,
-                                    minWidth: '100px',
-                                    overflow: 'hidden'
-                                  }}>
-                                    {STATUS_FILTER_OPTIONS.map(option => (
-                                      <div
-                                        key={option.key}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleStatusChange(member.Initials, dayKey, option.key);
-                                        }}
-                                        style={{
-                                          display: 'flex',
-                                          alignItems: 'center',
-                                          gap: '8px',
-                                          padding: '8px 12px',
-                                          cursor: 'pointer',
-                                          background: option.key === dayStatus
-                                            ? (isDarkMode ? 'rgba(148,163,184,0.15)' : 'rgba(6,23,51,0.08)')
-                                            : 'transparent',
-                                          transition: 'background 0.15s ease',
-                                          borderBottom: option.key !== 'out-of-office' ? `1px solid ${isDarkMode ? 'rgba(148,163,184,0.1)' : 'rgba(6,23,51,0.05)'}` : 'none'
-                                        }}
-                                        onMouseEnter={(e) => {
-                                          if (option.key !== dayStatus) {
-                                            (e.target as HTMLElement).style.background = isDarkMode ? 'rgba(148,163,184,0.1)' : 'rgba(6,23,51,0.05)';
-                                          }
-                                        }}
-                                        onMouseLeave={(e) => {
-                                          if (option.key !== dayStatus) {
-                                            (e.target as HTMLElement).style.background = 'transparent';
-                                          }
-                                        }}
-                                      >
-                                        <div style={{
-                                          width: '18px',
-                                          height: '18px',
-                                          borderRadius: '2px',
-                                          backgroundColor: `${getDayColor(option.key as StatusFilterKey)}25`,
-                                          display: 'flex',
-                                          alignItems: 'center',
-                                          justifyContent: 'center'
-                                        }}>
-                                          <StatusIcon
-                                            status={option.key as StatusFilterKey}
-                                            size="10px"
-                                            color={getDayColor(option.key as StatusFilterKey)}
-                                          />
+                                {/* Status Picker Dropdown (Callout keeps it on-screen) */}
+                                {isEditing && statusPickerTarget && (
+                                  <Callout
+                                    target={statusPickerTarget}
+                                    isBeakVisible={false}
+                                    directionalHint={DirectionalHint.bottomCenter}
+                                    gapSpace={6}
+                                    onDismiss={() => {
+                                      setEditingDay(null);
+                                      setEditingMember(null);
+                                      setStatusPickerTarget(null);
+                                    }}
+                                    styles={{
+                                      root: { zIndex: 1000 },
+                                      calloutMain: {
+                                        borderRadius: 4,
+                                        overflow: 'hidden',
+                                        background: isDarkMode ? '#1e293b' : '#fff',
+                                        border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.25)' : 'rgba(6,23,51,0.12)'}`,
+                                        boxShadow: isDarkMode ? '0 8px 24px rgba(0,0,0,0.5)' : '0 8px 24px rgba(0,0,0,0.15)',
+                                        minWidth: 120,
+                                      }
+                                    }}
+                                  >
+                                    <div>
+                                      {STATUS_FILTER_OPTIONS.map(option => (
+                                        <div
+                                          key={option.key}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleStatusChange(member.Initials, dayKey, option.key);
+                                          }}
+                                          style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px',
+                                            padding: '8px 12px',
+                                            cursor: 'pointer',
+                                            background: option.key === dayStatus
+                                              ? (isDarkMode ? 'rgba(148,163,184,0.15)' : 'rgba(6,23,51,0.08)')
+                                              : 'transparent',
+                                            transition: 'background 0.15s ease',
+                                            borderBottom: option.key !== 'out-of-office'
+                                              ? `1px solid ${isDarkMode ? 'rgba(148,163,184,0.1)' : 'rgba(6,23,51,0.05)'}`
+                                              : 'none'
+                                          }}
+                                          onMouseEnter={(e) => {
+                                            if (option.key !== dayStatus) {
+                                              (e.currentTarget as HTMLElement).style.background = isDarkMode ? 'rgba(148,163,184,0.1)' : 'rgba(6,23,51,0.05)';
+                                            }
+                                          }}
+                                          onMouseLeave={(e) => {
+                                            if (option.key !== dayStatus) {
+                                              (e.currentTarget as HTMLElement).style.background = 'transparent';
+                                            }
+                                          }}
+                                        >
+                                          <div style={{
+                                            width: '18px',
+                                            height: '18px',
+                                            borderRadius: '2px',
+                                            backgroundColor: `${getDayColor(option.key as StatusFilterKey)}25`,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center'
+                                          }}>
+                                            <StatusIcon
+                                              status={option.key as StatusFilterKey}
+                                              size="10px"
+                                              color={getDayColor(option.key as StatusFilterKey)}
+                                            />
+                                          </div>
+                                          <span style={{
+                                            fontSize: '11px',
+                                            fontWeight: option.key === dayStatus ? 600 : 400,
+                                            color: isDarkMode ? colours.dark.text : colours.light.text
+                                          }}>
+                                            {option.label}
+                                          </span>
+                                          {option.key === dayStatus && (
+                                            <Icon iconName="CheckMark" style={{ fontSize: '10px', marginLeft: 'auto', color: colours.green }} />
+                                          )}
                                         </div>
-                                        <span style={{
-                                          fontSize: '11px',
-                                          fontWeight: option.key === dayStatus ? 600 : 400,
-                                          color: isDarkMode ? colours.dark.text : colours.light.text
-                                        }}>
-                                          {option.label}
-                                        </span>
-                                        {option.key === dayStatus && (
-                                          <Icon iconName="CheckMark" style={{ fontSize: '10px', marginLeft: 'auto', color: colours.green }} />
-                                        )}
-                                      </div>
-                                    ))}
-                                  </div>
+                                      ))}
+                                    </div>
+                                  </Callout>
                                 )}
                               </div>
                             );

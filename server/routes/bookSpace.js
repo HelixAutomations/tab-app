@@ -4,6 +4,8 @@ const axios = require('axios');
 const { DefaultAzureCredential } = require('@azure/identity');
 const { SecretClient } = require('@azure/keyvault-secrets');
 const router = express.Router();
+const { deleteCache, deleteCachePattern, generateCacheKey } = require('../utils/redisClient');
+const { broadcastFutureBookingsChanged } = require('../utils/future-bookings-stream');
 
 const TRANSIENT_SQL_CODES = new Set(['ESOCKET', 'ECONNCLOSED', 'ECONNRESET', 'ETIMEDOUT', 'ETIMEOUT']);
 const DEFAULT_ATTENDANCE_RETRIES = Number(process.env.SQL_ATTENDANCE_MAX_RETRIES || 4);
@@ -162,6 +164,19 @@ router.post('/', async (req, res) => {
       message: "Booking created successfully.",
       insertedId,
     });
+
+    // Clear future bookings cache and notify other clients
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const cacheKey = generateCacheKey('metrics', 'future-bookings', today);
+      try { await deleteCache(cacheKey); } catch { /* ignore */ }
+      try { await deleteCachePattern('metrics:future-bookings*'); } catch { /* ignore */ }
+      try {
+        broadcastFutureBookingsChanged({ changeType: 'created', spaceType, id: String(insertedId || '') });
+      } catch { /* ignore */ }
+    } catch {
+      // Non-blocking
+    }
   } catch (error) {
     console.error('[book-space] Error details:', {
       message: error.message,
@@ -213,6 +228,19 @@ router.delete('/:spaceType/:id', async (req, res) => {
       message: "Booking deleted successfully.",
       deletedId: parseInt(id),
     });
+
+    // Clear future bookings cache and notify other clients
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const cacheKey = generateCacheKey('metrics', 'future-bookings', today);
+      try { await deleteCache(cacheKey); } catch { /* ignore */ }
+      try { await deleteCachePattern('metrics:future-bookings*'); } catch { /* ignore */ }
+      try {
+        broadcastFutureBookingsChanged({ changeType: 'deleted', spaceType, id: String(id) });
+      } catch { /* ignore */ }
+    } catch {
+      // Non-blocking
+    }
   } catch (error) {
     console.error('[book-space] Delete error:', {
       message: error.message,

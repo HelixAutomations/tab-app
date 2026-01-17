@@ -14,8 +14,10 @@ import {
   DialogFooter,
   PrimaryButton,
   MessageBar,
-  MessageBarType
+  MessageBarType,
+  mergeStyles
 } from '@fluentui/react';
+import { keyframes } from '@fluentui/react/lib/Styling';
 import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
 import { colours } from '../app/styles/colours';
 import { useTheme } from '../app/functionality/ThemeContext';
@@ -25,7 +27,7 @@ import {
   SoundproofPodBooking,
   FutureBookingsResponse
 } from '../app/functionality/types';
-import { getFormSelectionButtonStyles, getFormDefaultButtonStyles } from './shared/formStyles';
+import { getFormSelectionButtonStyles, getFormDefaultButtonStyles, getFormSectionStyle, getFormSectionHeaderStyle, getInfoBoxTextStyle } from './shared/formStyles';
 
 
 
@@ -43,13 +45,30 @@ export interface BookSpaceFormProps {
   feeEarner: string;
   futureBookings?: FutureBookingsResponse;
   onBookingCreated?: () => void;
+  realtimePulse?: { nonce: number; id?: string; spaceType?: 'Boardroom' | 'Soundproof Pod'; changeType?: string };
 }
+
+const bookingRowPulse = keyframes({
+  '0%': {
+    boxShadow: '0 0 0 rgba(54,144,206,0)',
+    transform: 'translateZ(0)',
+  },
+  '35%': {
+    boxShadow: '0 0 0 3px rgba(54,144,206,0.25), 0 10px 22px rgba(54,144,206,0.18)',
+    transform: 'translateY(-1px)',
+  },
+  '100%': {
+    boxShadow: '0 0 0 rgba(54,144,206,0)',
+    transform: 'translateZ(0)',
+  },
+});
 
 const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
   onCancel,
   feeEarner,
   futureBookings,
-  onBookingCreated
+  onBookingCreated,
+  realtimePulse,
 }) => {
   const { isDarkMode } = useTheme();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -68,6 +87,33 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
   const [bookingToDelete, setBookingToDelete] = useState<(BoardroomBooking | SoundproofPodBooking) | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'error') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  // Dark mode dialog styling
+  const dialogContainerClass = mergeStyles({
+    '& .ms-Dialog-main': {
+      backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+      color: isDarkMode ? colours.dark.text : colours.light.text,
+      borderRadius: 0,
+      border: isDarkMode ? '1px solid rgba(148, 163, 184, 0.15)' : '1px solid rgba(15, 23, 42, 0.08)',
+    },
+    '& .ms-Dialog-title': {
+      color: isDarkMode ? colours.dark.text : colours.light.text,
+      fontWeight: 600,
+    },
+    '& .ms-Dialog-subText': {
+      color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : 'rgba(100, 116, 139, 0.95)',
+    },
+  });
+
+  const realtimePulseId = realtimePulse?.id ? String(realtimePulse.id) : '';
+  const realtimePulseSpaceType = realtimePulse?.spaceType;
+  const realtimePulseNonce = realtimePulse?.nonce || 0;
 
   const formFields: FormField[] = [
     {
@@ -400,16 +446,33 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
       
       console.log(`Deleted booking ${bookingToDelete.id}`);
       
-      // Close dialog
+      // Close dialog immediately
+      const deletedId = bookingToDelete.id;
+      const deletedReason = bookingToDelete.reason;
       setDeleteDialogOpen(false);
       setBookingToDelete(null);
       
-      // Refresh bookings
+      // Update local state immediately for instant UI feedback
+      setTwoWeekBookings(prev => {
+        const updated = { ...prev };
+        for (const date in updated) {
+          updated[date] = updated[date].filter(b => b.id !== deletedId);
+        }
+        return updated;
+      });
+      
+      setBookingsForDay(prev => prev.filter(b => b.id !== deletedId));
+      
+      // Show success toast
+      showToast(`Booking "${deletedReason}" deleted`, 'success');
+      
+      // Also trigger parent refresh for data consistency
       onBookingCreated?.();
       
     } catch (error: any) {
       console.error('Delete booking error:', error);
       setDeleteError(error.message || 'Failed to delete booking');
+      showToast(error.message || 'Failed to delete booking', 'error');
     } finally {
       setIsDeleting(false);
     }
@@ -494,123 +557,118 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
           />
 
           {bookingsForDay.length > 0 && (
-            <Stack
-              styles={{
-                root: {
-                  backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.3)' : '#ffffff',
-                  borderRadius: 0,
-                  padding: '1rem',
-                  boxShadow: isDarkMode ? '0 2px 8px rgba(0,0,0,0.15)' : '0 2px 8px rgba(0,0,0,0.03)',
-                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
-                  borderLeft: `3px solid ${isDarkMode ? colours.accent : colours.highlight}`,
-                },
-              }}
-            >
-              <Text
-                variant="mediumPlus"
-                styles={{ root: { fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.darkBlue, marginBottom: '12px' } }}
-              >
+            <div style={getFormSectionStyle(isDarkMode, isDarkMode ? colours.accent : colours.highlight)}>
+              <div style={getFormSectionHeaderStyle(isDarkMode, isDarkMode ? colours.accent : colours.highlight)}>
+                <Icon iconName="EventDate" style={{ fontSize: 16 }} />
                 {selectedSpaceType} on {new Date(formValues.bookingDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-              </Text>
-              <Stack tokens={{ childrenGap: 8 }}>
+              </div>
+              <Stack tokens={{ childrenGap: 6 }}>
                 {bookingsForDay.map((b) => (
-                  <Stack
-                    key={b.id}
-                    horizontal
-                    tokens={{ childrenGap: 12 }}
-                    styles={{
-                      root: {
-                        padding: '8px 12px',
-                        backgroundColor: isDarkMode ? colours.dark.cardBackground : '#fff',
-                        borderRadius: '6px',
-                        border: `1px solid ${isDarkMode ? colours.dark.border : '#e8e8e8'}`,
-                        transition: 'background 0.2s ease',
-                        ':hover': { backgroundColor: isDarkMode ? colours.dark.cardHover : '#f9f9f9' },
-                      },
+                  <div
+                    key={(realtimePulseId && String(b.id) === realtimePulseId) ? `${b.id}-${realtimePulseNonce}` : b.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '8px 10px',
+                      background: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)',
+                      border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
+                      borderRadius: 0,
+                      transition: 'background 0.15s ease',
+                      ...(realtimePulseId
+                        && String(b.id) === realtimePulseId
+                        && (!realtimePulseSpaceType || realtimePulseSpaceType === selectedSpaceType)
+                        ? {
+                            border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.55)' : 'rgba(54,144,206,0.45)'}`,
+                            backgroundColor: isDarkMode ? 'rgba(54,144,206,0.10)' : 'rgba(54,144,206,0.06)',
+                          }
+                        : {}),
                     }}
                   >
-                    <Text variant="medium" styles={{ root: { fontWeight: 500, width: '90px', color: isDarkMode ? colours.accent : colours.blue } }}>
+                    <div style={{ width: '3px', height: '28px', background: isDarkMode ? colours.accent : colours.highlight, flexShrink: 0 }} />
+                    <Text variant="smallPlus" styles={{ root: { fontWeight: 600, minWidth: '100px', color: isDarkMode ? colours.accent : colours.blue, fontSize: '11px' } }}>
                       {formatBookingTime(b)}
                     </Text>
-                    <Text variant="medium" styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.greyText } }}>
+                    <Text variant="smallPlus" styles={{ root: { color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : 'rgba(100, 116, 139, 0.95)', fontSize: '11px', flex: 1 } }}>
                       {b.reason} <span style={{ fontWeight: 300 }}>(by {b.fee_earner})</span>
                     </Text>
-                  </Stack>
+                  </div>
                 ))}
               </Stack>
-            </Stack>
+            </div>
           )}
 
-          <Stack
-            styles={{
-              root: {
-                backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.3)' : '#ffffff',
-                borderRadius: 0,
-                padding: '1rem',
-                boxShadow: isDarkMode ? '0 2px 8px rgba(0,0,0,0.15)' : '0 2px 8px rgba(0,0,0,0.03)',
-                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
-                borderLeft: `3px solid ${isDarkMode ? colours.accent : colours.highlight}`,
-              },
-            }}
-          >
-            <Text
-              variant="mediumPlus"
-              styles={{ root: { fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.darkBlue, marginBottom: '12px' } }}
-            >
+          <div style={getFormSectionStyle(isDarkMode, isDarkMode ? colours.accent : colours.highlight)}>
+            <div style={getFormSectionHeaderStyle(isDarkMode, isDarkMode ? colours.accent : colours.highlight)}>
+              <Icon iconName="Calendar" style={{ fontSize: 16 }} />
               {selectedSpaceType ? `${selectedSpaceType} Availability` : 'Space Availability'}
+            </div>
+            <Text style={getInfoBoxTextStyle(isDarkMode)}>
+              Upcoming bookings for this space. Click the delete button to remove your bookings.
             </Text>
-            <Stack tokens={{ childrenGap: 16 }}>
+            <Stack tokens={{ childrenGap: 16 }} styles={{ root: { marginTop: '12px' } }}>
               {getDisplayedBookings().length > 0 ? (
                 <>
                   {getDisplayedBookings().map(([date, bookings]) => (
-                    <Stack key={date}>
+                    <Stack key={date} tokens={{ childrenGap: 6 }}>
                       <Text
-                        variant="medium"
-                        styles={{ root: { fontWeight: 500, color: isDarkMode ? colours.accent : colours.websiteBlue, marginBottom: '6px' } }}
+                        styles={{ root: { fontWeight: 600, color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : 'rgba(100, 116, 139, 0.95)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' } }}
                       >
                         {new Date(date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                       </Text>
                       {bookings.length > 0 ? (
                         <Stack tokens={{ childrenGap: 6 }}>
                           {bookings.map((b) => (
-                            <Stack
-                              key={b.id}
-                              horizontal
-                              verticalAlign="center"
-                              tokens={{ childrenGap: 12 }}
-                              styles={{
-                                root: {
-                                  padding: '6px 10px',
-                                  backgroundColor: isDarkMode ? colours.dark.cardBackground : '#fff',
-                                  borderRadius: '6px',
-                                  border: `1px solid ${isDarkMode ? colours.dark.border : '#e8e8e8'}`,
-                                  transition: 'background 0.2s ease',
-                                  ':hover': { backgroundColor: isDarkMode ? colours.dark.cardHover : '#f9f9f9' },
-                                },
+                            <div
+                              key={(realtimePulseId && String(b.id) === realtimePulseId) ? `${b.id}-${realtimePulseNonce}` : b.id}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                padding: '8px 10px',
+                                background: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)',
+                                border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
+                                borderRadius: 0,
+                                transition: 'background 0.15s ease',
+                                ...(realtimePulseId
+                                  && String(b.id) === realtimePulseId
+                                  && (!realtimePulseSpaceType || realtimePulseSpaceType === selectedSpaceType)
+                                  ? {
+                                      border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.55)' : 'rgba(54,144,206,0.45)'}`,
+                                      backgroundColor: isDarkMode ? 'rgba(54,144,206,0.10)' : 'rgba(54,144,206,0.06)',
+                                    }
+                                  : {}),
                               }}
                             >
-                              <Text variant="smallPlus" styles={{ root: { fontWeight: 500, width: '90px', color: isDarkMode ? colours.accent : colours.blue } }}>
+                              <div style={{ width: '3px', height: '28px', background: isDarkMode ? colours.accent : colours.highlight, flexShrink: 0 }} />
+                              <Text variant="smallPlus" styles={{ root: { fontWeight: 600, minWidth: '100px', color: isDarkMode ? colours.accent : colours.blue, fontSize: '11px' } }}>
                                 {formatBookingTime(b)}
                               </Text>
-                              <Text variant="smallPlus" styles={{ root: { color: isDarkMode ? colours.dark.subText : colours.greyText, flex: 1 } }}>
+                              <Text variant="smallPlus" styles={{ root: { color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : 'rgba(100, 116, 139, 0.95)', fontSize: '11px', flex: 1 } }}>
                                 {b.reason} <span style={{ fontWeight: 300 }}>(by {b.fee_earner})</span>
                               </Text>
-                              <TooltipHost content="Delete booking">
+                              <TooltipHost content="Delete">
                                 <IconButton
-                                  iconProps={{ iconName: 'Delete' }}
+                                  iconProps={{ iconName: 'Delete', style: { fontSize: '11px' } }}
                                   onClick={() => handleDeleteBooking(b)}
                                   styles={{
                                     root: {
-                                      color: isDarkMode ? colours.dark.subText : '#666',
-                                      ':hover': {
-                                        backgroundColor: isDarkMode ? colours.dark.cardHover : '#f3f2f1',
-                                        color: '#d13438'
-                                      }
-                                    }
+                                      width: 22,
+                                      height: 22,
+                                      background: isDarkMode ? 'rgba(248, 113, 113, 0.12)' : 'rgba(248, 113, 113, 0.08)',
+                                      border: `1px solid ${isDarkMode ? 'rgba(248, 113, 113, 0.35)' : 'rgba(248, 113, 113, 0.25)'}`,
+                                      borderRadius: 0,
+                                      transition: 'background 0.15s, border-color 0.15s, color 0.15s'
+                                    },
+                                    rootHovered: {
+                                      background: isDarkMode ? 'rgba(248, 113, 113, 0.2)' : 'rgba(248, 113, 113, 0.14)',
+                                      borderColor: isDarkMode ? 'rgba(248, 113, 113, 0.5)' : 'rgba(248, 113, 113, 0.4)'
+                                    },
+                                    icon: { color: '#D65541' }
                                   }}
                                 />
                               </TooltipHost>
-                            </Stack>
+                            </div>
                           ))}
                         </Stack>
                       ) : (
@@ -627,13 +685,43 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
                   />
                 </>
               ) : (
-                <Text variant="smallPlus" styles={{ root: { color: isDarkMode ? colours.dark.subText : '#999', fontStyle: 'italic' } }}>
+                <Text style={getInfoBoxTextStyle(isDarkMode)}>
                   No upcoming bookings
                 </Text>
               )}
             </Stack>
-          </Stack>
+          </div>
         </>
+      )}
+
+      {/* Toast notification */}
+      {toast && (
+        <div style={{
+          position: 'fixed',
+          bottom: '24px',
+          right: '24px',
+          zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          padding: '12px 20px',
+          backgroundColor: isDarkMode
+            ? (toast.type === 'success' ? 'rgba(74, 222, 128, 0.15)' : 'rgba(248, 113, 113, 0.15)')
+            : (toast.type === 'success' ? 'rgba(74, 222, 128, 0.1)' : 'rgba(248, 113, 113, 0.1)'),
+          border: `1px solid ${toast.type === 'success'
+            ? (isDarkMode ? 'rgba(74, 222, 128, 0.4)' : 'rgba(74, 222, 128, 0.3)')
+            : (isDarkMode ? 'rgba(248, 113, 113, 0.4)' : 'rgba(248, 113, 113, 0.3)')}`,
+          borderRadius: 0,
+          boxShadow: isDarkMode ? '0 8px 24px rgba(0,0,0,0.4)' : '0 8px 24px rgba(0,0,0,0.12)',
+          color: toast.type === 'success'
+            ? (isDarkMode ? '#4ade80' : '#15803d')
+            : (isDarkMode ? '#f87171' : '#b91c1c'),
+          fontSize: '13px',
+          fontWeight: 500,
+        }}>
+          <Icon iconName={toast.type === 'success' ? 'CheckMark' : 'ErrorBadge'} />
+          {toast.message}
+        </div>
       )}
 
       {/* Delete Confirmation Dialog */}
@@ -644,18 +732,22 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
           type: DialogType.normal,
           title: 'Delete Booking',
           subText: bookingToDelete ? 
-            `Are you sure you want to delete the booking "${bookingToDelete.reason}" on ${new Date(bookingToDelete.booking_date).toLocaleDateString()}?` :
-            'Are you sure you want to delete this booking?'
+            `Delete "${bookingToDelete.reason}" on ${new Date(bookingToDelete.booking_date).toLocaleDateString()}? This cannot be undone.` :
+            'Are you sure you want to delete this booking?',
+          className: dialogContainerClass,
         }}
         modalProps={{
-          isBlocking: true,
+          isBlocking: false,
           styles: {
             main: {
-              backgroundColor: isDarkMode ? colours.dark.cardBackground : '#fff',
+              backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
               color: isDarkMode ? colours.dark.text : colours.light.text,
-            }
-          }
+              borderRadius: 0,
+              border: isDarkMode ? '1px solid rgba(148, 163, 184, 0.15)' : '1px solid rgba(15, 23, 42, 0.08)',
+            },
+          },
         }}
+        minWidth={340}
       >
         {deleteError && (
           <MessageBar messageBarType={MessageBarType.error} styles={{
@@ -667,24 +759,34 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
         <DialogFooter>
           <PrimaryButton 
             onClick={confirmDeleteBooking} 
-            text="Delete" 
+            text={isDeleting ? 'Deleting...' : 'Delete'}
             disabled={isDeleting}
             styles={{
               root: {
-                backgroundColor: '#d13438',
-                border: '1px solid #d13438',
-                ':hover': {
-                  backgroundColor: '#a4262c',
-                  border: '1px solid #a4262c'
-                }
-              }
+                backgroundColor: colours.cta,
+                border: 'none',
+                borderRadius: 0,
+              },
+              rootHovered: {
+                backgroundColor: '#c74a3a',
+              },
             }}
           />
           <DefaultButton 
             onClick={cancelDeleteBooking} 
             text="Cancel"
             disabled={isDeleting}
-            styles={getFormDefaultButtonStyles(isDarkMode)}
+            styles={{
+              root: {
+                backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(15, 23, 42, 0.04)',
+                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(15, 23, 42, 0.12)'}`,
+                borderRadius: 0,
+                color: isDarkMode ? colours.dark.text : colours.light.text,
+              },
+              rootHovered: {
+                backgroundColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(15, 23, 42, 0.08)',
+              },
+            }}
           />
         </DialogFooter>
       </Dialog>

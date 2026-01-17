@@ -94,6 +94,7 @@ router.get('/stream-datasets', async (req, res) => {
   });
 
   const connectionString = process.env.SQL_CONNECTION_STRING;
+  const instructionsConnectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
   if (!connectionString) {
     res.write(`data: ${JSON.stringify({ error: 'SQL connection string not configured' })}\n\n`);
     res.end();
@@ -227,7 +228,7 @@ router.get('/stream-datasets', async (req, res) => {
           // For heavy datasets, DON'T abort on client disconnect - continue fetching and cache the result
           // This ensures the next request gets a cache hit instead of starting another slow fetch
           const racePromises = [
-            fetchDatasetByName(datasetName, { connectionString, entraId, rangeOverrides: datasetRangeOverrides }),
+            fetchDatasetByName(datasetName, { connectionString, instructionsConnectionString, entraId, rangeOverrides: datasetRangeOverrides }),
             new Promise((_, reject) => setTimeout(() => reject(new Error(`Query timeout after ${timeoutMs}ms`)), timeoutMs))
           ];
           
@@ -375,14 +376,14 @@ router.get('/stream-datasets', async (req, res) => {
 });
 
 // Dataset fetcher dispatcher
-async function fetchDatasetByName(datasetName, { connectionString, entraId, clioId, rangeOverrides = {} }) {
+async function fetchDatasetByName(datasetName, { connectionString, instructionsConnectionString, entraId, clioId, rangeOverrides = {} }) {
   switch (datasetName) {
     case 'userData':
       return fetchUserData({ connectionString, entraId });
     case 'teamData':
       return fetchTeamData({ connectionString });
     case 'enquiries':
-      return fetchEnquiries({ connectionString, range: rangeOverrides.enquiries });
+      return fetchEnquiries({ connectionString, instructionsConnectionString, range: rangeOverrides.enquiries });
     case 'allMatters':
       return fetchAllMatters({ connectionString, range: rangeOverrides.allMatters });
     case 'wip':
@@ -453,10 +454,11 @@ async function fetchTeamData({ connectionString }) {
   });
 }
 
-async function fetchEnquiries({ connectionString, range }) {
+async function fetchEnquiries({ connectionString, instructionsConnectionString, range }) {
   const resolvedRange = range ?? getLast24MonthsRange();
   const { from, to } = resolvedRange;
-  return withRequest(connectionString, async (request, sqlClient) => {
+
+  const coreEnquiries = await withRequest(connectionString, async (request, sqlClient) => {
     request.input('dateFrom', sqlClient.Date, formatDateOnly(from));
     request.input('dateTo', sqlClient.Date, formatDateOnly(to));
     const result = await request.query(`
@@ -466,6 +468,105 @@ async function fetchEnquiries({ connectionString, range }) {
     `);
     return Array.isArray(result.recordset) ? result.recordset : [];
   });
+
+  // If the Instructions DB isn't configured, fall back to core enquiries only.
+  if (!instructionsConnectionString) {
+    return coreEnquiries;
+  }
+
+  // Pull enquiries from the Instructions DB and map them into the core Enquiry shape
+  // so downstream reporting can use Touchpoint_Date/Point_of_Contact consistently.
+  const instructionsRows = await withRequest(instructionsConnectionString, async (request, sqlClient) => {
+    request.input('dateFrom', sqlClient.Date, formatDateOnly(from));
+    request.input('dateTo', sqlClient.Date, formatDateOnly(to));
+    const result = await request.query(`
+      SELECT
+        id,
+        datetime,
+        stage,
+        claim,
+        poc,
+        pitch,
+        aow,
+        tow,
+        moc,
+        rep,
+        first,
+        last,
+        email,
+        phone,
+        value,
+        rating,
+        acid,
+        notes
+      FROM [dbo].[enquiries]
+      WHERE CONVERT(date, datetime) BETWEEN @dateFrom AND @dateTo
+      ORDER BY datetime DESC
+    `);
+    return Array.isArray(result.recordset) ? result.recordset : [];
+  });
+
+  if (!Array.isArray(instructionsRows) || instructionsRows.length === 0) {
+    return coreEnquiries;
+  }
+
+  const coreById = new Map(
+    coreEnquiries
+      .map((row) => [String(row?.ID ?? row?.id ?? ''), row])
+      .filter(([id]) => Boolean(id))
+  );
+
+  const mappedInstructions = [];
+
+  for (const inst of instructionsRows) {
+    const legacyId = inst?.acid != null && String(inst.acid).trim() !== '' ? String(inst.acid) : null;
+    const instructionsId = inst?.id != null ? inst.id : undefined;
+
+    // If this instructions enquiry is a migrated/cross-referenced row, enrich the core record
+    // and avoid double-counting.
+    if (legacyId && coreById.has(legacyId)) {
+      const core = coreById.get(legacyId);
+      if (core && instructionsId != null && core.pitchEnquiryId == null) {
+        core.pitchEnquiryId = instructionsId;
+      }
+      continue;
+    }
+
+    let dateOnly = '';
+    if (inst?.datetime) {
+      const candidate = new Date(inst.datetime);
+      if (!Number.isNaN(candidate.getTime())) {
+        dateOnly = candidate.toISOString().split('T')[0];
+      } else if (typeof inst.datetime === 'string') {
+        dateOnly = inst.datetime.split('T')[0];
+      }
+    }
+
+    const stableFallbackId = `inst:${dateOnly || String(inst?.datetime || 'unknown')}:${String(inst?.email || '').toLowerCase()}`;
+    const mappedId = legacyId ?? (instructionsId != null ? `inst:${instructionsId}` : stableFallbackId);
+
+    mappedInstructions.push({
+      ID: mappedId,
+      pitchEnquiryId: instructionsId,
+      Date_Created: dateOnly,
+      Touchpoint_Date: dateOnly,
+      Email: inst?.email ?? '',
+      Area_of_Work: inst?.aow ?? '',
+      Type_of_Work: inst?.tow ?? '',
+      Method_of_Contact: inst?.moc ?? '',
+      Point_of_Contact: inst?.poc ?? '',
+      Call_Taker: inst?.rep ?? undefined,
+      First_Name: inst?.first ?? '',
+      Last_Name: inst?.last ?? '',
+      Phone_Number: inst?.phone ?? undefined,
+      Tags: inst?.stage ?? undefined,
+      Value: inst?.value ?? undefined,
+      Rating: inst?.rating ?? undefined,
+      Initial_first_call_notes: inst?.notes ?? undefined,
+    });
+  }
+
+  return coreEnquiries.concat(mappedInstructions);
 }
 
 async function fetchAllMatters({ connectionString, range }) {
